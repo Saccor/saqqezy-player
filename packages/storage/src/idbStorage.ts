@@ -13,8 +13,8 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
 function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
   });
 }
 
@@ -35,8 +35,18 @@ export class IdbStorage implements Storage {
           const progs = db.createObjectStore('programmes', { autoIncrement: true });
           progs.createIndex('byChannel', ['sourceId', 'epgId', 'start']);
         };
-        open.onsuccess = () => resolve(open.result);
-        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          db.onversionchange = () => {
+            db.close();
+            this.dbPromise = null;
+          };
+          resolve(db);
+        };
+        open.onerror = () => {
+          this.dbPromise = null;
+          reject(open.error);
+        };
       });
     }
     return this.dbPromise;
@@ -55,7 +65,7 @@ export class IdbStorage implements Storage {
 
   async deleteSource(id: string): Promise<void> {
     const db = await this.db();
-    const tx = db.transaction(['sources', 'channels', 'meta'], 'readwrite');
+    const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
     tx.objectStore('sources').delete(id);
     tx.objectStore('channels').delete(id);
     // Cursor (not await) so the transaction never goes inactive on older TV engines.
@@ -66,8 +76,8 @@ export class IdbStorage implements Storage {
       if (String(cursor.key).endsWith(`:${id}`)) cursor.delete();
       cursor.continue();
     };
+    this.deleteProgrammesIn(tx, id);
     await done(tx);
-    await this.clearProgrammes(id);
   }
 
   async getChannels(sourceId: string): Promise<Channel[]> {
@@ -93,8 +103,8 @@ export class IdbStorage implements Storage {
     await done(tx);
   }
 
-  async clearProgrammes(sourceId: string): Promise<void> {
-    const tx = (await this.db()).transaction('programmes', 'readwrite');
+  // Synchronous (callback-driven) cursor delete; safe to call inside a larger transaction.
+  private deleteProgrammesIn(tx: IDBTransaction, sourceId: string): void {
     const range = IDBKeyRange.bound([sourceId], [sourceId, []]);
     const cursorReq = tx.objectStore('programmes').index('byChannel').openCursor(range);
     cursorReq.onsuccess = () => {
@@ -104,6 +114,11 @@ export class IdbStorage implements Storage {
         cursor.continue();
       }
     };
+  }
+
+  async clearProgrammes(sourceId: string): Promise<void> {
+    const tx = (await this.db()).transaction('programmes', 'readwrite');
+    this.deleteProgrammesIn(tx, sourceId);
     await done(tx);
   }
 
@@ -117,14 +132,17 @@ export class IdbStorage implements Storage {
   async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]> {
     const db = await this.db();
     const index = db.transaction('programmes').objectStore('programmes').index('byChannel');
-    const sorted = [...new Set(epgIds)].sort();
-    const out: Programme[] = [];
-    for (const epgId of sorted) {
+    // Issue all requests synchronously so the transaction never goes inactive between awaits.
+    const pending: Promise<ProgRecord[]>[] = [];
+    for (const epgId of new Set(epgIds)) {
       const range = IDBKeyRange.bound([sourceId, epgId, from - MAX_PROGRAMME_MS], [sourceId, epgId, to], false, true);
-      const recs = (await req(index.getAll(range))) as ProgRecord[];
+      pending.push(req(index.getAll(range)) as Promise<ProgRecord[]>);
+    }
+    const out: Programme[] = [];
+    for (const recs of await Promise.all(pending)) {
       for (const { sourceId: _s, ...p } of recs) if (p.stop > from) out.push(p);
     }
-    return out;
+    return out.sort((a, b) => (a.epgId < b.epgId ? -1 : a.epgId > b.epgId ? 1 : a.start - b.start));
   }
 
   async clearAll(): Promise<void> {

@@ -62,6 +62,47 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(await s.getMeta('activeSource')).toBe('s1');
     });
 
+    test('deleteSource leaves other sources channels, programmes and meta intact', async () => {
+      const s = await make();
+      await s.putSource(src);
+      await s.putSource(other);
+      await s.replaceChannels('s1', [chan(1)]);
+      await s.replaceChannels('s2', [chan(2, 's2')]);
+      await s.addProgrammes('s1', [prog('a', 1, 2)]);
+      await s.addProgrammes('s2', [prog('a', 1, 2), prog('b', 3, 4)]);
+      await s.setMeta('flags:s1', { favourites: [], hidden: [] });
+      await s.setMeta('flags:s2', { favourites: ['x'], hidden: [] });
+      await s.deleteSource('s1');
+      expect((await s.listSources()).map((x) => x.id)).toEqual(['s2']);
+      expect(await s.getChannels('s2')).toEqual([chan(2, 's2')]);
+      expect((await s.getProgrammes('s2', ['a', 'b'], 0, 10 * 3600_000)).map((p) => p.title)).toEqual(['a@1', 'b@3']);
+      expect(await s.getMeta('flags:s2')).toEqual({ favourites: ['x'], hidden: [] });
+      expect(await s.getMeta('flags:s1')).toBeUndefined();
+    });
+
+    test('programmes: overlapping-start included, start at "to" excluded', async () => {
+      const s = await make();
+      await s.addProgrammes('s1', [prog('a', 8, 10), prog('a', 11, 12), prog('a', 7, 9)]);
+      const got = await s.getProgrammes('s1', ['a'], 9 * 3600_000, 11 * 3600_000);
+      expect(got.map((p) => p.title)).toEqual(['a@8']);
+    });
+
+    test('programmes: unsorted and duplicate epgIds give sorted, de-duplicated output without sourceId', async () => {
+      const s = await make();
+      await s.addProgrammes('s1', [prog('b', 2, 3), prog('a', 2, 3), prog('a', 1, 2)]);
+      const got = await s.getProgrammes('s1', ['b', 'a', 'b', 'a'], 0, 10 * 3600_000);
+      expect(got.map((p) => p.title)).toEqual(['a@1', 'a@2', 'b@2']);
+      for (const p of got) expect('sourceId' in p).toBe(false);
+    });
+
+    test('programmes: multiple addProgrammes batches accumulate', async () => {
+      const s = await make();
+      await s.addProgrammes('s1', [prog('a', 1, 2)]);
+      await s.addProgrammes('s1', [prog('a', 2, 3)]);
+      const got = await s.getProgrammes('s1', ['a'], 0, 10 * 3600_000);
+      expect(got.map((p) => p.title)).toEqual(['a@1', 'a@2']);
+    });
+
     test('clearAll wipes everything', async () => {
       const s = await make();
       await s.putSource(src);
