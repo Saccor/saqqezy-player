@@ -17,3 +17,4 @@ export { xtreamToChannels } from './xtream/toChannels.ts';
 export { responseText } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
+export { EpgMatcher, epgKey, inWindow, nowNext } from './epg/window.ts';
