@@ -18,3 +18,7 @@ export { responseText } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, epgKey, inWindow, nowNext } from './epg/window.ts';
+export {
+  SourceService,
+  type EpgResult, type IngestResult, type NewSource, type Progress, type SourceServiceDeps,
+} from './service/sourceService.ts';
