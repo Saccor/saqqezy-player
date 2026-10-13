@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IPTV Player</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d12; }
+      /* Video sits beneath the Lightning canvas; the canvas is cleared to fully transparent. */
+      #video-layer { position: absolute; left: 0; top: 0; z-index: 0; overflow: hidden; background: #000; }
+      #video-layer .video-box { position: absolute; }
+      #video-layer video { display: block; width: 100%; height: 100%; background: #000; }
+      #app { position: absolute; left: 0; top: 0; z-index: 1; }
+      #app canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="video-layer"></div>
+    <div id="app"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>
