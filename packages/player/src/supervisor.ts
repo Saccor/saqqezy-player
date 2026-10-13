@@ -165,7 +165,8 @@ export class PlaybackSupervisor {
         this.stableSince = now;
       }
     } else if (s === 'buffering') {
-      if (this.isPlaying) {
+      // Reset the watchdog only on entry: repeated 'buffering' events must not keep postponing the stall check.
+      if (prev !== 'buffering' && this.isPlaying) {
         this.lastPos = this.player.position();
         this.stallSince = this.now();
       }
@@ -225,6 +226,7 @@ export class PlaybackSupervisor {
       this.altTried = true;
       this.currentUrl = this.alternateUrl;
       this.attempt = 0;
+      this.totalReconnects = 0; // the alternate gets a fresh reconnect budget
       this.player.stop();
       this.emit({ kind: 'loading' });
       this.openCurrent();

@@ -321,9 +321,44 @@ describe('PlaybackSupervisor', () => {
       expect(player.opened.at(-1)).toBe('http://a.example.test/2');
       expect(statuses.at(-1)).toEqual({ kind: 'loading' });
     });
+
+    it('the alternate gets a fresh reconnect budget after the primary hits the cap', () => {
+      const { player, sup, statuses } = setup();
+      sup.play('http://a.example.test/1', 'http://a.example.test/2');
+      for (let i = 0; i < 11; i++) {
+        player.emit('playing');
+        playFor(player, 31);
+        player.emit('error');
+        vi.advanceTimersByTime(4000);
+      }
+      expect(player.opened.at(-1)).toBe('http://a.example.test/2');
+      const before = statuses.length;
+      for (const delay of [1000, 2000, 4000]) {
+        player.emit('error');
+        vi.advanceTimersByTime(delay);
+      }
+      player.emit('error');
+      expect(statuses.slice(before)).toEqual([
+        { kind: 'reconnecting', attempt: 1 },
+        { kind: 'reconnecting', attempt: 2 },
+        { kind: 'reconnecting', attempt: 3 },
+        { kind: 'failed', reason: 'unavailable' },
+      ]);
+    });
   });
 
   describe('stall watchdog', () => {
+    it('repeated buffering events do not reset the watchdog: flat position for 9 s triggers', () => {
+      const { player, sup, statuses } = setup();
+      sup.play('http://a.example.test/1');
+      player.emit('playing');
+      for (let t = 0; t < 9; t++) {
+        player.emit('buffering');
+        vi.advanceTimersByTime(1000);
+      }
+      expect(statuses.at(-1)).toEqual({ kind: 'reconnecting', attempt: 1 });
+    });
+
     it('buffering for 5 s then playing does not trigger', () => {
       const { player, sup, statuses } = setup();
       sup.play('http://a.example.test/1');
