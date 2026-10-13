@@ -40,4 +40,19 @@ describe('parseXmltv', () => {
     expect(stats.skipped).toBeGreaterThan(0);
     expect(items).toHaveLength(1);
   });
+
+  test('keeps CDATA text in title and desc', async () => {
+    const xml = '<tv><programme start="20261013170000" stop="20261013180000" channel="a"><title><![CDATA[Show & Co]]></title><desc><![CDATA[Fun <b> & games]]></desc></programme></tv>';
+    const items: XmltvItem[] = [];
+    for await (const it of parseXmltv(inChunks(xml, 5))) items.push(it);
+    expect(items).toEqual([{ type: 'programme', programme: { epgId: 'a', start: Date.UTC(2026, 9, 13, 17), stop: Date.UTC(2026, 9, 13, 18), title: 'Show & Co', desc: 'Fun <b> & games' } }]);
+  });
+
+  test('an empty first title does not block a later non-empty one', async () => {
+    const xml = '<tv><programme start="20261013170000" stop="20261013180000" channel="a"><title lang="sv"></title><title lang="en">Real Title</title></programme></tv>';
+    const items: XmltvItem[] = [];
+    for await (const it of parseXmltv(inChunks(xml, 9))) items.push(it);
+    expect(items).toHaveLength(1);
+    expect((items[0] as Extract<XmltvItem, { type: 'programme' }>).programme.title).toBe('Real Title');
+  });
 });

@@ -30,12 +30,14 @@ export async function* parseXmltv(
     else if (node.name === 'title' && prog && prog.title === undefined) { textTarget = 'title'; text = ''; }
     else if (node.name === 'desc' && prog && prog.desc === undefined) { textTarget = 'desc'; text = ''; }
   });
-  parser.on('text', (t) => { if (textTarget) text += t; });
+  const onText = (t: string) => { if (textTarget) text += t; };
+  parser.on('text', onText);
+  parser.on('cdata', onText);
   parser.on('closetag', (node) => {
     if (textTarget && (node.name === 'display-name' || node.name === 'title' || node.name === 'desc')) {
       const value = text.trim();
       if (textTarget === 'name' && channel && value) channel.names.push(value);
-      if (textTarget === 'title' && prog) prog.title = value;
+      if (textTarget === 'title' && prog && value) prog.title = value;
       if (textTarget === 'desc' && prog && value) prog.desc = value;
       textTarget = null;
       return;
