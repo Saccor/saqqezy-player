@@ -36,6 +36,17 @@ export function onLogicalKey(fn: Listener): () => void {
   return () => { listeners.delete(fn); };
 }
 
+const rawListeners = new Set<(e: KeyboardEvent) => void>();
+
+/**
+ * Observer for keydowns that map to no logical key (e.g. F12 for the debug overlay in the browser). The event
+ * is not prevented, so browser defaults still apply.
+ */
+export function onUnmappedKey(fn: (e: KeyboardEvent) => void): () => void {
+  rawListeners.add(fn);
+  return () => { rawListeners.delete(fn); };
+}
+
 /**
  * Installs the one global key listener: maps device keys through `@iptv/platform`, forwards them to
  * Lightning's focus system as logical keys and notifies `onLogicalKey` subscribers.
@@ -74,7 +85,16 @@ export function installKeys(
     if (forwarded.has(e) || isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
     const key = mapKey(platform, e);
-    if (!key) return;
+    if (!key) {
+      for (const fn of [...rawListeners]) {
+        try {
+          fn(e);
+        } catch (err) {
+          console.error('Key handler failed', err);
+        }
+      }
+      return;
+    }
     e.preventDefault();
     if (key === 'Ok') {
       // Remotes repeat keydown while held, not always with `repeat` set: the running timer is the guard.

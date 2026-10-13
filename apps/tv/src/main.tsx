@@ -3,6 +3,9 @@ import type { RendererMain } from '@lightningjs/renderer';
 import { WebGlRenderer } from '@lightningjs/renderer/webgl';
 import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
 import { App } from './App.tsx';
+import { api } from './api.ts';
+import { router } from './shell/router.ts';
+import { showToast } from './shell/Toast.tsx';
 import { installKeys } from './input/keys.ts';
 import { Html5Player } from './video/Html5Player.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, createVideoLayer, designScale } from './video/videoLayer.ts';
@@ -41,7 +44,7 @@ window.addEventListener('resize', () => {
 });
 
 // Dev-only debug handle for the browser console; stripped from production builds.
-if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer };
+if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, api, router, showToast };
 
 installKeys();
 render(() => <App player={player} />);
