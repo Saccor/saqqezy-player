@@ -30,9 +30,18 @@ export function withTimeout(fetchFn: FetchFn, ms = 10_000): FetchFn {
       .catch((err: unknown) => {
         throw timedOut ? new SourceNetworkError('The provider did not respond in time.') : err;
       })
-      .finally(() => {
-        clearTimeout(timer);
-        outer?.removeEventListener('abort', onOuterAbort);
-      });
+      .then(
+        (res) => {
+          // Headers are in: stop only the timer. The caller's abort stays linked so it can
+          // still cancel the body download (one small listener per request is acceptable).
+          clearTimeout(timer);
+          return res;
+        },
+        (err: unknown) => {
+          clearTimeout(timer);
+          outer?.removeEventListener('abort', onOuterAbort);
+          throw err;
+        },
+      );
   };
 }

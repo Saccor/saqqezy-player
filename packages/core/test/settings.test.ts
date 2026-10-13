@@ -21,15 +21,24 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ epgOffsetHours: '3' }).epgOffsetHours).toBe(0);
   });
 
-  test('autoRefreshHours and sleepTimerMinutes snap to allowed values', () => {
+  test('autoRefreshHours and sleepTimerMinutes accept only exact allowed values', () => {
     expect(sanitizeSettings({ autoRefreshHours: 0 }).autoRefreshHours).toBe(0);
-    expect(sanitizeSettings({ autoRefreshHours: 7 }).autoRefreshHours).toBe(6);
-    expect(sanitizeSettings({ autoRefreshHours: 100 }).autoRefreshHours).toBe(24);
-    expect(sanitizeSettings({ autoRefreshHours: -4 }).autoRefreshHours).toBe(0);
+    expect(sanitizeSettings({ autoRefreshHours: 6 }).autoRefreshHours).toBe(6);
+    expect(sanitizeSettings({ autoRefreshHours: 7 }).autoRefreshHours).toBe(12);
+    expect(sanitizeSettings({ autoRefreshHours: 100 }).autoRefreshHours).toBe(12);
+    expect(sanitizeSettings({ autoRefreshHours: -4 }).autoRefreshHours).toBe(12);
     expect(sanitizeSettings({ autoRefreshHours: 'x' }).autoRefreshHours).toBe(12);
-    expect(sanitizeSettings({ sleepTimerMinutes: 40 }).sleepTimerMinutes).toBe(30);
-    expect(sanitizeSettings({ sleepTimerMinutes: 500 }).sleepTimerMinutes).toBe(120);
+    expect(sanitizeSettings({ sleepTimerMinutes: 40 }).sleepTimerMinutes).toBe(0);
+    expect(sanitizeSettings({ sleepTimerMinutes: 500 }).sleepTimerMinutes).toBe(0);
+    expect(sanitizeSettings({ sleepTimerMinutes: Number.NaN }).sleepTimerMinutes).toBe(0);
     expect(sanitizeSettings({ sleepTimerMinutes: 90 }).sleepTimerMinutes).toBe(90);
+  });
+
+  test('negative zero is normalised to 0', () => {
+    expect(Object.is(sanitizeSettings({ epgOffsetHours: -0 }).epgOffsetHours, 0)).toBe(true);
+    expect(Object.is(sanitizeSettings({ epgOffsetHours: -0.1 }).epgOffsetHours, 0)).toBe(true);
+    expect(Object.is(sanitizeSettings({ autoRefreshHours: -0 }).autoRefreshHours, 0)).toBe(true);
+    expect(Object.is(sanitizeSettings({ sleepTimerMinutes: -0 }).sleepTimerMinutes, 0)).toBe(true);
   });
 
   test('format and clock fall back; unknown keys are dropped', () => {

@@ -108,7 +108,8 @@ export class SourceService {
   }
 
   async saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
-    const next = sanitizeSettings({ ...(await this.getSettings()), ...partial });
+    const defined = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined));
+    const next = sanitizeSettings({ ...(await this.getSettings()), ...defined });
     await this.storage.setMeta('settings', next);
     return next;
   }
@@ -116,6 +117,7 @@ export class SourceService {
   /** Drops channels and guide data; the source and the user's flags stay. */
   clearCachedData(id: string): Promise<void> {
     return this.withLock(id, async () => {
+      await this.requireSource(id);
       const current = await this.currentGen(id);
       const staging = await this.stagingGen(id);
       await this.storage.clearProgrammes(id);
@@ -131,6 +133,7 @@ export class SourceService {
 
   async needsPlaylistRefresh(id: string): Promise<boolean> {
     const at = (await this.storage.getMeta<number>(`playlistAt:${id}`)) ?? 0;
+    if (!at) return true;
     const hours = (await this.getSettings()).autoRefreshHours;
     if (hours === 0) return false;
     return this.now() - at > hours * 3600_000;
@@ -138,6 +141,7 @@ export class SourceService {
 
   async needsEpgRefresh(id: string): Promise<boolean> {
     const at = (await this.storage.getMeta<number>(`epgAt:${id}`)) ?? 0;
+    if (!at) return true;
     const hours = (await this.getSettings()).autoRefreshHours;
     if (hours === 0) return false;
     return this.now() - at > hours * 3600_000;

@@ -219,8 +219,35 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     await storage.setMeta(`playlistAt:${source.id}`, 0);
     await storage.setMeta(`epgAt:${source.id}`, 0);
     await service.saveSettings({ autoRefreshHours: 0 });
+    // An empty cache always refreshes, even with "never".
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(true);
+    expect(await service.needsEpgRefresh(source.id)).toBe(true);
+    await storage.setMeta(`playlistAt:${source.id}`, NOW - 1000 * 3600_000);
+    await storage.setMeta(`epgAt:${source.id}`, NOW - 1000 * 3600_000);
     expect(await service.needsPlaylistRefresh(source.id)).toBe(false);
     expect(await service.needsEpgRefresh(source.id)).toBe(false);
+  });
+
+  test('needs*Refresh is true when the timestamps are missing, even for never', async () => {
+    await service.saveSettings({ autoRefreshHours: 0 });
+    expect(await service.needsPlaylistRefresh('nope')).toBe(true);
+    expect(await service.needsEpgRefresh('nope')).toBe(true);
+  });
+
+  test('saveSettings ignores keys whose value is undefined', async () => {
+    await service.saveSettings({ autoRefreshHours: 24, showClock: false });
+    const saved = await service.saveSettings({ autoRefreshHours: undefined, showClock: undefined, preferredFormat: 'm3u8' });
+    expect(saved).toMatchObject({ autoRefreshHours: 24, showClock: false, preferredFormat: 'm3u8' });
+  });
+
+  test('clearCachedData on an unknown id throws and writes nothing', async () => {
+    const writes: string[] = [];
+    const origSet = storage.setMeta.bind(storage);
+    storage.setMeta = async (k: string, v: unknown) => { writes.push(k); return origSet(k, v); };
+    const origReplace = storage.replaceChannels.bind(storage);
+    storage.replaceChannels = async (...a: Parameters<typeof origReplace>) => { writes.push('replaceChannels'); return origReplace(...a); };
+    await expect(service.clearCachedData('nope')).rejects.toThrow('Unknown source nope');
+    expect(writes).toEqual([]);
   });
 
   test('clearCachedData empties channels and guide but keeps source and flags', async () => {

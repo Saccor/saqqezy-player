@@ -31,7 +31,9 @@ describe('withTimeout', () => {
   });
 
   test('does not time out the body once headers have arrived', async () => {
-    const f: FetchFn = async () => {
+    let inner: AbortSignal | undefined;
+    const f: FetchFn = async (_url, init) => {
+      inner = init?.signal ?? undefined;
       const body = new ReadableStream<Uint8Array>({
         async start(c) {
           await new Promise((r) => setTimeout(r, 60));
@@ -42,7 +44,22 @@ describe('withTimeout', () => {
       return new Response(body);
     };
     const res = await withTimeout(f, 20)('http://example.test/a');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(inner?.aborted).toBe(false);
     expect(await res.text()).toBe('late');
+  });
+
+  test('a caller abort after headers still aborts the inner signal', async () => {
+    let inner: AbortSignal | undefined;
+    const f: FetchFn = async (_url, init) => {
+      inner = init?.signal ?? undefined;
+      return new Response('ok');
+    };
+    const outer = new AbortController();
+    await withTimeout(f, 20)('http://example.test/a', { signal: outer.signal });
+    expect(inner?.aborted).toBe(false);
+    outer.abort();
+    expect(inner?.aborted).toBe(true);
   });
 
   test('other fetch errors pass through unchanged', async () => {
