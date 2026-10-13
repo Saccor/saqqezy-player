@@ -7,3 +7,4 @@ export { splitLines } from './text/lines.ts';
 export { normalize } from './text/normalize.ts';
 export { parseM3u, type M3uEntry, type ParseStats } from './m3u/parse.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';
+export { ChannelIndex, type UserFlags } from './index/channelIndex.ts';
