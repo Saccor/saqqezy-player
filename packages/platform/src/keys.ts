@@ -34,7 +34,10 @@ function digit(n: number): LogicalKey {
 export function mapKey(platform: PlatformId, e: { key: string; keyCode: number }): LogicalKey | undefined {
   if (platform === 'browser') {
     if (/^[0-9]$/.test(e.key)) return digit(Number(e.key));
-    return BROWSER_KEYS[e.key] ?? BROWSER_KEYS[e.key.toLowerCase()];
+    // Object.hasOwn so inherited names such as 'constructor' or '__proto__' never match.
+    if (Object.hasOwn(BROWSER_KEYS, e.key)) return BROWSER_KEYS[e.key];
+    const lower = e.key.toLowerCase();
+    return Object.hasOwn(BROWSER_KEYS, lower) ? BROWSER_KEYS[lower] : undefined;
   }
   if (e.keyCode >= 48 && e.keyCode <= 57) return digit(e.keyCode - 48);
   return (platform === 'tizen' ? TIZEN_CODES : WEBOS_CODES)[e.keyCode];

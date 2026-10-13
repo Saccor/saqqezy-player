@@ -25,6 +25,12 @@ describe('mapKey', () => {
   it.each(browserCases)('browser key %j -> %s', (key, expected) => {
     expect(mapKey('browser', { key, keyCode: 0 })).toBe(expected);
   });
+  it('browser letter keys are case-insensitive (M, I) and ignore inherited property names', () => {
+    expect(mapKey('browser', { key: 'M', keyCode: 0 })).toBe('Menu');
+    expect(mapKey('browser', { key: 'I', keyCode: 0 })).toBe('Info');
+    expect(mapKey('browser', { key: 'constructor', keyCode: 0 })).toBeUndefined();
+    expect(mapKey('browser', { key: '__proto__', keyCode: 0 })).toBeUndefined();
+  });
   it.each(tizenCases)('tizen keyCode %i -> %s', (keyCode, expected) => {
     expect(mapKey('tizen', { key: '', keyCode })).toBe(expected);
   });
