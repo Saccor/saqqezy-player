@@ -22,6 +22,7 @@ export interface SourceServiceDeps { storage: Storage; fetch: FetchFn; now?: () 
 
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
+const SHORT_EPG_CONCURRENCY = 6;
 const defaultId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export class SourceService {
@@ -29,6 +30,7 @@ export class SourceService {
   private readonly fetchFn: FetchFn;
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(deps: SourceServiceDeps) {
     this.storage = deps.storage;
@@ -52,33 +54,53 @@ export class SourceService {
   async addSource(input: NewSource, onProgress?: Progress) {
     const source = { ...input, id: this.newId() } as SourceConfig;
     const { channels, result } = await this.fetchChannels(source, onProgress);
-    await this.storage.putSource(source);
-    await this.saveChannels(source.id, channels, result);
-    if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
+    try {
+      await this.saveChannels(source.id, channels, result);
+      await this.storage.putSource(source);
+      if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
+    } catch (err) {
+      try {
+        await this.storage.deleteSource(source.id);
+        if ((await this.getActiveSourceId()) === source.id) await this.storage.setMeta('activeSource', null);
+      } catch {
+        // Best-effort cleanup; the original error is the one worth reporting.
+      }
+      throw err;
+    }
     return { source, result };
   }
 
-  async updateSource(source: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
-    const { channels, result } = await this.fetchChannels(source, onProgress);
-    await this.storage.putSource(source);
-    await this.saveChannels(source.id, channels, result);
-    await this.storage.setMeta(`epgAt:${source.id}`, 0);
-    return result;
+  updateSource(source: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
+    return this.withLock(source.id, async () => {
+      const { channels, result } = await this.fetchChannels(source, onProgress);
+      await this.storage.putSource(source);
+      await this.saveChannels(source.id, channels, result);
+      await this.storage.setMeta(`epgAt:${source.id}`, 0);
+      return result;
+    });
   }
 
-  async deleteSource(id: string): Promise<void> {
-    await this.storage.deleteSource(id);
-    if ((await this.getActiveSourceId()) === id) {
-      const [next] = await this.storage.listSources();
-      await this.storage.setMeta('activeSource', next?.id ?? null);
-    }
+  deleteSource(id: string): Promise<void> {
+    return this.withLock(id, async () => {
+      await this.storage.clearProgrammes(await this.currentEpgKey(id));
+      const staging = await this.stagingGen(id);
+      if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
+      await this.storage.deleteSource(id);
+      if ((await this.getActiveSourceId()) === id) {
+        const [next] = await this.storage.listSources();
+        await this.storage.setMeta('activeSource', next?.id ?? null);
+      }
+    });
   }
 
-  async refreshPlaylist(id: string, onProgress?: Progress): Promise<IngestResult> {
-    const source = await this.requireSource(id);
-    const { channels, result } = await this.fetchChannels(source, onProgress);
-    await this.saveChannels(id, channels, result);
-    return result;
+  refreshPlaylist(id: string, onProgress?: Progress): Promise<IngestResult> {
+    return this.withLock(id, async () => {
+      const source = await this.requireSource(id);
+      const { channels, result } = await this.fetchChannels(source, onProgress);
+      if (!(await this.sourceExists(id))) return { channelCount: 0, skipped: 0 };
+      await this.saveChannels(id, channels, result);
+      return result;
+    });
   }
 
   async needsPlaylistRefresh(id: string): Promise<boolean> {
@@ -103,42 +125,67 @@ export class SourceService {
     return this.storage.setMeta(`flags:${id}`, index.flags());
   }
 
-  async refreshEpg(id: string, onProgress?: Progress): Promise<EpgResult> {
-    const source = await this.requireSource(id);
-    const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
-    if (!url) return { programmes: 0, skipped: 0 };
-    const res = await this.get(url);
-    const matcher = new EpgMatcher(await this.storage.getChannels(id));
-    await this.storage.clearProgrammes(id);
-    const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
-    const now = this.now();
-    let batch: Programme[] = [];
-    let stored = 0;
-    for await (const item of parseXmltv(responseText(res, url), stats)) {
-      if (item.type === 'channel') {
-        matcher.addXmltvChannel(item.id, item.names);
-        continue;
+  refreshEpg(id: string, onProgress?: Progress): Promise<EpgResult> {
+    return this.withLock(id, async () => {
+      const source = await this.requireSource(id);
+      const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
+      if (!url) {
+        await this.storage.clearProgrammes(await this.currentEpgKey(id));
+        await this.storage.setMeta(`epgAt:${id}`, this.now());
+        return { programmes: 0, skipped: 0 };
       }
-      const key = matcher.resolve(item.programme.epgId);
-      if (!key || !inWindow(item.programme, now)) continue;
-      batch.push({ ...item.programme, epgId: key });
-      if (batch.length >= EPG_BATCH) {
-        await this.storage.addProgrammes(id, batch);
-        stored += batch.length;
-        batch = [];
-        onProgress?.({ phase: 'epg', count: stored });
+      const res = await this.get(url);
+      if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
+      const channels = await this.storage.getChannels(id);
+
+      const staleStaging = await this.stagingGen(id);
+      if (staleStaging !== undefined) await this.storage.clearProgrammes(`${id}@${staleStaging}`);
+      const current = await this.currentGen(id);
+      const oldKey = current === undefined ? id : `${id}@${current}`;
+      const newGen = (current ?? 0) + 1;
+      const newKey = `${id}@${newGen}`;
+      await this.storage.setMeta(`epgStaging:${id}`, newGen);
+
+      const matcher = new EpgMatcher(channels);
+      const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
+      const now = this.now();
+      let batch: Programme[] = [];
+      let stored = 0;
+      try {
+        for await (const item of parseXmltv(responseText(res, url), stats)) {
+          if (item.type === 'channel') {
+            matcher.addXmltvChannel(item.id, item.names);
+            continue;
+          }
+          const key = matcher.resolve(item.programme.epgId);
+          if (!key || !inWindow(item.programme, now)) continue;
+          batch.push({ ...item.programme, epgId: key });
+          if (batch.length >= EPG_BATCH) {
+            await this.storage.addProgrammes(newKey, batch);
+            stored += batch.length;
+            batch = [];
+            onProgress?.({ phase: 'epg', count: stored });
+          }
+        }
+        if (batch.length) await this.storage.addProgrammes(newKey, batch);
+      } catch {
+        await this.storage.clearProgrammes(newKey);
+        await this.storage.setMeta(`epgStaging:${id}`, null);
+        throw new SourceNetworkError('The guide download was interrupted.');
       }
-    }
-    if (batch.length) await this.storage.addProgrammes(id, batch);
-    stored += batch.length;
-    onProgress?.({ phase: 'epg', count: stored });
-    await this.storage.setMeta(`epgAt:${id}`, now);
-    return { programmes: stored, skipped: stats.skipped };
+      stored += batch.length;
+      onProgress?.({ phase: 'epg', count: stored });
+      await this.storage.setMeta(`epgGen:${id}`, newGen);
+      await this.storage.clearProgrammes(oldKey);
+      await this.storage.setMeta(`epgStaging:${id}`, null);
+      await this.storage.setMeta(`epgAt:${id}`, now);
+      return { programmes: stored, skipped: stats.skipped };
+    });
   }
 
   async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
     const keys = channels.map(epgKey);
-    const progs = await this.storage.getProgrammes(id, keys, from, to);
+    const progs = await this.storage.getProgrammes(await this.currentEpgKey(id), keys, from, to);
     const byKey = new Map<string, Programme[]>();
     for (const p of progs) {
       const list = byKey.get(p.epgId) ?? [];
@@ -154,22 +201,58 @@ export class SourceService {
     const out = new Map<string, { now?: Programme; next?: Programme }>();
     const source = (await this.storage.listSources()).find((s) => s.id === id);
     const client = source?.kind === 'xtream' ? this.xtream(source) : undefined;
-    await Promise.all(channels.map(async (c) => {
-      let nn = nowNext(stored.get(c.id) ?? [], now);
+    const fallback: Array<{ c: Channel; streamId: number }> = [];
+    for (const c of channels) {
+      const nn = nowNext(stored.get(c.id) ?? [], now);
+      out.set(c.id, nn);
       const streamId = Number(/:x(\d+)$/.exec(c.id)?.[1]);
-      if (!nn.now && client && streamId) {
+      if (!nn.now && client && streamId) fallback.push({ c, streamId });
+    }
+    let cursor = 0;
+    const worker = async () => {
+      for (let i = cursor++; i < fallback.length; i = cursor++) {
+        const { c, streamId } = fallback[i]!;
         try {
-          nn = nowNext(await client.shortEpg(streamId, epgKey(c)), now);
+          out.set(c.id, nowNext(await client!.shortEpg(streamId, epgKey(c)), now));
         } catch {
           // No EPG is an acceptable outcome; the UI shows the channel without programme info.
         }
       }
-      out.set(c.id, nn);
-    }));
+    };
+    await Promise.all(Array.from({ length: Math.min(SHORT_EPG_CONCURRENCY, fallback.length) }, worker));
     return out;
   }
 
   // ---- internals ----
+
+  private withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(id) ?? Promise.resolve();
+    const run = prev.then(fn);
+    const tail = run.then(() => undefined, () => undefined);
+    this.locks.set(id, tail);
+    void tail.then(() => { if (this.locks.get(id) === tail) this.locks.delete(id); });
+    return run;
+  }
+
+  private async sourceExists(id: string): Promise<boolean> {
+    return (await this.storage.listSources()).some((x) => x.id === id);
+  }
+
+  private async currentGen(id: string): Promise<number | undefined> {
+    const g = await this.storage.getMeta<number>(`epgGen:${id}`);
+    return typeof g === 'number' ? g : undefined;
+  }
+
+  private async stagingGen(id: string): Promise<number | undefined> {
+    const g = await this.storage.getMeta<number>(`epgStaging:${id}`);
+    return typeof g === 'number' ? g : undefined;
+  }
+
+  /** Storage key of the live EPG generation; legacy (pre-generation) data lives under the bare id. */
+  private async currentEpgKey(id: string): Promise<string> {
+    const g = await this.currentGen(id);
+    return g === undefined ? id : `${id}@${g}`;
+  }
 
   private async requireSource(id: string): Promise<SourceConfig> {
     const s = (await this.storage.listSources()).find((x) => x.id === id);

@@ -10,7 +10,7 @@ const xml = readFileSync(new URL('./fixtures/basic.xml', import.meta.url), 'utf8
 const NOW = Date.UTC(2026, 9, 13, 17, 10);
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
 
-let routes: Record<string, () => Response>;
+let routes: Record<string, () => Response | Promise<Response>>;
 let storage: MemoryStorage;
 let service: SourceService;
 const fetchFn: FetchFn = async (url) => {
@@ -18,7 +18,7 @@ const fetchFn: FetchFn = async (url) => {
   const key = u.pathname.endsWith('player_api.php') ? `api:${u.searchParams.get('action') ?? 'auth'}` : u.pathname;
   const r = routes[key];
   if (!r) throw new TypeError(`no route ${key}`);
-  return r();
+  return await r();
 };
 
 beforeEach(() => {
@@ -89,6 +89,77 @@ describe('SourceService – m3u', () => {
     expect(await service.getActiveSourceId()).toBe(b.source.id);
     await service.deleteSource(b.source.id);
     expect(await service.getActiveSourceId()).toBeUndefined();
+  });
+});
+
+const WIDE = [0, 4e12] as const;
+
+describe('SourceService – robustness', () => {
+  test('an EPG body that errors mid-stream keeps the previous guide and throws SourceNetworkError', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const channels = (await service.loadIndex(source.id)).slice('all', 0, 10);
+    const count = async () => [...(await service.programmesFor(source.id, channels, ...WIDE)).values()].flat().length;
+    expect(await count()).toBe(2);
+    routes['/epg.xml'] = () => {
+      const enc = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(xml.slice(0, xml.indexOf('<programme start="20261013173000"'))));
+          c.error(new Error('socket reset'));
+        },
+      });
+      return new Response(body);
+    };
+    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await count()).toBe(2);
+  });
+
+  test('concurrent refreshEpg calls for one source leave no duplicate programmes', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await Promise.all([service.refreshEpg(source.id), service.refreshEpg(source.id)]);
+    const channels = (await service.loadIndex(source.id)).slice('all', 0, 10);
+    const all = [...(await service.programmesFor(source.id, channels, ...WIDE)).values()].flat();
+    expect(all).toHaveLength(2);
+  });
+
+  test('deleteSource racing refreshPlaylist leaves nothing behind', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    routes['/p.m3u'] = async () => { await gate; return new Response(m3u); };
+    const refresh = service.refreshPlaylist(source.id);
+    const del = service.deleteSource(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.allSettled([refresh, del]);
+    expect(await storage.listSources()).toEqual([]);
+    expect(await storage.getChannels(source.id)).toEqual([]);
+    expect(await storage.getMeta(`playlistAt:${source.id}`)).toBeUndefined();
+    expect(await storage.getMeta(`epgGen:${source.id}`)).toBeUndefined();
+    for (const key of [source.id, `${source.id}@1`, `${source.id}@2`]) {
+      expect(await storage.getProgrammes(key, ['ch1.test', 'ch2.test'], ...WIDE)).toEqual([]);
+    }
+  });
+
+  test('a source without epgUrl is not flagged for EPG refresh after refreshEpg', async () => {
+    const { source } = await service.addSource({ kind: 'm3u', name: 'No guide', playlistUrl: m3uInput.playlistUrl });
+    expect(await service.needsEpgRefresh(source.id)).toBe(true);
+    expect(await service.refreshEpg(source.id)).toEqual({ programmes: 0, skipped: 0 });
+    expect(await service.needsEpgRefresh(source.id)).toBe(false);
+  });
+
+  test('a failed add leaves no source, channels or active source', async () => {
+    class Failing extends MemoryStorage {
+      override async replaceChannels(): Promise<void> { throw new Error('disk full'); }
+    }
+    const failing = new Failing();
+    const svc = new SourceService({ storage: failing, fetch: fetchFn, now: () => NOW, newId: () => 'bad1' });
+    await expect(svc.addSource(m3uInput)).rejects.toThrow('disk full');
+    expect(await failing.listSources()).toEqual([]);
+    expect(await failing.getChannels('bad1')).toEqual([]);
+    expect(await svc.getActiveSourceId()).toBeUndefined();
   });
 });
 
