@@ -8,3 +8,4 @@ export { normalize } from './text/normalize.ts';
 export { parseM3u, type M3uEntry, type ParseStats } from './m3u/parse.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';
 export { ChannelIndex, type UserFlags } from './index/channelIndex.ts';
+export { type Storage, MAX_PROGRAMME_MS } from './storage.ts';

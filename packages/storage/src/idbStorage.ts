@@ -1,0 +1,136 @@
+import { MAX_PROGRAMME_MS, type Channel, type Programme, type SourceConfig, type Storage } from '@iptv/core';
+
+const DB_VERSION = 1;
+type ProgRecord = Programme & { sourceId: string };
+
+function req<T>(r: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+
+function done(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+export class IdbStorage implements Storage {
+  private dbPromise: Promise<IDBDatabase> | null = null;
+
+  constructor(private readonly factory: IDBFactory = indexedDB, private readonly dbName = 'iptv') {}
+
+  private db(): Promise<IDBDatabase> {
+    if (!this.dbPromise) {
+      this.dbPromise = new Promise((resolve, reject) => {
+        const open = this.factory.open(this.dbName, DB_VERSION);
+        open.onupgradeneeded = () => {
+          const db = open.result;
+          db.createObjectStore('sources', { keyPath: 'id' });
+          db.createObjectStore('channels', { keyPath: 'sourceId' });
+          db.createObjectStore('meta');
+          const progs = db.createObjectStore('programmes', { autoIncrement: true });
+          progs.createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+        };
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+    }
+    return this.dbPromise;
+  }
+
+  async listSources(): Promise<SourceConfig[]> {
+    const db = await this.db();
+    return req(db.transaction('sources').objectStore('sources').getAll());
+  }
+
+  async putSource(source: SourceConfig): Promise<void> {
+    const tx = (await this.db()).transaction('sources', 'readwrite');
+    tx.objectStore('sources').put(source);
+    await done(tx);
+  }
+
+  async deleteSource(id: string): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(['sources', 'channels', 'meta'], 'readwrite');
+    tx.objectStore('sources').delete(id);
+    tx.objectStore('channels').delete(id);
+    // Cursor (not await) so the transaction never goes inactive on older TV engines.
+    const cursorReq = tx.objectStore('meta').openCursor();
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      if (String(cursor.key).endsWith(`:${id}`)) cursor.delete();
+      cursor.continue();
+    };
+    await done(tx);
+    await this.clearProgrammes(id);
+  }
+
+  async getChannels(sourceId: string): Promise<Channel[]> {
+    const db = await this.db();
+    const rec = await req(db.transaction('channels').objectStore('channels').get(sourceId));
+    return (rec as { channels: Channel[] } | undefined)?.channels ?? [];
+  }
+
+  async replaceChannels(sourceId: string, channels: Channel[]): Promise<void> {
+    const tx = (await this.db()).transaction('channels', 'readwrite');
+    tx.objectStore('channels').put({ sourceId, channels });
+    await done(tx);
+  }
+
+  async getMeta<T>(key: string): Promise<T | undefined> {
+    const db = await this.db();
+    return (await req(db.transaction('meta').objectStore('meta').get(key))) as T | undefined;
+  }
+
+  async setMeta(key: string, value: unknown): Promise<void> {
+    const tx = (await this.db()).transaction('meta', 'readwrite');
+    tx.objectStore('meta').put(value, key);
+    await done(tx);
+  }
+
+  async clearProgrammes(sourceId: string): Promise<void> {
+    const tx = (await this.db()).transaction('programmes', 'readwrite');
+    const range = IDBKeyRange.bound([sourceId], [sourceId, []]);
+    const cursorReq = tx.objectStore('programmes').index('byChannel').openCursor(range);
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    await done(tx);
+  }
+
+  async addProgrammes(sourceId: string, batch: Programme[]): Promise<void> {
+    const tx = (await this.db()).transaction('programmes', 'readwrite');
+    const store = tx.objectStore('programmes');
+    for (const p of batch) store.add({ ...p, sourceId } satisfies ProgRecord);
+    await done(tx);
+  }
+
+  async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]> {
+    const db = await this.db();
+    const index = db.transaction('programmes').objectStore('programmes').index('byChannel');
+    const sorted = [...new Set(epgIds)].sort();
+    const out: Programme[] = [];
+    for (const epgId of sorted) {
+      const range = IDBKeyRange.bound([sourceId, epgId, from - MAX_PROGRAMME_MS], [sourceId, epgId, to], false, true);
+      const recs = (await req(index.getAll(range))) as ProgRecord[];
+      for (const { sourceId: _s, ...p } of recs) if (p.stop > from) out.push(p);
+    }
+    return out;
+  }
+
+  async clearAll(): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
+    for (const name of ['sources', 'channels', 'meta', 'programmes']) tx.objectStore(name).clear();
+    await done(tx);
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@iptv/storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "@iptv/core": "workspace:*" },
+  "devDependencies": { "fake-indexeddb": "^6.0.0" }
+}
