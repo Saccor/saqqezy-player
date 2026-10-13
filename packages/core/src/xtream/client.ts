@@ -28,6 +28,7 @@ function decodeBase64Utf8(b64: string): string {
   }
 }
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined =>
   v === null || v === undefined || String(v).trim() === '' ? undefined : String(v).trim();
 const posInt = (v: unknown): number | undefined => {
@@ -69,9 +70,9 @@ export class XtreamClient {
   }
 
   async authenticate(): Promise<XtreamAccount> {
-    const data = (await this.api()) as { user_info?: Record<string, unknown> };
-    const info = data?.user_info;
-    if (!info || String(info.auth) !== '1') throw new SourceAuthError();
+    const data = await this.api();
+    const info = isObj(data) ? data.user_info : undefined;
+    if (!isObj(info) || String(info.auth) !== '1') throw new SourceAuthError();
     if (String(info.status ?? '').toLowerCase() === 'expired') {
       throw new SourceAuthError('The provider account has expired.');
     }
@@ -87,7 +88,8 @@ export class XtreamClient {
     const data = await this.api('get_live_categories');
     if (!Array.isArray(data)) return [];
     return data
-      .map((c: Record<string, unknown>) => ({ id: str(c.category_id), name: str(c.category_name) }))
+      .filter(isObj)
+      .map((c) => ({ id: str(c.category_id), name: str(c.category_name) }))
       .filter((c): c is XtreamCategory => !!c.id && !!c.name);
   }
 
@@ -95,7 +97,8 @@ export class XtreamClient {
     const data = await this.api('get_live_streams');
     if (!Array.isArray(data)) return [];
     const out: XtreamStream[] = [];
-    for (const s of data as Record<string, unknown>[]) {
+    for (const s of data) {
+      if (!isObj(s)) continue;
       const streamId = posInt(s.stream_id);
       const name = str(s.name);
       if (!streamId || !name) continue;
@@ -124,11 +127,12 @@ export class XtreamClient {
   }
 
   async shortEpg(streamId: number, epgId: string, limit = 2): Promise<Programme[]> {
-    const data = (await this.api('get_short_epg', { stream_id: String(streamId), limit: String(limit) })) as {
-      epg_listings?: Record<string, unknown>[];
-    };
+    const data = await this.api('get_short_epg', { stream_id: String(streamId), limit: String(limit) });
+    const listings = isObj(data) ? data.epg_listings : undefined;
     const out: Programme[] = [];
-    for (const l of data?.epg_listings ?? []) {
+    if (!Array.isArray(listings)) return out;
+    for (const l of listings) {
+      if (!isObj(l)) continue;
       const start = posInt(l.start_timestamp);
       const stop = posInt(l.stop_timestamp);
       if (!start || !stop) continue;

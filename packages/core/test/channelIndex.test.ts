@@ -71,3 +71,44 @@ describe('ChannelIndex', () => {
     expect(idx.search('  ', 10)).toEqual([]);
   });
 });
+
+describe('ChannelIndex – recent and flag preservation', () => {
+  test('recent group appears after favourites only when it has visible channels', () => {
+    const idx = new ChannelIndex(channels);
+    expect(idx.groups().some((g) => g.id === 'recent')).toBe(false);
+    idx.markWatched('s:2');
+    const g = idx.groups();
+    expect(g.map((x) => x.id).slice(0, 3)).toEqual(['fav', 'recent', 'all']);
+    expect(g[1]).toEqual({ id: 'recent', name: 'Recently watched', count: 1 });
+    idx.setHidden('s:2', true);
+    expect(idx.groups().some((x) => x.id === 'recent')).toBe(false);
+  });
+
+  test('markWatched moves to front, dedupes, truncates to 20, ignores unknown ids', () => {
+    const many = Array.from({ length: 25 }, (_, i) => ch(i + 1, 'G'));
+    const idx = new ChannelIndex(many);
+    for (let i = 1; i <= 25; i++) idx.markWatched(`s:${i}`);
+    idx.markWatched('s:10');
+    idx.markWatched('s:nope');
+    const recent = idx.flags().recent!;
+    expect(recent).toHaveLength(20);
+    expect(recent[0]).toBe('s:10');
+    expect(recent.filter((id) => id === 's:10')).toHaveLength(1);
+    expect(recent).not.toContain('s:nope');
+    expect(idx.slice('recent', 0, 3).map((c) => c.id)).toEqual(['s:10', 's:25', 's:24']);
+  });
+
+  test('flags() keeps ids missing from the current playlist', () => {
+    const idx = new ChannelIndex(channels, { favourites: ['s:1', 'gone:1'], hidden: ['gone:2'], recent: ['gone:3', 's:4'] });
+    expect(idx.groupSize('fav')).toBe(1);
+    expect(idx.slice('recent', 0, 5).map((c) => c.id)).toEqual(['s:4']);
+    expect(idx.flags()).toEqual({ favourites: ['s:1', 'gone:1'], hidden: ['gone:2'], recent: ['gone:3', 's:4'] });
+    idx.setFavourite('s:2', true);
+    expect(idx.flags().favourites).toEqual(['s:1', 'gone:1', 's:2']);
+  });
+
+  test('flags without recent still load', () => {
+    const idx = new ChannelIndex(channels, { favourites: [], hidden: [] });
+    expect(idx.flags().recent ?? []).toEqual([]);
+  });
+});

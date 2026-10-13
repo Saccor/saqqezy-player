@@ -92,3 +92,49 @@ describe('xtreamToChannels', () => {
     ]);
   });
 });
+
+describe('XtreamClient – shape guards', () => {
+  test('liveStreams/liveCategories skip null and non-object rows', async () => {
+    const c = new XtreamClient(cfg, fakeFetch({
+      get_live_streams: () => json([null, 5, 'x', { stream_id: 3, name: 'Ok' }]),
+      get_live_categories: () => json([null, 'x', { category_id: '1', category_name: 'News' }]),
+    }));
+    expect((await c.liveStreams()).map((s) => s.streamId)).toEqual([3]);
+    expect(await c.liveCategories()).toEqual([{ id: '1', name: 'News' }]);
+  });
+
+  test('shortEpg tolerates non-array listings, null rows and non-object bodies', async () => {
+    for (const body of [null, 'x', 5, {}, { epg_listings: 'nope' }, { epg_listings: { a: 1 } }]) {
+      const c = new XtreamClient(cfg, fakeFetch({ get_short_epg: () => json(body) }));
+      expect(await c.shortEpg(1, 'e')).toEqual([]);
+    }
+    const rows = [null, 3, { start_timestamp: '10', stop_timestamp: '20', title: btoa('T') }];
+    const c = new XtreamClient(cfg, fakeFetch({ get_short_epg: () => json({ epg_listings: rows }) }));
+    const out = await c.shortEpg(1, 'e');
+    expect(out).toHaveLength(1);
+    expect(out[0]?.title).toBe('T');
+  });
+
+  test('authenticate with a malformed body is an auth error, not a TypeError', async () => {
+    for (const body of [null, 'x', { user_info: null }, { user_info: 'x' }]) {
+      const c = new XtreamClient(cfg, fakeFetch({ auth: () => json(body) }));
+      await expect(c.authenticate()).rejects.toBeInstanceOf(SourceAuthError);
+    }
+  });
+
+  test('error messages never contain credentials or a url', async () => {
+    const secret = { server: 'example.test', username: 'zed-user', password: 'zed-pass' };
+    const failures: FetchFn[] = [
+      async () => { throw new TypeError('fetch failed http://example.test/player_api.php?username=zed-user&password=zed-pass'); },
+      async () => new Response('', { status: 401 }),
+      async () => new Response('', { status: 502 }),
+      async () => new Response('not json'),
+    ];
+    for (const f of failures) {
+      const err = await new XtreamClient(secret, f).authenticate().catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      const msg = (err as Error).message;
+      for (const bad of ['zed-user', 'zed-pass', 'http']) expect(msg).not.toContain(bad);
+    }
+  });
+});

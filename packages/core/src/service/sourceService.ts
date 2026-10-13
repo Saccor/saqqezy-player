@@ -1,6 +1,6 @@
-import { EPG_MAX_AGE_MS, PLAYLIST_MAX_AGE_MS } from '../constants.ts';
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
 import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { sanitizeSettings, type AppSettings } from '../settings.ts';
 import { ChannelIndex, type UserFlags } from '../index/channelIndex.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
@@ -103,14 +103,44 @@ export class SourceService {
     });
   }
 
+  async getSettings(): Promise<AppSettings> {
+    return sanitizeSettings(await this.storage.getMeta<unknown>('settings'));
+  }
+
+  async saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+    const next = sanitizeSettings({ ...(await this.getSettings()), ...partial });
+    await this.storage.setMeta('settings', next);
+    return next;
+  }
+
+  /** Drops channels and guide data; the source and the user's flags stay. */
+  clearCachedData(id: string): Promise<void> {
+    return this.withLock(id, async () => {
+      const current = await this.currentGen(id);
+      const staging = await this.stagingGen(id);
+      await this.storage.clearProgrammes(id);
+      if (current !== undefined) await this.storage.clearProgrammes(`${id}@${current}`);
+      if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
+      await this.storage.setMeta(`epgGen:${id}`, null);
+      await this.storage.setMeta(`epgStaging:${id}`, null);
+      await this.storage.replaceChannels(id, []);
+      await this.storage.setMeta(`playlistAt:${id}`, 0);
+      await this.storage.setMeta(`epgAt:${id}`, 0);
+    });
+  }
+
   async needsPlaylistRefresh(id: string): Promise<boolean> {
     const at = (await this.storage.getMeta<number>(`playlistAt:${id}`)) ?? 0;
-    return this.now() - at > PLAYLIST_MAX_AGE_MS;
+    const hours = (await this.getSettings()).autoRefreshHours;
+    if (hours === 0) return false;
+    return this.now() - at > hours * 3600_000;
   }
 
   async needsEpgRefresh(id: string): Promise<boolean> {
     const at = (await this.storage.getMeta<number>(`epgAt:${id}`)) ?? 0;
-    return this.now() - at > EPG_MAX_AGE_MS;
+    const hours = (await this.getSettings()).autoRefreshHours;
+    if (hours === 0) return false;
+    return this.now() - at > hours * 3600_000;
   }
 
   async loadIndex(id: string): Promise<ChannelIndex> {
@@ -130,6 +160,11 @@ export class SourceService {
       const source = await this.requireSource(id);
       const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
       if (!url) {
+        const leftover = await this.stagingGen(id);
+        if (leftover !== undefined) {
+          await this.storage.clearProgrammes(`${id}@${leftover}`);
+          await this.storage.setMeta(`epgStaging:${id}`, null);
+        }
         await this.storage.clearProgrammes(await this.currentEpgKey(id));
         await this.storage.setMeta(`epgAt:${id}`, this.now());
         return { programmes: 0, skipped: 0 };
@@ -139,8 +174,11 @@ export class SourceService {
       const channels = await this.storage.getChannels(id);
 
       const staleStaging = await this.stagingGen(id);
-      if (staleStaging !== undefined) await this.storage.clearProgrammes(`${id}@${staleStaging}`);
       const current = await this.currentGen(id);
+      // After a crash between "set epgGen" and "clear epgStaging" the staging key IS the live one.
+      if (staleStaging !== undefined && staleStaging !== current) {
+        await this.storage.clearProgrammes(`${id}@${staleStaging}`);
+      }
       const oldKey = current === undefined ? id : `${id}@${current}`;
       const newGen = (current ?? 0) + 1;
       const newKey = `${id}@${newGen}`;
@@ -151,6 +189,15 @@ export class SourceService {
       const now = this.now();
       let batch: Programme[] = [];
       let stored = 0;
+      let storageFailure: { error: unknown } | undefined;
+      const store = async (rows: Programme[]) => {
+        try {
+          await this.storage.addProgrammes(newKey, rows);
+        } catch (error) {
+          storageFailure = { error };
+          throw error;
+        }
+      };
       try {
         for await (const item of parseXmltv(responseText(res, url), stats)) {
           if (item.type === 'channel') {
@@ -161,23 +208,28 @@ export class SourceService {
           if (!key || !inWindow(item.programme, now)) continue;
           batch.push({ ...item.programme, epgId: key });
           if (batch.length >= EPG_BATCH) {
-            await this.storage.addProgrammes(newKey, batch);
+            await store(batch);
             stored += batch.length;
             batch = [];
             onProgress?.({ phase: 'epg', count: stored });
           }
         }
-        if (batch.length) await this.storage.addProgrammes(newKey, batch);
+        if (batch.length) await store(batch);
       } catch {
-        await this.storage.clearProgrammes(newKey);
-        await this.storage.setMeta(`epgStaging:${id}`, null);
+        try {
+          await this.storage.clearProgrammes(newKey);
+          await this.storage.setMeta(`epgStaging:${id}`, null);
+        } catch {
+          // Best-effort cleanup; the original failure is the one worth reporting.
+        }
+        if (storageFailure) throw (storageFailure as { error: unknown }).error;
         throw new SourceNetworkError('The guide download was interrupted.');
       }
       stored += batch.length;
       onProgress?.({ phase: 'epg', count: stored });
       await this.storage.setMeta(`epgGen:${id}`, newGen);
-      await this.storage.clearProgrammes(oldKey);
       await this.storage.setMeta(`epgStaging:${id}`, null);
+      await this.storage.clearProgrammes(oldKey);
       await this.storage.setMeta(`epgAt:${id}`, now);
       return { programmes: stored, skipped: stats.skipped };
     });

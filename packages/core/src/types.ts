@@ -7,6 +7,8 @@ export interface Channel {
   group: string;
   epgId?: string;
   number: number;
+  /** Per-channel guide shift in hours (from tvg-shift). */
+  epgShift?: number;
 }
 
 export interface Programme {

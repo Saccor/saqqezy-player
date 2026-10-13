@@ -1,3 +1,5 @@
+import { redactUrl } from '../errors.ts';
+
 export interface M3uEntry {
   name: string;
   url: string;
@@ -6,6 +8,7 @@ export interface M3uEntry {
   tvgLogo?: string;
   groupTitle?: string;
   tvgChno?: number;
+  tvgShift?: number;
 }
 
 export interface ParseStats {
@@ -45,6 +48,9 @@ function parseExtinf(line: string): Omit<M3uEntry, 'url'> {
     else if (key === 'tvg-chno') {
       const n = Number.parseInt(value, 10);
       if (Number.isFinite(n) && n > 0) info.tvgChno = n;
+    } else if (key === 'tvg-shift') {
+      const n = Number.parseFloat(value);
+      if (Number.isFinite(n)) info.tvgShift = Math.max(-12, Math.min(12, n));
     }
   }
   if (!info.name) info.name = info.tvgName ?? '';
@@ -71,9 +77,9 @@ export async function* parseM3u(
       continue;
     }
     if (line.startsWith('#')) continue;
-    const info = pending?.info ?? { name: line };
+    const info = pending?.info ?? { name: '' };
     const entry: M3uEntry = { ...info, url: line };
-    if (!entry.name) entry.name = line;
+    if (!entry.name) entry.name = redactUrl(line);
     if (!entry.groupTitle && pendingGroup) entry.groupTitle = pendingGroup;
     pending = null;
     pendingGroup = undefined;

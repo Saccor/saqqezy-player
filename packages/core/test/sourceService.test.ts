@@ -188,3 +188,131 @@ describe('SourceService – xtream', () => {
     await expect(service.addSource(xInput)).rejects.toBeInstanceOf(SourceNetworkError);
   });
 });
+
+describe('SourceService – settings, cache clearing, EPG commit', () => {
+  const countAll = async (id: string) => {
+    const channels = (await service.loadIndex(id)).slice('all', 0, 100);
+    return [...(await service.programmesFor(id, channels, ...WIDE)).values()].flat().length;
+  };
+
+  test('settings default, merge, sanitise and persist under meta key settings', async () => {
+    expect(await service.getSettings()).toEqual({
+      epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
+    });
+    const saved = await service.saveSettings({ epgOffsetHours: 99, preferredFormat: 'm3u8' });
+    expect(saved).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', autoRefreshHours: 12 });
+    expect(await storage.getMeta('settings')).toEqual(saved);
+    const again = await service.saveSettings({ showClock: false });
+    expect(again).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', showClock: false });
+  });
+
+  test('autoRefreshHours drives needs*Refresh; 0 means never', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await storage.setMeta(`playlistAt:${source.id}`, NOW - 7 * 3600_000);
+    await storage.setMeta(`epgAt:${source.id}`, NOW - 7 * 3600_000);
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(false);
+    await service.saveSettings({ autoRefreshHours: 6 });
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(true);
+    expect(await service.needsEpgRefresh(source.id)).toBe(true);
+    await service.saveSettings({ autoRefreshHours: 24 });
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(false);
+    await storage.setMeta(`playlistAt:${source.id}`, 0);
+    await storage.setMeta(`epgAt:${source.id}`, 0);
+    await service.saveSettings({ autoRefreshHours: 0 });
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(false);
+    expect(await service.needsEpgRefresh(source.id)).toBe(false);
+  });
+
+  test('clearCachedData empties channels and guide but keeps source and flags', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    await service.refreshEpg(source.id);
+    const idx = await service.loadIndex(source.id);
+    idx.setFavourite(idx.slice('all', 0, 1)[0]!.id, true);
+    await service.saveFlags(source.id, idx);
+    await storage.setMeta(`epgStaging:${source.id}`, 7);
+    await storage.addProgrammes(`${source.id}@7`, [{ epgId: 'ch1.test', start: 1, stop: 2, title: 'x' }]);
+
+    await service.clearCachedData(source.id);
+
+    expect((await service.listSources()).map((s) => s.id)).toEqual([source.id]);
+    expect(await storage.getChannels(source.id)).toEqual([]);
+    expect(await storage.getMeta(`playlistAt:${source.id}`)).toBe(0);
+    expect(await storage.getMeta(`epgAt:${source.id}`)).toBe(0);
+    expect(await storage.getMeta(`epgStaging:${source.id}`) ?? null).toBeNull();
+    for (const key of [source.id, `${source.id}@1`, `${source.id}@2`, `${source.id}@7`]) {
+      expect(await storage.getProgrammes(key, ['ch1.test', 'ch2.test'], ...WIDE)).toEqual([]);
+    }
+    expect((await storage.getMeta<{ favourites: string[] }>(`flags:${source.id}`))?.favourites).toHaveLength(1);
+    expect(await service.needsPlaylistRefresh(source.id)).toBe(true);
+    expect(await service.needsEpgRefresh(source.id)).toBe(true);
+    await service.refreshPlaylist(source.id);
+    expect((await service.loadIndex(source.id)).groupSize('fav')).toBe(1);
+  });
+
+  test('a storage failure during EPG refresh surfaces unchanged and keeps the old guide', async () => {
+    class FailingProgrammes extends MemoryStorage {
+      fail = false;
+      override async addProgrammes(id: string, batch: Parameters<MemoryStorage['addProgrammes']>[1]): Promise<void> {
+        if (this.fail) throw new Error('quota exceeded');
+        return super.addProgrammes(id, batch);
+      }
+    }
+    const st = new FailingProgrammes();
+    const svc = new SourceService({ storage: st, fetch: fetchFn, now: () => NOW, newId: () => 'q1' });
+    const { source } = await svc.addSource(m3uInput);
+    await svc.refreshEpg(source.id);
+    st.fail = true;
+    const err = await svc.refreshEpg(source.id).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('quota exceeded');
+    st.fail = false;
+    const channels = (await svc.loadIndex(source.id)).slice('all', 0, 10);
+    expect([...(await svc.programmesFor(source.id, channels, ...WIDE)).values()].flat()).toHaveLength(2);
+  });
+
+  test('stale staging equal to the live generation does not wipe the live guide', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    expect(await countAll(source.id)).toBe(2);
+    // Simulate a crash between "set epgGen" and "clear epgStaging".
+    await storage.setMeta(`epgStaging:${source.id}`, 1);
+    routes['/epg.xml'] = () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.error(new Error('socket reset')); },
+    }));
+    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await countAll(source.id)).toBe(2);
+    routes['/epg.xml'] = () => new Response(xml);
+    await service.refreshEpg(source.id);
+    expect(await countAll(source.id)).toBe(2);
+    expect(await storage.getMeta(`epgStaging:${source.id}`) ?? null).toBeNull();
+  });
+
+  test('refreshEpg without an EPG url clears leftover staging', async () => {
+    const { source } = await service.addSource({ kind: 'm3u', name: 'No guide', playlistUrl: m3uInput.playlistUrl });
+    await storage.setMeta(`epgStaging:${source.id}`, 3);
+    await storage.addProgrammes(`${source.id}@3`, [{ epgId: 'ch1.test', start: 1, stop: 2, title: 'x' }]);
+    await service.refreshEpg(source.id);
+    expect(await storage.getMeta(`epgStaging:${source.id}`) ?? null).toBeNull();
+    expect(await storage.getProgrammes(`${source.id}@3`, ['ch1.test'], ...WIDE)).toEqual([]);
+  });
+
+  test('service errors for auth, http and network failures contain no credentials or url', async () => {
+    const x = { kind: 'xtream' as const, name: 'X', server: 'http://example.test', username: 'zed-user', password: 'zed-pass' };
+    const cases: Array<() => Response> = [
+      () => { throw new TypeError('fetch failed http://example.test/?username=zed-user&password=zed-pass'); },
+      () => json({}, 401),
+      () => json({}, 502),
+    ];
+    for (const c of cases) {
+      routes['api:auth'] = c;
+      const err = await service.addSource(x).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      for (const bad of ['zed-user', 'zed-pass', 'http']) expect((err as Error).message).not.toContain(bad);
+    }
+    routes['/p.m3u'] = () => { throw new TypeError('fetch failed http://example.test/p.m3u'); };
+    const err = await service.addSource(m3uInput).catch((e: Error) => e);
+    for (const bad of ['http']) expect((err as Error).message).not.toContain(bad);
+  });
+});

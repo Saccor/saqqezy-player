@@ -37,6 +37,7 @@ export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[]): Cha
     };
     if (e.tvgLogo) ch.logo = e.tvgLogo;
     if (e.tvgId) ch.epgId = e.tvgId;
+    if (e.tvgShift) ch.epgShift = e.tvgShift;
     return ch;
   });
 }

@@ -62,3 +62,36 @@ describe('uniqueId', () => {
     expect(used.has('src1:deadbeef-3')).toBe(true);
   });
 });
+
+describe('tvg-shift and bare-url names', () => {
+  test('tvg-shift is parsed, clamped and ignored when not finite', async () => {
+    const { out } = await parse([
+      '#EXTM3U',
+      '#EXTINF:-1 tvg-shift="2.5",A', 'http://example.test/a.ts',
+      '#EXTINF:-1 tvg-shift="-30",B', 'http://example.test/b.ts',
+      '#EXTINF:-1 tvg-shift="99",C', 'http://example.test/c.ts',
+      '#EXTINF:-1 tvg-shift="abc",D', 'http://example.test/d.ts',
+      '#EXTINF:-1,E', 'http://example.test/e.ts',
+    ].join('\n'));
+    expect(out.map((e) => e.tvgShift)).toEqual([2.5, -12, 12, undefined, undefined]);
+  });
+
+  test('Channel.epgShift is copied only when non-zero', async () => {
+    const { out } = await parse([
+      '#EXTINF:-1 tvg-shift="1",A', 'http://example.test/a.ts',
+      '#EXTINF:-1 tvg-shift="0",B', 'http://example.test/b.ts',
+      '#EXTINF:-1,C', 'http://example.test/c.ts',
+    ].join('\n'));
+    const ch = m3uEntriesToChannels('s', out);
+    expect(ch[0]?.epgShift).toBe(1);
+    expect(ch[1]).not.toHaveProperty('epgShift');
+    expect(ch[2]).not.toHaveProperty('epgShift');
+  });
+
+  test('a bare url without a name is shown redacted', async () => {
+    const { out } = await parse('http://example.test/live/me/secret/9.ts\nhttp://example.test/x.ts?username=me&password=secret');
+    expect(out[0]?.name).toBe('http://example.test/live/***/***/9.ts');
+    expect(out[0]?.url).toBe('http://example.test/live/me/secret/9.ts');
+    expect(out[1]?.name).not.toContain('secret');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { EpgMatcher, epgKey, inWindow, nowNext } from '../src/epg/window.ts';
+import { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from '../src/epg/window.ts';
 import type { Channel, Programme } from '../src/types.ts';
 
 const H = 3600_000;
@@ -43,5 +43,17 @@ describe('EpgMatcher', () => {
     expect(m.resolve('xml.none')).toBeUndefined();
     expect(m.resolve('never.declared')).toBeUndefined();
     expect(epgKey(channels[1]!)).toBe('name:nyheter atta');
+  });
+});
+
+describe('applyShift', () => {
+  test('returns a shifted copy', () => {
+    const p: Programme = { epgId: 'a', start: 1000, stop: 5000, title: 'T' };
+    const q = applyShift(p, 2);
+    expect(q).toEqual({ epgId: 'a', start: 1000 + 7_200_000, stop: 5000 + 7_200_000, title: 'T' });
+    expect(q).not.toBe(p);
+    expect(p.start).toBe(1000);
+    expect(applyShift(p, -0.5).start).toBe(1000 - 1_800_000);
+    expect(applyShift(p, 0)).toEqual(p);
   });
 });

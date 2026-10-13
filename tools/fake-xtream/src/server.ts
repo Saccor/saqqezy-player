@@ -89,7 +89,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   }
 
   const server = createServer((req, res) => {
-    handle(req, res).catch(() => send(res, 500, '{}'));
+    handle(req, res).catch(() => {
+      if (res.headersSent) res.destroy();
+      else send(res, 500, '{}');
+    });
   });
   await new Promise<void>((resolve) => server.listen(opts.port ?? 8899, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

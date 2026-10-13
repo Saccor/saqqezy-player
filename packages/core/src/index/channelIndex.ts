@@ -1,10 +1,12 @@
-import { GROUP_ALL, GROUP_FAV } from '../constants.ts';
+import { GROUP_ALL, GROUP_FAV, GROUP_RECENT, RECENT_MAX } from '../constants.ts';
 import { normalize } from '../text/normalize.ts';
 import type { Channel, GroupInfo } from '../types.ts';
 
 export interface UserFlags {
   favourites: string[];
   hidden: string[];
+  /** Most recent first, at most RECENT_MAX. */
+  recent?: string[];
 }
 
 export class ChannelIndex {
@@ -15,6 +17,7 @@ export class ChannelIndex {
   private readonly searchKeys = new Map<string, string>();
   private favourites: string[];
   private hidden: Set<string>;
+  private recent: string[];
   private visibleCache = new Map<string, Channel[]>();
 
   constructor(channels: Channel[], flags: UserFlags = { favourites: [], hidden: [] }) {
@@ -31,8 +34,11 @@ export class ChannelIndex {
       members.push(c);
     }
     this.allSorted = [...channels].sort((a, b) => a.number - b.number);
-    this.favourites = flags.favourites.filter((id) => this.byId.has(id));
-    this.hidden = new Set(flags.hidden.filter((id) => this.byId.has(id)));
+    // Raw lists are kept (including ids absent from this playlist) so a partial or broken
+    // refresh cannot erase the user's choices; they are filtered only when read.
+    this.favourites = [...flags.favourites];
+    this.hidden = new Set(flags.hidden);
+    this.recent = [...(flags.recent ?? [])].slice(0, RECENT_MAX);
   }
 
   private visible(groupId: string): Channel[] {
@@ -40,11 +46,21 @@ export class ChannelIndex {
     if (cached) return cached;
     let source: Channel[];
     if (groupId === GROUP_ALL) source = this.allSorted;
-    else if (groupId === GROUP_FAV) source = this.favourites.map((id) => this.byId.get(id)!);
+    else if (groupId === GROUP_FAV) source = this.resolve(this.favourites);
+    else if (groupId === GROUP_RECENT) source = this.resolve(this.recent);
     else source = this.groupMembers.get(groupId) ?? [];
     const list = source.filter((c) => !this.hidden.has(c.id));
     this.visibleCache.set(groupId, list);
     return list;
+  }
+
+  private resolve(ids: string[]): Channel[] {
+    const out: Channel[] = [];
+    for (const id of ids) {
+      const c = this.byId.get(id);
+      if (c) out.push(c);
+    }
+    return out;
   }
 
   private invalidate(): void {
@@ -52,10 +68,10 @@ export class ChannelIndex {
   }
 
   groups(): GroupInfo[] {
-    const out: GroupInfo[] = [
-      { id: GROUP_FAV, name: 'Favourites', count: this.visible(GROUP_FAV).length },
-      { id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length },
-    ];
+    const out: GroupInfo[] = [{ id: GROUP_FAV, name: 'Favourites', count: this.visible(GROUP_FAV).length }];
+    const recentCount = this.visible(GROUP_RECENT).length;
+    if (recentCount > 0) out.push({ id: GROUP_RECENT, name: 'Recently watched', count: recentCount });
+    out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
     for (const gid of this.groupOrder) {
       const count = this.visible(gid).length;
       if (count > 0) out.push({ id: gid, name: gid.slice(2), count });
@@ -120,11 +136,17 @@ export class ChannelIndex {
     this.invalidate();
   }
 
+  markWatched(id: string): void {
+    if (!this.byId.has(id)) return;
+    this.recent = [id, ...this.recent.filter((r) => r !== id)].slice(0, RECENT_MAX);
+    this.invalidate();
+  }
+
   hiddenChannels(): Channel[] {
     return this.allSorted.filter((c) => this.hidden.has(c.id));
   }
 
   flags(): UserFlags {
-    return { favourites: [...this.favourites], hidden: [...this.hidden] };
+    return { favourites: [...this.favourites], hidden: [...this.hidden], recent: [...this.recent] };
   }
 }

@@ -6,6 +6,11 @@ export function epgKey(c: Channel): string {
   return c.epgId ?? `name:${normalize(c.name)}`;
 }
 
+export function applyShift(p: Programme, hours: number): Programme {
+  const ms = hours * 3600_000;
+  return { ...p, start: p.start + ms, stop: p.stop + ms };
+}
+
 export function inWindow(p: Programme, now: number): boolean {
   return p.stop > now - EPG_BACK_MS && p.start < now + EPG_AHEAD_MS;
 }
