@@ -3,7 +3,7 @@ import mpegts from 'mpegts.js';
 import type {
   AspectMode, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
-import { viaDevProxy } from '../net/devProxy.ts';
+import { hlsViaDevProxy } from '../net/devProxy.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -58,7 +58,7 @@ export class Html5Player implements Player {
     const s: Session = { attemptId, dead: false, engine: undefined, cleanups: [] };
     this.session = s;
     const v = this.video;
-    const src = viaDevProxy(url);
+    const src = hlsViaDevProxy(url);
     const path = pathOf(url);
 
     const on = <K extends keyof HTMLMediaElementEventMap>(type: K, fn: () => void) => {
@@ -71,7 +71,11 @@ export class Html5Player implements Player {
       const err = v.error;
       // With MSE engines the engine reports errors itself; MediaError 4 is still decisive.
       if (!err) return;
-      const code = err.code === 4 ? 'UNSUPPORTED' : err.code === 2 ? 'NETWORK' : err.code === 3 ? 'DECODE' : 'MEDIA';
+      // MediaError 4 (SRC_NOT_SUPPORTED) before any metadata (HAVE_NOTHING) is a failed load (404, refused,
+      // dropped connection), so it is retryable NETWORK; only once metadata has loaded is it really UNSUPPORTED.
+      const code = err.code === 4
+        ? (v.readyState === 0 ? 'NETWORK' : 'UNSUPPORTED')
+        : err.code === 2 ? 'NETWORK' : err.code === 3 ? 'DECODE' : 'MEDIA';
       this.emit(s, 'error', { code, message: 'Playback error' });
     });
 
@@ -85,7 +89,9 @@ export class Html5Player implements Player {
         const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30 });
         s.engine = { kind: 'hls', hls };
         hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
-          if (!data.fatal && !HLS_CODEC_ERRORS.has(data.details)) return;
+          // Non-fatal codec errors (e.g. one unplayable level) are recoverable: only fatal ones, or a manifest
+          // with no playable codec at all, are reported.
+          if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
           const code = HLS_CODEC_ERRORS.has(data.details)
             ? 'UNSUPPORTED'
             : data.type === ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
@@ -147,12 +153,18 @@ export class Html5Player implements Player {
       e.hls.detachMedia();
       e.hls.destroy();
     } else if (e?.kind === 'mpegts') {
-      try {
-        e.player.pause();
-        e.player.unload();
-        e.player.detachMediaElement();
-      } finally {
-        e.player.destroy();
+      // Each call is guarded on its own so one failure cannot skip the rest or the element reset below.
+      for (const step of [
+        () => e.player.pause(),
+        () => e.player.unload(),
+        () => e.player.detachMediaElement(),
+        () => e.player.destroy(),
+      ]) {
+        try {
+          step();
+        } catch {
+          // ignore
+        }
       }
     }
     const v = this.video;

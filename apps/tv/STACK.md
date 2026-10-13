@@ -123,15 +123,21 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 ## Worker / RPC
 
 - `src/api.ts` does `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`, then `export const { api, on: onEvent } = wrap<AppApi>(worker)`.
-- `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via viaDevProxy)` → `SourceService` → `AppApi`, then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
+- `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via rawViaDevProxy)` → `SourceService` → `AppApi`, then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
 - In the production build, `@iptv/core` ends up only in the worker chunk.
 
 ## Dev proxy
 
-- `vite.proxy.ts` is used by `vite dev` only (`apply: 'serve'`) and throws if `NODE_ENV=production`.
-- The URL form is `/__proxy/<file name>?u=<encoded url>`. Only `u` is read. The file-name segment exists because native HLS in desktop Chrome sniffs the URL extension of playlists and segments.
-- Playlists are rewritten to absolute proxied URIs and served as `application/vnd.apple.mpegurl`. `Range` headers are not forwarded for playlists.
-- `src/net/devProxy.ts` `viaDevProxy(url)` is the identity in production (`import.meta.env.DEV`). In dev it also skips same-origin URLs and the fake provider at `127.0.0.1:8899`.
+- `vite.proxy.ts` is used by `vite dev` only (`apply: 'serve'`) and throws if `NODE_ENV=production`. The pure rewrite logic lives in `src/dev/rewriteHls.ts` (unit-tested).
+- Two routes, `GET`/`HEAD` only:
+  - `/__proxy/raw?u=<encoded url>` never rewrites anything. The worker uses it (`rawViaDevProxy`) for playlist, EPG and API fetches, so IPTV channel lists (M3U) come through byte for byte. `Range` is forwarded.
+  - `/__proxy/hls/<file name>?u=<encoded url>` rewrites HLS playlists. `Html5Player` uses it (`hlsViaDevProxy`) for player URLs only. The file-name segment is cosmetic (only `u` is read) but native HLS in desktop Chrome sniffs the URL extension of playlists and segments. A body is rewritten only if the response is 2xx and contains `#EXT-X-`; only `http(s)` URIs are wrapped (`data:`, `skd:` stay), relative URIs are resolved against the final URL. Rewritten playlists are served as `application/vnd.apple.mpegurl`; `Range` is not forwarded for playlists.
+- Security rules (the proxy is a local convenience, not a public relay):
+  - No CORS headers at all (no `Access-Control-Allow-Origin`): it is same-origin only, so other sites cannot read through it.
+  - 403 when `Sec-Fetch-Site` is present and is neither `same-origin` nor `none`, or when `Origin` is present and is not the dev server's own origin (host compared with the `Host` header). Same-origin page, worker and `<video>` requests pass.
+  - `configureServer` throws if `server.host` is set to anything other than `localhost`, `127.0.0.1` or `::1` ("refuses to run when exposed to the LAN"). Do not use `--host`.
+- Compressed upstream bodies: Node's fetch has already decoded them, so when upstream sends `content-encoding` the proxy forwards neither `content-encoding`, `content-length`, `content-range` nor `accept-ranges` (otherwise the browser truncates the body).
+- `src/net/devProxy.ts`: `rawViaDevProxy(url)` and `hlsViaDevProxy(url)` are the identity in production (`import.meta.env.DEV`). In dev they also skip same-origin URLs and the fake provider at `127.0.0.1:8899`.
 
 ## Player
 
@@ -140,4 +146,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - `.ts` plays through mpegts.js with `isLive: true`.
   - In dev, `?hlsjs` forces the hls.js path on browsers that have native HLS.
 - Each `open()` creates a session. `stop()` kills it, removes its listeners, and destroys the hls.js or mpegts instance. It then calls `removeAttribute('src')` and `load()`. Events from a dead session are dropped, and `detail.attemptId` is echoed on every event.
+- Error mapping: `<video>` MediaError 4 is `NETWORK` (retryable) while `readyState === 0` (HAVE_NOTHING: the load itself failed, e.g. 404, refused, dropped) and `UNSUPPORTED` only once metadata has loaded (`readyState >= 1`). MediaError 2 is `NETWORK`, 3 is `DECODE`, the rest `MEDIA`. hls.js errors are reported only when fatal, or for `MANIFEST_INCOMPATIBLE_CODECS_ERROR`; codec errors map to `UNSUPPORTED`, other network errors to `NETWORK`. mpegts codec/format errors map to `UNSUPPORTED`.
+- mpegts teardown wraps each call (`pause`, `unload`, `detachMediaElement`, `destroy`) in its own try/catch so the element reset always runs.
+- `installKeys` ignores key events whose target is an `<input>`, `<textarea>` or contenteditable element (no mapping, `preventDefault` or `stopImmediatePropagation`), so future DOM text entry works.
 - Desktop autoplay policy: if `play()` is rejected with `NotAllowedError`, the player retries muted.

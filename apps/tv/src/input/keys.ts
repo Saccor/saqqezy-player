@@ -21,6 +21,12 @@ export const LIGHTNING_KEY_MAP: Partial<KeyMap> = Object.fromEntries(
   LOGICAL_KEYS.map((k) => [k === 'Ok' ? 'Enter' : k, k]),
 );
 
+/** Text-entry targets keep their keys (typing, caret, Back/Delete): the remote mapping must not touch them. */
+function isTextEntry(t: EventTarget | null): boolean {
+  if (typeof HTMLElement === 'undefined' || !(t instanceof HTMLElement)) return false;
+  return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t.isContentEditable;
+}
+
 type Listener = (key: UiKey, e: KeyboardEvent) => void;
 const listeners = new Set<Listener>();
 
@@ -65,7 +71,7 @@ export function installKeys(
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (forwarded.has(e)) return;
+    if (forwarded.has(e) || isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
     const key = mapKey(platform, e);
     if (!key) return;
@@ -85,7 +91,7 @@ export function installKeys(
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
-    if (forwarded.has(e)) return;
+    if (forwarded.has(e) || isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
     const key = mapKey(platform, e);
     if (!key) return;
