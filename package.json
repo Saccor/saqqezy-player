@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:perf": "vitest run --config vitest.perf.config.ts",
-    "typecheck": "tsc -p packages/core && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api",
+    "typecheck": "tsc -p packages/core && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p packages/platform && tsc -p packages/player",
     "fake-xtream": "pnpm --filter @iptv/fake-xtream start"
   },
   "devDependencies": {
