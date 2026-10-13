@@ -22,7 +22,7 @@ export function m3uChunks(count: number): AsyncGenerator<string> {
   })());
 }
 
-/** Roughly `channels * perChannel * 190` bytes of XMLTV, generated lazily. */
+/** Roughly `channels * perChannel * 170` bytes of XMLTV, generated lazily. */
 export function xmltvChunks(channels: number, perChannel: number): AsyncGenerator<string> {
   return chunked((function* () {
     yield '<?xml version="1.0" encoding="UTF-8"?><tv>';
