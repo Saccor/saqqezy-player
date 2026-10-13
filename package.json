@@ -1,0 +1,26 @@
+{
+  "name": "iptv-app",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.10.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
+    "typecheck": "tsc -p packages/core && tsc -p packages/storage && tsc -p tools/fake-xtream",
+    "fake-xtream": "pnpm --filter @iptv/fake-xtream start"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3",
+    "vitest": "~2.1.8",
+    "@types/node": "^22.10.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
