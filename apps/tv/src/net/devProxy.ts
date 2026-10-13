@@ -34,3 +34,17 @@ export function hlsViaDevProxy(url: string): string {
   const name = target.pathname.split('/').pop() ?? '';
   return `/__proxy/hls${name ? `/${encodeURIComponent(name)}` : ''}?u=${encodeURIComponent(target.toString())}`;
 }
+
+/** Set by the dev proxy on its 502 when the upstream could not be reached at all. */
+export const UNREACHABLE_HEADER = 'x-dev-proxy-unreachable';
+
+/**
+ * In `vite dev` only: a proxied fetch whose upstream was unreachable throws like a direct fetch would
+ * (`TypeError`), so core reports "Could not reach the provider." instead of an HTTP 502. Identity in production.
+ */
+export function unwrapDevProxyResponse(res: Response): Response {
+  if (import.meta.env.DEV && res.status === 502 && res.headers.get(UNREACHABLE_HEADER) === '1') {
+    throw new TypeError('Failed to fetch');
+  }
+  return res;
+}

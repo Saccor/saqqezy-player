@@ -4,6 +4,7 @@ import { useFocusManager } from '@lightningtv/solid/primitives';
 import type { Player } from '@iptv/player';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
+import { AddSourceScreen } from './screens/AddSource.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
@@ -77,7 +78,7 @@ export function App(props: { player: Player }) {
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}>
       <View ref={screenHost} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
         <Show when={current()} keyed fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
-          {(entry) => <PlaceholderScreen entry={entry} />}
+          {(entry) => (entry.screen === 'addSource' ? <AddSourceScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>

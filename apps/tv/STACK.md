@@ -159,3 +159,11 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - `src/state/appState.ts` owns `InitState`, the offline flag, the startup metric (`markStartup()`, called by Home once its cached list is on screen), the supervisor status (`setSupervisorStatus`, for the player screens) and `platformId`. It imports `@iptv/core` as types only, so core stays in the worker chunk.
 - `onUnmappedKey(fn)` in `src/input/keys.ts` observes keydowns that map to no logical key (used for F12 → debug HUD in the browser). It does not `preventDefault`.
 - Dev-only console handle: `window.__iptv = { player, layer, api, router, showToast }` (in `main.tsx`, `import.meta.env.DEV` only). For example `await __iptv.api.addSource({ kind: 'xtream', name: 'Test', server: 'http://127.0.0.1:8899', username: 'test', password: 'test' })`.
+
+## Text entry (Task 6)
+
+- `captureTextInput(fn)` in `src/input/keys.ts`: while a field is being edited, `fn` sees every raw keydown first. If it returns true the key was typed (prevented, not mapped, its keyup swallowed), so `m`, `i`, digits, Space and Backspace type instead of acting as Menu, Info, Digit, PlayPause or Back. Keys it declines (arrows, Enter, Escape, F1–F4) stay remote keys, so Escape still closes the keyboard. One capture at a time; `Keyboard.tsx` holds it while mounted.
+- `src/components/keyboardLogic.ts` (unit-tested) holds the layout, cursor movement, editing and the physical-key classifier. `Keyboard.tsx`, `TextField.tsx` and `Button.tsx` only draw.
+- The on-screen keyboard is a `router.pushOverlay('keyboard', …)` layer: Back closes it and keeps the text. Screens with their own `onBack` return `false` while `router.topOverlay()` is set, so the shell closes the layer first.
+- Secrets: `TextField`/`Keyboard` render `maskSecret(value)` unless `revealed` (Yellow toggles it); the raw value is never given to a `Text` node otherwise.
+- Dev proxy: when the upstream is unreachable it answers 502 with `x-dev-proxy-unreachable: 1`; the worker's dev fetch (`unwrapDevProxyResponse`) turns that back into a thrown `TypeError`, so core reports "Could not reach the provider." as on a TV.

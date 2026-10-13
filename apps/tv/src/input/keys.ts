@@ -47,6 +47,20 @@ export function onUnmappedKey(fn: (e: KeyboardEvent) => void): () => void {
   return () => { rawListeners.delete(fn); };
 }
 
+let textCapture: ((e: KeyboardEvent) => boolean) | undefined;
+
+/**
+ * While a text field is being edited (on-screen keyboard open), `fn` sees every raw keydown first. When it
+ * returns true the key was typed into the field: it is prevented and not mapped to a logical key (so
+ * `m`, `i`, digits and Backspace type instead of acting as Menu, Info, Digit or Back), and its keyup is
+ * swallowed too. Keys it declines (arrows, Enter, Escape, colour keys) stay remote keys. Only one capture is
+ * active at a time; the returned function releases it.
+ */
+export function captureTextInput(fn: (e: KeyboardEvent) => boolean): () => void {
+  textCapture = fn;
+  return () => { if (textCapture === fn) textCapture = undefined; };
+}
+
 /**
  * Installs the one global key listener: maps device keys through `@iptv/platform`, forwards them to
  * Lightning's focus system as logical keys and notifies `onLogicalKey` subscribers.
@@ -59,6 +73,8 @@ export function installKeys(
   platform: PlatformId = detectPlatform(navigator.userAgent, target as unknown as { tizen?: unknown; webOS?: unknown }),
 ): () => void {
   const forwarded = new WeakSet<Event>();
+  /** Keys typed into a field whose keyup must not reach the remote mapping either. */
+  const typed = new Set<string>();
   let okTimer: ReturnType<typeof setTimeout> | undefined;
   let okLong = false;
 
@@ -84,6 +100,17 @@ export function installKeys(
   const onKeyDown = (e: KeyboardEvent) => {
     if (forwarded.has(e) || isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
+    let consumed = false;
+    try {
+      consumed = textCapture?.(e) === true;
+    } catch (err) {
+      console.error('Text input handler failed', err);
+    }
+    if (consumed) {
+      e.preventDefault();
+      typed.add(e.code || e.key);
+      return;
+    }
     const key = mapKey(platform, e);
     if (!key) {
       for (const fn of [...rawListeners]) {
@@ -113,6 +140,10 @@ export function installKeys(
   const onKeyUp = (e: KeyboardEvent) => {
     if (forwarded.has(e) || isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
+    if (typed.delete(e.code || e.key)) {
+      e.preventDefault();
+      return;
+    }
     const key = mapKey(platform, e);
     if (!key) return;
     e.preventDefault();
@@ -130,6 +161,7 @@ export function installKeys(
   };
 
   const onBlur = () => {
+    typed.clear();
     if (okTimer !== undefined) clearTimeout(okTimer);
     okTimer = undefined;
     okLong = false;

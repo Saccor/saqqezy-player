@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { rewriteHls } from './src/dev/rewriteHls.ts';
+import { UNREACHABLE_HEADER } from './src/net/devProxy.ts';
 
 export const PROXY_PATH = '/__proxy';
 
@@ -96,7 +97,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       upstream = await get({});
     }
   } catch {
-    // The target URL may carry credentials; never echo it.
+    // The target URL may carry credentials; never echo it. The marker header lets the dev worker turn this
+    // back into the network failure a direct fetch would have given (see `devProxy.ts`).
+    if (!res.headersSent) res.setHeader(UNREACHABLE_HEADER, '1');
     fail(res, 502, 'Upstream request failed');
     return;
   }
