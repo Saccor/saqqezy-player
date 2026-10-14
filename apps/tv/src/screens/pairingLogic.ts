@@ -58,9 +58,29 @@ export function statusCopy(status: CompanionStatus, mode: PairingMode): string {
     case 'reconnecting':
       return 'Reconnecting…';
     case 'expired':
-      return 'This code has expired.';
+      return endedCopy(status.reason);
     case 'idle':
       return 'Disconnected.';
+  }
+}
+
+/** Why a session ended, in one short line (the page still offers Show a new code). */
+function endedCopy(reason: CompanionStatus['reason']): string {
+  switch (reason) {
+    case undefined:
+    case 'expired':
+      return 'This code has expired.';
+    case 'replaced':
+      return 'Session ended: opened on another screen.';
+    case 'rate-limit':
+    case 'quota':
+      return 'Session ended: too much activity.';
+    case 'unreachable':
+      return 'Session ended: connection lost.';
+    case 'peer-errors':
+      return 'Session ended: connection problem.';
+    case 'stopped':
+      return 'Session ended.';
   }
 }
 

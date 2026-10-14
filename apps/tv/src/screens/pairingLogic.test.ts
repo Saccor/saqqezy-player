@@ -44,6 +44,11 @@ describe('statusCopy', () => {
     expect(statusCopy({ state: 'connected' }, 'qr')).toBe('Connected');
     expect(statusCopy({ state: 'reconnecting' }, 'qr')).toBe('Reconnecting…');
     expect(statusCopy({ state: 'expired' }, 'qr')).toBe('This code has expired.');
+    expect(statusCopy({ state: 'expired', reason: 'expired' }, 'qr')).toBe('This code has expired.');
+    expect(statusCopy({ state: 'expired', reason: 'replaced' }, 'qr')).toBe('Session ended: opened on another screen.');
+    expect(statusCopy({ state: 'expired', reason: 'quota' }, 'code')).toBe('Session ended: too much activity.');
+    expect(statusCopy({ state: 'expired', reason: 'unreachable' }, 'qr')).toBe('Session ended: connection lost.');
+    expect(statusCopy({ state: 'expired', reason: 'stopped' }, 'qr')).toBe('Session ended.');
     expect(statusCopy({ state: 'idle' }, 'qr')).toBe('Disconnected.');
   });
 

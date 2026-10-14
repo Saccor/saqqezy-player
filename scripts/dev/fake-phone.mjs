@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Dev tool: a fake phone companion for checking the TV pairing screen without the companion web app.
-// It pairs with a TV session through the dev relay, says hello, asks for the state once, then stays connected.
+// It pairs with a TV session through the dev relay, says hello, asks for the state once, then stays connected,
+// pinging every 25 s like the real companion (the TV shows the phone as gone after 75 s of silence).
 //
 // Usage (with `pnpm relay:dev` and the TV dev server running, the TV on Settings → Manage on phone or computer):
 //   pnpm fake-phone '<QR URL or #s=…&k=… fragment>'   [--label "Fake phone"] [--seconds 60] [--no-bye]
@@ -17,7 +18,8 @@
 
 import WebSocket from 'ws';
 import {
-  SecureChannel, WebSocketRelayTransport, isTvToPhone, normalizeCode, secretsFromCode, secretsFromQrFragment,
+  PING_INTERVAL_MS, SecureChannel, WebSocketRelayTransport, isTvToPhone, normalizeCode, secretsFromCode,
+  secretsFromQrFragment,
 } from '../../packages/companion-protocol/src/index.ts';
 
 const RELAY = (process.env.RELAY_URL ?? 'ws://127.0.0.1:8787').replace(/\/+$/, '');
@@ -69,16 +71,36 @@ const transport = new WebSocketRelayTransport({
 });
 const channel = new SecureChannel({ secrets, role: 'phone', transport, validate: isTvToPhone });
 
-transport.onDisconnected?.(() => console.log('[relay] disconnected, reconnecting…'));
-transport.onReconnected?.(() => {
-  console.log('[relay] reconnected');
-  void channel.send({ t: 'getState' });
+/** The `state.version` last received, so a re-request after a reconnect can get `stateUnchanged`. */
+let haveVersion;
+let linkUp = true;
+const getState = () => channel.send(haveVersion === undefined ? { t: 'getState' } : { t: 'getState', haveVersion }).catch(() => {});
+
+transport.onDisconnected?.(() => {
+  linkUp = false;
+  console.log('[relay] disconnected, reconnecting…');
 });
+transport.onReconnected?.(() => {
+  linkUp = true;
+  console.log('[relay] reconnected');
+  void getState();
+});
+// Presence: the TV counts the phone as gone after 75 s without a message.
+const pinger = setInterval(() => {
+  if (linkUp) channel.send({ t: 'ping' }).catch(() => {});
+}, PING_INTERVAL_MS);
 
 channel.onMessage((msg) => {
   switch (msg.t) {
     case 'welcome': console.log(`[tv] welcome (app ${msg.tv.appVersion})`); break;
-    case 'state': console.log(`[tv] state: ${msg.state.channels.length} channels, ${msg.state.sources.length} sources`); break;
+    case 'state':
+      haveVersion = msg.state.version;
+      console.log(`[tv] state: ${msg.state.channels.length} channels, ${msg.state.sources.length} sources`);
+      break;
+    case 'stateUnchanged': console.log(`[tv] state unchanged (version ${msg.version})`); break;
+    case 'result':
+      if (!msg.ok) console.log(`[tv] result: ${msg.error?.name ?? 'error'}`);
+      break;
     case 'bye': console.log('[tv] bye'); finish(0, false); break;
     default: console.log(`[tv] ${msg.t}`);
   }
@@ -93,6 +115,7 @@ function finish(code, sayBye) {
   if (finished) return;
   finished = true;
   const done = () => {
+    clearInterval(pinger);
     channel.close();
     process.exit(code);
   };
@@ -105,5 +128,5 @@ process.on('SIGINT', () => finish(0, args.bye));
 if (Number.isFinite(args.seconds)) setTimeout(() => finish(0, args.bye), args.seconds * 1000);
 
 await channel.send({ t: 'hello', client: { kind: 'phone', label: args.label } });
-await channel.send({ t: 'getState' });
+await getState();
 console.log('[phone] hello + getState sent; Ctrl+C to leave');
