@@ -136,6 +136,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
 
   const closeKeyboard = () => {
     setEditing(undefined);
+    // The password is shown only while it is being typed or deliberately revealed on the form.
+    setRevealed(false);
     removeKeyboard = undefined;
     restoreFocus();
   };
@@ -158,6 +160,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     const v = kind() === 'xtream' ? validateXtream(xtream()) : validateM3u(m3u());
     if (!v.ok) {
       setError(v.message);
+      setRevealed(false);
       focusItem(fields().findIndex((f) => f.key === v.field));
       return;
     }
@@ -192,6 +195,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       console.warn(editId !== undefined ? 'Save source failed' : 'Add source failed', err instanceof Error ? err.name : 'Error');
       setBusy(false);
       setError(errorMessage(err));
+      setRevealed(false);
       focusItem(0);
     }
   };
