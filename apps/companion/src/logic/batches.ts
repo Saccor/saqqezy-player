@@ -34,11 +34,30 @@ function withIds(op: IdOp, ids: string[]): LayoutOp {
   return op.op === 'addToList' || op.op === 'removeFromList' ? { ...op, channelIds: ids } : { ...op, ids };
 }
 
-const size = (op: LayoutOp): number => JSON.stringify(op).length + 1;
+/**
+ * UTF-8 byte length of `s`, as TextEncoder would encode it (a lone surrogate becomes U+FFFD, 3 bytes), without
+ * allocating the encoded bytes.
+ */
+export function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
+/** UTF-8 bytes of an op in a JSON array, separator included. */
+const size = (op: LayoutOp): number => utf8Length(JSON.stringify(op)) + 1;
 
 /**
  * Splits a change into `ops` batches the TV accepts: at most `maxOps` (MAX_OPS_PER_BATCH) ops per batch, at most
- * `maxIds` (MAX_IDS) ids per op, and about `maxBytes` of JSON per batch. Set-like ops (add/remove, hide/unhide)
+ * `maxIds` (MAX_IDS) ids per op, and about `maxBytes` of JSON (UTF-8 bytes) per batch. Set-like ops (add/remove, hide/unhide)
  * are split; order ops (`setGroupOrder`, `setChannelOrder`) never are, because the full order must arrive whole.
  * Order is kept throughout.
  */
@@ -59,7 +78,7 @@ export function chunkOps(ops: readonly LayoutOp[], opts: ChunkOptions = {}): Lay
     let cur: string[] = [];
     let bytes = overhead;
     for (const id of ids) {
-      const b = JSON.stringify(id).length + 1;
+      const b = utf8Length(JSON.stringify(id)) + 1;
       if (cur.length > 0 && (cur.length >= maxIds || bytes + b > maxBytes)) {
         pieces.push(withIds(op as IdOp, cur));
         cur = [];
