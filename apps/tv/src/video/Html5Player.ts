@@ -4,6 +4,7 @@ import type {
   AspectMode, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
+import { AutoMute } from './autoMute.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -49,14 +50,23 @@ export class Html5Player implements Player {
   private session: Session | undefined;
 
   private readonly preferNativeHls: boolean;
+  private readonly autoMute: AutoMute;
 
   constructor(private readonly layer: VideoLayer, opts: { preferNativeHls?: boolean } = {}) {
     this.video = layer.video;
     this.preferNativeHls = opts.preferNativeHls ?? true;
+    this.autoMute = new AutoMute(this.video);
+  }
+
+  /** Gives the sound back after an autoplay-policy mute; call it from a user gesture (key press). */
+  unmuteIfAutoMuted(): void {
+    this.autoMute.release();
   }
 
   open(url: string, attemptId?: number): Promise<void> {
     this.stop();
+    // Once the page has had a user gesture, playback with sound is allowed again.
+    this.autoMute.releaseIfActivated((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation);
     const s: Session = { url, attemptId, dead: false, engine: undefined, cleanups: [] };
     this.session = s;
     const v = this.video;
@@ -136,8 +146,8 @@ export class Html5Player implements Player {
     this.video.play().catch((err: unknown) => {
       if (s.dead) return;
       // Desktop autoplay policy: without a user gesture only muted playback may start.
-      if (err instanceof DOMException && err.name === 'NotAllowedError' && !this.video.muted) {
-        this.video.muted = true;
+      // The mute is remembered and dropped on the next key press (`unmuteIfAutoMuted`).
+      if (err instanceof DOMException && err.name === 'NotAllowedError' && this.autoMute.mute()) {
         this.play(s);
       }
       // AbortError (superseded by stop/open) and the rest surface through the element/engine error events.

@@ -6,7 +6,7 @@ import { App } from './App.tsx';
 import { api } from './api.ts';
 import { router } from './shell/router.ts';
 import { showToast } from './shell/Toast.tsx';
-import { installKeys } from './input/keys.ts';
+import { installKeys, onUserGesture } from './input/keys.ts';
 import { playback, player, videoLayer as layer } from './playback/playback.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
 import { platformId } from './state/appState.ts';
@@ -44,5 +44,7 @@ if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { p
 
 // Tizen only delivers colour, digit, channel, play/pause and info keys that the app registers.
 if (platformId === 'tizen') registerKeys();
+// Desktop autoplay may have started the stream muted: the first key press gives the sound back.
+onUserGesture(() => player.unmuteIfAutoMuted?.());
 installKeys();
 render(() => <App />);

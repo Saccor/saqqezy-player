@@ -47,6 +47,17 @@ export function onUnmappedKey(fn: (e: KeyboardEvent) => void): () => void {
   return () => { rawListeners.delete(fn); };
 }
 
+const gestureListeners = new Set<() => void>();
+
+/**
+ * Observer for every real keydown (mapped or not, typed or not), called while the browser still counts it as a
+ * user gesture. The player uses it to give the sound back after an autoplay-policy mute.
+ */
+export function onUserGesture(fn: () => void): () => void {
+  gestureListeners.add(fn);
+  return () => { gestureListeners.delete(fn); };
+}
+
 let textCapture: ((e: KeyboardEvent) => boolean) | undefined;
 
 /**
@@ -98,7 +109,15 @@ export function installKeys(
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (forwarded.has(e) || isTextEntry(e.target)) return;
+    if (forwarded.has(e)) return;
+    for (const fn of [...gestureListeners]) {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Gesture handler failed', (err as { name?: string } | undefined)?.name);
+      }
+    }
+    if (isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
     let consumed = false;
     try {

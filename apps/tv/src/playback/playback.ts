@@ -18,6 +18,8 @@ if (!videoRoot) throw new Error('index.html is missing #video-layer');
 /** The shared player, plus the in-flight URL for the stream info panel (credentials: never display/log it). */
 export interface AppPlayer extends Player {
   currentUrl(): string | undefined;
+  /** HTML5 only: drops a mute the desktop autoplay policy forced on us (call from a user gesture). */
+  unmuteIfAutoMuted?(): void;
 }
 
 const avplay = platformId === 'tizen' ? getAvplay() : undefined;

@@ -150,7 +150,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - Error mapping: `<video>` MediaError 4 is `NETWORK` (retryable) while `readyState === 0` (HAVE_NOTHING: the load itself failed, e.g. 404, refused, dropped) and `UNSUPPORTED` only once metadata has loaded (`readyState >= 1`). MediaError 2 is `NETWORK`, 3 is `DECODE`, the rest `MEDIA`. hls.js errors are reported only when fatal, or for `MANIFEST_INCOMPATIBLE_CODECS_ERROR`; codec errors map to `UNSUPPORTED`, other network errors to `NETWORK`. mpegts codec/format errors map to `UNSUPPORTED`.
 - mpegts teardown wraps each call (`pause`, `unload`, `detachMediaElement`, `destroy`) in its own try/catch so the element reset always runs.
 - `installKeys` ignores key events whose target is an `<input>`, `<textarea>` or contenteditable element (no mapping, `preventDefault` or `stopImmediatePropagation`), so future DOM text entry works.
-- Desktop autoplay policy: if `play()` is rejected with `NotAllowedError`, the player retries muted.
+- Desktop autoplay policy: if `play()` is rejected with `NotAllowedError`, the player retries muted and remembers that the mute is its own (`video/autoMute.ts`, unit-tested). `onUserGesture` in `input/keys.ts` (every real keydown) calls `player.unmuteIfAutoMuted()`, and `open()` drops the mute when `navigator.userActivation.hasBeenActive`.
 
 ## App shell (Task 5)
 
