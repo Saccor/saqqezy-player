@@ -774,8 +774,12 @@ export class AppApi {
       } catch (err) {
         this.record('rebuildTitleIndex', err);
         if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
-        // Not retried this session: searches return channels only, without the pending note.
-        if (this.activeId === id) this.titlesMissing = { sourceId: id, epoch: this.titlesEpoch };
+        // Not retried this session: searches return channels only, without the pending note. As on the
+        // load-missing path, searchReady lets the TV re-run the query and drop its "being prepared" note.
+        if (this.activeId === id) {
+          this.titlesMissing = { sourceId: id, epoch: this.titlesEpoch };
+          this.emit({ type: 'searchReady', sourceId: id });
+        }
         return;
       }
       if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');

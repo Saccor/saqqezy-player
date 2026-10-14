@@ -320,7 +320,7 @@ describe('AppApi', () => {
     expect(r.channels.length + r.onNow.length + r.later.length).toBeLessThanOrEqual(12);
   });
 
-  test('search: a failed rebuild reports guidePending once, then clears and records the error', async () => {
+  test('search: a failed rebuild reports guidePending once, emits searchReady, then clears and records the error', async () => {
     const { seed, sourceId } = await seeded();
     await seed.refresh('epg');
     await storage.setMeta(`titleIndex:${sourceId}`, null);
@@ -331,7 +331,8 @@ describe('AppApi', () => {
     await api.init();
     expect((await api.search('programme 12', 50)).guidePending).toBe(true);
     await api.idle();
-    expect(events.some((e) => e.type === 'searchReady')).toBe(false);
+    // searchReady lets the TV re-run the query and drop its "being prepared" note.
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
     const second = await api.search('programme 12', 50);
     expect(second.guidePending).toBe(false);
     expect(second.onNow).toEqual([]);
