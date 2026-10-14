@@ -28,3 +28,7 @@ export {
   type EpgResult, type IngestResult, type NewSource, type Progress, type SourceServiceDeps,
 } from './service/sourceService.ts';
 export * from './layout/index.ts';
+export {
+  MAX_TITLE_AIRINGS, TitleIndexBuilder, isTitleIndexData, queryTitles,
+  type TitleAiring, type TitleIndexData, type TitleMatch,
+} from './search/titleIndex.ts';
