@@ -17,6 +17,14 @@ export interface Work {
   op: WorkOp;
   /** No sign of life from the TV for SOURCE_IDLE_TIMEOUT_MS; cleared by the result or the next state. */
   stalled: boolean;
+  /** The request that set this marker: only that request may update or clear it (see `nextWorkToken`). */
+  token: number;
+}
+
+let workSeq = 0;
+/** A fresh token for one request's working marker, so a stale request finishing cannot clear a newer marker. */
+export function nextWorkToken(): number {
+  return ++workSeq;
 }
 
 export interface AppState {
@@ -140,6 +148,19 @@ export function connect(secrets: PairingSecrets): void {
   optimistic.reset();
   publishLayout();
   setChannels([]);
+  let c: CompanionClient;
+  try {
+    c = makeClient(secrets);
+  } catch (e) {
+    // Nothing started: back to pairing (the caller shows the error).
+    setStore({ phase: 'pair' });
+    throw e;
+  }
+  client = c;
+  c.start();
+}
+
+function makeClient(secrets: PairingSecrets): CompanionClient {
   const c: CompanionClient = new CompanionClient(secrets, {
     relayUrl: RELAY_URL,
     client: detectClient(navigator.userAgent, navigator.maxTouchPoints ?? 0),
@@ -193,8 +214,7 @@ export function connect(secrets: PairingSecrets): void {
       },
     },
   });
-  client = c;
-  c.start();
+  return c;
 }
 
 /** Page visible again: reconnect now if the link is down. */

@@ -1,5 +1,6 @@
 import { createSignal, Show } from 'solid-js';
 import { formatCodeInput, isCodeComplete, pairFromCode } from '../connection/pair.ts';
+import { COPY } from '../logic/copy.ts';
 import { connect } from '../state/store.ts';
 
 /**
@@ -32,7 +33,12 @@ export function PairPage(props: { message: string | undefined }) {
     try {
       const secrets = await pairFromCode(code());
       setCode('');
-      connect(secrets);
+      try {
+        connect(secrets);
+      } catch {
+        // Not a bad code: the session could not be started here (connect() is back in the pair phase).
+        setError(COPY.genericError);
+      }
     } catch {
       setError('Enter the 12-character code shown on your TV.');
     } finally {

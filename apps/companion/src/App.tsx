@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, Match, on, Show, Switch, type Accessor, type JSX } from 'solid-js';
 import { pairFromFragment } from './connection/pair.ts';
 import { COPY } from './logic/copy.ts';
+import { linkView } from './logic/status.ts';
 import { DisplayPage } from './pages/Display.tsx';
 import { GroupsPage } from './pages/Groups.tsx';
 import { ListsPage } from './pages/Lists.tsx';
@@ -36,7 +37,7 @@ export function App(props: { fragment: Accessor<string | null>; clearFragment: (
           try {
             connect(secrets);
           } catch {
-            // Not a bad link: the session could not be started here.
+            // Not a bad link: the session could not be started here. connect() is back in the pair phase.
             setPairError(COPY.genericError);
           }
         },
@@ -80,16 +81,15 @@ export function App(props: { fragment: Accessor<string | null>; clearFragment: (
 
 function Shell() {
   const [tab, setTab] = createSignal<Tab>('sources');
-  /** After a reconnect or resume the TV must answer getState; until it does again it is not "Connected". */
-  const answering = () => store.stateStatus !== 'unanswered';
-  const linkText = () => (store.link === 'online' ? COPY.notAnswering : store.link === 'reconnecting' ? 'Reconnecting…' : 'Connecting…');
+  /** After a reconnect or resume the TV must answer getState; until it does again (or while Retry runs) it is not "Connected". */
+  const view = () => linkView(store.link, store.stateStatus);
 
   return (
     <div class="shell">
       <header class="topbar">
-        <span class={`dot ${store.link === 'online' && answering() ? 'online' : 'waiting'}`} aria-hidden="true" />
+        <span class={`dot ${view().online ? 'online' : 'waiting'}`} aria-hidden="true" />
         <p class="topbar-title" role="status" aria-live="polite">
-          <Show when={store.link === 'online' && answering()} fallback={linkText()}>
+          <Show when={view().online} fallback={view().text}>
             Connected to <strong>{store.tvLabel ?? 'your TV'}</strong>
           </Show>
         </p>
