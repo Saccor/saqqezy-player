@@ -53,6 +53,25 @@ export function initialViewStart(now: number, win: TimeRange): number {
   return clampViewStart(floorHalfHour(now), win);
 }
 
+/** Where the guide opens: route params (Search opens it at a channel and time), else now and the remembered group. */
+export function guideOpenTarget(
+  params: Record<string, unknown>, now: number, win: TimeRange,
+): { channelId?: string; groupId?: string; viewStart: number; anchor: number } {
+  const out: { channelId?: string; groupId?: string; viewStart: number; anchor: number } =
+    { viewStart: initialViewStart(now, win), anchor: now };
+  const channelId = typeof params.channelId === 'string' ? params.channelId : undefined;
+  const groupId = typeof params.groupId === 'string' ? params.groupId : undefined;
+  if (channelId !== undefined) out.channelId = channelId;
+  if (groupId !== undefined) out.groupId = groupId;
+  else if (channelId !== undefined) out.groupId = 'all';
+  const at = params.at;
+  if (channelId !== undefined && typeof at === 'number' && Number.isFinite(at)) {
+    out.anchor = Math.max(win.start, Math.min(win.end - 1, at));
+    out.viewStart = clampViewStart(floorHalfHour(out.anchor), win);
+  }
+  return out;
+}
+
 /** Half-hour tick marks inside [viewStart, viewStart + span). */
 export function ticks(viewStart: number, span = VIEW_SPAN): number[] {
   const out: number[] = [];
