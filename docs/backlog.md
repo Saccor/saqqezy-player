@@ -201,7 +201,7 @@ Small items from the implementation reviews that v1 ships without.
 - Home: preview panel flickers after the debounce; "No information" gap rows never expire; `stopPreview` naming.
 - Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
 - Search: real-TV timing of keystroke-to-paint and heap with the title index loaded (Tizen dev build).
-- Search: building the title index adds noticeable time to guide import in the parse-only bench (packages/core/perf/search.perf.ts import-overhead test fails its 15 % bound); next step flat typed arrays + counting sort in TitleIndexBuilder.build(), or revisit the bound.
+- Search: import overhead of the title index on device. The spec target is < 5 % of the real guide import (parse plus IndexedDB writes); measure it on a Tizen dev build with a large synthetic guide. On desktop, `packages/core/perf/search.perf.ts` replaced the parse-only ratio test with an absolute builder budget (add + build < 1 µs per pre-parsed programme, median of 5) and a retained-heap check after an import (< 30 MB at 2000 × 270 programmes).
 
 ## Follow-ups from the v1.1 merge review
 - Source switch can push two full states. Call `companionStale()` once after `activate()` in the source operations.

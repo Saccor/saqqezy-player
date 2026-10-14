@@ -42,6 +42,11 @@ export interface TitleMatch {
 
 interface TitleEntry { display: string; air: number[] }
 
+/** A copy of `s` that shares no storage with it (concatenating then slicing flattens into a new string). */
+function copyString(s: string): string {
+  return (' ' + s).slice(1);
+}
+
 export class TitleIndexBuilder {
   private readonly titles = new Map<string, TitleEntry>();
   /** Raw spelling -> its deduped entry (null: the title has an empty key). Each spelling is normalised once. */
@@ -59,15 +64,18 @@ export class TitleIndexBuilder {
   add(title: string, epgKey: string, start: number, stop: number): void {
     let t = this.byRaw.get(title);
     if (t === undefined) {
-      const key = searchKey(title);
+      // A flat copy: the parser's strings are slices of 64 KB input chunks, and keeping one (as a map
+      // key, display or search key) would pin its whole chunk, so the guide text would stay in memory.
+      const raw = copyString(title);
+      const key = searchKey(raw);
       if (key) {
         t = this.titles.get(key);
         if (!t) {
-          t = { display: title.trim(), air: [] };
+          t = { display: raw.trim(), air: [] };
           this.titles.set(key, t);
         }
       } else t = null;
-      this.byRaw.set(title, t);
+      this.byRaw.set(raw, t);
     }
     if (t === null) return;
     if (this.airings >= this.maxAirings) {
