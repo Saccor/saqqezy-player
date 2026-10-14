@@ -91,6 +91,12 @@ export class AppApi {
   private titlesEpoch = 0;
   /** Sources whose title index rebuild was already tried this session. */
   private readonly titleRebuilds = new Map<string, 'running' | 'done'>();
+  /** The title index load in flight (one per source and epoch; concurrent searches join it). */
+  private titleLoad: { sourceId: string; epoch: number } | undefined;
+  /** Title index loads in flight (awaited by the test-only `idle`). */
+  private readonly titleJobs = new Set<Promise<void>>();
+  /** No title index for this source and epoch, and its one rebuild was already tried: channels only, not pending. */
+  private titlesMissing: { sourceId: string; epoch: number } | undefined;
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
@@ -273,10 +279,11 @@ export class AppApi {
       const epoch = this.titlesEpoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
-      const data = guided ? await this.titleIndex(id) : undefined;
-      // Pending only while a rebuild is queued or running; a finished one that left no index is not retried.
+      // Never waits on loading the index: without it in memory, channels come back now and `searchReady` follows.
+      const data = guided ? this.cachedTitles(id) : undefined;
+      // Pending while a load or a rebuild is in flight; once both finished with no index, channels only.
       if (!data) {
-        const guidePending = guided && this.titleRebuilds.get(id) === 'running';
+        const guidePending = guided && this.titlesPending(id);
         return { channels: await this.toRows(found), onNow: [], later: [], guidePending };
       }
       const hits = await this.programmeHits(data, query);
@@ -495,8 +502,8 @@ export class AppApi {
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
   async idle(): Promise<void> {
-    while (this.queues.size || this.shortJobs.size) {
-      await Promise.all([...this.queues.values(), ...this.shortJobs]);
+    while (this.queues.size || this.shortJobs.size || this.titleJobs.size) {
+      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
     }
   }
 
@@ -702,20 +709,60 @@ export class AppApi {
     this.nnCache = new Map();
   }
 
-  /** The cached or stored title index of `id`; undefined starts a one-time background rebuild. */
-  private async titleIndex(id: string): Promise<TitleIndexData | undefined> {
+  /**
+   * The title index of `id` when it is in memory. Otherwise undefined, after starting (or joining) its
+   * background load, unless a rebuild is running (it loads the index when done) or the index is known missing.
+   */
+  private cachedTitles(id: string): TitleIndexData | undefined {
     if (this.titlesTimer !== undefined) clearTimeout(this.titlesTimer);
     this.titlesTimer = setTimeout(() => { this.titles = undefined; this.titlesTimer = undefined; }, TITLES_IDLE_MS);
     (this.titlesTimer as { unref?: () => void }).unref?.();
     if (this.titles?.sourceId === id) return this.titles.data;
+    const missing = this.titlesMissing;
+    if (missing?.sourceId === id && missing.epoch === this.titlesEpoch) return undefined;
+    if (this.titleRebuilds.get(id) === 'running') return undefined;
+    this.loadTitles(id);
+    return undefined;
+  }
+
+  /** True while a title index load or rebuild of `id` is in flight. */
+  private titlesPending(id: string): boolean {
+    return this.titleLoad?.sourceId === id || this.titleRebuilds.get(id) === 'running';
+  }
+
+  /**
+   * Loads the stored title index of `id` in the background (one load per source and epoch). When it is still
+   * current: caches it and emits `searchReady`; with no usable record, starts the one-time rebuild, or, when
+   * that was already tried, marks the index missing and emits `searchReady` so the TV drops its pending note.
+   */
+  private loadTitles(id: string): void {
     const epoch = this.titlesEpoch;
-    const data = await this.service.titleIndexFor(id);
-    if (!data) {
-      this.startTitleRebuild(id);
-      return undefined;
-    }
-    if (epoch === this.titlesEpoch && this.activeId === id) this.titles = { sourceId: id, data };
-    return data;
+    if (this.titleLoad?.sourceId === id && this.titleLoad.epoch === epoch) return;
+    const load = { sourceId: id, epoch };
+    this.titleLoad = load;
+    const job = (async () => {
+      let data: TitleIndexData | undefined;
+      try {
+        data = await this.service.titleIndexFor(id);
+      } catch (err) {
+        // Never a failed search: logged by error name only, then rebuilt like a missing record.
+        this.note('search', `Title index could not be read (${err instanceof Error ? err.name : 'Error'}).`);
+      }
+      if (this.titleLoad === load) this.titleLoad = undefined;
+      // The source or its guide changed meanwhile: this result belongs to an older index.
+      if (this.activeId !== id || this.titlesEpoch !== epoch) return;
+      if (data) {
+        this.titles = { sourceId: id, data };
+        this.emit({ type: 'searchReady', sourceId: id });
+      } else if (!this.titleRebuilds.has(id)) {
+        this.startTitleRebuild(id);
+      } else if (this.titleRebuilds.get(id) === 'done') {
+        this.titlesMissing = { sourceId: id, epoch };
+        this.emit({ type: 'searchReady', sourceId: id });
+      }
+    })().catch((err: unknown) => { this.record('search', err); });
+    this.titleJobs.add(job);
+    void job.then(() => this.titleJobs.delete(job));
   }
 
   private startTitleRebuild(id: string): void {
@@ -727,10 +774,13 @@ export class AppApi {
       } catch (err) {
         this.record('rebuildTitleIndex', err);
         if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
+        // Not retried this session: searches return channels only, without the pending note.
+        if (this.activeId === id) this.titlesMissing = { sourceId: id, epoch: this.titlesEpoch };
         return;
       }
       if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
-      if (this.activeId === id) this.emit({ type: 'searchReady', sourceId: id });
+      // Load the rebuilt index; its load emits `searchReady`.
+      if (this.activeId === id) this.loadTitles(id);
     });
   }
 
