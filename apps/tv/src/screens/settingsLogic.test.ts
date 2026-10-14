@@ -4,6 +4,9 @@ import {
   AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, screenLines, uaVersions,
   formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
+import {
+  HIDE_NO_EPG_HELP, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
+} from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
   it('lists the eight pages in menu order', () => {
@@ -177,5 +180,80 @@ describe('screenLines', () => {
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
+  });
+});
+
+describe('guideLoaded', () => {
+  const diag = (epgAt: number): DiagnosticsInfo => ({
+    appVersion: '1', lastErrors: [], settings: {} as DiagnosticsInfo['settings'],
+    sources: [
+      { id: 's1', name: 'A', kind: 'xtream', channels: 1, skipped: 0, playlistAt: 1, epgAt },
+      { id: 's2', name: 'B', kind: 'm3u', channels: 1, skipped: 0, playlistAt: 1, epgAt: 5 },
+    ],
+  });
+
+  it('is true once the active source has downloaded its guide', () => {
+    expect(guideLoaded(diag(1000), 's1')).toBe(true);
+  });
+
+  it('is false when the guide was never downloaded, or without an active source', () => {
+    expect(guideLoaded(diag(0), 's1')).toBe(false);
+    expect(guideLoaded(diag(1000), undefined)).toBe(false);
+    expect(guideLoaded(diag(1000), 's-gone')).toBe(false);
+  });
+});
+
+describe('hideNoEpgRow', () => {
+  it('is disabled with an explanation until the guide has been downloaded', () => {
+    expect(hideNoEpgRow(false, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
+    expect(hideNoEpgRow(false, true).disabled).toBe(true);
+    expect(HIDE_NO_EPG_UNAVAILABLE).toBe('Available after the TV guide has been downloaded.');
+  });
+
+  it('is a toggle once the guide is there', () => {
+    expect(hideNoEpgRow(true, false)).toEqual({ disabled: false, value: 'Off', help: HIDE_NO_EPG_HELP });
+    expect(hideNoEpgRow(true, true).value).toBe('On');
+    expect(HIDE_NO_EPG_HELP).toBe('Channels with no programme information are hidden everywhere except your lists.');
+  });
+});
+
+describe('listMoveTarget', () => {
+  it('Favourites (first) never moves', () => {
+    expect(listMoveTarget(0, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(0, 1, 4)).toBeUndefined();
+  });
+
+  it('a list never moves above Favourites', () => {
+    expect(listMoveTarget(1, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(2, -1, 4)).toBe(1);
+  });
+
+  it('the last list cannot move down', () => {
+    expect(listMoveTarget(3, 1, 4)).toBeUndefined();
+    expect(listMoveTarget(2, 1, 4)).toBe(3);
+  });
+
+  it('out-of-range indexes do not move', () => {
+    expect(listMoveTarget(-1, 1, 4)).toBeUndefined();
+    expect(listMoveTarget(4, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(1, 1, 2)).toBeUndefined();
+  });
+});
+
+describe('listActions', () => {
+  const ids = (items: { id: string }[]) => items.map((i) => i.id);
+
+  it('Favourites: rename only (cannot be moved or deleted)', () => {
+    expect(ids(listActions('fav', 0, 3))).toEqual(['rename', 'cancel']);
+  });
+
+  it('a middle list can move both ways and be deleted', () => {
+    expect(ids(listActions('l-a', 1, 3))).toEqual(['rename', 'moveDown', 'delete', 'cancel']);
+    expect(ids(listActions('l-b', 2, 4))).toEqual(['rename', 'moveUp', 'moveDown', 'delete', 'cancel']);
+    expect(ids(listActions('l-c', 3, 4))).toEqual(['rename', 'moveUp', 'delete', 'cancel']);
+  });
+
+  it('labels', () => {
+    expect(listActions('l-b', 2, 4).map((i) => i.label)).toEqual(['Rename…', 'Move up', 'Move down', 'Delete…', 'Cancel']);
   });
 });

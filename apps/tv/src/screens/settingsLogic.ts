@@ -160,3 +160,42 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
   );
   return lines;
 }
+
+// ---- Channels page: hide-without-guide toggle and "My lists" ----
+
+export const HIDE_NO_EPG_UNAVAILABLE = 'Available after the TV guide has been downloaded.';
+export const HIDE_NO_EPG_HELP = 'Channels with no programme information are hidden everywhere except your lists.';
+
+/** True once the active source has downloaded its TV guide (the no-guide filter needs that guide's coverage). */
+export function guideLoaded(info: DiagnosticsInfo, activeSourceId: string | undefined): boolean {
+  if (activeSourceId === undefined) return false;
+  return (info.sources.find((s) => s.id === activeSourceId)?.epgAt ?? 0) > 0;
+}
+
+/** The "Hide channels without TV guide" row: disabled (with an explanation) until the guide has been downloaded. */
+export function hideNoEpgRow(loaded: boolean, on: boolean): { disabled: boolean; value: string; help: string } {
+  return { disabled: !loaded, value: onOff(on), help: loaded ? HIDE_NO_EPG_HELP : HIDE_NO_EPG_UNAVAILABLE };
+}
+
+/**
+ * Where "Move up" (-1) / "Move down" (+1) takes the list at `index` of `count` lists, or undefined when it
+ * cannot move. Favourites is always first and never moves, so no list moves above it.
+ */
+export function listMoveTarget(index: number, dir: 1 | -1, count: number): number | undefined {
+  if (index < 1 || index >= count) return undefined;
+  const to = index + dir;
+  return to >= 1 && to < count ? to : undefined;
+}
+
+export type ListActionId = 'rename' | 'moveUp' | 'moveDown' | 'delete' | 'cancel';
+
+/** Actions for a list on the Channels page. Favourites can be renamed but not moved or deleted. */
+export function listActions(listId: string, index: number, count: number): { id: ListActionId; label: string }[] {
+  const fav = listId === 'fav';
+  const out: { id: ListActionId; label: string }[] = [{ id: 'rename', label: 'Rename…' }];
+  if (!fav && listMoveTarget(index, -1, count) !== undefined) out.push({ id: 'moveUp', label: 'Move up' });
+  if (!fav && listMoveTarget(index, 1, count) !== undefined) out.push({ id: 'moveDown', label: 'Move down' });
+  if (!fav) out.push({ id: 'delete', label: 'Delete…' });
+  out.push({ id: 'cancel', label: 'Cancel' });
+  return out;
+}

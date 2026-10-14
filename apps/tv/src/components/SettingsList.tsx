@@ -1,7 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { moveFocus, renderRange, scrollTopFor } from './virtualWindow.ts';
+import { firstSelectable, renderRange, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
 export interface SettingItem {
   id: string;
@@ -11,6 +11,10 @@ export interface SettingItem {
   help?: string;
   /** Shows `‹ value ›`: Left/Right change it. */
   adjustable?: boolean;
+  /** Drawn muted; the page ignores Ok on it (the help line says why). */
+  disabled?: boolean;
+  /** A section title: not selectable, Up/Down skip it. */
+  heading?: boolean;
 }
 
 export const SETTING_ROW_H = 104;
@@ -36,17 +40,21 @@ export function SettingsList(props: {
   let lastTop = 0;
   const viewRows = () => Math.max(1, Math.floor(props.height / SETTING_ROW_H));
   const total = () => props.items.length;
-  const sel = () => Math.min(props.selected, Math.max(0, total() - 1));
+  const selectable = (i: number) => props.items[i]?.heading !== true;
+  const sel = () => firstSelectable(props.selected, total(), selectable);
   const top = createMemo(() => {
-    lastTop = scrollTopFor(sel(), lastTop, viewRows(), total());
+    // A heading right above the selection scrolls into view with it.
+    const s = sel();
+    const want = s > 0 && !selectable(s - 1) && s - 1 < lastTop ? s - 1 : s;
+    lastTop = scrollTopFor(want, lastTop, viewRows(), total());
     return lastTop;
   });
   const indices = createMemo(() => {
     const r = renderRange(top(), viewRows(), total());
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
-  const move = (d: number) => {
-    const next = moveFocus(sel(), d, total());
+  const move = (d: 1 | -1) => {
+    const next = stepSelectable(sel(), d, total(), selectable);
     if (next !== sel()) props.onSelect(next);
     return true;
   };
@@ -68,14 +76,19 @@ export function SettingsList(props: {
         const active = () => isSel() && focused();
         const stepper = () => it()?.adjustable === true && active();
         const valueY = (SETTING_ROW_H - 12 - FONT.body) / 2 - 4;
+        // Rows are reused across item changes (keyed by index), so the heading style is reactive too.
+        const heading = () => it()?.heading === true;
+        const labelW = () => (heading() ? props.width - 56 : props.width - VALUE_W - 56);
+        const dim = () => it()?.disabled === true;
         return (
           <View x={0} y={(i - top()) * SETTING_ROW_H} width={props.width} height={SETTING_ROW_H - 12}
             borderRadius={LAYOUT.radius} color={active() ? FOCUS_FILL : isSel() ? COLORS.surface : 0x00000000}
             border={{ width: 3, color: active() ? COLORS.focus : 0x00000000 }}>
-            <Text x={28} y={it()?.help ? 14 : (SETTING_ROW_H - 12 - FONT.body) / 2 - 4}
-              width={props.width - VALUE_W - 56} maxWidth={props.width - VALUE_W - 56} contain="width" maxLines={1}
-              fontSize={FONT.body} color={COLORS.text}>{it()?.label ?? ''}</Text>
-            <Show when={it()?.help}>
+            <Text x={28} y={heading() ? SETTING_ROW_H - 12 - FONT.small - 10 : it()?.help ? 14 : (SETTING_ROW_H - 12 - FONT.body) / 2 - 4}
+              width={labelW()} maxWidth={labelW()} contain="width" maxLines={1}
+              fontSize={heading() ? FONT.small : FONT.body}
+              color={heading() ? COLORS.focus : dim() ? COLORS.muted : COLORS.text}>{it()?.label ?? ''}</Text>
+            <Show when={!heading() && it()?.help}>
               <Text x={28} y={54} width={props.width - VALUE_W - 56} maxWidth={props.width - VALUE_W - 56} contain="width"
                 maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{it()?.help ?? ''}</Text>
             </Show>
@@ -86,7 +99,7 @@ export function SettingsList(props: {
             </Show>
             <Text x={props.width - VALUE_W - 28 + (stepper() ? 28 : 0)} y={valueY} width={VALUE_W - (stepper() ? 56 : 0)}
               maxWidth={VALUE_W - (stepper() ? 56 : 0)} contain="width" textAlign={stepper() ? 'center' : 'right'}
-              maxLines={1} fontSize={FONT.body} color={active() ? COLORS.text : COLORS.muted}>{it()?.value ?? ''}</Text>
+              maxLines={1} fontSize={FONT.body} color={active() && !dim() ? COLORS.text : COLORS.muted}>{it()?.value ?? ''}</Text>
           </View>
         );
       }}</For>

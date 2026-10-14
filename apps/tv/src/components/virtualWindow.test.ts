@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from './virtualWindow.ts';
+import { firstSelectable, stepSelectable } from './virtualWindow.ts';
 
 describe('virtual window math', () => {
   it('keeps the focused row inside the viewport and clamps to the list', () => {
@@ -30,5 +31,40 @@ describe('virtual window math', () => {
     expect(pageFocus(5, 1, 10, 200)).toBe(15);
     expect(pageFocus(195, 1, 10, 200)).toBe(199);
     expect(pageFocus(5, -1, 10, 200)).toBe(0);
+  });
+});
+
+describe('stepSelectable', () => {
+  // Rows 0 and 3 are headings.
+  const ok = (i: number) => i !== 0 && i !== 3;
+
+  it('skips headings', () => {
+    expect(stepSelectable(2, 1, 6, ok)).toBe(4);
+    expect(stepSelectable(4, -1, 6, ok)).toBe(2);
+  });
+
+  it('stays put when only headings lie beyond', () => {
+    expect(stepSelectable(1, -1, 6, ok)).toBe(1);
+    expect(stepSelectable(5, 1, 6, ok)).toBe(5);
+  });
+
+  it('a start on a heading moves to the nearest selectable row in that direction', () => {
+    expect(stepSelectable(0, 1, 6, ok)).toBe(1);
+  });
+
+  it('every row selectable: plain clamped moves', () => {
+    expect(stepSelectable(0, -1, 3, () => true)).toBe(0);
+    expect(stepSelectable(1, 1, 3, () => true)).toBe(2);
+  });
+});
+
+describe('firstSelectable', () => {
+  it('keeps a selectable index and moves off headings (down first, then up)', () => {
+    const ok = (i: number) => i !== 0 && i !== 3;
+    expect(firstSelectable(2, 6, ok)).toBe(2);
+    expect(firstSelectable(0, 6, ok)).toBe(1);
+    expect(firstSelectable(3, 4, ok)).toBe(2);
+    expect(firstSelectable(9, 6, ok)).toBe(5);
+    expect(firstSelectable(0, 0, ok)).toBe(0);
   });
 });
