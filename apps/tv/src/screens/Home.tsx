@@ -10,7 +10,7 @@ import { GroupList } from '../components/GroupList.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { createDebounce } from '../playback/debounce.ts';
-import { playback } from '../playback/playback.ts';
+import { playback, previewHold } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -33,6 +33,7 @@ const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
 const PREVIEW_DELAY_MS = 700;
 const MENU_ID = 'contextMenu';
+const GROUP_ALL = 'all';
 
 type Progress = Extract<AppEvent, { type: 'progress' }>;
 
@@ -63,6 +64,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let removeMenu: (() => void) | undefined;
   let alive = true;
   let startupMarked = false;
+  // Playback was stopped on purpose (sleep timer): no resume and no auto-preview until the user moves.
+  let held = previewHold.take();
   let lastTop = 0;
 
   const cache = new SliceCache<ChannelRow>((g, o, c) => api.getChannelSlice(g, o, c), 40, () => setVersion((v) => v + 1));
@@ -125,6 +128,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const r = focusedRow();
     if (!r || area() !== 'list' || !ready()) return;
     memory.channelId = r.id;
+    if (held) return;
     if (playback.current()?.id !== r.id) preview.schedule(r.id);
     else preview.cancel();
   });
@@ -223,8 +227,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const listKeys = {
-    onMove: (d: number) => { selectRow(moveFocus(focus(), d, total())); return true; },
-    onPage: (dir: 1 | -1) => { selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
+    onMove: (d: number) => { held = false; selectRow(moveFocus(focus(), d, total())); return true; },
+    onPage: (dir: 1 | -1) => { held = false; selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
     onLeft: () => focusArea('groups'),
     onOk: watch,
     onOptions: openMenu,
@@ -234,6 +238,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const g = groups()[i];
     if (!g) return;
     preview.cancel();
+    held = false;
     void openGroup(g.id);
   };
 
@@ -255,18 +260,25 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         setGroups(gs);
         const wantGroup = memory.groupId ?? params.lastGroupId;
-        const wantChannel = memory.channelId ?? params.lastChannelId;
+        // Coming back from the Player: focus the channel that is playing (it may have zapped away).
+        const playingId = playback.current()?.id;
+        const wantChannel = playingId ?? memory.channelId ?? params.lastChannelId;
         const g = pickGroup(gs, wantGroup);
         // An empty cache on first start: the list arrives with a later `refreshed` event.
         if ((gs.find((x) => x.id === 'all')?.count ?? 0) === 0) setWaiting(true);
-        const found = g !== undefined && await openGroup(g, wantChannel);
+        let found = g !== undefined && await openGroup(g, wantChannel);
         if (!alive) return;
+        // A channel reached by number entry may be outside the remembered group: show it in "All".
+        if (!found && playingId !== undefined && g !== GROUP_ALL && gs.some((x) => x.id === GROUP_ALL)) {
+          found = await openGroup(GROUP_ALL, playingId);
+          if (!alive) return;
+        }
         setReady(true);
         focusArea(total() > 0 ? 'list' : 'groups');
         // The preview resumes the last channel right away (no-op when it is already playing). A last channel
         // that is gone or hidden is not resumed; the focused row previews after the usual delay instead.
         const resume = playback.current()?.id ?? (found ? wantChannel : undefined);
-        if (resume) void playById(resume);
+        if (resume && !held) void playById(resume);
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);

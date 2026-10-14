@@ -7,6 +7,7 @@ import { playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { HomeScreen } from './screens/Home.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
+import { PlayerScreen } from './screens/Player.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -80,7 +81,8 @@ export function App() {
         <Show when={current()} keyed fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen />
-            : entry.screen === 'home' ? <HomeScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'home' ? <HomeScreen entry={entry} />
+            : entry.screen === 'player' ? <PlayerScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>

@@ -13,6 +13,8 @@ type Engine =
 
 /** One `open()`; once `dead`, nothing it registered may emit again. */
 interface Session {
+  /** The URL as given to `open()` (before any dev-proxy wrapping). */
+  url: string;
   attemptId: number | undefined;
   dead: boolean;
   engine: Engine | undefined;
@@ -55,7 +57,7 @@ export class Html5Player implements Player {
 
   open(url: string, attemptId?: number): Promise<void> {
     this.stop();
-    const s: Session = { attemptId, dead: false, engine: undefined, cleanups: [] };
+    const s: Session = { url, attemptId, dead: false, engine: undefined, cleanups: [] };
     this.session = s;
     const v = this.video;
     const src = hlsViaDevProxy(url);
@@ -179,6 +181,14 @@ export class Html5Player implements Player {
 
   setAspect(mode: AspectMode): void {
     this.layer.setAspect(mode);
+  }
+
+  /**
+   * The URL of the stream in flight (the supervisor may have switched to the alternate format). Contains
+   * credentials: only for `describeStreamUrl`, never for display or logs.
+   */
+  currentUrl(): string | undefined {
+    return this.session?.url;
   }
 
   audioTracks(): TrackInfo[] {

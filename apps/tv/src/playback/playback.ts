@@ -23,3 +23,13 @@ export const supervisor = new PlaybackSupervisor(player);
 
 /** `playChannel`, `stop`, `setRect`, `status` and `current`; status changes also feed the debug overlay. */
 export const playback = createPlaybackController(player, supervisor, setSupervisorStatus);
+
+let previewHeld = false;
+/**
+ * Set when playback was stopped on purpose (sleep timer) right before returning to Home: Home then does not
+ * resume or auto-preview until the user moves the focus. `take()` reads and clears it.
+ */
+export const previewHold = {
+  set(): void { previewHeld = true; },
+  take(): boolean { const v = previewHeld; previewHeld = false; return v; },
+};
