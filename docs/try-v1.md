@@ -122,17 +122,61 @@ Good to know when you try your own source **in a browser**:
   (TS or HLS), then try the channel again. The app already tries the other format once by itself.
 - **Big lists take a while the first time.** Later starts use the saved copy and are fast.
 
-## 6. Put it on a Samsung TV
+## 6. Manage from your phone (local test)
+
+v1.1 adds **Settings → Manage on phone or computer** on the TV: you organise sources, lists, groups and channels
+from a web page instead of with the remote. The TV and the page talk through a small **relay** that only passes
+encrypted messages along. For this test all three parts run on your computer.
+
+**Start three things,** each in its own terminal, all in the project folder:
+
+| Terminal | Command | What it starts |
+|---|---|---|
+| 1 | `pnpm dev` | The TV app (http://localhost:5173) and the fake provider |
+| 2 | `pnpm relay:dev` | The relay on `127.0.0.1:8787` (local only, no Cloudflare account needed) |
+| 3 | `pnpm companion:dev` | The companion web page (http://localhost:5174) |
+
+Then:
+
+1. Open **http://localhost:5173** (the TV) in one browser tab. Log in to a source first (section 4).
+2. On the TV press **F4** (Settings) and choose **Manage on phone or computer**. It shows a QR code.
+3. Open **http://localhost:5174** (the companion) in a second tab, next to the TV tab if you can.
+4. Connect, in one of two ways:
+   - **By QR link.** You cannot scan the screen with the same computer, so copy the link instead: in the TV tab press
+     F12, open **Console** and type `__iptv.pairing().qrUrl`, then press Enter. Copy the link it prints (without the
+     quotes) into the companion tab's address bar and press Enter. (This console helper exists only in this local
+     test version.)
+   - **By code.** On the TV, go right into the page, then press **F3** (Yellow) or choose **Use a code instead**. Type
+     the 12-character code into the companion page and click **Connect**. Small letters and missing dashes are fine.
+5. After a few seconds the companion shows your sources, and the TV says **Connected**.
+
+Things to try on the companion page: **Add source** (for example the fake provider: server
+`http://127.0.0.1:8899`, username `test`, password `test`), **My lists** (create a list, add channels, drag them
+into order), **Groups** (hide a group, drag groups, open one to rename channels or sort A–Z) and **Display**
+(hide channels without TV guide). Each change shows on the TV within about a second. Changes you make on the TV
+(for example **M** → Add to list) show on the companion too.
+
+Good to know:
+
+- **Codes expire.** A code that nobody uses expires; in this local test that takes only about a minute (on the real
+  service, 15 minutes). The TV then says **This code has expired**: choose **Show a new code**.
+- **Reloading the companion page disconnects it.** It keeps nothing, on purpose. Connect again with a new code.
+- **Disconnect** on the TV ends the session at once; the companion page then says the TV closed the session.
+- **A real phone cannot use this local test.** The page needs a secure (`https`) connection for its encryption,
+  and `localhost` only counts as secure on the computer itself. To use your phone, deploy the companion (see
+  [Deploying the companion](deploy-companion.md)), or serve the local version over HTTPS with your own certificate.
+
+## 7. Put it on a Samsung TV
 
 See [Installing the app on a Samsung TV](install-on-samsung.md). It needs a 2021 or newer Samsung TV and takes
 about an hour the first time.
 
-## 7. What is not in v1
+## 8. What is not in v1
 
 Catch-up, timeshift, recording, VOD, parental PIN, profiles, LG TVs and more are planned for later. See the
 [backlog](backlog.md).
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 **"Port 5173 is already in use" or "port 8899" errors when you run `pnpm dev`.**
 Another copy of the app is probably still running. Close other terminals that run `pnpm dev`, or find and stop

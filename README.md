@@ -8,7 +8,14 @@ v1 covers: a remote-first Channels screen with live preview, favourites, hidden 
 full-screen playback with zapping, number entry, previous channel, options and a sleep timer; a TV guide grid;
 search; settings; and a cached start that reopens the last channel in under a second.
 
+v1.1 adds organisation and a companion: your own lists (with Favourites), group order and hiding, channel renames
+and sorting, "hide channels without TV guide", and **Manage on phone or computer**: scan a QR code (or type a code)
+on the TV and manage sources, lists and groups from a web page. The TV and the page talk through an end-to-end
+encrypted relay that only passes ciphertext along and stores nothing.
+
 - **Try it:** [docs/try-v1.md](docs/try-v1.md) (install, start, keyboard map, test login)
+- **Manage from your phone, local test:** [docs/try-v1.md](docs/try-v1.md#6-manage-from-your-phone-local-test)
+- **Deploy the relay and the companion web app (Cloudflare):** [docs/deploy-companion.md](docs/deploy-companion.md)
 - **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). The Samsung build has
   not yet been verified on a real TV.
 - **What comes later:** [docs/backlog.md](docs/backlog.md)
@@ -24,8 +31,9 @@ The full rules are in [CLAUDE.md](CLAUDE.md). In short:
 - **Client-only media:** our servers never proxy, relay, transcode or cache streams, playlists or guides. The
   dev proxy in `apps/tv/vite.proxy.ts` runs only inside `vite dev` on the developer's machine and is never
   shipped.
-- **Credentials stay on the device**, never in logs, error text or diagnostics. Any future sync must be
-  end-to-end encrypted.
+- **Credentials stay on the device**, never in logs, error text or diagnostics. The companion sends them to the TV
+  end-to-end encrypted; the relay sees only ciphertext and stores nothing. Any future sync must be end-to-end
+  encrypted too.
 - **Speed is the feature:** cached start under 1 s, key response under 100 ms, parsing off the UI thread,
   virtualised lists for 50k+ channels.
 
@@ -38,7 +46,10 @@ The full rules are in [CLAUDE.md](CLAUDE.md). In short:
 | `packages/app-api` | `@iptv/app-api` | The app's API over the core, run in a Web Worker, plus the typed RPC between UI and worker |
 | `packages/platform` | `@iptv/platform` | Platform detection and remote key mapping (browser, Tizen, webOS) |
 | `packages/player` | `@iptv/player` | Player interface and playback supervisor (reconnect, stall watchdog, TS ↔ HLS fallback) |
+| `packages/companion-protocol` | `@iptv/companion-protocol` | Companion pairing (QR secrets, PBKDF2 codes), AES-GCM frames, chunking, replay protection, typed messages, `SecureChannel` and the relay WebSocket transport |
 | `apps/tv` | `@iptv/tv` | The TV app: Lightning 3 + SolidJS screens, HTML5 and AVPlay players, dev proxy. Stack notes: `apps/tv/STACK.md` |
+| `apps/companion` | `@iptv/companion` | The companion web app (SolidJS, Cloudflare Pages): pairing, sources, lists, groups, display |
+| `services/relay` | `@iptv/relay` | Cloudflare Worker + Durable Object that forwards opaque encrypted frames between one TV and one phone; stores nothing. See `services/relay/README.md` |
 | `tools/fake-xtream` | `@iptv/fake-xtream` | Local fake provider with synthetic channels and guide at `http://127.0.0.1:8899` (`test` / `test`) |
 | `tools/tizen` | — | Samsung `.wgt` packaging (`build-wgt.mjs`, icon generator). See `tools/tizen/README.md` |
 
@@ -58,3 +69,12 @@ Requires Node 22+ and pnpm 10 (`corepack enable`). Run `pnpm install` first.
 | `pnpm fake-xtream` | Only the fake provider |
 | `pnpm build:tv` | Production build of the TV app into `apps/tv/dist` |
 | `pnpm build:tizen` | Builds the app and prepares the Samsung package in `dist-tizen/` (signs it when the Tizen CLI is set up) |
+| `pnpm relay:dev` | The companion relay, fully local (`wrangler dev`) on `127.0.0.1:8787`; never-paired sessions expire after 60 s |
+| `pnpm relay:test:int` | Relay integration checks against the running `pnpm relay:dev` (takes about a minute) |
+| `pnpm relay:deploy` | Deploys the relay to Cloudflare with the production settings (see [docs/deploy-companion.md](docs/deploy-companion.md)) |
+| `pnpm companion:dev` | The companion web app dev server (http://localhost:5174) |
+| `pnpm build:companion` | Production build of the companion into `apps/companion/dist` (set `VITE_RELAY_URL`) |
+| `pnpm fake-phone '<QR URL or code>'` | Dev tool: a fake companion that pairs with the TV through the dev relay |
+
+Build variables for production: `VITE_RELAY_URL` (TV and companion) and `VITE_COMPANION_ORIGIN` (TV). See
+[docs/deploy-companion.md](docs/deploy-companion.md#build-variables).
