@@ -1,8 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   PEER_LABEL_MAX, cleanPeerLabel, countdownLine, formatCountdown, isPairingActive, pairingActions, qrMatrix,
-  shouldReuseSession, showPhoneBadge, statusCopy,
+  shouldForgetPairing, shouldReuseSession, showPhoneBadge, START_GRACE_MS, statusCopy,
 } from './pairingLogic.ts';
+
+describe('shouldForgetPairing', () => {
+  it('forgets when the session ended and no start is running', () => {
+    expect(shouldForgetPairing('expired', false, undefined, 1_000)).toBe(true);
+    expect(shouldForgetPairing('idle', false, 500, 500 + START_GRACE_MS)).toBe(true);
+  });
+  it('keeps the shown pairing while a session is live or a start is running', () => {
+    expect(shouldForgetPairing('waiting', false, undefined, 0)).toBe(false);
+    expect(shouldForgetPairing('connected', false, undefined, 0)).toBe(false);
+    expect(shouldForgetPairing('idle', true, undefined, 0)).toBe(false);
+  });
+  it('ignores a stale idle/expired of the old session landing right after the new start succeeded', () => {
+    expect(shouldForgetPairing('idle', false, 1_000, 1_000)).toBe(false);
+    expect(shouldForgetPairing('expired', false, 1_000, 1_000 + START_GRACE_MS - 1)).toBe(false);
+  });
+});
 
 describe('formatCountdown', () => {
   it('formats mm:ss, rounding partial seconds up', () => {

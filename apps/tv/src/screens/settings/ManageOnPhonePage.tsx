@@ -6,7 +6,7 @@ import { QrCode } from '../../components/QrCode.tsx';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
-  countdownLine, isPairingActive, pairingActions, shouldReuseSession, statusCopy,
+  countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy,
   type PairingActionId, type PairingMode, type ShownPairing,
 } from '../pairingLogic.ts';
 import type { PageProps } from './shared.ts';
@@ -28,6 +28,8 @@ const ACTIONS_Y = 220;
  */
 const memory: { shown: ShownPairing | undefined; mode: PairingMode } = { shown: undefined, mode: 'qr' };
 let startSeq = 0;
+/** When the current start's `companionStart` succeeded (see `shouldForgetPairing`); reset by every start and disconnect. */
+let startOkAt: number | undefined;
 
 /** DEV only (`__iptv.pairing()`): what the pairing page shows, for the fake-phone dev tool. Never logged. */
 export function devPairing(): ShownPairing | undefined {
@@ -67,6 +69,7 @@ export function ManageOnPhonePage(props: PageProps) {
 
   const start = async (m: PairingMode) => {
     const seq = ++startSeq;
+    startOkAt = undefined;
     memory.mode = m;
     setMode(m);
     setFailed(false);
@@ -75,6 +78,7 @@ export function ManageOnPhonePage(props: PageProps) {
     try {
       const r = await api.companionStart(m);
       if (seq !== startSeq) return;
+      startOkAt = Date.now();
       const next: ShownPairing = { mode: m, expiresAt: r.expiresAt };
       if (r.qrUrl !== undefined) next.qrUrl = r.qrUrl;
       if (r.code !== undefined) next.code = r.code;
@@ -90,6 +94,7 @@ export function ManageOnPhonePage(props: PageProps) {
 
   const disconnect = async () => {
     ++startSeq;
+    startOkAt = undefined;
     remember(undefined);
     setStarting(false);
     try {
@@ -109,9 +114,10 @@ export function ManageOnPhonePage(props: PageProps) {
     return true;
   };
 
-  // Once the session has ended, its QR URL / code can no longer be joined: forget them.
+  // Once the session has ended, its QR URL / code can no longer be joined: forget them. An `idle`/`expired`
+  // of the previous session arriving right after the new start succeeded is not about the new session.
   createEffect(on(state, (st) => {
-    if (!isPairingActive(st) && !starting()) remember(undefined);
+    if (shouldForgetPairing(st, starting(), startOkAt, Date.now())) remember(undefined);
   }, { defer: true }));
 
   const run = (id: PairingActionId) => {

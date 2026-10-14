@@ -49,6 +49,8 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
 - Performance on the TV: cached start to the Channels list under 1 s, key response under 100 ms, smooth with a
   large list (50k channels) and a large guide.
 - Dolby (AC3 / E-AC3) audio plays on the TV (it cannot in desktop browsers).
+- Manage on phone page: the once-a-second countdown redraw does not flicker on the TV's GPU (it re-renders one `Text`
+  node per second). If it does, update the text only when the displayed `mm:ss` changes or render it as a fixed-width node.
 
 ## Remaining technical items
 

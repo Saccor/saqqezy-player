@@ -88,6 +88,21 @@ export function isPairingActive(state: PairingState): boolean {
   return state === 'waiting' || state === 'connected' || state === 'reconnecting';
 }
 
+/** Status events for a session that just ended can arrive right after `companionStart` resolved for the next one. */
+export const START_GRACE_MS = 250;
+
+/**
+ * Whether the shown QR/code should be forgotten after a status change. Only when no session is live, no start
+ * is running, and the change is not a stale `idle`/`expired` of the previous session landing within
+ * START_GRACE_MS of the current start's successful result (`startedAt`, `undefined` before it succeeded).
+ */
+export function shouldForgetPairing(
+  state: PairingState, starting: boolean, startedAt: number | undefined, now: number,
+): boolean {
+  if (isPairingActive(state) || starting) return false;
+  return startedAt === undefined || now - startedAt >= START_GRACE_MS;
+}
+
 /** Home shows "Phone connected" only while a companion is actually connected. */
 export function showPhoneBadge(status: CompanionStatus | undefined): boolean {
   return status?.state === 'connected';
