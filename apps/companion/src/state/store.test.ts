@@ -36,7 +36,7 @@ vi.mock('../connection/client.ts', () => ({
   },
 }));
 
-const { connect, store } = await import('./store.ts');
+const { channels, connect, store } = await import('./store.ts');
 const { emptyLayout } = await import('@iptv/core');
 const { runRequest } = await import('./actions.ts');
 
@@ -131,5 +131,19 @@ describe('state from another source', () => {
     void sendOps([{ op: 'setHideNoEpg', value: true }]);
     await flush();
     expect(ctl.requests.at(-1)!.msg).toMatchObject({ t: 'ops', sourceId: 's7', baseVersion: 1 });
+  });
+});
+
+describe('channels stay out of the store', () => {
+  it("a state's channel list goes to the channels signal only, never into the reconciled store", () => {
+    connect(SECRETS);
+    const list = [{ id: 'c1', name: 'One', group: 'G', hasEpg: true }, { id: 'c2', name: 'Two', group: 'G', hasEpg: false }];
+    ctl.handlers.state({
+      version: 1, activeSourceId: 's1', sources: [], groups: [], channels: list, coverageKnown: false,
+      layout: { ...emptyLayout(), version: 1 },
+    });
+    expect(channels().map((c) => c.id)).toEqual(['c1', 'c2']);
+    expect(store.state?.activeSourceId).toBe('s1');
+    expect(store.state && 'channels' in store.state).toBe(false);
   });
 });

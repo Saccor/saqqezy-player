@@ -11,6 +11,9 @@ export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) 
 
 export type Phase = 'pair' | 'connecting' | 'connected' | 'ended';
 
+/** What the store keeps of a `state`: everything but the channels (see `channels`). */
+export type HeldState = Omit<CompanionState, 'channels'>;
+
 /** Source work running on the TV, keyed by source id ('add' for a new source). */
 export type WorkOp = 'add' | 'update' | 'delete' | 'setActive' | 'refresh';
 export interface Work {
@@ -33,8 +36,11 @@ export interface AppState {
   tvLabel: string | undefined;
   /** The TV's protocol version (from `welcome`); gate newer message types on it. */
   tvProtocol: number | undefined;
-  /** The TV's companion state; `state.version` is the layout version this copy reflects. */
-  state: CompanionState | undefined;
+  /**
+   * The TV's companion state without its channel list; `state.version` is the layout version this copy reflects.
+   * The channels (up to 50k+) live in the `channels` signal: replaced whole, never proxied or reconciled.
+   */
+  state: HeldState | undefined;
   /** 'unanswered': getState ran out of retries; 'retrying': the user pressed Retry. */
   stateStatus: 'ok' | 'unanswered' | 'retrying';
   progress: { phase: 'playlist' | 'epg'; count: number } | undefined;
@@ -179,8 +185,9 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
         if (store.state && !sameSource) optimistic.reset();
         // The optimistic layer gets its own copy: store state is proxied and reconciled in place.
         optimistic.confirm(structuredClone(state.layout));
-        setChannels(state.channels.slice());
-        setStore('state', reconcile(state, { key: 'id' }));
+        const { channels: list, ...held } = state;
+        setChannels(list.slice());
+        setStore('state', reconcile(held, { key: 'id' }));
         publishLayout();
         // The state is the truth now: stalled work no longer needs its marker.
         for (const [key, w] of Object.entries(store.working)) if (w?.stalled) setWork(key, undefined);
