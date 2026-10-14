@@ -1,17 +1,20 @@
-/* Companion: mobile-first, dark by default (the TV palette), light via the system preference. */
+/* Companion: mobile-first, dark by default (the TV palette), light via the system preference.
+ * Colour tokens are mirrored in src/theme/tokens.ts, whose test checks WCAG AA contrast. Change both together. */
 :root {
   --bg: #0b0d12;
   --surface: #151a24;
   --surface-2: #1d2432;
   --border: #2a3242;
+  --input-border: #6b7488;
   --text: #e8eaf0;
   --muted: #9aa1b2;
   --focus: #4f8cff;
-  --primary: #3f7cf0;
+  --primary: #2563eb;
   --on-primary: #ffffff;
   --error: #ff8a80;
   --error-bg: #3a1c1c;
   --danger: #c8372d;
+  --on-danger: #ffffff;
   --ok: #4cc38a;
   --warn: #f0b429;
   --radius: 12px;
@@ -30,13 +33,16 @@
     --surface: #ffffff;
     --surface-2: #eef0f5;
     --border: #d4d8e1;
+    --input-border: #7a8090;
     --text: #12151c;
     --muted: #535b6c;
     --focus: #1f5fd6;
     --primary: #1f5fd6;
+    --on-primary: #ffffff;
     --error: #b3261e;
     --error-bg: #fde8e6;
     --danger: #b3261e;
+    --on-danger: #ffffff;
     --ok: #1b8a54;
     --warn: #a86b00;
     color-scheme: light;
@@ -92,7 +98,7 @@ input[type='text'], input[type='url'], input[type='password'], input:not([type])
   font: inherit;
   color: var(--text);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border);
   border-radius: 8px;
 }
 input:focus-visible { border-color: var(--focus); }
@@ -118,7 +124,7 @@ input:disabled { opacity: 0.6; }
 .segmented span {
   display: flex; align-items: center; justify-content: center;
   min-height: 48px; padding: 8px 12px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--input-border); border-radius: 8px; background: var(--bg);
 }
 .segmented input:checked + span { border-color: var(--focus); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--focus); }
 .segmented input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -152,7 +158,7 @@ input:disabled { opacity: 0.6; }
 .btn:hover:not(:disabled) { border-color: var(--muted); }
 .btn:disabled { opacity: 0.55; cursor: default; }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
 .btn.danger-text { color: var(--error); }
 .btn.ghost { background: transparent; }
 .btn.wide { width: 100%; min-height: 48px; }
@@ -242,3 +248,5 @@ input:disabled { opacity: 0.6; }
 .empty { padding: 24px 0; }
 .form-card { margin-bottom: 16px; }
 .form-card .form { margin-top: 0; }
+.row-status { color: var(--muted); font-size: 0.875rem; margin-top: 2px; }
+.banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
