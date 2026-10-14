@@ -38,7 +38,7 @@ credentials stay on the device.
 
 | Item | Why | Evidence | Notes |
 |---|---|---|---|
-| **Parental PIN** (locked groups/channels) | Competitors ship it; a family-TV differentiator | Research §1 #18, §2; [Televizo changelog](https://apkmirror.com/apk/andrey-menscikov/televizo-iptv-player/televizo-iptv-player-1-9-2-3-release), [Airo IPTV PIN](https://github.com/zigorminsk-debug/IP-TV-player/pull/1) | PIN stored locally only |
+| **Parental PIN** (locked groups/channels) | Competitors ship it; a family-TV differentiator | Research §1 #18, §2; Televizo changelog (no link), [Airo IPTV PIN](https://github.com/zigorminsk-debug/IP-TV-player/pull/1) | PIN stored locally only |
 | **User-Agent / Referer setting** applied to playlist, guide **and** stream requests | Header-gated lists load but fail in playback when only the list fetch sends them | Research §1 #8, §2, §5; [iptvnator #1221](https://github.com/4gray/iptvnator/issues/1221) | **Caveat:** limited on Tizen web apps (the web layer restricts headers; check AVPlay `setStreamingProperty` support first) |
 | **Quality cap** (Auto / 720p / 1080p) | Weak TV chips overheat or stutter on high bitrates | Research §1 #23, §2; [StreamVault #263](https://github.com/Davidona/StreamVault-IPTV/issues/263) | |
 | **Local XMLTV file** (and paste-a-URL, gz / double-gz tolerant) | Guide data is hosted in odd ways | Research §2; [iptvnator v0.24 notes](https://4gray.github.io/iptvnator/blog/v0-24-release-notes/) | Needs a file picker per platform |
@@ -48,7 +48,7 @@ credentials stay on the device.
 | **Multiview** | Premium feature in competitors | Research §3 (low confidence) | One-stream-at-a-time rule must be revisited |
 | **VOD / series** | Dominant in competitor changelogs | Research §3 | Off-scope for v1 by design |
 | **Sync** between devices | Same sources on every TV | Research §3 | End-to-end encrypted only (guardrail 7). The companion's pairing and `SecureChannel` are a starting point |
-| **Profiles** | Separate favourites / history per person | Research §3; [OTT Navigator changelog](https://www.apkmirror.com/?p=4127005) | |
+| **Profiles** | Separate favourites / history per person | Research §3; OTT Navigator changelog (no link) | |
 
 ## Platforms and distribution
 
@@ -96,15 +96,27 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
 
 Open items from the Plan 3 and Plan 4 reviews and the v1.1 end-to-end pass.
 
-- Companion: the TV does not push source changes made on the TV itself (add, delete, set active). The companion
-  sees them on its next `getState` (after its own source actions, a reconnect, or a `layoutChanged` older than the
-  layout it holds). Consider a `sourcesChanged` push (a new post-`welcome` message gated on the protocol version).
+Done in the v1.1 final review:
+
+- ~~Companion: the TV does not push source changes made on the TV itself.~~ **Done:** while a companion is
+  connected, the TV pushes a coalesced `state` (300 ms, single-flight, cached) when the active source, the source
+  list or the channel set changes.
+- ~~Companion: `layoutChanged` carries no source id.~~ **Done:** protocol 1 (unshipped) now has `sourceId` on `ops`
+  and `layoutChanged`; ops for a source that is no longer active fail with `WrongSource` and the companion resyncs.
+- ~~App API: a connected companion gets a layout push per zap (`markWatched`).~~ **Done:** a batch that only changed
+  "recently watched" is not pushed. (`markWatched` still writes the whole layout to storage on every zap.)
+- **Done:** one field-limit contract (name `NAME_MAX`, URLs and credentials 8192) for the TV form, the companion form
+  and `validateSourceInput`; the companion validates every request with `isPhoneToTv` before sending it.
+- **Done:** the wordmark hides under in-screen overlays and is drawn after the cold start.
+- **Done:** production builds warn about missing `VITE_RELAY_URL` / `VITE_COMPANION_ORIGIN` (`REQUIRE_PROD_ENV=1`
+  fails them); the API-floor guard covers `crypto.randomUUID`, `TextDecoderStream` and block comments.
+
+Still open:
+
 - Companion: the Sources page's Set active, Edit and Refresh buttons have no source name in their accessible name
   (Delete has one). Add `aria-label`s like `Set ${name} as active`.
-- Companion: `layoutChanged` carries no source id; a layout pushed for one source right after a switch is told
-  apart only by its version. A source id on `layoutChanged` (a new message type) would make this exact.
-- App API: `markWatched` writes the whole layout and emits `layoutChanged` on every zap, so a connected companion
-  gets a layout push per zap. Keep "recently watched" out of the synced layout, or debounce it.
+- App API: `markWatched` writes the whole layout to storage on every zap. Keep "recently watched" out of the
+  stored layout, or debounce the write.
 - App API: `deleteSource` should take the layout lock; `loadLayout` migration runs outside the lock; guide coverage
   is not updated atomically with the guide generation; no test for a layout op during a refresh.
 - App API: logo URLs from the user's playlist can carry tokens; they go to the companion (end-to-end encrypted). Consider
