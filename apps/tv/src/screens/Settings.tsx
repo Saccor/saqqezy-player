@@ -10,7 +10,7 @@ import { DiagnosticsPage } from './settings/DiagnosticsPage.tsx';
 import { DisplayPage } from './settings/DisplayPage.tsx';
 import { GuidePage } from './settings/GuidePage.tsx';
 import { PlaybackPage } from './settings/PlaybackPage.tsx';
-import type { PageProps } from './settings/shared.ts';
+import { consumeSubscreenLeave, type PageProps } from './settings/shared.ts';
 import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
 import { SETTINGS_PAGES } from './settingsLogic.ts';
@@ -152,6 +152,7 @@ export function SettingsScreen() {
   });
   onCleanup(() => {
     alive = false;
+    if (!consumeSubscreenLeave()) memory.area = 'menu';
     removeLayer?.();
     router.removeOverlay(DIALOG_ID);
     router.removeOverlay(CHOOSER_ID);

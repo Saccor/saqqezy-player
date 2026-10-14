@@ -6,7 +6,7 @@ import { playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { applyInitState } from '../../state/appState.ts';
-import type { PageProps } from './shared.ts';
+import { markSubscreenLeave, type PageProps } from './shared.ts';
 
 const ADD_ID = '__add';
 /** Focused row across visits (Edit/Add source return to it). */
@@ -90,6 +90,7 @@ export function SourcesPage(props: PageProps) {
 
   const onOk = async (id: string) => {
     if (id === ADD_ID) {
+      markSubscreenLeave();
       router.push('addSource');
       return;
     }
@@ -104,7 +105,7 @@ export function SourcesPage(props: PageProps) {
     ]);
     if (!alive) return;
     if (choice === 'active') await setActive(s);
-    else if (choice === 'edit') router.push('addSource', { sourceId: s.id });
+    else if (choice === 'edit') { markSubscreenLeave(); router.push('addSource', { sourceId: s.id }); }
     else if (choice === 'refresh') await refreshNow();
     else if (choice === 'delete') await remove(s);
   };

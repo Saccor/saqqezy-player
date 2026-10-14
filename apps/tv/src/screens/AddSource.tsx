@@ -6,6 +6,7 @@ import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
 import { playback } from '../playback/playback.ts';
+import { applyInitState } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -168,6 +169,12 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       if (editId !== undefined) {
         await api.updateSource(toUpdatedSource(editId, v.input));
         offProgress();
+        // Renamed sources must show their new name everywhere; a failed re-read must not fail the save.
+        try {
+          applyInitState(await api.init());
+        } catch (err) {
+          console.warn('Refresh state after edit failed', err instanceof Error ? err.name : 'Error');
+        }
         // The running stream may use the old login or address.
         if (editId === activeId) playback.stop();
         // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.

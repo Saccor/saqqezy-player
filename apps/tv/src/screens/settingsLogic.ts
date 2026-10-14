@@ -66,7 +66,21 @@ export function formatTime(ts: number): string {
 export function stripUrls(text: string): string {
   return text
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[link]')
-    .replace(/\S+@\S+/g, '[link]');
+    .replace(/\S+@\S+/g, '[link]')
+    // Bare `host:port/path` or `host:port`.
+    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*:\d{2,5}(?:\/\S*)?/gi, '[link]')
+    // Dotted hosts followed by a path or port: `example.test/x`, `example.test:80`.
+    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+(?=[/:])\S*/gi, '[link]')
+    // Login values in query strings or free text.
+    .replace(/\b(?:user(?:name)?|pass(?:word)?)=\S*/gi, '[link]');
+}
+
+/**
+ * The value to restore when a settings save fails: the pre-change settings, but only if no newer save has
+ * started since (a newer change owns the state then).
+ */
+export function rollbackTarget<T>(previous: T | undefined, seq: number, latestSeq: number): T | undefined {
+  return seq === latestSeq ? previous : undefined;
 }
 
 const KIND_LABEL: Record<string, string> = { xtream: 'Xtream', m3u: 'M3U' };

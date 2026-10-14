@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import {
   AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel,
-  formatTime, offsetLabel, onOff, sleepDefaultLabel, stepOffset, stripUrls,
+  formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
@@ -74,6 +74,27 @@ describe('stripUrls', () => {
     expect(stripUrls('Failed http://example.test:8080/live/u/p/1.ts now')).toBe('Failed [link] now');
     expect(stripUrls('at u:secret@example.test')).toBe('at [link]');
     expect(stripUrls('Could not reach the provider.')).toBe('Could not reach the provider.');
+  });
+  it('removes bare host:port forms', () => {
+    expect(stripUrls('connect example.test:8080/live/1.ts failed')).toBe('connect [link] failed');
+    expect(stripUrls('connect 10.0.0.5:8080 failed')).toBe('connect [link] failed');
+  });
+  it('removes dotted hosts followed by / or :', () => {
+    expect(stripUrls('GET example.test/player_api.php done')).toBe('GET [link] done');
+    expect(stripUrls('host example.test: refused')).toBe('host [link] refused');
+  });
+  it('removes user=/username=/pass=/password= values', () => {
+    expect(stripUrls('bad user=test pass=hunter2 end')).toBe('bad [link] [link] end');
+    expect(stripUrls('username=test&password=test')).toBe('[link]');
+    expect(stripUrls('Password=abc')).toBe('[link]');
+  });
+});
+
+describe('rollbackTarget', () => {
+  it('restores the previous value only when no newer save has started', () => {
+    expect(rollbackTarget({ a: 1 }, 3, 3)).toEqual({ a: 1 });
+    expect(rollbackTarget({ a: 1 }, 3, 4)).toBeUndefined();
+    expect(rollbackTarget(undefined, 3, 3)).toBeUndefined();
   });
 });
 

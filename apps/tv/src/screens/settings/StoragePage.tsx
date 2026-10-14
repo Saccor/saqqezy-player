@@ -23,6 +23,7 @@ export function StoragePage(props: PageProps) {
       showToast('Cache cleared. Downloading channels and guide…');
       api.refresh('both').catch((err: unknown) => {
         console.warn('Refresh after clear failed', err instanceof Error ? err.name : 'Error');
+        showToast("Couldn't download channels. Try again from Settings → Sources.");
       });
     } catch (err) {
       done();
