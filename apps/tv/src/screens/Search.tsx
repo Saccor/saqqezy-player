@@ -10,7 +10,7 @@ import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listTop, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -63,8 +63,10 @@ export function SearchScreen() {
 
   const total = () => state().results.length;
   const rowAt = (i: number) => state().results[i];
+  /** Drawn rows: none while nothing is selectable (the message area then explains why). */
+  const shownRows = createMemo(() => listRows(state().results));
   const top = createMemo(() => {
-    lastTop = listTop(state().results, focus(), lastTop, LIST_ROWS);
+    lastTop = listTop(shownRows(), focus(), lastTop, LIST_ROWS);
     return lastTop;
   });
 
@@ -139,7 +141,7 @@ export function SearchScreen() {
         onChange={onChange} onDone={focusList} onEdgeRight={() => { focusList(); }} />
 
       <SearchResultList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
-        rows={state().results} top={top()} focus={focus()} now={now()} playingId={playback.current()?.id}
+        rows={shownRows()} top={top()} focus={focus()} now={now()} playingId={playback.current()?.id}
         onMove={(d) => { setFocus(stepSelectable(focus(), d, total(), (i) => isSelectable(rowAt(i)))); return true; }}
         onPage={(dir) => {
           const target = Math.max(0, Math.min(total() - 1, focus() + dir * LIST_ROWS));

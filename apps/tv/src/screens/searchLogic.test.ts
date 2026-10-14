@@ -8,6 +8,7 @@ import {
   flattenResults,
   GUIDE_PENDING_NOTE,
   isSelectable,
+  listRows,
   resultsMessage,
   scrollAnchor,
   selectableCount,
@@ -110,9 +111,17 @@ describe('flattenResults', () => {
     expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'On now', 'Coming up']);
   });
 
-  test('pending note only when something is selectable', () => {
+  test('pending note after the results, and on its own when nothing is selectable', () => {
     expect(flattenResults(result({ channels: [row(1)], guidePending: true })).at(-1)).toEqual({ kind: 'note', label: GUIDE_PENDING_NOTE });
-    expect(flattenResults(result({ guidePending: true }))).toEqual([]);
+    expect(flattenResults(result({ guidePending: true }))).toEqual([{ kind: 'note', label: GUIDE_PENDING_NOTE }]);
+    expect(flattenResults(result({}))).toEqual([]);
+  });
+
+  test('listRows shows rows only when something is selectable', () => {
+    const lone = flattenResults(result({ guidePending: true }));
+    expect(listRows(lone)).toEqual([]);
+    const some = flattenResults(result({ channels: [row(1)], guidePending: true }));
+    expect(listRows(some)).toBe(some);
   });
 
   test('selectable rows exclude headers and notes', () => {
@@ -131,6 +140,13 @@ describe('resultsMessage', () => {
     expect(resultsMessage(st({}))).toBe('No channels or programmes match "xyz"');
     expect(resultsMessage(st({ results: [chRow(1)] }))).toBeUndefined();
     expect(resultsMessage(st({ failed: true }))).toBe("Couldn't search right now.");
+  });
+
+  it('says the guide is being prepared when nothing matches yet and the guide is pending', () => {
+    const pending = flattenResults(result({ guidePending: true }));
+    expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Guide results are being prepared');
+    expect(resultsMessage(st({ results: pending, busy: true }))).toBe('Searching…');
+    expect(resultsMessage(st({ results: flattenResults(result({ channels: [row(1)], guidePending: true })) }))).toBeUndefined();
   });
 });
 

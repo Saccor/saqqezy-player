@@ -94,8 +94,14 @@ export function flattenResults(r: SearchResult): SearchRow[] {
     out.push({ kind: 'header', label: 'Coming up' });
     for (const hit of r.later) out.push({ kind: 'later', hit });
   }
-  if (r.guidePending && out.length) out.push({ kind: 'note', label: GUIDE_PENDING_NOTE });
+  // Kept even when nothing is selectable, so `resultsMessage` can say the guide is still being prepared.
+  if (r.guidePending) out.push({ kind: 'note', label: GUIDE_PENDING_NOTE });
   return out;
+}
+
+/** The rows the list draws: none when nothing is selectable (a lone note is shown by `resultsMessage` instead). */
+export function listRows(rows: readonly SearchRow[]): readonly SearchRow[] {
+  return selectableCount(rows) > 0 ? rows : [];
 }
 
 export function isSelectable(row: SearchRow | undefined): boolean {
@@ -114,6 +120,9 @@ export function resultsMessage(s: SearchState<SearchRow>): string | undefined {
   if (selectableCount(s.results) > 0) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
+  if (s.results.some((r) => r.kind === 'note' && r.label === GUIDE_PENDING_NOTE)) {
+    return `No channels match "${s.query}" · ${GUIDE_PENDING_NOTE}`;
+  }
   return `No channels or programmes match "${s.query}"`;
 }
 
