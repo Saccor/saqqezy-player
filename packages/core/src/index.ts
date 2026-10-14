@@ -5,6 +5,7 @@ export * from './errors.ts';
 export { fnv1a } from './hash.ts';
 export { splitLines } from './text/lines.ts';
 export { normalize } from './text/normalize.ts';
+export { searchKey } from './text/searchKey.ts';
 export { parseM3u, type M3uEntry, type ParseStats } from './m3u/parse.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';
 export { ChannelIndex, type ProviderGroupInfo } from './index/channelIndex.ts';
