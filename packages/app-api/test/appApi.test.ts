@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp,
 } from '@iptv/core';
@@ -160,6 +160,19 @@ describe('AppApi', () => {
     expect((await api.getChannelSlice('all', 0, 100)).total).toBe(39);
     expect((await api.hiddenChannels()).map((r) => r.id)).toEqual([id]);
     expect(await api.toggleHidden(id)).toBe(false);
+  });
+
+  test('toggleFavourite and toggleHidden report the real state when the change is refused', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const spy = vi.spyOn(api as unknown as { applyLayoutLocked: () => Promise<unknown> }, 'applyLayoutLocked')
+      .mockResolvedValue({ version: 1, rejected: [{ index: 0, reason: 'cap' }] });
+    expect(await api.toggleFavourite(id)).toBe(false);
+    expect(await api.toggleHidden(id)).toBe(false);
+    spy.mockRestore();
+    expect(await api.toggleFavourite(id)).toBe(true);
+    expect(await api.toggleHidden(id)).toBe(true);
   });
 
   test('markWatched creates recent group and sets last channel on next init', async () => {

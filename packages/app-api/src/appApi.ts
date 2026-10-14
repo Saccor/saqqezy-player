@@ -296,7 +296,7 @@ export class AppApi {
       await this.applyLayoutLocked([on
         ? { op: 'addToList', listId: FAV_LIST_ID, channelIds: [channelId] }
         : { op: 'removeFromList', listId: FAV_LIST_ID, channelIds: [channelId] }], 'local');
-      return on;
+      return this.favourites().has(channelId); // the real state: false if the change was refused
     }));
   }
 
@@ -305,7 +305,7 @@ export class AppApi {
       if (!this.index.get(channelId)) return false;
       const on = !this.index.layout().hiddenChannels.includes(channelId);
       await this.applyLayoutLocked([{ op: on ? 'hideChannels' : 'unhideChannels', ids: [channelId] }], 'local');
-      return on;
+      return this.index.layout().hiddenChannels.includes(channelId); // the real state, even if refused
     }));
   }
 
