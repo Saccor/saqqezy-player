@@ -31,6 +31,34 @@ export interface SourceServiceDeps {
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
 const SHORT_EPG_CONCURRENCY = 6;
+/** Wraps an error of the guide body stream, so it can be told apart from a parse error. */
+class StreamFailure extends Error {
+  constructor(readonly cause: unknown) {
+    super('stream failure');
+  }
+}
+/** The guide body was read in full but is not an XMLTV document. */
+class GuideUnreadable extends Error {}
+
+async function* streamFailures(chunks: AsyncIterable<string>): AsyncGenerator<string> {
+  const it = chunks[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      let r: IteratorResult<string>;
+      try {
+        r = await it.next();
+      } catch (err) {
+        throw new StreamFailure(err);
+      }
+      if (r.done) return;
+      yield r.value;
+    }
+  } finally {
+    // Early exit (parse error, storage failure): release the body.
+    await it.return?.(undefined);
+  }
+}
+
 const defaultId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export class SourceService {
@@ -226,7 +254,7 @@ export class SourceService {
       }
     };
     try {
-      for await (const item of parseXmltv(responseText(res, url, { idleMs: this.bodyIdleMs }), stats)) {
+      for await (const item of parseXmltv(streamFailures(responseText(res, url, { idleMs: this.bodyIdleMs })), stats)) {
         if (item.type === 'channel') {
           matcher.addXmltvChannel(item.id, item.names);
           continue;
@@ -241,6 +269,8 @@ export class SourceService {
           onProgress?.({ phase: 'epg', count: stored });
         }
       }
+      // Parser errors and nothing usable at all: this is not an XMLTV document (an HTML or JSON error page).
+      if (stats.channels === 0 && stats.programmes === 0 && stats.skipped > 0) throw new GuideUnreadable();
       if (batch.length) await store(batch);
     } catch (err) {
       try {
@@ -250,9 +280,13 @@ export class SourceService {
         // Best-effort cleanup; the original failure is the one worth reporting.
       }
       if (storageFailure) throw (storageFailure as { error: unknown }).error;
-      // Our own neutral messages (stalled body, compressed list on an old TV) are kept.
-      if (err instanceof SourceNetworkError) throw err;
-      throw new SourceNetworkError('The guide download was interrupted.');
+      if (err instanceof StreamFailure) {
+        // Our own neutral messages (stalled body, compressed list on an old TV) are kept.
+        if (err.cause instanceof SourceNetworkError) throw err.cause;
+        throw new SourceNetworkError('The guide download was interrupted.');
+      }
+      // Anything else came from reading the document itself.
+      throw new SourceNetworkError('The TV guide could not be read.');
     }
     stored += batch.length;
     onProgress?.({ phase: 'epg', count: stored });

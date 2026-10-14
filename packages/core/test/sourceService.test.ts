@@ -111,8 +111,27 @@ describe('SourceService – robustness', () => {
       });
       return new Response(body);
     };
-    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    const err = await service.refreshEpg(source.id).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The guide download was interrupted.');
     expect(await count()).toBe(2);
+  });
+
+  test('a guide that is not XMLTV fails with "could not be read" and keeps the previous guide', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const channels = (await service.loadIndex(source.id)).slice('all', 0, 10);
+    const count = async () => [...(await service.programmesFor(source.id, channels, ...WIDE)).values()].flat().length;
+    for (const body of ['this is not a guide', '<html><body><p>Oops</body>', '{"error":"x"}']) {
+      routes['/epg.xml'] = () => new Response(body);
+      const err = await service.refreshEpg(source.id).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SourceNetworkError);
+      expect((err as Error).message).toBe('The TV guide could not be read.');
+      expect(await count()).toBe(2);
+    }
+    // An empty but valid guide is not an error.
+    routes['/epg.xml'] = () => new Response('<?xml version="1.0"?><tv></tv>');
+    await expect(service.refreshEpg(source.id)).resolves.toEqual({ programmes: 0, skipped: 0 });
   });
 
   test('concurrent refreshEpg calls for one source leave no duplicate programmes', async () => {
