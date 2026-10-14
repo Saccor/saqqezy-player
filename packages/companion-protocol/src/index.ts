@@ -15,6 +15,7 @@ export {
 export {
   type Direction,
   type FrameHeader,
+  type SealOptions,
   FrameError,
   sealMessage,
   openFrame,
@@ -29,6 +30,7 @@ export {
   MAX_FRAME_BYTES,
   MAX_MESSAGE_BYTES,
   MAX_IN_FLIGHT,
+  INFLATE_SLICE_BYTES,
 } from './frames.ts';
 export { ReplayWindow } from './replay.ts';
 export type { CompanionChannel, CompanionSourceSummary, CompanionState } from './state.ts';

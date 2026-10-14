@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { emptyLayout, MAX_OPS_PER_BATCH, type LayoutOp } from '@iptv/core';
 import {
   isPhoneToTv,
@@ -14,6 +14,12 @@ import {
 } from '../src/index.ts';
 
 const MIB = 1024 * 1024;
+
+const hasCompression = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 async function newSecrets(): Promise<PairingSecrets> {
   const sessionId = crypto.getRandomValues(new Uint8Array(16));
@@ -62,6 +68,8 @@ function transportPair(): [TestTransport, TestTransport] {
   b.peer = a;
   return [a, b];
 }
+
+const flagsOf = (frames: Uint8Array[]) => frames.map((f) => f[1]);
 
 async function pair() {
   const secrets = await newSecrets();
@@ -241,6 +249,103 @@ describe('SecureChannel', () => {
     expect(tvT.closed).toBe(true);
   });
 
+  test('msgIds start at a random offset with at least 2^31 ids of headroom', async () => {
+    const firsts = new Set<number>();
+    for (let i = 0; i < 8; i++) {
+      const { phone } = await pair();
+      const id = await phone.send({ t: 'getState' });
+      expect(id).toBeGreaterThanOrEqual(0);
+      expect(id).toBeLessThanOrEqual(0x7fffffff);
+      firsts.add(id);
+    }
+    expect(firsts.size).toBeGreaterThan(1);
+  });
+
+  test('the channel closes instead of wrapping its msgId counter', async () => {
+    const { phone, phoneT } = await pair();
+    const closes: string[] = [];
+    phone.onClose((r) => closes.push(r));
+    (phone as unknown as { nextMsgId: number }).nextMsgId = 0xffffffff;
+    expect(await phone.send({ t: 'getState' })).toBe(0xffffffff);
+    await expect(phone.send({ t: 'getState' })).rejects.toThrow();
+    expect(closes).toEqual(['msgid-exhausted']);
+    expect(phoneT.closed).toBe(true);
+    expect(phoneT.sent.length).toBe(1);
+  });
+
+  test('setTransport: reconnecting keeps the msgId counter and the replay window', async () => {
+    const { tv, phone, phoneT, tvT } = await pair();
+    const atTv = collect(tv);
+    const atPhone = collect(phone);
+    const id1 = await phone.send({ t: 'getState' });
+    await until(() => atTv.length === 1);
+    const oldFrames = phoneT.sent.slice();
+
+    const [tvT2, phoneT2] = transportPair();
+    tv.setTransport(tvT2);
+    phone.setTransport(phoneT2);
+
+    // The old transports no longer reach the channels.
+    tvT.inject(oldFrames[0]!);
+    const id2 = await phone.send({ t: 'refresh', what: 'epg' });
+    expect(id2).toBe(id1 + 1);
+    expect(phoneT.sent.length).toBe(oldFrames.length);
+    await until(() => atTv.length === 2);
+    expect(atTv.map((m) => m.msgId)).toEqual([id1, id2]);
+
+    // Frames from before the reconnect, replayed over the new transport, are dropped.
+    for (const f of oldFrames) tvT2.inject(f);
+    await settle();
+    expect(atTv.length).toBe(2);
+
+    await tv.send({ t: 'bye' });
+    await until(() => atPhone.length === 1);
+  });
+
+  test('setTransport on a closed channel throws', async () => {
+    const { tv } = await pair();
+    tv.close();
+    const [t] = transportPair();
+    expect(() => tv.setTransport(t)).toThrow();
+  });
+
+  test.skipIf(!hasCompression)('phone->tv frames are never compressed; tv->phone frames are', async () => {
+    const { tv, phone, phoneT, tvT } = await pair();
+    const atTv = collect(tv);
+    const atPhone = collect(phone);
+    const ops: LayoutOp[] = [{ op: 'hideChannels', ids: Array.from({ length: 2000 }, (_, i) => `channel-${i}`) }];
+    await phone.send({ t: 'ops', baseVersion: 0, ops });
+    expect(flagsOf(phoneT.sent).every((f) => f === 0)).toBe(true);
+    await tv.send({ t: 'state', state: bigState(10_000) });
+    expect(flagsOf(tvT.sent).every((f) => f === 1)).toBe(true);
+    await until(() => atTv.length === 1 && atPhone.length === 1);
+  });
+
+  test('a TV without DecompressionStream reads every phone message', async () => {
+    vi.stubGlobal('DecompressionStream', undefined);
+    const { tv, phone, phoneT } = await pair();
+    const atTv = collect(tv);
+    const closes: string[] = [];
+    tv.onClose((r) => closes.push(r));
+    const msgs: PhoneToTv[] = [
+      { t: 'hello', client: { kind: 'phone', label: 'My phone' } },
+      { t: 'getState' },
+      { t: 'getSource', id: 'src-1' },
+      { t: 'ops', baseVersion: 4, ops: [{ op: 'hideChannels', ids: Array.from({ length: 5000 }, (_, i) => `ch-${i}`) }] },
+      { t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/list.m3u' } },
+      { t: 'updateSource', source: { kind: 'xtream', id: 'src-1', name: 'X', server: 'https://x.example.test', username: 'u', password: 'p' } },
+      { t: 'deleteSource', id: 'src-1' },
+      { t: 'setActiveSource', id: 'src-1' },
+      { t: 'refresh', what: 'both' },
+      { t: 'bye' },
+    ];
+    for (const m of msgs) await phone.send(m);
+    await until(() => atTv.length === msgs.length);
+    expect(atTv.map((m) => m.msg)).toEqual(msgs);
+    expect(flagsOf(phoneT.sent).every((f) => f === 0)).toBe(true);
+    expect(closes).toEqual([]);
+  });
+
   test('a transport that fails to send closes the channel with reason transport', async () => {
     const { tv, tvT } = await pair();
     const closes: string[] = [];
@@ -313,6 +418,20 @@ describe('isTvToPhone', () => {
       { t: 'result', requestMsgId: 7, ok: true },
       { t: 'result', requestMsgId: 7, ok: false, error: { name: 'Error', message: 'nope' } },
       { t: 'bye' },
+    ];
+    for (const m of msgs) expect(isTvToPhone(m)).toBe(true);
+  });
+
+  test('is forward-compatible: accepts unknown extra fields', () => {
+    const msgs: unknown[] = [
+      { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0', model: 'x' }, extra: 1 },
+      { t: 'state', state: { ...bigState(1), future: true }, extra: 'y' },
+      { t: 'source', source: { kind: 'm3u', id: 'a', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', future: 1 } },
+      { t: 'source', source: { kind: 'xtream', id: 'a', name: 'X', server: 's', username: 'u', password: 'p', future: 1 } },
+      { t: 'layoutChanged', version: 2, layout: emptyLayout(), extra: [] },
+      { t: 'progress', phase: 'epg', count: 10, total: 20 },
+      { t: 'result', requestMsgId: 7, ok: false, error: { name: 'Error', message: 'nope', code: 3 }, extra: null },
+      { t: 'bye', reason: 'later' },
     ];
     for (const m of msgs) expect(isTvToPhone(m)).toBe(true);
   });

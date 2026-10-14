@@ -50,6 +50,27 @@ describe('base64url', () => {
     expect(() => fromB64Url('abc=')).toThrow();
     expect(() => fromB64Url('abcde')).toThrow();
   });
+
+  test('is canonical: rejects non-zero trailing bits', () => {
+    expect(Array.from(fromB64Url('YWI'))).toEqual([0x61, 0x62]);
+    expect(() => fromB64Url('YWJ')).toThrow(); // 'ab' with the low 2 bits set
+    expect(() => fromB64Url('YWL')).toThrow();
+    expect(Array.from(fromB64Url('AQ'))).toEqual([1]);
+    expect(() => fromB64Url('AR')).toThrow(); // low 4 bits set
+    expect(() => fromB64Url('AB')).toThrow();
+    expect(() => fromB64Url('A_')).toThrow();
+    // every non-canonical spelling of 1 and 2 bytes is rejected; every canonical one round trips
+    for (let n = 1; n <= 2; n++) {
+      const b = crypto.getRandomValues(new Uint8Array(n));
+      const s = toB64Url(b);
+      const last = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.indexOf(s.charAt(s.length - 1));
+      const mask = n === 1 ? 15 : 3;
+      for (let low = 1; low <= mask; low++) {
+        const alt = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.charAt(last | low);
+        expect(() => fromB64Url(s.slice(0, -1) + alt)).toThrow();
+      }
+    }
+  });
 });
 
 describe('pairing code format', () => {
@@ -84,9 +105,22 @@ describe('pairing code format', () => {
 describe('code-mode key derivation', () => {
   test('fixed sessionId test vector', async () => {
     const s = await secretsFromCode('7K3M-9QX2-ABCD');
-    // SHA-256("iptv-pair-id" || "7K3M9QX2ABCD")[0..16]
-    expect(hex(s.sessionId)).toBe('764eee4eddd56b03930fddae02598156');
-    expect(s.sessionIdB64).toBe('dk7uTt3VawOTD92uAlmBVg');
+    // PBKDF2-SHA256("7K3M9QX2ABCD", salt "iptv-pair", 200000 iterations, 48 bytes)[0..16],
+    // computed once with Node's crypto.pbkdf2Sync.
+    expect(hex(s.sessionId)).toBe('0e81facb93a02b81b26e0be251eb3439');
+    expect(s.sessionIdB64).toBe('DoH6y5OgK4GybgviUes0OQ');
+  });
+
+  test('key is bytes [16..48] of the same PBKDF2 output', async () => {
+    const s = await secretsFromCode('7K3M-9QX2-ABCD');
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('7K3M9QX2ABCD'), 'PBKDF2', false, ['deriveBits']);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode('iptv-pair'), iterations: 200000 }, base, 384,
+    ));
+    expect(hex(bits.subarray(0, 16))).toBe(hex(s.sessionId));
+    const expected = await crypto.subtle.importKey('raw', bits.slice(16, 48), 'AES-GCM', false, ['encrypt', 'decrypt']);
+    const { iv, ct } = await encryptWith(expected, new Uint8Array([5, 6, 7]));
+    expect(Array.from(await decryptWith(s.key, iv, ct))).toEqual([5, 6, 7]);
   });
 
   test('is deterministic: same code (any spelling) gives the same sessionId and key', async () => {

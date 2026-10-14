@@ -4,9 +4,19 @@ import { fromB64Url, toB64Url } from './b64.ts';
  * Pairing secrets. Two ways to pair:
  * - QR: `<origin>/#s=<b64url 16 random bytes>&k=<b64url 32 random bytes>`. The fragment never reaches a server.
  * - Code: 12 Crockford base32 characters, shown as `XXXX-XXXX-XXXX`, normalised before use
- *   (uppercase, `-` and whitespace removed, `I`/`L` -> `1`, `O` -> `0`).
- *   sessionId = SHA-256("iptv-pair-id" || code)[0..16]
- *   key       = PBKDF2-SHA256(code, salt = "iptv-pair-key", 200000 iterations, 32 bytes)
+ *   (uppercase, `-` and whitespace removed, `I`/`L` -> `1`, `O` -> `0`). One KDF run derives both values:
+ *     out       = PBKDF2-SHA256(code, salt = "iptv-pair", 200000 iterations, 48 bytes)
+ *     sessionId = out[0..16]
+ *     key       = out[16..48], imported as a non-extractable AES-256-GCM key
+ *
+ * Why one PBKDF2 for both: the sessionId is visible to the relay and to anyone watching the connection.
+ * If it came from a cheap hash, an attacker could test code guesses against it at hash speed and then
+ * derive the key for the one code that matched. Deriving it from the same slow PBKDF2 output means every
+ * guess against the sessionId costs the full 200000 iterations, the same as a guess against the key.
+ *
+ * The salt is a constant. That is acceptable only because codes are random (60 bits from a CSPRNG),
+ * single-use and short-lived (the relay session lives at most 15 minutes): a precomputed table would have
+ * to cover the whole code space, and a code is worthless once its session ends.
  *
  * Keys are imported or derived as non-extractable AES-256-GCM keys. Never log codes, keys or fragments.
  */
@@ -30,8 +40,7 @@ export const CODE_LENGTH = 12;
 export const PBKDF2_ITERATIONS = 200000;
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const ID_PREFIX = 'iptv-pair-id';
-const KEY_SALT = 'iptv-pair-key';
+const CODE_SALT = 'iptv-pair';
 const KEY_USAGES: KeyUsage[] = ['encrypt', 'decrypt'];
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
@@ -113,22 +122,19 @@ export async function secretsFromCode(code: string): Promise<PairingSecrets> {
   const norm = normalizeCode(code);
   if (norm === null) throw new PairingError();
   const codeBytes = utf8(norm);
-  const prefix = utf8(ID_PREFIX);
-  const idInput = new Uint8Array(prefix.length + codeBytes.length);
-  idInput.set(prefix, 0);
-  idInput.set(codeBytes, prefix.length);
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', idInput));
-  const sessionId = digest.slice(0, SESSION_ID_BYTES);
-
-  const base = await crypto.subtle.importKey('raw', codeBytes, { name: 'PBKDF2' }, false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: utf8(KEY_SALT), iterations: PBKDF2_ITERATIONS },
-    base,
-    { name: 'AES-GCM', length: KEY_BYTES * 8 },
-    false,
-    KEY_USAGES,
-  );
+  const base = await crypto.subtle.importKey('raw', codeBytes, { name: 'PBKDF2' }, false, ['deriveBits']);
   codeBytes.fill(0);
-  idInput.fill(0);
-  return { sessionId, key, sessionIdB64: toB64Url(sessionId) };
+  const out = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: utf8(CODE_SALT), iterations: PBKDF2_ITERATIONS },
+    base,
+    (SESSION_ID_BYTES + KEY_BYTES) * 8,
+  ));
+  const sessionId = out.slice(0, SESSION_ID_BYTES);
+  const raw = out.subarray(SESSION_ID_BYTES, SESSION_ID_BYTES + KEY_BYTES);
+  try {
+    const key = await importAesKey(raw);
+    return { sessionId, key, sessionIdB64: toB64Url(sessionId) };
+  } finally {
+    out.fill(0);
+  }
 }

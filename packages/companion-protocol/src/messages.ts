@@ -41,17 +41,22 @@ function hasKeys(x: Rec, required: readonly string[], optional: readonly string[
   return true;
 }
 
-/** Strict NewSource / SourceConfig check: known kind, correct field types, no unknown fields. */
-function isSourceShape(x: unknown, withId: boolean): boolean {
+/**
+ * NewSource / SourceConfig check: known kind and correct field types. With `strict` (the TV side), unknown
+ * fields are rejected too; without it (the companion side) they are ignored for forward compatibility.
+ */
+function isSourceShape(x: unknown, withId: boolean, strict: boolean): boolean {
   if (!isRec(x)) return false;
   const id = withId ? ['id'] : [];
   if (withId && !isValidId(x['id'])) return false;
+  const keys = (required: string[], optional: string[] = []) =>
+    strict ? hasKeys(x, required, optional) : hasKeys(x, required, Object.keys(x));
   if (x['kind'] === 'xtream') {
-    return hasKeys(x, ['kind', 'name', 'server', 'username', 'password', ...id])
+    return keys(['kind', 'name', 'server', 'username', 'password', ...id])
       && isStr(x['name']) && isStr(x['server']) && isStr(x['username']) && isStr(x['password']);
   }
   if (x['kind'] === 'm3u') {
-    return hasKeys(x, ['kind', 'name', 'playlistUrl', ...id], ['epgUrl'])
+    return keys(['kind', 'name', 'playlistUrl', ...id], ['epgUrl'])
       && isStr(x['name']) && isStr(x['playlistUrl'])
       && (x['epgUrl'] === undefined || isStr(x['epgUrl']));
   }
@@ -80,9 +85,9 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
     case 'ops':
       return hasKeys(x, ['t', 'baseVersion', 'ops']) && isCount(x['baseVersion']) && isLayoutOpBatch(x['ops']);
     case 'addSource':
-      return hasKeys(x, ['t', 'input']) && isSourceShape(x['input'], false);
+      return hasKeys(x, ['t', 'input']) && isSourceShape(x['input'], false, true);
     case 'updateSource':
-      return hasKeys(x, ['t', 'source']) && isSourceShape(x['source'], true);
+      return hasKeys(x, ['t', 'source']) && isSourceShape(x['source'], true, true);
     case 'refresh':
       return hasKeys(x, ['t', 'what']) && (x['what'] === 'playlist' || x['what'] === 'epg' || x['what'] === 'both');
     default:
@@ -112,7 +117,9 @@ function isStateLike(x: unknown): x is CompanionState {
 
 /**
  * Structural validation of a TV message on the companion side: known `t` and the right field types.
- * Nested payloads (state, layout) are checked at the top level only; the TV is the trusted, paired peer.
+ * Deliberately lenient so an older companion keeps working with a newer TV: unknown extra fields are
+ * accepted at every level, and nested payloads (state, layout) are checked at the top level only.
+ * The TV is the trusted, paired peer. (`isPhoneToTv`, used by the TV, stays strict.)
  */
 export function isTvToPhone(x: unknown): x is TvToPhone {
   if (!isRec(x)) return false;
@@ -124,7 +131,7 @@ export function isTvToPhone(x: unknown): x is TvToPhone {
     case 'state':
       return isStateLike(x['state']);
     case 'source':
-      return isSourceShape(x['source'], true);
+      return isSourceShape(x['source'], true, false);
     case 'layoutChanged':
       return isCount(x['version']) && isLayoutLike(x['layout']);
     case 'progress':

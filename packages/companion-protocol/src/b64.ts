@@ -1,4 +1,8 @@
-/** Unpadded base64url (RFC 4648 §5). Strict decoder: no padding, no `+` or `/`, no whitespace. */
+/**
+ * Unpadded base64url (RFC 4648 §5). Strict, canonical decoder: no padding, no `+` or `/`, no whitespace,
+ * and the unused trailing bits of the last character must be zero, so every byte string has exactly one
+ * accepted spelling.
+ */
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const LOOKUP = new Int16Array(128).fill(-1);
@@ -39,5 +43,6 @@ export const fromB64Url = (s: string): Uint8Array => {
       out[o++] = (acc >> bits) & 0xff;
     }
   }
+  if ((acc & ((1 << bits) - 1)) !== 0) throw new TypeError('non-canonical base64url');
   return out;
 };

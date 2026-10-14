@@ -34,10 +34,12 @@ function randomB64(bytes: number): string {
   return toB64Url(b);
 }
 
+const hasCompression = typeof CompressionStream !== 'undefined' && typeof DecompressionStream !== 'undefined';
+
 async function roundTrip(
-  key: CryptoKey, dir: Direction, msgId: number, value: unknown, order?: (n: number) => number[],
+  key: CryptoKey, dir: Direction, msgId: number, value: unknown, order?: (n: number) => number[], compress = false,
 ): Promise<{ frames: Uint8Array[]; result: unknown }> {
-  const frames = await sealMessage(key, SID, dir, msgId, value);
+  const frames = await sealMessage(key, SID, dir, msgId, value, { compress });
   const r = new Reassembler();
   const idx = order ? order(frames.length) : frames.map((_, i) => i);
   let result: unknown;
@@ -80,13 +82,33 @@ describe('wire format', () => {
     expect(toB64Url(a.subarray(10, 22))).not.toBe(toB64Url(b.subarray(10, 22)));
   });
 
-  test('compressed flag is set when CompressionStream exists', async () => {
-    if (typeof CompressionStream === 'undefined') return;
+  test.skipIf(!hasCompression)('tv->phone with compress: true sets the compressed flag', async () => {
     const key = await newKey();
-    const f = (await sealMessage(key, SID, 'phone->tv', 7, jsonOfSize(KIB)))[0]!;
+    const f = (await sealMessage(key, SID, 'tv->phone', 7, jsonOfSize(KIB), { compress: true }))[0]!;
     expect(f[1]).toBe(1);
     // 1 KiB of 'x' compresses well
     expect(f.length).toBeLessThan(200);
+  });
+
+  test.skipIf(!hasCompression)('no compression by default, even when CompressionStream exists', async () => {
+    const key = await newKey();
+    const f = (await sealMessage(key, SID, 'tv->phone', 7, jsonOfSize(KIB)))[0]!;
+    expect(f[1]).toBe(0);
+  });
+
+  test.skipIf(!hasCompression)('phone->tv is never compressed, even with compress: true', async () => {
+    const key = await newKey();
+    const frames = await sealMessage(key, SID, 'phone->tv', 7, jsonOfSize(KIB), { compress: true });
+    expect(frames.length).toBe(1);
+    expect(frames[0]![1]).toBe(0);
+    expect(frames[0]!.length).toBe(10 + 12 + KIB + 16);
+  });
+
+  test('openFrame rejects a bad direction as a programming error, not a decryption failure', async () => {
+    const key = await newKey();
+    const f = (await sealMessage(key, SID, 'tv->phone', 1, {}))[0]!;
+    await expect(openFrame(key, SID, 'sideways' as Direction, f)).rejects.toThrow('bad direction');
+    await expect(openFrame(key, SID, 'sideways' as Direction, new Uint8Array(3))).rejects.toThrow('bad direction');
   });
 
   test('rejects invalid msgId and unserialisable values', async () => {
@@ -108,11 +130,12 @@ describe('seal and open round trip', () => {
   ];
 
   for (const [label, n] of sizes) {
-    test(`${label}, compressed`, async () => {
+    test.skipIf(!hasCompression)(`${label}, compressed`, async () => {
       const key = await newKey();
       const value = jsonOfSize(n);
       expect(new TextEncoder().encode(JSON.stringify(value)).length).toBe(n);
-      const { frames, result } = await roundTrip(key, 'tv->phone', 42, value);
+      const { frames, result } = await roundTrip(key, 'tv->phone', 42, value, undefined, true);
+      for (const f of frames) expect(f[1]).toBe(1);
       expect(result).toEqual(value);
       for (const f of frames) expect(f.length - FRAME_HEADER_BYTES - FRAME_IV_BYTES).toBeLessThanOrEqual(MAX_CHUNK_CIPHERTEXT);
     });
@@ -144,11 +167,11 @@ describe('seal and open round trip', () => {
     expect(two[0]!.length - 22).toBe(MAX_CHUNK_CIPHERTEXT);
   });
 
-  test('3 MiB of incompressible random data (base64), out of order', async () => {
+  test.skipIf(!hasCompression)('3 MiB of incompressible random data (base64), compressed, out of order', async () => {
     const key = await newKey();
     const value = { blob: randomB64(3 * MIB) };
     const reverse = (n: number) => Array.from({ length: n }, (_, i) => n - 1 - i);
-    const { frames, result } = await roundTrip(key, 'tv->phone', 9, value, reverse);
+    const { frames, result } = await roundTrip(key, 'tv->phone', 9, value, reverse, true);
     expect(result).toEqual(value);
     const jsonLen = JSON.stringify(value).length;
     // compression cannot shrink random base64 below ~75 %, so many chunks are needed
@@ -220,8 +243,7 @@ describe('Reassembler', () => {
       .rejects.toThrow();
   });
 
-  test('bounded memory: refuses a gzip bomb that inflates past 8 MiB', async () => {
-    if (typeof CompressionStream === 'undefined') return;
+  test.skipIf(!hasCompression)('bounded memory: refuses a gzip bomb that inflates past 8 MiB', async () => {
     const key = await newKey();
     const big = { d: 'x'.repeat(9 * MIB) };
     // sealMessage itself refuses plaintext > 8 MiB, so compress by hand to simulate a hostile sender
@@ -230,8 +252,49 @@ describe('Reassembler', () => {
     expect(gz.length).toBeLessThan(MAX_CHUNK_PLAINTEXT);
     const r = new Reassembler();
     await expect(r.push({ msgId: 1, index: 0, count: 1, compressed: true }, gz)).rejects.toThrow();
-    await expect(sealMessage(key, SID, 'tv->phone', 1, big)).rejects.toThrow();
+    await expect(sealMessage(key, SID, 'tv->phone', 1, big, { compress: true })).rejects.toThrow();
   }, 30_000);
+
+  test.skipIf(!hasCompression)('bounded inflate: a high-ratio bomb aborts after the first 64 KiB input slices', async () => {
+    // ~200 MiB of zeros gzips to ~200 KB (about 1000:1), which still fits in one chunk.
+    const zeros = new Uint8Array(MIB);
+    const src = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < 200; i++) c.enqueue(zeros);
+        c.close();
+      },
+    });
+    const gz = new Uint8Array(await new Response(src.pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    expect(gz.length).toBeLessThan(MAX_CHUNK_PLAINTEXT);
+    expect(gz.length).toBeGreaterThan(3 * 64 * KIB);
+
+    // Count how many compressed bytes the decompressor is actually fed.
+    const Real = DecompressionStream;
+    let fed = 0;
+    class CountingDecompressionStream {
+      readonly writable: WritableStream<Uint8Array>;
+      readonly readable: ReadableStream<Uint8Array>;
+      constructor(format: CompressionFormat) {
+        const inner = new Real(format);
+        const w = inner.writable.getWriter();
+        this.readable = inner.readable;
+        this.writable = new WritableStream<Uint8Array>({
+          async write(chunk) {
+            fed += chunk.length;
+            await w.write(chunk);
+          },
+          close: () => w.close(),
+          abort: (r) => w.abort(r),
+        });
+      }
+    }
+    vi.stubGlobal('DecompressionStream', CountingDecompressionStream);
+
+    const r = new Reassembler();
+    await expect(r.push({ msgId: 1, index: 0, count: 1, compressed: true }, gz)).rejects.toThrow('message too large');
+    expect(fed).toBeGreaterThan(0);
+    expect(fed).toBeLessThanOrEqual(2 * 64 * KIB);
+  }, 60_000);
 
   test('at most 4 messages in flight: the oldest partial message is evicted', async () => {
     const r = new Reassembler();

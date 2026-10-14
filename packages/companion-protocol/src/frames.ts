@@ -1,10 +1,16 @@
 /**
  * Encrypted message frames.
  *
- * A message is `JSON.stringify(value)` as UTF-8, gzip-compressed as a whole when `CompressionStream`
- * exists (flag bit 0), then split into chunks of at most MAX_CHUNK_PLAINTEXT bytes. Each chunk is
- * encrypted separately with AES-256-GCM under a fresh random 12-byte IV, so every chunk's
- * ciphertext + tag is at most 256 KiB.
+ * A message is `JSON.stringify(value)` as UTF-8, optionally gzip-compressed as a whole (flag bit 0), then
+ * split into chunks of at most MAX_CHUNK_PLAINTEXT bytes. Each chunk is encrypted separately with
+ * AES-256-GCM under a fresh random 12-byte IV, so every chunk's ciphertext + tag is at most 256 KiB.
+ *
+ * Compression is directional:
+ * - phone->tv frames are never compressed. Phone messages are small, and TV runtimes may lack
+ *   `DecompressionStream`.
+ * - tv->phone frames are compressed only when the sender asks for it (`compress: true`) and has
+ *   `CompressionStream`. The phone is a modern browser and always has `DecompressionStream`.
+ * A receiver without `DecompressionStream` still rejects a compressed frame; by design that never happens.
  *
  * Wire format of one frame (all integers big-endian):
  *
@@ -54,6 +60,8 @@ export const MAX_FRAME_BYTES = FRAME_HEADER_BYTES + FRAME_IV_BYTES + MAX_CHUNK_C
 /** Limit for one message, both as JSON bytes and as the (possibly compressed) payload. */
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_IN_FLIGHT = 4;
+/** Compressed input is fed to the decompressor in slices of this size, so the output cap aborts early. */
+export const INFLATE_SLICE_BYTES = 64 * 1024;
 
 const SESSION_ID_BYTES = 16;
 const MIN_FRAME_BYTES = FRAME_HEADER_BYTES + FRAME_IV_BYTES + GCM_TAG_BYTES;
@@ -145,19 +153,49 @@ async function gzip(data: Uint8Array): Promise<Uint8Array> {
   return transform(data, new CompressionStream('gzip'), MAX_MESSAGE_BYTES + 1024);
 }
 
+/**
+ * Inflates at most MAX_MESSAGE_BYTES. The input goes in INFLATE_SLICE_BYTES at a time, and each write waits
+ * until the decompressor has taken the previous slice while the output is read concurrently. As soon as the
+ * output passes the cap the read side cancels and no further input is fed, so a high-ratio bomb costs at
+ * most a slice or two of inflation rather than the whole payload.
+ */
 async function gunzip(data: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') throw new FrameError('compression not supported');
+  let stop = false;
+  let writer: WritableStreamDefaultWriter<Uint8Array> | undefined;
   try {
-    return await transform(data, new DecompressionStream('gzip'), MAX_MESSAGE_BYTES);
+    const ds = new DecompressionStream('gzip');
+    const w = ds.writable.getWriter();
+    writer = w;
+    const feeding = (async () => {
+      for (let off = 0; off < data.length && !stop; off += INFLATE_SLICE_BYTES) {
+        await w.write(data.subarray(off, Math.min(data.length, off + INFLATE_SLICE_BYTES)));
+      }
+      if (!stop) await w.close();
+    })();
+    // Errors on the write side also surface on the read side; swallow them here to avoid unhandled rejections.
+    feeding.catch(() => undefined);
+    return await readAll(ds.readable, MAX_MESSAGE_BYTES);
   } catch (e) {
     if (e instanceof FrameError) throw e;
     throw new FrameError('bad compressed data');
+  } finally {
+    stop = true;
+    writer?.abort().catch(() => undefined);
   }
+}
+
+export interface SealOptions {
+  /**
+   * Gzip the message when `CompressionStream` exists. Honoured for 'tv->phone' only; 'phone->tv' frames are
+   * never compressed. Default false.
+   */
+  compress?: boolean;
 }
 
 /** Serialises, optionally compresses, chunks and encrypts one message. Returns the wire frames in order. */
 export async function sealMessage(
-  key: CryptoKey, sessionId: Uint8Array, dir: Direction, msgId: number, json: unknown,
+  key: CryptoKey, sessionId: Uint8Array, dir: Direction, msgId: number, json: unknown, opts: SealOptions = {},
 ): Promise<Uint8Array[]> {
   checkSessionId(sessionId);
   dirByte(dir);
@@ -168,7 +206,7 @@ export async function sealMessage(
   if (payload.length > MAX_MESSAGE_BYTES) throw new FrameError('message too large');
 
   let flags = 0;
-  if (canCompress()) {
+  if (opts.compress === true && dir === 'tv->phone' && canCompress()) {
     payload = await gzip(payload);
     flags |= FLAG_COMPRESSED;
     if (payload.length > MAX_MESSAGE_BYTES) throw new FrameError('message too large');
@@ -201,6 +239,7 @@ export async function openFrame(
   key: CryptoKey, sessionId: Uint8Array, dir: Direction, frame: Uint8Array,
 ): Promise<{ header: FrameHeader; plaintextChunk: Uint8Array }> {
   checkSessionId(sessionId);
+  dirByte(dir); // a bad direction is a programming error, reported as such and not as a decryption failure
   if (!(frame instanceof Uint8Array) || frame.length < MIN_FRAME_BYTES || frame.length > MAX_FRAME_BYTES) {
     throw new FrameError('bad frame length');
   }
@@ -245,7 +284,10 @@ interface PendingMessage {
  * MAX_IN_FLIGHT incomplete messages; when a new message would exceed that, the oldest partial one is dropped.
  * A rejected chunk drops its whole message.
  *
- * Replay protection is not done here: apply a ReplayWindow to the msgId of each completed message.
+ * Replay protection is not done here. The caller must apply a ReplayWindow to the msgId of each completed
+ * message, exactly once (never per frame, or multi-chunk messages would reject themselves). That window
+ * relies on the sender's msgIds increasing monotonically for the lifetime of the pairing, without wrap or
+ * reset across reconnects; SecureChannel guarantees both.
  */
 export class Reassembler {
   private readonly pending = new Map<number, PendingMessage>();
