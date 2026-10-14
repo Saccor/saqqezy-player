@@ -92,6 +92,7 @@ function fakeVideo() {
     error: null,
     muted: false,
     currentTime: 0,
+    duration: Number.NaN as number,
     playbackRate: 1,
     buffered: ranges([]),
     seekable: ranges([]),
@@ -214,18 +215,20 @@ describe('Html5Player – live delay and recovery signals', () => {
     player.destroy();
   });
 
-  test('health(): hls.js prefers a sane wall clock, else the edge latency; reports the target duration', async () => {
+  test('health(): hls.js reports a sane stream clock for display and the target duration', async () => {
     const { player } = makePlayer();
     await player.open('http://example.test/a.m3u8');
     const hls = created.hls.at(-1)!;
     hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: true, targetduration: 2 } });
     hls.playingDate = new Date(Date.now() - 8000);
-    expect(player.health()).toMatchObject({ behindLiveSource: 'pdt', targetDurationS: 2 });
-    expect(player.health().behindLiveS).toBeCloseTo(8, 0);
+    expect(player.health()).toMatchObject({ targetDurationS: 2 });
+    expect(player.health().streamClockBehindS).toBeCloseTo(8, 0);
+    expect(player.health()).not.toHaveProperty('behindLiveS'); // no edge latency yet: nothing to steer by
     expect(player.health().tracksBytes).toBeUndefined();
     hls.playingDate = new Date(Date.now() - 3_600_000); // a broken clock: an hour off
     hls.latency = 7;
     expect(player.health()).toMatchObject({ behindLiveS: 7, behindLiveSource: 'edge' });
+    expect(player.health()).not.toHaveProperty('streamClockBehindS');
     player.destroy();
   });
 
@@ -269,14 +272,14 @@ describe('Html5Player – live delay and recovery signals', () => {
 });
 
 describe('Html5Player – in-place recovery', () => {
-  test('fatal hls.js network error: startLoad once and report buffering; a second within 10 s is reported', async () => {
+  test('fatal hls.js network error: startLoad once (no state of its own); a second within 10 s is reported', async () => {
     const { player, events } = makePlayer();
     await player.open('http://example.test/a.m3u8');
     const hls = created.hls.at(-1)!;
     const err = { fatal: true, type: 'networkError', details: 'fragLoadError' };
     hls.handlers.hlsError!('hlsError', err);
     expect(hls.calls).toContain('startLoad');
-    expect(events.at(-1)?.[0]).toBe('buffering');
+    expect(events.at(-1)?.[0]).toBe('loading');
     hls.handlers.hlsError!('hlsError', err);
     expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK' })]);
     player.destroy();
@@ -368,5 +371,141 @@ describe('Html5Player – in-place recovery', () => {
     } finally {
       g.document = savedDoc;
     }
+  });
+});
+
+describe('Html5Player – final fixes', () => {
+  test('1a: isLive per engine (hls.js LEVEL_LOADED, native duration, mpegts.js always live)', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    expect(player.health().isLive).toBeUndefined();
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: false, targetduration: 6 } });
+    expect(player.health().isLive).toBe(false);
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: true, targetduration: 6 } });
+    expect(player.health().isLive).toBe(true);
+
+    await player.open('http://example.test/movie.mp4');
+    video.duration = Number.NaN;
+    expect(player.health().isLive).toBeUndefined();
+    video.duration = Number.POSITIVE_INFINITY;
+    expect(player.health().isLive).toBe(true);
+    video.duration = 600;
+    expect(player.health().isLive).toBe(false);
+
+    await player.open('http://example.test/a.ts');
+    expect(player.health().isLive).toBe(true);
+    player.destroy();
+  });
+
+  test('1d: the element ended event is EOS only on a live stream; a file just ends', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/movie.mp4');
+    video.duration = 600;
+    video.fire('ended');
+    expect(events.at(-1)?.[0]).toBe('idle');
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+
+    await player.open('http://example.test/live.mp4');
+    video.duration = Number.POSITIVE_INFINITY;
+    video.fire('ended');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'EOS' })]);
+
+    await player.open('http://example.test/vod.m3u8');
+    created.hls.at(-1)!.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: false, targetduration: 6 } });
+    video.fire('ended');
+    expect(events.at(-1)?.[0]).toBe('idle');
+    player.destroy();
+  });
+
+  test('1e: mpegts.js LOADING_COMPLETE reports EOS only once the buffer ahead has drained', async () => {
+    vi.useFakeTimers();
+    try {
+      const { player, video, events } = makePlayer();
+      player.setLiveProfile({ preset: 'low', targetS: 1.5, allowRate: false });
+      await player.open('http://example.test/a.ts');
+      video.currentTime = 10;
+      video.buffered = ranges([[0, 40]]);
+      created.mpegts.at(-1)!.handlers.loading_complete!();
+      vi.advanceTimersByTime(5000);
+      expect(events.some(([s]) => s === 'error')).toBe(false);
+      video.currentTime = 39.6;
+      vi.advanceTimersByTime(500);
+      expect(events.filter(([s]) => s === 'error')).toEqual([['error', expect.objectContaining({ code: 'EOS' })]]);
+      vi.advanceTimersByTime(5000);
+      expect(events.filter(([s]) => s === 'error')).toHaveLength(1);
+      player.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('1g: seekToLive is a no-op (true) on a non-live stream', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie.mp4');
+    video.duration = 600;
+    video.seekable = ranges([[0, 600]]);
+    video.currentTime = 10;
+    expect(player.seekToLive(6)).toBe(true);
+    expect(video.currentTime).toBe(10);
+
+    await player.open('http://example.test/vod.m3u8');
+    const hls = created.hls.at(-1)!;
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: false, targetduration: 6 } });
+    hls.liveSyncPosition = 590;
+    video.currentTime = 10;
+    expect(player.seekToLive(6)).toBe(true);
+    expect(video.currentTime).toBe(10);
+    player.destroy();
+  });
+
+  test('1a/2: native VOD reports no edge distance; native live reports it as edge', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie.mp4');
+    video.duration = 600;
+    video.seekable = ranges([[0, 600]]);
+    expect(player.health()).not.toHaveProperty('behindLiveS');
+    video.duration = Number.POSITIVE_INFINITY;
+    video.seekable = ranges([[100, 160]]);
+    video.currentTime = 150;
+    expect(player.health()).toMatchObject({ behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
+    player.destroy();
+  });
+
+  test('2: hls.js steers by the edge latency; the stream clock is reported separately for display', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: true, targetduration: 2 } });
+    hls.playingDate = new Date(Date.now() - 8000);
+    hls.latency = 5;
+    const h = player.health();
+    expect(h).toMatchObject({ behindLiveS: 5, behindLiveSource: 'edge', targetDurationS: 2, isLive: true });
+    expect(h.streamClockBehindS).toBeCloseTo(8, 0);
+    hls.playingDate = new Date(Date.now() - 3_600_000); // a broken clock: an hour off
+    expect(player.health()).not.toHaveProperty('streamClockBehindS');
+    expect(player.health()).toMatchObject({ behindLiveS: 5, behindLiveSource: 'edge' });
+    player.destroy();
+  });
+
+  test('3: in-place hls.js network recovery emits no synthetic buffering', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    const before = events.length;
+    hls.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'fragLoadError' });
+    expect(hls.calls).toContain('startLoad');
+    expect(events.slice(before)).toEqual([]);
+    player.destroy();
+  });
+
+  test('6: seekToLive never lands in a gap: clamped to the start of the last range', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    video.currentTime = 5;
+    video.buffered = ranges([[0, 10], [18, 20]]);
+    expect(player.seekToLive(3)).toBe(true);
+    expect(video.currentTime).toBe(18);
+    player.destroy();
   });
 });

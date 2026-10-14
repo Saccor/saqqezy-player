@@ -32,6 +32,10 @@ interface Session {
   lastByteAt?: number;
   /** HLS target duration in seconds, from the first live LEVEL_LOADED. */
   targetDurationS?: number;
+  /** hls.js: the playlist's `live` flag from the latest LEVEL_LOADED; undefined until then. */
+  hlsLive?: boolean;
+  /** EOS has been reported for this session (once only). */
+  eosSent?: boolean;
   /** Fatal hls.js media errors recovered in place so far (Task 9). */
   mediaRecoveries: number;
   /** Clock ms of the last in-place hls.js network recovery (Task 9). */
@@ -53,6 +57,9 @@ const EOS_MESSAGE = 'Stream ended';
 /** A wall clock (EXT-X-PROGRAM-DATE-TIME) outside this range is a broken stamp, not a delay. */
 const PDT_MIN_S = -5;
 const PDT_MAX_S = 600;
+/** mpegts.js after LOADING_COMPLETE: EOS once less than this is buffered ahead (the download ends before playback). */
+const DRAINED_S = 0.5;
+const DRAIN_POLL_MS = 250;
 /** A second fatal network error within this window is reported instead of recovered in place. */
 const HLS_NET_RECOVERY_GAP_MS = 10_000;
 /** A held frame never outlives this, even if no stream comes back. */
@@ -127,7 +134,11 @@ export class Html5Player implements Player {
     });
     on('waiting', () => this.emit(s, 'buffering'));
     // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
-    on('ended', () => this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE }));
+    // A file (or a stream not known to be live) simply ended: 'idle', which never reconnects.
+    on('ended', () => {
+      if (this.liveOf(s) === true) this.emitEos(s);
+      else this.emit(s, 'idle');
+    });
     on('error', () => {
       const err = v.error;
       // With MSE engines the engine reports errors itself; MediaError 4 is still decisive.
@@ -172,6 +183,7 @@ export class Html5Player implements Player {
       const hls = new Hls(hlsConfig(this.profile.preset, this.isTv));
       s.engine = { kind: 'hls', hls };
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
+        s.hlsLive = data.details.live;
         if (data.details.live && s.targetDurationS === undefined) s.targetDurationS = data.details.targetduration;
       });
       hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
@@ -214,9 +226,11 @@ export class Html5Player implements Player {
         const code = unsupported ? 'UNSUPPORTED' : type === mpegts.ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
         this.emit(s, 'error', { code, message: 'Playback error' });
       });
-      // A clean end of the HTTP body on a live stream: the server closed it. Reconnect now, not after a stall.
+      // A clean end of the HTTP body: the download is over, but playback may still have a long way to go (a file,
+      // or a server that bursts then closes). Report EOS (reconnect) only once the buffer ahead has drained; the
+      // element's own `ended` also covers the end.
       player.on(mpegts.Events.LOADING_COMPLETE, () => {
-        if (current()) this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE });
+        if (current()) this.eosWhenDrained(s, current);
       });
       player.on(mpegts.Events.STATISTICS_INFO, (stats: { speed?: number }) => {
         if (current() && (stats.speed ?? 0) > 0) s.lastByteAt = Date.now();
@@ -232,8 +246,9 @@ export class Html5Player implements Player {
       const now = Date.now();
       if (now - s.lastNetRecoveryAt < HLS_NET_RECOVERY_GAP_MS) return false;
       s.lastNetRecoveryAt = now;
+      // No synthetic 'buffering': if hls.js reloads before the element runs dry, no 'playing' would follow it.
+      // The element's own waiting/playing events report the state.
       hls.startLoad(-1);
-      this.emit(s, 'buffering');
       return true;
     }
     s.mediaRecoveries++;
@@ -280,7 +295,8 @@ export class Html5Player implements Player {
     const s = this.session;
     const v = this.video;
     const e = s?.engine;
-    if (!e) return false;
+    if (!s || !e) return false;
+    if (this.liveOf(s) === false) return true; // no live edge: seeking "to live" would jump to the end of a file
     if (e.kind === 'hls') {
       const pos = e.hls.liveSyncPosition;
       if (pos === null || !Number.isFinite(pos)) return false;
@@ -291,7 +307,7 @@ export class Html5Player implements Player {
     if (!r || r.length === 0) return false;
     const end = r.end(r.length - 1);
     if (!Number.isFinite(end)) return false;
-    const to = Math.max(r.start(0), end - targetS);
+    const to = Math.max(r.start(r.length - 1), end - targetS); // never into a gap before the last range
     if (to > v.currentTime + 0.25) v.currentTime = to;
     return true;
   }
@@ -518,6 +534,9 @@ export class Html5Player implements Player {
     // Engines that never count frames report 0: leave it out so frozen-video detection stays off there.
     if (q && q.totalVideoFrames > 0) h.framesPresented = q.totalVideoFrames - q.droppedVideoFrames;
     const e = s?.engine;
+    const live = s ? this.liveOf(s) : undefined;
+    if (live !== undefined) h.isLive = live;
+    // behindLiveS is always the distance to the live edge (what we can steer); the stream clock is display only.
     if (s && e?.kind === 'mpegts') {
       h.tracksBytes = true;
       if (s.lastByteAt !== undefined) h.lastByteAt = s.lastByteAt;
@@ -526,14 +545,12 @@ export class Html5Player implements Player {
       if (s.targetDurationS !== undefined) h.targetDurationS = s.targetDurationS;
       const date = e.hls.playingDate;
       const pdt = date ? (Date.now() - date.getTime()) / 1000 : Number.NaN;
-      if (pdt > PDT_MIN_S && pdt < PDT_MAX_S) {
-        h.behindLiveS = Math.max(0, pdt);
-        h.behindLiveSource = 'pdt';
-      } else if (Number.isFinite(e.hls.latency) && e.hls.latency > 0) {
+      if (pdt > PDT_MIN_S && pdt < PDT_MAX_S) h.streamClockBehindS = Math.max(0, pdt);
+      if (live !== false && Number.isFinite(e.hls.latency) && e.hls.latency > 0) {
         h.behindLiveS = e.hls.latency;
         h.behindLiveSource = 'edge';
       }
-    } else if (e?.kind === 'native') {
+    } else if (e?.kind === 'native' && live !== false) {
       const sk = v.seekable;
       const end = sk && sk.length > 0 ? sk.end(sk.length - 1) : Number.NaN;
       if (Number.isFinite(end)) {
@@ -542,6 +559,39 @@ export class Html5Player implements Player {
       }
     }
     return h;
+  }
+
+  /**
+   * Whether the session's stream is live: hls.js from the playlist, the element from its duration (Infinity is live,
+   * a finite duration is a file, NaN is not known yet), mpegts.js always (it is opened as live).
+   */
+  private liveOf(s: Session): boolean | undefined {
+    const e = s.engine;
+    if (!e) return undefined;
+    if (e.kind === 'mpegts') return true;
+    if (e.kind === 'hls') return s.hlsLive;
+    const d = this.video.duration;
+    if (typeof d !== 'number' || Number.isNaN(d)) return undefined;
+    return !Number.isFinite(d);
+  }
+
+  private emitEos(s: Session): void {
+    if (s.eosSent) return;
+    s.eosSent = true;
+    this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE });
+  }
+
+  /** After mpegts.js finished downloading: EOS once the buffer ahead drops below `DRAINED_S`. */
+  private eosWhenDrained(s: Session, current: () => boolean): void {
+    const check = (): boolean => {
+      if (!current() || s.eosSent) return true;
+      if (this.bufferAhead() >= DRAINED_S) return false;
+      this.emitEos(s);
+      return true;
+    };
+    if (check()) return;
+    const timer = setInterval(() => { if (check()) clearInterval(timer); }, DRAIN_POLL_MS);
+    s.cleanups.push(() => clearInterval(timer));
   }
 
   /** Seconds buffered ahead of the playhead; before the first range (TS start), the length buffered so far. */

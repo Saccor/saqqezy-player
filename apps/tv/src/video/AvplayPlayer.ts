@@ -132,6 +132,9 @@ function num(v: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/** `IS_LIVE` (undefined: not known, e.g. the query failed) and the `GET_LIVE_DURATION` window (ms) of a live stream. */
+interface LiveState { live: boolean | undefined; window?: { start: number; end: number } }
+
 /** One `open()`; once `dead`, nothing it registered may emit again. */
 interface Session {
   url: string; attemptId: number | undefined; dead: boolean; started: boolean;
@@ -158,7 +161,7 @@ export class AvplayPlayer implements Player {
   private readonly space: Size;
   private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
   private readonly prepareTimeoutMs: number;
-  private windowCache: { at: number; value: { start: number; end: number } | undefined } | undefined;
+  private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
 
   constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size; prepareTimeoutMs?: number } = {}) {
@@ -181,8 +184,13 @@ export class AvplayPlayer implements Player {
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
         oncurrentplaytime: (ms) => { if (!s.dead && typeof ms === 'number') this.lastPosition = ms; },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE }),
-        // A live stream that "completes" has dropped: report it so the supervisor reconnects.
-        onstreamcompleted: () => this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE }),
+        // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
+        // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
+        onstreamcompleted: () => {
+          if (s.dead || s !== this.session) return;
+          if (this.liveState().live === false) this.emit(s, 'idle');
+          else this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE });
+        },
       });
       this.applyBuffering();
       this.applyDisplay();
@@ -317,7 +325,8 @@ export class AvplayPlayer implements Player {
 
   health(): PlaybackHealth {
     const h: PlaybackHealth = { positionMs: this.position() };
-    const w = this.liveWindow();
+    const { live, window: w } = this.liveState();
+    if (live !== undefined) h.isLive = live;
     if (w) {
       h.behindLiveS = Math.max(0, (w.end - h.positionMs) / 1000);
       h.behindLiveSource = 'edge';
@@ -325,9 +334,13 @@ export class AvplayPlayer implements Player {
     return h;
   }
 
-  /** Seeks forward inside the live window only (rewinding live HLS on AVPlay is reported to freeze). */
+  /**
+   * Seeks forward inside the live window only (rewinding live HLS on AVPlay is reported to freeze). A non-live
+   * stream has no live edge: a no-op.
+   */
   seekToLive(targetS: number): boolean {
-    const w = this.liveWindow();
+    const { live, window: w } = this.liveState();
+    if (live === false) return true;
     if (!w || !this.avplay.seekTo) return false;
     const to = Math.max(w.start, w.end - targetS * 1000);
     if (to <= this.position() + 250) return true;
@@ -387,25 +400,32 @@ export class AvplayPlayer implements Player {
     attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', 'STARTBITRATE=LOWEST'));
   }
 
-  /** `GET_LIVE_DURATION` ("start|end", ms) of a live stream, polled at most every 2 s; undefined when not live. */
-  private liveWindow(): { start: number; end: number } | undefined {
-    if (!this.session || !this.avplay.getStreamingProperty) return undefined;
+  /**
+   * `IS_LIVE` and, when live, `GET_LIVE_DURATION` ("start|end", ms), polled at most every 2 s. Live is false
+   * when `IS_LIVE` is falsy once the stream has started (before that it is not known yet), and unknown when the
+   * query fails.
+   */
+  private liveState(): LiveState {
+    if (!this.session || !this.avplay.getStreamingProperty) return { live: undefined };
     const now = Date.now();
     if (this.windowCache && now - this.windowCache.at < LIVE_WINDOW_POLL_MS) return this.windowCache.value;
-    let value: { start: number; end: number } | undefined;
+    let value: LiveState = { live: undefined };
     try {
       const live = String(this.avplay.getStreamingProperty('IS_LIVE')).toLowerCase();
       if (live === '1' || live === 'true') {
+        value = { live: true };
         const parts = String(this.avplay.getStreamingProperty('GET_LIVE_DURATION')).split('|').map(Number);
         const start = parts[0] ?? Number.NaN;
         const end = parts[1] ?? Number.NaN;
-        if (Number.isFinite(start) && Number.isFinite(end) && end > start) value = { start, end };
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) value.window = { start, end };
+      } else if (this.session.started) {
+        value = { live: false };
       }
     } catch {
-      value = undefined;
+      value = { live: undefined };
     }
     // Not cached before the stream starts: the window may appear right after `playing`.
-    if (value !== undefined || this.session.started) this.windowCache = { at: now, value };
+    if (value.window !== undefined || this.session.started) this.windowCache = { at: now, value };
     return value;
   }
 

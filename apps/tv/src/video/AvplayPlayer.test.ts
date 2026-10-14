@@ -101,6 +101,7 @@ describe('AvplayPlayer: open and listener mapping', () => {
     const { av, p, events } = setup();
     await p.open(URL_A);
     av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '1' };
     av.listener!.onstreamcompleted?.();
     expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error' }]);
   });
@@ -440,17 +441,17 @@ describe('AvplayPlayer: live delay and recovery', () => {
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
     av.time = 140_000;
-    expect(p.health()).toEqual({ positionMs: 140_000, behindLiveS: 20, behindLiveSource: 'edge' });
+    expect(p.health()).toEqual({ positionMs: 140_000, behindLiveS: 20, behindLiveSource: 'edge', isLive: true });
     expect(p.seekToLive(6)).toBe(true);
     expect(av.seeks).toEqual([154_000]);
   });
 
-  test('no live window: health has only the position, seekToLive is false', async () => {
+  test('live without a window: no delay in health, seekToLive is false (the caller reopens)', async () => {
     const { av, p } = setup();
     await p.open(URL_B);
     av.prepared[0]!.ok();
-    av.live = { IS_LIVE: '0' };
-    expect(p.health()).toEqual({ positionMs: 0 });
+    av.live = { IS_LIVE: '1' };
+    expect(p.health()).toEqual({ positionMs: 0, isLive: true });
     expect(p.seekToLive(6)).toBe(false);
   });
 
@@ -472,7 +473,7 @@ describe('AvplayPlayer: live delay and recovery', () => {
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
     av.time = 150_000;
-    expect(p.health()).toEqual({ positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge' });
+    expect(p.health()).toEqual({ positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
   });
 
   test('destroy releases a held still frame', async () => {
@@ -482,5 +483,47 @@ describe('AvplayPlayer: live delay and recovery', () => {
     p.holdLastFrame();
     p.destroy();
     expect(av.still).toEqual(['true', 'false']);
+  });
+});
+
+describe('AvplayPlayer: final fixes', () => {
+  test('1a: isLive from IS_LIVE: true when set, false when falsy once started, unknown on error', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
+    av.time = 140_000;
+    expect(p.health()).toMatchObject({ isLive: true });
+
+    const vod = setup();
+    await vod.p.open(URL_B);
+    vod.av.prepared[0]!.ok();
+    vod.av.live = { IS_LIVE: '0' };
+    expect(vod.p.health()).toEqual({ positionMs: 0, isLive: false });
+
+    const broken = setup();
+    await broken.p.open(URL_B);
+    broken.av.prepared[0]!.ok();
+    broken.av.throwOn.add('getStreamingProperty');
+    expect(broken.p.health()).toEqual({ positionMs: 0 });
+  });
+
+  test('1f: a non-live stream that completes reports idle, never a reconnect-triggering error', async () => {
+    const { av, p, events } = setup();
+    await p.open(URL_B, 3);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '0' };
+    av.listener!.onstreamcompleted?.();
+    expect(events.at(-1)).toEqual(['idle', { attemptId: 3 }]);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+  });
+
+  test('1g: seekToLive is a no-op (true) on a non-live stream', async () => {
+    const { av, p } = setup();
+    await p.open(URL_B);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '0' };
+    expect(p.seekToLive(6)).toBe(true);
+    expect(av.seeks).toEqual([]);
   });
 });
