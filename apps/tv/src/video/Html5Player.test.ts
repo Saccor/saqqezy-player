@@ -267,3 +267,106 @@ describe('Html5Player – live delay and recovery signals', () => {
     }
   });
 });
+
+describe('Html5Player – in-place recovery', () => {
+  test('fatal hls.js network error: startLoad once and report buffering; a second within 10 s is reported', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    const err = { fatal: true, type: 'networkError', details: 'fragLoadError' };
+    hls.handlers.hlsError!('hlsError', err);
+    expect(hls.calls).toContain('startLoad');
+    expect(events.at(-1)?.[0]).toBe('buffering');
+    hls.handlers.hlsError!('hlsError', err);
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK' })]);
+    player.destroy();
+  });
+
+  test('fatal hls.js media errors: recover, then swap codec and recover, then report', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    const err = { fatal: true, type: 'mediaError', details: 'bufferStalledError' };
+    hls.handlers.hlsError!('hlsError', err);
+    expect(hls.calls.filter((c) => c === 'recoverMediaError')).toHaveLength(1);
+    hls.handlers.hlsError!('hlsError', err);
+    expect(hls.calls).toContain('swapAudioCodec');
+    expect(hls.calls.filter((c) => c === 'recoverMediaError')).toHaveLength(2);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    hls.handlers.hlsError!('hlsError', err);
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'MEDIA' })]);
+    expect(hls.calls).not.toContain('destroy');
+    player.destroy();
+  });
+
+  test('gap jump: nudges inside a range, jumps to the next range from a range end', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    video.buffered = ranges([[0, 10], [12, 20]]);
+    video.currentTime = 5;
+    expect(player.recover('gapJump')).toBe(true);
+    expect(video.currentTime).toBeCloseTo(5.1);
+    video.currentTime = 10;
+    expect(player.recover('gapJump')).toBe(true);
+    expect(video.currentTime).toBeCloseTo(12.05);
+    video.buffered = ranges([]);
+    expect(player.recover('gapJump')).toBe(false);
+    expect(player.recover('softReload')).toBe(false); // mpegts.js: no in-place reload
+    player.destroy();
+  });
+
+  test('seekToLive per engine', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    hls.liveSyncPosition = 95;
+    expect(player.seekToLive(6)).toBe(true);
+    expect(video.currentTime).toBe(95);
+    hls.liveSyncPosition = null;
+    expect(player.seekToLive(6)).toBe(false);
+
+    await player.open('http://example.test/a.ts');
+    video.currentTime = 10;
+    video.buffered = ranges([[0, 20]]);
+    expect(player.seekToLive(3)).toBe(true);
+    expect(video.currentTime).toBe(17);
+    expect(player.seekToLive(3)).toBe(true); // already there: no-op
+    expect(video.currentTime).toBe(17);
+    video.buffered = ranges([]);
+    expect(player.seekToLive(3)).toBe(false);
+    player.destroy();
+  });
+
+  test('holdLastFrame draws the frame into an overlay that the next playing removes', async () => {
+    const appended: { removed: boolean }[] = [];
+    const g = globalThis as Record<string, unknown>;
+    const savedDoc = g.document;
+    g.document = {
+      createElement: () => {
+        const c = { width: 0, height: 0, className: '', style: {}, removed: false,
+          getContext: () => ({ drawImage() {} }), remove() { c.removed = true; } };
+        return c;
+      },
+    };
+    try {
+      const { player, video } = makePlayer();
+      video.parentElement = { appendChild: (c: { removed: boolean }) => { appended.push(c); } };
+      video.videoWidth = 1280;
+      video.videoHeight = 720;
+      await player.open('http://example.test/a.ts');
+      player.holdLastFrame();
+      player.holdLastFrame(); // only one overlay
+      expect(appended).toHaveLength(1);
+      await player.open('http://example.test/b.ts');
+      expect(appended[0]!.removed).toBe(false); // survives the reconnect
+      video.fire('playing');
+      expect(appended[0]!.removed).toBe(true);
+      player.holdLastFrame();
+      player.releaseLastFrame();
+      expect(appended[1]!.removed).toBe(true);
+      player.destroy();
+    } finally {
+      g.document = savedDoc;
+    }
+  });
+});

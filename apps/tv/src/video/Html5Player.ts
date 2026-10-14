@@ -1,7 +1,7 @@
 import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } from 'hls.js';
 import mpegts from 'mpegts.js';
 import type {
-  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
@@ -53,6 +53,10 @@ const EOS_MESSAGE = 'Stream ended';
 /** A wall clock (EXT-X-PROGRAM-DATE-TIME) outside this range is a broken stamp, not a delay. */
 const PDT_MIN_S = -5;
 const PDT_MAX_S = 600;
+/** A second fatal network error within this window is reported instead of recovered in place. */
+const HLS_NET_RECOVERY_GAP_MS = 10_000;
+/** A held frame never outlives this, even if no stream comes back. */
+const HOLD_MAX_MS = 30_000;
 
 interface NativeAudioTrack { id: string; label: string; language: string; enabled: boolean }
 interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
@@ -79,6 +83,8 @@ export class Html5Player implements Player {
   private readonly video: HTMLVideoElement;
   private readonly listeners = new Set<(s: PlayerState, d?: StateDetail) => void>();
   private session: Session | undefined;
+  private frameOverlay: { remove(): void } | undefined;
+  private overlayTimer: ReturnType<typeof setTimeout> | undefined;
 
   private readonly preferNativeHls: boolean;
   private readonly isTv: boolean;
@@ -115,7 +121,10 @@ export class Html5Player implements Player {
       v.addEventListener(type, fn);
       s.cleanups.push(() => v.removeEventListener(type, fn));
     };
-    on('playing', () => this.emit(s, 'playing'));
+    on('playing', () => {
+      this.releaseLastFrame();
+      this.emit(s, 'playing');
+    });
     on('waiting', () => this.emit(s, 'buffering'));
     // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
     on('ended', () => this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE }));
@@ -217,9 +226,105 @@ export class Html5Player implements Player {
     }
   }
 
-  /** In-place recovery for a fatal hls.js error (implemented in Task 9). False: report the error. */
-  private recoverHls(_s: Session, _hls: Hls, _kind: 'network' | 'media'): boolean {
+  /** In-place recovery for a fatal hls.js error; keeps the element and its last frame. False: report the error. */
+  private recoverHls(s: Session, hls: Hls, kind: 'network' | 'media'): boolean {
+    if (kind === 'network') {
+      const now = Date.now();
+      if (now - s.lastNetRecoveryAt < HLS_NET_RECOVERY_GAP_MS) return false;
+      s.lastNetRecoveryAt = now;
+      hls.startLoad(-1);
+      this.emit(s, 'buffering');
+      return true;
+    }
+    s.mediaRecoveries++;
+    if (s.mediaRecoveries === 1) {
+      hls.recoverMediaError();
+      return true;
+    }
+    if (s.mediaRecoveries === 2) {
+      hls.swapAudioCodec();
+      hls.recoverMediaError();
+      return true;
+    }
     return false;
+  }
+
+  recover(action: RecoverAction): boolean {
+    const s = this.session;
+    if (!s) return false;
+    if (action === 'softReload') {
+      if (s.engine?.kind !== 'hls') return false;
+      s.engine.hls.startLoad(-1);
+      return true;
+    }
+    const v = this.video;
+    const b = v.buffered;
+    if (!b || b.length === 0) return false;
+    const t = v.currentTime;
+    for (let i = 0; i < b.length; i++) {
+      if (b.start(i) <= t + 0.05 && t < b.end(i) - 0.1) {
+        v.currentTime = t + 0.1; // stuck inside buffered data: nudge
+        return true;
+      }
+    }
+    for (let i = 0; i < b.length; i++) {
+      if (b.start(i) > t) {
+        v.currentTime = b.start(i) + 0.05; // at a range end or before the data: jump the gap
+        return true;
+      }
+    }
+    return false;
+  }
+
+  seekToLive(targetS: number): boolean {
+    const s = this.session;
+    const v = this.video;
+    const e = s?.engine;
+    if (!e) return false;
+    if (e.kind === 'hls') {
+      const pos = e.hls.liveSyncPosition;
+      if (pos === null || !Number.isFinite(pos)) return false;
+      v.currentTime = pos;
+      return true;
+    }
+    const r = e.kind === 'native' ? v.seekable : v.buffered;
+    if (!r || r.length === 0) return false;
+    const end = r.end(r.length - 1);
+    if (!Number.isFinite(end)) return false;
+    const to = Math.max(r.start(0), end - targetS);
+    if (to > v.currentTime + 0.25) v.currentTime = to;
+    return true;
+  }
+
+  holdLastFrame(): void {
+    if (this.frameOverlay || typeof document === 'undefined') return;
+    const v = this.video;
+    const box = v.parentElement;
+    if (!box || !v.videoWidth || !v.videoHeight) return;
+    try {
+      const c = document.createElement('canvas');
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      c.className = 'video-hold';
+      Object.assign(c.style, {
+        position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', objectFit: v.style.objectFit || 'contain',
+      });
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      box.appendChild(c);
+      this.frameOverlay = c;
+      this.overlayTimer = setTimeout(() => this.releaseLastFrame(), HOLD_MAX_MS);
+    } catch {
+      // A frame we cannot draw: the spinner over black, as before.
+    }
+  }
+
+  releaseLastFrame(): void {
+    if (this.overlayTimer !== undefined) clearTimeout(this.overlayTimer);
+    this.overlayTimer = undefined;
+    this.frameOverlay?.remove();
+    this.frameOverlay = undefined;
   }
 
   /**
@@ -477,6 +582,7 @@ export class Html5Player implements Player {
   }
 
   destroy(): void {
+    this.releaseLastFrame();
     this.stop();
     this.listeners.clear();
   }
