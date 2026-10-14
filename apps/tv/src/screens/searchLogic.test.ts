@@ -2,12 +2,14 @@ import type { ChannelRow, SearchResult } from '@iptv/app-api';
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 import {
   countText,
+  listTop,
   createSearchMemory,
   createSearcher,
   flattenResults,
   GUIDE_PENDING_NOTE,
   isSelectable,
   resultsMessage,
+  scrollAnchor,
   selectableCount,
   type SearchRow,
   type SearchState,
@@ -171,10 +173,35 @@ describe('search memory', () => {
     expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: '', focus: 0, returning: false });
   });
 
-  it('going to the Player keeps the query, the focused row and sets returning', () => {
+  it('going to the Player or Guide keeps the query, the focused row and sets returning', () => {
     const m = createSearchMemory();
     m.query = 'abc';
     m.leaveTo(3);
     expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 3, returning: true });
+  });
+});
+
+describe('scrollAnchor and listTop', () => {
+  const hdr = (label: string): SearchRow => ({ kind: 'header', label });
+  const rows: SearchRow[] = [hdr('Channels'), chRow(1), chRow(2), chRow(3), hdr('On now'), chRow(4), chRow(5)];
+
+  it('anchors on the header just above the focused row', () => {
+    expect(scrollAnchor(rows, 1)).toBe(0);
+    expect(scrollAnchor(rows, 5)).toBe(4);
+  });
+  it('anchors on the row itself when no header sits above it', () => {
+    expect(scrollAnchor(rows, 2)).toBe(2);
+    expect(scrollAnchor(rows, 0)).toBe(0);
+  });
+  it('scrolling up reveals the header above the first row of a section', () => {
+    expect(listTop(rows, 1, 1, 3)).toBe(0);
+    expect(listTop(rows, 5, 5, 3)).toBe(4);
+  });
+  it('scrolling down keeps the focused row visible and never passes the end', () => {
+    expect(listTop(rows, 6, 0, 3)).toBe(4);
+    expect(listTop(rows, 3, 0, 3)).toBe(1);
+  });
+  it('does not move when the focus is inside the window', () => {
+    expect(listTop(rows, 2, 1, 3)).toBe(1);
   });
 });

@@ -1,4 +1,5 @@
 import type { ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
+import { scrollTopFor } from '../components/virtualWindow.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
 
@@ -145,4 +146,15 @@ export function createSearchMemory(): SearchMemory {
     leaveTo(focus) { m.focus = focus; m.returning = true; },
   };
   return m;
+}
+
+/** The row to scroll to for `focus`: the section header right above it, so the header is not clipped when scrolling up. */
+export function scrollAnchor(rows: readonly SearchRow[], focus: number): number {
+  return rows[focus - 1]?.kind === 'header' ? focus - 1 : focus;
+}
+
+/** Window top for the focus: as `scrollTopFor`, but scrolling up reveals the section header above the focused row. */
+export function listTop(rows: readonly SearchRow[], focus: number, top: number, viewRows: number): number {
+  const anchor = scrollAnchor(rows, focus);
+  return scrollTopFor(anchor < top ? anchor : focus, top, viewRows, rows.length);
 }

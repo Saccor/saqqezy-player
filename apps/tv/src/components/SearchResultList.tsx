@@ -21,9 +21,10 @@ function ProgrammeRowView(props: {
   const sub = () => {
     const h = hit();
     const ch = `${h.channel.number} ${h.channel.name}`;
-    if (props.row.kind === 'onNow') return `${formatRange(h.start, h.stop)} · ${ch}`;
-    const more = (h as { more: number }).more;
-    return `${dayLabel(h.start, props.now)} ${formatRange(h.start, h.stop)} · ${ch}${more > 0 ? ` · +${more} more` : ''}`;
+    const row = props.row;
+    if (row.kind === 'onNow') return `${formatRange(row.hit.start, row.hit.stop)} · ${ch}`;
+    const more = row.hit.more;
+    return `${dayLabel(row.hit.start, props.now)} ${formatRange(row.hit.start, row.hit.stop)} · ${ch}${more > 0 ? ` · +${more} more` : ''}`;
   };
   return (
     <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={LAYOUT.radius}>
@@ -67,7 +68,8 @@ export function SearchResultList(props: {
       onFocusChanged={(f: boolean) => setFocused(f)}
       onUp={() => props.onMove(-1)} onDown={() => props.onMove(1)}
       onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}
-      onLeft={() => props.onLeft()} onEnter={() => props.onOk()}>
+      onLeft={() => props.onLeft()} onEnter={() => props.onOk()}
+      onLongOk={() => true} onMenu={() => true}>
       <For each={indices()}>{(i) => {
         const r = () => props.rows[i];
         const y = () => (i - props.top) * ROW_H;

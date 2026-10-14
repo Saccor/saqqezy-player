@@ -4,13 +4,13 @@ import { api, onEvent } from '../api.ts';
 import { ROW_H } from '../components/ChannelList.tsx';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
-import { firstSelectable, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
+import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listTop, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -40,6 +40,8 @@ export function SearchScreen() {
   let listNode: ElementNode | undefined;
   let alive = true;
   let lastTop = 0;
+  /** The query of the last settled answer. */
+  let settledQuery = '';
 
   const searcher = createSearcher<SearchRow>(async (q) => flattenResults(await api.search(q, SEARCH_LIMIT)), (s) => {
     if (!alive) return;
@@ -50,16 +52,19 @@ export function SearchScreen() {
     const sel = (i: number) => isSelectable(rows[i]);
     // The first answer after returning from the Player or Guide restores the focused row and the list focus.
     const restore = memory.returning && rows.some((r) => isSelectable(r));
-    const f = firstSelectable(restore ? memory.focus : 0, rows.length, sel);
+    // A re-run of the same query (the guide index became ready) keeps the focused row; a new query starts at the top.
+    const rerun = !memory.returning && s.query !== '' && s.query === settledQuery;
+    settledQuery = s.query;
+    const f = firstSelectable(restore ? memory.focus : rerun ? Math.min(focus(), rows.length - 1) : 0, rows.length, sel);
     setFocus(f);
-    lastTop = Math.max(0, f - LIST_ROWS + 1);
+    if (!rerun) lastTop = Math.max(0, f - LIST_ROWS + 1);
     if (restore) { memory.returning = false; queueMicrotask(() => { if (alive) listNode?.setFocus(); }); }
   });
 
   const total = () => state().results.length;
   const rowAt = (i: number) => state().results[i];
   const top = createMemo(() => {
-    lastTop = scrollTopFor(focus(), lastTop, LIST_ROWS, total());
+    lastTop = listTop(state().results, focus(), lastTop, LIST_ROWS);
     return lastTop;
   });
 
