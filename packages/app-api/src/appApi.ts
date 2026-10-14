@@ -609,7 +609,7 @@ export class AppApi {
     }, noop).finally(() => {
       for (const { c } of todo) this.shortPending.delete(c.id);
       this.shortJobs.delete(job);
-    });
+    }).catch(noop); // fire-and-forget: a failing listener must not become an unhandled rejection
     this.shortJobs.add(job);
   }
 

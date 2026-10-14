@@ -440,6 +440,20 @@ describe('AppApi – background short EPG', () => {
   };
   const streamOf = (id: string) => Number(/:x(\d+)$/.exec(id)?.[1]);
 
+  test('a failing nowNextUpdated listener cannot reject the short-EPG job chain', async () => {
+    const service = new SourceService({ storage, fetch: (u, i) => (u.includes('/xmltv.php')
+      ? Promise.resolve(new Response('', { status: 500 }))
+      : fetch(u, i)), now: () => NOW });
+    const api = new AppApi({
+      service, storage, now: () => NOW,
+      emit: (e) => { if (e.type === 'nowNextUpdated') throw new Error('listener failed'); },
+    });
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    await api.getChannelSlice('all', 0, 3);
+    await expect(api.idle()).resolves.toBeUndefined();
+  });
+
   test('getEpgRows never starts a short-EPG lookup', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);
