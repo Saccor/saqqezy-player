@@ -11,6 +11,20 @@ export function arrayMove<T>(arr: readonly T[], from: number, to: number): T[] {
   return out;
 }
 
+/**
+ * Where a drag lands, resolved at drop time: the dragged row is looked up by key in the list as it is now (it may
+ * have changed during the drag, e.g. a TV update), never by its index when the drag started. Undefined (no move)
+ * when the row is gone, when it is locked above `minIndex`, or when it would not move.
+ */
+export function resolveDrop(
+  keys: readonly string[], key: string, target: number, minIndex = 0,
+): { from: number; to: number } | undefined {
+  const from = keys.indexOf(key);
+  if (from < minIndex) return undefined; // gone (-1) or locked
+  const to = Math.min(Math.max(target, minIndex), keys.length - 1);
+  return to === from ? undefined : { from, to };
+}
+
 /** A channel dragged inside a user list. `moveInList` takes an absolute index, so it is safe to re-apply. */
 export function listChannelMoveOps(listId: string, ids: readonly string[], from: number, to: number): LayoutOp[] {
   const channelId = ids[from];

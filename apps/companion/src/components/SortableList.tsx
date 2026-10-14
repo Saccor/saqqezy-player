@@ -1,4 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, Show, type Accessor, type JSX } from 'solid-js';
+import { resolveDrop } from '../logic/reorder.ts';
 import { indexAt } from '../logic/virtual.ts';
 import { createVirtualWindow } from './VirtualList.tsx';
 
@@ -132,7 +133,10 @@ export function SortableList<T>(props: SortableListProps<T>) {
     setDrag(undefined);
     cancelAnimationFrame(scrollFrame);
     scrollFrame = 0;
-    if (commit && d.target !== d.from) move(d.from, d.target);
+    if (!commit) return;
+    // The list may have changed during the drag: find the row by key now, and give up if it is gone.
+    const drop = resolveDrop(keys(), d.key, d.target, minIndex());
+    if (drop) move(drop.from, drop.to);
   };
 
   const move = (from: number, to: number) => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CompanionChannel } from '@iptv/companion-protocol';
 import { applyOps, emptyLayout, FAV_LIST_ID, type Layout, type LayoutOp } from '@iptv/core';
 import { groupChannels, GroupModel } from './groups.ts';
-import { arrayMove, channelOrderOps, groupOrderOps, listChannelMoveOps, listMoveOps, newListId } from './reorder.ts';
+import { arrayMove, channelOrderOps, groupOrderOps, listChannelMoveOps, listMoveOps, newListId, resolveDrop } from './reorder.ts';
 
 describe('arrayMove', () => {
   it('moves an item forwards and backwards without mutating the input', () => {
@@ -99,5 +99,23 @@ describe('channelOrderOps sends only the changed prefix', () => {
     const ids = Array.from({ length: 5000 }, (_, i) => `ch${i}`);
     const ops = channelOrderOps('g:A', ids, 3, 1, 0);
     expect((ops[0] as { ids: string[] }).ids).toEqual(['ch0', 'ch3', 'ch1', 'ch2']);
+  });
+});
+
+describe('resolveDrop', () => {
+  it('takes the dragged row by key at drop time, so a list that changed during the drag moves the right row', () => {
+    // Dragged 'c' from index 2; meanwhile 'a' was removed, so 'c' is now at index 1.
+    expect(resolveDrop(['b', 'c', 'd', 'e'], 'c', 3, 0)).toEqual({ from: 1, to: 3 });
+  });
+
+  it('aborts when the dragged row is gone, or nothing moves', () => {
+    expect(resolveDrop(['a', 'b'], 'x', 0, 0)).toBeUndefined();
+    expect(resolveDrop(['a', 'b', 'c'], 'b', 1, 0)).toBeUndefined();
+  });
+
+  it('clamps the target to the list and to minIndex', () => {
+    expect(resolveDrop(['fav', 'a', 'b'], 'b', 0, 1)).toEqual({ from: 2, to: 1 });
+    expect(resolveDrop(['a', 'b'], 'a', 9, 0)).toEqual({ from: 0, to: 1 });
+    expect(resolveDrop(['fav', 'a'], 'fav', 1, 1)).toBeUndefined(); // a locked row never moves
   });
 });
