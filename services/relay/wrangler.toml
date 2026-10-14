@@ -1,0 +1,24 @@
+name = "iptv-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+send_metrics = false
+
+# Opaque frame relay. No storage, no logs of frame contents or IPs.
+[observability]
+enabled = false
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5174,http://localhost:5173"
+
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "Session"
+
+[[migrations]]
+tag = "v1"
+# SQLite-backed class so the free plan can deploy it. The relay never writes storage.
+new_sqlite_classes = ["Session"]
+
+[dev]
+ip = "127.0.0.1"
+port = 8787
