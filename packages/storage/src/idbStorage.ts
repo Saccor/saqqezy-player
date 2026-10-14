@@ -162,6 +162,21 @@ export class IdbStorage implements Storage {
     return out.sort((a, b) => (a.epgId < b.epgId ? -1 : a.epgId > b.epgId ? 1 : a.start - b.start));
   }
 
+  async forEachProgramme(sourceId: string, fn: (p: Programme) => void): Promise<void> {
+    const tx = (await this.db()).transaction('programmes');
+    const range = IDBKeyRange.bound([sourceId], [sourceId, []]);
+    // Callback cursor (no await inside), so the transaction stays active on older TV engines.
+    const cursorReq = tx.objectStore('programmes').index('byChannel').openCursor(range);
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      const { sourceId: _s, ...p } = cursor.value as ProgRecord;
+      fn(p);
+      cursor.continue();
+    };
+    await done(tx);
+  }
+
   async clearAll(): Promise<void> {
     const db = await this.db();
     const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');

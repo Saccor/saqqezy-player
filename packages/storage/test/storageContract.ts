@@ -48,6 +48,18 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(await s.getProgrammes('s2', ['a'], 0, 100 * 3600_000)).toHaveLength(1);
     });
 
+    test('programmes: forEachProgramme visits every programme of one source only', async () => {
+      const s = await make();
+      await s.addProgrammes('s1', [prog('a', 1, 2), prog('b', 3, 4)]);
+      await s.addProgrammes('s2', [prog('c', 1, 2)]);
+      const seen: string[] = [];
+      await s.forEachProgramme('s1', (p) => seen.push(p.title));
+      expect(seen.sort()).toEqual(['a@1', 'b@3']);
+      const none: string[] = [];
+      await s.forEachProgramme('missing', (p) => none.push(p.title));
+      expect(none).toEqual([]);
+    });
+
     test('deleteSource removes channels, programmes and source-scoped meta', async () => {
       const s = await make();
       await s.putSource(src);
