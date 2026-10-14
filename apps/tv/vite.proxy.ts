@@ -12,6 +12,7 @@
 import { Readable } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
+import { upstreamHeaders } from './src/dev/proxyHeaders.ts';
 import { rewriteHls } from './src/dev/rewriteHls.ts';
 import { UNREACHABLE_HEADER } from './src/net/devProxy.ts';
 
@@ -83,9 +84,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   // On the hls route a playlist is rewritten, so a byte range of the original would not match the body we send:
   // ranges are only forwarded for non-playlist targets. The raw route never rewrites, so it forwards ranges.
-  const headers: Record<string, string> = {};
-  const range = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-  if (range && !(route === 'hls' && isPlaylist('', target.toString()))) headers.range = range;
+  // The browser's user-agent is forwarded too: some providers reject Node's default one.
+  const headers = upstreamHeaders(req.headers, !(route === 'hls' && isPlaylist('', target.toString())));
 
   const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
   const get = (h: Record<string, string>) => fetch(target, { method, redirect: 'follow', headers: h, signal: controller.signal });
@@ -94,7 +94,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     upstream = await get(headers);
     if (route === 'hls' && headers.range && upstream.status === 206 && isPlaylist(upstream.headers.get('content-type') ?? '', upstream.url)) {
       await upstream.body?.cancel();
-      upstream = await get({});
+      upstream = await get(upstreamHeaders(req.headers, false));
     }
   } catch {
     // The target URL may carry credentials; never echo it. The marker header lets the dev worker turn this
