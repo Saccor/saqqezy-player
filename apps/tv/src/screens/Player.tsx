@@ -103,6 +103,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const showBanner = () => {
     setNow(Date.now());
+    setPillTick((v) => v + 1); // the pill is read fresh whenever the banner (re)appears
     setBannerOn(true);
     if (bannerTimer !== undefined) clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => setBannerOn(false), BANNER_MS);
@@ -338,6 +339,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const onEnter = () => {
     if (numbers.submit()) return true;
     // Behind live with the banner up: OK jumps to live (the pill says so) and keeps the banner.
+    if (bannerOn()) setPillTick((v) => v + 1); // act on a fresh pill, not one up to 1 s old
     if (bannerOn() && pill()?.hint) {
       supervisor.goLive();
       showBanner();

@@ -65,9 +65,11 @@ export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
 );
 
-// Back from the background after a while: the stream is behind, so jump to live.
+// Hidden pages present no frames: the stall ladder pauses while hidden. Back from the background after a while,
+// the stream is behind, so jump to live.
 let hiddenAt: number | undefined;
 document.addEventListener('visibilitychange', () => {
+  supervisor.setHidden(document.hidden);
   if (document.hidden) {
     hiddenAt = Date.now();
     return;

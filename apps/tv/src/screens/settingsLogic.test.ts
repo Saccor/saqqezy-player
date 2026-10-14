@@ -273,3 +273,22 @@ describe('liveLines', () => {
     expect(liveLines({ targetS: 0, stalls: 0, reconnects: 0 })[0]).toEqual(['Behind live', 'Unknown']);
   });
 });
+
+describe('liveLines: stream clock and stream edge (final fixes)', () => {
+  const base = { targetS: 6, stalls: 0, reconnects: 0 };
+  it('shows the stream clock when known, plus the edge distance on its own line when both are known', () => {
+    expect(liveLines({ ...base, behindLiveS: 7.2, source: 'edge', streamClockBehindS: 12.4 }).slice(0, 2)).toEqual([
+      ['Behind live', '12 s (stream clock)'], ['Behind stream edge', '7 s'],
+    ]);
+  });
+  it('the stream clock alone: one line', () => {
+    const lines = liveLines({ ...base, streamClockBehindS: 12.4 });
+    expect(lines[0]).toEqual(['Behind live', '12 s (stream clock)']);
+    expect(lines.map((l) => l[0])).not.toContain('Behind stream edge');
+  });
+  it('the edge alone: labelled stream edge, one line', () => {
+    const lines = liveLines({ ...base, behindLiveS: 7.2, source: 'edge' });
+    expect(lines[0]).toEqual(['Behind live', '7 s (stream edge)']);
+    expect(lines.map((l) => l[0])).not.toContain('Behind stream edge');
+  });
+});

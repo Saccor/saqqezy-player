@@ -22,10 +22,12 @@ const PILL_BEHIND_MARGIN_S = 3;
 
 /**
  * The banner's live pill: "LIVE", or "−N s" with an "OK: Go live" hint when the stream is behind its target.
- * Raw TS only knows its buffer, so it always shows "LIVE" (never a delay it cannot measure).
+ * The delay is the distance to the live edge, the value the controller steers by (never the stream clock).
+ * Raw TS only knows its buffer, so it always shows "LIVE" (never a delay it cannot measure). A non-live stream
+ * (file/VOD) shows no pill.
  */
 export function livePill(status: SupervisorStatus | undefined, info: LiveInfo | undefined): { text: string; hint?: string } | undefined {
-  if (status?.kind !== 'playing') return undefined;
+  if (status?.kind !== 'playing' || info?.isLive === false) return undefined;
   if (info && info.source !== 'buffer' && info.behindLiveS !== undefined
     && info.behindLiveS > info.targetS + PILL_BEHIND_MARGIN_S) {
     return { text: `−${Math.round(info.behindLiveS)} s`, hint: 'OK: Go live' };

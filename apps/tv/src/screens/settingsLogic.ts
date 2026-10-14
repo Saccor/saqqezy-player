@@ -216,16 +216,28 @@ export function listActions(listId: string, index: number, count: number): { id:
 
 const SOURCE_LABEL = { pdt: 'stream clock', edge: 'stream edge', buffer: 'buffered' } as const;
 
-/** Diagnostics lines for the live delay (no URLs). */
+/**
+ * Diagnostics lines for the live delay (no URLs). "Behind live" prefers the stream clock, else the stream edge,
+ * else the buffer; when both the clock and the edge are known, the edge (what playback steers by) gets its own line.
+ */
 export function liveLines(info: LiveInfo): [string, string][] {
   let behind = 'Unknown';
-  if (info.source !== 'buffer' && info.behindLiveS !== undefined && info.source !== undefined) {
-    behind = `${Math.round(info.behindLiveS)} s (${SOURCE_LABEL[info.source]})`;
+  const edge = info.source !== 'buffer' && info.source !== undefined && info.behindLiveS !== undefined
+    ? info.behindLiveS
+    : undefined;
+  if (info.streamClockBehindS !== undefined) {
+    behind = `${Math.round(info.streamClockBehindS)} s (${SOURCE_LABEL.pdt})`;
+  } else if (edge !== undefined && info.source !== undefined) {
+    behind = `${Math.round(edge)} s (${SOURCE_LABEL[info.source]})`;
   } else if (info.bufferAheadS !== undefined) {
     behind = `${info.bufferAheadS.toFixed(1)} s buffered`;
   }
+  const edgeLine: [string, string][] = info.streamClockBehindS !== undefined && edge !== undefined
+    ? [['Behind stream edge', `${Math.round(edge)} s`]]
+    : [];
   return [
     ['Behind live', behind],
+    ...edgeLine,
     ['Live target', `${info.targetS.toFixed(1)} s`],
     ['Stalls / reconnects', `${info.stalls} / ${info.reconnects}`],
   ];
