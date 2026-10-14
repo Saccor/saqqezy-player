@@ -1,6 +1,11 @@
 import { detectPlatform, mapKey, type LogicalKey, type PlatformId } from '@iptv/platform';
 import type { KeyMap } from '@lightningtv/solid';
 
+/** Only the error's name is logged: messages may carry URLs or other data. */
+function errName(err: unknown): string | undefined {
+  return (err as { name?: unknown } | null | undefined)?.name as string | undefined;
+}
+
 /** Logical keys as seen by the UI: the remote keys plus the synthesised long-press of Ok. */
 export type UiKey = LogicalKey | 'LongOk';
 
@@ -99,7 +104,7 @@ export function installKeys(
       try {
         fn(key, e);
       } catch (err) {
-        console.error('Key handler failed', err);
+        console.error('Key handler failed', errName(err));
       }
     }
   };
@@ -114,7 +119,7 @@ export function installKeys(
       try {
         fn();
       } catch (err) {
-        console.error('Gesture handler failed', (err as { name?: string } | undefined)?.name);
+        console.error('Gesture handler failed', errName(err));
       }
     }
     if (isTextEntry(e.target)) return;
@@ -123,7 +128,7 @@ export function installKeys(
     try {
       consumed = textCapture?.(e) === true;
     } catch (err) {
-      console.error('Text input handler failed', err);
+      console.error('Text input handler failed', errName(err));
     }
     if (consumed) {
       e.preventDefault();
@@ -136,7 +141,7 @@ export function installKeys(
         try {
           fn(e);
         } catch (err) {
-          console.error('Key handler failed', err);
+          console.error('Key handler failed', errName(err));
         }
       }
       return;
