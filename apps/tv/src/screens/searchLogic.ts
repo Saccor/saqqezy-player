@@ -1,4 +1,4 @@
-import type { ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
+import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
 import { scrollTopFor } from '../components/virtualWindow.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
@@ -70,6 +70,11 @@ export function createSearcher<T>(
 }
 
 export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
+
+/** Events after which Search re-runs the open query: the title index became ready, or a guide import finished. */
+export function rerunsSearch(e: AppEvent): boolean {
+  return e.type === 'searchReady' || (e.type === 'refreshed' && e.what === 'epg');
+}
 
 /** One row of the flat result list; headers and notes are drawn but never take focus. */
 export type SearchRow =

@@ -9,6 +9,7 @@ import {
   GUIDE_PENDING_NOTE,
   isSelectable,
   listRows,
+  rerunsSearch,
   resultsMessage,
   scrollAnchor,
   selectableCount,
@@ -129,6 +130,14 @@ describe('flattenResults', () => {
     expect(rows.map(isSelectable)).toEqual([false, true, true, false]);
     expect(selectableCount(rows)).toBe(2);
     expect(isSelectable(undefined)).toBe(false);
+  });
+});
+
+describe('rerunsSearch', () => {
+  it('re-runs on searchReady and on a finished guide import, not on a playlist refresh', () => {
+    expect(rerunsSearch({ type: 'searchReady', sourceId: 's1' })).toBe(true);
+    expect(rerunsSearch({ type: 'refreshed', what: 'epg', sourceId: 's1' })).toBe(true);
+    expect(rerunsSearch({ type: 'refreshed', what: 'playlist', sourceId: 's1' })).toBe(false);
   });
 });
 

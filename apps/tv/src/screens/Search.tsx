@@ -1,5 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import type { AppEvent } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { ROW_H } from '../components/ChannelList.tsx';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
@@ -10,7 +11,7 @@ import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, rerunsSearch, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -106,9 +107,11 @@ export function SearchScreen() {
   onMount(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     onCleanup(() => clearInterval(tick));
-    // The guide's title index finished building: re-run the open query so programme results appear.
-    const offReady = onEvent('searchReady', () => { if (query().trim() !== '') searcher.setQuery(query()); });
-    onCleanup(offReady);
+    // The guide's title index became ready, or a guide import finished (the first one may finish while Search is
+    // open): re-run the open query so programme results appear. A same-query re-run keeps the focused row.
+    const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
+    onCleanup(onEvent('searchReady', rerun));
+    onCleanup(onEvent('refreshed', rerun));
     // Back from the Player leaves the video fullscreen behind this opaque screen; park it where Home shows it, so
     // the shell's wordmark (hidden while the video is fullscreen) returns and Home needs no visible move.
     if (playback.rectIsFullscreen()) playback.setRect(PREVIEW_RECT);
