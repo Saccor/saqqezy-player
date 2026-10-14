@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanionChannel } from '@iptv/companion-protocol';
-import { buildSearchKeys, filterChannels } from './picker.ts';
+import { buildSearchKeys, filterChannels, sameNames } from './picker.ts';
 
 const ch = (id: string, name: string, group: string, number: number, displayName?: string): CompanionChannel => {
   const c: CompanionChannel = { id, name, group, number, hasEpg: true };
@@ -55,5 +55,29 @@ describe('picker filtering', () => {
     const dt = performance.now() - t0;
     expect(r.length).toBeGreaterThan(0);
     expect(dt).toBeLessThan(1500);
+  });
+});
+
+describe('picker perf and memo keys', () => {
+  it('filters 50k channels in under 50 ms (keys built beforehand, as the picker memoises them)', () => {
+    const many = Array.from({ length: 50_000 }, (_, i) => ch(`c${i}`, `Channel ${i} Ünïcode`, `Group ${i % 300}`, i + 1));
+    const k = buildSearchKeys(many);
+    filterChannels(k, 'warm up');
+    for (const q of ['unicode group 12', 'channel 4999', '12', 'nothing matches this']) {
+      const t0 = performance.now();
+      filterChannels(k, q);
+      expect(performance.now() - t0, q).toBeLessThan(50);
+    }
+  });
+
+  it('sameNames: equal renames count as the same (a layout change elsewhere keeps the keys)', () => {
+    const a = { c1: 'One', c2: 'Two' };
+    expect(sameNames(a, a)).toBe(true);
+    expect(sameNames(a, { c2: 'Two', c1: 'One' })).toBe(true);
+    expect(sameNames(undefined, undefined)).toBe(true);
+    expect(sameNames(a, { c1: 'One' })).toBe(false);
+    expect(sameNames(a, { c1: 'One', c2: 'Deux' })).toBe(false);
+    expect(sameNames(a, undefined)).toBe(false);
+    expect(sameNames({}, undefined)).toBe(false);
   });
 });

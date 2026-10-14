@@ -47,3 +47,20 @@ export function filterChannels(keys: SearchKeys, query: string): number[] {
   }
   return out;
 }
+
+/**
+ * Equality for the layout's `channelNames` (the renames): the picker's search keys depend only on the channel list
+ * and the renames, so they are rebuilt only when one of those changes, not on every layout change (an `applyOps`
+ * result is a new object even when no rename changed). A shallow compare of the renames is far cheaper than
+ * rebuilding 50k keys.
+ */
+type Names = Readonly<Record<string, string>> | undefined;
+
+export function sameNames(a: Names, b: Names): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if (!Object.prototype.hasOwnProperty.call(b, k) || a[k] !== b[k]) return false;
+  return true;
+}

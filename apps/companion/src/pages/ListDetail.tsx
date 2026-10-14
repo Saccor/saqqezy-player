@@ -3,8 +3,8 @@ import type { CompanionChannel } from '@iptv/companion-protocol';
 import { ChannelPicker } from '../components/ChannelPicker.tsx';
 import { SortableList } from '../components/SortableList.tsx';
 import { createNarrow } from '../components/VirtualList.tsx';
-import { channelLabel } from '../logic/groups.ts';
-import { buildSearchKeys } from '../logic/picker.ts';
+import { channelLabel, labelFromNames } from '../logic/groups.ts';
+import { buildSearchKeys, sameNames } from '../logic/picker.ts';
 import { listChannelMoveOps } from '../logic/reorder.ts';
 import { sendOps } from '../state/actions.ts';
 import { groupModel } from '../state/derived.ts';
@@ -26,8 +26,14 @@ export function ListDetailPage(props: { listId: string; onBack: () => void }) {
     const c = byId().get(id);
     return c ? channelLabel(c, layout()) : 'Unavailable channel';
   };
-  // Built only while the picker is open; reopening after a change rebuilds it (cheap next to opening a dialog).
-  const keys = createMemo(() => (picking() ? buildSearchKeys(channels(), (c) => channelLabel(c, layout())) : undefined));
+  // The search keys depend only on the channel list and the renames: other layout changes (adding channels while
+  // the picker is open, a TV update) keep them. Built only while the picker is open.
+  const names = createMemo(() => layout()?.channelNames, undefined, { equals: sameNames });
+  const keys = createMemo(() => {
+    if (!picking()) return undefined;
+    const n = names();
+    return buildSearchKeys(channels(), (c) => labelFromNames(c, n));
+  });
 
   const closePicker = () => {
     setPicking(false);

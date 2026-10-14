@@ -16,8 +16,13 @@ export interface GroupView {
 
 /** The channel's name as the TV shows it: the layout rename, else the playlist name. */
 export function channelLabel(c: CompanionChannel, layout: Layout | undefined): string {
-  if (!layout) return c.displayName ?? c.name;
-  return Object.prototype.hasOwnProperty.call(layout.channelNames, c.id) ? layout.channelNames[c.id]! : c.name;
+  return labelFromNames(c, layout?.channelNames);
+}
+
+/** `channelLabel` from the layout's renames alone (undefined: no layout yet, use the state's `displayName`). */
+export function labelFromNames(c: CompanionChannel, names: Readonly<Record<string, string>> | undefined): string {
+  if (!names) return c.displayName ?? c.name;
+  return Object.prototype.hasOwnProperty.call(names, c.id) ? names[c.id]! : c.name;
 }
 
 /**
