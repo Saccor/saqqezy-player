@@ -448,6 +448,25 @@ describe('PlaybackSupervisor: final fixes', () => {
     expect(player.opened).toHaveLength(1);
   });
 
+  it('sticky liveness: isLive true then false in one play() stays live (goLive still seeks, liveInfo stays live); a new play() resets', () => {
+    const { player, sup } = setup();
+    player.seekToLive = vi.fn(() => true);
+    let live = true;
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 3, behindLiveS: 5, behindLiveSource: 'edge' as const, isLive: live });
+    sup.play(A);
+    player.emit('playing');
+    playFor(player, 250);
+    live = false;
+    playFor(player, 250);
+    expect(sup.liveInfo()).toMatchObject({ isLive: true });
+    sup.goLive();
+    expect(player.seekToLive).toHaveBeenCalled();
+    sup.play(B);
+    player.emit('playing');
+    playFor(player, 250);
+    expect(sup.liveInfo()).toMatchObject({ isLive: false });
+  });
+
   it('1c: stalls on a non-live stream are not counted, do not raise the target and are not persisted', () => {
     const store = { get: vi.fn((_k: string) => 0), set: vi.fn((_k: string, _v: number) => undefined) };
     const { player, sup } = setup({ liveTargets: store });

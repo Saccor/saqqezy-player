@@ -107,6 +107,8 @@ export class PlaybackSupervisor {
   private givingUp = false;
   /** Last `isLive` an engine reported for the current play(); undefined while unknown. */
   private streamLive: boolean | undefined;
+  /** Latch: `isLive === true` was seen during this play(); a later false (e.g. ENDLIST) does not demote it. */
+  private sawLive = false;
   private selfActionAt = Number.NEGATIVE_INFINITY;
   private hidden = false;
   private giveUpSince = 0;
@@ -140,6 +142,7 @@ export class PlaybackSupervisor {
     if (this.disposed) return;
     this.persistRaise();
     this.streamLive = undefined;
+    this.sawLive = false;
     this.selfActionAt = Number.NEGATIVE_INFINITY;
     this.clearTimers();
     this.gen++;
@@ -319,10 +322,15 @@ export class PlaybackSupervisor {
     this.delay?.stallEnded(now);
   }
 
+  private noteLive(live: boolean): void {
+    if (live) this.sawLive = true;
+    this.streamLive = this.sawLive ? true : live;
+  }
+
   /** True when the engine says the stream is not live (file/VOD): no live-only behaviour applies. */
   private notLive(): boolean {
     const live = this.player.health?.().isLive;
-    if (live !== undefined) this.streamLive = live;
+    if (live !== undefined) this.noteLive(live);
     return this.streamLive === false;
   }
 
@@ -342,7 +350,7 @@ export class PlaybackSupervisor {
     const now = this.now();
     const h: PlaybackHealth = this.player.health?.() ?? { positionMs: this.player.position() };
     this.lastHealth = h;
-    if (h.isLive !== undefined) this.streamLive = h.isLive;
+    if (h.isLive !== undefined) this.noteLive(h.isLive);
     if (this.hidden) return; // no frames are presented while hidden: the ladder and the controller pause
     observe(this.watch, h, p, now);
     if (this.playerState === 'playing' && this.stableSince !== undefined && now - this.stableSince >= p.stableMs) {
@@ -376,7 +384,7 @@ export class PlaybackSupervisor {
    */
   private liveTick(h: PlaybackHealth, now: number): void {
     const delay = this.delay;
-    if (!delay || h.isLive === false || h.behindLiveSource === undefined) return;
+    if (!delay || this.streamLive === false || h.behindLiveSource === undefined) return;
     const a = delay.tick({
       behindLiveS: h.behindLiveS,
       source: h.behindLiveSource,

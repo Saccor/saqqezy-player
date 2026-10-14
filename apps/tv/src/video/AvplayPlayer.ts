@@ -137,7 +137,7 @@ interface LiveState { live: boolean | undefined; window?: { start: number; end: 
 
 /** One `open()`; once `dead`, nothing it registered may emit again. */
 interface Session {
-  url: string; attemptId: number | undefined; dead: boolean; started: boolean;
+  url: string; attemptId: number | undefined; dead: boolean; started: boolean; sawLive?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
 }
 
@@ -424,6 +424,9 @@ export class AvplayPlayer implements Player {
     } catch {
       value = { live: undefined };
     }
+    // Sticky: once IS_LIVE was truthy this session stays live (an ended or windowed stream must not flip to a file).
+    if (value.live === true) this.session.sawLive = true;
+    else if (this.session.sawLive) value = { ...value, live: true };
     // Not cached before the stream starts: the window may appear right after `playing`.
     if (value.window !== undefined || this.session.started) this.windowCache = { at: now, value };
     return value;

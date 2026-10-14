@@ -388,10 +388,10 @@ describe('Html5Player – final fixes', () => {
     await player.open('http://example.test/movie.mp4');
     video.duration = Number.NaN;
     expect(player.health().isLive).toBeUndefined();
-    video.duration = Number.POSITIVE_INFINITY;
-    expect(player.health().isLive).toBe(true);
     video.duration = 600;
     expect(player.health().isLive).toBe(false);
+    video.duration = Number.POSITIVE_INFINITY;
+    expect(player.health().isLive).toBe(true);
 
     await player.open('http://example.test/a.ts');
     expect(player.health().isLive).toBe(true);
@@ -438,6 +438,53 @@ describe('Html5Player – final fixes', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test('sticky liveness: hls.js live then ENDLIST (live:false) then ended is still EOS', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/live.m3u8');
+    const hls = created.hls.at(-1)!;
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: true, targetduration: 6 } });
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: false, targetduration: 6 } });
+    expect(player.health().isLive).toBe(true);
+    video.fire('ended');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'EOS' })]);
+    player.destroy();
+  });
+
+  test('sticky liveness: native Infinity observed, then finite duration, then ended is EOS', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/live.mp4');
+    video.duration = Number.POSITIVE_INFINITY;
+    expect(player.health().isLive).toBe(true);
+    video.duration = 600;
+    expect(player.health().isLive).toBe(true);
+    video.fire('ended');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'EOS' })]);
+    player.destroy();
+  });
+
+  test('sticky liveness: native Infinity seen only by the durationchange event still latches', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/live2.mp4');
+    video.duration = Number.POSITIVE_INFINITY;
+    video.fire('durationchange');
+    video.duration = 600;
+    video.fire('ended');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'EOS' })]);
+    player.destroy();
+  });
+
+  test('sticky liveness does not leak into the next session', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/live3.mp4');
+    video.duration = Number.POSITIVE_INFINITY;
+    expect(player.health().isLive).toBe(true);
+    await player.open('http://example.test/movie2.mp4');
+    video.duration = 600;
+    video.fire('ended');
+    expect(events.at(-1)?.[0]).toBe('idle');
+    player.destroy();
   });
 
   test('1g: seekToLive is a no-op (true) on a non-live stream', async () => {

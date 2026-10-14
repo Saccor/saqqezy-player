@@ -34,6 +34,8 @@ interface Session {
   targetDurationS?: number;
   /** hls.js: the playlist's `live` flag from the latest LEVEL_LOADED; undefined until then. */
   hlsLive?: boolean;
+  /** Latch: this session has seen live (hls.js `live`, native Infinity). Once set it stays live (ENDLIST must not demote it). */
+  sawLive?: boolean;
   /** EOS has been reported for this session (once only). */
   eosSent?: boolean;
   /** Fatal hls.js media errors recovered in place so far (Task 9). */
@@ -129,10 +131,13 @@ export class Html5Player implements Player {
       s.cleanups.push(() => v.removeEventListener(type, fn));
     };
     on('playing', () => {
+      void this.liveOf(s);
       this.releaseLastFrame();
       this.emit(s, 'playing');
     });
     on('waiting', () => this.emit(s, 'buffering'));
+    // Observe liveness while the stream plays so the latch is set before the server can end it.
+    on('durationchange', () => void this.liveOf(s));
     // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
     // A file (or a stream not known to be live) simply ended: 'idle', which never reconnects.
     on('ended', () => {
@@ -184,6 +189,7 @@ export class Html5Player implements Player {
       s.engine = { kind: 'hls', hls };
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
         s.hlsLive = data.details.live;
+        if (data.details.live) s.sawLive = true;
         if (data.details.live && s.targetDurationS === undefined) s.targetDurationS = data.details.targetduration;
       });
       hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
@@ -566,6 +572,12 @@ export class Html5Player implements Player {
    * a finite duration is a file, NaN is not known yet), mpegts.js always (it is opened as live).
    */
   private liveOf(s: Session): boolean | undefined {
+    const live = this.rawLiveOf(s);
+    if (live === true) s.sawLive = true;
+    return s.sawLive ? true : live;
+  }
+
+  private rawLiveOf(s: Session): boolean | undefined {
     const e = s.engine;
     if (!e) return undefined;
     if (e.kind === 'mpegts') return true;
