@@ -2,7 +2,7 @@ import { GROUP_ALL, GROUP_FAV, GROUP_RECENT } from '../constants.ts';
 import { epgKey } from '../epg/window.ts';
 import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/types.ts';
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
-import { normalize } from '../text/normalize.ts';
+import { searchKey } from '../text/searchKey.ts';
 import { orderGroupChannels } from './order.ts';
 import type { Channel, GroupInfo } from '../types.ts';
 
@@ -34,11 +34,13 @@ interface Base {
   byNumber: Channel[];
   /** Lazily computed number-ordered members per provider group. */
   membersByNumber: Map<string, Channel[]>;
-  /** Normalised original names. */
+  /** `searchKey` of each channel's original (playlist) name, by channel id. */
   keys: Map<string, string>;
   epgCoverage: Set<string> | undefined;
   /** Lazily computed ids whose epgKey is not covered. */
   noEpg?: Set<string>;
+  /** Lazily built: playlist channels by epgKey, in number order. */
+  byEpgKey?: Map<string, Channel[]>;
 }
 
 function groupIdOf(c: Channel): string {
@@ -68,7 +70,7 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
   const keys = new Map<string, string>();
   for (const c of channels) {
     byId.set(c.id, c);
-    keys.set(c.id, normalize(c.name));
+    keys.set(c.id, searchKey(c.name));
     const gid = groupIdOf(c);
     let m = members.get(gid);
     if (!m) {
@@ -129,7 +131,7 @@ export class ChannelIndex {
         const c = this.base.byId.get(id);
         if (!c || c.name === name) continue;
         this.renamed.set(id, { ...c, name });
-        this.renamedKeys.set(id, normalize(name));
+        this.renamedKeys.set(id, searchKey(name));
       }
     }
     this.noEpg = lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
@@ -309,6 +311,21 @@ export class ChannelIndex {
     return this.visible(GROUP_ALL).find((c) => c.number === n);
   }
 
+  /** Visible display channels whose playlist epgKey is `key`, in number order (programme search). */
+  channelsForEpgKey(key: string): Channel[] {
+    if (!this.base.byEpgKey) {
+      const m = new Map<string, Channel[]>();
+      for (const c of this.base.byNumber) {
+        const k = epgKey(c);
+        const list = m.get(k);
+        if (list) list.push(c);
+        else m.set(k, [c]);
+      }
+      this.base.byEpgKey = m;
+    }
+    return (this.base.byEpgKey.get(key) ?? []).filter((c) => this.shown(c)).map((c) => this.display(c));
+  }
+
   neighbour(groupId: string, channelId: string, delta: number): Channel | undefined {
     const list = this.visible(groupId);
     const i = list.findIndex((c) => c.id === channelId);
@@ -319,7 +336,7 @@ export class ChannelIndex {
 
   /** Matches the display name, with the original name as a fallback key. */
   search(query: string, limit: number): Channel[] {
-    const q = normalize(query);
+    const q = searchKey(query);
     if (!q) return [];
     const prefix: Channel[] = [];
     const contains: Channel[] = [];

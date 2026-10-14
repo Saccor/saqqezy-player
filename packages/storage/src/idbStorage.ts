@@ -85,12 +85,14 @@ export class IdbStorage implements Storage {
     const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
     tx.objectStore('sources').delete(id);
     tx.objectStore('channels').delete(id);
-    // Cursor (not await) so the transaction never goes inactive on older TV engines.
-    const cursorReq = tx.objectStore('meta').openCursor();
+    // Cursor (not await) so the transaction never goes inactive on older TV engines. A key cursor: the values
+    // (a title index record is several MB) are never read.
+    const meta = tx.objectStore('meta');
+    const cursorReq = meta.openKeyCursor();
     cursorReq.onsuccess = () => {
       const cursor = cursorReq.result;
       if (!cursor) return;
-      if (String(cursor.key).endsWith(`:${id}`)) cursor.delete();
+      if (String(cursor.key).endsWith(`:${id}`)) meta.delete(cursor.primaryKey);
       cursor.continue();
     };
     this.deleteProgrammesIn(tx, id);
@@ -160,6 +162,21 @@ export class IdbStorage implements Storage {
       for (const { sourceId: _s, ...p } of recs) if (p.stop > from) out.push(p);
     }
     return out.sort((a, b) => (a.epgId < b.epgId ? -1 : a.epgId > b.epgId ? 1 : a.start - b.start));
+  }
+
+  async forEachProgramme(sourceId: string, fn: (p: Programme) => void): Promise<void> {
+    const tx = (await this.db()).transaction('programmes');
+    const range = IDBKeyRange.bound([sourceId], [sourceId, []]);
+    // Callback cursor (no await inside), so the transaction stays active on older TV engines.
+    const cursorReq = tx.objectStore('programmes').index('byChannel').openCursor(range);
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (!cursor) return;
+      const { sourceId: _s, ...p } = cursor.value as ProgRecord;
+      fn(p);
+      cursor.continue();
+    };
+    await done(tx);
   }
 
   async clearAll(): Promise<void> {

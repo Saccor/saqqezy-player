@@ -39,6 +39,10 @@ export class MemoryStorage implements Storage {
       .map(clone);
   }
 
+  async forEachProgramme(sourceId: string, fn: (p: Programme) => void) {
+    for (const p of this.programmes.get(sourceId) ?? []) fn(clone(p));
+  }
+
   async clearAll() {
     this.sources.clear();
     this.channels.clear();

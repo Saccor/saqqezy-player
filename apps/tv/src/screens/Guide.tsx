@@ -13,7 +13,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
-  HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideWindow, initialViewStart, isOnAir, prefetchRange,
+  HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideOpenTarget, guideWindow, isOnAir, prefetchRange,
   relativeLabel, stepLeft, stepRight, type Block, type HStep,
 } from './guideLogic.ts';
 import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
@@ -46,17 +46,18 @@ const memory: { groupId?: string } = {};
  * 3-hour chunks, the visible 3 h first, then 3 h either side). Times are already shifted by the API.
  */
 export function GuideScreen(props: { entry: ScreenEntry }) {
-  const wantedGroup = typeof props.entry.params.groupId === 'string' ? props.entry.params.groupId : undefined;
   const opened = Date.now();
   const win = guideWindow(opened);
+  const target = guideOpenTarget(props.entry.params, opened, win);
+  const wantedGroup = target.groupId;
 
   const [now, setNow] = createSignal(opened);
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
   const [version, setVersion] = createSignal(0);
   const [row, setRow] = createSignal(0);
-  const [viewStart, setViewStart] = createSignal(initialViewStart(opened, win));
-  const [anchor, setAnchor] = createSignal(opened);
+  const [viewStart, setViewStart] = createSignal(target.viewStart);
+  const [anchor, setAnchor] = createSignal(target.anchor);
   const [area, setArea] = createSignal<'grid' | 'channels'>('grid');
   const [picking, setPicking] = createSignal<number | undefined>(undefined);
   const [expanded, setExpanded] = createSignal(false);
@@ -111,9 +112,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
 
   // ---- groups ----
 
-  const openGroup = (g: string, index: number) => {
+  /** `remember`: a normal open or a user pick; the open at a Search target keeps the remembered group. */
+  const openGroup = (g: string, index: number, remember = true) => {
     groupSeq++;
-    memory.groupId = g;
+    if (remember) memory.groupId = g;
     // The group's count (from getGroups) is the total, so opening needs no extra request for page 0.
     cache.setGroup(g, groups().find((x) => x.id === g)?.count);
     lastTop = Math.max(0, index - 3);
@@ -129,7 +131,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
     const seq = groupSeq;
     const exists = (id: string | undefined) => id !== undefined && gs.some((x) => x.id === id);
     const g = pickGroup(gs, exists(wantedGroup) ? wantedGroup : memory.groupId);
-    const id = playback.current()?.id;
+    const id = target.channelId ?? playback.current()?.id;
     if (g === undefined || id === undefined) return { g, index: 0 };
     const index = await api.indexOf(g, id).catch(() => -1);
     if (seq !== groupSeq) return 'superseded';
@@ -248,7 +250,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
           setGroups(gs);
           const located = await locatePlaying(gs);
           if (!alive || located === 'superseded') return;
-          if (located.g !== undefined) openGroup(located.g, located.index);
+          if (located.g !== undefined) openGroup(located.g, located.index, target.rememberGroup);
         } catch (err) {
           console.warn('Guide reload failed', err instanceof Error ? err.name : 'Error');
         }
@@ -263,7 +265,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         setGroups(gs);
         const located = await locatePlaying(gs);
         if (!alive || located === 'superseded') return;
-        if (located.g !== undefined) openGroup(located.g, located.index);
+        if (located.g !== undefined) openGroup(located.g, located.index, target.rememberGroup);
       } catch (err) {
         console.warn('Guide load failed', err instanceof Error ? err.name : 'Error');
       } finally {

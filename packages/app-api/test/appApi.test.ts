@@ -34,6 +34,24 @@ const gate = () => {
   const p = new Promise<void>((r) => { open = r; });
   return { p, open };
 };
+/** Runs one search and waits for the title index load it starts, so later searches have programme hits. */
+const warm = async (api: AppApi) => {
+  await api.search('x', 1);
+  await api.idle();
+};
+/** A SourceService whose `titleIndexFor` waits for `open()` and counts its calls. */
+const deferredTitles = () => {
+  const g = gate();
+  const state = { calls: 0 };
+  class Deferred extends SourceService {
+    override async titleIndexFor(id: string) {
+      state.calls++;
+      await g.p;
+      return super.titleIndexFor(id);
+    }
+  }
+  return { Svc: Deferred, open: g.open, state };
+};
 /** A source that has finished its own post-add background refresh. */
 const seeded = async (st: MemoryStorage = storage) => {
   const { api } = make(st);
@@ -260,12 +278,174 @@ describe('AppApi', () => {
     }
   });
 
-  test('search', async () => {
+  test('search: channels only when nothing in the guide matches', async () => {
     const { api } = make();
     await api.addSource(xt());
+    await api.refresh('epg');
+    await warm(api);
     const r = await api.search('channel 007', 5);
-    expect(r.map((c) => c.name)).toEqual(['Channel 007']);
-    expect(await api.search('', 5)).toEqual([]);
+    expect(r.channels.map((c) => c.name)).toEqual(['Channel 007']);
+    expect(r.onNow).toEqual([]);
+    expect(r.later).toEqual([]);
+    expect(r.guidePending).toBe(false);
+    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false });
+  });
+
+  test('search: on now (capped at 20) and coming up, one row per title', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    await warm(api);
+    const r = await api.search('programme 1', 50);
+    expect(r.channels).toEqual([]);
+    expect(r.onNow).toHaveLength(20);
+    expect(new Set(r.onNow.map((h) => h.title))).toEqual(new Set(['Programme 12']));
+    expect(r.onNow[0]!.start).toBeLessThanOrEqual(NOW);
+    expect(r.onNow[0]!.stop).toBeGreaterThan(NOW);
+    expect(r.later.map((h) => h.title)).toEqual(['Programme 13', 'Programme 14', 'Programme 15', 'Programme 16', 'Programme 17', 'Programme 18', 'Programme 19']);
+    expect(r.later[0]!.more).toBe(39);
+    expect(r.later[0]!.start).toBeGreaterThan(NOW);
+    expect(r.guidePending).toBe(false);
+  });
+
+  test('search: channel hits are capped at 10 when programmes match too; total stays within limit', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    const rows = (await api.getChannelSlice('all', 0, 12)).rows;
+    await api.applyLayoutOps(rows.map((r, i) => ({ op: 'renameChannel' as const, id: r.id, name: `Programme Channel ${i + 1}` })));
+    await warm(api);
+    const r = await api.search('programme', 12);
+    expect(r.channels).toHaveLength(10);
+    expect(r.channels.length + r.onNow.length + r.later.length).toBeLessThanOrEqual(12);
+  });
+
+  test('search: a failed rebuild reports guidePending once, emits searchReady, then clears and records the error', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    await storage.setMeta(`titleIndex:${sourceId}`, null);
+    class Failing extends SourceService {
+      override async rebuildTitleIndex(): Promise<void> { throw new Error('boom'); }
+    }
+    const { api, events } = make(storage, Failing);
+    await api.init();
+    expect((await api.search('programme 12', 50)).guidePending).toBe(true);
+    await api.idle();
+    // searchReady lets the TV re-run the query and drop its "being prepared" note.
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
+    const second = await api.search('programme 12', 50);
+    expect(second.guidePending).toBe(false);
+    expect(second.onNow).toEqual([]);
+    expect((await api.diagnostics()).lastErrors.some((e) => e.message.includes('boom'))).toBe(true);
+  });
+
+  test('search: the guide offset decides what is on now', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    await api.saveSettings({ epgOffsetHours: 1 });
+    await warm(api);
+    // Displayed = stored + 1 h, so at 18:10 the stored 17:00 slot (Programme 10) is on now.
+    const r = await api.search('programme 10', 50);
+    expect(r.onNow.map((h) => h.title)).toContain('Programme 10');
+    expect(r.onNow[0]!.start).toBeLessThanOrEqual(NOW);
+  });
+
+  test('search: a missing index reports guidePending, rebuilds once and emits searchReady', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    await storage.setMeta(`titleIndex:${sourceId}`, null);
+    const { api, events } = make();
+    await api.init();
+    const first = await api.search('programme 12', 50);
+    expect(first.guidePending).toBe(true);
+    expect(first.onNow).toEqual([]);
+    await api.idle();
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
+    const second = await api.search('programme 12', 50);
+    expect(second.guidePending).toBe(false);
+    expect(second.onNow.length).toBeGreaterThan(0);
+  });
+
+  test('search: the first search returns channels at once with guidePending, loads the index in the background and emits searchReady', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    const d = deferredTitles();
+    const { api, events } = make(storage, d.Svc);
+    await api.init();
+    // The load is held open: the search must not wait on it.
+    const first = await api.search('channel 007', 50);
+    expect(first.channels.map((c) => c.name)).toEqual(['Channel 007']);
+    expect(first.guidePending).toBe(true);
+    expect(first.onNow).toEqual([]);
+    expect(events.some((e) => e.type === 'searchReady')).toBe(false);
+    d.open();
+    await api.idle();
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
+    const second = await api.search('programme 12', 50);
+    expect(second.guidePending).toBe(false);
+    expect(second.onNow.length).toBeGreaterThan(0);
+    expect(d.state.calls).toBe(1);
+  });
+
+  test('search: concurrent searches share one title index load', async () => {
+    const { seed } = await seeded();
+    await seed.refresh('epg');
+    const d = deferredTitles();
+    const { api } = make(storage, d.Svc);
+    await api.init();
+    const rs = await Promise.all([api.search('p', 50), api.search('pr', 50), api.search('pro', 50)]);
+    expect(rs.every((r) => r.guidePending)).toBe(true);
+    expect(d.state.calls).toBe(1);
+    d.open();
+    await api.idle();
+    expect((await api.search('programme 12', 50)).onNow.length).toBeGreaterThan(0);
+    expect(d.state.calls).toBe(1);
+  });
+
+  test('search: a source switch during the title index load neither caches nor emits for the old source', async () => {
+    const { seed, sourceId: first } = await seeded();
+    await seed.refresh('epg');
+    const { sourceId: second } = await seed.addSource(xt());
+    await seed.idle();
+    const d = deferredTitles();
+    const { api, events } = make(storage, d.Svc);
+    await api.init();
+    await api.setActiveSource(first);
+    expect((await api.search('programme 12', 50)).guidePending).toBe(true);
+    await api.setActiveSource(second);
+    d.open();
+    await api.idle();
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === first)).toBe(false);
+    expect(d.state.calls).toBe(1);
+  });
+
+  test('search: a title index that cannot be read still returns channels, records the error name and rebuilds once', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    const state = { reads: 0, rebuilds: 0 };
+    class Throwing extends SourceService {
+      override async titleIndexFor(id: string) {
+        if (++state.reads === 1) throw new RangeError('secret detail http://example.test/x?password=p');
+        return super.titleIndexFor(id);
+      }
+      override async rebuildTitleIndex(id: string): Promise<void> {
+        state.rebuilds++;
+        return super.rebuildTitleIndex(id);
+      }
+    }
+    const { api, events } = make(storage, Throwing);
+    await api.init();
+    const r = await api.search('channel 007', 50);
+    expect(r.channels.map((c) => c.name)).toEqual(['Channel 007']);
+    expect(r.guidePending).toBe(true);
+    await api.idle();
+    expect(state.rebuilds).toBe(1);
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
+    const errors = (await api.diagnostics()).lastErrors;
+    expect(errors.some((e) => e.message.includes('RangeError'))).toBe(true);
+    expect(errors.some((e) => e.message.includes('secret') || e.message.includes('example.test'))).toBe(false);
+    expect((await api.search('programme 12', 50)).onNow.length).toBeGreaterThan(0);
   });
 
   test('clearCache keeps sources and favourites', async () => {

@@ -7,6 +7,7 @@ import { normalizeLayout } from '../layout/ops.ts';
 import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
+import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
@@ -33,6 +34,8 @@ export interface SourceServiceDeps {
 
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
+interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
+const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const SHORT_EPG_CONCURRENCY = 6;
 /** Short-EPG lookups waiting for a slot; past this the oldest waiters are dropped (they resolve to nothing). */
 const SHORT_EPG_QUEUE_CAP = 24;
@@ -179,6 +182,7 @@ export class SourceService {
       await this.storage.setMeta(`epgGen:${id}`, null);
       await this.storage.setMeta(`epgStaging:${id}`, null);
       await this.storage.setMeta(`epgCoverage:${id}`, null);
+      await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
@@ -271,6 +275,7 @@ export class SourceService {
       await this.storage.clearProgrammes(await this.currentEpgKey(id));
       // No guide configured: coverage is unknown rather than empty, so a no-EPG filter hides nothing.
       await this.storage.setMeta(`epgCoverage:${id}`, null);
+      await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
@@ -295,6 +300,7 @@ export class SourceService {
     let batch: Programme[] = [];
     let stored = 0;
     const coverage = new Set<string>();
+    const titles = new TitleIndexBuilder();
     let storageFailure: { error: unknown } | undefined;
     const store = async (rows: Programme[]) => {
       try {
@@ -313,6 +319,7 @@ export class SourceService {
         const key = matcher.resolve(item.programme.epgId);
         if (!key || !inWindow(item.programme, now)) continue;
         batch.push({ ...item.programme, epgId: key });
+        titles.add(item.programme.title, key, item.programme.start, item.programme.stop);
         coverage.add(key);
         if (batch.length >= EPG_BATCH) {
           await store(batch);
@@ -342,12 +349,45 @@ export class SourceService {
     }
     stored += batch.length;
     onProgress?.({ phase: 'epg', count: stored });
+    // Written before the generation switch: a crash in between leaves a record for a gen that never went live,
+    // which titleIndexFor treats as missing. Search is optional: a failed build or write (quota, value size,
+    // allocation) never aborts the import; the record then reads as missing and search rebuilds it later.
+    try {
+      await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: titles.build(), truncated: titles.truncated } satisfies TitleIndexRecord);
+    } catch {
+      try {
+        await this.storage.setMeta(titleIndexKey(id), null);
+      } catch {
+        // Best effort: an older record has another gen, so it still reads as missing.
+      }
+    }
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
     await this.storage.setMeta(`epgStaging:${id}`, null);
     await this.storage.clearProgrammes(oldKey);
     await this.storage.setMeta(`epgAt:${id}`, now);
     return { programmes: stored, skipped: stats.skipped };
+  }
+
+  /** The stored title index of the live guide generation, or undefined (missing, stale or malformed). */
+  async titleIndexFor(id: string): Promise<TitleIndexData | undefined> {
+    const rec = await this.storage.getMeta<Partial<TitleIndexRecord> | null>(titleIndexKey(id));
+    if (!rec || typeof rec !== 'object') return undefined;
+    if (rec.gen !== ((await this.currentGen(id)) ?? 0) || !isTitleIndexData(rec.data)) return undefined;
+    return rec.data;
+  }
+
+  /** Builds the title index from the stored guide (guides imported before it existed, or a bad record). */
+  rebuildTitleIndex(id: string): Promise<void> {
+    return this.withLock(id, async () => {
+      if (!(await this.sourceExists(id))) return;
+      if (await this.titleIndexFor(id)) return; // a guide refresh queued before us already wrote one
+      const gen = await this.currentGen(id);
+      const builder = new TitleIndexBuilder();
+      await this.storage.forEachProgramme(gen === undefined ? id : `${id}@${gen}`, (p) => builder.add(p.title, p.epgId, p.start, p.stop));
+      const record: TitleIndexRecord = { gen: gen ?? 0, data: builder.build(), truncated: builder.truncated };
+      await this.storage.setMeta(titleIndexKey(id), record);
+    });
   }
 
   async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
