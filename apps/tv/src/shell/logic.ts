@@ -70,3 +70,22 @@ export function screenOverlayOpen(overlayIds: readonly string[]): boolean {
 export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: boolean, overlayOpen: boolean): boolean {
   return route !== 'player' && !rectIsFullscreen && !overlayOpen;
 }
+
+/** The wordmark is drawn at the latest this long after the shell mounts, even if Home has not shown rows yet. */
+export const WORDMARK_MAX_WAIT_MS = 2_000;
+
+/**
+ * Whether drawing the wordmark (a 2D canvas render and a PNG encode) should still wait, so it never competes with
+ * the cold start. It waits while the boot (no screen yet) or Home has not marked the startup metric (first cached
+ * rows on screen), up to WORDMARK_MAX_WAIT_MS (`waitedOut`). Screens that never mark startup (Add source on first
+ * run, the init error, any other screen) draw it at once. The mark fades in, which hides the delay.
+ */
+export function deferWordmark(s: {
+  route: ScreenId | undefined;
+  initFailed: boolean;
+  startupMarked: boolean;
+  waitedOut: boolean;
+}): boolean {
+  if (s.startupMarked || s.waitedOut || s.initFailed) return false;
+  return s.route === undefined || s.route === 'home';
+}

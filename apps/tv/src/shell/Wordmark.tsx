@@ -1,5 +1,5 @@
 import { Show, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, on, onCleanup } from 'solid-js';
+import { createEffect, createSignal, on, onCleanup } from 'solid-js';
 import { COLORS, LAYOUT } from './theme.ts';
 import { type Quad, curveLength, layoutLine, layoutOnCurve } from './wordmarkLayout.ts';
 
@@ -103,10 +103,34 @@ export function wordmarkImage(): string | undefined {
  * "SAQQEZY" arched over "MULTIMEDIA": the brand wordmark, centred at the top. Lightning cannot set text on a
  * path, so it is drawn once to a 2D canvas and shown as an image texture. The shell renders it once above the
  * screen host; `visible` fades it in or out over 200 ms (it is hidden in the full-screen Player).
+ *
+ * `defer`: while true the canvas is not drawn at all, so it stays off the cold-start path (see `deferWordmark`).
+ * Once false, it is drawn on the next animation frame and fades in.
  */
-export function Wordmark(props: { visible: boolean }) {
+export function Wordmark(props: { visible: boolean; defer: boolean }) {
   let node: ElementNode | undefined;
   let fade: { stop(): unknown } | undefined;
+  const [src, setSrc] = createSignal<string | undefined>(undefined);
+  let drawRequested = false;
+  createEffect(() => {
+    if (props.defer || drawRequested) return;
+    drawRequested = true;
+    const draw = () => {
+      const image = wordmarkImage();
+      if (!image) return;
+      // Appears from transparent: the same fade as `visible`, so the late draw is not a pop.
+      if (node && props.visible) {
+        fade?.stop();
+        node.alpha = 0;
+        setSrc(image);
+        fade = node.animate({ alpha: 1 }, { duration: FADE_MS, easing: 'ease-in-out' }).start();
+      } else {
+        setSrc(image);
+      }
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(draw);
+    else setTimeout(draw, 0);
+  });
   // Fade with an explicit animation: the `transition` prop calls `animateProp`, which renderer 3.7 lacks.
   createEffect(on(() => props.visible, (visible, prev) => {
     if (!node) return;
@@ -118,10 +142,9 @@ export function Wordmark(props: { visible: boolean }) {
   }));
   onCleanup(() => fade?.stop());
 
-  const src = wordmarkImage();
   return (
     <View ref={node} x={WORDMARK_X} y={WORDMARK_Y} width={WORDMARK_W} height={WORDMARK_H} skipFocus>
-      <Show when={src}>{(s) => <View width={WORDMARK_W} height={WORDMARK_H} src={s()} />}</Show>
+      <Show when={src()}>{(s) => <View width={WORDMARK_W} height={WORDMARK_H} src={s()} />}</Show>
     </View>
   );
 }

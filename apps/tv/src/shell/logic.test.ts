@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createTapSequence, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
   toastOnShow,
 } from './logic.ts';
 import { exitApp } from './platformExit.ts';
@@ -137,5 +137,28 @@ describe('screenOverlayOpen', () => {
     expect(screenOverlayOpen([EXIT_OVERLAY_ID, TOAST_OVERLAY_ID])).toBe(false);
     expect(screenOverlayOpen(['keyboard'])).toBe(true);
     expect(screenOverlayOpen([TOAST_OVERLAY_ID, 'menu'])).toBe(true);
+  });
+});
+
+describe('deferWordmark', () => {
+  const base = { route: undefined, initFailed: false, startupMarked: false, waitedOut: false } as const;
+
+  it('waits while Home (or the boot before it) has not painted its first rows', () => {
+    expect(deferWordmark(base)).toBe(true);
+    expect(deferWordmark({ ...base, route: 'home' })).toBe(true);
+  });
+
+  it('draws once the startup metric is marked', () => {
+    expect(deferWordmark({ ...base, route: 'home', startupMarked: true })).toBe(false);
+  });
+
+  it('draws at once on screens that never mark startup (first run, init error)', () => {
+    expect(deferWordmark({ ...base, route: 'addSource' })).toBe(false);
+    expect(deferWordmark({ ...base, initFailed: true })).toBe(false);
+    expect(deferWordmark({ ...base, route: 'settings' })).toBe(false);
+  });
+
+  it('draws after the safety wait even if Home never shows rows', () => {
+    expect(deferWordmark({ ...base, route: 'home', waitedOut: true })).toBe(false);
   });
 });

@@ -15,13 +15,13 @@ import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
-import { EXIT_OVERLAY_ID, screenOverlayOpen, showWordmark } from './shell/logic.ts';
+import { deferWordmark, EXIT_OVERLAY_ID, screenOverlayOpen, showWordmark, WORDMARK_MAX_WAIT_MS } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
-import { bootstrap, initFailed, offline, platformId, settings, wireEvents } from './state/appState.ts';
+import { bootstrap, initFailed, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
@@ -48,6 +48,13 @@ export function App() {
   onCleanup(router.subscribe(setCurrent));
   const [overlayIds, setOverlayIds] = createSignal(router.overlays());
   onCleanup(router.subscribeOverlays(setOverlayIds));
+  // The wordmark's canvas is drawn after the cold start (first Home rows), or after a short wait at most.
+  const [wordmarkWaitedOut, setWordmarkWaitedOut] = createSignal(false);
+  const wordmarkTimer = setTimeout(() => setWordmarkWaitedOut(true), WORDMARK_MAX_WAIT_MS);
+  onCleanup(() => clearTimeout(wordmarkTimer));
+  const wordmarkDeferred = () => deferWordmark({
+    route: current()?.screen, initFailed: initFailed(), startupMarked: startupMs() !== undefined, waitedOut: wordmarkWaitedOut(),
+  });
 
   const [exitOpen, setExitOpen] = createSignal(false);
   let screenHost: ElementNode | undefined;
@@ -100,7 +107,8 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
-      <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))} />
+      <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}
+        defer={wordmarkDeferred()} />
       <Show when={offline()}><OfflineBadge /></Show>
       {/* Hidden until settings are loaded, so a disabled clock never flashes. */}
       <Show when={settings()?.showClock === true}><Clock /></Show>
