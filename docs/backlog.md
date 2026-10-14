@@ -177,11 +177,11 @@ Still open:
 Small items from the implementation reviews that v1 ships without.
 
 - Core: `redactUrl` matches only lower-case `username` / `password` query keys.
-- Core: search `normalize` does not fold ø, æ or ß.
+- Core: guide name matching (normalize) does not fold ø, æ or ß.
 - Core: 32-bit `fnv1a` channel ids (collisions are suffixed); consider a wider hash.
 - Core: thin edge-case tests in utils; `uniqueId` not tested end to end through `m3uEntriesToChannels`.
 - M3U: `#EXTGRP` before `#EXTINF` is ignored.
-- Channel index: prefix-first search order untested; duplicate favourite ids not de-duplicated; `byNumber` is O(n).
+- Channel index: duplicate favourite ids not de-duplicated; `byNumber` is O(n).
 - Storage: `done()` loses request-level error detail; channels are stored as one record per source.
 - Xtream: base64 decoding may garble plain-text titles; credential query built twice in the client.
 - EPG: matcher fallback for undeclared ids untested; overlapping "now" programmes depend on order.
@@ -200,6 +200,8 @@ Small items from the implementation reviews that v1 ships without.
 - Input: `captureTextInput` and `unwrapDevProxyResponse` untested.
 - Home: preview panel flickers after the debounce; "No information" gap rows never expire; `stopPreview` naming.
 - Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
+- Search: real-TV timing of keystroke-to-paint and heap with the title index loaded (Tizen dev build).
+- Search: building the title index adds noticeable time to guide import in the parse-only bench (packages/core/perf/search.perf.ts import-overhead test fails its 15 % bound); next step flat typed arrays + counting sort in TitleIndexBuilder.build(), or revisit the bound.
 
 ## Follow-ups from the v1.1 merge review
 - Source switch can push two full states. Call `companionStale()` once after `activate()` in the source operations.
