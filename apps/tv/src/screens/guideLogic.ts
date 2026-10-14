@@ -160,13 +160,17 @@ export function stepRight(blocks: readonly Block[], index: number, view: HView, 
   if (cur.stop - end > HOUR) return scrollBy(view, HOUR, win, cur) ?? { kind: 'none' };
   const next = blocks[index + 1];
   if (!next || next.start >= win.end) {
-    return (cur.stop > end ? scrollBy(view, HOUR, win, cur) : undefined) ?? { kind: 'none' };
+    // Nothing further loaded: scroll on while the window has room, so the data can fill in (never a dead end).
+    return scrollBy(view, HOUR, win, cur) ?? { kind: 'none' };
   }
   const viewStart = revealStart(next, view.viewStart, win);
   return { kind: 'move', index: index + 1, viewStart, anchor: Math.max(next.start, viewStart) };
 }
 
-/** Left: the previous programme, one hour back inside a long block, or `edge` at the start of the row. */
+/**
+ * Left: the previous programme, one hour back inside a long block, or `edge` at the start of the window. While the
+ * data before the first loaded block is still loading, the view scrolls back instead (never a false edge).
+ */
 export function stepLeft(blocks: readonly Block[], index: number, view: HView, win: TimeRange): HStep {
   const cur = blocks[index];
   if (!cur) return scrollBy(view, -HOUR, win) ?? { kind: 'edge' };
@@ -183,7 +187,8 @@ export function stepLeft(blocks: readonly Block[], index: number, view: HView, w
     const viewStart = clampViewStart(floorHalfHour(cur.start), win);
     if (viewStart < view.viewStart) return { kind: 'scroll', viewStart, anchor: Math.max(cur.start, viewStart) };
   }
-  return { kind: 'edge' };
+  if (cur.start <= win.start || view.viewStart <= win.start) return { kind: 'edge' };
+  return scrollBy(view, -HOUR, win, cur) ?? { kind: 'edge' };
 }
 
 /** Time range to have loaded for a view: the visible span plus `PREFETCH` either side, inside the window. */

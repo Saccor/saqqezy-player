@@ -139,6 +139,21 @@ describe('Left / Right', () => {
     expect(stepLeft([], -1, { viewStart: at(-6), anchor: at(-6) }, win)).toEqual({ kind: 'edge' });
   });
 
+  it('scrolls back, not to the channel column, at the first loaded block before the window start', () => {
+    const loaded = buildBlocks(slots(-3, 3), [{ start: at(-3), end: at(3) }]);
+    const s = stepLeft(loaded, 0, { viewStart: at(-3), anchor: at(-3) }, win);
+    expect(s).toEqual({ kind: 'scroll', viewStart: at(-4), anchor: at(-3) });
+    // Once the view reaches the window start (or the block starts there) it is a real edge.
+    expect(stepLeft(loaded, 0, { viewStart: at(-6), anchor: at(-3) }, win)).toEqual({ kind: 'edge' });
+  });
+
+  it('scrolls forward, not into a dead end, at the last loaded block before the window end', () => {
+    const loaded = buildBlocks(slots(0, 3), [{ start: at(0), end: at(3) }]);
+    const last = loaded.length - 1;
+    const s = stepRight(loaded, last, { viewStart: at(0), anchor: at(2.5) }, win);
+    expect(s).toEqual({ kind: 'scroll', viewStart: at(1), anchor: at(2.5) });
+  });
+
   it('never moves past the end of the window', () => {
     const tail: Block[] = buildBlocks(slots(46, 48), [{ start: at(45), end: at(48) }]);
     const last = tail.length - 1;

@@ -28,8 +28,8 @@ const FILLER = 0x10141cff;
 const ROW_BG = 0x0f131aff;
 
 function Logo(props: { url: string | undefined }) {
-  const [failed, setFailed] = createSignal(false);
-  const usable = () => !failed() && logoCache.usable(props.url);
+  const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
+  const usable = () => failedUrl() !== props.url && logoCache.usable(props.url);
   return (
     <View x={10} y={(CELL_H - LOGO_H) / 2} width={LOGO_W} height={LOGO_H} borderRadius={6} color={COLORS.background}>
       {/* Without a logo the tile stays empty: the number is already shown next to it. */}
@@ -38,7 +38,7 @@ function Logo(props: { url: string | undefined }) {
           logoCache.touch(url);
           return (
             <View x={3} y={3} width={LOGO_W - 6} height={LOGO_H - 6} src={rawViaDevProxy(url)}
-              onEvent={{ failed: () => { logoCache.markFailed(url); setFailed(true); } }} />
+              onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
       </Show>
@@ -125,7 +125,8 @@ export function EpgGrid(props: {
             <View y={(i - props.top) * EPG_ROW_H} width={EPG_GRID_W} height={CELL_H}>
               <View width={CHANNEL_W} height={CELL_H} borderRadius={LAYOUT.radius}
                 color={chLit() ? COLORS.focus : isRow() ? COLORS.surface : ROW_BG}>
-                <Show when={ch()} keyed>{(c) => <Logo url={c.logo} />}</Show>
+                {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
+                <Logo url={ch()?.logo} />
                 <Text x={86} y={8} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}
                   fontSize={FONT.small} color={chLit() ? 0xffffffcc : COLORS.muted}>
                   {`${ch()?.number ?? ''}${ch()?.id === props.playingId && ch() ? ' ▶' : ''}`}

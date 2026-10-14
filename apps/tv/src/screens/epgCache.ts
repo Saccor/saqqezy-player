@@ -59,11 +59,15 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
     return this.groupId;
   }
 
-  /** Switches to `groupId`; a different group drops all cached pages. */
-  setGroup(groupId: string): void {
+  /**
+   * Switches to `groupId`; a different group drops all cached pages. `knownTotal` (e.g. the group's channel count)
+   * saves the request that would otherwise fetch page 0 just to learn the total; the first answer corrects it.
+   */
+  setGroup(groupId: string, knownTotal?: number): void {
     if (groupId === this.groupId) return;
     this.groupId = groupId;
     this.invalidate();
+    this.totalRows = knownTotal;
   }
 
   invalidate(): void {

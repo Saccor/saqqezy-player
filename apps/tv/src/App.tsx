@@ -85,7 +85,7 @@ export function App() {
             ? <AddSourceScreen />
             : entry.screen === 'home' ? <HomeScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
-            : entry.screen === 'guide' ? <GuideScreen />
+            : entry.screen === 'guide' ? <GuideScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>

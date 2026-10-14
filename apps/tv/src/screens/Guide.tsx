@@ -8,7 +8,7 @@ import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../compo
 import { GroupList } from '../components/GroupList.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { playback } from '../playback/playback.ts';
-import { router } from '../shell/router.ts';
+import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { EpgCache } from './epgCache.ts';
 import {
@@ -36,7 +36,8 @@ const memory: { groupId?: string } = {};
  * and the EPG grid. Rows come from `getEpgRows` through a bounded, expiring `EpgCache` (pages of 20 channels x
  * 3-hour chunks, the visible 3 h first, then 3 h either side). Times are already shifted by the API.
  */
-export function GuideScreen() {
+export function GuideScreen(props: { entry: ScreenEntry }) {
+  const wantedGroup = typeof props.entry.params.groupId === 'string' ? props.entry.params.groupId : undefined;
   const opened = Date.now();
   const win = guideWindow(opened);
 
@@ -104,23 +105,30 @@ export function GuideScreen() {
   const openGroup = (g: string, index: number) => {
     groupSeq++;
     memory.groupId = g;
-    cache.setGroup(g);
+    // The group's count (from getGroups) is the total, so opening needs no extra request for page 0.
+    cache.setGroup(g, groups().find((x) => x.id === g)?.count);
     lastTop = Math.max(0, index - 3);
     setRow(index);
     setGroupId(g);
   };
 
-  /** The playing channel's position, in the remembered group or else in All channels. */
-  const locatePlaying = async (gs: GroupInfo[]): Promise<{ g: string | undefined; index: number }> => {
+  /**
+   * The playing channel's position, in Home's group, else the remembered one, else All channels. `superseded`
+   * when the user picked another group meanwhile (the caller then leaves that choice alone).
+   */
+  const locatePlaying = async (gs: GroupInfo[]): Promise<{ g: string | undefined; index: number } | 'superseded'> => {
     const seq = groupSeq;
-    const g = pickGroup(gs, memory.groupId);
+    const exists = (id: string | undefined) => id !== undefined && gs.some((x) => x.id === id);
+    const g = pickGroup(gs, exists(wantedGroup) ? wantedGroup : memory.groupId);
     const id = playback.current()?.id;
     if (g === undefined || id === undefined) return { g, index: 0 };
     const index = await api.indexOf(g, id).catch(() => -1);
-    if (index >= 0 || g === GROUP_ALL || !gs.some((x) => x.id === GROUP_ALL) || seq !== groupSeq) {
+    if (seq !== groupSeq) return 'superseded';
+    if (index >= 0 || g === GROUP_ALL || !gs.some((x) => x.id === GROUP_ALL)) {
       return { g, index: Math.max(0, index) };
     }
     const inAll = await api.indexOf(GROUP_ALL, id).catch(() => -1);
+    if (seq !== groupSeq) return 'superseded';
     return inAll >= 0 ? { g: GROUP_ALL, index: inAll } : { g, index: 0 };
   };
 
@@ -173,8 +181,8 @@ export function GuideScreen() {
         if (!alive || !pc || !playback.isLatest(token)) return;
         // Same channel: the stream keeps running and only the rect changes (no reconnect).
         playback.playChannel(pc);
-        playback.setRect('fullscreen');
         await api.markWatched(ch.id, g).catch(() => undefined);
+        // The Player sets the rect to fullscreen on mount, so no fullscreen flash in the mini window beforehand.
         if (alive && playback.isLatest(token)) router.push('player', { channelId: ch.id, groupId: g });
       } catch (err) {
         console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
@@ -213,18 +221,23 @@ export function GuideScreen() {
   onMount(() => {
     playback.setRect(MINI);
     root?.setFocus();
-    const tick = setInterval(() => setNow(Date.now()), MINUTE);
+    // Aligned to the minute boundary, so the clock-based labels and the now line change on the minute.
+    let tick: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => {
+      setNow(Date.now());
+      tick = setInterval(() => setNow(Date.now()), MINUTE);
+    }, MINUTE - (Date.now() % MINUTE));
     const off = onEvent('refreshed', () => cache.invalidate());
-    onCleanup(() => { clearInterval(tick); off(); });
+    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); });
 
     void (async () => {
       try {
         const gs = await api.getGroups();
         if (!alive) return;
         setGroups(gs);
-        const { g, index } = await locatePlaying(gs);
-        if (!alive) return;
-        if (g !== undefined) openGroup(g, index);
+        const located = await locatePlaying(gs);
+        if (!alive || located === 'superseded') return;
+        if (located.g !== undefined) openGroup(located.g, located.index);
       } catch (err) {
         console.warn('Guide load failed', err instanceof Error ? err.name : 'Error');
       } finally {

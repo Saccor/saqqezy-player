@@ -399,7 +399,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}
       forwardFocus={() => { focusArea(area()); return true; }}
       onYellow={() => { router.push('search'); return true; }}
-      onGreen={() => { router.push('guide'); return true; }}
+      onGreen={() => { router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined); return true; }}
       onBlue={() => { router.push('settings'); return true; }}>
       {/* Opaque background everywhere except the preview box, which stays a hole onto the video. */}
       <View width={LAYOUT.width} height={PREVIEW_RECT.y} color={COLORS.background} />

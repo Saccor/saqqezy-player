@@ -22,6 +22,15 @@ function fakeFetch(total: number, empty: ReadonlySet<number> = new Set()) {
 }
 
 describe('EpgCache', () => {
+  it('skips the page-0 round trip when the total is known', async () => {
+    const fetch = fakeFetch(45);
+    const cache = new EpgCache<Ch, Prog>(fetch, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 45);
+    expect(cache.total()).toBe(45);
+    await cache.ensure(25, 30, B, B + CHUNK);
+    expect(fetch.mock.calls).toEqual([['all', 20, 20, B, B + CHUNK]]);
+  });
+
   it('fetches pages of 20 channels per aligned time chunk and serves rows from them', async () => {
     const fetch = fakeFetch(45);
     const cache = new EpgCache<Ch, Prog>(fetch, { rowsPerPage: 20, chunkMs: CHUNK });
