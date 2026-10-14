@@ -87,7 +87,7 @@ export function ChannelList(props: {
           const n = r()?.now;
           const nx = props.showNext ? r()?.next : undefined;
           if (!n) return r() ? 'No guide information' : '';
-          return `${formatRange(n.start, n.stop)} · ${n.title}${nx ? `  |  Next: ${nx.title}` : ''}`;
+          return `${formatRange(n.start, n.stop)} · ${n.title}${nx ? ` | Next: ${nx.title}` : ''}`;
         };
         return (
           <View x={0} y={(i - props.top) * ROW_H} width={props.width} height={ROW_H - 6} color={fill()}

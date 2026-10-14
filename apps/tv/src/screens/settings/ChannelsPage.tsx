@@ -32,7 +32,7 @@ export function ChannelsPage(props: PageProps) {
       ? [{ id: NONE_ID, label: 'Loading hidden channels…' }]
       : list.length === 0
         ? [{ id: NONE_ID, label: 'No hidden channels', help: 'Hide channels from the channel options' }]
-        : list.map((c) => ({ id: c.id, label: `${c.number}  ${c.name}`, value: 'Hidden', help: 'Ok: show this channel again' }));
+        : list.map((c) => ({ id: c.id, label: `${c.number} · ${c.name}`, value: 'Hidden', help: 'Ok: show this channel again' }));
     return [
       { id: 'auto', label: 'Refresh channels and guide', value: autoRefreshLabel(auto()), adjustable: true,
         help: 'How often the list is downloaded again' },

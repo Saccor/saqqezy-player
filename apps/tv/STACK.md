@@ -113,6 +113,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - To add a web font later, call `renderer.stage.loadFont('canvas', { fontFamily, fontUrl })` directly. `loadFonts()` from `@lightningtv/solid` skips canvas fonts when the renderer is WebGL.
 - SDF (`SdfTextRenderer` from `@lightningjs/renderer/webgl` plus msdf/ssdf atlases) is faster for large amounts of text, but needs generated atlas assets. Defer it until text performance on a TV demands it.
 - When a `Text` node's content changes, it is blank for a frame or two while the canvas texture is regenerated.
+- Never put two spaces in a row in `Text` content. The canvas text layout measures runs of spaces as one, so the texture is too narrow and the last glyphs are clipped (`"Next: Programme 13"` drew as `"Programme 1"`). Use a single space or a separator such as ` · `.
 
 ## Image loading
 
