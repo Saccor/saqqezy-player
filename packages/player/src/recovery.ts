@@ -110,7 +110,10 @@ export function decide(h: PlaybackHealth, w: WatchState, p: RecoveryPolicy, now:
   const ahead = h.bufferAheadS;
   if ((ahead !== undefined && ahead >= 0.5) || (h.rangeCount ?? 0) > 1) {
     if (w.gapJumpsAt.length < p.maxGapJumpsPer30s && now - w.lastGapJumpAt >= p.gapJumpAfterMs) return { do: 'gapJump' };
-    if (stalledFor >= p.edgeSeekAfterMs && now - w.lastSeekAt >= p.edgeSeekAfterMs) return { do: 'seekLive' };
+    // A non-live stream has no live edge: seeking "to live" would jump to the end of the file.
+    if (h.isLive !== false && stalledFor >= p.edgeSeekAfterMs && now - w.lastSeekAt >= p.edgeSeekAfterMs) {
+      return { do: 'seekLive' };
+    }
   }
   if (ahead !== undefined && ahead < 0.1 && stalledFor >= p.emptyBufferReconnectMs) {
     return { do: 'reconnect', reason: 'emptyBuffer' };

@@ -57,9 +57,10 @@ describe('LiveDelayController', () => {
     expect(c.tick(edge(40, { paused: true }), 30_000)).toEqual({ do: 'none' });
   });
 
-  it('reopens when far beyond the target', () => {
+  it('reopens when far beyond the target for two samples in a row', () => {
     const c = new LiveDelayController('balanced', false, 0, 0);
-    expect(c.tick(edge(27), 0)).toEqual({ do: 'reopen' }); // 21 s over target 6 > 20
+    expect(c.tick(edge(27), 0)).toEqual({ do: 'none' }); // 21 s over target 6 > 20: first sample
+    expect(c.tick(edge(27), 2000)).toEqual({ do: 'reopen' });
   });
 
   it('rate catch-up only when allowed, 1.05 when over target by > 1 s with > 2 s buffered, else 1', () => {
@@ -84,5 +85,44 @@ describe('LiveDelayController', () => {
     expect(new LiveDelayController('balanced', false, Number.NaN, 0).learnedRaiseS()).toBe(0);
     expect(new LiveDelayController('balanced', false, -4, 0).learnedRaiseS()).toBe(0);
     expect(new LiveDelayController('balanced', false, 99, 0).learnedRaiseS()).toBe(3); // TS cap for balanced
+  });
+});
+
+describe('LiveDelayController: drift reopen (final fixes)', () => {
+  it('needs two consecutive samples above the reopen line', () => {
+    const c = new LiveDelayController('balanced', false, 0, 0);
+    expect(c.tick(edge(27), 0)).not.toEqual({ do: 'reopen' });
+    expect(c.tick(edge(10), 2000)).not.toEqual({ do: 'reopen' }); // the run is broken
+    expect(c.tick(edge(27), 4000)).not.toEqual({ do: 'reopen' });
+    expect(c.tick(edge(27), 6000)).toEqual({ do: 'reopen' });
+  });
+
+  it('stops drift reopens when the sample after a reopen is not at least 25 % lower', () => {
+    const c = new LiveDelayController('balanced', false, 0, 0);
+    c.tick(edge(40), 0);
+    expect(c.tick(edge(40), 2000)).toEqual({ do: 'reopen' });
+    expect(c.reopensStopped()).toBe(false);
+    c.tick(edge(31), 4000); // 40 × 0.75 = 30: not lower enough
+    expect(c.reopensStopped()).toBe(true);
+    const later = [6000, 8000, 10_000, 12_000].map((t) => c.tick(edge(40), t));
+    expect(later).not.toContainEqual({ do: 'reopen' });
+    expect(later).toContainEqual({ do: 'seek' }); // still steered by seeking
+  });
+
+  it('keeps drift reopens when the reopen helped', () => {
+    const c = new LiveDelayController('balanced', false, 0, 0);
+    c.tick(edge(40), 0);
+    c.tick(edge(40), 2000);
+    c.tick(edge(20), 4000); // 40 → 20: the reopen helped
+    expect(c.reopensStopped()).toBe(false);
+    c.tick(edge(40), 6000);
+    expect(c.tick(edge(40), 8000)).toEqual({ do: 'reopen' });
+  });
+
+  it('the over-threshold rate needs more than 2 s buffered too', () => {
+    const thin = new LiveDelayController('balanced', true, 0, 0);
+    expect(thin.tick(edge(15, { bufferAheadS: 1 }), 0)).toEqual({ do: 'rate', rate: 1 });
+    const deep = new LiveDelayController('balanced', true, 0, 0);
+    expect(deep.tick(edge(15, { bufferAheadS: 3 }), 0)).toEqual({ do: 'rate', rate: 1.05 });
   });
 });

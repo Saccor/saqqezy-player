@@ -32,8 +32,13 @@ export type SupervisorStatus =
   | { kind: 'failed'; reason: 'unavailable' | 'unsupported' | 'refused' };
 
 export interface LiveInfo {
+  /** Seconds behind the live edge: the value the controller steers by (and the pill shows). */
   behindLiveS?: number;
   source?: LatencySource;
+  /** Seconds behind by the stream clock (display only). */
+  streamClockBehindS?: number;
+  /** False for a non-live (file/VOD) stream; left out while unknown. */
+  isLive?: boolean;
   bufferAheadS?: number;
   targetS: number;
   stalls: number;
@@ -46,6 +51,8 @@ const ERROR_CODES = new Set<string>(['NETWORK', 'MEDIA', 'DECODE', 'UNSUPPORTED'
 const LIVE_EVERY_TICKS = 8; // the delay controller runs every ~2 s
 const PERSIST_EVERY_MS = 60_000;
 const RESUME_GO_LIVE_MS = 30_000;
+/** After a seek or recovery we issued, a waiting/playing pair is our own doing, not a stall. */
+const SELF_ACTION_GRACE_MS = 2_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -98,6 +105,10 @@ export class PlaybackSupervisor {
   private stalls = 0;
   private reconnects = 0;
   private givingUp = false;
+  /** Last `isLive` an engine reported for the current play(); undefined while unknown. */
+  private streamLive: boolean | undefined;
+  private selfActionAt = Number.NEGATIVE_INFINITY;
+  private hidden = false;
   private giveUpSince = 0;
   private lastStatus: SupervisorStatus['kind'] | undefined;
   private noBytesTimer: Timer | undefined;
@@ -128,6 +139,8 @@ export class PlaybackSupervisor {
   play(url: string, alternates?: string | readonly string[], opts: PlayOptions = {}): void {
     if (this.disposed) return;
     this.persistRaise();
+    this.streamLive = undefined;
+    this.selfActionAt = Number.NEGATIVE_INFINITY;
     this.clearTimers();
     this.gen++;
     this.active = true;
@@ -188,12 +201,15 @@ export class PlaybackSupervisor {
     if (h?.behindLiveS !== undefined) info.behindLiveS = h.behindLiveS;
     if (h?.behindLiveSource !== undefined) info.source = h.behindLiveSource;
     if (h?.bufferAheadS !== undefined) info.bufferAheadS = h.bufferAheadS;
+    if (h?.streamClockBehindS !== undefined) info.streamClockBehindS = h.streamClockBehindS;
+    if (this.streamLive !== undefined) info.isLive = this.streamLive;
     return info;
   }
 
-  /** "Go live": seek to the target, or reopen when the engine cannot seek. */
+  /** "Go live": seek to the target, or reopen when the engine cannot seek. Nothing on a non-live stream. */
   goLive(): void {
-    if (!this.active || !this.isPlaying || !this.delay) return;
+    if (!this.active || !this.isPlaying || !this.delay || this.notLive()) return;
+    this.selfActionAt = this.now();
     if (!(this.player.seekToLive?.(this.delay.targetS()) ?? false)) this.reopen();
   }
 
@@ -205,6 +221,16 @@ export class PlaybackSupervisor {
   /** The app was in the background for `awayMs`: past 30 s the stream is behind, so jump to live. */
   onResume(awayMs: number): void {
     if (awayMs > RESUME_GO_LIVE_MS) this.goLive();
+  }
+
+  /**
+   * The page is hidden (or visible again). Hidden pages present no frames, so the stall ladder and the delay
+   * controller pause; on return the watch starts afresh, so the hidden time never counts as a stall.
+   */
+  setHidden(hidden: boolean): void {
+    if (this.hidden === hidden) return;
+    this.hidden = hidden;
+    if (!hidden) this.watch = newWatch(this.player.health?.().positionMs ?? this.player.position(), this.now());
   }
 
   // ---- attempts ----
@@ -265,19 +291,39 @@ export class PlaybackSupervisor {
       }
       if (this.stalledWhilePlaying) {
         this.stalledWhilePlaying = false;
-        this.stalls++;
-        this.delay?.stallEnded(now);
+        this.countStall(now);
       }
       if (prev !== 'playing') {
         this.stableSince = now;
         this.watch = newWatch(this.player.health?.().positionMs ?? this.player.position(), now);
       }
     } else if (s === 'buffering') {
-      if (this.isPlaying && prev === 'playing') this.stalledWhilePlaying = true;
+      // Right after our own seek or recovery, waiting is our doing, not a stall.
+      if (this.isPlaying && prev === 'playing' && now - this.selfActionAt >= SELF_ACTION_GRACE_MS) {
+        this.stalledWhilePlaying = true;
+      }
       this.stableSince = undefined;
     } else if (s === 'error') {
       this.fail(d?.code);
+    } else if (s === 'idle' && this.started) {
+      // A non-live stream played to its end: nothing to recover, so the ladder stops (no reconnect).
+      this.stalledWhilePlaying = false;
+      this.stopTicker();
     }
+  }
+
+  /** A stall ended: count it and raise the target, but only for a stream that may be live. */
+  private countStall(now: number): void {
+    if (this.notLive()) return;
+    this.stalls++;
+    this.delay?.stallEnded(now);
+  }
+
+  /** True when the engine says the stream is not live (file/VOD): no live-only behaviour applies. */
+  private notLive(): boolean {
+    const live = this.player.health?.().isLive;
+    if (live !== undefined) this.streamLive = live;
+    return this.streamLive === false;
   }
 
   // ---- tick ----
@@ -296,6 +342,8 @@ export class PlaybackSupervisor {
     const now = this.now();
     const h: PlaybackHealth = this.player.health?.() ?? { positionMs: this.player.position() };
     this.lastHealth = h;
+    if (h.isLive !== undefined) this.streamLive = h.isLive;
+    if (this.hidden) return; // no frames are presented while hidden: the ladder and the controller pause
     observe(this.watch, h, p, now);
     if (this.playerState === 'playing' && this.stableSince !== undefined && now - this.stableSince >= p.stableMs) {
       this.fails = 0; // stable long enough: the next failure retries at once again
@@ -304,12 +352,15 @@ export class PlaybackSupervisor {
     if (d.do === 'gapJump') {
       this.watch.gapJumpsAt.push(now);
       this.watch.lastGapJumpAt = now;
+      this.selfActionAt = now;
       this.player.recover?.('gapJump');
       return;
     }
     if (d.do === 'seekLive') {
       this.watch.lastSeekAt = now;
-      if (!(this.player.seekToLive?.(this.delay?.targetS() ?? 0) ?? false)) this.fail('NETWORK', true);
+      this.selfActionAt = now;
+      // The edge seek is a recovery step, not a failure: when impossible, reopen without counting one.
+      if (!(this.player.seekToLive?.(this.delay?.targetS() ?? 0) ?? false)) this.reopen(true);
       return;
     }
     if (d.do === 'reconnect') {
@@ -319,12 +370,16 @@ export class PlaybackSupervisor {
     if (++this.tickCount % LIVE_EVERY_TICKS === 0 && this.playerState === 'playing') this.liveTick(h, now);
   }
 
+  /**
+   * The live delay controller. Runs only for a stream that may be live and whose engine set the measure source
+   * explicitly (an edge distance, or the buffer for raw TS); otherwise there is nothing sound to steer by.
+   */
   private liveTick(h: PlaybackHealth, now: number): void {
     const delay = this.delay;
-    if (!delay) return;
+    if (!delay || h.isLive === false || h.behindLiveSource === undefined) return;
     const a = delay.tick({
       behindLiveS: h.behindLiveS,
-      source: h.behindLiveSource ?? 'buffer',
+      source: h.behindLiveSource,
       bufferAheadS: h.bufferAheadS ?? 0,
       targetDurationS: h.targetDurationS,
       paused: false,
@@ -335,6 +390,7 @@ export class PlaybackSupervisor {
         this.player.setPlaybackRate(a.rate);
       }
     } else if (a.do === 'seek') {
+      this.selfActionAt = now;
       if (!(this.player.seekToLive?.(delay.targetS()) ?? false)) this.reopen(true);
     } else if (a.do === 'reopen') {
       this.reopen(true);
@@ -347,28 +403,32 @@ export class PlaybackSupervisor {
 
   // ---- failures and reconnects ----
 
-  /** `inline`: called from one of our own timer callbacks, so a zero-delay reconnect may run right here. */
+  /**
+   * `inline` is true only when called from the supervisor's own timer or tick callbacks (start timers, the 250 ms
+   * tick, the retry timer); only there may a zero-delay reconnect or an alternate switch tear the engine down and
+   * reopen on the spot. Everything else (player state events, a rejected `open()`, a synchronous throw from
+   * `open()`) is not inline: the teardown is deferred one macrotask through the retry timer (0 ms), so it never
+   * runs inside an engine callback.
+   */
   private fail(code?: ErrorCode, inline = false): void {
     if (!this.active || this.retryTimer !== undefined) return; // a reconnect is already pending
     const wasPlaying = this.isPlaying;
     this.endAttempt();
-    if (wasPlaying) {
-      this.stalls++;
-      this.delay?.stallEnded(this.now());
-    }
+    // The source ending (EOS) or refusing (AUTH) the stream is not a playback stall.
+    if (wasPlaying && code !== 'EOS' && code !== 'AUTH') this.countStall(this.now());
     if (this.givingUp) {
       this.scheduleGiveUpRetry();
       return;
     }
     if (code === 'UNSUPPORTED') {
-      if (!this.nextUrl()) this.terminal('unsupported');
+      if (!this.nextUrl(inline)) this.terminal('unsupported');
       return;
     }
     if (code === 'AUTH') {
       if (!this.authRetried) {
         this.authRetried = true;
         this.scheduleReconnect(0, inline);
-      } else if (!this.nextUrl()) {
+      } else if (!this.nextUrl(inline)) {
         this.terminal('refused');
       }
       return;
@@ -378,7 +438,7 @@ export class PlaybackSupervisor {
       return;
     }
     this.fails++;
-    if (this.fails >= this.policy.failuresBeforeAlternate && this.nextUrl()) return;
+    if (this.fails >= this.policy.failuresBeforeAlternate && this.nextUrl(inline)) return;
     const delays = this.policy.reconnectDelaysMs;
     this.scheduleReconnect(delays[Math.min(this.fails - 1, delays.length - 1)] ?? 0, inline);
   }
@@ -413,15 +473,30 @@ export class PlaybackSupervisor {
     }, wait);
   }
 
-  /** Switches to the next alternate URL; false when there is none. */
-  private nextUrl(): boolean {
+  /**
+   * Switches to the next alternate URL; false when there is none. Inline, it switches at once; otherwise one
+   * macrotask later through the retry timer, with the same generation guard.
+   */
+  private nextUrl(inline = false): boolean {
     if (this.urlIndex + 1 >= this.urls.length) return false;
     this.urlIndex++;
     this.fails = 0;
     this.authRetried = false;
-    this.player.stop();
-    this.emit({ kind: 'loading' });
-    this.openCurrent();
+    const switchNow = () => {
+      this.player.stop();
+      this.emit({ kind: 'loading' });
+      this.openCurrent();
+    };
+    if (inline) {
+      switchNow();
+      return true;
+    }
+    const gen = this.gen;
+    this.retryTimer = this.clock.setTimeout(() => {
+      this.retryTimer = undefined;
+      if (gen !== this.gen || !this.active) return;
+      switchNow();
+    }, 0);
     return true;
   }
 
@@ -485,7 +560,8 @@ export class PlaybackSupervisor {
   }
 
   private persistRaise(): void {
-    if (this.sourceKey === undefined || !this.delay || !this.store) return;
+    // Nothing is learned from a non-live stream.
+    if (this.sourceKey === undefined || !this.delay || !this.store || this.streamLive === false) return;
     try {
       this.store.set(this.sourceKey, this.delay.learnedRaiseS());
     } catch {

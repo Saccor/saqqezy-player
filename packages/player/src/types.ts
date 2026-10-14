@@ -11,7 +11,11 @@ export interface StreamInfo { width?: number; height?: number; videoCodec?: stri
 export type ErrorCode = 'NETWORK' | 'MEDIA' | 'DECODE' | 'UNSUPPORTED' | 'EOS' | 'AUTH';
 export interface StateDetail { code?: ErrorCode; message?: string; attemptId?: number; httpStatus?: number }
 
-/** Where `behindLiveS` comes from: the stream's wall clock, the distance to the live edge, or (raw TS) only the buffer. */
+/**
+ * Where `behindLiveS` comes from: the distance to the live edge (what the client can steer), or (raw TS) only the
+ * buffer. `'pdt'` (the stream's wall clock) is kept for compatibility; engines report the stream clock separately
+ * as `streamClockBehindS`, for display only.
+ */
 export type LatencySource = 'pdt' | 'edge' | 'buffer';
 
 /** A cheap snapshot for the supervisor's 250 ms tick. Unknown values are left out. */
@@ -27,8 +31,14 @@ export interface PlaybackHealth {
   tracksBytes?: boolean;
   /** Clock ms (Date.now) of the last network byte for this stream. */
   lastByteAt?: number;
+  /** Seconds behind the live edge (or, for raw TS, unset: the buffer is the measure). Steers seeks, rate and reopens. */
   behindLiveS?: number;
+  /** Set explicitly by the engine; the live delay controller runs only when it is set. */
   behindLiveSource?: LatencySource;
+  /** Seconds behind by the stream's own clock (EXT-X-PROGRAM-DATE-TIME), within -5…600 s. Display only. */
+  streamClockBehindS?: number;
+  /** True for a live stream, false for a file/VOD; left out while unknown. Nothing live-only runs when false. */
+  isLive?: boolean;
   /** HLS `EXT-X-TARGETDURATION` in seconds, once known. */
   targetDurationS?: number;
 }
@@ -44,6 +54,8 @@ export type RecoverAction = 'gapJump' | 'softReload';
  * whose `attemptId` does not match the current attempt. Events without an `attemptId` are accepted.
  *
  * The optional members are the live-delay and recovery hooks; an engine implements what it can.
+ *
+ * A non-live stream (file/VOD) that plays to its end reports `'idle'`: playback is over, nothing reconnects.
  */
 export interface Player {
   open(url: string, attemptId?: number): Promise<void>; // resolves when loading starts; state events report the progress
@@ -60,7 +72,10 @@ export interface Player {
   health?(): PlaybackHealth;
   /** Applies to the next `open()`. */
   setLiveProfile?(p: LiveProfile): void;
-  /** Moves the playhead to `targetS` behind live. False only when impossible (the caller reopens); a no-op counts as true. */
+  /**
+   * Moves the playhead to `targetS` behind live. False only when impossible (the caller reopens); a no-op counts as
+   * true, and a non-live stream is always a no-op.
+   */
   seekToLive?(targetS: number): boolean;
   /** Only called when the profile allows rate catch-up. */
   setPlaybackRate?(rate: number): void;

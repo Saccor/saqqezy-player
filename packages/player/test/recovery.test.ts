@@ -82,3 +82,13 @@ describe('decide', () => {
     expect(decide({ positionMs: 4000, framesPresented: 10 }, w, P, 4000)).toEqual({ do: 'reconnect', reason: 'frozenVideo' });
   });
 });
+
+describe('decide: non-live streams (final fixes)', () => {
+  it('never seeks to the live edge of a non-live stream; waits instead', () => {
+    const h: PlaybackHealth = { positionMs: 0, bufferAheadS: 3, isLive: false };
+    const w = watched(h, 2000, (x) => { x.gapJumpsAt.push(0, 100, 200); x.lastGapJumpAt = 200; });
+    expect(decide(h, w, P, 2000)).toEqual({ do: 'none' });
+    const g = watched(h, 1000);
+    expect(decide(h, g, P, 1000)).toEqual({ do: 'gapJump' });
+  });
+});

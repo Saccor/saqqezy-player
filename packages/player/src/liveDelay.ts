@@ -20,10 +20,15 @@ const USER_GUARD_MS = 5_000;
 const ASSUMED_TD_S = 6;
 const CATCH_UP_RATE = 1.05;
 const MAX_STORED_RAISE_S = 10;
+/** Consecutive samples above the reopen line before a drift reopen. */
+const REOPEN_SAMPLES = 2;
+/** A drift reopen must bring the next sample down by at least this share, or drift reopens stop. */
+const REOPEN_MIN_GAIN = 0.25;
 
 /**
  * Keeps one stream near its target delay: raises the target after stalls, eases it back after a quiet minute,
  * and asks for a seek, a gentle rate (only when allowed) or a reopen. Pure: the caller passes the clock.
+ * One instance per `play()`: a reopen that did not help stops drift reopens until the next `play()`.
  */
 export class LiveDelayController {
   private raise: number;
@@ -31,6 +36,10 @@ export class LiveDelayController {
   private lastSource: LatencySource = 'buffer';
   private lastEaseAt: number;
   private overCount = 0;
+  private reopenCount = 0;
+  /** The measure that triggered the last drift reopen, until the next sample is compared with it. */
+  private reopenFromS: number | undefined;
+  private reopensOff = false;
   private lastSeekAt = Number.NEGATIVE_INFINITY;
   private userActionAt = Number.NEGATIVE_INFINITY;
 
@@ -60,6 +69,12 @@ export class LiveDelayController {
   userAction(now: number): void {
     this.userActionAt = now;
     this.overCount = 0;
+    this.reopenCount = 0;
+  }
+
+  /** True once a drift reopen failed to bring the delay down; then only seeks (and rate) steer. */
+  reopensStopped(): boolean {
+    return this.reopensOff;
   }
 
   tick(s: DelaySample, now: number): DelayAction {
@@ -71,15 +86,27 @@ export class LiveDelayController {
     }
     if (s.paused) {
       this.overCount = 0;
+      this.reopenCount = 0;
       return NONE;
     }
     const target = this.targetS();
     const measure = s.source !== 'buffer' && s.behindLiveS !== undefined ? Math.max(0, s.behindLiveS) : s.bufferAheadS;
+    if (this.reopenFromS !== undefined) {
+      // The first sample after a drift reopen: if it did not help, reopening again would only loop.
+      if (measure > this.reopenFromS * (1 - REOPEN_MIN_GAIN)) this.reopensOff = true;
+      this.reopenFromS = undefined;
+    }
     const excess = measure - target;
     const userGuard = now - this.userActionAt < USER_GUARD_MS;
-    if (excess > reopenThresholdS(this.preset) && !userGuard) {
-      this.overCount = 0;
-      return { do: 'reopen' };
+    if (excess > reopenThresholdS(this.preset) && !userGuard && !this.reopensOff) {
+      if (++this.reopenCount >= REOPEN_SAMPLES) {
+        this.reopenCount = 0;
+        this.overCount = 0;
+        this.reopenFromS = measure;
+        return { do: 'reopen' };
+      }
+    } else {
+      this.reopenCount = 0;
     }
     if (excess > seekThresholdS(this.preset, target)) {
       this.overCount++;
@@ -88,7 +115,8 @@ export class LiveDelayController {
         this.lastSeekAt = now;
         return { do: 'seek' };
       }
-      return this.allowRate ? { do: 'rate', rate: CATCH_UP_RATE } : NONE;
+      if (!this.allowRate) return NONE;
+      return { do: 'rate', rate: s.bufferAheadS > 2 ? CATCH_UP_RATE : 1 };
     }
     this.overCount = 0;
     if (!this.allowRate) return NONE;
