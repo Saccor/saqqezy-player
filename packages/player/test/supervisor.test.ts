@@ -169,6 +169,33 @@ describe('PlaybackSupervisor: starting and failing', () => {
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
   });
 
+  it('once the source refused, a network error before any playback ends as refused with no more retries', () => {
+    // A cross-origin 403 on the alternate (raw TS fetch) surfaces as a plain network error: the refusal must stick.
+    const { player, sup, statuses } = setup();
+    sup.play(A, B);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(0);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(0);
+    expect(player.opened).toEqual([A, A, B]);
+    player.emit('error', { code: 'NETWORK' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(player.opened).toEqual([A, A, B]);
+  });
+
+  it('a refusal after the stream has played does not turn later network errors into refused', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A, B);
+    player.emit('playing');
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(0);
+    player.emit('error', { code: 'NETWORK' });
+    expect(statuses.at(-1)).not.toEqual({ kind: 'failed', reason: 'refused' });
+    vi.advanceTimersByTime(0);
+    expect(player.opened.length).toBeGreaterThan(2);
+  });
+
   it('EOS reconnects at once and never counts toward the alternate switch', () => {
     const { player, sup } = setup();
     sup.play(A, B);

@@ -88,6 +88,10 @@ export class PlaybackSupervisor {
   private urlIndex = 0;
   private fails = 0; // consecutive failures on the current URL
   private authRetried = false;
+  /** The source refused (AUTH) during this play() before anything played. */
+  private refusedBeforePlay = false;
+  /** Something played during this play(). */
+  private playedThisPlay = false;
   private sourceKey: string | undefined;
   private attemptCounter = 0;
   private currentAttempt: number | undefined;
@@ -152,6 +156,8 @@ export class PlaybackSupervisor {
     this.urlIndex = 0;
     this.fails = 0;
     this.authRetried = false;
+    this.refusedBeforePlay = false;
+    this.playedThisPlay = false;
     this.sourceKey = opts.sourceKey;
     this.budget.reset();
     this.stalls = 0;
@@ -281,6 +287,7 @@ export class PlaybackSupervisor {
     this.playerState = s;
     const now = this.now();
     if (s === 'playing') {
+      this.playedThisPlay = true;
       if (!this.started) {
         this.started = true;
         this.clearStartTimers();
@@ -432,7 +439,15 @@ export class PlaybackSupervisor {
       if (!this.nextUrl(inline)) this.terminal('unsupported');
       return;
     }
+    // Once the source has refused this channel, a later failure before anything played is the same refusal in
+    // disguise (a cross-origin 403 reaches the page as a plain network error): stop instead of retrying a source
+    // that is refusing us, which can keep a temporary block alive.
+    if (this.refusedBeforePlay && !this.playedThisPlay) {
+      if (!this.nextUrl(inline)) this.terminal('refused');
+      return;
+    }
     if (code === 'AUTH') {
+      if (!this.playedThisPlay) this.refusedBeforePlay = true;
       if (!this.authRetried) {
         this.authRetried = true;
         this.scheduleReconnect(0, inline);

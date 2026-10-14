@@ -5,7 +5,7 @@ const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb, maxLoadTimeMs: load,
     timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
-    errorRetry: { maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000 },
+    errorRetry: { maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000, shouldRetry: expect.any(Function) },
   },
 });
 
@@ -25,6 +25,18 @@ describe('engineConfig', () => {
       maxBufferSize: 60_000_000,
     });
     expect(hlsConfig('stable', false)).toMatchObject({ liveSyncDurationCount: 3, liveMaxLatencyDurationCount: 8, maxLiveSyncPlaybackRate: 1.05 });
+  });
+
+  it('hls.js never retries a request the source refused (401/403/410)', () => {
+    const cfg = hlsConfig('balanced', false);
+    for (const policy of [cfg.fragLoadPolicy, cfg.playlistLoadPolicy]) {
+      const retry = policy!.default.errorRetry!;
+      const should = (code: number | undefined, wouldRetry = true) =>
+        retry.shouldRetry!(retry, 0, false, code === undefined ? undefined : { url: '', code }, wouldRetry);
+      expect([401, 403, 410].map((c) => should(c))).toEqual([false, false, false]);
+      expect([404, 500, undefined].map((c) => should(c))).toEqual([true, true, true]);
+      expect(should(500, false)).toBe(false); // hls.js's own decision still applies
+    }
   });
 
   it('mpegts.js on TV: seek chaser with wide thresholds, no rate sync, worker off, small back buffer', () => {

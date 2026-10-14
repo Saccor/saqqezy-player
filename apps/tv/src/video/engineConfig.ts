@@ -16,12 +16,19 @@ const MB = 1_000_000;
 const SYNC_COUNT: Record<LivePreset, number> = { low: 1.5, balanced: 2, stable: 3 };
 const MAX_LATENCY_COUNT: Record<LivePreset, number> = { low: 4, balanced: 5, stable: 8 };
 
+/** HTTP statuses that mean "the source refuses us": retrying only hammers it (and can extend a block). */
+const REFUSED_STATUSES = new Set([401, 403, 410]);
+
 const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb,
     maxLoadTimeMs: load,
     timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
-    errorRetry: { maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000 },
+    errorRetry: {
+      maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000,
+      shouldRetry: (_cfg: unknown, _count: number, _timeout: boolean, res: { code?: number } | undefined, retry: boolean) =>
+        retry && !(res?.code !== undefined && REFUSED_STATUSES.has(res.code)),
+    },
   },
 });
 
