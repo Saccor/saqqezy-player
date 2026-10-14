@@ -365,6 +365,7 @@ export class AvplayPlayer implements Player {
   }
 
   destroy(): void {
+    this.releaseLastFrame();
     this.stop();
     this.listeners.clear();
   }
@@ -403,7 +404,8 @@ export class AvplayPlayer implements Player {
     } catch {
       value = undefined;
     }
-    this.windowCache = { at: now, value };
+    // Not cached before the stream starts: the window may appear right after `playing`.
+    if (value !== undefined || this.session.started) this.windowCache = { at: now, value };
     return value;
   }
 
@@ -437,6 +439,7 @@ export class AvplayPlayer implements Player {
 
   private emit(s: Session, state: PlayerState, detail: StateDetail = {}): void {
     if (s.dead || s !== this.session) return;
+    if (state === 'error') clearTimeout(s.watchdog); // one error per attempt: the prepare watchdog must not add another
     const d: StateDetail = s.attemptId === undefined ? detail : { ...detail, attemptId: s.attemptId };
     for (const fn of [...this.listeners]) {
       try {

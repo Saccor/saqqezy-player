@@ -377,6 +377,51 @@ describe('AvplayPlayer: live delay and recovery', () => {
       expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', attemptId: 2 })]);
     });
 
+    test('prepareAsync throwing synchronously reports one error and the watchdog stays quiet', async () => {
+      const av = new FakeAvplay();
+      av.throwOn.add('prepareAsync');
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: PlayerState[] = [];
+      p.onState((s) => events.push(s));
+      await p.open(URL_A, 3);
+      vi.advanceTimersByTime(5000);
+      expect(events.filter((s) => s === 'error')).toHaveLength(1);
+    });
+
+    test('onerror before prepare reports one error; the watchdog does not add a second', async () => {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: PlayerState[] = [];
+      p.onState((s) => events.push(s));
+      await p.open(URL_A, 4);
+      av.listener!.onerror!('PLAYER_ERROR_CONNECTION_FAILED');
+      vi.advanceTimersByTime(5000);
+      expect(events.filter((s) => s === 'error')).toHaveLength(1);
+    });
+
+    test('onstreamcompleted before prepare reports one error only', async () => {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: PlayerState[] = [];
+      p.onState((s) => events.push(s));
+      await p.open(URL_A, 5);
+      av.listener!.onstreamcompleted!();
+      vi.advanceTimersByTime(5000);
+      expect(events.filter((s) => s === 'error')).toHaveLength(1);
+    });
+
+    test('opening B before A prepares: A never reports an error', async () => {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const errors: (number | undefined)[] = [];
+      p.onState((s, d) => { if (s === 'error') errors.push(d?.attemptId); });
+      await p.open(URL_A, 10);
+      vi.advanceTimersByTime(500);
+      await p.open(URL_B, 11);
+      vi.advanceTimersByTime(5000);
+      expect(errors).not.toContain(10);
+    });
+
     test('a prepared stream cancels the watchdog', async () => {
       const av = new FakeAvplay();
       const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
@@ -417,6 +462,25 @@ describe('AvplayPlayer: live delay and recovery', () => {
     await p.open(URL_B);
     expect(av.still).toEqual(['true']);
     av.prepared[1]!.ok();
+    expect(av.still).toEqual(['true', 'false']);
+  });
+
+  test('a live window missing before the stream started is not cached', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    expect(p.health()).toEqual({ positionMs: 0 });
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
+    av.time = 150_000;
+    expect(p.health()).toEqual({ positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge' });
+  });
+
+  test('destroy releases a held still frame', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    p.destroy();
     expect(av.still).toEqual(['true', 'false']);
   });
 });
