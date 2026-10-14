@@ -77,6 +77,9 @@ export const CONTRAST_PAIRS: readonly [Key, Key, number][] = [
   ['on-danger', 'danger', 4.5],
   ['error', 'bg', 4.5],
   ['error', 'surface', 4.5],
+  ['error', 'surface-2', 4.5], // error text on raised rows and segmented controls
+  ['ok', 'surface', 3], // the connection status dot on the top bar (non-text)
+  ['warn', 'surface', 3],
   ['focus', 'surface', 4.5], // the selected tab label
   ['focus', 'bg', 3],
   ['input-border', 'bg', 3], // input fill
