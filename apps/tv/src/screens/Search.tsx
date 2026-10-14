@@ -1,16 +1,16 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import type { ChannelRow } from '@iptv/app-api';
-import { api } from '../api.ts';
-import { ChannelList, ROW_H } from '../components/ChannelList.tsx';
+import { api, onEvent } from '../api.ts';
+import { ROW_H } from '../components/ChannelList.tsx';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
-import { moveFocus, pageFocus, scrollTopFor } from '../components/virtualWindow.ts';
+import { SearchResultList } from '../components/SearchResultList.tsx';
+import { firstSelectable, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -32,7 +32,7 @@ const memory = createSearchMemory();
 /** Search: inline on-screen keyboard (left) and up to 50 results with now/next (right). Ok plays the channel. */
 export function SearchScreen() {
   const [query, setQuery] = createSignal(memory.query);
-  const [state, setState] = createSignal<SearchState<ChannelRow>>({ query: '', results: [], busy: false, failed: false });
+  const [state, setState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
   const [focus, setFocus] = createSignal(0);
   const [now, setNow] = createSignal(Date.now());
 
@@ -41,14 +41,16 @@ export function SearchScreen() {
   let alive = true;
   let lastTop = 0;
 
-  const searcher = createSearcher<ChannelRow>((q) => api.search(q, SEARCH_LIMIT), (s) => {
+  const searcher = createSearcher<SearchRow>(async (q) => flattenResults(await api.search(q, SEARCH_LIMIT)), (s) => {
     if (!alive) return;
     setState(s);
     // While a query runs the previous results stay on screen untouched (focus included).
     if (s.busy) return;
-    // The first answer after returning from the Player restores the focused row and the list focus.
-    const restore = memory.returning && s.results.length > 0;
-    const f = restore ? Math.min(memory.focus, s.results.length - 1) : 0;
+    const rows = s.results;
+    const sel = (i: number) => isSelectable(rows[i]);
+    // The first answer after returning from the Player or Guide restores the focused row and the list focus.
+    const restore = memory.returning && rows.some((r) => isSelectable(r));
+    const f = firstSelectable(restore ? memory.focus : 0, rows.length, sel);
     setFocus(f);
     lastTop = Math.max(0, f - LIST_ROWS + 1);
     if (restore) { memory.returning = false; queueMicrotask(() => { if (alive) listNode?.setFocus(); }); }
@@ -63,14 +65,21 @@ export function SearchScreen() {
 
   const onChange = (v: string) => { memory.returning = false; memory.query = v; setQuery(v); searcher.setQuery(v); };
 
-  const focusList = () => { if (total() > 0) listNode?.setFocus(); };
+  const focusList = () => { if (state().results.some((r) => isSelectable(r))) listNode?.setFocus(); };
   const focusKeyboard = () => { kbNode?.setFocus(); return true; };
 
-  /** Plays the channel and opens the Player; "All channels" is the zapping group. */
-  const play = () => {
-    const ch = rowAt(focus());
+  /** Channel and on-now rows play the channel; a coming-up row opens the Guide at that channel and time. */
+  const open = () => {
+    const r = rowAt(focus());
+    if (!r || !isSelectable(r)) return true;
+    if (r.kind === 'later') {
+      memory.leaveTo(focus());
+      router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
+      return true;
+    }
+    const ch = r.kind === 'channel' ? r.channel : r.kind === 'onNow' ? r.hit.channel : undefined;
     if (!ch) return true;
-    memory.leaveToPlayer(focus());
+    memory.leaveTo(focus());
     const token = playback.begin();
     void (async () => {
       try {
@@ -90,6 +99,9 @@ export function SearchScreen() {
   onMount(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     onCleanup(() => clearInterval(tick));
+    // The guide's title index finished building: re-run the open query so programme results appear.
+    const offReady = onEvent('searchReady', () => { if (query().trim() !== '') searcher.setQuery(query()); });
+    onCleanup(offReady);
     // Back from the Player leaves the video fullscreen behind this opaque screen; park it where Home shows it, so
     // the shell's wordmark (hidden while the video is fullscreen) returns and Home needs no visible move.
     if (playback.rectIsFullscreen()) playback.setRect(PREVIEW_RECT);
@@ -118,15 +130,18 @@ export function SearchScreen() {
       <Text x={COUNT_X} y={COUNT_Y} width={COUNT_W} maxWidth={COUNT_W} contain="width" maxLines={1} textAlign="right"
         fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>
 
-      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel name or number" hint="Right: results · Back returns" value={query()}
+      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel or programme" hint="Right: results · Back returns" value={query()}
         onChange={onChange} onDone={focusList} onEdgeRight={() => { focusList(); }} />
 
-      <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
-        total={total()} top={top()} focus={focus()} row={rowAt} now={now()} playingId={playback.current()?.id}
-        showNext
-        onMove={(d) => { setFocus(moveFocus(focus(), d, total())); return true; }}
-        onPage={(dir) => { setFocus(pageFocus(focus(), dir, LIST_ROWS, total())); return true; }}
-        onLeft={focusKeyboard} onOk={play} onOptions={() => true} />
+      <SearchResultList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
+        rows={state().results} top={top()} focus={focus()} now={now()} playingId={playback.current()?.id}
+        onMove={(d) => { setFocus(stepSelectable(focus(), d, total(), (i) => isSelectable(rowAt(i)))); return true; }}
+        onPage={(dir) => {
+          const target = Math.max(0, Math.min(total() - 1, focus() + dir * LIST_ROWS));
+          setFocus(firstSelectable(target, total(), (i) => isSelectable(rowAt(i))));
+          return true;
+        }}
+        onLeft={focusKeyboard} onOk={open} />
       <Show when={message()}>{(m) => (
         <Text x={LIST_X + 24} y={KB_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
           fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
@@ -134,7 +149,7 @@ export function SearchScreen() {
 
       <Text x={KB_X} y={HINT_Y} width={LAYOUT.width - KB_X * 2} maxWidth={LAYOUT.width - KB_X * 2} contain="width"
         maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-        {'Type with the keyboard or remote · Right: results · Ok watch · Left: keyboard · Back'}
+        {'Type with the keyboard or remote · Right: results · Ok watch or open in guide · Left: keyboard · Back'}
       </Text>
     </View>
   );

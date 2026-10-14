@@ -127,12 +127,12 @@ export function countText(s: SearchState<SearchRow>): string {
 export interface SearchMemory {
   query: string;
   focus: number;
-  /** The next answer restores `focus` (set when Ok opened the Player). */
+  /** The next answer restores `focus` (set when Ok opened the Player or Guide). */
   returning: boolean;
   /** Back left Search: start fresh next time. */
   leaveBack(): void;
-  /** Ok opened the Player: Back from it returns to the same results and row. */
-  leaveToPlayer(focus: number): void;
+  /** Ok opened the Player or the Guide: Back returns to the same results and row. */
+  leaveTo(focus: number): void;
 }
 
 /** What Search remembers across visits (each push/pop re-creates the screen). */
@@ -142,7 +142,7 @@ export function createSearchMemory(): SearchMemory {
     focus: 0,
     returning: false,
     leaveBack() { m.query = ''; m.focus = 0; m.returning = false; },
-    leaveToPlayer(focus) { m.focus = focus; m.returning = true; },
+    leaveTo(focus) { m.focus = focus; m.returning = true; },
   };
   return m;
 }

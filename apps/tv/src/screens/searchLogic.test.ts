@@ -174,7 +174,7 @@ describe('search memory', () => {
   it('going to the Player keeps the query, the focused row and sets returning', () => {
     const m = createSearchMemory();
     m.query = 'abc';
-    m.leaveToPlayer(3);
+    m.leaveTo(3);
     expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 3, returning: true });
   });
 });
