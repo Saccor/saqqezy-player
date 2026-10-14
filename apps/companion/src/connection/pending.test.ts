@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PendingRequests, REQUEST_TIMEOUT_MS, RequestError } from './pending.ts';
+import { PendingRequests, REQUEST_TIMEOUT_MS, RequestError, STALLED_MAX_MS } from './pending.ts';
 
 describe('PendingRequests', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -81,5 +81,47 @@ describe('PendingRequests', () => {
     const a = p.add(1, 1000).catch((e: unknown) => (e as RequestError).reason);
     vi.advanceTimersByTime(1000);
     await expect(a).resolves.toBe('timeout');
+  });
+
+  describe('idle requests', () => {
+    it('stall after the idle time without settling, and a later result still resolves them', async () => {
+      const p = new PendingRequests();
+      let stalls = 0;
+      const a = p.add(4, 60_000, { onStall: () => stalls++ });
+      vi.advanceTimersByTime(60_000);
+      expect(stalls).toBe(1);
+      expect(p.size).toBe(1);
+      p.resolve({ t: 'result', requestMsgId: 4, ok: true });
+      await expect(a).resolves.toEqual({ t: 'result', requestMsgId: 4, ok: true });
+    });
+
+    it('touch() restarts the idle time of requests that have not stalled', () => {
+      const p = new PendingRequests();
+      let stalls = 0;
+      void p.add(4, 60_000, { onStall: () => stalls++ });
+      vi.advanceTimersByTime(50_000);
+      p.touch();
+      vi.advanceTimersByTime(50_000);
+      expect(stalls).toBe(0);
+      vi.advanceTimersByTime(10_000);
+      expect(stalls).toBe(1);
+    });
+
+    it('touch() leaves plain requests alone', async () => {
+      const p = new PendingRequests();
+      const a = p.add(3, 1000).catch((e: unknown) => (e as RequestError).reason);
+      vi.advanceTimersByTime(900);
+      p.touch();
+      vi.advanceTimersByTime(100);
+      await expect(a).resolves.toBe('timeout');
+    });
+
+    it('a stalled request is given up silently-as-timeout after STALLED_MAX_MS', async () => {
+      const p = new PendingRequests();
+      const a = p.add(4, 60_000, { onStall: () => {} }).catch((e: unknown) => (e as RequestError).reason);
+      vi.advanceTimersByTime(60_000 + STALLED_MAX_MS);
+      await expect(a).resolves.toBe('timeout');
+      expect(p.size).toBe(0);
+    });
   });
 });

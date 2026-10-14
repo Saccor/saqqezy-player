@@ -45,3 +45,13 @@ describe('resultErrorCopy', () => {
     expect(resultErrorCopy({ name: 'X', message: '  ' })).toBe(COPY.genericError);
   });
 });
+
+describe('status copy', () => {
+  it('has the exact wording for slow and silent TVs, invalid links and ended sessions', () => {
+    expect(COPY.stillWorking).toBe('The TV is still working or not answering. Check the TV.');
+    expect(COPY.rowWorking).toBe('Still working on the TV…');
+    expect(COPY.notAnswering).toBe("The TV isn't answering.");
+    expect(COPY.invalidLink).toBe('This link is not valid. Show a new code on your TV, or type the code below.');
+    expect(COPY.sessionEnded).toBe('This session ended. Show a new code on your TV.');
+  });
+});

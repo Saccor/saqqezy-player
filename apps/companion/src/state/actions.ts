@@ -1,10 +1,7 @@
 import { RequestError } from '../connection/pending.ts';
 import type { CompanionClient } from '../connection/client.ts';
 import { COPY, resultErrorCopy } from '../logic/copy.ts';
-import { clearProgress, currentClient } from './store.ts';
-
-/** Source work on the TV (loading a playlist, a guide) can take minutes; progress shows meanwhile. */
-export const SOURCE_REQUEST_TIMEOUT_MS = 5 * 60_000;
+import { clearProgress, currentClient, setWork, showNotice, store, type WorkOp } from './store.ts';
 
 /** "Loading channels… 1,234" from the TV's progress messages. */
 export function progressText(p: { phase: 'playlist' | 'epg'; count: number }): string {
@@ -14,21 +11,51 @@ export function progressText(p: { phase: 'playlist' | 'epg'; count: number }): s
 
 type Request = Parameters<CompanionClient['request']>[0];
 
-/** Runs one request and turns any failure into copy (undefined on success). Then refreshes the state. */
-export async function runRequest(msg: Request): Promise<string | undefined> {
+const OPS: Partial<Record<Request['t'], WorkOp>> = {
+  addSource: 'add', updateSource: 'update', deleteSource: 'delete', setActiveSource: 'setActive', refresh: 'refresh',
+};
+
+export interface RunOptions {
+  /** The source this request works on ('add' for a new one): it is marked as working until the result. */
+  key?: string;
+  /** The TV gave no sign of life for 60 s; the request keeps going (show COPY.stillWorking). */
+  onStall?: () => void;
+  /** False once the UI that started the request is gone: a late failure then shows as a notice. */
+  attached?: () => boolean;
+}
+
+/**
+ * Runs one request and turns any failure into copy (undefined on success). Then refreshes the state.
+ * A stalled source request is not a failure: if it is given up later, the state shows what happened.
+ */
+export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<string | undefined> {
   const c = currentClient();
   if (!c) return COPY.genericError;
+  const { key } = opts;
+  const op = OPS[msg.t];
+  let stalled = false;
+  if (key !== undefined && op) setWork(key, { op, stalled: false });
+  let err: string | undefined;
   try {
-    const r = await c.request(msg, msg.t === 'deleteSource' ? undefined : SOURCE_REQUEST_TIMEOUT_MS);
-    if (r.ok) return undefined;
-    return resultErrorCopy(r.error);
+    const r = await c.request(msg, () => {
+      stalled = true;
+      if (key !== undefined && op && store.working[key]) setWork(key, { op, stalled: true });
+      opts.onStall?.();
+    });
+    err = r.ok ? undefined : resultErrorCopy(r.error);
   } catch (e) {
-    if (e instanceof RequestError && e.reason === 'timeout') return COPY.timeout;
-    if (e instanceof Error && e.name === 'QueueFullError') return COPY.busy;
-    return COPY.genericError;
+    if (e instanceof RequestError && e.reason === 'timeout') err = stalled ? undefined : COPY.timeout;
+    else if (e instanceof Error && e.name === 'QueueFullError') err = COPY.busy;
+    else err = COPY.genericError;
   } finally {
+    if (key !== undefined && currentClient() === c) setWork(key, undefined);
     clearProgress();
     // The TV does not push source changes: ask for the state again (cheap when nothing changed).
-    currentClient()?.getState();
+    if (currentClient() === c) c.getState();
   }
+  if (err && opts.attached && !opts.attached()) {
+    if (currentClient() === c) showNotice(err);
+    return undefined;
+  }
+  return err;
 }

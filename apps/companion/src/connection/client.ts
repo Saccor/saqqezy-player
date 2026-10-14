@@ -1,5 +1,5 @@
 import {
-  PING_INTERVAL_MS, SecureChannel, isTvToPhone, type CompanionState, type PairingSecrets, type PhoneToTv,
+  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isTvToPhone, type CompanionState, type PairingSecrets, type PhoneToTv,
   type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import type { Layout, SourceConfig } from '@iptv/core';
@@ -11,20 +11,29 @@ import { CompanionTransport } from './transport.ts';
 export const WELCOME_TIMEOUT_MS = 10_000;
 /** The relay's hard cap for a paired session; the transport gives up then. */
 export const SESSION_MAX_MS = 60 * 60_000;
-/** A Busy `getState` is asked again after this long, at most GETSTATE_RETRIES times. */
-export const GETSTATE_RETRY_MS = 2_000;
-export const GETSTATE_RETRIES = 3;
+/**
+ * A `getState` that timed out (30 s) or got a Busy answer is asked again after these delays, one per retry, so
+ * at most GETSTATE_BACKOFF_MS.length retries. After that the TV counts as not answering (`stateStatus`).
+ */
+export const GETSTATE_BACKOFF_MS = [2_000, 5_000, 10_000] as const;
+/**
+ * Source work (add, update, delete, set active, refresh) can take minutes while the TV loads a playlist or a
+ * guide. Such a request stalls only after this long without any message from the TV (progress included).
+ */
+export const SOURCE_IDLE_TIMEOUT_MS = 60_000;
 
 export type LinkStatus = 'connecting' | 'online' | 'reconnecting';
+/** Whether the TV answers `getState`: 'unanswered' once the retries ran out; 'ok' again on the next state. */
+export type StateStatus = 'ok' | 'unanswered';
 
 export interface ClientHandlers {
-  welcome(tv: { label: string; appVersion: string }): void;
+  welcome(tv: { label: string; appVersion: string; protocol: number }): void;
   state(state: CompanionState): void;
   layout(version: number, layout: Layout): void;
   progress(phase: 'playlist' | 'epg', count: number): void;
   link(status: LinkStatus): void;
-  /** A notice to show briefly (e.g. "The TV is busy. Try again."). */
-  notice(kind: 'busy'): void;
+  /** The TV stopped (or started again) answering state requests. */
+  stateStatus(status: StateStatus): void;
   /** The session is over for good; `reason` maps to copy with `endCopy`. */
   ended(reason: string): void;
 }
@@ -38,15 +47,21 @@ export interface ClientOptions {
 }
 
 type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' }>;
+const SOURCE_OPS: ReadonlySet<string> = new Set(['addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh']);
 
 /**
  * One paired session with the TV: ONE CompanionTransport and ONE SecureChannel for its whole life (reconnects
  * happen inside the transport). Secrets are held only by the channel, in memory; nothing is persisted.
  *
- * - On start: `hello` (with the device label) and `getState`. After every reconnect: `getState{ haveVersion }`.
+ * - On start: `hello` (with the device label and PROTOCOL_VERSION) and `getState`. After every reconnect:
+ *   `getState{ haveVersion }`.
  * - `ping` every PING_INTERVAL_MS while the link is up (TV presence).
- * - Requests that the TV answers with `result` wait in a PendingRequests map keyed by msgId (30 s timeout,
- *   rejected on close). `getSource` resolves with the `source` message instead.
+ * - Requests that the TV answers with `result` wait in a PendingRequests map keyed by msgId (rejected on close).
+ *   Source operations use an idle timeout (SOURCE_IDLE_TIMEOUT_MS, restarted by every TV message); the others
+ *   30 s. `getSource` resolves with the `source` message instead.
+ * - `getState` is asked again after a timeout or a Busy answer (GETSTATE_BACKOFF_MS); when that runs out the TV
+ *   counts as not answering (`stateStatus('unanswered')`) until a state arrives.
+ * - `tvProtocol` (from `welcome`) gates message types newer than protocol 1.
  * - Ends on a final transport close (relay close codes), the channel's peer-errors, the TV's `bye`, or no
  *   `welcome` within WELCOME_TIMEOUT_MS of the first open socket.
  */
@@ -63,15 +78,19 @@ export class CompanionClient {
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private linkStatus: LinkStatus = 'connecting';
   private haveVersion: number | undefined;
+  private protocol: number | undefined;
   /** msgIds of `getState` requests still waiting for state, stateUnchanged or a Busy result. */
   private readonly stateRequests = new Set<number>();
-  private busyRetries = 0;
+  /** Retries used in the current getState round, and the latest attempt (failures of older ones are ignored). */
+  private stateRetries = 0;
+  private stateAttempt = 0;
+  private stateStatusNow: StateStatus = 'ok';
   private readonly sourceWaiters = new Map<string, Set<(s: SourceConfig) => void>>();
   private ended = false;
 
   constructor(secrets: PairingSecrets, opts: ClientOptions) {
     this.handlers = opts.handlers;
-    this.hello = { t: 'hello', client: { kind: opts.client.kind, label: opts.client.label } };
+    this.hello = { t: 'hello', client: { kind: opts.client.kind, label: opts.client.label, protocol: PROTOCOL_VERSION } };
     const relay = opts.relayUrl.replace(/\/+$/, '');
     this.transport = new CompanionTransport({
       url: `${relay}/v1/session/${secrets.sessionIdB64}/ws?role=phone`,
@@ -100,10 +119,8 @@ export class CompanionClient {
       }
     });
     this.transport.onDisconnected(() => this.setLink('reconnecting'));
-    this.transport.onReconnected(() => {
-      this.busyRetries = 0;
-      this.getState();
-    });
+    // After a reconnect the TV must answer again: if this round of getState runs out, it is not answering.
+    this.transport.onReconnected(() => this.getState());
     this.pingTimer = setInterval(() => {
       if (this.linkStatus === 'online') void this.channel.send({ t: 'ping' }).catch(() => {});
     }, PING_INTERVAL_MS);
@@ -119,22 +136,39 @@ export class CompanionClient {
     return this.linkStatus;
   }
 
-  /** Asks for the state; with a state in hand, the TV may answer `stateUnchanged`. */
-  getState(): void {
-    if (this.ended) return;
-    const msg: PhoneToTv = this.haveVersion === undefined ? { t: 'getState' } : { t: 'getState', haveVersion: this.haveVersion };
-    this.channel.send(msg).then((msgId) => {
-      this.stateRequests.add(msgId);
-      this.pending.add(msgId).then((r) => this.onStateResult(r), () => this.stateRequests.delete(msgId));
-    }, () => {
-      // Not sent (queue full while reconnecting, or closed): the reconnect asks again.
-    });
+  /** The TV's protocol version from `welcome` (undefined until then). Gate newer message types on it. */
+  get tvProtocol(): number | undefined {
+    return this.protocol;
   }
 
-  /** Sends a request the TV answers with `result`. Rejects with RequestError on timeout (default 30 s) or close. */
-  async request(msg: Mutation, timeoutMs?: number): Promise<ResultMessage> {
+  /**
+   * Asks for the state, starting a fresh round of retries; with a state in hand, the TV may answer
+   * `stateUnchanged`. Also the "Retry" after the TV stopped answering.
+   */
+  getState(): void {
+    if (this.ended) return;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.stateRetries = 0;
+    this.sendGetState();
+  }
+
+  /**
+   * Sends a request the TV answers with `result`. Rejects with RequestError on close, or on timeout: 30 s for
+   * layout ops. Source operations do not fail by timeout while the TV works on them: after
+   * SOURCE_IDLE_TIMEOUT_MS without any TV message, `onStall` runs once, the state is asked for, and the request
+   * keeps waiting for its result (up to STALLED_MAX_MS).
+   */
+  async request(msg: Mutation, onStall?: () => void): Promise<ResultMessage> {
     const msgId = await this.channel.send(msg);
-    return this.pending.add(msgId, timeoutMs);
+    if (!SOURCE_OPS.has(msg.t)) return this.pending.add(msgId);
+    return this.pending.add(msgId, SOURCE_IDLE_TIMEOUT_MS, {
+      onStall: () => {
+        if (this.ended) return;
+        onStall?.();
+        this.getState();
+      },
+    });
   }
 
   /**
@@ -193,9 +227,12 @@ export class CompanionClient {
 
   private onMessage(msg: TvToPhone): void {
     if (this.ended) return;
+    // Any message is a sign of life: long source requests get their full idle time again.
+    this.pending.touch();
     switch (msg.t) {
       case 'welcome':
         this.welcomed = true;
+        this.protocol = msg.tv.protocol;
         clearTimeout(this.welcomeTimer);
         this.handlers.welcome(msg.tv);
         return;
@@ -227,24 +264,60 @@ export class CompanionClient {
     }
   }
 
-  private stateAnswered(): void {
-    this.busyRetries = 0;
-    for (const id of this.stateRequests) this.pending.cancel(id);
-    this.stateRequests.clear();
+  private sendGetState(): void {
+    if (this.ended) return;
+    const attempt = ++this.stateAttempt;
+    const msg: PhoneToTv = this.haveVersion === undefined ? { t: 'getState' } : { t: 'getState', haveVersion: this.haveVersion };
+    this.channel.send(msg).then((msgId) => {
+      this.stateRequests.add(msgId);
+      this.pending.add(msgId).then(
+        (r) => this.onStateResult(r, attempt),
+        (e: unknown) => {
+          this.stateRequests.delete(msgId);
+          if (e instanceof RequestError && e.reason === 'timeout') this.stateFailed(attempt);
+        },
+      );
+    }, () => {
+      // Not sent: queue full, or parked while reconnecting (the reconnect asks again), or closed.
+      if (this.linkStatus === 'online') this.stateFailed(attempt);
+    });
   }
 
-  private onStateResult(r: ResultMessage): void {
+  private stateAnswered(): void {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.stateRetries = 0;
+    for (const id of this.stateRequests) this.pending.cancel(id);
+    this.stateRequests.clear();
+    this.setStateStatus('ok');
+  }
+
+  private onStateResult(r: ResultMessage, attempt: number): void {
     this.stateRequests.delete(r.requestMsgId);
     if (r.ok || this.ended) return;
-    if (r.error?.name === 'Busy') {
-      if (this.busyRetries < GETSTATE_RETRIES) {
-        this.busyRetries++;
-        clearTimeout(this.retryTimer);
-        this.retryTimer = setTimeout(() => this.getState(), GETSTATE_RETRY_MS);
-      } else {
-        this.handlers.notice('busy');
-      }
+    if (r.error?.name === 'Busy') this.stateFailed(attempt);
+  }
+
+  /** The latest getState got no state (timeout, Busy, not sent): back off and ask again, or give up this round. */
+  private stateFailed(attempt: number): void {
+    if (this.ended || attempt !== this.stateAttempt || this.retryTimer !== undefined) return;
+    const delay = GETSTATE_BACKOFF_MS[this.stateRetries];
+    if (delay === undefined) {
+      this.setStateStatus('unanswered');
+      return;
     }
+    this.stateRetries++;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.sendGetState();
+    }, delay);
+  }
+
+  /** 'unanswered' is reported after every round that runs out (a Retry round included); 'ok' only on change. */
+  private setStateStatus(status: StateStatus): void {
+    if (status === 'ok' && this.stateStatusNow === 'ok') return;
+    this.stateStatusNow = status;
+    this.handlers.stateStatus(status);
   }
 
   private setLink(status: LinkStatus): void {

@@ -9,6 +9,16 @@ export const COPY = {
   genericError: 'Something went wrong. Try again.',
   timeout: 'The TV did not answer. Try again.',
   insecure: 'This page must be opened over a secure connection (https). Open the address shown on your TV.',
+  /** A source request got no sign of life for 60 s; it keeps going in the background. */
+  stillWorking: 'The TV is still working or not answering. Check the TV.',
+  /** A source whose request is still running on the TV (the form was closed, or it stalled). */
+  rowWorking: 'Still working on the TV…',
+  /** getState went unanswered after its retries (also after a reconnect or a resume). */
+  notAnswering: "The TV isn't answering.",
+  /** The QR link's fragment could not be read. */
+  invalidLink: 'This link is not valid. Show a new code on your TV, or type the code below.',
+  /** The page was hidden or restored from the back/forward cache: that session is over. */
+  sessionEnded: 'This session ended. Show a new code on your TV.',
 } as const;
 
 /**
