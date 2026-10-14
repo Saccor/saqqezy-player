@@ -80,6 +80,11 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
   return { channels, byId, providerOrder, members, byNumber, membersByNumber: new Map(), keys, epgCoverage };
 }
 
+/**
+ * The browsable view of one source's channels under a user layout. `withLayout` reuses cached groups from the
+ * previous index; that reuse relies on layouts being copy-on-write (an unchanged part keeps its object identity,
+ * so identity comparison tells what changed), so never mutate a layout in place.
+ */
 export class ChannelIndex {
   private readonly base: Base;
   private readonly lay: Layout;
