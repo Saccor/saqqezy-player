@@ -24,6 +24,25 @@ importers:
         specifier: 8.22.0
         version: 8.22.0
 
+  apps/companion:
+    dependencies:
+      '@iptv/companion-protocol':
+        specifier: workspace:*
+        version: link:../../packages/companion-protocol
+      '@iptv/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      solid-js:
+        specifier: 1.9.17
+        version: 1.9.17
+    devDependencies:
+      vite:
+        specifier: 8.3.4
+        version: 8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)
+      vite-plugin-solid:
+        specifier: 2.11.14
+        version: 2.11.14(solid-js@1.9.17)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
+
   apps/tv:
     dependencies:
       '@iptv/app-api':
