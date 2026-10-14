@@ -23,6 +23,25 @@ describe('TitleIndexBuilder + queryTitles', () => {
     ]);
   });
 
+  test('interleaved, repeated raw spellings of one key give one title, all airings, first spelling as display', () => {
+    const { data } = build([
+      ['Night News', 'a', 101, 102],
+      ['night-news', 'b', 103, 104],
+      ['Night News', 'a', 105, 106],
+      ['night-news', 'a', 107, 108],
+      ['Other Show', 'b', 101, 102],
+      ['NIGHT NEWS', 'b', 109, 110],
+      ['night-news', 'b', 111, 112],
+    ]);
+    expect(data.offsets.length).toBe(2);
+    const m = queryTitles(data, 'night news', NOW, 10);
+    expect(m).toHaveLength(1);
+    expect(m[0]!.display).toBe('Night News');
+    expect(m[0]!.airings.map((x) => [x.epgKey, x.start / H])).toEqual([
+      ['a', 101], ['b', 103], ['a', 105], ['a', 107], ['b', 109], ['b', 111],
+    ]);
+  });
+
   test('ranks: title prefix (0) before word start (1) before substring (2)', () => {
     const { data } = build([['Bakery Hour', 'a', 101, 102], ['The Bake Off', 'a', 101, 102], ['Kebab Corner', 'a', 101, 102]]);
     const m = queryTitles(data, 'bak', NOW, 10);

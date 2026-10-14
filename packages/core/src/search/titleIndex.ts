@@ -40,10 +40,16 @@ export interface TitleMatch {
   airings: TitleAiring[];
 }
 
+interface TitleEntry { display: string; air: number[] }
+
 export class TitleIndexBuilder {
-  private readonly titles = new Map<string, { display: string; air: number[] }>();
+  private readonly titles = new Map<string, TitleEntry>();
+  /** Raw spelling -> its deduped entry (null: the title has an empty key). Each spelling is normalised once. */
+  private readonly byRaw = new Map<string, TitleEntry | null>();
   private readonly keyIds = new Map<string, number>();
   private readonly keys: string[] = [];
+  private lastEpgKey: string | undefined;
+  private lastKeyId = 0;
   private airings = 0;
   /** True once the airing cap was reached. */
   truncated = false;
@@ -51,22 +57,35 @@ export class TitleIndexBuilder {
   constructor(private readonly maxAirings = MAX_TITLE_AIRINGS) {}
 
   add(title: string, epgKey: string, start: number, stop: number): void {
-    const key = searchKey(title);
-    if (!key) return;
-    let t = this.titles.get(key);
-    if (!t) {
-      t = { display: title.trim(), air: [] };
-      this.titles.set(key, t);
+    let t = this.byRaw.get(title);
+    if (t === undefined) {
+      const key = searchKey(title);
+      if (key) {
+        t = this.titles.get(key);
+        if (!t) {
+          t = { display: title.trim(), air: [] };
+          this.titles.set(key, t);
+        }
+      } else t = null;
+      this.byRaw.set(title, t);
     }
+    if (t === null) return;
     if (this.airings >= this.maxAirings) {
       this.truncated = true;
       return;
     }
-    let k = this.keyIds.get(epgKey);
-    if (k === undefined) {
-      k = this.keys.length;
-      this.keys.push(epgKey);
-      this.keyIds.set(epgKey, k);
+    let k: number;
+    if (epgKey === this.lastEpgKey) k = this.lastKeyId;
+    else {
+      let id = this.keyIds.get(epgKey);
+      if (id === undefined) {
+        id = this.keys.length;
+        this.keys.push(epgKey);
+        this.keyIds.set(epgKey, id);
+      }
+      k = id;
+      this.lastEpgKey = epgKey;
+      this.lastKeyId = id;
     }
     t.air.push(k, Math.floor(start / MIN), Math.ceil(stop / MIN));
     this.airings++;
@@ -102,6 +121,8 @@ export class TitleIndexBuilder {
     }
     airFirst[n] = a;
     this.titles.clear();
+    this.byRaw.clear();
+    this.lastEpgKey = undefined;
     return { v: 1, haystack: `\n${parts.join('\n')}\n`, offsets, display, airFirst, airKey, airStart, airStop, keys: [...this.keys] };
   }
 }
