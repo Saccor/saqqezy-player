@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp,
+  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -306,6 +306,40 @@ describe('AppApi', () => {
     expect(r.later[0]!.more).toBe(39);
     expect(r.later[0]!.start).toBeGreaterThan(NOW);
     expect(r.guidePending).toBe(false);
+  });
+
+  /** An AppApi whose title index was rebuilt from a stored guide read back in `order` (by epgId). */
+  const rebuiltIn = async (order: 1 | -1) => {
+    class OrderedStorage extends MemoryStorage {
+      override async forEachProgramme(sourceId: string, fn: (p: Programme) => void) {
+        const all: Programme[] = [];
+        await super.forEachProgramme(sourceId, (p) => all.push(p));
+        all.sort((a, b) => (a.epgId < b.epgId ? -order : a.epgId > b.epgId ? order : a.start - b.start));
+        for (const p of all) fn(p);
+      }
+    }
+    const st = new OrderedStorage();
+    const { seed, sourceId } = await seeded(st);
+    await seed.refresh('epg');
+    await st.setMeta(`titleIndex:${sourceId}`, null);
+    const { api } = make(st);
+    await api.init();
+    await warm(api);
+    return api;
+  };
+
+  test('search: on-now hits of one title follow channel number, not epgId order', async () => {
+    // IndexedDB's `byChannel` cursor yields the stored guide in epgId order (c1, c10, c11, …, c2, …).
+    const api = await rebuiltIn(1);
+    const r = await api.search('programme 12', 50);
+    expect(r.onNow.map((h) => h.channel.number)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+  });
+
+  test('search: a coming-up row whose next airings tie on start shows the lowest channel number', async () => {
+    // Every channel airs Programme 13 next at the same start; the airings arrive as c9, c8, …, c40, c4, …
+    const api = await rebuiltIn(-1);
+    const r = await api.search('programme 13', 50);
+    expect(r.later.map((h) => h.channel.number)).toEqual([1]);
   });
 
   test('search: channel hits are capped at 10 when programmes match too; total stays within limit', async () => {
