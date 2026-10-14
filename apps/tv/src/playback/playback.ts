@@ -1,10 +1,12 @@
 import { PlaybackSupervisor, type Player } from '@iptv/player';
-import { platformId, setSupervisorStatus } from '../state/appState.ts';
+import { initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
 import { createVideoLayer } from '../video/videoLayer.ts';
 import { createPlaybackController } from './controller.ts';
+import { createLiveTargetStore } from './liveTargets.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -22,6 +24,7 @@ export interface AppPlayer extends Player {
   unmuteIfAutoMuted?(): void;
 }
 
+const isTv = isTvPlatform(platformId);
 const avplay = platformId === 'tizen' ? getAvplay() : undefined;
 
 function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(): void } } {
@@ -33,7 +36,7 @@ function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(
   const layer = createVideoLayer(root);
   // Dev-only switch to exercise the hls.js path on browsers that also have native HLS: `?hlsjs`.
   const forceHlsJs = import.meta.env.DEV && new URLSearchParams(location.search).has('hlsjs');
-  return { player: new Html5Player(layer, { preferNativeHls: !forceHlsJs }), layer };
+  return { player: new Html5Player(layer, { preferNativeHls: !forceHlsJs, isTv }), layer };
 }
 
 const stack = createStack(videoRoot);
@@ -41,10 +44,37 @@ export const player: AppPlayer = stack.player;
 /** Re-applies the video layout after a window resize. */
 export const videoLayer: { relayout(): void } = stack.layer;
 
-export const supervisor = new PlaybackSupervisor(player);
+/** Learned live delay per source (this device only). */
+const liveTargets = createLiveTargetStore(() => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+});
+
+export const supervisor = new PlaybackSupervisor(player, {
+  preset: () => settings()?.liveDelay ?? 'balanced',
+  // TVs mute or ignore playbackRate changes: they correct drift by seeking only.
+  allowRate: !isTv,
+  liveTargets,
+});
 
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
-export const playback = createPlaybackController(player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5');
+export const playback = createPlaybackController(
+  player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
+);
+
+// Back from the background after a while: the stream is behind, so jump to live.
+let hiddenAt: number | undefined;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    return;
+  }
+  if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
+  hiddenAt = undefined;
+});
 
 let previewHeld = false;
 /**

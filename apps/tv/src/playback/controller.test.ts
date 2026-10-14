@@ -5,7 +5,7 @@ import { createPlaybackController } from './controller.ts';
 function fakes() {
   let statusFn: ((s: SupervisorStatus) => void) | undefined;
   const supervisor = {
-    play: vi.fn((_url: string, _alt?: string) => undefined),
+    play: vi.fn((_url: string, _alt?: string, _opts?: { sourceKey?: string }) => undefined),
     stop: vi.fn(),
     onStatus: vi.fn((fn: (s: SupervisorStatus) => void) => { statusFn = fn; return () => { statusFn = undefined; }; }),
   };
@@ -29,8 +29,15 @@ describe('playback controller', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor);
     expect(pb.playChannel(ch('1'))).toBe(true);
-    expect(f.supervisor.play).toHaveBeenCalledWith('http://example.test/live/u/p/1.ts', 'http://example.test/live/u/p/1.m3u8');
+    expect(f.supervisor.play).toHaveBeenCalledWith('http://example.test/live/u/p/1.ts', 'http://example.test/live/u/p/1.m3u8', { sourceKey: undefined });
     expect(pb.current()?.id).toBe('1');
+  });
+
+  it('passes the active source id as the live-delay key', () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    pb.playChannel(ch('1'));
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(expect.any(String), expect.any(String), { sourceKey: 'src-1' });
   });
 
   it('does not restart the channel that is already playing; a rect change never reopens', () => {

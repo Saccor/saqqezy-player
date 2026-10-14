@@ -37,12 +37,16 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
   return rect === 'fullscreen' || (rect.x <= 0 && rect.y <= 0 && rect.x + rect.w >= DESIGN_W && rect.y + rect.h >= DESIGN_H);
 }
 
-/** Testable core of the `playback` singleton: one player, one supervisor, two signals. */
+/**
+ * Testable core of the `playback` singleton: one player, one supervisor, two signals. `sourceKey` returns the
+ * active source id (opaque, never a URL); it keys the learned live delay.
+ */
 export function createPlaybackController(
   player: Pick<Player, 'setRect'>,
   supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
+  sourceKey: () => string | undefined = () => undefined,
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -69,7 +73,7 @@ export function createPlaybackController(
         return false;
       }
       setCurrent(ch);
-      supervisor.play(ch.url, ch.alternateUrl);
+      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: sourceKey() });
       return true;
     },
     stop() {

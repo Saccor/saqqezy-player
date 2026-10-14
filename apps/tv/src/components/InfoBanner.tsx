@@ -38,10 +38,10 @@ function BannerLogo(props: { url: string | undefined }) {
 }
 
 /**
- * Bottom info banner over the video: number, logo, name, now (time range + progress), next, and the clock.
+ * Bottom info banner over the video: number, logo, name, now (time range + progress), next, and the clock, and the live pill.
  * Purely visual; the Player decides when it is shown.
  */
-export function InfoBanner(props: { channel: ChannelRow; now: number; showClock: boolean }) {
+export function InfoBanner(props: { channel: ChannelRow; now: number; showClock: boolean; live?: { text: string; hint?: string } }) {
   const c = () => props.channel;
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H} width={BANNER_W} height={BANNER_H}
@@ -57,6 +57,16 @@ export function InfoBanner(props: { channel: ChannelRow; now: number; showClock:
         <Text x={BANNER_W - PAD - CLOCK_W} y={PAD + 8} width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right"
           fontSize={FONT.heading} color={COLORS.text}>{formatClock(new Date(props.now))}</Text>
       </Show>
+      <Show when={props.live} keyed>{(l) => (
+        <View x={BANNER_W - PAD - CLOCK_W} y={PAD + 76} width={CLOCK_W} height={110}>
+          <Text width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
+            fontSize={FONT.body} color={l.hint ? COLORS.text : COLORS.focus}>{l.text}</Text>
+          <Show when={l.hint}>
+            <Text y={44} width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
+              fontSize={FONT.small} color={COLORS.muted}>{l.hint}</Text>
+          </Show>
+        </View>
+      )}</Show>
       <Show when={c().now} keyed fallback={
         <Text x={TEXT_X} y={PAD + 76} fontSize={FONT.body} color={COLORS.muted}>{'No guide information'}</Text>
       }>{(n) => (

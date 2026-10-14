@@ -2,12 +2,12 @@ import { For, Text, View } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
-import { playback } from '../../playback/playback.ts';
+import { playback, supervisor } from '../../playback/playback.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { platformId } from '../../state/appState.ts';
 import { readDeviceInfo } from '../../platform/deviceInfo.ts';
-import { diagnosticsLines, onOff } from '../settingsLogic.ts';
+import { diagnosticsLines, liveLines, onOff } from '../settingsLogic.ts';
 import type { PageProps } from './shared.ts';
 
 const LINE_H = 38;
@@ -35,6 +35,7 @@ export function DiagnosticsPage(props: PageProps) {
       if (!alive) return;
       const all = diagnosticsLines(info, { platform: platformId, device: readDeviceInfo() });
       all.splice(2, 0, ['Player', playback.playerKind()]); // right after Platform
+      if (playback.current()) all.splice(3, 0, ...liveLines(supervisor.liveInfo()));
       setLines(all);
     }, (err: unknown) => {
       console.warn('Diagnostics failed', err instanceof Error ? err.name : 'Error');

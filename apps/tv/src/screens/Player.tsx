@@ -10,7 +10,7 @@ import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { withFailTest } from '../dev/failTest.ts';
 import { channelHistory } from '../playback/channelHistory.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
-import { playback, player, previewHold } from '../playback/playback.ts';
+import { playback, player, previewHold, supervisor } from '../playback/playback.ts';
 import { createSleepTimer, nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
@@ -20,7 +20,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { settings } from '../state/appState.ts';
 import {
-  aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel,
+  aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerStatusText, sleepLabel,
 } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -81,6 +81,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const [menuPage, setMenuPage] = createSignal<'main' | 'audio' | undefined>(undefined);
   const [infoOn, setInfoOn] = createSignal(false);
   const [infoTick, setInfoTick] = createSignal(0);
+  const [pillTick, setPillTick] = createSignal(0);
+  const pill = createMemo(() => { pillTick(); return livePill(playback.status(), supervisor.liveInfo()); });
   const [aspect, setAspect] = createSignal<AspectMode>(sessionAspect);
   const [sleep, setSleep] = createSignal<SleepState>({ kind: 'off' });
   const [sleepMinutes, setSleepMinutes] = createSignal(0);
@@ -335,6 +337,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const unlessModal = (fn: () => boolean) => () => (modal() ? true : fn());
   const onEnter = () => {
     if (numbers.submit()) return true;
+    // Behind live with the banner up: OK jumps to live (the pill says so) and keeps the banner.
+    if (bannerOn() && pill()?.hint) {
+      supervisor.goLive();
+      showBanner();
+      return true;
+    }
     if (bannerOn()) hideBanner();
     else showBanner();
     return true;
@@ -365,6 +373,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     root?.setFocus();
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     const infoTimer = setInterval(() => { if (infoOn()) setInfoTick((v) => v + 1); }, 1000);
+    const pillTimer = setInterval(() => { if (bannerOn()) setPillTick((v) => v + 1); }, 1000);
     // A background short-EPG answer for the playing channel: the visible banner re-reads its now/next.
     const offNowNext = onEvent('nowNextUpdated', (e) => {
       const id = playback.current()?.id;
@@ -373,7 +382,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         if (alive && ch && shown()?.id === id && playback.current()?.id === id) setShown(ch);
       }).catch(() => undefined);
     });
-    onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); offNowNext(); });
+    onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); clearInterval(pillTimer); offNowNext(); });
 
     const cur = playback.current();
     if (cur && cur.id === params.channelId) {
@@ -428,7 +437,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
-        <InfoBanner channel={ch()} now={now()} showClock={showClock()} />
+        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} />
       )}</Show>
 
       <Show when={digits() || flash()}>
