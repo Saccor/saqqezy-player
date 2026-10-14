@@ -333,6 +333,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       onEvent('progress', (p) => setProgress(p as Progress)),
       onEvent('refreshed', () => { setWaiting(false); void reload().catch(() => undefined); }),
       onEvent('refreshFailed', () => setWaiting(false)),
+      // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
+      onEvent('nowNextUpdated', (e) => {
+        if (cache.invalidateRows((e as { channelIds: string[] }).channelIds) > 0) load();
+      }),
     ];
     const tick = setInterval(onTick, 30_000);
     onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });

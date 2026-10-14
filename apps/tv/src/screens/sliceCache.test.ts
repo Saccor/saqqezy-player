@@ -155,4 +155,21 @@ describe('SliceCache', () => {
     await cache.ensure('all', 0, 1);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('invalidateRows marks the pages holding those channels stale and keeps their rows until refetched', async () => {
+    const data = { all: rowsOf(100), g1: rowsOf(10) };
+    const fetch = fakeFetch(data);
+    const cache = new SliceCache<Row>(fetch, 40);
+    await cache.ensure('g1', 0, 10);
+    await cache.ensure('all', 0, 100);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(cache.invalidateRows(['c45', 'nope'])).toBe(1);
+    expect(cache.row('all', 45)?.id).toBe('c45');
+    await cache.ensure('all', 0, 100);
+    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(fetch.mock.calls[4]).toEqual(['all', 40, 40]);
+    // c3 lives in a page of both held groups.
+    expect(cache.invalidateRows(['c3'])).toBe(2);
+    expect(cache.invalidateRows([])).toBe(0);
+  });
 });

@@ -177,8 +177,62 @@ describe('SourceService – xtream', () => {
     expect(result).toEqual({ channelCount: 1, skipped: 0 });
     const [c7] = (await service.loadIndex(source.id)).slice('all', 0, 1);
     expect(c7?.url).toBe('http://example.test/live/u/p/7.ts');
-    const nn = await service.nowNextFor(source.id, [c7!]);
+    // nowNextFor reads stored programmes only; the short EPG is a separate (background) lookup.
+    expect((await service.nowNextFor(source.id, [c7!])).get(c7!.id)).toEqual({});
+    const nn = await service.shortEpgFor(source.id, [c7!]);
     expect(nn.get(c7!.id)?.now?.title).toBe('Live Now');
+  });
+
+  const addX = async (streams: number) => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json(Array.from({ length: streams }, (_, i) => (
+      { stream_id: i + 1, name: `Channel ${i + 1}`, category_id: '1', num: i + 1 })));
+    const { source } = await service.addSource(xInput);
+    return { source, channels: (await service.loadIndex(source.id)).slice('all', 0, streams) };
+  };
+
+  test('nowNextFor never waits for the network', async () => {
+    const { source, channels } = await addX(3);
+    let calls = 0;
+    routes['api:get_short_epg'] = () => { calls++; return new Promise<Response>(() => {}); };
+    const nn = await service.nowNextFor(source.id, channels);
+    expect([...nn.values()]).toEqual([{}, {}, {}]);
+    expect(calls).toBe(0);
+  });
+
+  test('shortEpgFor caps concurrent requests across calls', async () => {
+    const { source, channels } = await addX(20);
+    let active = 0;
+    let peak = 0;
+    routes['api:get_short_epg'] = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      return json({ epg_listings: [] });
+    };
+    await Promise.all([service.shortEpgFor(source.id, channels.slice(0, 10)), service.shortEpgFor(source.id, channels.slice(10))]);
+    expect(peak).toBe(6);
+  });
+
+  test('shortEpgFor is skipped while a guide refresh of the source runs', async () => {
+    const { source, channels } = await addX(2);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    routes['/xmltv.php'] = async () => { await gate; return new Response('<tv></tv>'); };
+    let calls = 0;
+    routes['api:get_short_epg'] = () => { calls++; return json({ epg_listings: [] }); };
+    const refresh = service.refreshEpg(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(service.isRefreshingEpg(source.id)).toBe(true);
+    expect((await service.shortEpgFor(source.id, channels)).size).toBe(0);
+    expect(calls).toBe(0);
+    release();
+    await refresh;
+    expect(service.isRefreshingEpg(source.id)).toBe(false);
+    expect((await service.shortEpgFor(source.id, channels)).size).toBe(2);
+    expect(calls).toBe(2);
   });
 
   test('rejected login surfaces SourceAuthError, server error surfaces SourceNetworkError', async () => {

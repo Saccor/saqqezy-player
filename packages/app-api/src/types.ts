@@ -21,7 +21,9 @@ export type AppEvent =
   | { type: 'progress'; phase: 'playlist' | 'epg'; count: number }
   | { type: 'refreshed'; what: 'playlist' | 'epg'; sourceId: string }
   | { type: 'refreshFailed'; what: 'playlist' | 'epg'; sourceId: string; error: RpcError }
-  | { type: 'offline'; value: boolean };
+  | { type: 'offline'; value: boolean }
+  /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
+  | { type: 'nowNextUpdated'; channelIds: string[] };
 
 export interface DiagnosticsInfo {
   appVersion: string;

@@ -31,6 +31,9 @@ export class SourceService {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly locks = new Map<string, Promise<void>>();
+  private readonly epgRefreshing = new Set<string>();
+  private shortEpgActive = 0;
+  private readonly shortEpgWaiting: (() => void)[] = [];
 
   constructor(deps: SourceServiceDeps) {
     this.storage = deps.storage;
@@ -161,82 +164,91 @@ export class SourceService {
 
   refreshEpg(id: string, onProgress?: Progress): Promise<EpgResult> {
     return this.withLock(id, async () => {
-      const source = await this.requireSource(id);
-      const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
-      if (!url) {
-        const leftover = await this.stagingGen(id);
-        if (leftover !== undefined) {
-          await this.storage.clearProgrammes(`${id}@${leftover}`);
-          await this.storage.setMeta(`epgStaging:${id}`, null);
-        }
-        await this.storage.clearProgrammes(await this.currentEpgKey(id));
-        await this.storage.setMeta(`epgAt:${id}`, this.now());
-        return { programmes: 0, skipped: 0 };
-      }
-      const res = await this.get(url);
-      if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
-      const channels = await this.storage.getChannels(id);
-
-      const staleStaging = await this.stagingGen(id);
-      const current = await this.currentGen(id);
-      // After a crash between "set epgGen" and "clear epgStaging" the staging key IS the live one.
-      if (staleStaging !== undefined && staleStaging !== current) {
-        await this.storage.clearProgrammes(`${id}@${staleStaging}`);
-      }
-      const oldKey = current === undefined ? id : `${id}@${current}`;
-      const newGen = (current ?? 0) + 1;
-      const newKey = `${id}@${newGen}`;
-      await this.storage.setMeta(`epgStaging:${id}`, newGen);
-
-      const matcher = new EpgMatcher(channels);
-      const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
-      const now = this.now();
-      let batch: Programme[] = [];
-      let stored = 0;
-      let storageFailure: { error: unknown } | undefined;
-      const store = async (rows: Programme[]) => {
-        try {
-          await this.storage.addProgrammes(newKey, rows);
-        } catch (error) {
-          storageFailure = { error };
-          throw error;
-        }
-      };
+      this.epgRefreshing.add(id);
       try {
-        for await (const item of parseXmltv(responseText(res, url), stats)) {
-          if (item.type === 'channel') {
-            matcher.addXmltvChannel(item.id, item.names);
-            continue;
-          }
-          const key = matcher.resolve(item.programme.epgId);
-          if (!key || !inWindow(item.programme, now)) continue;
-          batch.push({ ...item.programme, epgId: key });
-          if (batch.length >= EPG_BATCH) {
-            await store(batch);
-            stored += batch.length;
-            batch = [];
-            onProgress?.({ phase: 'epg', count: stored });
-          }
-        }
-        if (batch.length) await store(batch);
-      } catch {
-        try {
-          await this.storage.clearProgrammes(newKey);
-          await this.storage.setMeta(`epgStaging:${id}`, null);
-        } catch {
-          // Best-effort cleanup; the original failure is the one worth reporting.
-        }
-        if (storageFailure) throw (storageFailure as { error: unknown }).error;
-        throw new SourceNetworkError('The guide download was interrupted.');
+        return await this.refreshEpgLocked(id, onProgress);
+      } finally {
+        this.epgRefreshing.delete(id);
       }
-      stored += batch.length;
-      onProgress?.({ phase: 'epg', count: stored });
-      await this.storage.setMeta(`epgGen:${id}`, newGen);
-      await this.storage.setMeta(`epgStaging:${id}`, null);
-      await this.storage.clearProgrammes(oldKey);
-      await this.storage.setMeta(`epgAt:${id}`, now);
-      return { programmes: stored, skipped: stats.skipped };
     });
+  }
+
+  private async refreshEpgLocked(id: string, onProgress?: Progress): Promise<EpgResult> {
+    const source = await this.requireSource(id);
+    const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
+    if (!url) {
+      const leftover = await this.stagingGen(id);
+      if (leftover !== undefined) {
+        await this.storage.clearProgrammes(`${id}@${leftover}`);
+        await this.storage.setMeta(`epgStaging:${id}`, null);
+      }
+      await this.storage.clearProgrammes(await this.currentEpgKey(id));
+      await this.storage.setMeta(`epgAt:${id}`, this.now());
+      return { programmes: 0, skipped: 0 };
+    }
+    const res = await this.get(url);
+    if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
+    const channels = await this.storage.getChannels(id);
+
+    const staleStaging = await this.stagingGen(id);
+    const current = await this.currentGen(id);
+    // After a crash between "set epgGen" and "clear epgStaging" the staging key IS the live one.
+    if (staleStaging !== undefined && staleStaging !== current) {
+      await this.storage.clearProgrammes(`${id}@${staleStaging}`);
+    }
+    const oldKey = current === undefined ? id : `${id}@${current}`;
+    const newGen = (current ?? 0) + 1;
+    const newKey = `${id}@${newGen}`;
+    await this.storage.setMeta(`epgStaging:${id}`, newGen);
+
+    const matcher = new EpgMatcher(channels);
+    const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
+    const now = this.now();
+    let batch: Programme[] = [];
+    let stored = 0;
+    let storageFailure: { error: unknown } | undefined;
+    const store = async (rows: Programme[]) => {
+      try {
+        await this.storage.addProgrammes(newKey, rows);
+      } catch (error) {
+        storageFailure = { error };
+        throw error;
+      }
+    };
+    try {
+      for await (const item of parseXmltv(responseText(res, url), stats)) {
+        if (item.type === 'channel') {
+          matcher.addXmltvChannel(item.id, item.names);
+          continue;
+        }
+        const key = matcher.resolve(item.programme.epgId);
+        if (!key || !inWindow(item.programme, now)) continue;
+        batch.push({ ...item.programme, epgId: key });
+        if (batch.length >= EPG_BATCH) {
+          await store(batch);
+          stored += batch.length;
+          batch = [];
+          onProgress?.({ phase: 'epg', count: stored });
+        }
+      }
+      if (batch.length) await store(batch);
+    } catch {
+      try {
+        await this.storage.clearProgrammes(newKey);
+        await this.storage.setMeta(`epgStaging:${id}`, null);
+      } catch {
+        // Best-effort cleanup; the original failure is the one worth reporting.
+      }
+      if (storageFailure) throw (storageFailure as { error: unknown }).error;
+      throw new SourceNetworkError('The guide download was interrupted.');
+    }
+    stored += batch.length;
+    onProgress?.({ phase: 'epg', count: stored });
+    await this.storage.setMeta(`epgGen:${id}`, newGen);
+    await this.storage.setMeta(`epgStaging:${id}`, null);
+    await this.storage.clearProgrammes(oldKey);
+    await this.storage.setMeta(`epgAt:${id}`, now);
+    return { programmes: stored, skipped: stats.skipped };
   }
 
   async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
@@ -251,35 +263,62 @@ export class SourceService {
     return new Map(channels.map((c) => [c.id, byKey.get(epgKey(c)) ?? []]));
   }
 
+  /** Now/next from stored programmes only: never touches the network (see `shortEpgFor` for the fallback). */
   async nowNextFor(id: string, channels: Channel[]): Promise<Map<string, { now?: Programme; next?: Programme }>> {
     const now = this.now();
     const stored = await this.programmesFor(id, channels, now, now + 6 * 3600_000);
+    return new Map(channels.map((c) => [c.id, nowNext(stored.get(c.id) ?? [], now)]));
+  }
+
+  /** True while a guide refresh of source `id` is running. */
+  isRefreshingEpg(id: string): boolean {
+    return this.epgRefreshing.has(id);
+  }
+
+  /**
+   * Xtream short EPG for channels without stored programmes. At most `SHORT_EPG_CONCURRENCY` requests run at
+   * once across all calls; skipped (empty map) while a guide refresh of the source runs. Only channels whose
+   * lookup succeeded are in the result.
+   */
+  async shortEpgFor(id: string, channels: Channel[]): Promise<Map<string, { now?: Programme; next?: Programme }>> {
     const out = new Map<string, { now?: Programme; next?: Programme }>();
+    if (this.isRefreshingEpg(id)) return out;
     const source = (await this.storage.listSources()).find((s) => s.id === id);
-    const client = source?.kind === 'xtream' ? this.xtream(source) : undefined;
-    const fallback: Array<{ c: Channel; streamId: number }> = [];
-    for (const c of channels) {
-      const nn = nowNext(stored.get(c.id) ?? [], now);
-      out.set(c.id, nn);
+    if (source?.kind !== 'xtream') return out;
+    const client = this.xtream(source);
+    await Promise.all(channels.map(async (c) => {
       const streamId = Number(/:x(\d+)$/.exec(c.id)?.[1]);
-      if (!nn.now && client && streamId) fallback.push({ c, streamId });
-    }
-    let cursor = 0;
-    const worker = async () => {
-      for (let i = cursor++; i < fallback.length; i = cursor++) {
-        const { c, streamId } = fallback[i]!;
-        try {
-          out.set(c.id, nowNext(await client!.shortEpg(streamId, epgKey(c)), now));
-        } catch {
-          // No EPG is an acceptable outcome; the UI shows the channel without programme info.
-        }
+      if (!streamId) return;
+      await this.shortEpgSlot();
+      try {
+        if (this.isRefreshingEpg(id)) return;
+        const list = await client.shortEpg(streamId, epgKey(c));
+        out.set(c.id, nowNext(list, this.now()));
+      } catch {
+        // No EPG is an acceptable outcome; the UI shows the channel without programme info.
+      } finally {
+        this.releaseShortEpgSlot();
       }
-    };
-    await Promise.all(Array.from({ length: Math.min(SHORT_EPG_CONCURRENCY, fallback.length) }, worker));
+    }));
     return out;
   }
 
   // ---- internals ----
+
+  private shortEpgSlot(): Promise<void> {
+    if (this.shortEpgActive < SHORT_EPG_CONCURRENCY) {
+      this.shortEpgActive++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.shortEpgWaiting.push(resolve));
+  }
+
+  /** Hands the slot straight to the next waiter (the active count stays), or frees it. */
+  private releaseShortEpgSlot(): void {
+    const next = this.shortEpgWaiting.shift();
+    if (next) next();
+    else this.shortEpgActive--;
+  }
 
   private withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.locks.get(id) ?? Promise.resolve();

@@ -56,6 +56,10 @@ export class AppApi {
   private readonly background = new Map<string, { started: boolean; rerun: boolean }>();
   /** Serialises flag mutations with index swaps, so a toggle is never lost or saved to the wrong source. */
   private indexLock: Promise<void> = Promise.resolve();
+  /** Channels whose background short-EPG lookup is running (not started twice). */
+  private readonly shortPending = new Set<string>();
+  /** Background short-EPG lookups in flight (awaited by the test-only `idle`). */
+  private readonly shortJobs = new Set<Promise<void>>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
 
@@ -298,7 +302,9 @@ export class AppApi {
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
   async idle(): Promise<void> {
-    while (this.queues.size) await Promise.all([...this.queues.values()]);
+    while (this.queues.size || this.shortJobs.size) {
+      await Promise.all([...this.queues.values(), ...this.shortJobs]);
+    }
   }
 
   // ---- internals ----
@@ -520,16 +526,19 @@ export class AppApi {
       for (const c of misses) {
         const nn = fetched.get(c.id) ?? {};
         out.set(c.id, nn);
-        if (gen === this.generation) this.nnCache.set(c.id, { at: t, nn });
+        // A background short-EPG answer may already have landed for this channel: keep it.
+        const landed = this.nnCache.get(c.id);
+        if (gen === this.generation && !(landed && landed.at >= t)) this.nnCache.set(c.id, { at: t, nn });
       }
     }
     return out;
   }
 
   /**
-   * Now/next on the displayed (shifted) timeline: "now" is the programme whose shifted interval
-   * contains `t`. Stored programmes are fetched over a window wide enough for every channel's shift;
-   * channels with nothing stored fall back to the service (Xtream short EPG), shifted and re-picked.
+   * Now/next on the displayed (shifted) timeline: "now" is the programme whose shifted interval contains `t`.
+   * Stored programmes only, fetched over a window wide enough for every channel's shift, so this never waits on
+   * the network. Channels with nothing stored get an empty pair now and a background short-EPG lookup
+   * (`startShortEpg`), whose answers update the cache and are announced with `nowNextUpdated`.
    */
   private async lookupNowNext(id: string, channels: Channel[], t: number): Promise<Map<string, NowNext>> {
     const settings = await this.currentSettings();
@@ -543,17 +552,41 @@ export class AppApi {
       const h = hours[i]!;
       const list = stored.get(c.id) ?? [];
       if (list.length === 0) missing.push({ c, h });
-      else out.set(c.id, nowNext(list.map((p) => applyShift(p, h)), t));
+      out.set(c.id, nowNext(list.map((p) => applyShift(p, h)), t));
     });
-    if (missing.length) {
-      const fallback = await this.service.nowNextFor(id, missing.map((m) => m.c));
-      for (const { c, h } of missing) {
-        const pair = fallback.get(c.id) ?? {};
-        const list = [pair.now, pair.next].filter((p): p is Programme => p !== undefined).map((p) => applyShift(p, h));
-        out.set(c.id, nowNext(list, t));
-      }
-    }
+    if (missing.length) this.startShortEpg(id, missing);
     return out;
+  }
+
+  /**
+   * Fire-and-forget Xtream short-EPG lookup for channels without stored programmes (the service caps the
+   * concurrency and skips it while a guide refresh of the source runs). Answers for a source or generation that
+   * is no longer current are dropped.
+   */
+  private startShortEpg(id: string, missing: { c: Channel; h: number }[]): void {
+    if (this.service.isRefreshingEpg(id)) return;
+    const todo = missing.filter(({ c }) => !this.shortPending.has(c.id));
+    if (todo.length === 0) return;
+    for (const { c } of todo) this.shortPending.add(c.id);
+    const gen = this.generation;
+    const job = this.service.shortEpgFor(id, todo.map((m) => m.c)).then((found) => {
+      if (gen !== this.generation || this.activeId !== id) return;
+      const t = this.now();
+      const changed: string[] = [];
+      for (const { c, h } of todo) {
+        const pair = found.get(c.id);
+        if (!pair) continue;
+        const list = [pair.now, pair.next].filter((p): p is Programme => p !== undefined).map((p) => applyShift(p, h));
+        const nn = nowNext(list, t);
+        this.nnCache.set(c.id, { at: t, nn });
+        if (nn.now || nn.next) changed.push(c.id);
+      }
+      if (changed.length) this.emit({ type: 'nowNextUpdated', channelIds: changed });
+    }, noop).finally(() => {
+      for (const { c } of todo) this.shortPending.delete(c.id);
+      this.shortJobs.delete(job);
+    });
+    this.shortJobs.add(job);
   }
 
   private async toRows(channels: Channel[]): Promise<ChannelRow[]> {

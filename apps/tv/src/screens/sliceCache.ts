@@ -8,6 +8,7 @@
  * - A page expires once a row's `now` programme that was still running when it was fetched has ended.
  *   `invalidateStale` marks such pages in a window; the next `ensure` refetches them, and the old rows stay
  *   readable until the fresh page arrives.
+ * - `invalidateRows(ids)` marks the pages holding those channels (worker `nowNextUpdated`) the same way.
  * - `invalidate()` (after a refresh or a favourite/hide change) drops everything and makes answers still in
  *   flight be ignored.
  */
@@ -25,7 +26,7 @@ interface GroupPages<T> { total: number | undefined; pages: Map<number, Page<T>>
 
 const KEPT_GROUPS = 2;
 
-export class SliceCache<T extends { now?: { stop: number } }> {
+export class SliceCache<T extends { id: string; now?: { stop: number } }> {
   /** Most recent group first. */
   private groups = new Map<string, GroupPages<T>>();
   private generation = 0;
@@ -89,6 +90,24 @@ export class SliceCache<T extends { now?: { stop: number } }> {
       if (p < first || p > last || page.stale || page.expiresAt > t) continue;
       page.stale = true;
       n++;
+    }
+    return n;
+  }
+
+  /**
+   * Marks every held page (any group) that contains one of `ids` as stale, e.g. after the worker announced new
+   * now/next for those channels. The rows stay readable; the next `ensure` over them refetches. Returns how many.
+   */
+  invalidateRows(ids: Iterable<string>): number {
+    const wanted = new Set(ids);
+    if (wanted.size === 0) return 0;
+    let n = 0;
+    for (const g of this.groups.values()) {
+      for (const page of g.pages.values()) {
+        if (page.stale || !page.rows.some((r) => wanted.has(r.id))) continue;
+        page.stale = true;
+        n++;
+      }
     }
     return n;
   }

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { SourceService, SourceAuthError, type Channel } from '@iptv/core';
+import { SourceService, SourceAuthError, type Channel, type FetchFn } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import { APP_API_METHODS, AppApi, scrub } from '../src/appApi.ts';
@@ -17,9 +17,9 @@ afterEach(async () => { await Promise.all(live.splice(0).map((a) => a.idle())); 
 let storage: MemoryStorage;
 beforeEach(() => { storage = new MemoryStorage(); });
 
-const make = (st: MemoryStorage = storage, Svc: typeof SourceService = SourceService) => {
+const make = (st: MemoryStorage = storage, Svc: typeof SourceService = SourceService, fetchFn: FetchFn = (u, i) => fetch(u, i)) => {
   const events: AppEvent[] = [];
-  const service = new Svc({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW });
+  const service = new Svc({ storage: st, fetch: fetchFn, now: () => NOW });
   const api = new AppApi({ service, storage: st, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3' });
   live.push(api);
   return { api, events };
@@ -72,6 +72,32 @@ describe('AppApi', () => {
     expect((await api.neighbour('all', slice.rows[0]!.id, -1))!.id).toBe(last.id);
     expect((await api.byNumber(slice.rows[0]!.number))!.id).toBe(slice.rows[0]!.id);
     expect(await api.byNumber(9999)).toBeUndefined();
+  });
+
+  test('rows and getPlayable never wait for the short EPG; its answers arrive as nowNextUpdated', async () => {
+    const g = gate();
+    let shortCalls = 0;
+    const gated: FetchFn = async (u, i) => {
+      // No stored guide at all, so every channel needs the short-EPG fallback.
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) { shortCalls++; await g.p; }
+      return fetch(u, i);
+    };
+    const { api, events } = make(storage, SourceService, gated);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const slice = await api.getChannelSlice('all', 0, 3);
+    expect(slice.rows[0]!.now).toBeUndefined();
+    const p = await api.getPlayable(slice.rows[0]!.id);
+    expect(p?.now).toBeUndefined();
+    expect(shortCalls).toBeGreaterThan(0);
+    g.open();
+    await api.idle();
+    const updated = events.filter((e): e is Extract<AppEvent, { type: 'nowNextUpdated' }> => e.type === 'nowNextUpdated');
+    expect(updated.flatMap((e) => e.channelIds)).toEqual(expect.arrayContaining(slice.rows.map((r) => r.id)));
+    const again = await api.getChannelSlice('all', 0, 3);
+    expect(again.rows[0]!.now?.title).toMatch(/^Programme /);
+    expect((await api.getPlayable(slice.rows[0]!.id))?.next).toBeDefined();
   });
 
   test('preferredFormat m3u8 swaps url and alternateUrl', async () => {
