@@ -671,6 +671,9 @@ export class PlaybackSupervisor {
     this.isPlaying = false;
     this.stableSince = undefined;
     this.stalledWhilePlaying = false;
+    if (this.stallStartedAt !== undefined) {
+      this.note({ k: 'stall', phase: 'end', durationMs: this.now() - this.stallStartedAt });
+    }
     this.stallStartedAt = undefined;
   }
 

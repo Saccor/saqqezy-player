@@ -826,6 +826,21 @@ describe('PlaybackSupervisor: journal', () => {
     ]);
   });
 
+  it('a stall that ends in a reconnect still logs its end, before the reconnect', () => {
+    const { player, sup, log } = journaled();
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 1.5 });
+    sup.play(A);
+    player.emit('playing');
+    playFor(player, 3000);
+    player.emit('buffering');
+    vi.advanceTimersByTime(500);
+    player.emit('error', { code: 'NETWORK' });
+    const stalls = log.filter((e) => e.k === 'stall');
+    expect(stalls).toMatchObject([{ phase: 'start' }, { phase: 'end', durationMs: 500 }]);
+    const end = log.findIndex((e) => e.k === 'stall' && e.phase === 'end');
+    expect(log[end + 1]).toMatchObject({ k: 'reconnect', cause: 'NETWORK' });
+  });
+
   it('a drift reopen and a go-live reopen name their cause', () => {
     const { player, sup, log } = journaled();
     player.health = () => ({ positionMs: player.pos, bufferAheadS: 3, behindLiveS: 40, behindLiveSource: 'edge' as const, targetDurationS: 2 });
