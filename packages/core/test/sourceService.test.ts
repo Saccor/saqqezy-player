@@ -5,6 +5,7 @@ import { SourceService } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
+import { queryTitles } from '../src/search/titleIndex.ts';
 
 const m3u = readFileSync(new URL('./fixtures/basic.m3u', import.meta.url), 'utf8');
 const xml = readFileSync(new URL('./fixtures/basic.xml', import.meta.url), 'utf8');
@@ -691,5 +692,73 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     routes['/p.m3u'] = () => { throw new TypeError('fetch failed http://example.test/p.m3u'); };
     const err = await service.addSource(m3uInput).catch((e: Error) => e);
     for (const bad of ['http']) expect((err as Error).message).not.toContain(bad);
+  });
+});
+
+describe('SourceService – title index', () => {
+  test('refreshEpg stores a title index for the new generation', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = await storage.getMeta<{ gen: number; truncated: boolean }>(`titleIndex:${source.id}`);
+    expect(rec?.gen).toBe(await storage.getMeta(`epgGen:${source.id}`));
+    expect(rec?.truncated).toBe(false);
+    const data = (await service.titleIndexFor(source.id))!;
+    expect(queryTitles(data, 'bulletin', NOW, 10).map((m) => m.display)).toEqual(['Evening Bulletin']);
+    expect(queryTitles(data, 'atta', NOW, 10)[0]!.airings[0]!.epgKey).toBe('ch2.test');
+  });
+
+  test('a failed guide refresh keeps the previous index', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const before = await storage.getMeta(`titleIndex:${source.id}`);
+    routes['/epg.xml'] = () => new Response('<html>nope</html>', { status: 500 });
+    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta(`titleIndex:${source.id}`)).toEqual(before);
+    expect(await service.titleIndexFor(source.id)).toBeDefined();
+  });
+
+  test('a record from another generation or with a bad shape reads as missing', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await storage.getMeta<{ gen: number; data: unknown }>(`titleIndex:${source.id}`))!;
+    await storage.setMeta(`titleIndex:${source.id}`, { ...rec, gen: rec.gen + 1 });
+    expect(await service.titleIndexFor(source.id)).toBeUndefined();
+    await storage.setMeta(`titleIndex:${source.id}`, { ...rec, data: { v: 1 } });
+    expect(await service.titleIndexFor(source.id)).toBeUndefined();
+  });
+
+  test('clearCachedData and a guide-less refresh clear the index; deleteSource removes it', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    await service.clearCachedData(source.id);
+    expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeNull();
+
+    await service.refreshEpg(source.id);
+    const { epgUrl: _e, ...noGuide } = source as typeof source & { epgUrl?: string };
+    await service.updateSource(noGuide);
+    await service.refreshEpg(source.id);
+    expect(await service.titleIndexFor(source.id)).toBeUndefined();
+
+    await service.refreshEpg(source.id);
+    await service.deleteSource(source.id);
+    expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeUndefined();
+  });
+
+  test('rebuildTitleIndex recreates the same index from stored programmes', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const built = await service.titleIndexFor(source.id);
+    await storage.setMeta(`titleIndex:${source.id}`, null);
+    await service.rebuildTitleIndex(source.id);
+    const rebuilt = (await service.titleIndexFor(source.id))!;
+    expect(queryTitles(rebuilt, 'show', NOW, 10)).toEqual(queryTitles(built!, 'show', NOW, 10));
+    expect(queryTitles(rebuilt, 'bulletin', NOW, 10)).toEqual(queryTitles(built!, 'bulletin', NOW, 10));
+  });
+
+  test('rebuildTitleIndex is a no-op for a deleted source', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.deleteSource(source.id);
+    await service.rebuildTitleIndex(source.id);
+    expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeUndefined();
   });
 });
