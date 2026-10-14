@@ -188,11 +188,14 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
   }
 }
 
-/** The `t` values `isPhoneToTv` knows. */
-const PHONE_TO_TV_TYPES: ReadonlySet<string> = new Set([
-  'hello', 'getState', 'ping', 'getSource', 'deleteSource', 'setActiveSource', 'ops', 'addSource', 'updateSource',
-  'refresh', 'bye',
-]);
+/** Every `PhoneToTv['t']`: a Record, so a new message type that is not listed here fails to compile. */
+const PHONE_TO_TV_T: Record<PhoneToTv['t'], true> = {
+  hello: true, getState: true, ping: true, getSource: true, deleteSource: true, setActiveSource: true, ops: true,
+  addSource: true, updateSource: true, refresh: true, bye: true,
+};
+
+/** The `t` values `isPhoneToTv` knows (test/messages.test.ts checks the two agree). */
+export const PHONE_TO_TV_TYPES: ReadonlySet<string> = new Set(Object.keys(PHONE_TO_TV_T));
 
 /**
  * True for a record whose `t` is not one `isPhoneToTv` knows: a message from a newer companion. The TV counts
@@ -200,6 +203,24 @@ const PHONE_TO_TV_TYPES: ReadonlySet<string> = new Set([
  */
 export function isUnknownPhoneMessage(x: unknown): boolean {
   return isRec(x) && typeof x['t'] === 'string' && !PHONE_TO_TV_TYPES.has(x['t']);
+}
+
+/** Every `TvToPhone['t']`: a Record, so a new message type that is not listed here fails to compile. */
+const TV_TO_PHONE_T: Record<TvToPhone['t'], true> = {
+  welcome: true, state: true, stateUnchanged: true, source: true, layoutChanged: true, progress: true, result: true,
+  bye: true,
+};
+
+/** The `t` values `isTvToPhone` knows (test/messages.test.ts checks the two agree). */
+export const TV_TO_PHONE_TYPES: ReadonlySet<string> = new Set(Object.keys(TV_TO_PHONE_T));
+
+/**
+ * True for a record whose `t` the companion does not know: a message from a newer TV. The companion's channel drops
+ * it silently (counted in `unknownCount`) instead of counting it toward the 5-failure close, mirroring
+ * `isUnknownPhoneMessage` on the TV. A malformed message of a known `t` still counts as a failure.
+ */
+export function isUnknownTvMessage(x: unknown): boolean {
+  return isRec(x) && typeof x['t'] === 'string' && !TV_TO_PHONE_TYPES.has(x['t']);
 }
 
 function isSourceSummary(x: unknown): boolean {

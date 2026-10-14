@@ -4,7 +4,7 @@ import {
   type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import {
-  CompanionClient, GETSTATE_BACKOFF_MS, isUnknownTvMessage, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers,
+  CompanionClient, GETSTATE_BACKOFF_MS, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers,
   type StateStatus,
 } from './client.ts';
 import { emptyLayout } from '@iptv/core';
@@ -281,17 +281,5 @@ describe('CompanionClient', () => {
     for (let i = 0; i < 5; i++) await tv.tv.send({ t: 'progress', phase: 'nope', count: -1 } as unknown as TvToPhone);
     await waitFor(() => ev.ended.length > 0, 'the close');
     expect(ev.ended).toEqual(['peer-errors']);
-  });
-});
-
-describe('isUnknownTvMessage', () => {
-  it('is true only for a record whose t this companion does not know', () => {
-    expect(isUnknownTvMessage({ t: 'fromTheFuture' })).toBe(true);
-    expect(isUnknownTvMessage({ t: 'state' })).toBe(false); // known t, even if malformed
-    expect(isUnknownTvMessage({ t: 'result', requestMsgId: 1, ok: true })).toBe(false);
-    expect(isUnknownTvMessage({ t: 7 })).toBe(false);
-    expect(isUnknownTvMessage({})).toBe(false);
-    expect(isUnknownTvMessage(null)).toBe(false);
-    expect(isUnknownTvMessage(['t'])).toBe(false);
   });
 });

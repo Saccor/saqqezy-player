@@ -1,6 +1,6 @@
 import {
-  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isTvToPhone, type CompanionState, type PairingSecrets, type PhoneToTv,
-  type TvToPhone, type WebSocketFactory,
+  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isTvToPhone, isUnknownTvMessage, type CompanionState,
+  type PairingSecrets, type PhoneToTv, type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import type { Layout, SourceConfig } from '@iptv/core';
 import type { ClientInfo } from './pair.ts';
@@ -44,21 +44,6 @@ export interface ClientOptions {
   handlers: ClientHandlers;
   WebSocket?: WebSocketFactory;
   isHidden?: () => boolean;
-}
-
-/** The `t` values `isTvToPhone` knows. */
-const TV_TO_PHONE_TYPES: ReadonlySet<string> = new Set([
-  'welcome', 'state', 'stateUnchanged', 'source', 'layoutChanged', 'progress', 'result', 'bye',
-] satisfies TvToPhone['t'][]);
-
-/**
- * True for a record whose `t` this companion does not know: a message from a newer TV. The channel drops it
- * silently (counted in `unknownCount`) instead of counting it toward the 5-failure close, mirroring the TV side.
- * A malformed message of a known `t` still counts as a failure.
- */
-export function isUnknownTvMessage(x: unknown): boolean {
-  return typeof x === 'object' && x !== null && !Array.isArray(x)
-    && typeof (x as Record<string, unknown>)['t'] === 'string' && !TV_TO_PHONE_TYPES.has((x as Record<string, string>)['t']!);
 }
 
 type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' }>;
