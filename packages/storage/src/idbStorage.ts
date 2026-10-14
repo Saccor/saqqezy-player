@@ -26,27 +26,44 @@ export class IdbStorage implements Storage {
   private db(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
       this.dbPromise = new Promise((resolve, reject) => {
+        let settled = false;
+        const fail = (err: unknown) => {
+          if (settled) return;
+          settled = true;
+          this.dbPromise = null;
+          reject(err);
+        };
         const open = this.factory.open(this.dbName, DB_VERSION);
-        open.onupgradeneeded = () => {
+        open.onupgradeneeded = (e: IDBVersionChangeEvent) => {
           const db = open.result;
-          db.createObjectStore('sources', { keyPath: 'id' });
-          db.createObjectStore('channels', { keyPath: 'sourceId' });
-          db.createObjectStore('meta');
-          const progs = db.createObjectStore('programmes', { autoIncrement: true });
-          progs.createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+          // One step per schema version, so a later upgrade never re-creates existing stores.
+          if (e.oldVersion < 1) {
+            db.createObjectStore('sources', { keyPath: 'id' });
+            db.createObjectStore('channels', { keyPath: 'sourceId' });
+            db.createObjectStore('meta');
+            const progs = db.createObjectStore('programmes', { autoIncrement: true });
+            progs.createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+          }
+        };
+        // Another tab holds an older version open and does not let go: fail now instead of waiting forever.
+        open.onblocked = () => {
+          fail(new Error('The app is open in another tab. Close the app in other tabs and try again.'));
         };
         open.onsuccess = () => {
           const db = open.result;
+          // Opened after all, but the caller already got the "blocked" error: let the connection go.
+          if (settled) {
+            db.close();
+            return;
+          }
+          settled = true;
           db.onversionchange = () => {
             db.close();
             this.dbPromise = null;
           };
           resolve(db);
         };
-        open.onerror = () => {
-          this.dbPromise = null;
-          reject(open.error);
-        };
+        open.onerror = () => fail(open.error);
       });
     }
     return this.dbPromise;
