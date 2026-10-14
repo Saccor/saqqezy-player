@@ -1,0 +1,105 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { PlaybackJournal, sanitizeEvent, type JournalEvent, type JournalPersist } from '../src/index.ts';
+
+function memory(initial: string | null = null): JournalPersist & { saved: string[]; value: string | null } {
+  const m = {
+    saved: [] as string[],
+    value: initial,
+    load: () => m.value,
+    save: (json: string) => { m.saved.push(json); m.value = json; },
+  };
+  return m;
+}
+
+const stop = (t: number): JournalEvent => ({ k: 'stop', t });
+
+beforeEach(() => { vi.useFakeTimers(); });
+afterEach(() => { vi.useRealTimers(); });
+
+describe('sanitizeEvent', () => {
+  it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {
+    expect(sanitizeEvent({ k: 'nope', t: 1 })).toBeUndefined();
+    expect(sanitizeEvent({ k: 'stop' })).toBeUndefined();
+    expect(sanitizeEvent({ k: 'stop', t: Number.NaN })).toBeUndefined();
+    expect(sanitizeEvent(null)).toBeUndefined();
+    expect(sanitizeEvent('stop')).toBeUndefined();
+  });
+
+  it('trims the channel name, keeps only safe detail ids, drops non-finite numbers and undefined fields', () => {
+    const long = `  ${'x'.repeat(80)}  `;
+    expect(sanitizeEvent({ k: 'play', t: 1, channel: long, preset: 'balanced', urls: 2 }))
+      .toEqual({ k: 'play', t: 1, channel: 'x'.repeat(60), preset: 'balanced', urls: 2 });
+    expect(sanitizeEvent({ k: 'error', t: 1, code: 'NETWORK', detail: 'fragLoadError' }))
+      .toEqual({ k: 'error', t: 1, code: 'NETWORK', detail: 'fragLoadError' });
+    expect(sanitizeEvent({ k: 'error', t: 1, code: 'NETWORK', detail: 'http://host/u/p' }))
+      .toEqual({ k: 'error', t: 1, code: 'NETWORK' });
+    expect(sanitizeEvent({ k: 'stall', t: 1, phase: 'start', bufferAheadS: Number.POSITIVE_INFINITY, x: undefined }))
+      .toEqual({ k: 'stall', t: 1, phase: 'start' });
+    expect(sanitizeEvent({ k: 'play', t: 1, channel: '   ', preset: 'low', urls: 1 }))
+      .toEqual({ k: 'play', t: 1, preset: 'low', urls: 1 });
+  });
+});
+
+describe('PlaybackJournal', () => {
+  it('keeps the newest events up to the capacity, oldest first', () => {
+    const j = new PlaybackJournal({ capacity: 3 });
+    for (let t = 1; t <= 5; t++) j.add(stop(t));
+    expect(j.entries().map((e) => e.t)).toEqual([3, 4, 5]);
+  });
+
+  it('defaults to 200 events and ignores invalid events', () => {
+    const j = new PlaybackJournal();
+    for (let t = 1; t <= 205; t++) j.add(stop(t));
+    j.add({ k: 'bogus', t: 1 } as unknown as JournalEvent);
+    expect(j.entries()).toHaveLength(200);
+    expect(j.entries()[0]!.t).toBe(6);
+  });
+
+  it('entries() returns a copy', () => {
+    const j = new PlaybackJournal();
+    j.add(stop(1));
+    (j.entries() as JournalEvent[]).push(stop(2));
+    expect(j.entries()).toHaveLength(1);
+  });
+
+  it('saves at once, then at most once per second; flush saves what is pending', () => {
+    const m = memory();
+    const j = new PlaybackJournal({ persist: m });
+    j.add(stop(1));
+    expect(m.saved).toHaveLength(1);
+    j.add(stop(2));
+    j.add(stop(3));
+    expect(m.saved).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
+    expect(m.saved).toHaveLength(2);
+    expect(JSON.parse(m.saved[1]!)).toEqual({ v: 1, e: [stop(1), stop(2), stop(3)] });
+    j.add(stop(4));
+    j.flush();
+    expect(m.saved).toHaveLength(3);
+    j.flush(); // nothing new
+    expect(m.saved).toHaveLength(3);
+  });
+
+  it('loads what was saved, and clear() empties and saves at once', () => {
+    const m = memory(JSON.stringify({ v: 1, e: [stop(1), { k: 'bogus', t: 2 }, stop(3)] }));
+    const j = new PlaybackJournal({ persist: m });
+    expect(j.entries()).toEqual([stop(1), stop(3)]);
+    j.clear();
+    expect(j.entries()).toEqual([]);
+    expect(JSON.parse(m.value!)).toEqual({ v: 1, e: [] });
+  });
+
+  it('starts empty on corrupt, wrong-version or non-array data', () => {
+    for (const raw of ['{', JSON.stringify({ v: 2, e: [stop(1)] }), JSON.stringify({ v: 1, e: {} }), 'null']) {
+      expect(new PlaybackJournal({ persist: memory(raw) }).entries()).toEqual([]);
+    }
+  });
+
+  it('load and save that throw never escape', () => {
+    const bad: JournalPersist = { load: () => { throw new Error('denied'); }, save: () => { throw new Error('quota'); } };
+    const j = new PlaybackJournal({ persist: bad });
+    expect(() => { j.add(stop(1)); j.flush(); j.clear(); }).not.toThrow();
+    j.add(stop(2));
+    expect(j.entries()).toEqual([stop(2)]);
+  });
+});

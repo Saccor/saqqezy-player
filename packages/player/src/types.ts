@@ -9,7 +9,17 @@ export interface StreamInfo { width?: number; height?: number; videoCodec?: stri
  * refused the stream (HTTP 401/403/410).
  */
 export type ErrorCode = 'NETWORK' | 'MEDIA' | 'DECODE' | 'UNSUPPORTED' | 'EOS' | 'AUTH';
-export interface StateDetail { code?: ErrorCode; message?: string; attemptId?: number; httpStatus?: number }
+export interface StateDetail {
+  code?: ErrorCode;
+  message?: string;
+  attemptId?: number;
+  httpStatus?: number;
+  /** The engine's own error id (hls.js `details`, mpegts.js detail, AVPlay error name). Diagnostics only; never a URL. */
+  detail?: string;
+}
+
+/** The engine behind a session, for diagnostics. */
+export type EngineName = 'native' | 'hls.js' | 'mpegts.js' | 'avplay';
 
 /**
  * Where `behindLiveS` comes from: the distance to the live edge (what the client can steer), or (raw TS) only the
@@ -21,6 +31,8 @@ export type LatencySource = 'pdt' | 'edge' | 'buffer';
 /** A cheap snapshot for the supervisor's 250 ms tick. Unknown values are left out. */
 export interface PlaybackHealth {
   positionMs: number;
+  /** The engine playing this session, once chosen. */
+  engine?: EngineName;
   /** Seconds buffered ahead of the playhead. */
   bufferAheadS?: number;
   /** Number of disjoint buffered ranges (a gap hint). */
