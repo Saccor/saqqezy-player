@@ -372,6 +372,22 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
+  /**
+   * Rebuilds the open menu's items from the current layout (after a remote change): the Favourites item
+   * follows the channel's membership, and "Remove from" disappears when its list was deleted.
+   */
+  const rebuildMenu = async () => {
+    const m = menu();
+    if (!m) return;
+    const ids = await api.channelLists(m.row.id);
+    const cur = menu();
+    if (!alive || cur?.row.id !== m.row.id) return;
+    const isFavourite = ids.includes(FAV_LIST_ID);
+    setMenu({ ...cur, isFavourite, items: buildChannelMenu({
+      inListId: cur.inListId, isHidden: false, isFavourite, lists: listsFromGroups(),
+    }) });
+  };
+
   /** Applies layout ops; resolves false (after a toast) when the worker refused any of them. */
   const applyOps = async (ops: LayoutOp[]): Promise<boolean> => {
     try {
@@ -495,7 +511,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       // id. Changes made on this screen re-read on their own.
       onEvent('layoutChanged', (e) => {
         if ((e as LayoutChanged).origin !== 'remote') return;
-        void reload().catch(() => undefined);
+        // An open channel menu is rebuilt from the fresh state once the groups are re-read.
+        void reload().then(rebuildMenu).catch(() => undefined);
         const p = picker();
         if (p) void rereadPicker(p.row).catch(() => undefined);
       }),

@@ -20,10 +20,19 @@ export function ContextMenu<A extends string>(props: {
   cancel: A;
   onChoose: (action: A) => void;
 }) {
-  const [sel, setSel] = createSignal(0);
+  const [selRaw, setSelRaw] = createSignal(0);
+  const [selAction, setSelAction] = createSignal<A | undefined>(undefined);
+  // The items can change while the menu is open (a remote layout change): the selection stays on the same
+  // action when it is still there, else on the same row, clamped.
+  const sel = () => {
+    const a = selAction();
+    const i = a === undefined ? -1 : props.items.findIndex((it) => it.action === a);
+    return i >= 0 ? i : Math.max(0, Math.min(selRaw(), props.items.length - 1));
+  };
+  const setSel = (i: number) => { setSelRaw(i); setSelAction(() => props.items[i]?.action); };
   const height = () => PAD * 2 + 64 + props.items.length * (ITEM_H + 12);
   const move = (d: number) => {
-    setSel((s) => Math.max(0, Math.min(props.items.length - 1, s + d)));
+    setSel(Math.max(0, Math.min(props.items.length - 1, sel() + d)));
     return true;
   };
   return (
