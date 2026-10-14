@@ -5,6 +5,7 @@ import type {
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
+import { chooseEngine } from './engineChoice.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -19,10 +20,13 @@ interface Session {
   attemptId: number | undefined;
   dead: boolean;
   engine: Engine | undefined;
+  /** Engine to switch to if the element fails before metadata (extensionless URLs only). */
+  fallback?: 'mpegts';
   cleanups: (() => void)[];
 }
 
 const HLS_MIME = 'application/vnd.apple.mpegurl';
+const TS_MIME = 'video/mp2t';
 const HLS_CODEC_ERRORS = new Set<string>([
   ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR,
   ErrorDetails.BUFFER_ADD_CODEC_ERROR,
@@ -42,7 +46,8 @@ function pathOf(url: string): string {
 
 /**
  * `Player` on an HTML5 `<video>`: native HLS where the platform has it, else hls.js for `.m3u8`;
- * mpegts.js (live) for `.ts`; anything else is handed to the element directly.
+ * mpegts.js (live) for `.ts` and for extensionless URLs the element cannot play; any other extension is handed
+ * to the element directly (see `chooseEngine`).
  */
 export class Html5Player implements Player {
   private readonly video: HTMLVideoElement;
@@ -83,6 +88,7 @@ export class Html5Player implements Player {
       const err = v.error;
       // With MSE engines the engine reports errors itself; MediaError 4 is still decisive.
       if (!err) return;
+      if (this.tryFallback(s)) return;
       // MediaError 4 (SRC_NOT_SUPPORTED) before any metadata (HAVE_NOTHING) is a failed load (404, refused,
       // dropped connection), so it is retryable NETWORK; only once metadata has loaded is it really UNSUPPORTED.
       const code = err.code === 4
@@ -93,33 +99,44 @@ export class Html5Player implements Player {
 
     this.emit(s, 'loading');
 
-    if (path.endsWith('.m3u8')) {
-      if (this.preferNativeHls && v.canPlayType(HLS_MIME) !== '') {
-        s.engine = { kind: 'native' };
-        v.src = src;
-      } else if (Hls.isSupported()) {
-        const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30 });
-        s.engine = { kind: 'hls', hls };
-        hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
-          // Non-fatal codec errors (e.g. one unplayable level) are recoverable: only fatal ones, or a manifest
-          // with no playable codec at all, are reported.
-          if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
-          const code = HLS_CODEC_ERRORS.has(data.details)
-            ? 'UNSUPPORTED'
-            : data.type === ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
-          this.emit(s, 'error', { code, message: 'Playback error' });
-        });
-        hls.loadSource(src);
-        hls.attachMedia(v);
-      } else {
-        this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'HLS is not supported here' });
-        return Promise.resolve();
-      }
-    } else if (path.endsWith('.ts')) {
-      if (!mpegts.isSupported()) {
-        this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'MPEG-TS is not supported here' });
-        return Promise.resolve();
-      }
+    const choice = chooseEngine(path, {
+      nativeHls: v.canPlayType(HLS_MIME) !== '',
+      nativeTs: v.canPlayType(TS_MIME) !== '',
+      hlsJs: Hls.isSupported(),
+      mpegtsJs: mpegts.isSupported(),
+      preferNativeHls: this.preferNativeHls,
+    });
+    if (choice.engine === 'none') {
+      const message = choice.reason === 'hls' ? 'HLS is not supported here' : 'MPEG-TS is not supported here';
+      this.emit(s, 'error', { code: 'UNSUPPORTED', message });
+      return Promise.resolve();
+    }
+    if (choice.engine === 'native' && choice.fallback) s.fallback = choice.fallback;
+    this.startEngine(s, choice.engine, src);
+    this.play(s);
+    return Promise.resolve();
+  }
+
+  private startEngine(s: Session, kind: 'native' | 'hls' | 'mpegts', src: string): void {
+    const v = this.video;
+    if (kind === 'native') {
+      s.engine = { kind: 'native' };
+      v.src = src;
+    } else if (kind === 'hls') {
+      const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30 });
+      s.engine = { kind: 'hls', hls };
+      hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
+        // Non-fatal codec errors (e.g. one unplayable level) are recoverable: only fatal ones, or a manifest
+        // with no playable codec at all, are reported.
+        if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
+        const code = HLS_CODEC_ERRORS.has(data.details)
+          ? 'UNSUPPORTED'
+          : data.type === ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
+        this.emit(s, 'error', { code, message: 'Playback error' });
+      });
+      hls.loadSource(src);
+      hls.attachMedia(v);
+    } else {
       const player = mpegts.createPlayer(
         { type: 'mpegts', isLive: true, url: src },
         { enableWorker: false, lazyLoad: false, liveBufferLatencyChasing: true },
@@ -133,13 +150,23 @@ export class Html5Player implements Player {
       });
       player.attachMediaElement(v);
       player.load();
-    } else {
-      s.engine = { kind: 'native' };
-      v.src = src;
     }
+  }
 
+  /**
+   * The element failed before any metadata on a stream it only might play (extensionless URL): switch this
+   * session to the fallback engine instead of reporting the error. Returns true when it did.
+   */
+  private tryFallback(s: Session): boolean {
+    const next = s.fallback;
+    if (!next || s.engine?.kind !== 'native' || this.video.readyState !== 0) return false;
+    s.fallback = undefined;
+    const v = this.video;
+    v.removeAttribute('src');
+    v.load();
+    this.startEngine(s, next, hlsViaDevProxy(s.url));
     this.play(s);
-    return Promise.resolve();
+    return true;
   }
 
   private play(s: Session): void {

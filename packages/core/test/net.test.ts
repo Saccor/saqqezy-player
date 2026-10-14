@@ -77,6 +77,19 @@ describe('alternateStreamUrl', () => {
     expect(alternateStreamUrl('http://example.test/live/u/p/12.ts?x=1&y=2')).toBe('http://example.test/live/u/p/12.m3u8?x=1&y=2');
   });
 
+  test('maps the Xtream short form /{u}/{p}/{id} to the HLS live path', () => {
+    expect(alternateStreamUrl('http://example.test:8080/u/p/123')).toBe('http://example.test:8080/live/u/p/123.m3u8');
+    expect(alternateStreamUrl('http://example.test/u%40x/p%2Fq/9?token=1')).toBe('http://example.test/live/u%40x/p%2Fq/9.m3u8?token=1');
+  });
+
+  test('leaves other extensionless paths alone', () => {
+    expect(alternateStreamUrl('http://example.test/u/p/abc')).toBeUndefined();
+    expect(alternateStreamUrl('http://example.test/a/u/p/123')).toBeUndefined();
+    expect(alternateStreamUrl('http://example.test/p/123')).toBeUndefined();
+    expect(alternateStreamUrl('http://example.test/u/p/123/')).toBeUndefined();
+    expect(alternateStreamUrl('http://example.test/u//123')).toBeUndefined();
+  });
+
   test('returns undefined for anything else', () => {
     expect(alternateStreamUrl('http://example.test/movie/u/p/12.ts')).toBeUndefined();
     expect(alternateStreamUrl('http://example.test/live/u/12.ts')).toBeUndefined();

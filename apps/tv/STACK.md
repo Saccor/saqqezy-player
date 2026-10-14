@@ -145,6 +145,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - `src/video/Html5Player.ts` implements `Player`:
   - `.m3u8` plays natively when `canPlayType('application/vnd.apple.mpegurl')`, otherwise through hls.js.
   - `.ts` plays through mpegts.js with `isLive: true`.
+  - Extensionless URLs (e.g. the Xtream short form `/{user}/{pass}/{id}`): the element only when `canPlayType('video/mp2t')` is non-empty, switching to mpegts.js if it fails before metadata (`readyState 0`); otherwise mpegts.js. Pure choice in `video/engineChoice.ts` (unit-tested). Core's `alternateStreamUrl` maps the short form to `/live/{user}/{pass}/{id}.m3u8`.
   - In dev, `?hlsjs` forces the hls.js path on browsers that have native HLS.
 - Each `open()` creates a session. `stop()` kills it, removes its listeners, and destroys the hls.js or mpegts instance. It then calls `removeAttribute('src')` and `load()`. Events from a dead session are dropped, and `detail.attemptId` is echoed on every event.
 - Error mapping: `<video>` MediaError 4 is `NETWORK` (retryable) while `readyState === 0` (HAVE_NOTHING: the load itself failed, e.g. 404, refused, dropped) and `UNSUPPORTED` only once metadata has loaded (`readyState >= 1`). MediaError 2 is `NETWORK`, 3 is `DECODE`, the rest `MEDIA`. hls.js errors are reported only when fatal, or for `MANIFEST_INCOMPATIBLE_CODECS_ERROR`; codec errors map to `UNSUPPORTED`, other network errors to `NETWORK`. mpegts codec/format errors map to `UNSUPPORTED`.
