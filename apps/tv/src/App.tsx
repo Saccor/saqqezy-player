@@ -14,11 +14,12 @@ import { SettingsScreen } from './screens/Settings.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
+import { InitError } from './shell/InitError.tsx';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
-import { bootstrap, offline, platformId, settings, wireEvents } from './state/appState.ts';
+import { bootstrap, initFailed, offline, platformId, settings, wireEvents } from './state/appState.ts';
 
 const EXIT_ID = 'exitConfirm';
 const BADGE_W = 400;
@@ -74,14 +75,18 @@ export function App() {
 
   onMount(() => {
     onCleanup(wireEvents(onEvent, showToast));
-    void bootstrap(api, router, showToast);
+    void bootstrap(api, router);
   });
   onCleanup(() => playback.stop());
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}>
       <View ref={screenHost} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
-        <Show when={current()} keyed fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
+        <Show when={current()} keyed fallback={
+          <Show when={initFailed()} fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
+            <InitError onRetry={() => void bootstrap(api, router)} />
+          </Show>
+        }>
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen entry={entry} />
             : entry.screen === 'home' ? <HomeScreen entry={entry} />

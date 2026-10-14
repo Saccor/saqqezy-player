@@ -46,21 +46,45 @@ export function markStartup(): void {
   if (startupMs() === undefined) setStartupMs(performance.now());
 }
 
-/** Loads `InitState` from the worker and opens the root screen. */
+/** How long `api.init()` may take before the shell shows the load error. */
+export const INIT_TIMEOUT_MS = 10_000;
+
+/** True when the last `bootstrap` attempt failed or timed out; the shell shows a full-screen Retry state. */
+const [initFailed, setInitFailed] = createSignal(false);
+export { initFailed };
+
+let bootAttempt = 0;
+
+/**
+ * Loads `InitState` from the worker and opens the root screen. A failure or a 10 s timeout never routes to
+ * Add source (saved sources may still exist): it sets `initFailed` so the shell can offer Retry. Only the
+ * newest attempt counts; a late answer from an earlier, timed-out attempt is ignored.
+ */
 export async function bootstrap(
   api: { init(): Promise<InitState> },
   router: Pick<Router, 'reset'>,
-  toast: (text: string) => void,
+  timeoutMs: number = INIT_TIMEOUT_MS,
 ): Promise<void> {
+  const attempt = ++bootAttempt;
+  setInitFailed(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const s = await api.init();
+    const s = await Promise.race([
+      api.init(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Timed out')), timeoutMs);
+      }),
+    ]);
+    if (attempt !== bootAttempt) return;
     setInitState(s);
     const root = initialRoute(s);
     router.reset(root.screen, root.params);
   } catch (err) {
-    console.error('Startup failed', err instanceof Error ? err.name : 'Error');
-    router.reset('addSource');
-    toast("Couldn't load saved data.");
+    if (attempt !== bootAttempt) return;
+    console.error('Startup failed', err instanceof Error ? err.message === 'Timed out' ? 'timeout' : err.name : 'Error');
+    setInitFailed(true);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
