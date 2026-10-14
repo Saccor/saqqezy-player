@@ -1,13 +1,13 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, nowNext, redactUrl,
+  epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
   type AppSettings, type Channel, type GroupInfo, type Layout, type LayoutOp, type NewSource, type Programme,
-  type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage,
+  type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage, type TitleIndexData,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, PlayableChannel, ProgrammeLite, SourceSummary,
+  ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -17,6 +17,12 @@ const HOUR = 3_600_000;
 const NOW_NEXT_MARGIN_MS = 6 * HOUR;
 /** Requested row windows remembered per source; a queued short-EPG lookup outside all of them is dropped. */
 const VISIBLE_WINDOWS = 2;
+/** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
+const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
+const SEARCH_ON_NOW = 20;
+const SEARCH_TITLES = 100;
+/** The loaded title index is dropped this long after the last search (memory on 1 GB TVs). */
+const TITLES_IDLE_MS = 2 * 60_000;
 
 const noop = () => { /* settled */ };
 const HAS = Object.prototype.hasOwnProperty;
@@ -78,6 +84,13 @@ export class AppApi {
   private readonly shortJobs = new Set<Promise<void>>();
   /** The last `VISIBLE_WINDOWS` requested row windows (channel ids) per source, newest last. */
   private readonly windows = new Map<string, Set<string>[]>();
+  /** The active source's title index, loaded on the first search. */
+  private titles: { sourceId: string; data: TitleIndexData } | undefined;
+  private titlesTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Bumped by every index swap, so a title index load that raced a swap is not cached. */
+  private titlesEpoch = 0;
+  /** Sources whose title index rebuild was already tried this session. */
+  private readonly titleRebuilds = new Set<string>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
@@ -155,7 +168,8 @@ export class AppApi {
       await this.enqueue(id, () => this.service.deleteSource(id));
       this.companionStale();
       this.windows.delete(id);
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`]) {
+      this.titleRebuilds.delete(id);
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -252,8 +266,31 @@ export class AppApi {
     });
   }
 
-  search(query: string, limit: number): Promise<ChannelRow[]> {
-    return this.run('search', async () => this.toRows(this.index.search(query, limit)));
+  search(query: string, limit: number): Promise<SearchResult> {
+    return this.run('search', async () => {
+      const id = this.activeId;
+      const found = this.index.search(query, limit);
+      // Without guide data there is nothing to prepare: channels only.
+      const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
+      const data = guided ? await this.titleIndex(id) : undefined;
+      if (!data) return { channels: await this.toRows(found), onNow: [], later: [], guidePending: guided };
+      const hits = await this.programmeHits(data, query);
+      const anyProgrammes = hits.onNow.length > 0 || hits.later.length > 0;
+      const chans = anyProgrammes ? found.slice(0, SEARCH_CHANNELS_WITH_PROGRAMMES) : found;
+      const onNow = hits.onNow.slice(0, Math.min(SEARCH_ON_NOW, Math.max(0, limit - chans.length)));
+      const later = hits.later.slice(0, Math.max(0, limit - chans.length - onNow.length));
+      const [channelRows, progRows] = await Promise.all([
+        this.toRows(chans),
+        // Programme rows never start background short-EPG lookups.
+        this.toRows([...onNow.map((h) => h.c), ...later.map((h) => h.c)], false),
+      ]);
+      return {
+        channels: channelRows,
+        onNow: onNow.map((h, i): ProgrammeHit => ({ channel: progRows[i]!, title: h.title, start: h.start, stop: h.stop })),
+        later: later.map((h, i): TitleHit => ({ channel: progRows[onNow.length + i]!, title: h.title, start: h.start, stop: h.stop, more: h.more })),
+        guidePending: false,
+      };
+    });
   }
 
   // ---- layout ----
@@ -563,6 +600,8 @@ export class AppApi {
     this.index = new ChannelIndex(channels, layout, coverage);
     this.favSet = undefined;
     this.companionStale();
+    this.titles = undefined;
+    this.titlesEpoch++;
   }
 
   /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
@@ -654,6 +693,69 @@ export class AppApi {
   private invalidateNowNext(): void {
     this.generation++;
     this.nnCache = new Map();
+  }
+
+  /** The cached or stored title index of `id`; undefined starts a one-time background rebuild. */
+  private async titleIndex(id: string): Promise<TitleIndexData | undefined> {
+    if (this.titlesTimer !== undefined) clearTimeout(this.titlesTimer);
+    this.titlesTimer = setTimeout(() => { this.titles = undefined; this.titlesTimer = undefined; }, TITLES_IDLE_MS);
+    (this.titlesTimer as { unref?: () => void }).unref?.();
+    if (this.titles?.sourceId === id) return this.titles.data;
+    const epoch = this.titlesEpoch;
+    const data = await this.service.titleIndexFor(id);
+    if (!data) {
+      this.startTitleRebuild(id);
+      return undefined;
+    }
+    if (epoch === this.titlesEpoch && this.activeId === id) this.titles = { sourceId: id, data };
+    return data;
+  }
+
+  private startTitleRebuild(id: string): void {
+    if (this.titleRebuilds.has(id)) return;
+    this.titleRebuilds.add(id);
+    void this.enqueue(id, async () => {
+      try {
+        await this.service.rebuildTitleIndex(id);
+      } catch (err) {
+        this.record('rebuildTitleIndex', err);
+        return;
+      }
+      if (this.activeId === id) this.emit({ type: 'searchReady', sourceId: id });
+    });
+  }
+
+  /** Matching programmes on the displayed timeline: airing now (per channel) and later (one per title). */
+  private async programmeHits(data: TitleIndexData, query: string): Promise<{
+    onNow: { c: Channel; title: string; start: number; stop: number }[];
+    later: { c: Channel; title: string; start: number; stop: number; more: number }[];
+  }> {
+    const settings = await this.currentSettings();
+    const t = this.now();
+    const shiftOf = (c: Channel) => (settings.epgOffsetHours + (c.epgShift ?? 0)) * HOUR;
+    let maxShift = Math.abs(settings.epgOffsetHours) * HOUR;
+    for (const c of this.channels) maxShift = Math.max(maxShift, Math.abs(shiftOf(c)));
+    const onNow: { c: Channel; title: string; start: number; stop: number }[] = [];
+    const later: { c: Channel; title: string; start: number; stop: number; more: number }[] = [];
+    for (const m of queryTitles(data, query, t - maxShift, SEARCH_TITLES)) {
+      let next: { c: Channel; start: number; stop: number } | undefined;
+      let upcoming = 0;
+      for (const a of m.airings) {
+        for (const c of this.index.channelsForEpgKey(a.epgKey)) {
+          const s = shiftOf(c);
+          const start = a.start + s;
+          const stop = a.stop + s;
+          if (stop <= t) continue;
+          if (start <= t) onNow.push({ c, title: m.display, start, stop });
+          else {
+            upcoming++;
+            if (!next || start < next.start) next = { c, start, stop };
+          }
+        }
+      }
+      if (next) later.push({ ...next, title: m.display, more: upcoming - 1 });
+    }
+    return { onNow, later };
   }
 
   private favourites(): Set<string> {

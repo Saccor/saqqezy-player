@@ -260,12 +260,69 @@ describe('AppApi', () => {
     }
   });
 
-  test('search', async () => {
+  test('search: channels only when nothing in the guide matches', async () => {
     const { api } = make();
     await api.addSource(xt());
+    await api.refresh('epg');
     const r = await api.search('channel 007', 5);
-    expect(r.map((c) => c.name)).toEqual(['Channel 007']);
-    expect(await api.search('', 5)).toEqual([]);
+    expect(r.channels.map((c) => c.name)).toEqual(['Channel 007']);
+    expect(r.onNow).toEqual([]);
+    expect(r.later).toEqual([]);
+    expect(r.guidePending).toBe(false);
+    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false });
+  });
+
+  test('search: on now (capped at 20) and coming up, one row per title', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    const r = await api.search('programme 1', 50);
+    expect(r.channels).toEqual([]);
+    expect(r.onNow).toHaveLength(20);
+    expect(new Set(r.onNow.map((h) => h.title))).toEqual(new Set(['Programme 12']));
+    expect(r.onNow[0]!.start).toBeLessThanOrEqual(NOW);
+    expect(r.onNow[0]!.stop).toBeGreaterThan(NOW);
+    expect(r.later.map((h) => h.title)).toEqual(['Programme 13', 'Programme 14', 'Programme 15', 'Programme 16', 'Programme 17', 'Programme 18', 'Programme 19']);
+    expect(r.later[0]!.more).toBe(39);
+    expect(r.later[0]!.start).toBeGreaterThan(NOW);
+    expect(r.guidePending).toBe(false);
+  });
+
+  test('search: channel hits are capped at 10 when programmes match too; total stays within limit', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    await api.applyLayoutOps([{ op: 'renameChannel', id: (await api.getChannelSlice('all', 0, 1)).rows[0]!.id, name: 'Programme Guide Channel' }]);
+    const r = await api.search('programme', 12);
+    expect(r.channels.length).toBeLessThanOrEqual(10);
+    expect(r.channels.length + r.onNow.length + r.later.length).toBeLessThanOrEqual(12);
+  });
+
+  test('search: the guide offset decides what is on now', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    await api.refresh('epg');
+    await api.saveSettings({ epgOffsetHours: 1 });
+    // Displayed = stored + 1 h, so at 18:10 the stored 17:00 slot (Programme 10) is on now.
+    const r = await api.search('programme 10', 50);
+    expect(r.onNow.map((h) => h.title)).toContain('Programme 10');
+    expect(r.onNow[0]!.start).toBeLessThanOrEqual(NOW);
+  });
+
+  test('search: a missing index reports guidePending, rebuilds once and emits searchReady', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    await storage.setMeta(`titleIndex:${sourceId}`, null);
+    const { api, events } = make();
+    await api.init();
+    const first = await api.search('programme 12', 50);
+    expect(first.guidePending).toBe(true);
+    expect(first.onNow).toEqual([]);
+    await api.idle();
+    expect(events.some((e) => e.type === 'searchReady' && e.sourceId === sourceId)).toBe(true);
+    const second = await api.search('programme 12', 50);
+    expect(second.guidePending).toBe(false);
+    expect(second.onNow.length).toBeGreaterThan(0);
   });
 
   test('clearCache keeps sources and favourites', async () => {

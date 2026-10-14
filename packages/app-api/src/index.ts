@@ -6,5 +6,5 @@ export {
 export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } from './rpc.ts';
 export type {
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, PlayableChannel, ProgrammeLite, SourceSummary,
+  ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
 } from './types.ts';

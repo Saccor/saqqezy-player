@@ -24,6 +24,18 @@ export interface InitState {
   lastChannelId?: string; lastGroupId?: string; settings: AppSettings;
 }
 
+/** A programme airing now that matched a search (times on the displayed, shifted timeline). */
+export interface ProgrammeHit { channel: ChannelRow; title: string; start: number; stop: number }
+/** A title airing later: its next airing, plus how many more upcoming airings exist across channels. */
+export interface TitleHit { title: string; channel: ChannelRow; start: number; stop: number; more: number }
+export interface SearchResult {
+  channels: ChannelRow[];
+  onNow: ProgrammeHit[];
+  later: TitleHit[];
+  /** The guide's title index is being built or loaded: programme sections are empty for now. */
+  guidePending: boolean;
+}
+
 export type AppEvent =
   | { type: 'progress'; phase: 'playlist' | 'epg'; count: number }
   | { type: 'refreshed'; what: 'playlist' | 'epg'; sourceId: string }
@@ -31,6 +43,8 @@ export type AppEvent =
   | { type: 'offline'; value: boolean }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
+  /** The title index of `sourceId` was built: re-run an open search. */
+  | { type: 'searchReady'; sourceId: string }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
   /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */
   | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean }
