@@ -330,7 +330,8 @@ describe('WebSocketRelayTransport', () => {
     t.send(frame(1, 100));
     clock += QUEUE_MAX_AGE_MS + 10_000;
     t.send(frame(2, 50));
-    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(150);
+    // send() prunes the aged frame first.
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(50);
     vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
     last().serverOpen();
     expect(closes).toEqual([]);
@@ -338,6 +339,44 @@ describe('WebSocketRelayTransport', () => {
     expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(0);
     t.send(frame(3));
     expect(last().sent.map((f) => f[0])).toEqual([2, 3]);
+  });
+
+  test('an aged frame takes every queued frame of its message with it: a message is never sent in part', () => {
+    let clock = 0;
+    const t = new WebSocketRelayTransport({ url: URL_, WebSocket: FakeWs, random: () => 0.5, now: () => clock });
+    const q = () => (t as unknown as { queuedBytes: number }).queuedBytes;
+    last().serverOpen();
+    last().serverClose(1006);
+    t.send(frame(1, 100), 7);
+    clock += 30_000;
+    t.send(frame(2, 100), 7); // same message, queued later (younger)
+    t.send(frame(5, 10), 8);
+    clock += QUEUE_MAX_AGE_MS - 20_000; // frame 1 is now aged, frame 2 is not
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
+    last().serverOpen();
+    expect(last().sent.map((f) => f[0])).toEqual([5]);
+    expect(q()).toBe(0);
+    // The rest of message 7, still being sent, is discarded too.
+    t.send(frame(3, 10), 7);
+    t.send(frame(6, 10), 9);
+    expect(last().sent.map((f) => f[0])).toEqual([5, 6]);
+  });
+
+  test('fits() and send() prune aged frames first, so stale frames do not hold queue room', () => {
+    let clock = 0;
+    const t = new WebSocketRelayTransport({ url: URL_, WebSocket: FakeWs, random: () => 0.5, now: () => clock });
+    last().serverOpen();
+    last().serverClose(1006);
+    const big = QUEUE_MAX_BYTES - 1000;
+    t.send(frame(1, big), 1);
+    expect(t.fits([2000])).toBe(false);
+    clock += QUEUE_MAX_AGE_MS + 1;
+    expect(t.fits([2000])).toBe(true);
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(0);
+    t.send(frame(2, big), 2);
+    clock += QUEUE_MAX_AGE_MS + 1;
+    expect(() => t.send(frame(3, 2000), 3)).not.toThrow();
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(2000);
   });
 
   test('when ws.send throws partway through a message, its remaining queued frames are dropped', () => {

@@ -16,9 +16,10 @@ import { QueueFullError, type RelayTransport } from './channel.ts';
  * - While reconnecting (or while pacing), frames queue: at most QUEUE_MAX_BYTES, each at most QUEUE_MAX_AGE_MS old.
  *   A frame that would push the queue past QUEUE_MAX_BYTES is refused with a non-final `QueueFullError`; nothing
  *   is queued and the transport stays up. `fits()` lets the channel check a whole message before sending any of
- *   it. When a socket opens (or the pacing timer fires), queued frames older than QUEUE_MAX_AGE_MS are dropped
- *   (and `queuedBytes` updated) instead of giving up: the peer tolerates the gaps and both sides re-sync after a
- *   reconnect (the companion asks `getState{ haveVersion }`, the TV re-pushes the layout).
+ *   it. Queued frames older than QUEUE_MAX_AGE_MS are dropped (and `queuedBytes` updated) whenever the queue is
+ *   looked at (`send`, `fits`, a socket opening, the pacing timer) instead of giving up. An aged frame takes every
+ *   queued frame of its message with it, so a message is never sent in part. The peer tolerates the gaps and both
+ *   sides re-sync after a reconnect (the companion asks `getState{ haveVersion }`, the TV re-pushes the layout).
  *   After a final close `send()` throws.
  * - No half-sent messages: `send(frame, messageId)` groups the frames of one message. If the socket drops, or
  *   `ws.send` throws, after some frames of a message went out, that message's remaining queued frames are
@@ -140,6 +141,7 @@ export class WebSocketRelayTransport implements RelayTransport {
   /** Queues one frame and sends what the pacing allows. Throws QueueFullError (non-final) when the queue is full. */
   send(frame: Uint8Array, messageId?: number): void {
     if (this.final) throw new Error('transport closed');
+    this.pruneAged(this.now());
     if (messageId !== undefined && messageId === this.discardGroup) return; // the rest of a message already cut
     this.discardGroup = undefined;
     if (!this.fits([frame.byteLength])) throw new QueueFullError();
@@ -154,6 +156,7 @@ export class WebSocketRelayTransport implements RelayTransport {
    */
   fits(frameBytes: readonly number[]): boolean {
     if (this.final) return false;
+    this.pruneAged(this.now());
     let direct = this.isOpen && this.ws?.readyState === OPEN && this.queue.length === 0 ? this.budget(this.now()) : 0;
     let bytes = this.queuedBytes;
     for (const n of frameBytes) {
@@ -322,6 +325,32 @@ export class WebSocketRelayTransport implements RelayTransport {
     });
   }
 
+  /**
+   * Drops queued frames older than QUEUE_MAX_AGE_MS (not worth sending), and with each one every other queued frame
+   * of the same message, so a message is never sent in part. Frames of that message still to come are discarded too.
+   * The queue is in send order, so aged frames are at the head.
+   */
+  private pruneAged(now: number): void {
+    if (!this.queue.length || now - this.queue[0]!.at <= QUEUE_MAX_AGE_MS) return;
+    const groups = new Set<number>();
+    let i = 0;
+    while (i < this.queue.length && now - this.queue[i]!.at > QUEUE_MAX_AGE_MS) {
+      const g = this.queue[i]!.group;
+      if (g !== undefined) groups.add(g);
+      i++;
+    }
+    const kept: typeof this.queue = [];
+    for (let j = 0; j < this.queue.length; j++) {
+      const item = this.queue[j]!;
+      if (j < i || (item.group !== undefined && groups.has(item.group))) this.queuedBytes -= item.frame.byteLength;
+      else kept.push(item);
+    }
+    this.queue = kept;
+    // The newest cut message may still be sending frames: discard those (send() checks discardGroup).
+    const lastGroup = [...groups].pop();
+    if (lastGroup !== undefined) this.discardGroup = lastGroup;
+  }
+
   private teardown(): void {
     this.abandonSocket();
     clearTimeout(this.retryTimer);
@@ -376,11 +405,7 @@ export class WebSocketRelayTransport implements RelayTransport {
     // A CLOSING socket accepts send() and silently drops the data: keep the frames for the next socket.
     if (ws.readyState !== OPEN) return;
     const now = this.now();
-    // Too old to be worth sending: drop (the queue is in send order, so the aged frames are at the head).
-    while (this.queue.length && now - this.queue[0]!.at > QUEUE_MAX_AGE_MS) {
-      const old = this.queue.shift()!;
-      this.queuedBytes -= old.frame.byteLength;
-    }
+    this.pruneAged(now);
     let budget = this.budget(now);
     while (this.queue.length && budget > 0) {
       const item = this.queue[0]!;
