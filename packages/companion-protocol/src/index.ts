@@ -34,7 +34,7 @@ export {
 } from './frames.ts';
 export { ReplayWindow } from './replay.ts';
 export type { CompanionChannel, CompanionSourceSummary, CompanionState } from './state.ts';
-export { type PhoneToTv, type TvToPhone, isPhoneToTv, isTvToPhone, MAX_FIELD_LEN, PING_INTERVAL_MS } from './messages.ts';
+export { type PhoneToTv, type TvToPhone, isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, MAX_FIELD_LEN, PING_INTERVAL_MS, PROTOCOL_VERSION } from './messages.ts';
 export {
   type FrameTransport,
   type RelayTransport,

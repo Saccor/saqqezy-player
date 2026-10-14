@@ -5,12 +5,23 @@ import type { CompanionState } from './state.ts';
 export const PING_INTERVAL_MS = 25_000;
 
 /**
+ * The companion protocol version both sides announce: `hello.client.protocol` and `welcome.tv.protocol`.
+ * Phone messages newer than the TV's protocol are the companion's responsibility to avoid: it gates features on
+ * `welcome.tv.protocol`. A TV that still gets a message with an unknown `t` drops it silently (see
+ * `isUnknownPhoneMessage`); a malformed message of a known `t` is a protocol error and counts toward closing.
+ *
+ * Stale `state`: `layoutChanged` and `state` both carry the layout. A companion ignores a `state` whose
+ * `layout.version` is lower than the layout version it already holds (a `layoutChanged` overtook it).
+ */
+export const PROTOCOL_VERSION = 1;
+
+/**
  * Messages a companion (phone or desktop) sends to the TV.
  * - `getState.haveVersion`: the `state.version` the companion already holds; the TV may answer `stateUnchanged`.
  * - `ping`: presence, every PING_INTERVAL_MS while connected. The TV does not answer it.
  */
 export type PhoneToTv =
-  | { t: 'hello'; client: { kind: 'phone' | 'desktop'; label: string } }
+  | { t: 'hello'; client: { kind: 'phone' | 'desktop'; label: string; protocol: number } }
   | { t: 'getState'; haveVersion?: number }
   | { t: 'ping' }
   | { t: 'getSource'; id: string }
@@ -24,7 +35,7 @@ export type PhoneToTv =
 
 /** Messages the TV sends to a companion. */
 export type TvToPhone =
-  | { t: 'welcome'; tv: { label: string; appVersion: string } }
+  | { t: 'welcome'; tv: { label: string; appVersion: string; protocol: number } }
   | { t: 'state'; state: CompanionState }
   /** Answer to `getState{ haveVersion }`: the companion's copy (that version) is still current. */
   | { t: 'stateUnchanged'; version: number }
@@ -150,8 +161,9 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
   switch (x['t']) {
     case 'hello': {
       const c = x['client'];
-      return hasKeys(x, ['t', 'client']) && isRec(c) && hasKeys(c, ['kind', 'label'])
-        && (c['kind'] === 'phone' || c['kind'] === 'desktop') && isStr(c['label']) && c['label'].length <= MAX_LABEL_LEN;
+      return hasKeys(x, ['t', 'client']) && isRec(c) && hasKeys(c, ['kind', 'label', 'protocol'])
+        && (c['kind'] === 'phone' || c['kind'] === 'desktop') && isStr(c['label']) && c['label'].length <= MAX_LABEL_LEN
+        && isU32(c['protocol']);
     }
     case 'getState':
       return hasKeys(x, ['t'], ['haveVersion']) && (x['haveVersion'] === undefined || isCount(x['haveVersion']));
@@ -174,6 +186,20 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
     default:
       return false;
   }
+}
+
+/** The `t` values `isPhoneToTv` knows. */
+const PHONE_TO_TV_TYPES: ReadonlySet<string> = new Set([
+  'hello', 'getState', 'ping', 'getSource', 'deleteSource', 'setActiveSource', 'ops', 'addSource', 'updateSource',
+  'refresh', 'bye',
+]);
+
+/**
+ * True for a record whose `t` is not one `isPhoneToTv` knows: a message from a newer companion. The TV counts
+ * these separately and drops them without closing; malformed messages of a known `t` still count as errors.
+ */
+export function isUnknownPhoneMessage(x: unknown): boolean {
+  return isRec(x) && typeof x['t'] === 'string' && !PHONE_TO_TV_TYPES.has(x['t']);
 }
 
 function isSourceSummary(x: unknown): boolean {
@@ -213,7 +239,8 @@ export function isTvToPhone(x: unknown): x is TvToPhone {
   switch (x['t']) {
     case 'welcome': {
       const tv = x['tv'];
-      return isRec(tv) && typeof tv['label'] === 'string' && typeof tv['appVersion'] === 'string';
+      return isRec(tv) && typeof tv['label'] === 'string' && typeof tv['appVersion'] === 'string'
+        && isU32(tv['protocol']);
     }
     case 'state':
       return isStateLike(x['state']);

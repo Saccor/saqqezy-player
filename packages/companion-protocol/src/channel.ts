@@ -4,7 +4,11 @@ import { ReplayWindow } from './replay.ts';
 
 /** Any bidirectional carrier of opaque binary frames (a relay WebSocket, an in-memory pair in tests). */
 export interface FrameTransport {
-  send(frame: Uint8Array): void;
+  /**
+   * `messageId` groups the frames of one message. A transport that queues may use it to drop the rest of a
+   * message it already partly sent when its socket went away, instead of delivering a partial message.
+   */
+  send(frame: Uint8Array, messageId?: number): void;
   onFrame(fn: (f: Uint8Array) => void): () => void;
   close(): void;
   /**
@@ -72,6 +76,12 @@ export interface SecureChannelOptions<In> {
   role: 'tv' | 'phone';
   transport: FrameTransport;
   validate: (x: unknown) => x is In;
+  /**
+   * Optional. A message that fails `validate` but satisfies this (e.g. an unknown `t` from a newer peer) is
+   * dropped silently and counted in `unknownCount`; it is authentic, so it neither counts as a failure nor
+   * resets the failure count. Malformed messages of a known type still count as failures.
+   */
+  isUnknown?: (x: unknown) => boolean;
 }
 
 /**
@@ -101,6 +111,8 @@ export class SecureChannel<Out, In> {
   private readonly secrets: PairingSecrets;
   private transport: FrameTransport;
   private readonly validate: (x: unknown) => x is In;
+  private readonly isUnknown: ((x: unknown) => boolean) | undefined;
+  private unknownDropped = 0;
   private readonly outDir: Direction;
   private readonly inDir: Direction;
   private readonly compress: boolean;
@@ -121,6 +133,7 @@ export class SecureChannel<Out, In> {
     this.secrets = opts.secrets;
     this.transport = opts.transport;
     this.validate = opts.validate;
+    this.isUnknown = opts.isUnknown;
     this.outDir = opts.role === 'tv' ? 'tv->phone' : 'phone->tv';
     this.inDir = opts.role === 'tv' ? 'phone->tv' : 'tv->phone';
     this.compress = opts.role === 'tv';
@@ -180,7 +193,7 @@ export class SecureChannel<Out, In> {
       if (t.fits && !t.fits(frames.map((f) => f.byteLength))) throw new QueueFullError();
       for (const f of frames) {
         try {
-          t.send(f);
+          t.send(f, msgId);
         } catch (e) {
           if (e instanceof QueueFullError) throw e; // message-scoped; the peer drops the partial message
           this.shutdown('transport', true);
@@ -191,6 +204,11 @@ export class SecureChannel<Out, In> {
     });
     this.sendChain = run.catch(() => undefined);
     return run;
+  }
+
+  /** How many authenticated messages of an unknown type were dropped silently (see `isUnknown`). */
+  get unknownCount(): number {
+    return this.unknownDropped;
   }
 
   onMessage(fn: (msg: In, msgId: number) => void): () => void {
@@ -250,7 +268,16 @@ export class SecureChannel<Out, In> {
       }
       if (value === undefined || this.closed || gen !== this.generation) return; // incomplete message
       const msgId = opened.header.msgId;
-      if (!this.replay.accept(msgId) || !this.validate(value)) {
+      if (!this.replay.accept(msgId)) {
+        this.fail();
+        return;
+      }
+      if (!this.validate(value)) {
+        if (this.isUnknown?.(value)) {
+          this.accepted = true; // authenticated, just newer than we are
+          this.unknownDropped++;
+          return;
+        }
         this.fail();
         return;
       }

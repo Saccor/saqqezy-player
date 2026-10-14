@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { emptyLayout, MAX_OPS_PER_BATCH, NAME_MAX, type LayoutOp } from '@iptv/core';
 import {
   isPhoneToTv,
+  isUnknownPhoneMessage,
   isTvToPhone,
   openFrame,
   QueueFullError,
@@ -133,18 +134,18 @@ describe('SecureChannel', () => {
     const atTv = collect(tv);
     const atPhone = collect(phone);
 
-    const id1 = await phone.send({ t: 'hello', client: { kind: 'phone', label: 'My phone' } });
+    const id1 = await phone.send({ t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } });
     const id2 = await phone.send({ t: 'getState' });
-    await tv.send({ t: 'welcome', tv: { label: 'Living room', appVersion: '1.1.0' } });
+    await tv.send({ t: 'welcome', tv: { label: 'Living room', appVersion: '1.1.0', protocol: 1 } });
     await until(() => atTv.length === 2 && atPhone.length === 1);
 
     expect(atTv.map((m) => m.msg)).toEqual([
-      { t: 'hello', client: { kind: 'phone', label: 'My phone' } },
+      { t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } },
       { t: 'getState' },
     ]);
     expect(atTv.map((m) => m.msgId)).toEqual([id1, id2]);
     expect(id2).toBe((id1 + 1) >>> 0);
-    expect(atPhone[0]!.msg).toEqual({ t: 'welcome', tv: { label: 'Living room', appVersion: '1.1.0' } });
+    expect(atPhone[0]!.msg).toEqual({ t: 'welcome', tv: { label: 'Living room', appVersion: '1.1.0', protocol: 1 } });
   });
 
   test('carries a 3 MiB state message (multi-chunk)', async () => {
@@ -257,6 +258,26 @@ describe('SecureChannel', () => {
       for (let i = 0; i < 4; i++) tvT.inject(garbage());
       await settle();
       expect(closes).toEqual([]);
+    });
+
+    test('unknown message types are dropped and counted without closing; malformed known ones still close', async () => {
+      const secrets = await newSecrets();
+      const [tvT] = transportPair();
+      const tv = new SecureChannel<TvToPhone, PhoneToTv>({
+        secrets, role: 'tv', transport: tvT, validate: isPhoneToTv, isUnknown: isUnknownPhoneMessage,
+      });
+      const atTv = collect(tv);
+      const closes: string[] = [];
+      tv.onClose((r) => closes.push(r));
+      for (let i = 0; i < 8; i++) for (const f of await good(secrets, 10 + i, { t: 'fromTheFuture', i })) tvT.inject(f);
+      for (const f of await good(secrets, 30)) tvT.inject(f);
+      await until(() => atTv.length === 1);
+      expect(tv.unknownCount).toBe(8);
+      expect(closes).toEqual([]);
+      for (let i = 0; i < 5; i++) for (const f of await good(secrets, 40 + i, { t: 'getSource' })) tvT.inject(f);
+      await until(() => closes.length > 0);
+      expect(closes).toEqual(['peer-errors']);
+      expect(tv.unknownCount).toBe(8);
     });
 
     test('garbage after authentication never closes the channel', async () => {
@@ -469,7 +490,7 @@ describe('SecureChannel', () => {
     const closes: string[] = [];
     tv.onClose((r) => closes.push(r));
     const msgs: PhoneToTv[] = [
-      { t: 'hello', client: { kind: 'phone', label: 'My phone' } },
+      { t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } },
       { t: 'getState' },
       { t: 'getSource', id: 'src-1' },
       { t: 'ops', baseVersion: 4, ops: [{ op: 'hideChannels', ids: Array.from({ length: 5000 }, (_, i) => `ch-${i}`) }] },
@@ -542,7 +563,7 @@ describe('SecureChannel', () => {
 
 describe('isPhoneToTv', () => {
   const valid: PhoneToTv[] = [
-    { t: 'hello', client: { kind: 'desktop', label: 'Laptop' } },
+    { t: 'hello', client: { kind: 'desktop', label: 'Laptop', protocol: 1 } },
     { t: 'getState' },
     { t: 'getState', haveVersion: 0 },
     { t: 'ping' },
@@ -580,8 +601,8 @@ describe('isPhoneToTv', () => {
   test('caps and required strings', () => {
     const m3u = (o: Record<string, unknown>) => ({ t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', ...o } });
     const xt = (o: Record<string, unknown>) => ({ t: 'addSource', input: { kind: 'xtream', name: 'X', server: 'https://x.example.test', username: 'u', password: 'p', ...o } });
-    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(128) } })).toBe(true);
-    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(129) } })).toBe(false);
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(128), protocol: 1 } })).toBe(true);
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(129), protocol: 1 } })).toBe(false);
     expect(isPhoneToTv(m3u({ name: 'a'.repeat(NAME_MAX) }))).toBe(true);
     expect(isPhoneToTv(m3u({ name: 'a'.repeat(NAME_MAX + 1) }))).toBe(false);
     expect(isPhoneToTv(xt({ name: 'a'.repeat(NAME_MAX + 1) }))).toBe(false);
@@ -625,6 +646,9 @@ describe('isPhoneToTv', () => {
   test('rejects wrong field types and unknown fields', () => {
     expect(isPhoneToTv({ t: 'hello', client: { kind: 'tv', label: 'x' } })).toBe(false);
     expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone' } })).toBe(false);
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'x' } })).toBe(false); // protocol is required
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'x', protocol: -1 } })).toBe(false);
+    expect(isTvToPhone({ t: 'welcome', tv: { label: 'a', appVersion: '1' } })).toBe(false);
     expect(isPhoneToTv({ t: 'getSource', id: '' })).toBe(false);
     expect(isPhoneToTv({ t: 'getSource', id: 5 })).toBe(false);
     expect(isPhoneToTv({ t: 'refresh', what: 'all' })).toBe(false);
@@ -645,7 +669,7 @@ describe('isPhoneToTv', () => {
 describe('isTvToPhone', () => {
   test('accepts every message kind', () => {
     const msgs: TvToPhone[] = [
-      { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0' } },
+      { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0', protocol: 1 } },
       { t: 'state', state: bigState(1) },
       { t: 'state', state: { ...bigState(1), channels: [{ id: 'c', name: 'Same', group: 'g', number: 1, hasEpg: true }] } },
       { t: 'stateUnchanged', version: 3 },
@@ -661,7 +685,7 @@ describe('isTvToPhone', () => {
 
   test('is forward-compatible: accepts unknown extra fields', () => {
     const msgs: unknown[] = [
-      { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0', model: 'x' }, extra: 1 },
+      { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0', protocol: 1, model: 'x' }, extra: 1 },
       { t: 'state', state: { ...bigState(1), future: true }, extra: 'y' },
       { t: 'source', source: { kind: 'm3u', id: 'a', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', future: 1 } },
       { t: 'source', source: { kind: 'xtream', id: 'a', name: 'X', server: 's', username: 'u', password: 'p', future: 1 } },

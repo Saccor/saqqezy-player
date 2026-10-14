@@ -161,7 +161,7 @@ async function pairQr(s: ReturnType<typeof setup>) {
 }
 
 async function hello(p: ReturnType<typeof phone>) {
-  await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'My phone' } });
+  await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } });
   return p.next('welcome');
 }
 
@@ -179,7 +179,7 @@ describe('CompanionHost', () => {
     expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
 
     const welcome = await hello(p);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3' });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 1 });
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBe('My phone');
     // Paired: the session now lives up to 60 minutes from its start.
@@ -301,7 +301,7 @@ describe('CompanionHost', () => {
     const s = setup();
     await s.host.start('code');
     const p = phone(await secretsFromCode(newPairingCode()), s.transports[0]!.phone);
-    await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'x' } });
+    await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'x', protocol: 1 } });
     await settle(100);
     expect(p.inbox).toHaveLength(0);
     expect(s.host.status().state).toBe('waiting');
@@ -562,6 +562,115 @@ describe('CompanionHost', () => {
     expect((await p.next('state')).state.channels).toHaveLength(40);
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBeUndefined();
+  });
+
+  test('end() clears the cached state', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    await p.ch.send({ t: 'getState' });
+    await p.next('state');
+    const priv = s.host as unknown as { stateCache: unknown };
+    expect(priv.stateCache).toBeDefined();
+    s.host.stop();
+    expect(priv.stateCache).toBeUndefined();
+  });
+
+  test('a state built before a newer change is rebuilt once before sending', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const orig = s.api.getCompanionState.bind(s.api);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const spy = vi.spyOn(s.api, 'getCompanionState').mockImplementationOnce(async () => {
+      const st = await orig();
+      await gate;
+      return { ...st, version: 999 }; // a stale build
+    });
+    await p.ch.send({ t: 'getState' });
+    await until(() => spy.mock.calls.length === 1);
+    s.host.stateChanged(); // a layout change lands while the build is in flight
+    release();
+    const state = await p.next('state');
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(state.state.version).not.toBe(999);
+    await settle(100);
+    expect(p.inbox.some((m) => m.t === 'state')).toBe(false); // exactly one state was sent
+  });
+
+  test('a rejected single-flight build answers every waiter with an error; the next request rebuilds', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    let fail!: () => void;
+    const gate = new Promise<void>((_r, rej) => {
+      fail = () => rej(Object.assign(new Error('failed at https://user:pw@tv.example.test/p?password=hunter2'), { name: 'BoomError' }));
+    });
+    const spy = vi.spyOn(s.api, 'getCompanionState').mockImplementationOnce(() => gate as never);
+    const ids = await Promise.all([p.ch.send({ t: 'getState' }), p.ch.send({ t: 'getState' }), p.ch.send({ t: 'getState' })]);
+    await settle(150); // all three are waiting on the one build
+    fail();
+    const results = [];
+    for (const id of ids) results.push(await p.next('result', (r) => r.requestMsgId === id));
+    expect(spy).toHaveBeenCalledTimes(1);
+    for (const r of results) expect(r.ok).toBe(false);
+    expect(JSON.stringify(results)).not.toContain('hunter2');
+    expect(JSON.stringify(results)).not.toContain('pw@');
+    await p.ch.send({ t: 'getState' });
+    expect((await p.next('state')).state.channels).toHaveLength(40);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(s.host.status().state).toBe('connected');
+  });
+
+  test('a state that cannot be sent for another reason gets a scrubbed error result', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const channel = (s.host as unknown as { session: { channel: { send: (m: TvToPhone, o?: unknown) => Promise<number> } } }).session.channel;
+    const real = channel.send.bind(channel);
+    vi.spyOn(channel, 'send').mockImplementation((m, o) => (m.t === 'state'
+      ? Promise.reject(new Error('seal failed for https://u:pw@tv.example.test/x?password=hunter2'))
+      : real(m, o)));
+    const res = await p.call({ t: 'getState' });
+    expect(res.ok).toBe(false);
+    expect(JSON.stringify(res)).not.toContain('hunter2');
+    expect(JSON.stringify(res)).not.toContain('pw@');
+  });
+
+  test('messages of an unknown type are dropped without closing; malformed known messages still close', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const send = (m: unknown) => p.ch.send(m as PhoneToTv);
+    for (let i = 0; i < 8; i++) await send({ t: 'fromTheFuture', n: i });
+    await settle(100);
+    expect(s.host.status().state).toBe('connected');
+    await p.ch.send({ t: 'getState' });
+    await p.next('state'); // still served
+    // A hello without a protocol version is malformed.
+    for (let i = 0; i < 5; i++) await send({ t: 'hello', client: { kind: 'phone', label: 'x' } });
+    await until(() => s.host.status().state === 'expired');
+    expect(s.host.status().reason).toBe('peer-errors');
+  });
+
+  test('a reconnect gives the companion a fresh presence countdown', async () => {
+    fakeTimers();
+    const s = setup();
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    vi.advanceTimersByTime(PEER_TIMEOUT_MS - 5_000);
+    for (const fn of t.tv.disconnected) fn();
+    for (const fn of t.tv.reconnected) fn();
+    vi.advanceTimersByTime(10_000); // past the original deadline
+    expect(s.host.status().state).toBe('connected');
+    vi.advanceTimersByTime(PEER_TIMEOUT_MS);
+    expect(s.host.status().state).toBe('waiting');
   });
 
   test('AppApi exposes companionStart / companionStatus / companionStop and emits status events', async () => {

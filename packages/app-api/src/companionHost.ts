@@ -1,6 +1,7 @@
 import type { NewSource } from '@iptv/core';
 import {
-  isPhoneToTv, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, QueueFullError, SecureChannel, secretsFromCode,
+  ChannelClosedError, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
+  QueueFullError, SecureChannel, secretsFromCode,
   type CloseReason, type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { scrub, type AppApi } from './appApi.ts';
@@ -40,6 +41,8 @@ export type { CompanionStartResult, CompanionStatus };
  *   and source changes (`stateChanged`) drop it.
  * - `haveVersion` equal to the version this companion last received, with nothing changed since: the answer
  *   is `stateUnchanged`.
+ * - A `state` is never stale: if the generation moved while the state was built, it is rebuilt once before
+ *   sending. (A companion also ignores a `state` whose `layout.version` is lower than the one it holds.)
  * - Overflow is message-scoped: a state that does not fit the transport's queue, or any request while the
  *   transport is reconnecting, gets `result{ ok: false, error: Busy }` (dropped silently if even that does
  *   not fit). The session goes on; the phone asks again.
@@ -205,7 +208,9 @@ export class CompanionHost implements CompanionControl {
     const unsubTransport = transport.onClose?.((r?: unknown) => {
       transportReason = typeof r === 'string' ? r : undefined;
     });
-    const channel = new SecureChannel<TvToPhone, PhoneToTv>({ secrets, role: 'tv', transport, validate: isPhoneToTv });
+    const channel = new SecureChannel<TvToPhone, PhoneToTv>({
+      secrets, role: 'tv', transport, validate: isPhoneToTv, isUnknown: isUnknownPhoneMessage,
+    });
     const s: Session = {
       channel, createdAt, expiresAt: createdAt + this.unpairedTtl, timer: undefined, paired: false, connected: false,
       helloLabel: undefined, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
@@ -228,6 +233,8 @@ export class CompanionHost implements CompanionControl {
       s.unsub.push(transport.onReconnected(() => {
         if (this.session !== s) return;
         s.linkDown = false;
+        // Its pings could not reach us while the link was down: give it a fresh PEER_TIMEOUT_MS from now.
+        if (s.connected) this.touchPeer(s);
         this.emitStatus();
         // A layout change while the link was down was held back: push it now.
         if (s.layoutDirty && s.connected && !s.layoutBusy) this.pushLayout(s);
@@ -286,6 +293,9 @@ export class CompanionHost implements CompanionControl {
       return;
     }
     this.session = undefined;
+    // The cached state is a full copy of the user's channel list: do not keep it around once nobody can ask.
+    this.stateCache = undefined;
+    this.stateBuild = undefined;
     clearTimeout(s.timer);
     clearTimeout(s.presenceTimer);
     for (const p of s.progress.values()) clearTimeout(p.timer);
@@ -395,7 +405,7 @@ export class CompanionHost implements CompanionControl {
     const api = this.deps.api;
     switch (msg.t) {
       case 'hello':
-        await this.send(s, { t: 'welcome', tv: { label: this.deps.tvLabel, appVersion: this.deps.appVersion } });
+        await this.send(s, { t: 'welcome', tv: { label: this.deps.tvLabel, appVersion: this.deps.appVersion, protocol: PROTOCOL_VERSION } });
         return;
       case 'ping':
         return; // presence only; handled above
@@ -453,8 +463,14 @@ export class CompanionHost implements CompanionControl {
       await this.busy(s, msgId);
       return;
     }
-    const entry = await this.stateEntry();
+    let entry = await this.stateEntry();
     if (this.session !== s) return;
+    // The state changed while it was being built: rebuild once, so a `state` never overtakes a newer
+    // `layoutChanged` that was pushed in the meantime.
+    if (entry.generation !== this.generation) {
+      entry = await this.stateEntry();
+      if (this.session !== s) return;
+    }
     const sent = s.sentState;
     if (haveVersion !== undefined && sent !== undefined && sent.version === haveVersion
       && sent.generation === entry.generation && entry.version === haveVersion) {
@@ -471,7 +487,8 @@ export class CompanionHost implements CompanionControl {
       s.sentState = { version: entry.version, generation: entry.generation };
     } catch (err) {
       if (err instanceof QueueFullError) await this.busy(s, msgId);
-      // Anything else means the channel closed: the session is ending.
+      else if (!(err instanceof ChannelClosedError)) await this.result(s, msgId, err); // scrubbed there
+      // ChannelClosedError: the session is ending.
     }
   }
 
@@ -486,7 +503,7 @@ export class CompanionHost implements CompanionControl {
       const state = fitCompanionState(await this.deps.api.getCompanionState());
       const msg: TvToPhone = { t: 'state', state };
       const entry: StateEntry = { generation, version: state.version, msg, json: JSON.stringify(msg) };
-      if (this.generation === generation) this.stateCache = entry;
+      if (this.generation === generation && this.session) this.stateCache = entry;
       return entry;
     })();
     const build = { generation, promise };

@@ -18,7 +18,7 @@
 
 import WebSocket from 'ws';
 import {
-  PING_INTERVAL_MS, SecureChannel, WebSocketRelayTransport, isTvToPhone, normalizeCode, secretsFromCode,
+  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, WebSocketRelayTransport, isTvToPhone, normalizeCode, secretsFromCode,
   secretsFromQrFragment,
 } from '../../packages/companion-protocol/src/index.ts';
 
@@ -92,7 +92,7 @@ const pinger = setInterval(() => {
 
 channel.onMessage((msg) => {
   switch (msg.t) {
-    case 'welcome': console.log(`[tv] welcome (app ${msg.tv.appVersion})`); break;
+    case 'welcome': console.log(`[tv] welcome (app ${msg.tv.appVersion}, protocol ${msg.tv.protocol})`); break;
     case 'state':
       haveVersion = msg.state.version;
       console.log(`[tv] state: ${msg.state.channels.length} channels, ${msg.state.sources.length} sources`);
@@ -127,6 +127,6 @@ function finish(code, sayBye) {
 process.on('SIGINT', () => finish(0, args.bye));
 if (Number.isFinite(args.seconds)) setTimeout(() => finish(0, args.bye), args.seconds * 1000);
 
-await channel.send({ t: 'hello', client: { kind: 'phone', label: args.label } });
+await channel.send({ t: 'hello', client: { kind: 'phone', label: args.label, protocol: PROTOCOL_VERSION } });
 await getState();
 console.log('[phone] hello + getState sent; Ctrl+C to leave');
