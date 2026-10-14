@@ -4,10 +4,11 @@ import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { AppSettings } from '@iptv/core';
 
 export type SettingsPageId =
-  | 'sources' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
+  | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
 
 export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = [
   { id: 'sources', title: 'Sources' },
+  { id: 'phone', title: 'Manage on phone or computer' },
   { id: 'guide', title: 'TV guide' },
   { id: 'playback', title: 'Playback' },
   { id: 'channels', title: 'Channels' },

@@ -9,9 +9,9 @@ import {
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
-  it('lists the eight pages in menu order', () => {
+  it('lists the nine pages in menu order', () => {
     expect(SETTINGS_PAGES.map((p) => p.title)).toEqual([
-      'Sources', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
+      'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
     ]);
   });
 });

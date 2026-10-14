@@ -249,7 +249,7 @@ export function ChannelsPage(props: PageProps) {
         onOk={(id) => void onOk(id)} onLeftEdge={props.onLeftEdge} />
       <Text x={props.x + 28} y={props.y + props.height - NOTE_H + 16} width={props.width - 56} maxWidth={props.width - 56}
         contain="width" maxLines={2} fontSize={FONT.small} color={COLORS.muted}>
-        {"Tip: it's easier to organise channels from your phone. Coming soon: Settings → Manage on phone."}
+        {"Tip: it's easier to organise channels from your phone. Open Settings → Manage on phone or computer."}
       </Text>
       <Show when={edit()}>{(e) => (
         <View x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>

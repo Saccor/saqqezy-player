@@ -16,12 +16,13 @@ import { playback, previewHold } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { markStartup } from '../state/appState.ts';
+import { companionStatus, markStartup } from '../state/appState.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
+import { showPhoneBadge } from './pairingLogic.ts';
 import { SliceCache } from './sliceCache.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
@@ -59,6 +60,22 @@ interface EditState { kind: 'newList' | 'rename'; row: ChannelRow; value: string
  * channel and the last focused row per group.
  */
 const memory: { groupId?: string; channelId?: string; rows: Map<string, number> } = { rows: new Map() };
+
+const PHONE_BADGE_W = 300;
+const PHONE_BADGE_H = 48;
+/** Offline badge (App shell) width + gap, so the two never overlap. */
+const PHONE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - 400 - LAYOUT.gap - PHONE_BADGE_W;
+
+/** "Phone connected": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
+function PhoneBadge() {
+  return (
+    <View x={PHONE_BADGE_X} y={LAYOUT.safeY - 4} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
+      borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.focus }}>
+      <Text y={(PHONE_BADGE_H - FONT.small) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
+        textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone connected'}</Text>
+    </View>
+  );
+}
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
@@ -607,6 +624,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         height={PREVIEW_RECT.h} color={COLORS.background} />
 
       <Text x={GROUP_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Channels'}</Text>
+      <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
       <Text x={LIST_X} y={HEAD_Y} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1} fontSize={FONT.body}
         color={COLORS.muted}>{groupName() ? `${groupName()} · ${total()}` : ''}</Text>
 

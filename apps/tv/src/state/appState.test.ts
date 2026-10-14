@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { INIT_TIMEOUT_MS, bootstrap, initFailed, initState, wireEvents } from './appState.ts';
+import { INIT_TIMEOUT_MS, bootstrap, companionStatus, initFailed, initState, wireEvents } from './appState.ts';
 
 const ready: InitState = {
   sources: [{ id: 's1', name: 'Mine', kind: 'xtream', active: true }],
@@ -81,5 +81,19 @@ describe('wireEvents', () => {
     expect(toast.mock.calls[0]?.[0]).toBe('Updated from your phone');
     off();
     expect(offs).toContain('layoutChanged');
+  });
+
+  it('tracks the phone companion status without a toast', () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
+    const toast = vi.fn();
+    const off = wireEvents(on, toast);
+    expect(companionStatus()).toEqual({ state: 'idle' });
+    fns.get('companion')?.({ type: 'companion', status: { state: 'connected', peerLabel: 'Phone', expiresAt: 9 } });
+    expect(companionStatus()).toEqual({ state: 'connected', peerLabel: 'Phone', expiresAt: 9 });
+    fns.get('companion')?.({ type: 'companion', status: { state: 'expired' } });
+    expect(companionStatus()).toEqual({ state: 'expired' });
+    expect(toast).not.toHaveBeenCalled();
+    off();
   });
 });

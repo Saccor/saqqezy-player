@@ -11,6 +11,7 @@ import { playback, player, videoLayer as layer } from './playback/playback.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
 import { platformId } from './state/appState.ts';
 import { registerKeys } from './platform/tizen.ts';
+import { devPairing } from './screens/settings/ManageOnPhonePage.tsx';
 
 // Canvas text with the platform's default sans-serif face: no font files are bundled.
 Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: 0xe8eaf0ff };
@@ -40,7 +41,9 @@ window.addEventListener('resize', () => {
 });
 
 // Dev-only debug handle for the browser console; stripped from production builds.
-if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, playback, api, router, showToast, renderer };
+if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = {
+  player, layer, playback, api, router, showToast, renderer, pairing: devPairing,
+};
 
 // Tizen only delivers colour, digit, channel, play/pause and info keys that the app registers.
 if (platformId === 'tizen') registerKeys();
