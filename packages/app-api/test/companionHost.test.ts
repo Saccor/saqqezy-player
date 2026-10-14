@@ -759,6 +759,17 @@ describe('CompanionHost', () => {
   });
 });
 
+describe('validateSourceInput limits', () => {
+  test('the source name is at most NAME_MAX (after trimming), like the TV form', async () => {
+    const { NAME_MAX } = await import('@iptv/core');
+    const { validateSourceInput } = await import('../src/companionHost.ts');
+    const base = { kind: 'm3u' as const, playlistUrl: 'http://example.test/a.m3u' };
+    expect(validateSourceInput({ ...base, name: 'n'.repeat(NAME_MAX + 1) }))
+      .toEqual({ ok: false, message: `Use a name of ${NAME_MAX} characters or fewer.` });
+    expect(validateSourceInput({ ...base, name: ` ${'n'.repeat(NAME_MAX)} ` }).ok).toBe(true);
+  });
+});
+
 describe('fitCompanionState', () => {
   const synthetic = (n: number, logo: (i: number) => string | undefined): CompanionState => ({
     version: 1,

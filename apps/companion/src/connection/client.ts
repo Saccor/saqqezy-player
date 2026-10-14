@@ -1,5 +1,5 @@
 import {
-  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isTvToPhone, isUnknownTvMessage, type CompanionState,
+  PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isPhoneToTv, isTvToPhone, isUnknownTvMessage, type CompanionState,
   type PairingSecrets, type PhoneToTv, type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import type { Layout, SourceConfig } from '@iptv/core';
@@ -45,6 +45,17 @@ export interface ClientOptions {
   handlers: ClientHandlers;
   WebSocket?: WebSocketFactory;
   isHidden?: () => boolean;
+}
+
+/**
+ * A request that the TV's strict validator would refuse (a field too long, a bad address, an unknown field): it is
+ * never sent, because the TV would count it toward closing the session and never answer it.
+ */
+export class InvalidMessageError extends Error {
+  constructor() {
+    super('The request is not valid.');
+    this.name = 'InvalidMessageError';
+  }
 }
 
 type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' }>;
@@ -155,12 +166,14 @@ export class CompanionClient {
   }
 
   /**
-   * Sends a request the TV answers with `result`. Rejects with RequestError on close, or on timeout: 30 s for
+   * Sends a request the TV answers with `result`. A message the TV's strict validator (`isPhoneToTv`) would refuse
+   * is not sent: it rejects with InvalidMessageError. Rejects with RequestError on close, or on timeout: 30 s for
    * layout ops. Source operations do not fail by timeout while the TV works on them: after
    * SOURCE_IDLE_TIMEOUT_MS without any TV message, `onStall` runs once, the state is asked for, and the request
    * keeps waiting for its result (up to STALLED_MAX_MS).
    */
   async request(msg: Mutation, onStall?: () => void): Promise<ResultMessage> {
+    if (!isPhoneToTv(msg)) throw new InvalidMessageError();
     const msgId = await this.channel.send(msg);
     if (!SOURCE_OPS.has(msg.t)) return this.pending.add(msgId);
     return this.pending.add(msgId, SOURCE_IDLE_TIMEOUT_MS, {

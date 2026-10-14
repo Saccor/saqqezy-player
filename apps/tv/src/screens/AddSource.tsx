@@ -12,7 +12,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  afterAdd, backFromTypeStep, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
+  FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
   type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
@@ -104,7 +104,10 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
   const kind = (): Kind => (step() === 'm3u' ? 'm3u' : 'xtream');
   const fields = () => FIELDS[kind()];
   const values = (): Record<string, string> => ({ ...(kind() === 'xtream' ? xtream() : m3u()) });
-  const setValue = (key: string, v: string) => {
+  const setValue = (key: string, raw: string) => {
+    // The same limits as the companion protocol: typing stops at the field's maximum.
+    const max = FIELD_MAX[key];
+    const v = max === undefined ? raw : clampField(raw, max);
     if (kind() === 'xtream') setXtream((f) => ({ ...f, [key]: v }));
     else setM3u((f) => ({ ...f, [key]: v }));
   };

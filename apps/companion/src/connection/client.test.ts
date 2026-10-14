@@ -4,7 +4,7 @@ import {
   type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import {
-  CompanionClient, GETSTATE_BACKOFF_MS, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers,
+  CompanionClient, GETSTATE_BACKOFF_MS, InvalidMessageError, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers,
   type StateStatus,
 } from './client.ts';
 import { emptyLayout } from '@iptv/core';
@@ -148,6 +148,18 @@ describe('CompanionClient', () => {
     await tv.tv.send({ t: 'welcome', tv: { label: 'TV', appVersion: '1.0.0', protocol: PROTOCOL_VERSION } });
     await waitFor(() => ev.welcome.length === 1, 'welcome at the phone');
   }
+
+  it('request checks its message with isPhoneToTv first: an invalid one fails locally and is never sent', async () => {
+    const { ev, tv, c } = start();
+    await openAndWelcome(tv, ev);
+    const before = tv.received.length;
+    const bad = { t: 'addSource', input: { kind: 'm3u', name: 'n'.repeat(61), playlistUrl: 'http://pl.example.test/a.m3u' } } as const;
+    const err = await c.request(bad).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvalidMessageError);
+    expect((err as Error).name).toBe('InvalidMessageError');
+    await settle();
+    expect(tv.received.length).toBe(before);
+  });
 
   it('says hello with its protocol version and records the TV protocol from welcome', async () => {
     const { ev, tv, c } = start();

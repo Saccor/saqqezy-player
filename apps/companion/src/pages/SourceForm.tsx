@@ -2,7 +2,7 @@ import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import { RequestError } from '../connection/pending.ts';
 import { COPY } from '../logic/copy.ts';
-import { cleanSource, emptyForm, formFromSource, formToInput, formToSource, type SourceForm } from '../logic/source.ts';
+import { cleanSource, emptyForm, FORM_LIMITS, formFromSource, formProblem, formToInput, formToSource, type SourceForm } from '../logic/source.ts';
 import { currentClient, store } from '../state/store.ts';
 import { progressText, runRequest } from '../state/actions.ts';
 
@@ -75,11 +75,9 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
     setError(undefined);
     setStalled(false);
     const f: SourceForm = { ...form };
-    const required = f.kind === 'xtream'
-      ? [f.server, f.username, f.password].every((v) => v.trim() !== '')
-      : f.playlistUrl.trim() !== '';
-    if (!required) {
-      setError(f.kind === 'xtream' ? 'Enter the server address, username and password.' : 'Enter the playlist URL.');
+    const problem = formProblem(f);
+    if (problem) {
+      setError(problem);
       return;
     }
     setSaving(true);
@@ -117,25 +115,25 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
 
           <div class="field">
             <label for="src-name">Name <span class="optional">(optional)</span></label>
-            <input id="src-name" ref={firstField} value={form.name} onInput={(e) => setForm('name', e.currentTarget.value)} {...NO_AUTOFILL} maxlength={80} />
+            <input id="src-name" ref={firstField} value={form.name} onInput={(e) => setForm('name', e.currentTarget.value)} {...NO_AUTOFILL} maxlength={FORM_LIMITS.name} />
           </div>
 
           <Show when={form.kind === 'xtream'}>
             <div class="field">
               <label for="src-server">Server address</label>
               <input id="src-server" type="url" inputmode="url" value={form.server} onInput={(e) => setForm('server', e.currentTarget.value)}
-                placeholder="http://192.168.1.10:8080" {...NO_AUTOFILL} autocapitalize="off" spellcheck={false} required />
+                placeholder="http://192.168.1.10:8080" {...NO_AUTOFILL} maxlength={FORM_LIMITS.url} autocapitalize="off" spellcheck={false} required />
             </div>
             <div class="field">
               <label for="src-user">Username</label>
               <input id="src-user" value={form.username} onInput={(e) => setForm('username', e.currentTarget.value)}
-                {...NO_AUTOFILL} autocapitalize="off" spellcheck={false} required />
+                {...NO_AUTOFILL} maxlength={FORM_LIMITS.credential} autocapitalize="off" spellcheck={false} required />
             </div>
             <div class="field">
               <label for="src-pass">Password</label>
               <div class="password">
                 <input id="src-pass" type={showPassword() ? 'text' : 'password'} value={form.password}
-                  onInput={(e) => setForm('password', e.currentTarget.value)} {...NO_AUTOFILL} autocapitalize="off" spellcheck={false} required />
+                  onInput={(e) => setForm('password', e.currentTarget.value)} {...NO_AUTOFILL} maxlength={FORM_LIMITS.credential} autocapitalize="off" spellcheck={false} required />
                 {/* A toggle: the name stays "Show password"; aria-pressed carries the state. */}
                 <button type="button" class="btn ghost" aria-pressed={showPassword()} aria-label="Show password" aria-controls="src-pass"
                   onClick={() => setShowPassword((v) => !v)}>
@@ -149,12 +147,12 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
             <div class="field">
               <label for="src-url">Playlist URL</label>
               <input id="src-url" type="url" inputmode="url" value={form.playlistUrl} onInput={(e) => setForm('playlistUrl', e.currentTarget.value)}
-                placeholder="http://192.168.1.10/playlist.m3u" {...NO_AUTOFILL} autocapitalize="off" spellcheck={false} required />
+                placeholder="http://192.168.1.10/playlist.m3u" {...NO_AUTOFILL} maxlength={FORM_LIMITS.url} autocapitalize="off" spellcheck={false} required />
             </div>
             <div class="field">
               <label for="src-epg">TV guide URL <span class="optional">(optional)</span></label>
               <input id="src-epg" type="url" inputmode="url" value={form.epgUrl} onInput={(e) => setForm('epgUrl', e.currentTarget.value)}
-                placeholder="http://192.168.1.10/guide.xml" {...NO_AUTOFILL} autocapitalize="off" spellcheck={false} />
+                placeholder="http://192.168.1.10/guide.xml" {...NO_AUTOFILL} maxlength={FORM_LIMITS.url} autocapitalize="off" spellcheck={false} />
             </div>
           </Show>
 

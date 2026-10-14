@@ -1,4 +1,8 @@
-import type { NewSource, SourceConfig } from '@iptv/core';
+import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
+import { NAME_MAX, type NewSource, type SourceConfig } from '@iptv/core';
+
+/** Input limits of the Add/Edit form: the same contract as the TV form and the protocol validator. */
+export const FORM_LIMITS = { name: NAME_MAX, url: MAX_FIELD_LEN, credential: MAX_FIELD_LEN } as const;
 
 /**
  * Copies only the fields the protocol defines for the source's kind. The TV's validator rejects unknown
@@ -59,4 +63,18 @@ export function formToInput(f: SourceForm): NewSource {
 
 export function formToSource(f: SourceForm, id: string): SourceConfig {
   return { ...formToInput(f), id } as SourceConfig;
+}
+
+/**
+ * What is missing or wrong before sending (undefined: fine to send), with the TV form's rules: required fields
+ * trimmed except the password (kept as typed, so spaces count), and a name of at most NAME_MAX characters.
+ * The TV checks addresses itself; `CompanionClient.request` also runs the protocol validator before sending.
+ */
+export function formProblem(f: SourceForm): string | undefined {
+  if (f.name.trim().length > FORM_LIMITS.name) return `Use a name of ${FORM_LIMITS.name} characters or fewer.`;
+  const required = f.kind === 'xtream'
+    ? f.server.trim() !== '' && f.username.trim() !== '' && f.password !== ''
+    : f.playlistUrl.trim() !== '';
+  if (!required) return f.kind === 'xtream' ? 'Enter the server address, username and password.' : 'Enter the playlist URL.';
+  return undefined;
 }

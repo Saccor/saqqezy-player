@@ -154,3 +154,25 @@ describe('createOpsSender source scoping', () => {
     expect(s.getStates()).toBe(1);
   });
 });
+
+describe('createOpsSender local validation', () => {
+  it('a message the protocol validator refuses fails with the "not valid" copy and is reverted', async () => {
+    const optimistic = new OptimisticLayout();
+    optimistic.confirm(emptyLayout());
+    const notices: string[] = [];
+    const client: OpsClient = {
+      request: () => Promise.reject(Object.assign(new Error('x'), { name: 'InvalidMessageError' })),
+      getState: () => {},
+    };
+    const send = createOpsSender({
+      client: () => client,
+      sourceId: () => 'src-a',
+      optimistic,
+      publish: () => {},
+      notice: (t) => notices.push(t),
+    });
+    expect(await send([{ op: 'hideChannels', ids: ['ch-9'] }])).toBe(COPY.invalidChange);
+    expect(notices).toEqual([COPY.invalidChange]);
+    expect(optimistic.view()!.hiddenChannels).toEqual([]);
+  });
+});

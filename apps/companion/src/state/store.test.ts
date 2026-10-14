@@ -10,6 +10,7 @@ const ctl = vi.hoisted(() => ({
   // The handlers the store passed to the client (state, layout, ...), called directly by the tests.
   handlers: undefined as any,
   getStateCalls: 0,
+  rejectNext: undefined as Error | undefined,
 }));
 
 vi.mock('../connection/client.ts', () => ({
@@ -25,6 +26,11 @@ vi.mock('../connection/client.ts', () => ({
     }
     resumeIfNeeded(): void {}
     request(msg: { t: string }, onStall?: () => void): Promise<Result> {
+      if (ctl.rejectNext) {
+        const e = ctl.rejectNext;
+        ctl.rejectNext = undefined;
+        return Promise.reject(e);
+      }
       return new Promise((resolve) => ctl.requests.push({ msg, onStall, resolve }));
     }
   },
@@ -66,6 +72,16 @@ describe('runRequest working marker', () => {
     ctl.requests[1]!.resolve({ t: 'result', requestMsgId: 2, ok: true });
     await second;
     expect(store.working['s1']).toBeUndefined();
+  });
+});
+
+describe('runRequest local validation', () => {
+  it('a request the client refuses as invalid gets the "not valid" copy, never a silent drop', async () => {
+    connect(SECRETS);
+    ctl.rejectNext = Object.assign(new Error('invalid'), { name: 'InvalidMessageError' });
+    const { COPY } = await import('../logic/copy.ts');
+    expect(await runRequest({ t: 'refresh', what: 'both' })).toBe(COPY.invalidChange);
+    expect(COPY.invalidChange).toBe("That change isn't valid. Check the fields and try again.");
   });
 });
 

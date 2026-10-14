@@ -1,4 +1,4 @@
-import type { NewSource } from '@iptv/core';
+import { NAME_MAX, type NewSource } from '@iptv/core';
 import {
   ChannelClosedError, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
   QueueFullError, SecureChannel, secretsFromCode,
@@ -672,10 +672,11 @@ function isHttpUrl(s: string): boolean {
 
 /**
  * The on-TV Add source form's rules (apps/tv `validateXtream` / `validateM3u`), applied to companion input:
- * http/https addresses only, required fields present, names defaulted, the password kept exactly as typed and
+ * names of at most NAME_MAX characters, http/https addresses only, required fields present, names defaulted, the password kept exactly as typed and
  * everything else trimmed. Messages never echo the input.
  */
 export function validateSourceInput(input: NewSource): { ok: true; input: NewSource } | { ok: false; message: string } {
+  if (input.name.trim().length > NAME_MAX) return { ok: false, message: `Use a name of ${NAME_MAX} characters or fewer.` };
   const name = input.name.trim() || DEFAULT_NAME;
   if (input.kind === 'xtream') {
     const server = input.server.trim();

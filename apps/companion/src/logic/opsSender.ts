@@ -44,6 +44,7 @@ export function opsMessageBytes(baseVersion: number, ops: readonly LayoutOp[]): 
 function failureCopy(e: unknown): string {
   if (e instanceof RequestError && e.reason === 'timeout') return COPY.timeout;
   if (e instanceof Error && e.name === 'QueueFullError') return COPY.busy;
+  if (e instanceof Error && e.name === 'InvalidMessageError') return COPY.invalidChange;
   return COPY.genericError;
 }
 

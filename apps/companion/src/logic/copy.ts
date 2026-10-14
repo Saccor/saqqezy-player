@@ -23,6 +23,8 @@ export const COPY = {
   opRejected: 'That change could not be made.',
   /** A layout change whose encoded batch is over MAX_OPS_MESSAGE_BYTES. */
   tooLarge: 'That change is too large to send. Try a smaller move.',
+  /** A request that fails the protocol validator before it is sent (a field too long, a bad address). */
+  invalidChange: "That change isn't valid. Check the fields and try again.",
   /** Choosing a sort in a group that has a custom order. */
   replaceCustomOrder: 'This replaces your custom order. Continue?',
 } as const;

@@ -21,6 +21,10 @@ const xtream: XtreamForm[] = [
   { name: '', server: 'http://example.test', username: 'user', password: '' },
   { name: '', server: 'http://example.test', username: 'user', password: ' ' },
   { name: 'A', server: 'HTTPS://EXAMPLE.TEST/path?x=1', username: 'u', password: 'p' },
+  { name: 'n'.repeat(60), server: 'http://example.test', username: 'u', password: 'p' },
+  { name: 'n'.repeat(61), server: 'http://example.test', username: 'u', password: 'p' },
+  { name: `  ${'n'.repeat(60)}  `, server: 'http://example.test', username: 'u', password: 'p' },
+  { name: 'n'.repeat(61), server: '', username: 'u', password: 'p' },
 ];
 
 const m3u: M3uForm[] = [
@@ -33,6 +37,8 @@ const m3u: M3uForm[] = [
   { name: '', playlistUrl: 'http://media.example.test/list.m3u', epgUrl: 'ftp://media.example.test/epg.xml' },
   { name: '', playlistUrl: 'http://media.example.test/list.m3u', epgUrl: '   ' },
   { name: '', playlistUrl: 'http://media.example.test/list.m3u', epgUrl: 'not a url' },
+  { name: 'n'.repeat(60), playlistUrl: 'http://media.example.test/list.m3u', epgUrl: '' },
+  { name: 'n'.repeat(61), playlistUrl: 'http://media.example.test/list.m3u', epgUrl: '' },
 ];
 
 type Outcome = { ok: true; input: NewSource } | { ok: false; message: string };

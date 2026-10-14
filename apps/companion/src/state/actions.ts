@@ -53,6 +53,7 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
   } catch (e) {
     if (e instanceof RequestError && e.reason === 'timeout') err = stalled ? undefined : COPY.timeout;
     else if (e instanceof Error && e.name === 'QueueFullError') err = COPY.busy;
+    else if (e instanceof Error && e.name === 'InvalidMessageError') err = COPY.invalidChange;
     else err = COPY.genericError;
   } finally {
     if (key !== undefined && currentClient() === c && mine()) setWork(key, undefined);
