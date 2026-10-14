@@ -16,7 +16,7 @@ import { playback, previewHold } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
+import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, markStartup } from '../state/appState.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
 import {
@@ -33,8 +33,9 @@ const GROUP_W = Math.round(SAFE_W * 0.22);
 const PREVIEW_X = LAYOUT.width - LAYOUT.safeX - PREVIEW_W;
 const LIST_X = GROUP_X + GROUP_W + LAYOUT.gap;
 const LIST_W = PREVIEW_X - LAYOUT.gap - LIST_X;
-const HEAD_Y = 110;
-const BODY_Y = 170;
+/** The list header crosses the centre, so it starts below the brand wordmark. */
+const HEAD_Y = WORDMARK_BOTTOM + 6;
+const BODY_Y = HEAD_Y + 44;
 const LIST_ROWS = 9;
 const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;

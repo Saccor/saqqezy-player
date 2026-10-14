@@ -9,6 +9,7 @@ import { playback } from '../playback/playback.ts';
 import { applyInitState } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
   afterAdd, backFromTypeStep, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
@@ -40,6 +41,8 @@ const FORM_TITLE: Record<Kind, string> = { xtream: 'Xtream login', m3u: 'M3U lin
 const KEYBOARD_ID = 'keyboard';
 const X = LAYOUT.safeX;
 const FORM_Y = 170;
+/** Below the brand wordmark, whose right edge overlaps the keyboard's left edge. */
+const KEYBOARD_Y = WORDMARK_BOTTOM + 10;
 const FIELD_STEP = FIELD_H + 20;
 const FORM_W = 880;
 const TILE_W = 600;
@@ -316,7 +319,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
         </Text>
         <Show when={editingField()}>{(f) => (
-          <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={130}
+          <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={KEYBOARD_Y}
             label={f().label} value={values()[f().key] ?? ''} secret={f().secret} revealed={revealed()}
             onChange={(v) => setValue(f().key, v)} onDone={doneKeyboard}
             onToggleReveal={f().secret ? () => setRevealed((r) => !r) : undefined} />

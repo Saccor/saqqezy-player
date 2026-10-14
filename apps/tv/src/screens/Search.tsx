@@ -8,17 +8,21 @@ import { moveFocus, pageFocus, scrollTopFor } from '../components/virtualWindow.
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
 import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
-const KB_Y = 150;
+/** Below the brand wordmark: the keyboard's top-right corner is under "MULTIMEDIA". */
+const KB_Y = WORDMARK_BOTTOM + 10;
 const LIST_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
 const LIST_W = LAYOUT.width - LAYOUT.safeX - LIST_X;
 const LIST_ROWS = 9;
-/** Result count, above the list and below the brand wordmark (top centre). */
+/** Result count: right-aligned above the list, beside the brand wordmark (top centre) rather than under it. */
 const COUNT_Y = KB_Y - 42;
+const COUNT_X = WORDMARK_RIGHT;
+const COUNT_W = LIST_X + LIST_W - COUNT_X;
 const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
@@ -111,7 +115,7 @@ export function SearchScreen() {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}
       forwardFocus={focusKeyboard} onBack={onBack}>
       <Text x={KB_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Search'}</Text>
-      <Text x={LIST_X} y={COUNT_Y} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1}
+      <Text x={COUNT_X} y={COUNT_Y} width={COUNT_W} maxWidth={COUNT_W} contain="width" maxLines={1} textAlign="right"
         fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>
 
       <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel name or number" hint="Right: results · Back returns" value={query()}
