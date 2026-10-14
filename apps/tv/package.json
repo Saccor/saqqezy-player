@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@iptv/app-api": "workspace:*",
+    "@iptv/companion-protocol": "workspace:*",
     "@iptv/core": "workspace:*",
     "@iptv/platform": "workspace:*",
     "@iptv/player": "workspace:*",

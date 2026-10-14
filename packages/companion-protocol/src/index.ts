@@ -44,3 +44,15 @@ export {
   ChannelClosedError,
   MAX_DECRYPT_FAILURES,
 } from './channel.ts';
+export {
+  type WebSocketLike,
+  type WebSocketFactory,
+  type WsTransportOptions,
+  type TransportCloseReason,
+  WebSocketRelayTransport,
+  HEARTBEAT_MS,
+  RECONNECT_GIVE_UP_MS,
+  QUEUE_MAX_BYTES,
+  PACE_MAX_FRAMES,
+  PACE_WINDOW_MS,
+} from './wsTransport.ts';

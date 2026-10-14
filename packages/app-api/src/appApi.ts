@@ -6,7 +6,7 @@ import {
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import type {
-  AppEvent, ChannelRow, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
+  AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeLite, SourceSummary,
 } from './types.ts';
 
@@ -38,6 +38,11 @@ export interface AppApiDeps {
   emit: (e: AppEvent) => void;
   now?: () => number;
   appVersion?: string;
+  /**
+   * Builds the phone companion host (the worker passes a CompanionHost factory). `onStatus` emits
+   * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
+   */
+  companion?: (api: AppApi, onStatus: (status: CompanionStatus) => void) => CompanionControl;
 }
 
 export class AppApi {
@@ -75,13 +80,22 @@ export class AppApi {
   private readonly windows = new Map<string, Set<string>[]>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
+  private readonly companion: CompanionControl | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
     this.storage = deps.storage;
-    this.emit = deps.emit;
+    this.emit = (e) => {
+      deps.emit(e);
+      try {
+        this.companion?.handleEvent(e);
+      } catch {
+        // The companion must never break the TV.
+      }
+    };
     this.now = deps.now ?? Date.now;
     this.appVersion = deps.appVersion ?? '0.0.0';
+    this.companion = deps.companion?.(this, (status) => deps.emit({ type: 'companion', status }));
   }
 
   // ---- lifecycle & sources ----
@@ -337,6 +351,26 @@ export class AppApi {
       await this.storage.setMeta(`lastChannel:${id}`, channelId);
       await this.storage.setMeta(`lastGroup:${id}`, groupId);
     }));
+  }
+
+  // ---- phone companion ----
+
+  /** Starts a new pairing session (replacing any current one). The result holds secrets for the pairing screen. */
+  companionStart(mode: 'qr' | 'code'): Promise<CompanionStartResult> {
+    return this.run('companionStart', async () => {
+      if (!this.companion) throw new Error('The phone companion is not available.');
+      if (mode !== 'qr' && mode !== 'code') throw new Error('Unknown pairing mode.');
+      return this.companion.start(mode);
+    });
+  }
+
+  /** Ends the current pairing session, if any (the companion gets a goodbye). */
+  companionStop(): Promise<void> {
+    return this.run('companionStop', async () => { this.companion?.stop(); });
+  }
+
+  companionStatus(): Promise<CompanionStatus> {
+    return this.run('companionStatus', async () => this.companion?.status() ?? { state: 'idle' });
   }
 
   // ---- settings, cache, diagnostics ----
@@ -815,6 +849,7 @@ export const APP_API_METHODS = [
   'getLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
+  'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];
 
 // Compile-time check: every public method except the test-only `idle` is listed above.

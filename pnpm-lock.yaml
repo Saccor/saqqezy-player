@@ -23,6 +23,9 @@ importers:
       '@iptv/app-api':
         specifier: workspace:*
         version: link:../../packages/app-api
+      '@iptv/companion-protocol':
+        specifier: workspace:*
+        version: link:../../packages/companion-protocol
       '@iptv/core':
         specifier: workspace:*
         version: link:../../packages/core

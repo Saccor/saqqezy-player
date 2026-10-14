@@ -32,7 +32,29 @@ export type AppEvent =
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
-  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin };
+  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin }
+  /** The phone companion session changed state. */
+  | { type: 'companion'; status: CompanionStatus };
+
+/** The TV side of a companion pairing session. `expired` covers every session end that was not `stop()`. */
+export interface CompanionStatus {
+  state: 'idle' | 'waiting' | 'connected' | 'reconnecting' | 'expired';
+  /** The paired companion's own label (from its hello). */
+  peerLabel?: string;
+  expiresAt?: number;
+}
+
+/** What the pairing screen shows. Both values are secrets: render them, never log or persist them. */
+export interface CompanionStartResult { qrUrl?: string; code?: string; expiresAt: number }
+
+/** What AppApi needs from the companion host (implemented by CompanionHost). */
+export interface CompanionControl {
+  start(mode: 'qr' | 'code'): Promise<CompanionStartResult>;
+  stop(): void;
+  status(): CompanionStatus;
+  /** Every AppApi event, so the host can forward layout changes and progress. Must not throw. */
+  handleEvent(e: AppEvent): void;
+}
 
 /** Who applied a layout change: this device's UI, or a paired companion. */
 export type LayoutOrigin = 'local' | 'remote';

@@ -1,0 +1,425 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { SourceService, type LayoutOp } from '@iptv/core';
+import { MemoryStorage } from '@iptv/storage';
+import { startFakeXtream } from '@iptv/fake-xtream';
+import {
+  isTvToPhone, MAX_MESSAGE_BYTES, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
+  type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
+} from '@iptv/companion-protocol';
+import { AppApi } from '../src/appApi.ts';
+import {
+  CompanionHost, fitCompanionState, LOGO_MAX_CHARS, PAIRED_TTL_MS, STATE_BUDGET_BYTES, UNPAIRED_TTL_MS,
+  type CompanionStatus,
+} from '../src/companionHost.ts';
+import type { AppEvent } from '../src/types.ts';
+
+const NOW = Date.UTC(2026, 9, 13, 18, 10);
+const ORIGIN = 'https://manage.example.test';
+let server: Awaited<ReturnType<typeof startFakeXtream>>;
+beforeAll(async () => { server = await startFakeXtream({ port: 0, channels: 40, now: () => NOW }); });
+afterAll(async () => { await server.close(); });
+
+const live: { api: AppApi; host: CompanionHost }[] = [];
+afterEach(async () => {
+  for (const l of live.splice(0)) {
+    l.host.stop();
+    await l.api.idle();
+  }
+});
+
+let storage: MemoryStorage;
+beforeEach(() => { storage = new MemoryStorage(); });
+
+interface TestTransport extends FrameTransport {
+  closed: boolean;
+  peer?: TestTransport;
+  listeners: Set<(f: Uint8Array) => void>;
+  closeListeners: Set<(reason: string) => void>;
+  reconnected: Set<() => void>;
+  disconnected: Set<() => void>;
+  onClose(fn: (reason: string) => void): () => void;
+  onReconnected(fn: () => void): () => void;
+  onDisconnected(fn: () => void): () => void;
+  /** Simulates the relay giving up on this transport. */
+  finalClose(reason: string): void;
+}
+
+/** Two in-memory transports wired to each other; delivery is asynchronous like a socket. */
+function transportPair(): [TestTransport, TestTransport] {
+  const make = (): TestTransport => {
+    const t: TestTransport = {
+      closed: false,
+      listeners: new Set(),
+      closeListeners: new Set(),
+      reconnected: new Set(),
+      disconnected: new Set(),
+      send(frame) {
+        if (t.closed) throw new Error('closed');
+        const peer = t.peer;
+        if (peer) setTimeout(() => { if (!peer.closed) for (const fn of [...peer.listeners]) fn(frame); }, 0);
+      },
+      onFrame(fn) { t.listeners.add(fn); return () => t.listeners.delete(fn); },
+      onClose(fn) { t.closeListeners.add(fn); return () => t.closeListeners.delete(fn); },
+      onReconnected(fn) { t.reconnected.add(fn); return () => t.reconnected.delete(fn); },
+      onDisconnected(fn) { t.disconnected.add(fn); return () => t.disconnected.delete(fn); },
+      close() { t.closed = true; },
+      finalClose(reason) {
+        t.closed = true;
+        for (const fn of [...t.closeListeners]) fn(reason);
+      },
+    };
+    return t;
+  };
+  const a = make();
+  const b = make();
+  a.peer = b;
+  b.peer = a;
+  return [a, b];
+}
+
+const xt = (username = 'test', password = 'test') =>
+  ({ kind: 'xtream' as const, name: 'Fake', server: server.url, username, password });
+const settle = (ms = 50) => new Promise((r) => setTimeout(r, ms));
+async function until(cond: () => boolean, ms = 3000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error('timeout');
+    await settle(5);
+  }
+}
+
+/** The phone end: a SecureChannel plus an inbox. */
+function phone(secrets: PairingSecrets, transport: FrameTransport) {
+  const ch = new SecureChannel<PhoneToTv, TvToPhone>({ secrets, role: 'phone', transport, validate: isTvToPhone });
+  const inbox: TvToPhone[] = [];
+  ch.onMessage((m) => inbox.push(m));
+  const next = async <T extends TvToPhone['t']>(t: T, pred: (m: Extract<TvToPhone, { t: T }>) => boolean = () => true) => {
+    let found: Extract<TvToPhone, { t: T }> | undefined;
+    await until(() => {
+      const i = inbox.findIndex((m) => m.t === t && pred(m as Extract<TvToPhone, { t: T }>));
+      if (i < 0) return false;
+      found = inbox.splice(i, 1)[0] as Extract<TvToPhone, { t: T }>;
+      return true;
+    });
+    return found!;
+  };
+  /** Sends and waits for the `result` answering it. */
+  const call = async (msg: PhoneToTv) => {
+    const id = await ch.send(msg);
+    return next('result', (r) => r.requestMsgId === id);
+  };
+  return { ch, inbox, next, call };
+}
+
+function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; withSource?: boolean } = {}) {
+  const events: AppEvent[] = [];
+  const statuses: CompanionStatus[] = [];
+  const transports: { tv: TestTransport; phone: TestTransport; id: string; deadline: number | undefined }[] = [];
+  let host!: CompanionHost;
+  const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW });
+  const api = new AppApi({
+    service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3',
+    companion: (a, onStatus) => {
+      host = new CompanionHost({
+        api: a,
+        tvLabel: 'Living room',
+        appVersion: '1.2.3',
+        companionOrigin: ORIGIN,
+        onStatus: (s) => { statuses.push(s); onStatus(s); },
+        openTransport: (id, o) => {
+          const [tv, ph] = transportPair();
+          transports.push({ tv, phone: ph, id, deadline: o?.deadline });
+          return tv;
+        },
+        ...(opts.unpairedTtlMs !== undefined ? { unpairedTtlMs: opts.unpairedTtlMs } : {}),
+        ...(opts.pairedTtlMs !== undefined ? { pairedTtlMs: opts.pairedTtlMs } : {}),
+      });
+      return host;
+    },
+  });
+  live.push({ api, host });
+  return { api, host, events, statuses, transports };
+}
+
+async function pairQr(s: ReturnType<typeof setup>) {
+  const started = await s.host.start('qr');
+  const fragment = started.qrUrl!.slice(started.qrUrl!.indexOf('#'));
+  const secrets = await secretsFromQrFragment(fragment);
+  const t = s.transports[s.transports.length - 1]!;
+  expect(t.id).toBe(secrets.sessionIdB64);
+  const p = phone(secrets, t.phone);
+  return { started, p, t };
+}
+
+async function hello(p: ReturnType<typeof phone>) {
+  await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'My phone' } });
+  return p.next('welcome');
+}
+
+describe('CompanionHost', () => {
+  test('QR session: welcome, state, ops create a list, layoutChanged, and the TV sees the list', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const before = Date.now();
+    const { started, p, t } = await pairQr(s);
+    expect(started.qrUrl!.startsWith(`${ORIGIN}/#s=`)).toBe(true);
+    expect(started.code).toBeUndefined();
+    expect(started.expiresAt).toBeGreaterThanOrEqual(before + UNPAIRED_TTL_MS);
+    expect(started.expiresAt).toBeLessThanOrEqual(Date.now() + UNPAIRED_TTL_MS);
+    expect(t.deadline).toBeGreaterThanOrEqual(before + PAIRED_TTL_MS);
+    expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
+
+    const welcome = await hello(p);
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3' });
+    expect(s.host.status().state).toBe('connected');
+    expect(s.host.status().peerLabel).toBe('My phone');
+    // Paired: the session now lives up to 60 minutes from its start.
+    expect(s.host.status().expiresAt).toBe(started.expiresAt - UNPAIRED_TTL_MS + PAIRED_TTL_MS);
+
+    await p.ch.send({ t: 'getState' });
+    const { state } = await p.next('state');
+    expect(state.channels).toHaveLength(40);
+    expect(state.sources).toHaveLength(1);
+
+    const channelIds = state.channels.slice(0, 3).map((c) => c.id);
+    const ops: LayoutOp[] = [
+      { op: 'createList', id: 'l1', name: 'Evening' },
+      { op: 'addToList', listId: 'l1', channelIds },
+    ];
+    const res = await p.call({ t: 'ops', baseVersion: state.version, ops });
+    expect(res.ok).toBe(true);
+    const changed = await p.next('layoutChanged', (m) => m.layout.lists.some((l) => l.id === 'l1'));
+    expect(changed.layout.lists.find((l) => l.id === 'l1')!.channelIds).toEqual(channelIds);
+    expect(changed.version).toBe(changed.layout.version);
+    expect((await s.api.getGroups()).some((g) => g.name === 'Evening')).toBe(true);
+    expect(s.events.some((e) => e.type === 'layoutChanged' && e.origin === 'remote')).toBe(true);
+  });
+
+  test('a local layout change is pushed to the phone', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const first = (await s.api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await s.api.toggleFavourite(first.id);
+    const m = await p.next('layoutChanged');
+    expect(m.layout.lists[0]!.channelIds).toContain(first.id);
+  });
+
+  test('state never carries credentials; getSource does, and only it', async () => {
+    const s = setup();
+    // The fake server accepts only test/test, so look for the credential fields and the server address.
+    const { sourceId } = await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    await p.ch.send({ t: 'getState' });
+    const text = JSON.stringify(await p.next('state'));
+    expect(text).not.toContain('"username"');
+    expect(text).not.toContain('"password"');
+    expect(text).not.toContain('"server"');
+    expect(text).not.toContain(server.url);
+    await p.ch.send({ t: 'getSource', id: sourceId });
+    const { source } = await p.next('source');
+    expect(source).toMatchObject({ id: sourceId, kind: 'xtream', server: server.url, username: 'test', password: 'test' });
+    const missing = await p.call({ t: 'getSource', id: 'nope' });
+    expect(missing.ok).toBe(false);
+  });
+
+  test('addSource through the companion forwards progress and adds the source', async () => {
+    const s = setup();
+    const { p } = await pairQr(s);
+    await hello(p);
+    const res = await p.call({ t: 'addSource', input: xt() });
+    expect(res).toMatchObject({ ok: true });
+    expect(p.inbox.some((m) => m.t === 'progress' && m.phase === 'playlist')).toBe(true);
+    expect(await s.api.listSources()).toHaveLength(1);
+  });
+
+  test('addSource / updateSource go through the on-TV form rules (http/https only)', async () => {
+    const s = setup();
+    const { sourceId } = await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    // A bare host passes the wire check but not the TV form rule.
+    const bare = await p.call({ t: 'addSource', input: { ...xt(), server: 'host.example.test:8080' } });
+    expect(bare.ok).toBe(false);
+    expect(bare.error!.name).toBe('ValidationError');
+    expect(bare.error!.message).not.toContain('host.example.test');
+    const blankUser = await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, username: '   ' } });
+    expect(blankUser.ok).toBe(false);
+    expect(await s.api.listSources()).toHaveLength(1);
+    expect((await s.api.getSource(sourceId))!.kind === 'xtream' && (await s.api.getSource(sourceId) as { username: string }).username)
+      .toBe('test');
+  });
+
+  test('errors in result are the scrubbed AppApi errors', async () => {
+    const s = setup();
+    const { p } = await pairQr(s);
+    await hello(p);
+    const res = await p.call({ t: 'addSource', input: xt('wrong', 'creds') });
+    expect(res.ok).toBe(false);
+    expect(res.error!.name).toBe('SourceAuthError');
+    expect(JSON.stringify(res)).not.toContain('creds');
+    expect(JSON.stringify(res)).not.toContain(server.url);
+  });
+
+  test('deleteSource, setActiveSource and refresh answer with result', async () => {
+    const s = setup();
+    const a = await s.api.addSource(xt());
+    const b = await s.api.addSource({ ...xt(), name: 'Second' });
+    const { p } = await pairQr(s);
+    await hello(p);
+    expect((await p.call({ t: 'setActiveSource', id: b.sourceId })).ok).toBe(true);
+    expect((await s.api.listSources()).find((x) => x.active)!.id).toBe(b.sourceId);
+    expect((await p.call({ t: 'refresh', what: 'playlist' })).ok).toBe(true);
+    expect((await p.call({ t: 'deleteSource', id: a.sourceId })).ok).toBe(true);
+    expect(await s.api.listSources()).toHaveLength(1);
+  });
+
+  test('code mode pairs with the displayed code', async () => {
+    const s = setup();
+    const started = await s.host.start('code');
+    expect(started.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    expect(started.qrUrl).toBeUndefined();
+    const secrets = await secretsFromCode(started.code!.toLowerCase());
+    const t = s.transports[0]!;
+    expect(t.id).toBe(secrets.sessionIdB64);
+    const p = phone(secrets, t.phone);
+    expect((await hello(p)).tv.label).toBe('Living room');
+  });
+
+  test('a wrong code never pairs', async () => {
+    const s = setup();
+    await s.host.start('code');
+    const p = phone(await secretsFromCode(newPairingCode()), s.transports[0]!.phone);
+    await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'x' } });
+    await settle(100);
+    expect(p.inbox).toHaveLength(0);
+    expect(s.host.status().state).toBe('waiting');
+  });
+
+  test('an unpaired session expires', async () => {
+    const s = setup({ unpairedTtlMs: 80 });
+    await s.host.start('qr');
+    await until(() => s.host.status().state === 'expired');
+    await until(() => s.transports[0]!.tv.closed);
+    expect(s.events.some((e) => e.type === 'companion' && e.status.state === 'expired')).toBe(true);
+  });
+
+  test('a paired session expires at the paired lifetime and says bye', async () => {
+    const s = setup({ unpairedTtlMs: 5_000, pairedTtlMs: 300 });
+    const { p } = await pairQr(s);
+    await hello(p);
+    await p.next('bye');
+    await until(() => s.host.status().state === 'expired');
+  });
+
+  test('the relay expiring the session (4000) marks it expired', async () => {
+    const s = setup();
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    t.tv.finalClose('expired');
+    expect(s.host.status().state).toBe('expired');
+  });
+
+  test('reconnecting status while the transport is down; connected again after', async () => {
+    const s = setup();
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    for (const fn of t.tv.disconnected) fn();
+    expect(s.host.status().state).toBe('reconnecting');
+    for (const fn of t.tv.reconnected) fn();
+    expect(s.host.status().state).toBe('connected');
+  });
+
+  test('restarting replaces the session: the old phone gets bye and its transport closes', async () => {
+    const s = setup();
+    const first = await pairQr(s);
+    await hello(first.p);
+    const second = await pairQr(s);
+    await first.p.next('bye');
+    expect(first.t.tv.closed).toBe(true);
+    expect(second.t.id).not.toBe(first.t.id);
+    expect(s.host.status().state).toBe('waiting');
+    // The new session works.
+    await hello(second.p);
+    expect(s.host.status().state).toBe('connected');
+    // A message on the old pairing goes nowhere.
+    expect(first.t.tv.closed).toBe(true);
+  });
+
+  test('bye from the phone returns to waiting; stop() says bye and goes idle', async () => {
+    const s = setup();
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    await p.ch.send({ t: 'bye' });
+    await until(() => s.host.status().state === 'waiting');
+    expect(s.host.status().peerLabel).toBeUndefined();
+    await hello(p);
+    s.host.stop();
+    await p.next('bye');
+    await until(() => t.tv.closed);
+    expect(s.host.status()).toEqual({ state: 'idle' });
+  });
+
+  test('AppApi exposes companionStart / companionStatus / companionStop and emits status events', async () => {
+    const s = setup();
+    const started = await s.api.companionStart('qr');
+    expect(started.qrUrl).toBeDefined();
+    expect((await s.api.companionStatus()).state).toBe('waiting');
+    await s.api.companionStop();
+    expect((await s.api.companionStatus()).state).toBe('idle');
+    const states = s.events.filter((e) => e.type === 'companion').map((e) => (e as { status: CompanionStatus }).status.state);
+    expect(states).toEqual(['waiting', 'idle']);
+  });
+});
+
+describe('fitCompanionState', () => {
+  const synthetic = (n: number, logo: (i: number) => string | undefined): CompanionState => ({
+    version: 1,
+    sources: [{ id: 's1', name: 'Mine', kind: 'm3u', active: true }],
+    activeSourceId: 's1',
+    groups: [],
+    channels: Array.from({ length: n }, (_, i) => {
+      const c: CompanionState['channels'][number] = {
+        id: `c${i}`, name: `Channel ${i} HD`, displayName: `Channel ${i} HD`, group: `Group ${i % 50}`, number: i + 1, hasEpg: true,
+      };
+      const l = logo(i);
+      if (l) c.logo = l;
+      return c;
+    }),
+    layout: { version: 1, lists: [], hiddenChannels: [], hiddenGroups: [], channelNames: {}, groupNames: {}, groupOrder: [], channelOrder: {}, sort: {}, hideNoEpg: false, watched: [] } as unknown as CompanionState['layout'],
+    coverageKnown: true,
+  });
+  const size = (s: CompanionState) => new TextEncoder().encode(JSON.stringify({ t: 'state', state: s })).length;
+
+  test('a small state is unchanged', () => {
+    const s = synthetic(10, (i) => `http://logos.example.test/${i}.png`);
+    expect(fitCompanionState(s)).toBe(s);
+  });
+
+  test('50k channels with long logos fit the message cap; every channel is kept', () => {
+    const s = synthetic(50_000, (i) => `http://logos.example.test/a/very/long/path/to/the/channel/logo/${i}.png?size=large&v=1`
+      + (i % 10 === 0 ? 'x'.repeat(LOGO_MAX_CHARS) : ''));
+    expect(size(s)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    const fit = fitCompanionState(s);
+    expect(size(fit)).toBeLessThanOrEqual(STATE_BUDGET_BYTES);
+    expect(STATE_BUDGET_BYTES).toBeLessThan(MAX_MESSAGE_BYTES);
+    expect(fit.channels).toHaveLength(50_000);
+    expect(fit.channels[1]!.name).toBe('Channel 1 HD');
+  });
+
+  test('oversized logos (e.g. data: URIs) are dropped first, short ones kept when that is enough', () => {
+    const s = synthetic(1_000, (i) => (i === 0 ? `data:image/png;base64,${'A'.repeat(STATE_BUDGET_BYTES)}` : `http://logos.example.test/${i}.png`));
+    const fit = fitCompanionState(s);
+    expect(fit.channels[0]!.logo).toBeUndefined();
+    expect(fit.channels[1]!.logo).toBe('http://logos.example.test/1.png');
+    expect(size(fit)).toBeLessThanOrEqual(STATE_BUDGET_BYTES);
+  });
+
+  test('a state still too large without logos throws StateTooLargeError', () => {
+    const s = synthetic(60_000, () => undefined);
+    for (const c of s.channels) c.name = c.displayName = 'n'.repeat(80);
+    expect(() => fitCompanionState(s)).toThrow(expect.objectContaining({ name: 'StateTooLargeError' }));
+  });
+});
