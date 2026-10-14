@@ -85,12 +85,14 @@ export class IdbStorage implements Storage {
     const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
     tx.objectStore('sources').delete(id);
     tx.objectStore('channels').delete(id);
-    // Cursor (not await) so the transaction never goes inactive on older TV engines.
-    const cursorReq = tx.objectStore('meta').openCursor();
+    // Cursor (not await) so the transaction never goes inactive on older TV engines. A key cursor: the values
+    // (a title index record is several MB) are never read.
+    const meta = tx.objectStore('meta');
+    const cursorReq = meta.openKeyCursor();
     cursorReq.onsuccess = () => {
       const cursor = cursorReq.result;
       if (!cursor) return;
-      if (String(cursor.key).endsWith(`:${id}`)) cursor.delete();
+      if (String(cursor.key).endsWith(`:${id}`)) meta.delete(cursor.primaryKey);
       cursor.continue();
     };
     this.deleteProgrammesIn(tx, id);
