@@ -188,6 +188,26 @@ describe('Html5Player – live delay and recovery signals', () => {
     player.destroy();
   });
 
+  test('health() names the engine; errors carry the engine error id', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    expect(player.health().engine).toBe('mpegts.js');
+    created.mpegts.at(-1)!.error!('NetworkError', 'NetworkUnrecoverableEarlyEof');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', detail: 'NetworkUnrecoverableEarlyEof' })]);
+
+    await player.open('http://example.test/b.ts');
+    (video as { error: unknown }).error = { code: 3 };
+    video.fire('error');
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'DECODE', detail: 'MEDIA_ERR_DECODE' })]);
+    (video as { error: unknown }).error = null;
+
+    await player.open('http://example.test/a.m3u8');
+    expect(player.health().engine).toBe('hls.js');
+    created.hls.at(-1)!.handlers.hlsError!('hlsError', { fatal: true, type: 'mediaError', details: 'b' });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'UNSUPPORTED', detail: 'b' })]);
+    player.destroy();
+  });
+
   test('HTTP 401/403/410 report AUTH with the status', async () => {
     const { player, events } = makePlayer();
     await player.open('http://example.test/a.ts');

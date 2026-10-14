@@ -1,7 +1,7 @@
 import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } from 'hls.js';
 import mpegts from 'mpegts.js';
 import type {
-  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, EngineName, LiveProfile, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
@@ -63,6 +63,11 @@ function isAudioMseError(detail: string, info: { msg?: unknown } | undefined): b
   return detail === mpegts.ErrorDetails.MEDIA_MSE_ERROR && typeof info?.msg === 'string' && /['"(]audio\//.test(info.msg);
 }
 const EOS_MESSAGE = 'Stream ended';
+/** Diagnostics names for each engine and for `<video>` MediaError codes (journal `detail`; never a URL). */
+const ENGINE_NAMES = { native: 'native', hls: 'hls.js', mpegts: 'mpegts.js' } as const satisfies Record<string, EngineName>;
+const MEDIA_ERROR_NAMES: Record<number, string> = {
+  1: 'MEDIA_ERR_ABORTED', 2: 'MEDIA_ERR_NETWORK', 3: 'MEDIA_ERR_DECODE', 4: 'MEDIA_ERR_SRC_NOT_SUPPORTED',
+};
 /** A wall clock (EXT-X-PROGRAM-DATE-TIME) outside this range is a broken stamp, not a delay. */
 const PDT_MIN_S = -5;
 const PDT_MAX_S = 600;
@@ -161,7 +166,7 @@ export class Html5Player implements Player {
       const code = err.code === 4
         ? (v.readyState === 0 ? 'NETWORK' : 'UNSUPPORTED')
         : err.code === 2 ? 'NETWORK' : err.code === 3 ? 'DECODE' : 'MEDIA';
-      this.emit(s, 'error', { code, message: 'Playback error' });
+      this.emit(s, 'error', { code, message: 'Playback error', detail: MEDIA_ERROR_NAMES[err.code] });
     });
 
     this.emit(s, 'loading');
@@ -175,7 +180,7 @@ export class Html5Player implements Player {
     });
     if (choice.engine === 'none') {
       const message = choice.reason === 'hls' ? 'HLS is not supported here' : 'MPEG-TS is not supported here';
-      this.emit(s, 'error', { code: 'UNSUPPORTED', message });
+      this.emit(s, 'error', { code: 'UNSUPPORTED', message, detail: 'noEngine' });
       return Promise.resolve();
     }
     if (choice.engine === 'native' && choice.fallback) s.fallback = choice.fallback;
@@ -206,17 +211,17 @@ export class Html5Player implements Player {
         // After mpegts.js rejected the stream, a manifest that hls.js cannot parse means neither engine fits.
         if (HLS_CODEC_ERRORS.has(data.details)
           || (s.tried.includes('mpegts') && data.details === ErrorDetails.MANIFEST_PARSING_ERROR)) {
-          this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'Playback error' });
+          this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'Playback error', detail: data.details });
           return;
         }
         const network = data.type === ErrorTypes.NETWORK_ERROR;
         const status = data.response?.code;
         if (network && status !== undefined && AUTH_STATUSES.has(status)) {
-          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status });
+          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
         if (this.recoverHls(s, hls, network ? 'network' : 'media')) return;
-        this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error' });
+        this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error', detail: data.details });
       });
       hls.loadSource(src);
       hls.attachMedia(v);
@@ -235,7 +240,7 @@ export class Html5Player implements Player {
           return;
         }
         if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && AUTH_STATUSES.has(info.code)) {
-          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code });
+          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code, detail });
           return;
         }
         const formatError = detail === mpegts.ErrorDetails.MEDIA_FORMAT_ERROR
@@ -244,7 +249,7 @@ export class Html5Player implements Player {
         const unsupported = detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED
           || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED;
         const code = unsupported ? 'UNSUPPORTED' : type === mpegts.ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
-        this.emit(s, 'error', { code, message: 'Playback error' });
+        this.emit(s, 'error', { code, message: 'Playback error', detail });
       });
       // A clean end of the HTTP body: the download is over, but playback may still have a long way to go (a file,
       // or a server that bursts then closes). Report EOS (reconnect) only once the buffer ahead has drained; the
@@ -554,6 +559,7 @@ export class Html5Player implements Player {
     // Engines that never count frames report 0: leave it out so frozen-video detection stays off there.
     if (q && q.totalVideoFrames > 0) h.framesPresented = q.totalVideoFrames - q.droppedVideoFrames;
     const e = s?.engine;
+    if (e) h.engine = ENGINE_NAMES[e.kind];
     const live = s ? this.liveOf(s) : undefined;
     if (live !== undefined) h.isLive = live;
     // behindLiveS is always the distance to the live edge (what we can steer); the stream clock is display only.

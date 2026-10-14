@@ -96,17 +96,22 @@ function fitRatio(rect: Rect, ratio: number, mode: 'contain' | 'cover'): Rect {
   return { x: rect.x + (rect.w - w) / 2, y: rect.y + (rect.h - h) / 2, w, h };
 }
 
+/** The AVPlay error's own name (a string event, or the `name` of an error object); '' when there is none. */
+export function avplayErrorName(e: unknown): string {
+  return typeof e === 'string'
+    ? e
+    : typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string'
+      ? (e as { name: string }).name
+      : '';
+}
+
 /**
  * AVPlay error (an `onerror` type string, or an exception / prepare error with a `name`) to a player code.
  * Unsupported content or DRM is `UNSUPPORTED` (the supervisor tries the other format); player state faults are
  * `MEDIA`; everything else, including unknown shapes, is `NETWORK` so it is retried.
  */
 export function mapAvplayError(e: unknown): 'UNSUPPORTED' | 'NETWORK' | 'MEDIA' {
-  const name = typeof e === 'string'
-    ? e
-    : typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string'
-      ? (e as { name: string }).name
-      : '';
+  const name = avplayErrorName(e);
   if (/not_?supported|unsupported|drm/i.test(name)) return 'UNSUPPORTED';
   if (/^PLAYER_ERROR_(INVALID_STATE|INVALID_OPERATION|INVALID_PARAMETER|SEEK_FAILED|GENEREIC|GENERIC)/.test(name)) {
     return 'MEDIA';
@@ -183,20 +188,20 @@ export class AvplayPlayer implements Player {
         onbufferingstart: () => this.emit(s, 'buffering'),
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
         oncurrentplaytime: (ms) => { if (!s.dead && typeof ms === 'number') this.lastPosition = ms; },
-        onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE }),
+        onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
         // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
         onstreamcompleted: () => {
           if (s.dead || s !== this.session) return;
           if (this.liveState().live === false) this.emit(s, 'idle');
-          else this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE });
+          else this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'streamCompleted' });
         },
       });
       this.applyBuffering();
       this.applyDisplay();
       s.watchdog = setTimeout(() => {
         // Some live HLS streams never call either prepareAsync callback: report it so the supervisor retries.
-        if (!s.started) this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE });
+        if (!s.started) this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'prepareTimeout' });
       }, this.prepareTimeoutMs);
       av.prepareAsync(
         () => {
@@ -209,16 +214,16 @@ export class AvplayPlayer implements Player {
             this.releaseLastFrame();
             this.emit(s, 'playing');
           } catch (e) {
-            this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
+            this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
           }
         },
         (e) => {
           clearTimeout(s.watchdog);
-          this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
+          this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
         },
       );
     } catch (e) {
-      this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
+      this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
     }
     return Promise.resolve();
   }
@@ -324,7 +329,7 @@ export class AvplayPlayer implements Player {
   }
 
   health(): PlaybackHealth {
-    const h: PlaybackHealth = { positionMs: this.position() };
+    const h: PlaybackHealth = { positionMs: this.position(), engine: 'avplay' };
     const { live, window: w } = this.liveState();
     if (live !== undefined) h.isLive = live;
     if (w) {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { PlayerState, StateDetail } from '@iptv/player';
 import {
-  AvplayPlayer, avplayDisplay, mapAvplayError,
+  AvplayPlayer, avplayDisplay, avplayErrorName, mapAvplayError,
   type AvplayLike, type AvplayListener, type AvplayTrack,
 } from './AvplayPlayer.ts';
 
@@ -103,14 +103,14 @@ describe('AvplayPlayer: open and listener mapping', () => {
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1' };
     av.listener!.onstreamcompleted?.();
-    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error' }]);
+    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error', detail: 'streamCompleted' }]);
   });
 
   test('prepareAsync failure maps through the error name', async () => {
     const { av, p, events } = setup();
     await p.open(URL_A, 2);
     av.prepared[0]!.fail({ name: 'PLAYER_ERROR_CONNECTION_FAILED' });
-    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error', attemptId: 2 }]);
+    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error', attemptId: 2, detail: 'PLAYER_ERROR_CONNECTION_FAILED' }]);
     expect(av.calls).not.toContain('play');
   });
 
@@ -118,7 +118,7 @@ describe('AvplayPlayer: open and listener mapping', () => {
     const { av, p, events } = setup();
     av.throwOn.add('open');
     await expect(p.open(URL_A, 4)).resolves.toBeUndefined();
-    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error', attemptId: 4 }]);
+    expect(events.at(-1)).toEqual(['error', { code: 'NETWORK', message: 'Playback error', attemptId: 4, detail: 'InvalidStateError' }]);
   });
 
   test('a throwing play() after prepare is reported, not thrown', async () => {
@@ -441,7 +441,7 @@ describe('AvplayPlayer: live delay and recovery', () => {
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
     av.time = 140_000;
-    expect(p.health()).toEqual({ positionMs: 140_000, behindLiveS: 20, behindLiveSource: 'edge', isLive: true });
+    expect(p.health()).toEqual({ engine: 'avplay', positionMs: 140_000, behindLiveS: 20, behindLiveSource: 'edge', isLive: true });
     expect(p.seekToLive(6)).toBe(true);
     expect(av.seeks).toEqual([154_000]);
   });
@@ -451,7 +451,7 @@ describe('AvplayPlayer: live delay and recovery', () => {
     await p.open(URL_B);
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1' };
-    expect(p.health()).toEqual({ positionMs: 0, isLive: true });
+    expect(p.health()).toEqual({ engine: 'avplay', positionMs: 0, isLive: true });
     expect(p.seekToLive(6)).toBe(false);
   });
 
@@ -469,11 +469,11 @@ describe('AvplayPlayer: live delay and recovery', () => {
   test('a live window missing before the stream started is not cached', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
-    expect(p.health()).toEqual({ positionMs: 0 });
+    expect(p.health()).toEqual({ engine: 'avplay', positionMs: 0 });
     av.prepared[0]!.ok();
     av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
     av.time = 150_000;
-    expect(p.health()).toEqual({ positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
+    expect(p.health()).toEqual({ engine: 'avplay', positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
   });
 
   test('destroy releases a held still frame', async () => {
@@ -499,13 +499,13 @@ describe('AvplayPlayer: final fixes', () => {
     await vod.p.open(URL_B);
     vod.av.prepared[0]!.ok();
     vod.av.live = { IS_LIVE: '0' };
-    expect(vod.p.health()).toEqual({ positionMs: 0, isLive: false });
+    expect(vod.p.health()).toEqual({ engine: 'avplay', positionMs: 0, isLive: false });
 
     const broken = setup();
     await broken.p.open(URL_B);
     broken.av.prepared[0]!.ok();
     broken.av.throwOn.add('getStreamingProperty');
-    expect(broken.p.health()).toEqual({ positionMs: 0 });
+    expect(broken.p.health()).toEqual({ engine: 'avplay', positionMs: 0 });
   });
 
   test('1f: a non-live stream that completes reports idle, never a reconnect-triggering error', async () => {
@@ -525,5 +525,34 @@ describe('AvplayPlayer: final fixes', () => {
     av.live = { IS_LIVE: '0' };
     expect(p.seekToLive(6)).toBe(true);
     expect(av.seeks).toEqual([]);
+  });
+});
+
+describe('AvplayPlayer: diagnostics', () => {
+  test('health() names the engine', async () => {
+    const { p } = setup();
+    await p.open(URL_A);
+    expect(p.health().engine).toBe('avplay');
+  });
+
+  test('avplayErrorName reads a string or an error name, else empty', () => {
+    expect(avplayErrorName('PLAYER_ERROR_CONNECTION_FAILED')).toBe('PLAYER_ERROR_CONNECTION_FAILED');
+    expect(avplayErrorName({ name: 'NotSupportedError' })).toBe('NotSupportedError');
+    expect(avplayErrorName(42)).toBe('');
+  });
+
+  test('the prepare watchdog reports prepareTimeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: [PlayerState, StateDetail | undefined][] = [];
+      p.onState((s, d) => events.push([s, d]));
+      await p.open(URL_A);
+      vi.advanceTimersByTime(1000);
+      expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', detail: 'prepareTimeout' })]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
