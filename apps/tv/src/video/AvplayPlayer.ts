@@ -1,6 +1,7 @@
 import type {
-  AspectMode, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
 /** The part of Samsung's `webapis.avplay` this player uses (injected, so it is testable without a TV). */
@@ -17,6 +18,12 @@ export interface AvplayLike {
   getTotalTrackInfo(): AvplayTrack[];
   setSelectTrack(type: string, index: number): void;
   getCurrentStreamInfo(): AvplayTrack[];
+  setBufferingParam?(option: string, unit: string, amount: number): void;
+  setTimeoutForBuffering?(seconds: number): void;
+  setStreamingProperty?(type: string, value: string): void;
+  getStreamingProperty?(type: string): string;
+  seekTo?(ms: number, success?: () => void, error?: (e: unknown) => void): void;
+  setVideoStillMode?(mode: 'true' | 'false'): void;
 }
 
 export interface AvplayListener {
@@ -126,9 +133,15 @@ function num(v: unknown): number | undefined {
 }
 
 /** One `open()`; once `dead`, nothing it registered may emit again. */
-interface Session { url: string; attemptId: number | undefined; dead: boolean; started: boolean }
+interface Session {
+  url: string; attemptId: number | undefined; dead: boolean; started: boolean;
+  watchdog?: ReturnType<typeof setTimeout>;
+}
 
 const MESSAGE = 'Playback error';
+const PREPARE_TIMEOUT_MS = 15_000;
+/** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
+const LIVE_WINDOW_POLL_MS = 2_000;
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -143,9 +156,14 @@ export class AvplayPlayer implements Player {
   private aspect: AspectMode = 'auto';
   private lastPosition = 0;
   private readonly space: Size;
+  private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
+  private readonly prepareTimeoutMs: number;
+  private windowCache: { at: number; value: { start: number; end: number } | undefined } | undefined;
+  private stillOn = false;
 
-  constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size } = {}) {
+  constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size; prepareTimeoutMs?: number } = {}) {
     this.space = opts.displaySpace ?? DESIGN;
+    this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
   }
 
   open(url: string, attemptId?: number): Promise<void> {
@@ -153,6 +171,7 @@ export class AvplayPlayer implements Player {
     const s: Session = { url, attemptId, dead: false, started: false };
     this.session = s;
     this.lastPosition = 0;
+    this.windowCache = undefined;
     this.emit(s, 'loading');
     const av = this.avplay;
     try {
@@ -165,20 +184,30 @@ export class AvplayPlayer implements Player {
         // A live stream that "completes" has dropped: report it so the supervisor reconnects.
         onstreamcompleted: () => this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE }),
       });
+      this.applyBuffering();
       this.applyDisplay();
+      s.watchdog = setTimeout(() => {
+        // Some live HLS streams never call either prepareAsync callback: report it so the supervisor retries.
+        if (!s.started) this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE });
+      }, this.prepareTimeoutMs);
       av.prepareAsync(
         () => {
+          clearTimeout(s.watchdog);
           if (s.dead || s !== this.session) return;
           try {
             this.applyDisplay(); // the source aspect is known now (zoom)
             av.play();
             s.started = true;
+            this.releaseLastFrame();
             this.emit(s, 'playing');
           } catch (e) {
             this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
           }
         },
-        (e) => this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE }),
+        (e) => {
+          clearTimeout(s.watchdog);
+          this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
+        },
       );
     } catch (e) {
       this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE });
@@ -190,6 +219,8 @@ export class AvplayPlayer implements Player {
     const s = this.session;
     if (!s) return;
     s.dead = true;
+    clearTimeout(s.watchdog);
+    this.windowCache = undefined;
     this.session = undefined;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
@@ -280,6 +311,54 @@ export class AvplayPlayer implements Player {
     return this.lastPosition;
   }
 
+  setLiveProfile(p: LiveProfile): void {
+    this.profile = { ...p };
+  }
+
+  health(): PlaybackHealth {
+    const h: PlaybackHealth = { positionMs: this.position() };
+    const w = this.liveWindow();
+    if (w) {
+      h.behindLiveS = Math.max(0, (w.end - h.positionMs) / 1000);
+      h.behindLiveSource = 'edge';
+    }
+    return h;
+  }
+
+  /** Seeks forward inside the live window only (rewinding live HLS on AVPlay is reported to freeze). */
+  seekToLive(targetS: number): boolean {
+    const w = this.liveWindow();
+    if (!w || !this.avplay.seekTo) return false;
+    const to = Math.max(w.start, w.end - targetS * 1000);
+    if (to <= this.position() + 250) return true;
+    try {
+      this.avplay.seekTo(to, () => {}, () => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  holdLastFrame(): void {
+    if (!this.avplay.setVideoStillMode) return;
+    try {
+      this.avplay.setVideoStillMode('true');
+      this.stillOn = true;
+    } catch {
+      // not supported here: a black frame during the reconnect, as before
+    }
+  }
+
+  releaseLastFrame(): void {
+    if (!this.stillOn) return;
+    this.stillOn = false;
+    try {
+      this.avplay.setVideoStillMode?.('false');
+    } catch {
+      // ignore
+    }
+  }
+
   onState(fn: (s: PlayerState, detail?: StateDetail) => void): () => void {
     this.listeners.add(fn);
     return () => { this.listeners.delete(fn); };
@@ -288,6 +367,44 @@ export class AvplayPlayer implements Player {
   destroy(): void {
     this.stop();
     this.listeners.clear();
+  }
+
+  /** IDLE only: the preset's buffer sizes and timeout. A failed call leaves the platform default. */
+  private applyBuffering(): void {
+    const b = avplayBuffering(this.profile.preset);
+    const av = this.avplay;
+    const attempt = (fn: () => void) => {
+      try {
+        fn();
+      } catch {
+        // platform default stays
+      }
+    };
+    attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.play));
+    attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.resume));
+    attempt(() => av.setTimeoutForBuffering?.(b.timeout));
+    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', 'STARTBITRATE=LOWEST'));
+  }
+
+  /** `GET_LIVE_DURATION` ("start|end", ms) of a live stream, polled at most every 2 s; undefined when not live. */
+  private liveWindow(): { start: number; end: number } | undefined {
+    if (!this.session || !this.avplay.getStreamingProperty) return undefined;
+    const now = Date.now();
+    if (this.windowCache && now - this.windowCache.at < LIVE_WINDOW_POLL_MS) return this.windowCache.value;
+    let value: { start: number; end: number } | undefined;
+    try {
+      const live = String(this.avplay.getStreamingProperty('IS_LIVE')).toLowerCase();
+      if (live === '1' || live === 'true') {
+        const parts = String(this.avplay.getStreamingProperty('GET_LIVE_DURATION')).split('|').map(Number);
+        const start = parts[0] ?? Number.NaN;
+        const end = parts[1] ?? Number.NaN;
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) value = { start, end };
+      }
+    } catch {
+      value = undefined;
+    }
+    this.windowCache = { at: now, value };
+    return value;
   }
 
   private currentTracks(): AvplayTrack[] {

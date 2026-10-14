@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { PlayerState, StateDetail } from '@iptv/player';
 import {
   AvplayPlayer, avplayDisplay, mapAvplayError,
@@ -40,6 +40,18 @@ class FakeAvplay implements AvplayLike {
   getTotalTrackInfo(): AvplayTrack[] { this.hit('getTotalTrackInfo'); return this.tracks; }
   setSelectTrack(type: string, i: number): void { this.hit('setSelectTrack'); this.selected.push([type, i]); }
   getCurrentStreamInfo(): AvplayTrack[] { this.hit('getCurrentStreamInfo'); return this.current; }
+  buffering: [string, string, number][] = [];
+  timeouts: number[] = [];
+  props: [string, string][] = [];
+  live: Record<string, string> = {};
+  seeks: number[] = [];
+  still: string[] = [];
+  setBufferingParam(o: string, u: string, n: number): void { this.hit('setBufferingParam'); this.buffering.push([o, u, n]); }
+  setTimeoutForBuffering(n: number): void { this.hit('setTimeoutForBuffering'); this.timeouts.push(n); }
+  setStreamingProperty(t: string, v: string): void { this.hit('setStreamingProperty'); this.props.push([t, v]); }
+  getStreamingProperty(t: string): string { this.hit('getStreamingProperty'); return this.live[t] ?? ''; }
+  seekTo(ms: number): void { this.hit('seekTo'); this.seeks.push(ms); }
+  setVideoStillMode(m: 'true' | 'false'): void { this.hit('setVideoStillMode'); this.still.push(m); }
 }
 
 function setup() {
@@ -331,5 +343,80 @@ describe('mapAvplayError (pure)', () => {
   test('unknown shapes are NETWORK (retryable)', () => {
     expect(mapAvplayError(undefined)).toBe('NETWORK');
     expect(mapAvplayError({})).toBe('NETWORK');
+  });
+});
+
+describe('AvplayPlayer: live delay and recovery', () => {
+  test('applies the preset buffering before prepareAsync; a throwing call is ignored', async () => {
+    const { av, p } = setup();
+    p.setLiveProfile({ preset: 'stable', targetS: 6, allowRate: false });
+    av.throwOn.add('setTimeoutForBuffering');
+    await p.open(URL_A, 1);
+    expect(av.buffering).toEqual([
+      ['PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', 6],
+      ['PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', 10],
+    ]);
+    expect(av.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']);
+    expect(av.calls.indexOf('setBufferingParam')).toBeLessThan(av.calls.indexOf('prepareAsync'));
+    expect(av.calls).toContain('prepareAsync');
+  });
+
+  describe('prepare watchdog', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    test('reports NETWORK when neither prepare callback arrives in time', async () => {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: [PlayerState, StateDetail | undefined][] = [];
+      p.onState((s, d) => events.push([s, d]));
+      await p.open(URL_A, 2);
+      vi.advanceTimersByTime(999);
+      expect(events.at(-1)?.[0]).toBe('loading');
+      vi.advanceTimersByTime(1);
+      expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', attemptId: 2 })]);
+    });
+
+    test('a prepared stream cancels the watchdog', async () => {
+      const av = new FakeAvplay();
+      const p = new AvplayPlayer(av, { prepareTimeoutMs: 1000 });
+      const events: PlayerState[] = [];
+      p.onState((s) => events.push(s));
+      await p.open(URL_A);
+      av.prepared[0]!.ok();
+      vi.advanceTimersByTime(5000);
+      expect(events).toEqual(['loading', 'playing']);
+    });
+  });
+
+  test('health and seekToLive use the live window', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '1', GET_LIVE_DURATION: '100000|160000' };
+    av.time = 140_000;
+    expect(p.health()).toEqual({ positionMs: 140_000, behindLiveS: 20, behindLiveSource: 'edge' });
+    expect(p.seekToLive(6)).toBe(true);
+    expect(av.seeks).toEqual([154_000]);
+  });
+
+  test('no live window: health has only the position, seekToLive is false', async () => {
+    const { av, p } = setup();
+    await p.open(URL_B);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '0' };
+    expect(p.health()).toEqual({ positionMs: 0 });
+    expect(p.seekToLive(6)).toBe(false);
+  });
+
+  test('holdLastFrame turns still mode on until the next stream plays', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    await p.open(URL_B);
+    expect(av.still).toEqual(['true']);
+    av.prepared[1]!.ok();
+    expect(av.still).toEqual(['true', 'false']);
   });
 });
