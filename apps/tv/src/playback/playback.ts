@@ -1,4 +1,4 @@
-import { PlaybackSupervisor, type Player } from '@iptv/player';
+import { PlaybackJournal, PlaybackSupervisor, type JournalEvent, type Player } from '@iptv/player';
 import { initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
@@ -6,6 +6,7 @@ import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
 import { createVideoLayer } from '../video/videoLayer.ts';
 import { createPlaybackController } from './controller.ts';
+import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 
 /**
@@ -44,20 +45,27 @@ export const player: AppPlayer = stack.player;
 /** Re-applies the video layout after a window resize. */
 export const videoLayer: { relayout(): void } = stack.layer;
 
-/** Learned live delay per source (this device only). */
-const liveTargets = createLiveTargetStore(() => {
+const localStore = () => {
   try {
     return globalThis.localStorage;
   } catch {
     return undefined;
   }
-});
+};
+
+/** Learned live delay per source (this device only). */
+const liveTargets = createLiveTargetStore(localStore);
+
+/** What the player did, on this device only (Diagnostics -> Playback log). Survives reloads and restarts. */
+export const journal = new PlaybackJournal({ persist: createJournalPersist(localStore) });
+journal.add(pageLoadEvent(Date.now(), globalThis.performance));
 
 export const supervisor = new PlaybackSupervisor(player, {
   preset: () => settings()?.liveDelay ?? 'balanced',
   // TVs mute or ignore playbackRate changes: they correct drift by seeking only.
   allowRate: !isTv,
   liveTargets,
+  journal,
 });
 
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
@@ -70,6 +78,7 @@ export const playback = createPlaybackController(
 let hiddenAt: number | undefined;
 document.addEventListener('visibilitychange', () => {
   supervisor.setHidden(document.hidden);
+  journal.add({ k: 'page', t: Date.now(), what: document.hidden ? 'hidden' : 'visible' });
   if (document.hidden) {
     hiddenAt = Date.now();
     return;
@@ -77,6 +86,12 @@ document.addEventListener('visibilitychange', () => {
   if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
   hiddenAt = undefined;
 });
+
+// Saves are throttled: write anything pending before the page goes away.
+window.addEventListener('pagehide', () => journal.flush());
+if (import.meta.env.DEV) {
+  (globalThis as { __playbackLog?: () => JournalEvent[] }).__playbackLog = () => journal.entries();
+}
 
 let previewHeld = false;
 /**

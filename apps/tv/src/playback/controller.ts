@@ -73,7 +73,7 @@ export function createPlaybackController(
         return false;
       }
       setCurrent(ch);
-      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: sourceKey() });
+      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: sourceKey(), channel: ch.name });
       return true;
     },
     stop() {
