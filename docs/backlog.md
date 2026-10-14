@@ -162,3 +162,10 @@ Small items from the implementation reviews that v1 ships without.
 - Input: `captureTextInput` and `unwrapDevProxyResponse` untested.
 - Home: preview panel flickers after the debounce; "No information" gap rows never expire; `stopPreview` naming.
 - Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
+
+## Follow-ups from the v1.1 merge review
+- Source switch can push two full states. Call `companionStale()` once after `activate()` in the source operations.
+- Home `dismissAll()` on remote `sourcesChanged` should only run when the active source actually changed.
+- Background guide/playlist refresh pushes up to two full states to a connected phone; consider a delta or coalescing across both.
+- `getCompanionState` should capture `activeSourceId` together with the index.
+- Tests: an op interleaved with an in-flight `setActiveSource`; `pushState` across a link drop and reconnect; latest-wins guard in `followSources`.
