@@ -44,6 +44,11 @@ pnpm dev
 
 Open **http://localhost:5173** in Chrome or Edge.
 
+- **Use one browser tab.** The app keeps its saved data in the browser, and two tabs of it at the same time can
+  get in each other's way. Close any other tab with the app before you open a new one.
+- **Use a widescreen (16:9) browser window,** e.g. full screen with **F11**. The app is laid out for a TV screen;
+  in a narrow or tall window it is drawn smaller, with empty bars around it.
+
 To stop the app, click in the terminal and press **Ctrl+C**.
 
 ## 3. Keys: your keyboard is the remote
@@ -53,12 +58,13 @@ The app is made for a TV remote. On a computer these keys stand in for the remot
 | PC key | Remote key | What it does |
 |---|---|---|
 | Arrow keys | Up / Down / Left / Right | Move around |
-| Enter | OK | Choose, watch. Hold for about half a second for the options menu |
+| Enter | OK | Choose, watch. Hold for about 0.6 s for the options menu |
 | Backspace or Esc | Back | Close the top layer, go back. On the Channels screen it asks to exit |
 | M | Menu | Options for the focused channel or the player |
 | I | Info | Show or hide the channel banner while watching |
 | Page Up / Page Down | Channel + / Channel − | Next / previous channel, or a page up/down in lists |
 | 0 to 9 | Number keys | Type a channel number while watching |
+| Space | Play/Pause | Not used yet |
 | F1 | Red | Previous channel (while watching) |
 | F2 | Green | TV guide (from the Channels screen) |
 | F3 | Yellow | Search (from the Channels screen). In a password field: show or hide the password |
@@ -108,8 +114,10 @@ Good to know when you try your own source **in a browser**:
 - **It goes through a local helper.** Many services do not allow web pages to read their lists directly. While
   `pnpm dev` runs, the app's requests go through a small helper on your own computer (the "dev proxy"). Nothing
   is sent anywhere else. On a TV the app connects directly and this helper is not used.
-- **Some channels may have no sound on a PC.** Browsers cannot play AC3 / E-AC3 (Dolby) audio. Those channels
-  show a picture but stay silent on a computer; the same channels should have sound on a TV.
+- **If your service offers an Xtream login, prefer it in the browser.** It loads faster than a big playlist
+  link, finds the TV guide by itself, and lets the app try each channel in its other stream format.
+- **Most desktop Chrome/Edge setups can't decode AC3/E-AC3 (Dolby) audio.** Those channels may fail to start or
+  have no sound on a PC but should work on the TV.
 - **If a channel will not start,** change the stream format: Settings → Playback → **Preferred stream format**
   (TS or HLS), then try the channel again. The app already tries the other format once by itself.
 - **Big lists take a while the first time.** Later starts use the saved copy and are fast.
