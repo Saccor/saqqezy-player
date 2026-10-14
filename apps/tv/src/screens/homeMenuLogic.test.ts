@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_LISTS as CORE_MAX_LISTS, NAME_MAX as CORE_NAME_MAX } from '@iptv/core';
 import {
-  MAX_LISTS, NAME_MAX, buildChannelMenu, clampName, emptyGroupText, focusAfterRefresh, listIdOfGroup, newListId,
-  pickerRows, validateListName, validateRename,
+  MAX_LISTS, NAME_MAX, buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId,
+  pickerRows, renameOutcome, validateListName, validateRename,
 } from './homeMenuLogic.ts';
 
 const lists = [
@@ -138,10 +138,45 @@ describe('validateRename', () => {
   });
 });
 
-describe('clampName', () => {
-  it('cuts keyboard input at NAME_MAX characters', () => {
-    expect(clampName('x'.repeat(NAME_MAX + 5))).toHaveLength(NAME_MAX);
-    expect(clampName('abc')).toBe('abc');
+describe('renameOutcome', () => {
+  it('unchanged (after trimming) is a no-op', () => {
+    expect(renameOutcome('Channel 1', 'Channel 1')).toEqual({ kind: 'unchanged' });
+    expect(renameOutcome('  Channel 1 ', 'Channel 1')).toEqual({ kind: 'unchanged' });
+  });
+
+  it('an unchanged long name is a no-op, not an error', () => {
+    const long = 'x'.repeat(NAME_MAX + 10);
+    expect(renameOutcome(long, long)).toEqual({ kind: 'unchanged' });
+  });
+
+  it('a new name is applied, trimmed', () => {
+    expect(renameOutcome(' My channel ', 'Channel 1')).toEqual({ kind: 'apply', name: 'My channel' });
+  });
+
+  it('empty restores the original name', () => {
+    expect(renameOutcome('  ', 'Channel 1')).toEqual({ kind: 'apply', name: null });
+  });
+
+  it('a changed name over NAME_MAX is an error shown on Done', () => {
+    expect(renameOutcome('y'.repeat(NAME_MAX + 1), 'Channel 1'))
+      .toEqual({ kind: 'error', message: `Use at most ${NAME_MAX} characters.` });
+  });
+});
+
+describe('limitTyping', () => {
+  it('accepts edits up to NAME_MAX characters', () => {
+    expect(limitTyping('abc', 'abcd')).toBe('abcd');
+    expect(limitTyping('x'.repeat(NAME_MAX - 1), 'x'.repeat(NAME_MAX))).toBe('x'.repeat(NAME_MAX));
+  });
+
+  it('refuses growth past NAME_MAX', () => {
+    expect(limitTyping('x'.repeat(NAME_MAX), 'x'.repeat(NAME_MAX + 1))).toBe('x'.repeat(NAME_MAX));
+  });
+
+  it('a prefilled name over NAME_MAX is kept in full and can be shortened', () => {
+    const long = 'x'.repeat(NAME_MAX + 10);
+    expect(limitTyping(long, long.slice(0, -1))).toBe(long.slice(0, -1));
+    expect(limitTyping(long, `${long}y`)).toBe(long);
   });
 });
 

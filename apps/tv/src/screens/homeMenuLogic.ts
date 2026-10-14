@@ -87,9 +87,28 @@ export function validateRename(raw: string): NameResult<string | null> {
   return { ok: true, name: t };
 }
 
-/** Keyboard input is cut at NAME_MAX characters while typing. */
-export function clampName(value: string): string {
-  return value.length > NAME_MAX ? value.slice(0, NAME_MAX) : value;
+export type RenameOutcome =
+  | { kind: 'unchanged' }
+  | { kind: 'apply'; name: string | null }
+  | { kind: 'error'; message: string };
+
+/**
+ * Keyboard Done on "Rename…": nothing to do when the trimmed text equals the channel's current display name
+ * (also for a long playlist name over NAME_MAX), else `validateRename`.
+ */
+export function renameOutcome(raw: string, current: string): RenameOutcome {
+  const t = raw.trim();
+  if (t === current || t === current.trim()) return { kind: 'unchanged' };
+  const v = validateRename(raw);
+  return v.ok ? { kind: 'apply', name: v.name } : { kind: 'error', message: v.message };
+}
+
+/**
+ * Keyboard edits: typing stops at NAME_MAX characters, but a longer prefilled name is shown in full and can
+ * still be shortened (it is validated on Done).
+ */
+export function limitTyping(prev: string, next: string): string {
+  return next.length > NAME_MAX && next.length > prev.length ? prev : next;
 }
 
 /**
