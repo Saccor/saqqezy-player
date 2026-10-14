@@ -61,4 +61,37 @@ describe('playback controller', () => {
     expect(pb.status()).toBeUndefined();
     expect(seen).toEqual([{ kind: 'loading' }, undefined]);
   });
+
+  it('request tokens: only the latest begin() is current; stop() supersedes every pending request', () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor);
+    const a = pb.begin();
+    expect(pb.isLatest(a)).toBe(true);
+    const b = pb.begin();
+    expect(pb.isLatest(a)).toBe(false);
+    expect(pb.isLatest(b)).toBe(true);
+    // playChannel itself does not supersede the request that led to it.
+    pb.playChannel(ch('1'));
+    expect(pb.isLatest(b)).toBe(true);
+    pb.stop();
+    expect(pb.isLatest(b)).toBe(false);
+  });
+
+  it('a slow answer for an older request does not replace the newer channel', async () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor);
+    let releaseA!: (c: ReturnType<typeof ch>) => void;
+    const slowA = new Promise<ReturnType<typeof ch>>((r) => { releaseA = r; });
+    const request = async (load: Promise<ReturnType<typeof ch>>) => {
+      const t = pb.begin();
+      const c = await load;
+      if (pb.isLatest(t)) pb.playChannel(c);
+    };
+    const pa = request(slowA);
+    await request(Promise.resolve(ch('2')));
+    releaseA(ch('1'));
+    await pa;
+    expect(pb.current()?.id).toBe('2');
+    expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+  });
 });

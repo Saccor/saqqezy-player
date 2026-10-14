@@ -9,7 +9,15 @@ export interface PlaybackController {
    * moving from the preview to fullscreen never reconnects.
    */
   playChannel(ch: PlayableChannel): boolean;
+  /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
+  /**
+   * Starts a play request and returns its token; a later `begin()` or `stop()` supersedes it. Callers that
+   * await something (e.g. `getPlayable`) before `playChannel` check `isLatest(token)` first, so a slow answer
+   * for an older request never replaces the channel the user asked for since.
+   */
+  begin(): number;
+  isLatest(token: number): boolean;
   /** Moves the video only; never touches the stream. */
   setRect(rect: Rect | 'fullscreen'): void;
   status: Accessor<SupervisorStatus | undefined>;
@@ -29,6 +37,7 @@ export function createPlaybackController(
     onStatusChange(s);
   };
   supervisor.onStatus((s) => report(s));
+  let token = 0;
 
   return {
     playChannel(ch) {
@@ -39,10 +48,13 @@ export function createPlaybackController(
       return true;
     },
     stop() {
+      token++;
       supervisor.stop();
       setCurrent(undefined);
       report(undefined);
     },
+    begin: () => ++token,
+    isLatest: (t) => t === token,
     setRect: (rect) => player.setRect(rect),
     status,
     current,

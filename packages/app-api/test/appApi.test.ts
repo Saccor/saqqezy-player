@@ -109,6 +109,21 @@ describe('AppApi', () => {
     expect(await api.indexOf('all', 'nope')).toBe(-1);
   });
 
+  test('indexOf skips hidden channels: later positions shift up and the hidden one is -1', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const rows = (await api.getChannelSlice('all', 0, 10)).rows;
+    const hidden = rows[3]!.id;
+    const later = rows[7]!.id;
+    expect(await api.indexOf('all', later)).toBe(7);
+    await api.toggleHidden(hidden);
+    expect(await api.indexOf('all', hidden)).toBe(-1);
+    expect(await api.indexOf('all', later)).toBe(6);
+    expect(await api.indexOf('all', rows[2]!.id)).toBe(2);
+    await api.toggleHidden(hidden);
+    expect(await api.indexOf('all', later)).toBe(7);
+  });
+
   test('hidden channels', async () => {
     const { api } = make();
     await api.addSource(xt());

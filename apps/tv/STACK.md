@@ -158,7 +158,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - After a modal closes, the shell restores focus to the element that had it (`activeElement()` saved before opening), or to the screen host.
 - `src/state/appState.ts` owns `InitState`, the offline flag, the startup metric (`markStartup()`, called by Home once its cached list is on screen), the supervisor status (`setSupervisorStatus`, for the player screens) and `platformId`. It imports `@iptv/core` as types only, so core stays in the worker chunk.
 - `onUnmappedKey(fn)` in `src/input/keys.ts` observes keydowns that map to no logical key (used for F12 → debug HUD in the browser). It does not `preventDefault`.
-- Dev-only console handle: `window.__iptv = { player, layer, api, router, showToast }` (in `main.tsx`, `import.meta.env.DEV` only). For example `await __iptv.api.addSource({ kind: 'xtream', name: 'Test', server: 'http://127.0.0.1:8899', username: 'test', password: 'test' })`.
+- Dev-only console handle: `window.__iptv = { player, layer, playback, api, router, showToast }` (in `main.tsx`, `import.meta.env.DEV` only). For example `await __iptv.api.addSource({ kind: 'xtream', name: 'Test', server: 'http://127.0.0.1:8899', username: 'test', password: 'test' })`.
 
 ## Text entry (Task 6)
 
@@ -167,3 +167,18 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - The on-screen keyboard is a `router.pushOverlay('keyboard', …)` layer: Back closes it and keeps the text. Screens with their own `onBack` return `false` while `router.topOverlay()` is set, so the shell closes the layer first.
 - Secrets: `TextField`/`Keyboard` render `maskSecret(value)` unless `revealed` (Yellow toggles it); the raw value is never given to a `Text` node otherwise.
 - Dev proxy: when the upstream is unreachable it answers 502 with `x-dev-proxy-unreachable: 1`; the worker's dev fetch (`unwrapDevProxyResponse`) turns that back into a thrown `TypeError`, so core reports "Could not reach the provider." as on a TV.
+
+## Home and playback (Task 7)
+
+- `src/playback/playback.ts` is the only owner of the player: one `<video>` layer, one `Html5Player`, one `PlaybackSupervisor`, wrapped by the `playback` controller (`createPlaybackController`, unit-tested). Screens never call `player.open`/`supervisor.play` directly; they use `playback.playChannel`, `stop`, `setRect`, `status` and `current`. The Home preview and the fullscreen Player share it, so going fullscreen is a rect change and never reconnects.
+- Stale answers: anything that awaits before playing (e.g. `api.getPlayable`) takes `const t = playback.begin()` first and plays only if `playback.isLatest(t)`. A later `begin()` or `playback.stop()` supersedes it. Home begins a request when it schedules a preview, when it starts one, on Ok (watch) and when it stops the preview (menu, group change, unmount).
+- `previewHold.set()` (Player, after a sleep-timer stop) tells the next Home not to resume or auto-preview until the user moves.
+- Slice cache (`src/screens/sliceCache.ts`, unit-tested): pages of 40 rows from `getChannelSlice`.
+  - Per group, at most 6 pages in LRU order; each `ensure` marks its window's pages as most recent.
+  - Only the current group and the previous one are kept; older groups are dropped on group change, and answers for a dropped group are ignored.
+  - A page expires once a row's `now` programme that was still running when the page was fetched has ended (injected clock). On Home's 30 s tick, `invalidateStale` marks the visible pages that rolled over and `ensure` refetches them; the old rows stay on screen until the fresh page arrives. A provider that still answers with an ended programme is not refetched in a loop.
+  - `invalidate()` drops everything (refresh, favourite/hide changes).
+- Home focus restore order (single place, `openGroup` + `resolveFocus`): the playing channel if it is in the group (if it is not, Home opens "All" instead), then the remembered channel, then `lastChannelId` from init, then the remembered row, then the first row. Only the latest `openGroup` call writes the selection.
+- Preview: a 700 ms debounce keyed on the focused channel id (page loads do not restart it). The preview panel shows the playing (or failed) channel's info; while a preview is pending it shows the focused channel with a muted "Starting…".
+- Decision (accepted for v1): the preview keeps playing behind non-player screens (Search, Guide, Settings) that Home pushes. Those screens are opaque, so it is not visible; it avoids a reconnect when the user comes back. Revisit if bandwidth matters.
+

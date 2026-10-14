@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRange, pickGroup, previewMessage, progressOf, restoreIndex } from './homeLogic.ts';
+import { formatRange, panelChannel, pickGroup, previewMessage, progressOf, resolveFocus, restoreIndex } from './homeLogic.ts';
 
 const groups = [
   { id: 'fav', name: 'Favourites', count: 0 },
@@ -40,5 +40,28 @@ describe('home logic', () => {
     expect(previewMessage({ kind: 'loading' }, true)).toBe('Loading…');
     expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now");
     expect(previewMessage({ kind: 'failed', reason: 'unsupported' }, true)).toContain("isn't supported");
+  });
+
+  it('resolves the focus from the first candidate found in the group, in order', async () => {
+    const positions: Record<string, number> = { mem: 4, param: 9 };
+    const indexOf = async (id: string) => positions[id] ?? -1;
+    expect(await resolveFocus(['playing', 'mem', 'param'], indexOf)).toEqual({ id: 'mem', index: 4 });
+    positions.playing = 2;
+    expect(await resolveFocus(['playing', 'mem', 'param'], indexOf)).toEqual({ id: 'playing', index: 2 });
+    expect(await resolveFocus([undefined, undefined, 'param'], indexOf)).toEqual({ id: 'param', index: 9 });
+    expect(await resolveFocus([undefined, 'gone'], indexOf)).toEqual({ id: undefined, index: -1 });
+    const seen: string[] = [];
+    await resolveFocus(['x', 'x', 'mem'], async (id) => { seen.push(id); return indexOf(id); });
+    expect(seen).toEqual(['x', 'mem']);
+  });
+
+  it('the preview panel shows the playing channel, or the focused one while a preview is starting', () => {
+    const focused = { id: 'f' };
+    const playing = { id: 'p' };
+    expect(panelChannel(focused, playing, false)).toEqual({ channel: playing, starting: false });
+    expect(panelChannel(focused, playing, true)).toEqual({ channel: focused, starting: true });
+    expect(panelChannel(focused, undefined, false)).toEqual({ channel: focused, starting: false });
+    expect(panelChannel(undefined, playing, true)).toEqual({ channel: playing, starting: false });
+    expect(panelChannel(undefined, undefined, false)).toEqual({ channel: undefined, starting: false });
   });
 });

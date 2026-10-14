@@ -21,6 +21,34 @@ export function restoreIndex(byId: number, remembered: number | undefined, total
   return Math.max(0, Math.min(remembered ?? 0, total - 1));
 }
 
+/**
+ * The channel to focus when a group opens: the first candidate (in order, duplicates and blanks skipped) that
+ * is in the group. Home passes the playing channel, the remembered channel, then the last channel from init.
+ */
+export async function resolveFocus(
+  candidates: readonly (string | undefined)[],
+  indexOf: (id: string) => Promise<number>,
+): Promise<{ id: string | undefined; index: number }> {
+  const tried = new Set<string>();
+  for (const id of candidates) {
+    if (id === undefined || tried.has(id)) continue;
+    tried.add(id);
+    const index = await indexOf(id);
+    if (index >= 0) return { id, index };
+  }
+  return { id: undefined, index: -1 };
+}
+
+/**
+ * What the preview panel describes: the focused channel (with a "Starting…" hint) while its preview is
+ * pending, otherwise the channel that is playing or has failed, otherwise the focused one.
+ */
+export function panelChannel<T>(focused: T | undefined, playing: T | undefined, pending: boolean):
+  { channel: T | undefined; starting: boolean } {
+  if (pending && focused !== undefined) return { channel: focused, starting: true };
+  return { channel: playing ?? focused, starting: false };
+}
+
 /** `HH:MM–HH:MM` in local time. */
 export function formatRange(start: number, stop: number): string {
   return `${formatClock(new Date(start))}–${formatClock(new Date(stop))}`;
