@@ -83,6 +83,16 @@ export function backFromTypeStep(s: { hasSources: boolean; depth: number }): 'bu
   return s.depth > 1 ? 'stay' : 'bubble';
 }
 
+/**
+ * Where a successful add goes. As the root (first run) Home replaces Add source. Opened from Settings it returns
+ * there (the new source is listed and can be set active), unless the new source became the active one, which
+ * starts a fresh Home instead of leaving two Homes on the stack.
+ */
+export function afterAdd(s: { depth: number; becameActive: boolean }): 'replaceHome' | 'resetHome' | 'back' {
+  if (s.depth <= 1) return 'replaceHome';
+  return s.becameActive ? 'resetHome' : 'back';
+}
+
 export type SourceForm = { kind: 'xtream'; xtream: XtreamForm } | { kind: 'm3u'; m3u: M3uForm };
 
 /** Edit mode: the form of the source's kind, prefilled from the stored source. */

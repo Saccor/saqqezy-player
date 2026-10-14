@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_NAME, GENERIC_ERROR, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
+  DEFAULT_NAME, GENERIC_ERROR, afterAdd, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
   toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 
@@ -117,5 +117,17 @@ describe('edit mode', () => {
     const v = validateM3u({ name: ' B ', playlistUrl: 'http://example.test/a.m3u', epgUrl: '' });
     if (!v.ok) throw new Error('invalid');
     expect(toUpdatedSource('s2', v.input)).toEqual({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' });
+  });
+});
+
+describe('afterAdd', () => {
+  it('first run (Add source is the root): Home replaces it', () => {
+    expect(afterAdd({ depth: 1, becameActive: true })).toBe('replaceHome');
+  });
+  it('from Settings, a source that is not active: back to Settings, so it can be set active there', () => {
+    expect(afterAdd({ depth: 3, becameActive: false })).toBe('back');
+  });
+  it('from Settings, a source that became active (no other sources): a fresh Home', () => {
+    expect(afterAdd({ depth: 3, becameActive: true })).toBe('resetHome');
   });
 });

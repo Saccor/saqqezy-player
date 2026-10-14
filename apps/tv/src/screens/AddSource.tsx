@@ -11,7 +11,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  backFromTypeStep, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
+  afterAdd, backFromTypeStep, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
   type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
@@ -185,9 +185,26 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         showToast('Source saved');
         return;
       }
-      await api.addSource(v.input);
+      const added = await api.addSource(v.input);
       offProgress();
-      if (alive) router.replace('home');
+      // Settings must list the new source; a failed re-read must not fail the add.
+      let becameActive = !hasSources();
+      try {
+        const next = await api.init();
+        applyInitState(next);
+        becameActive = next.activeSourceId === added.sourceId;
+      } catch (err) {
+        console.warn('Refresh state after add failed', err instanceof Error ? err.name : 'Error');
+      }
+      if (!alive) return;
+      const go = afterAdd({ depth: router.depth(), becameActive });
+      if (go === 'replaceHome') router.replace('home');
+      else if (go === 'resetHome') router.reset('home');
+      else {
+        // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.
+        router.back();
+        showToast('Source added. Set it as active to watch it.');
+      }
     } catch (err) {
       offProgress();
       if (!alive) return;
