@@ -11,6 +11,7 @@ import {
   type Direction,
   type FrameHeader,
 } from '../src/index.ts';
+import { REASSEMBLY_TIMEOUT_MS } from '../src/frames.ts';
 
 const KIB = 1024;
 const MIB = 1024 * 1024;
@@ -305,6 +306,24 @@ describe('Reassembler', () => {
     expect(await r.push(h(1, 1), part('1}'))).toBeUndefined();
     // msgId 5 is still there
     expect(await r.push(h(5, 1), part('5}'))).toEqual({ a: 5 });
+  });
+
+  test('a partial message older than 30 s is evicted', async () => {
+    let now = 0;
+    const r = new Reassembler({ now: () => now });
+    const h = (msgId: number, index: number): FrameHeader => ({ msgId, index, count: 2, compressed: false });
+    const part = (s: string) => new TextEncoder().encode(s);
+    expect(REASSEMBLY_TIMEOUT_MS).toBe(30_000);
+    expect(await r.push(h(1, 0), part('{"a":'))).toBeUndefined();
+    expect(await r.push(h(2, 0), part('{"a":'))).toBeUndefined();
+    expect(r.pendingCount).toBe(2);
+    now = 29_999;
+    expect(await r.push(h(2, 1), part('2}'))).toEqual({ a: 2 }); // still within 30 s
+    now = 30_000;
+    expect(await r.push(h(3, 0), part('{"a":'))).toBeUndefined();
+    expect(r.pendingCount).toBe(1); // msgId 1 timed out
+    // msgId 1's second half now starts a fresh partial message instead of completing a stale one
+    expect(await r.push(h(1, 1), part('1}'))).toBeUndefined();
   });
 });
 

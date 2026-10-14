@@ -4,18 +4,22 @@
 // Privacy (CLAUDE.md guardrails 6 and 7):
 // - No Durable Object storage reads or writes.
 // - No logging at all: not frame contents, not session ids, not IPs.
-// - The connecting IP is used only as an in-memory key for the new-session limit.
+// - The connecting IP is never held: the new-session limit is keyed by HMAC(IPv4 address or IPv6
+//   /64, per-isolate random key), in memory only.
 //
 // Sockets use the standard `accept()` API, not WebSocket Hibernation: hibernation would evict the
 // in-memory SessionCore (creation time, reconnect queue, rate windows), and enforcing TTL while
-// hibernated needs storage-backed alarms. Sessions are capped at 15 minutes, so the cost of
-// keeping the object resident while sockets are open is bounded.
+// hibernated needs storage-backed alarms. Sessions are capped at 60 minutes (15 if never paired),
+// so the cost of keeping the object resident while sockets are open is bounded.
 
 import { DurableObject } from 'cloudflare:workers';
 import { SessionCore } from './sessionCore.ts';
-import { CLOSE, IpRateLimiter, LIMITS, RecentSessions, isRole, isSessionId, originAllowed, parseAllowedOrigins } from './limits.ts';
+import {
+  CLOSE, IpRateLimiter, LIMITS, QueueBudget, RecentSessions, ipLimitKey, isRole, isSessionId, limitsFromEnv,
+  originAllowed, parseAllowedOrigins, type LimitsEnv,
+} from './limits.ts';
 
-export interface Env {
+export interface Env extends LimitsEnv {
   SESSION: DurableObjectNamespace<Session>;
   ALLOWED_ORIGINS: string;
 }
@@ -25,7 +29,9 @@ const TICK_MS = 1000;
 
 // Per-isolate, in memory only. Approximate across isolates by design: no shared store holds IPs.
 const newSessionLimiter = new IpRateLimiter(LIMITS.newSessionsPerIp, LIMITS.newSessionWindowMs);
-const recentSessions = new RecentSessions(LIMITS.sessionTtlMs);
+const recentSessions = new RecentSessions(LIMITS.sessionTtlMaxMs);
+/** Reconnect-queue bytes across every session in this isolate (all Session objects share it). */
+const queuedBytesTotal = new QueueBudget(LIMITS.isolateQueueMaxBytes, LIMITS.queueMaxAgeMs);
 
 function text(status: number, body: string): Response {
   return new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
@@ -56,17 +62,18 @@ export default {
     const origin = request.headers.get('Origin');
     const allowed = parseAllowedOrigins(env.ALLOWED_ORIGINS);
     if (!isRole(role)) {
+      // A bad role from a missing, `null` or unlisted Origin is refused before the upgrade.
       if (origin === null || !allowed.has(origin)) return text(403, 'forbidden');
       return acceptAndClose(CLOSE.BAD_ROLE, 'bad role');
     }
     if (!originAllowed(origin, role, allowed)) return text(403, 'forbidden');
 
     // Only a session id this isolate has not seen counts as a new session; joins and reconnects
-    // to a known id are free. The IP is a transient in-memory key and is never logged or stored.
-    const now = Date.now();
-    if (!recentSessions.has(sessionId, now)) {
-      const ip = request.headers.get('CF-Connecting-IP') ?? '';
-      if (!newSessionLimiter.allow(ip, now)) return text(429, 'too many sessions');
+    // to a known id are free. The limiter only ever sees an HMAC of the address prefix.
+    if (!recentSessions.has(sessionId, Date.now())) {
+      const key = await ipLimitKey(request.headers.get('CF-Connecting-IP') ?? '');
+      const now = Date.now();
+      if (!newSessionLimiter.allow(key, now)) return text(429, 'too many sessions');
       recentSessions.add(sessionId, now);
     }
 
@@ -80,8 +87,10 @@ export class Session extends DurableObject<Env> {
   private core: SessionCore | null = null;
   private readonly sockets = new Map<number, WebSocket>();
   private timer: ReturnType<typeof setInterval> | null = null;
-  /** The socket being attached during `core.connect()`, before its conn id is known. */
+  /** The socket being attached during `core.connect()`, before it is in `sockets`. */
   private attaching: WebSocket | null = null;
+  /** The conn id `attaching` will get if the connect succeeds. */
+  private pendingConn = 0;
 
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return text(426, 'websocket upgrade required');
@@ -90,7 +99,8 @@ export class Session extends DurableObject<Env> {
     const core = this.core ??= new SessionCore({
       now: () => Date.now(),
       send: (_role, frame, conn) => {
-        try { (this.sockets.get(conn) ?? this.attaching)?.send(frame); } catch { /* socket already gone */ }
+        const ws = this.sockets.get(conn) ?? (conn === this.pendingConn ? this.attaching : null);
+        try { ws?.send(frame); } catch { /* socket already gone */ }
       },
       close: (_role, code, reason, conn) => {
         const ws = this.sockets.get(conn);
@@ -98,7 +108,7 @@ export class Session extends DurableObject<Env> {
         try { ws?.close(code, reason); } catch { /* already closed */ }
         this.maybeStopTimer();
       },
-    });
+    }, limitsFromEnv(this.env), queuedBytesTotal);
 
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -109,8 +119,10 @@ export class Session extends DurableObject<Env> {
 
     // connect() may deliver queued frames to the new socket before its conn id is returned.
     this.attaching = server;
+    this.pendingConn = core.nextConn;
     const result = core.connect(role);
     this.attaching = null;
+    this.pendingConn = 0;
     if (!result.ok) {
       server.close(result.code, result.reason);
       return new Response(null, { status: 101, webSocket: client });
@@ -148,8 +160,9 @@ export class Session extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** Stop ticking once no socket is attached and nothing is queued (queued frames still age out). */
   private maybeStopTimer(): void {
-    if (this.timer !== null && this.sockets.size === 0) {
+    if (this.timer !== null && this.sockets.size === 0 && (this.core?.queuedBytes ?? 0) === 0) {
       clearInterval(this.timer);
       this.timer = null;
     }

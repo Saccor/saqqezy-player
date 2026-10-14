@@ -60,6 +60,8 @@ export const MAX_FRAME_BYTES = FRAME_HEADER_BYTES + FRAME_IV_BYTES + MAX_CHUNK_C
 /** Limit for one message, both as JSON bytes and as the (possibly compressed) payload. */
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 export const MAX_IN_FLIGHT = 4;
+/** A partial message whose first chunk arrived this long ago is dropped. */
+export const REASSEMBLY_TIMEOUT_MS = 30_000;
 /** Compressed input is fed to the decompressor in slices of this size, so the output cap aborts early. */
 export const INFLATE_SLICE_BYTES = 64 * 1024;
 
@@ -278,12 +280,21 @@ interface PendingMessage {
   chunks: (Uint8Array | undefined)[];
   received: number;
   bytes: number;
+  startedAt: number;
+}
+
+export interface ReassemblerOptions {
+  /** Clock for the partial-message timeout. Defaults to `Date.now`. */
+  now?: () => number;
+  /** Defaults to REASSEMBLY_TIMEOUT_MS. */
+  timeoutMs?: number;
 }
 
 /**
  * Collects decrypted chunks per msgId and returns the parsed JSON once every chunk is in.
  * Memory is bounded: at most MAX_MESSAGE_BYTES per message (before and after decompression) and at most
  * MAX_IN_FLIGHT incomplete messages; when a new message would exceed that, the oldest partial one is dropped.
+ * A partial message is also dropped once its first chunk is REASSEMBLY_TIMEOUT_MS old (checked on every push).
  * A rejected chunk drops its whole message.
  *
  * Replay protection is not done here. The caller must apply a ReplayWindow to the msgId of each completed
@@ -293,8 +304,24 @@ interface PendingMessage {
  */
 export class Reassembler {
   private readonly pending = new Map<number, PendingMessage>();
+  private readonly now: () => number;
+  private readonly timeoutMs: number;
+
+  constructor(opts: ReassemblerOptions = {}) {
+    this.now = opts.now ?? Date.now;
+    this.timeoutMs = opts.timeoutMs ?? REASSEMBLY_TIMEOUT_MS;
+  }
+
+  /** Number of incomplete messages held. */
+  get pendingCount(): number { return this.pending.size; }
 
   async push(h: FrameHeader, chunk: Uint8Array): Promise<unknown | undefined> {
+    const now = this.now();
+    // Insertion order is start order, so expired partial messages are always at the front.
+    for (const [id, p] of this.pending) {
+      if (now - p.startedAt < this.timeoutMs) break;
+      this.pending.delete(id);
+    }
     const { msgId, index, count, compressed } = h;
     if (!isU32(msgId) || !Number.isInteger(count) || count < 1 || count > MAX_U16
       || !Number.isInteger(index) || index < 0 || index >= count) {
@@ -310,7 +337,7 @@ export class Reassembler {
         const oldest = this.pending.keys().next();
         if (!oldest.done) this.pending.delete(oldest.value);
       }
-      p = { count, compressed, chunks: new Array<Uint8Array | undefined>(count), received: 0, bytes: 0 };
+      p = { count, compressed, chunks: new Array<Uint8Array | undefined>(count), received: 0, bytes: 0, startedAt: now };
       this.pending.set(msgId, p);
     } else if (p.count !== count || p.compressed !== compressed || p.chunks[index] !== undefined) {
       this.pending.delete(msgId);

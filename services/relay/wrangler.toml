@@ -7,6 +7,9 @@ send_metrics = false
 [observability]
 enabled = false
 
+# Top-level vars are what `wrangler dev` uses; `[env.production]` does not inherit them.
+# The timer overrides RELAY_TTL_UNPAIRED_MS, RELAY_TTL_MAX_MS and RELAY_IDLE_MS are set only by
+# the `dev` script (`wrangler dev --var ...`); unset means the production values.
 [vars]
 ALLOWED_ORIGINS = "http://localhost:5174,http://localhost:5173"
 
@@ -22,3 +25,21 @@ new_sqlite_classes = ["Session"]
 [dev]
 ip = "127.0.0.1"
 port = 8787
+
+# Production: `pnpm relay:deploy` runs `wrangler deploy --env production`.
+[env.production]
+
+[env.production.observability]
+enabled = false
+
+[env.production.vars]
+# Placeholder: replace with the real companion origin before deploying.
+ALLOWED_ORIGINS = "https://manage.example.com"
+# Add hosted TV origins to the same comma-separated list, for example:
+#   ALLOWED_ORIGINS = "https://manage.example.com,https://tv.example.com"
+# (hosted TV web builds such as Titan OS, and any other TV build served over https).
+# Packaged Tizen/webOS builds send Origin null or file://, which role=tv accepts without a listing.
+
+[[env.production.durable_objects.bindings]]
+name = "SESSION"
+class_name = "Session"
