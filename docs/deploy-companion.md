@@ -3,22 +3,22 @@
 The companion (`apps/companion`) is a static site for Cloudflare Pages. `pnpm build:companion` writes it to
 `apps/companion/dist/`. Task 8 of Plan 4 completes this guide.
 
-## Security headers (`apps/companion/public/_headers`)
+## Security headers (`dist/_headers`, generated)
 
-Vite copies `public/_headers` into `dist/`, and Cloudflare Pages applies it to every response:
+`pnpm build:companion` writes `dist/_headers` (a Vite plugin in `apps/companion/vite.config.ts`, using
+`apps/companion/src/build/headers.ts`), and Cloudflare Pages applies it to every response:
 
-- `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' wss://RELAY_ORIGIN_PLACEHOLDER ws://127.0.0.1:8787; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+- `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' <relay origin>; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
 - `Referrer-Policy: no-referrer`
 - `X-Content-Type-Options: nosniff`
 
-**Before each production deploy, set the relay origin.** Replace `wss://RELAY_ORIGIN_PLACEHOLDER` in
-`_headers` with the production relay origin, the same host as `VITE_RELAY_URL` for that build (for example
-`wss://relay.example.com`). If you skip this, the browser blocks the WebSocket and pairing fails with
-"Can't reach the TV".
+`<relay origin>` is the scheme, host and port of `VITE_RELAY_URL` for that build (for example
+`wss://relay.example.com`). Without `VITE_RELAY_URL` it is the local dev relay, `ws://127.0.0.1:8787`. There is
+no manual step: set `VITE_RELAY_URL` for the production build and the CSP follows. The build fails if
+`VITE_RELAY_URL` is not a `ws:` or `wss:` URL.
 
 Notes:
-- `ws://127.0.0.1:8787` is the local dev relay (`pnpm relay:dev`). It is harmless in production, but you can
-  remove it from production builds.
+- Don't edit `dist/_headers` by hand; it is rewritten on every build.
 - `img-src https:` is needed because channel logos come from the user's own playlist and guide URLs.
 - The build has no inline scripts or styles (`script-src 'self'` and `style-src 'self'` hold). Check
   `dist/index.html` after changing the Vite config or adding a plugin.
