@@ -1,7 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
+import type { ChannelRow, SearchResult } from '@iptv/app-api';
+import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
+import {
+  countText,
+  createSearchMemory,
+  createSearcher,
+  flattenResults,
+  GUIDE_PENDING_NOTE,
+  isSelectable,
+  resultsMessage,
+  selectableCount,
+  type SearchRow,
+  type SearchState,
+} from './searchLogic.ts';
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+const row = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
+const result = (over: Partial<SearchResult> = {}): SearchResult => ({ channels: [], onNow: [], later: [], guidePending: false, ...over });
+const chRow = (n: number): SearchRow => ({ kind: 'channel', channel: row(n) });
 
 describe('createSearcher', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -72,13 +88,46 @@ describe('createSearcher', () => {
   });
 });
 
+describe('flattenResults', () => {
+  test('sections in order with headers; empty sections omitted', () => {
+    const rows = flattenResults(result({
+      channels: [row(1)],
+      later: [{ title: 'Later Show', channel: row(2), start: 2, stop: 3, more: 0 }],
+    }));
+    expect(rows.map((r) => r.kind)).toEqual(['header', 'channel', 'header', 'later']);
+    expect(rows[0]).toEqual({ kind: 'header', label: 'Channels' });
+    expect(rows[2]).toEqual({ kind: 'header', label: 'Coming up' });
+  });
+
+  test('on now sits between channels and coming up', () => {
+    const rows = flattenResults(result({
+      channels: [row(1)],
+      onNow: [{ channel: row(3), title: 'Now Show', start: 0, stop: 1 }],
+      later: [{ title: 'Later Show', channel: row(2), start: 2, stop: 3, more: 1 }],
+    }));
+    expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'On now', 'Coming up']);
+  });
+
+  test('pending note only when something is selectable', () => {
+    expect(flattenResults(result({ channels: [row(1)], guidePending: true })).at(-1)).toEqual({ kind: 'note', label: GUIDE_PENDING_NOTE });
+    expect(flattenResults(result({ guidePending: true }))).toEqual([]);
+  });
+
+  test('selectable rows exclude headers and notes', () => {
+    const rows = flattenResults(result({ channels: [row(1), row(2)], guidePending: true }));
+    expect(rows.map(isSelectable)).toEqual([false, true, true, false]);
+    expect(selectableCount(rows)).toBe(2);
+    expect(isSelectable(undefined)).toBe(false);
+  });
+});
+
 describe('resultsMessage', () => {
-  const st = (p: Partial<SearchState<string>>): SearchState<string> => ({ query: 'xyz', results: [], busy: false, failed: false, ...p });
+  const st = (p: Partial<SearchState<SearchRow>>): SearchState<SearchRow> => ({ query: 'xyz', results: [], busy: false, failed: false, ...p });
   it('covers each state', () => {
-    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels');
+    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels and programmes');
     expect(resultsMessage(st({ busy: true }))).toBe('Searching…');
-    expect(resultsMessage(st({}))).toBe('No channels match "xyz"');
-    expect(resultsMessage(st({ results: ['a'] }))).toBeUndefined();
+    expect(resultsMessage(st({}))).toBe('No channels or programmes match "xyz"');
+    expect(resultsMessage(st({ results: [chRow(1)] }))).toBeUndefined();
     expect(resultsMessage(st({ failed: true }))).toBe("Couldn't search right now.");
   });
 });
@@ -101,11 +150,16 @@ describe('stable results while searching', () => {
   });
 
   it('countText shows a subtle Searching… while busy, otherwise the count', () => {
-    expect(countText({ query: 'a', results: ['x'], busy: true, failed: false })).toBe('Searching…');
+    expect(countText({ query: 'a', results: [chRow(1)], busy: true, failed: false })).toBe('Searching…');
     expect(countText({ query: 'a', results: [], busy: true, failed: false })).toBe('');
-    expect(countText({ query: 'a', results: ['x'], busy: false, failed: false })).toBe('1 channel');
-    expect(countText({ query: 'a', results: ['x', 'y'], busy: false, failed: false })).toBe('2 channels');
+    expect(countText({ query: 'a', results: [chRow(1)], busy: false, failed: false })).toBe('1 result');
+    expect(countText({ query: 'a', results: [chRow(1), chRow(2)], busy: false, failed: false })).toBe('2 results');
     expect(countText({ query: '', results: [], busy: false, failed: false })).toBe('');
+  });
+
+  it('countText counts selectable rows only, not headers or notes', () => {
+    const rows: SearchRow[] = [{ kind: 'header', label: 'Channels' }, chRow(1), { kind: 'note', label: GUIDE_PENDING_NOTE }];
+    expect(countText({ query: 'a', results: rows, busy: false, failed: false })).toBe('1 result');
   });
 });
 

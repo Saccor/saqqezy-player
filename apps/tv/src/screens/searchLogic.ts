@@ -1,3 +1,5 @@
+import type { ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
+
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
 
 export const SEARCH_DEBOUNCE_MS = 150;
@@ -66,21 +68,60 @@ export function createSearcher<T>(
   };
 }
 
+export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
+
+/** One row of the flat result list; headers and notes are drawn but never take focus. */
+export type SearchRow =
+  | { kind: 'header'; label: string }
+  | { kind: 'note'; label: string }
+  | { kind: 'channel'; channel: ChannelRow }
+  | { kind: 'onNow'; hit: ProgrammeHit }
+  | { kind: 'later'; hit: TitleHit };
+
+/** Sections in fixed order (Channels, On now, Coming up), each under a header; empty sections are left out. */
+export function flattenResults(r: SearchResult): SearchRow[] {
+  const out: SearchRow[] = [];
+  if (r.channels.length) {
+    out.push({ kind: 'header', label: 'Channels' });
+    for (const channel of r.channels) out.push({ kind: 'channel', channel });
+  }
+  if (r.onNow.length) {
+    out.push({ kind: 'header', label: 'On now' });
+    for (const hit of r.onNow) out.push({ kind: 'onNow', hit });
+  }
+  if (r.later.length) {
+    out.push({ kind: 'header', label: 'Coming up' });
+    for (const hit of r.later) out.push({ kind: 'later', hit });
+  }
+  if (r.guidePending && out.length) out.push({ kind: 'note', label: GUIDE_PENDING_NOTE });
+  return out;
+}
+
+export function isSelectable(row: SearchRow | undefined): boolean {
+  return row !== undefined && row.kind !== 'header' && row.kind !== 'note';
+}
+
+export function selectableCount(rows: readonly SearchRow[]): number {
+  let n = 0;
+  for (const r of rows) if (isSelectable(r)) n++;
+  return n;
+}
+
 /** Text for the empty/placeholder area of the results (undefined when there are results). */
-export function resultsMessage(s: SearchState<unknown>): string | undefined {
-  if (s.query === '') return 'Type to search channels';
-  if (s.results.length > 0) return undefined;
+export function resultsMessage(s: SearchState<SearchRow>): string | undefined {
+  if (s.query === '') return 'Type to search channels and programmes';
+  if (selectableCount(s.results) > 0) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
-  return `No channels match "${s.query}"`;
+  return `No channels or programmes match "${s.query}"`;
 }
 
 /** The line above the results: a subtle `Searching…` while a query runs over the shown results, else the count. */
-export function countText(s: SearchState<unknown>): string {
-  const n = s.results.length;
+export function countText(s: SearchState<SearchRow>): string {
+  const n = selectableCount(s.results);
   if (n === 0) return '';
   if (s.busy) return 'Searching…';
-  return `${n} ${n === 1 ? 'channel' : 'channels'}`;
+  return `${n} ${n === 1 ? 'result' : 'results'}`;
 }
 
 export interface SearchMemory {
