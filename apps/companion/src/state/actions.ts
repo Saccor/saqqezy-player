@@ -3,7 +3,8 @@ import type { CompanionClient } from '../connection/client.ts';
 import { COPY, resultErrorCopy } from '../logic/copy.ts';
 import { createOpsSender } from '../logic/opsSender.ts';
 import {
-  clearProgress, currentClient, markOpsSent, optimistic, publishLayout, setWork, showNotice, store, type WorkOp,
+  clearProgress, currentClient, markOpsSent, nextWorkToken, optimistic, publishLayout, setWork, showNotice, store,
+  type WorkOp,
 } from './store.ts';
 
 /** "Loading channels… 1,234" from the TV's progress messages. */
@@ -37,12 +38,15 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
   const { key } = opts;
   const op = OPS[msg.t];
   let stalled = false;
-  if (key !== undefined && op) setWork(key, { op, stalled: false });
+  // A newer request for the same source replaces this marker; only the request that set a marker touches it.
+  const token = nextWorkToken();
+  const mine = () => key !== undefined && store.working[key]?.token === token;
+  if (key !== undefined && op) setWork(key, { op, stalled: false, token });
   let err: string | undefined;
   try {
     const r = await c.request(msg, () => {
       stalled = true;
-      if (key !== undefined && op && store.working[key]) setWork(key, { op, stalled: true });
+      if (key !== undefined && op && mine()) setWork(key, { op, stalled: true, token });
       opts.onStall?.();
     });
     err = r.ok ? undefined : resultErrorCopy(r.error);
@@ -51,7 +55,7 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
     else if (e instanceof Error && e.name === 'QueueFullError') err = COPY.busy;
     else err = COPY.genericError;
   } finally {
-    if (key !== undefined && currentClient() === c) setWork(key, undefined);
+    if (key !== undefined && currentClient() === c && mine()) setWork(key, undefined);
     clearProgress();
     // The TV does not push source changes: ask for the state again (cheap when nothing changed).
     if (currentClient() === c) c.getState();
