@@ -19,6 +19,8 @@ export const COPY = {
   invalidLink: 'This link is not valid. Show a new code on your TV, or type the code below.',
   /** The page was hidden or restored from the back/forward cache: that session is over. */
   sessionEnded: 'This session ended. Show a new code on your TV.',
+  /** A layout change the reducer refuses (e.g. too many lists, a name that is too long). */
+  opRejected: 'That change could not be made.',
 } as const;
 
 /**

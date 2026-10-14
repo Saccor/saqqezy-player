@@ -1,8 +1,11 @@
+import { createSignal } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import type { CompanionState, PairingSecrets } from '@iptv/companion-protocol';
+import type { CompanionChannel, CompanionState, PairingSecrets } from '@iptv/companion-protocol';
+import type { Layout } from '@iptv/core';
 import { CompanionClient, type LinkStatus } from '../connection/client.ts';
 import { detectClient } from '../connection/pair.ts';
 import { COPY, endCopy } from '../logic/copy.ts';
+import { OptimisticLayout } from '../logic/optimistic.ts';
 
 export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787';
 
@@ -53,6 +56,28 @@ const [store, setStore] = createStore<AppState>({
 
 export { store };
 
+/**
+ * The layout the pages show: the TV's last layout with the changes still on their way applied on top
+ * (`OptimisticLayout`). Plain signals, not store state: layouts and the channel list are replaced whole, never
+ * proxied or mutated, and big derived views (groups, the picker's search keys) are memoised on their identity.
+ */
+export const optimistic = new OptimisticLayout();
+const [layout, setLayout] = createSignal<Layout | undefined>(undefined);
+/** Every channel of the active source from the last full state (replaced whole on each state). */
+const [channels, setChannels] = createSignal<readonly CompanionChannel[]>([]);
+export { channels, layout };
+
+/** Re-publishes the optimistic view after a change to it. */
+export function publishLayout(): void {
+  setLayout(() => optimistic.view());
+}
+
+/** Dev only: when the last `ops` went out (Date.now(), comparable across tabs), for the latency log. */
+let lastOpsSentAt: number | undefined;
+export function markOpsSent(): void {
+  lastOpsSentAt = Date.now();
+}
+
 /** The live session. Memory only: a reload means pairing again. */
 let client: CompanionClient | undefined;
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -97,6 +122,9 @@ function sessionGone(endMessage: string): void {
   setStore({
     phase: 'ended', endMessage, state: undefined, progress: undefined, stateStatus: 'ok', tvLabel: undefined, tvProtocol: undefined,
   });
+  optimistic.reset();
+  publishLayout();
+  setChannels([]);
   setStore('working', reconcile({}));
 }
 
@@ -109,6 +137,9 @@ export function connect(secrets: PairingSecrets): void {
     endMessage: undefined, pairError: undefined, stateStatus: 'ok',
   });
   setStore('working', reconcile({}));
+  optimistic.reset();
+  publishLayout();
+  setChannels([]);
   const c: CompanionClient = new CompanionClient(secrets, {
     relayUrl: RELAY_URL,
     client: detectClient(navigator.userAgent, navigator.maxTouchPoints ?? 0),
@@ -121,14 +152,26 @@ export function connect(secrets: PairingSecrets): void {
         if (client !== c) return;
         // A `layoutChanged` that overtook this state is newer: ignore the older state.
         if (store.state && state.layout.version < store.state.layout.version) return;
+        // The optimistic layer gets its own copy: store state is proxied and reconciled in place.
+        optimistic.confirm(structuredClone(state.layout));
+        setChannels(state.channels.slice());
         setStore('state', reconcile(state, { key: 'id' }));
+        publishLayout();
         // The state is the truth now: stalled work no longer needs its marker.
         for (const [key, w] of Object.entries(store.working)) if (w?.stalled) setWork(key, undefined);
       },
-      layout: (version, layout) => {
+      layout: (version, next) => {
         if (client !== c || !store.state) return;
-        setStore('state', 'layout', reconcile(layout));
+        if (next.version < store.state.layout.version) return;
+        if (import.meta.env.DEV) {
+          const now = Date.now();
+          const since = lastOpsSentAt === undefined ? '' : ` (${now - lastOpsSentAt} ms after the last ops were sent)`;
+          console.info(`[companion] layoutChanged v${version} at ${now}${since}`);
+        }
+        optimistic.confirm(structuredClone(next));
+        setStore('state', 'layout', reconcile(next));
         setStore('state', 'version', version);
+        publishLayout();
       },
       progress: (phase, count) => {
         if (client !== c) return;

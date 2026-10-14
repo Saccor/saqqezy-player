@@ -4,7 +4,8 @@ import {
   type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
 import {
-  CompanionClient, GETSTATE_BACKOFF_MS, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers, type StateStatus,
+  CompanionClient, GETSTATE_BACKOFF_MS, isUnknownTvMessage, SOURCE_IDLE_TIMEOUT_MS, WELCOME_TIMEOUT_MS, type ClientHandlers,
+  type StateStatus,
 } from './client.ts';
 import { emptyLayout } from '@iptv/core';
 import { REQUEST_TIMEOUT_MS } from './pending.ts';
@@ -262,5 +263,35 @@ describe('CompanionClient', () => {
     await waitFor(() => tv.of('getState').length === 2, 'getState after the stall');
     await tv.tv.send({ t: 'result', requestMsgId: req.msgId, ok: true });
     await expect(done).resolves.toMatchObject({ ok: true });
+  });
+
+  it('drops messages with an unknown t from a newer TV silently: they never close the session', async () => {
+    const { ev, tv } = start();
+    await openAndWelcome(tv, ev);
+    // More than the 5-failure limit; each is an authentic message of a type this companion does not know.
+    for (let i = 0; i < 8; i++) await tv.tv.send({ t: 'fromTheFuture', n: i } as unknown as TvToPhone);
+    await tv.tv.send(STATE);
+    await waitFor(() => ev.states === 1, 'the state after the unknown messages');
+    expect(ev.ended).toEqual([]);
+  });
+
+  it('still counts a malformed message of a known t as a failure', async () => {
+    const { ev, tv } = start();
+    await openAndWelcome(tv, ev);
+    for (let i = 0; i < 5; i++) await tv.tv.send({ t: 'progress', phase: 'nope', count: -1 } as unknown as TvToPhone);
+    await waitFor(() => ev.ended.length > 0, 'the close');
+    expect(ev.ended).toEqual(['peer-errors']);
+  });
+});
+
+describe('isUnknownTvMessage', () => {
+  it('is true only for a record whose t this companion does not know', () => {
+    expect(isUnknownTvMessage({ t: 'fromTheFuture' })).toBe(true);
+    expect(isUnknownTvMessage({ t: 'state' })).toBe(false); // known t, even if malformed
+    expect(isUnknownTvMessage({ t: 'result', requestMsgId: 1, ok: true })).toBe(false);
+    expect(isUnknownTvMessage({ t: 7 })).toBe(false);
+    expect(isUnknownTvMessage({})).toBe(false);
+    expect(isUnknownTvMessage(null)).toBe(false);
+    expect(isUnknownTvMessage(['t'])).toBe(false);
   });
 });

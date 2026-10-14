@@ -46,6 +46,21 @@ export interface ClientOptions {
   isHidden?: () => boolean;
 }
 
+/** The `t` values `isTvToPhone` knows. */
+const TV_TO_PHONE_TYPES: ReadonlySet<string> = new Set([
+  'welcome', 'state', 'stateUnchanged', 'source', 'layoutChanged', 'progress', 'result', 'bye',
+] satisfies TvToPhone['t'][]);
+
+/**
+ * True for a record whose `t` this companion does not know: a message from a newer TV. The channel drops it
+ * silently (counted in `unknownCount`) instead of counting it toward the 5-failure close, mirroring the TV side.
+ * A malformed message of a known `t` still counts as a failure.
+ */
+export function isUnknownTvMessage(x: unknown): boolean {
+  return typeof x === 'object' && x !== null && !Array.isArray(x)
+    && typeof (x as Record<string, unknown>)['t'] === 'string' && !TV_TO_PHONE_TYPES.has((x as Record<string, string>)['t']!);
+}
+
 type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' }>;
 const SOURCE_OPS: ReadonlySet<string> = new Set(['addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh']);
 
@@ -103,7 +118,7 @@ export class CompanionClient {
       this.transportReason = reason;
     });
     this.channel = new SecureChannel<PhoneToTv, TvToPhone>({
-      secrets, role: 'phone', transport: this.transport, validate: isTvToPhone,
+      secrets, role: 'phone', transport: this.transport, validate: isTvToPhone, isUnknown: isUnknownTvMessage,
     });
     this.channel.onMessage((msg) => this.onMessage(msg));
     this.channel.onClose((reason) => {

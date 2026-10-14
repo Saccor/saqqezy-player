@@ -1,6 +1,9 @@
 import { createEffect, createSignal, For, Match, on, Show, Switch, type Accessor, type JSX } from 'solid-js';
 import { pairFromFragment } from './connection/pair.ts';
 import { COPY } from './logic/copy.ts';
+import { DisplayPage } from './pages/Display.tsx';
+import { GroupsPage } from './pages/Groups.tsx';
+import { ListsPage } from './pages/Lists.tsx';
 import { PairPage } from './pages/Pair.tsx';
 import { SourcesPage } from './pages/Sources.tsx';
 import { connect, retryState, setPairError, store } from './state/store.ts';
@@ -130,11 +133,14 @@ function Shell() {
           <Match when={tab() === 'sources'}>
             <SourcesPage />
           </Match>
-          <Match when={tab() !== 'sources'}>
-            <section class="page">
-              <h1>{TABS.find((t) => t.id === tab())?.label}</h1>
-              <p class="muted">This section is not available yet.</p>
-            </section>
+          <Match when={tab() === 'lists'}>
+            <ListsPage />
+          </Match>
+          <Match when={tab() === 'groups'}>
+            <GroupsPage />
+          </Match>
+          <Match when={tab() === 'display'}>
+            <DisplayPage />
           </Match>
         </Switch>
       </main>
