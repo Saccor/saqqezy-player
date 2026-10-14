@@ -4,6 +4,7 @@ import {
   HEARTBEAT_MS,
   PACE_MAX_FRAMES,
   PACE_WINDOW_MS,
+  QUEUE_MAX_AGE_MS,
   QUEUE_MAX_BYTES,
   RECONNECT_GIVE_UP_MS,
   STABLE_MS,
@@ -317,6 +318,72 @@ describe('WebSocketRelayTransport', () => {
     last().serverOpen();
     expect(last().sent.map((f) => f[0])).toEqual([1]);
     expect(reconnects()).toBe(1);
+  });
+
+  test('frames older than the queue age limit are dropped when a socket opens, not a give-up', () => {
+    let clock = 0;
+    const t = new WebSocketRelayTransport({ url: URL_, WebSocket: FakeWs, random: () => 0.5, now: () => clock });
+    const closes: string[] = [];
+    t.onClose((r) => closes.push(r));
+    last().serverOpen();
+    last().serverClose(1006);
+    t.send(frame(1, 100));
+    clock += QUEUE_MAX_AGE_MS + 10_000;
+    t.send(frame(2, 50));
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(150);
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
+    last().serverOpen();
+    expect(closes).toEqual([]);
+    expect(last().sent.map((f) => f[0])).toEqual([2]);
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(0);
+    t.send(frame(3));
+    expect(last().sent.map((f) => f[0])).toEqual([2, 3]);
+  });
+
+  test('when ws.send throws partway through a message, its remaining queued frames are dropped', () => {
+    const { t } = make();
+    const first = last();
+    first.serverOpen();
+    let calls = 0;
+    const realSend = first.send.bind(first);
+    first.send = (d) => {
+      if (++calls === 2) throw new Error('broken');
+      realSend(d);
+    };
+    t.send(frame(1), 7); // goes out
+    t.send(frame(2), 7); // throws: the socket is dropped, this frame stays queued
+    t.send(frame(3), 7); // queued behind it
+    t.send(frame(9), 8); // a later whole message
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
+    last().serverOpen();
+    // Frames 2 and 3 of message 7 would be a partial message: only message 8 goes out.
+    expect(last().sent.map((f) => f[0])).toEqual([9]);
+    expect((t as unknown as { queuedBytes: number }).queuedBytes).toBe(0);
+  });
+
+  test('a socket that drops mid-message does not deliver the rest of that message on the next socket', () => {
+    const { t } = make();
+    last().serverOpen();
+    t.send(frame(1), 5);
+    last().readyState = 2; // CLOSING: the rest of the message queues behind it
+    t.send(frame(2), 5);
+    t.send(frame(3), 6);
+    last().serverClose(1006);
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
+    last().serverOpen();
+    expect(last().sent.map((f) => f[0])).toEqual([3]);
+  });
+
+  test('a message of which nothing was sent before a throw stays queued whole', () => {
+    const { t } = make();
+    const first = last();
+    first.serverOpen();
+    first.send = () => { throw new Error('broken'); };
+    t.send(frame(1), 7);
+    t.send(frame(2), 7);
+    vi.advanceTimersByTime(BACKOFF_MAX_MS * 2);
+    last().serverOpen();
+    expect(last().sent.map((f) => f[0])).toEqual([1, 2]);
   });
 
   test('4003 with reason quota is reported as quota', () => {

@@ -16,8 +16,14 @@ import { QueueFullError, type RelayTransport } from './channel.ts';
  * - While reconnecting (or while pacing), frames queue: at most QUEUE_MAX_BYTES, each at most QUEUE_MAX_AGE_MS old.
  *   A frame that would push the queue past QUEUE_MAX_BYTES is refused with a non-final `QueueFullError`; nothing
  *   is queued and the transport stays up. `fits()` lets the channel check a whole message before sending any of
- *   it. A frame older than QUEUE_MAX_AGE_MS when its socket opens gives up ('queue-overflow').
+ *   it. When a socket opens (or the pacing timer fires), queued frames older than QUEUE_MAX_AGE_MS are dropped
+ *   (and `queuedBytes` updated) instead of giving up: the peer tolerates the gaps and both sides re-sync after a
+ *   reconnect (the companion asks `getState{ haveVersion }`, the TV re-pushes the layout).
  *   After a final close `send()` throws.
+ * - No half-sent messages: `send(frame, messageId)` groups the frames of one message. If the socket drops, or
+ *   `ws.send` throws, after some frames of a message went out, that message's remaining queued frames are
+ *   dropped rather than sent on the next socket. (The peer's partial reassembly times out; both sides re-sync.)
+ *   A message of which nothing went out stays queued whole.
  * - Frames are only dequeued while the socket's `readyState` is OPEN (a CLOSING socket would drop them).
  * - Outgoing frames are paced below the relay's 200 frames per 10 s (pings included, across reconnects).
  * - A 0-byte binary ping goes out every HEARTBEAT_MS while connected; incoming 0-byte frames are ignored.
@@ -98,8 +104,12 @@ export class WebSocketRelayTransport implements RelayTransport {
   /** Start of the current run of failures; null once a connection proved stable. */
   private failingSince: number | null;
 
-  private queue: { frame: Uint8Array; at: number }[] = [];
+  private queue: { frame: Uint8Array; at: number; group: number | undefined }[] = [];
   private queuedBytes = 0;
+  /** The message of the last frame handed to a socket; its still-queued frames are a partial message if that socket dies. */
+  private lastSentGroup: number | undefined;
+  /** A message whose queued frames were just dropped: the rest of its frames, still being sent, are discarded too. */
+  private discardGroup: number | undefined;
   /** Send times of the last PACE_WINDOW_MS (pings included). Kept across reconnects, like the relay's window. */
   private sentTimes: number[] = [];
 
@@ -128,10 +138,12 @@ export class WebSocketRelayTransport implements RelayTransport {
   }
 
   /** Queues one frame and sends what the pacing allows. Throws QueueFullError (non-final) when the queue is full. */
-  send(frame: Uint8Array): void {
+  send(frame: Uint8Array, messageId?: number): void {
     if (this.final) throw new Error('transport closed');
+    if (messageId !== undefined && messageId === this.discardGroup) return; // the rest of a message already cut
+    this.discardGroup = undefined;
     if (!this.fits([frame.byteLength])) throw new QueueFullError();
-    this.queue.push({ frame, at: this.now() });
+    this.queue.push({ frame, at: this.now(), group: messageId });
     this.queuedBytes += frame.byteLength;
     this.pump();
   }
@@ -262,6 +274,7 @@ export class WebSocketRelayTransport implements RelayTransport {
   private dropped(): void {
     const wasOpen = this.isOpen;
     this.abandonSocket();
+    this.dropPartial();
     if (wasOpen) this.fire(this.disconnectedListeners);
     if (this.final) return;
     const now = this.now();
@@ -294,6 +307,19 @@ export class WebSocketRelayTransport implements RelayTransport {
     } catch {
       // Already closed.
     }
+  }
+
+  /** Drops the queued rest of a message that was partly sent on the socket that just went away. */
+  private dropPartial(): void {
+    const g = this.lastSentGroup;
+    this.lastSentGroup = undefined;
+    if (g === undefined) return;
+    this.discardGroup = g;
+    this.queue = this.queue.filter((item) => {
+      if (item.group !== g) return true;
+      this.queuedBytes -= item.frame.byteLength;
+      return false;
+    });
   }
 
   private teardown(): void {
@@ -350,10 +376,10 @@ export class WebSocketRelayTransport implements RelayTransport {
     // A CLOSING socket accepts send() and silently drops the data: keep the frames for the next socket.
     if (ws.readyState !== OPEN) return;
     const now = this.now();
-    const head = this.queue[0];
-    if (head && now - head.at > QUEUE_MAX_AGE_MS) {
-      this.giveUp('queue-overflow');
-      return;
+    // Too old to be worth sending: drop (the queue is in send order, so the aged frames are at the head).
+    while (this.queue.length && now - this.queue[0]!.at > QUEUE_MAX_AGE_MS) {
+      const old = this.queue.shift()!;
+      this.queuedBytes -= old.frame.byteLength;
     }
     let budget = this.budget(now);
     while (this.queue.length && budget > 0) {
@@ -361,13 +387,14 @@ export class WebSocketRelayTransport implements RelayTransport {
       try {
         ws.send(item.frame);
       } catch {
-        this.dropped(); // the item stays queued for the next socket
+        this.dropped(); // the item stays queued for the next socket, unless its message was partly sent
         return;
       }
       this.queue.shift();
       this.queuedBytes -= item.frame.byteLength;
       this.sentTimes.push(now);
       budget--;
+      this.lastSentGroup = item.group;
     }
     if (this.queue.length) {
       const wait = this.sentTimes[0]! + PACE_WINDOW_MS - now + 1;
