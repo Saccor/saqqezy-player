@@ -27,6 +27,10 @@ export function redactUrl(raw: string): string {
   if (parts.length >= 5 && ['live', 'movie', 'series'].includes(parts[1] ?? '')) {
     parts[2] = '***';
     parts[3] = '***';
+  } else if (parts.length === 4 && parts[1] && parts[2] && /^\d+$/.test(parts[3] ?? '')) {
+    // Xtream short form: /{user}/{pass}/{id}
+    parts[1] = '***';
+    parts[2] = '***';
   }
   const path = parts.join('/');
   const query = u.searchParams.toString().replace(/%2A/g, '*'); // not replaceAll: Chromium 85+ only

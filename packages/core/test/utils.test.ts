@@ -36,6 +36,16 @@ describe('redactUrl', () => {
     expect(redactUrl('http://example.test/player_api.php?username=u&password=p&action=x'))
       .toBe('http://example.test/player_api.php?username=***&password=***&action=x');
   });
+  test('hides credentials in the Xtream short form /{user}/{pass}/{id}', () => {
+    expect(redactUrl('http://example.test:8080/user1/pass1/42')).toBe('http://example.test:8080/***/***/42');
+    expect(redactUrl('http://example.test/user1/pass1/42?token=1')).toBe('http://example.test/***/***/42?token=1');
+  });
+  test('leaves other three-segment paths alone', () => {
+    expect(redactUrl('http://example.test/a/b/c')).toBe('http://example.test/a/b/c');
+    expect(redactUrl('http://example.test/a/b/42.m3u8')).toBe('http://example.test/a/b/42.m3u8');
+    expect(redactUrl('http://example.test/x/a/b/42')).toBe('http://example.test/x/a/b/42');
+    expect(redactUrl('http://example.test/a/42')).toBe('http://example.test/a/42');
+  });
   test('returns non-URLs unchanged', () => {
     expect(redactUrl('not a url')).toBe('not a url');
   });
