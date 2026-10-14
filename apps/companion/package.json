@@ -14,6 +14,8 @@
     "solid-js": "1.9.17"
   },
   "devDependencies": {
+    "@iptv/app-api": "workspace:*",
+    "@iptv/storage": "workspace:*",
     "vite": "8.3.4",
     "vite-plugin-solid": "2.11.14"
   }

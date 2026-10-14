@@ -57,7 +57,7 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
   } finally {
     if (key !== undefined && currentClient() === c && mine()) setWork(key, undefined);
     clearProgress();
-    // The TV does not push source changes: ask for the state again (cheap when nothing changed).
+    // The TV pushes source changes too, but asking right away is cheap (`stateUnchanged` when nothing changed).
     if (currentClient() === c) c.getState();
   }
   if (err && opts.attached && !opts.attached()) {
@@ -73,6 +73,7 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
  */
 export const sendOps = createOpsSender({
   client: currentClient,
+  sourceId: () => store.state?.activeSourceId,
   optimistic,
   publish: publishLayout,
   notice: showNotice,

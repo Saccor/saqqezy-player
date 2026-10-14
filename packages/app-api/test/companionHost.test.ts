@@ -195,9 +195,10 @@ describe('CompanionHost', () => {
       { op: 'createList', id: 'l1', name: 'Evening' },
       { op: 'addToList', listId: 'l1', channelIds },
     ];
-    const res = await p.call({ t: 'ops', baseVersion: state.version, ops });
+    const res = await p.call({ t: 'ops', sourceId: state.activeSourceId!, baseVersion: state.version, ops });
     expect(res.ok).toBe(true);
     const changed = await p.next('layoutChanged', (m) => m.layout.lists.some((l) => l.id === 'l1'));
+    expect(changed.sourceId).toBe(state.activeSourceId);
     expect(changed.layout.lists.find((l) => l.id === 'l1')!.channelIds).toEqual(channelIds);
     expect(changed.version).toBe(changed.layout.version);
     expect((await s.api.getGroups()).some((g) => g.name === 'Evening')).toBe(true);
@@ -213,6 +214,79 @@ describe('CompanionHost', () => {
     await s.api.toggleFavourite(first.id);
     const m = await p.next('layoutChanged');
     expect(m.layout.lists[0]!.channelIds).toContain(first.id);
+  });
+
+  test('ops for a source that is no longer active are rejected with WrongSource', async () => {
+    const s = setup();
+    const { sourceId: a } = await s.api.addSource(xt());
+    const { sourceId: b } = await s.api.addSource({ ...xt(), name: 'Second' });
+    const { p } = await pairQr(s);
+    await hello(p);
+    await s.api.setActiveSource(b);
+    const before = await s.api.getLayout();
+    const res = await p.call({ t: 'ops', sourceId: a, baseVersion: 0, ops: [{ op: 'setHideNoEpg', value: true }] });
+    expect(res.ok).toBe(false);
+    expect(res.error).toEqual({ name: 'WrongSource', message: 'The TV switched to another source.' });
+    expect(await s.api.getLayout()).toEqual(before);
+    const ok = await p.call({ t: 'ops', sourceId: b, baseVersion: 0, ops: [{ op: 'setHideNoEpg', value: true }] });
+    expect(ok.ok).toBe(true);
+    expect((await p.next('layoutChanged')).sourceId).toBe(b);
+  });
+
+  test('a zap (markWatched) is not pushed to the companion; other layout changes are', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const first = (await s.api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await s.api.markWatched(first.id, 'all');
+    await s.api.markWatched(first.id, 'all');
+    await settle(100);
+    expect(p.inbox.some((m) => m.t === 'layoutChanged')).toBe(false);
+    await s.api.toggleFavourite(first.id);
+    const m = await p.next('layoutChanged');
+    expect(m.layout.lists[0]!.channelIds).toContain(first.id);
+    // The pushed layout still includes the zaps: only the push was skipped.
+    expect(m.layout.recent).toEqual([first.id]);
+  });
+
+  test('a source switch, a new source or a playlist change on the TV pushes one coalesced state', async () => {
+    const s = setup();
+    const { sourceId: a } = await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    await settle(400);
+    p.inbox.length = 0;
+    const spy = vi.spyOn(s.api, 'getCompanionState');
+
+    const { sourceId: b } = await s.api.addSource({ ...xt(), name: 'Second' });
+    const added = await p.next('state');
+    expect(added.state.sources.map((x) => x.id).sort()).toEqual([a, b].sort());
+    expect(added.state.activeSourceId).toBe(a);
+
+    // Switching runs setActiveSource, a fresh index and a background refresh: several changes, one push each burst.
+    await s.api.setActiveSource(b);
+    const switched = await p.next('state', (m) => m.state.activeSourceId === b);
+    expect(switched.state.sources.find((x) => x.active)!.id).toBe(b);
+    await s.api.idle();
+    await settle(400);
+    const extra = p.inbox.filter((m) => m.t === 'state').length;
+    expect(extra).toBeLessThanOrEqual(2);
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(4);
+
+    // The pushed state counts as received: haveVersion with nothing changed gets stateUnchanged.
+    p.inbox.length = 0;
+    await p.ch.send({ t: 'getState', haveVersion: (await s.api.getLayout()).version });
+    await p.next('stateUnchanged');
+  });
+
+  test('no state is pushed while no companion is connected', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await s.api.addSource({ ...xt(), name: 'Second' });
+    await settle(400);
+    expect(p.inbox.some((m) => m.t === 'state')).toBe(false);
   });
 
   test('state never carries credentials; getSource does, and only it', async () => {
@@ -476,7 +550,7 @@ describe('CompanionHost', () => {
     const { state } = await p.next('state');
     expect(state.channels.every((c) => !('displayName' in c))).toBe(true);
     const id = state.channels[0]!.id;
-    const renamed = await p.call({ t: 'ops', baseVersion: state.version, ops: [{ op: 'renameChannel', id, name: 'Mine' }] });
+    const renamed = await p.call({ t: 'ops', sourceId: state.activeSourceId!, baseVersion: state.version, ops: [{ op: 'renameChannel', id, name: 'Mine' }] });
     expect(renamed.ok).toBe(true);
     await p.ch.send({ t: 'getState' });
     const after = (await p.next('state')).state;

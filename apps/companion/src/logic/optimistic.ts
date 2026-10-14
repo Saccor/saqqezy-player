@@ -59,6 +59,13 @@ export class OptimisticLayout {
     if (this.pending.length !== before) this.cached = undefined;
   }
 
+  /** Forgets every change still on its way, acknowledged ones too (they were made for another source's layout). */
+  clearPending(): void {
+    if (this.pending.length === 0) return;
+    this.pending = [];
+    this.cached = undefined;
+  }
+
   /** Reasons the reducer would reject `ops` on the current view (empty: fine to send). */
   check(ops: LayoutOp[]): string[] {
     const v = this.view();

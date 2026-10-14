@@ -11,7 +11,7 @@ const PHONE: { [K in PhoneToTv['t']]: Extract<PhoneToTv, { t: K }> } = {
   getState: { t: 'getState', haveVersion: 3 },
   ping: { t: 'ping' },
   getSource: { t: 'getSource', id: 'src-1' },
-  ops: { t: 'ops', baseVersion: 0, ops: [{ op: 'setHideNoEpg', value: true }] },
+  ops: { t: 'ops', sourceId: 'src-1', baseVersion: 0, ops: [{ op: 'setHideNoEpg', value: true }] },
   addSource: { t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'http://example.test/list.m3u' } },
   updateSource: { t: 'updateSource', source: { id: 'src-1', kind: 'm3u', name: 'Home', playlistUrl: 'http://example.test/list.m3u' } },
   deleteSource: { t: 'deleteSource', id: 'src-1' },
@@ -28,7 +28,7 @@ const TV: { [K in TvToPhone['t']]: Extract<TvToPhone, { t: K }> } = {
   },
   stateUnchanged: { t: 'stateUnchanged', version: 1 },
   source: { t: 'source', source: { id: 'src-1', kind: 'm3u', name: 'Home', playlistUrl: 'http://example.test/list.m3u' } },
-  layoutChanged: { t: 'layoutChanged', version: 2, layout: emptyLayout() },
+  layoutChanged: { t: 'layoutChanged', sourceId: 'src-1', version: 2, layout: emptyLayout() },
   progress: { t: 'progress', phase: 'playlist', count: 10 },
   result: { t: 'result', requestMsgId: 7, ok: true },
   bye: { t: 'bye' },
@@ -66,5 +66,27 @@ describe('TV -> phone message types', () => {
     expect(isUnknownTvMessage({})).toBe(false);
     expect(isUnknownTvMessage(null)).toBe(false);
     expect(isUnknownTvMessage([{ t: 'x' }])).toBe(false);
+  });
+});
+
+describe('source-scoped layout messages', () => {
+  it('ops carries the source id it was made for; the TV validator requires a valid one', () => {
+    const ok = { t: 'ops', sourceId: 'src-1', baseVersion: 0, ops: [{ op: 'setHideNoEpg', value: true }] };
+    expect(isPhoneToTv(ok)).toBe(true);
+    const { sourceId: _drop, ...without } = ok;
+    expect(isPhoneToTv(without)).toBe(false);
+    expect(isPhoneToTv({ ...ok, sourceId: '' })).toBe(false);
+    expect(isPhoneToTv({ ...ok, sourceId: 7 })).toBe(false);
+    expect(isPhoneToTv({ ...ok, sourceId: 'x'.repeat(2049) })).toBe(false);
+    expect(isPhoneToTv({ ...ok, extra: 1 })).toBe(false);
+  });
+
+  it('layoutChanged carries the source id; the companion validator requires it and tolerates extra fields', () => {
+    const ok = { t: 'layoutChanged', sourceId: 'src-1', version: 2, layout: emptyLayout() };
+    expect(isTvToPhone(ok)).toBe(true);
+    expect(isTvToPhone({ ...ok, future: true })).toBe(true);
+    const { sourceId: _drop, ...without } = ok;
+    expect(isTvToPhone(without)).toBe(false);
+    expect(isTvToPhone({ ...ok, sourceId: 3 })).toBe(false);
   });
 });

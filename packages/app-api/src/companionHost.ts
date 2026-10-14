@@ -48,8 +48,17 @@ export type { CompanionStartResult, CompanionStatus };
  *   not fit). The session goes on; the phone asks again.
  *
  * Progress is forwarded while a companion is connected, at most one per phase every PROGRESS_INTERVAL_MS
- * (the relay allows 200 frames per 10 s). Layout changes are pushed as `layoutChanged`, coalesced. While the
+ * (the relay allows 200 frames per 10 s). Layout changes are pushed as `layoutChanged` (with the source id the
+ * layout belongs to), coalesced; a batch that changed only "recently watched" (a zap) is not pushed. While the
  * transport is reconnecting, pushes are skipped; a layout change in that time is pushed after the reconnect.
+ *
+ * Source scoping: `ops` carry the source id the companion's layout belongs to. Ops for any other source than the
+ * active one are rejected with `result{ ok: false, error: WrongSource }` and change nothing (the phone resyncs).
+ *
+ * State pushes: when the active source, the source list or the channel set changes (`stateChanged`, from
+ * AppApi), a connected companion gets the full `state` without asking, STATE_PUSH_DELAY_MS after the first
+ * change of a burst. Pushes are single-flight and coalesced, reuse the cached state, and are skipped when this
+ * companion already has the current one. While the link is down the push waits for the reconnect.
  */
 
 export const UNPAIRED_TTL_MS = 15 * 60_000;
@@ -63,13 +72,15 @@ export const LOGO_MAX_CHARS = 512;
 /** The `result` error for a request the TV cannot answer right now. */
 export const BUSY_ERROR = { name: 'Busy', message: 'The TV is busy. Try again.' } as const;
 const PROGRESS_INTERVAL_MS = 500;
+/** A state push waits this long after the first change of a burst, so related changes go out as one state. */
+export const STATE_PUSH_DELAY_MS = 300;
 /** How long `stop()` and expiry wait for the goodbye to be handed to the transport before closing. */
 const BYE_GRACE_MS = 1_000;
 const DEFAULT_NAME = 'My TV';
 
 export type CompanionHostApi = Pick<
   AppApi,
-  'getCompanionState' | 'getSource' | 'getLayout' | 'applyLayoutOps' | 'addSource' | 'updateSource' | 'deleteSource'
+  'getCompanionState' | 'getSource' | 'getActiveLayout' | 'applyLayoutOps' | 'addSource' | 'updateSource' | 'deleteSource'
   | 'setActiveSource' | 'refresh'
 >;
 
@@ -112,6 +123,10 @@ interface Session {
   layoutBusy: boolean;
   /** A layout change is still to be pushed (coalesced while a push runs, or held while the link is down). */
   layoutDirty: boolean;
+  /** A full state push is running (or due on the timer); `stateDirty`: run it again after this one or the reconnect. */
+  stateBusy: boolean;
+  stateDirty: boolean;
+  stateTimer: ReturnType<typeof setTimeout> | undefined;
   /** The last full state this companion received: its version and generation. */
   sentState: { version: number; generation: number } | undefined;
   progress: Map<'playlist' | 'epg', { last: number; pending?: number; timer?: ReturnType<typeof setTimeout> }>;
@@ -214,7 +229,7 @@ export class CompanionHost implements CompanionControl {
     const s: Session = {
       channel, createdAt, expiresAt: createdAt + this.unpairedTtl, timer: undefined, paired: false, connected: false,
       helloLabel: undefined, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
-      sentState: undefined, progress: new Map(),
+      stateBusy: false, stateDirty: false, stateTimer: undefined, sentState: undefined, progress: new Map(),
     };
     this.session = s;
     if (unsubTransport) s.unsub.push(unsubTransport);
@@ -238,6 +253,7 @@ export class CompanionHost implements CompanionControl {
         this.emitStatus();
         // A layout change while the link was down was held back: push it now.
         if (s.layoutDirty && s.connected && !s.layoutBusy) this.pushLayout(s);
+        if (s.stateDirty && s.connected && !s.stateBusy) this.pushState(s);
       }));
     }
     this.schedule(s);
@@ -264,10 +280,13 @@ export class CompanionHost implements CompanionControl {
   }
 
   handleEvent(e: AppEvent): void {
-    if (e.type === 'layoutChanged' || e.type === 'refreshed') this.stateChanged();
+    // A refresh that changed the channels or the guide coverage rebuilds the index, which calls stateChanged().
+    if (e.type === 'layoutChanged' || e.type === 'refreshed') this.invalidate();
     const s = this.session;
     if (!s || !s.connected) return;
     if (e.type === 'layoutChanged') {
+      // A zap only touched "recently watched", which the companion does not show: no push per channel change.
+      if (e.recentOnly) return;
       if (s.linkDown) s.layoutDirty = true; // pushed after the reconnect
       else this.pushLayout(s);
     } else if (e.type === 'progress' && !s.linkDown) {
@@ -275,8 +294,22 @@ export class CompanionHost implements CompanionControl {
     }
   }
 
-  /** Drops the cached state: the layout, channels, guide coverage or sources changed. */
+  /**
+   * The active source, the source list, the channels or the guide coverage changed (from AppApi): drops the cached
+   * state and pushes the new one to a connected companion (STATE_PUSH_DELAY_MS later, coalesced).
+   */
   stateChanged(): void {
+    this.invalidate();
+    const s = this.session;
+    if (!s || !s.connected || s.stateTimer !== undefined) return;
+    s.stateTimer = setTimeout(() => {
+      s.stateTimer = undefined;
+      if (this.session === s && s.connected) this.pushState(s);
+    }, STATE_PUSH_DELAY_MS);
+  }
+
+  /** Drops the cached state (a new generation). */
+  private invalidate(): void {
     this.generation++;
     this.stateCache = undefined;
   }
@@ -298,6 +331,7 @@ export class CompanionHost implements CompanionControl {
     this.stateBuild = undefined;
     clearTimeout(s.timer);
     clearTimeout(s.presenceTimer);
+    clearTimeout(s.stateTimer);
     for (const p of s.progress.values()) clearTimeout(p.timer);
     for (const u of s.unsub) u();
     const ch = s.channel;
@@ -420,8 +454,9 @@ export class CompanionHost implements CompanionControl {
       }
       case 'ops': {
         // Ops are intents (ids, not positions in a snapshot), so they apply to the current layout whatever
-        // `baseVersion` the phone saw; `layoutChanged` brings it up to date.
-        const res = await api.applyLayoutOps(msg.ops, 'remote');
+        // `baseVersion` the phone saw; `layoutChanged` brings it up to date. They must be for the active source:
+        // otherwise AppApi throws WrongSource (checked under its lock) and the phone resyncs.
+        const res = await api.applyLayoutOps(msg.ops, 'remote', msg.sourceId);
         const first = res.rejected[0];
         if (first) {
           const n = res.rejected.length;
@@ -526,18 +561,68 @@ export class CompanionHost implements CompanionControl {
       try {
         do {
           s.layoutDirty = false;
-          const layout = await this.deps.api.getLayout();
+          const { sourceId, layout } = await this.deps.api.getActiveLayout();
           if (this.session !== s || !s.connected) return;
           if (s.linkDown) {
             s.layoutDirty = true; // pushed after the reconnect
             return;
           }
-          await this.send(s, { t: 'layoutChanged', version: layout.version, layout });
+          // Without an active source there is no layout to show; the state push says so.
+          if (sourceId !== undefined) await this.send(s, { t: 'layoutChanged', sourceId, version: layout.version, layout });
         } while (s.layoutDirty && !s.linkDown);
       } catch {
         // The phone can always ask for getState.
       } finally {
         s.layoutBusy = false;
+      }
+    })();
+  }
+
+  /**
+   * Pushes the current full state (single flight; changes during a push are coalesced into one more). Skipped when
+   * this companion already has it; held while the link is down (pushed after the reconnect). Failures are ignored:
+   * the companion can always ask with `getState`.
+   */
+  private pushState(s: Session): void {
+    if (s.stateBusy) {
+      s.stateDirty = true;
+      return;
+    }
+    s.stateBusy = true;
+    void (async () => {
+      try {
+        do {
+          s.stateDirty = false;
+          if (this.session !== s || !s.connected) return;
+          if (s.linkDown) {
+            s.stateDirty = true; // pushed after the reconnect
+            return;
+          }
+          let entry = await this.stateEntry();
+          if (this.session !== s) return;
+          // Changed while it was built: rebuild once, so the push is never older than a `layoutChanged` already sent.
+          if (entry.generation !== this.generation) {
+            entry = await this.stateEntry();
+            if (this.session !== s) return;
+          }
+          const sent = s.sentState;
+          if (sent && sent.version === entry.version && sent.generation === entry.generation) continue;
+          if (!s.connected) return;
+          if (s.linkDown) {
+            s.stateDirty = true;
+            return;
+          }
+          try {
+            await s.channel.send(entry.msg, { json: entry.json });
+            s.sentState = { version: entry.version, generation: entry.generation };
+          } catch {
+            // Queue full or closing: the companion asks again when it needs the state.
+          }
+        } while (s.stateDirty && !s.linkDown);
+      } catch {
+        // A failed build (e.g. too large): the companion's own getState gets the error.
+      } finally {
+        s.stateBusy = false;
       }
     })();
   }

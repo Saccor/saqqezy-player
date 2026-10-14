@@ -184,7 +184,7 @@ describe('SecureChannel', () => {
 
     const bad: unknown[] = [
       { t: 'nope' },
-      { t: 'ops', baseVersion: 1, ops: [{ op: 'explode' }] },
+      { t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: [{ op: 'explode' }] },
       'just a string',
     ];
     let msgId = 100;
@@ -202,7 +202,7 @@ describe('SecureChannel', () => {
     const { tv, phone, phoneT, tvT } = await pair();
     const atTv = collect(tv);
     const ops: LayoutOp[] = [{ op: 'hideChannels', ids: Array.from({ length: 1000 }, () => randomHex(400)) }];
-    await phone.send({ t: 'ops', baseVersion: 0, ops });
+    await phone.send({ t: 'ops', sourceId: 'src-1', baseVersion: 0, ops });
     expect(phoneT.sent.length).toBeGreaterThan(1);
     await until(() => atTv.length === 1, 10000);
 
@@ -476,7 +476,7 @@ describe('SecureChannel', () => {
     const atTv = collect(tv);
     const atPhone = collect(phone);
     const ops: LayoutOp[] = [{ op: 'hideChannels', ids: Array.from({ length: 2000 }, (_, i) => `channel-${i}`) }];
-    await phone.send({ t: 'ops', baseVersion: 0, ops });
+    await phone.send({ t: 'ops', sourceId: 'src-1', baseVersion: 0, ops });
     expect(flagsOf(phoneT.sent).every((f) => f === 0)).toBe(true);
     await tv.send({ t: 'state', state: bigState(10_000) });
     expect(flagsOf(tvT.sent).every((f) => f === 1)).toBe(true);
@@ -493,7 +493,7 @@ describe('SecureChannel', () => {
       { t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } },
       { t: 'getState' },
       { t: 'getSource', id: 'src-1' },
-      { t: 'ops', baseVersion: 4, ops: [{ op: 'hideChannels', ids: Array.from({ length: 5000 }, (_, i) => `ch-${i}`) }] },
+      { t: 'ops', sourceId: 'src-1', baseVersion: 4, ops: [{ op: 'hideChannels', ids: Array.from({ length: 5000 }, (_, i) => `ch-${i}`) }] },
       { t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/list.m3u' } },
       { t: 'updateSource', source: { kind: 'xtream', id: 'src-1', name: 'X', server: 'https://x.example.test', username: 'u', password: 'p' } },
       { t: 'deleteSource', id: 'src-1' },
@@ -568,7 +568,7 @@ describe('isPhoneToTv', () => {
     { t: 'getState', haveVersion: 0 },
     { t: 'ping' },
     { t: 'getSource', id: 'src-1' },
-    { t: 'ops', baseVersion: 4, ops: [{ op: 'hideChannels', ids: ['a', 'b'] }, { op: 'setHideNoEpg', value: true }] },
+    { t: 'ops', sourceId: 'src-1', baseVersion: 4, ops: [{ op: 'hideChannels', ids: ['a', 'b'] }, { op: 'setHideNoEpg', value: true }] },
     { t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/list.m3u' } },
     { t: 'addSource', input: { kind: 'xtream', name: 'X', server: 'https://x.example.test', username: 'u', password: 'p' } },
     { t: 'updateSource', source: { kind: 'm3u', id: 'src-1', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', epgUrl: 'https://media.example.test/e.xml' } },
@@ -589,13 +589,13 @@ describe('isPhoneToTv', () => {
   });
 
   test('rejects a bad op and oversize batches', () => {
-    expect(isPhoneToTv({ t: 'ops', baseVersion: 1, ops: [{ op: 'explode' }] })).toBe(false);
-    expect(isPhoneToTv({ t: 'ops', baseVersion: 1, ops: [{ op: 'hideChannels', ids: 'a' }] })).toBe(false);
-    expect(isPhoneToTv({ t: 'ops', baseVersion: 1, ops: {} })).toBe(false);
-    expect(isPhoneToTv({ t: 'ops', baseVersion: -1, ops: [] })).toBe(false);
-    expect(isPhoneToTv({ t: 'ops', baseVersion: 1.5, ops: [] })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: [{ op: 'explode' }] })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: [{ op: 'hideChannels', ids: 'a' }] })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: {} })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: -1, ops: [] })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 1.5, ops: [] })).toBe(false);
     const many = Array.from({ length: MAX_OPS_PER_BATCH + 1 }, () => ({ op: 'setHideNoEpg', value: true }));
-    expect(isPhoneToTv({ t: 'ops', baseVersion: 1, ops: many })).toBe(false);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: many })).toBe(false);
   });
 
   test('caps and required strings', () => {
@@ -633,7 +633,7 @@ describe('isPhoneToTv', () => {
   });
 
   test('ops: unknown keys per op type are rejected', () => {
-    const ops = (op: Record<string, unknown>) => ({ t: 'ops', baseVersion: 1, ops: [op] });
+    const ops = (op: Record<string, unknown>) => ({ t: 'ops', sourceId: 'src-1', baseVersion: 1, ops: [op] });
     expect(isPhoneToTv(ops({ op: 'hideChannels', ids: ['a'] }))).toBe(true);
     expect(isPhoneToTv(ops({ op: 'hideChannels', ids: ['a'], extra: 1 }))).toBe(false);
     expect(isPhoneToTv(ops({ op: 'setHideNoEpg', value: true, extra: 1 }))).toBe(false);
@@ -674,7 +674,7 @@ describe('isTvToPhone', () => {
       { t: 'state', state: { ...bigState(1), channels: [{ id: 'c', name: 'Same', group: 'g', number: 1, hasEpg: true }] } },
       { t: 'stateUnchanged', version: 3 },
       { t: 'source', source: { kind: 'm3u', id: 'a', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u' } },
-      { t: 'layoutChanged', version: 2, layout: emptyLayout() },
+      { t: 'layoutChanged', sourceId: 'src-1', version: 2, layout: emptyLayout() },
       { t: 'progress', phase: 'epg', count: 10 },
       { t: 'result', requestMsgId: 7, ok: true },
       { t: 'result', requestMsgId: 7, ok: false, error: { name: 'Error', message: 'nope' } },
@@ -689,7 +689,7 @@ describe('isTvToPhone', () => {
       { t: 'state', state: { ...bigState(1), future: true }, extra: 'y' },
       { t: 'source', source: { kind: 'm3u', id: 'a', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', future: 1 } },
       { t: 'source', source: { kind: 'xtream', id: 'a', name: 'X', server: 's', username: 'u', password: 'p', future: 1 } },
-      { t: 'layoutChanged', version: 2, layout: emptyLayout(), extra: [] },
+      { t: 'layoutChanged', sourceId: 'src-1', version: 2, layout: emptyLayout(), extra: [] },
       { t: 'progress', phase: 'epg', count: 10, total: 20 },
       { t: 'result', requestMsgId: 7, ok: false, error: { name: 'Error', message: 'nope', code: 3 }, extra: null },
       { t: 'bye', reason: 'later' },
@@ -705,7 +705,7 @@ describe('isTvToPhone', () => {
       { t: 'state', state: { ...bigState(1), channels: [{ id: 'c' }] } },
       { t: 'stateUnchanged' },
       { t: 'stateUnchanged', version: -1 },
-      { t: 'layoutChanged', version: '2', layout: emptyLayout() },
+      { t: 'layoutChanged', sourceId: 'src-1', version: '2', layout: emptyLayout() },
       { t: 'progress', phase: 'other', count: 1 },
       { t: 'result', requestMsgId: 1, ok: 'yes' },
       { t: 'result', requestMsgId: 1, ok: false, error: 'boom' },

@@ -29,7 +29,8 @@ export type StateStatus = 'ok' | 'unanswered';
 export interface ClientHandlers {
   welcome(tv: { label: string; appVersion: string; protocol: number }): void;
   state(state: CompanionState): void;
-  layout(version: number, layout: Layout): void;
+  /** A pushed layout; `sourceId` is the source it belongs to. */
+  layout(version: number, layout: Layout, sourceId: string): void;
   progress(phase: 'playlist' | 'epg', count: number): void;
   link(status: LinkStatus): void;
   /** The TV stopped (or started again) answering state requests. */
@@ -245,7 +246,7 @@ export class CompanionClient {
         this.stateAnswered();
         return;
       case 'layoutChanged':
-        this.handlers.layout(msg.version, msg.layout);
+        this.handlers.layout(msg.version, msg.layout, msg.sourceId);
         return;
       case 'progress':
         this.handlers.progress(msg.phase, msg.count);

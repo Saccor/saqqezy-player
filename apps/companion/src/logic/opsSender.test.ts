@@ -5,15 +5,16 @@ import { OptimisticLayout } from './optimistic.ts';
 import { createOpsSender, MAX_OPS_MESSAGE_BYTES, opsMessageBytes, type OpsClient } from './opsSender.ts';
 
 interface Call {
+  sourceId: string;
   ops: LayoutOp[];
   resolve: (r: { ok: boolean; error?: { name: string; message: string } }) => void;
 }
 
-function setup(opts: { client?: boolean; maxBytes?: number } = {}) {
+function setup(opts: { client?: boolean; maxBytes?: number; sourceId?: string | null } = {}) {
   const calls: Call[] = [];
   let getStates = 0;
   const client: OpsClient = {
-    request: (msg) => new Promise((resolve) => calls.push({ ops: msg.ops, resolve })),
+    request: (msg) => new Promise((resolve) => calls.push({ sourceId: msg.sourceId, ops: msg.ops, resolve })),
     getState: () => { getStates++; },
   };
   const optimistic = new OptimisticLayout();
@@ -22,6 +23,7 @@ function setup(opts: { client?: boolean; maxBytes?: number } = {}) {
   let publishes = 0;
   const send = createOpsSender({
     client: () => (opts.client === false ? undefined : client),
+    sourceId: () => (opts.sourceId === null ? undefined : opts.sourceId ?? 'src-a'),
     optimistic,
     publish: () => { publishes++; },
     notice: (t) => notices.push(t),
@@ -112,5 +114,43 @@ describe('createOpsSender', () => {
     expect(s.optimistic.view()!.hideNoEpg).toBe(true);
     vi.advanceTimersByTime(5_000);
     expect(s.optimistic.view()!.hideNoEpg).toBe(false);
+  });
+});
+
+describe('createOpsSender source scoping', () => {
+  it('sends every batch with the source id of the layout it was made on', async () => {
+    const s = setup({ maxBytes: 100, sourceId: 'src-b' });
+    const ids = Array.from({ length: 30 }, (_, i) => `ch-${i}`);
+    const done = s.send([{ op: 'hideChannels', ids }]);
+    await flush();
+    const total = s.optimistic.pendingCount;
+    for (let i = 0; i < total; i++) {
+      s.calls[i]!.resolve({ ok: true });
+      await flush();
+    }
+    await done;
+    expect(s.calls.map((c) => c.sourceId)).toEqual(Array(total).fill('src-b'));
+  });
+
+  it('without an active source, nothing is sent', async () => {
+    const s = setup({ sourceId: null });
+    expect(await s.send([{ op: 'setHideNoEpg', value: true }])).toBe(COPY.genericError);
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it('WrongSource drops every pending change, even acknowledged ones, and asks for the state', async () => {
+    const s = setup();
+    const first = s.send([{ op: 'setHideNoEpg', value: true }]);
+    await flush();
+    s.calls[0]!.resolve({ ok: true });
+    await first;
+    const second = s.send([{ op: 'hideChannels', ids: ['ch-1'] }]);
+    await flush();
+    expect(s.optimistic.pendingCount).toBe(2);
+    s.calls[1]!.resolve({ ok: false, error: { name: 'WrongSource', message: 'The TV switched to another source.' } });
+    expect(await second).toBe('The TV switched to another source.');
+    expect(s.optimistic.pendingCount).toBe(0);
+    expect(s.optimistic.view()).toEqual(emptyLayout());
+    expect(s.getStates()).toBe(1);
   });
 });

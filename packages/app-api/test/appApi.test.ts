@@ -659,6 +659,44 @@ describe('AppApi – layout', () => {
       .toEqual({ version: 0, rejected: [{ index: 0, reason: expect.any(String) }] });
   });
 
+  test('ops scoped to a source that is no longer active fail with WrongSource and change nothing', async () => {
+    const { api, events } = make();
+    const { sourceId: a } = await api.addSource(xt());
+    const { sourceId: b } = await api.addSource({ ...xt(), name: 'Second' });
+    await api.setActiveSource(b);
+    const before = await api.getLayout();
+    const err = await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }], 'remote', a).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('WrongSource');
+    expect((err as Error).message).toBe('The TV switched to another source.');
+    expect(await api.getLayout()).toEqual(before);
+    expect(changes(events)).toEqual([]);
+    // The active source's id is accepted.
+    expect((await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }], 'remote', b)).rejected).toEqual([]);
+  });
+
+  test('getActiveLayout returns the active source id with its layout', async () => {
+    const { api } = make();
+    expect(await api.getActiveLayout()).toEqual({ sourceId: undefined, layout: expect.objectContaining({ version: 0 }) });
+    const { sourceId } = await api.addSource(xt());
+    await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+    const got = await api.getActiveLayout();
+    expect(got.sourceId).toBe(sourceId);
+    expect(got.layout).toEqual(await api.getLayout());
+  });
+
+  test('a batch that only touched recently watched is flagged recentOnly', async () => {
+    const { api, events } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.markWatched(id, 'all');
+    await api.applyLayoutOps([{ op: 'hideChannels', ids: [id] }]);
+    expect(changes(events)).toEqual([
+      { type: 'layoutChanged', version: 1, origin: 'local', recentOnly: true },
+      { type: 'layoutChanged', version: 2, origin: 'local' },
+    ]);
+  });
+
   test('without an active source every op is rejected', async () => {
     const { api } = make();
     await api.init();

@@ -11,7 +11,12 @@ export const PING_INTERVAL_MS = 25_000;
  * `isUnknownPhoneMessage`); a malformed message of a known `t` is a protocol error and counts toward closing.
  *
  * Stale `state`: `layoutChanged` and `state` both carry the layout. A companion ignores a `state` whose
- * `layout.version` is lower than the layout version it already holds (a `layoutChanged` overtook it).
+ * `layout.version` is lower than the layout version it already holds for the same active source (a
+ * `layoutChanged` overtook it). Layout versions count per source.
+ *
+ * Source-scoped layouts: `ops.sourceId` is the active source of the state the companion holds; the TV rejects
+ * `ops` for any other source with `result{ ok: false, error: { name: 'WrongSource' } }`. `layoutChanged.sourceId`
+ * is the source the pushed layout belongs to; a companion holding another source ignores it and asks `getState`.
  */
 export const PROTOCOL_VERSION = 1;
 
@@ -19,13 +24,14 @@ export const PROTOCOL_VERSION = 1;
  * Messages a companion (phone or desktop) sends to the TV.
  * - `getState.haveVersion`: the `state.version` the companion already holds; the TV may answer `stateUnchanged`.
  * - `ping`: presence, every PING_INTERVAL_MS while connected. The TV does not answer it.
+ * - `ops.sourceId`: the source whose layout the ops were made for (the held state's `activeSourceId`).
  */
 export type PhoneToTv =
   | { t: 'hello'; client: { kind: 'phone' | 'desktop'; label: string; protocol: number } }
   | { t: 'getState'; haveVersion?: number }
   | { t: 'ping' }
   | { t: 'getSource'; id: string }
-  | { t: 'ops'; baseVersion: number; ops: LayoutOp[] }
+  | { t: 'ops'; sourceId: string; baseVersion: number; ops: LayoutOp[] }
   | { t: 'addSource'; input: NewSource }
   | { t: 'updateSource'; source: SourceConfig }
   | { t: 'deleteSource'; id: string }
@@ -40,7 +46,8 @@ export type TvToPhone =
   /** Answer to `getState{ haveVersion }`: the companion's copy (that version) is still current. */
   | { t: 'stateUnchanged'; version: number }
   | { t: 'source'; source: SourceConfig }
-  | { t: 'layoutChanged'; version: number; layout: Layout }
+  /** `sourceId`: the source this layout belongs to (layout versions count per source). */
+  | { t: 'layoutChanged'; sourceId: string; version: number; layout: Layout }
   | { t: 'progress'; phase: 'playlist' | 'epg'; count: number }
   | { t: 'result'; requestMsgId: number; ok: boolean; error?: { name: string; message: string } }
   | { t: 'bye' };
@@ -175,7 +182,8 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
     case 'setActiveSource':
       return hasKeys(x, ['t', 'id']) && isValidId(x['id']);
     case 'ops':
-      return hasKeys(x, ['t', 'baseVersion', 'ops']) && isCount(x['baseVersion']) && opsHaveKnownKeys(x['ops'])
+      return hasKeys(x, ['t', 'sourceId', 'baseVersion', 'ops']) && isValidId(x['sourceId']) && isCount(x['baseVersion'])
+        && opsHaveKnownKeys(x['ops'])
         && isLayoutOpBatch(x['ops']);
     case 'addSource':
       return hasKeys(x, ['t', 'input']) && isSourceShape(x['input'], false, true);
@@ -270,7 +278,7 @@ export function isTvToPhone(x: unknown): x is TvToPhone {
     case 'source':
       return isSourceShape(x['source'], true, false);
     case 'layoutChanged':
-      return isCount(x['version']) && isLayoutLike(x['layout']);
+      return typeof x['sourceId'] === 'string' && isCount(x['version']) && isLayoutLike(x['layout']);
     case 'progress':
       return (x['phase'] === 'playlist' || x['phase'] === 'epg') && isCount(x['count']);
     case 'result': {

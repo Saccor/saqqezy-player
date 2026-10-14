@@ -32,7 +32,8 @@ export type AppEvent =
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
-  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin }
+  /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */
+  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean }
   /** The phone companion session changed state. */
   | { type: 'companion'; status: CompanionStatus };
 

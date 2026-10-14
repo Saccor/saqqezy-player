@@ -262,9 +262,20 @@ export class AppApi {
    * Validates and applies a batch of layout ops to the active source, persists the result and swaps in the
    * rebuilt index. Malformed ops, ops the reducer refuses, and every op of an oversized batch (more than
    * `MAX_OPS_PER_BATCH`) are reported in `rejected`. Emits `layoutChanged` when the layout changed.
+   * With `sourceId` (a companion's ops), a batch made for another source than the active one throws
+   * WrongSourceError and changes nothing.
    */
-  applyLayoutOps(ops: LayoutOp[], origin: LayoutOrigin = 'local'): Promise<LayoutOpsResult> {
-    return this.run('applyLayoutOps', () => this.withIndex(() => this.applyLayoutLocked(ops, origin)));
+  applyLayoutOps(ops: LayoutOp[], origin: LayoutOrigin = 'local', sourceId?: string): Promise<LayoutOpsResult> {
+    return this.run('applyLayoutOps', () => this.withIndex(async () => {
+      // Checked under the index lock, so a source switch cannot slip in between the check and the change.
+      if (sourceId !== undefined && sourceId !== this.activeId) throw new WrongSourceError();
+      return this.applyLayoutLocked(ops, origin);
+    }));
+  }
+
+  /** The active source's id with its layout, read together (for the companion's source-scoped `layoutChanged`). */
+  getActiveLayout(): Promise<{ sourceId: string | undefined; layout: Layout }> {
+    return this.run('getActiveLayout', async () => ({ sourceId: this.activeId, layout: this.index.layout() }));
   }
 
   listLists(): Promise<ListSummary[]> {
@@ -598,7 +609,9 @@ export class AppApi {
     this.index = this.index.withLayout(res.layout);
     this.favSet = undefined;
     if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
-    this.emit({ type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' });
+    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
+    if (onlyRecentChanged(before, res.layout)) event.recentOnly = true;
+    this.emit(event);
     return { version: res.layout.version, rejected };
   }
 
@@ -868,10 +881,27 @@ function toLite(p: Programme): ProgrammeLite {
 }
 
 /** Methods callable over RPC; the worker passes this to `expose` so internals (and `idle`) stay unreachable. */
+/** A companion's layout ops were made for a source that is no longer the active one. */
+export class WrongSourceError extends Error {
+  constructor() {
+    super('The TV switched to another source.');
+    this.name = 'WrongSource';
+  }
+}
+
+/** True when nothing but `recent` (and the version) differs: layouts are copy-on-write, so identity is enough. */
+function onlyRecentChanged(before: Layout, after: Layout): boolean {
+  if (before.recent === after.recent) return false;
+  for (const k of Object.keys(after) as (keyof Layout)[]) {
+    if (k !== 'recent' && k !== 'version' && before[k] !== after[k]) return false;
+  }
+  return true;
+}
+
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
+  'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
   'companionStart', 'companionStop', 'companionStatus',

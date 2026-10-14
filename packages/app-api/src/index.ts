@@ -1,4 +1,4 @@
-export { APP_API_METHODS, AppApi, type AppApiDeps } from './appApi.ts';
+export { APP_API_METHODS, AppApi, WrongSourceError, type AppApiDeps } from './appApi.ts';
 export {
   CompanionHost, fitCompanionState, StateTooLargeError, validateSourceInput, type CompanionHostApi, type CompanionHostDeps,
   UNPAIRED_TTL_MS, PAIRED_TTL_MS, STATE_BUDGET_BYTES, LOGO_MAX_CHARS,

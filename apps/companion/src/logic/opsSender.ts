@@ -18,13 +18,15 @@ export const ACK_HOLD_MS = 5_000;
 
 /** The part of CompanionClient the sender uses. */
 export interface OpsClient {
-  request(msg: { t: 'ops'; baseVersion: number; ops: LayoutOp[] }): Promise<Pick<ResultMessage, 'ok' | 'error'>>;
+  request(msg: { t: 'ops'; sourceId: string; baseVersion: number; ops: LayoutOp[] }): Promise<Pick<ResultMessage, 'ok' | 'error'>>;
   getState(): void;
 }
 
 export interface OpsSenderDeps {
   /** The live session's client (undefined when there is none). A change of client abandons the send. */
   client: () => OpsClient | undefined;
+  /** The active source of the held state: the source whose layout `optimistic` shows. */
+  sourceId: () => string | undefined;
   optimistic: OptimisticLayout;
   /** Re-publish the optimistic view after it changed. */
   publish: () => void;
@@ -51,6 +53,10 @@ function failureCopy(e: unknown): string {
  * and the first failure stops the rest. A failed batch and every batch after it are reverted; batches the TV
  * already took stay (the next TV layout has them). On any failure the notice shows and the state is asked for again
  * (the TV wins). Returns the error copy, if any.
+ *
+ * Every batch carries the source id of the layout it was made on. If the TV switched source meanwhile it answers
+ * WrongSource: every change still on its way (acknowledged ones too) belonged to the old source's layout, so all
+ * of them are dropped, and the state is asked for again.
  */
 export function createOpsSender(deps: OpsSenderDeps): (ops: LayoutOp[]) => Promise<string | undefined> {
   const fail = (err: string): string => {
@@ -60,7 +66,8 @@ export function createOpsSender(deps: OpsSenderDeps): (ops: LayoutOp[]) => Promi
   return async (ops) => {
     const c = deps.client();
     const base = deps.optimistic.base();
-    if (!c || !base) return fail(COPY.genericError);
+    const sourceId = deps.sourceId();
+    if (!c || !base || sourceId === undefined) return fail(COPY.genericError);
     if (ops.length === 0) return undefined;
     if (deps.optimistic.check(ops).length > 0) return fail(COPY.opRejected);
     const batches = chunkOps(ops, deps.chunk);
@@ -74,15 +81,20 @@ export function createOpsSender(deps: OpsSenderDeps): (ops: LayoutOp[]) => Promi
       const id = ids[i]!;
       deps.onBatchSent?.(batch, sizes[i]!);
       let err: string | undefined;
+      let wrongSource = false;
       try {
-        const r = await c.request({ t: 'ops', baseVersion: base.version, ops: batch });
-        if (!r.ok) err = resultErrorCopy(r.error);
+        const r = await c.request({ t: 'ops', sourceId, baseVersion: base.version, ops: batch });
+        if (!r.ok) {
+          err = resultErrorCopy(r.error);
+          wrongSource = r.error?.name === 'WrongSource';
+        }
       } catch (e) {
         err = failureCopy(e);
       }
       if (deps.client() !== c) return undefined; // the session went away: its view was reset
       if (err) {
-        for (const rest of ids.slice(i)) deps.optimistic.drop(rest);
+        if (wrongSource) deps.optimistic.clearPending();
+        else for (const rest of ids.slice(i)) deps.optimistic.drop(rest);
         deps.publish();
         deps.notice(err);
         c.getState();

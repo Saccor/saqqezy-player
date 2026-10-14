@@ -185,11 +185,16 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
         // The state is the truth now: stalled work no longer needs its marker.
         for (const [key, w] of Object.entries(store.working)) if (w?.stalled) setWork(key, undefined);
       },
-      layout: (version, next) => {
+      layout: (version, next, sourceId) => {
         if (client !== c || !store.state) return;
+        if (sourceId !== store.state.activeSourceId) {
+          // A layout of another source than the one held: the TV switched source (or this copy is behind).
+          // Versions count per source, so it cannot be compared: ask for the state, which says which is active.
+          c.getState();
+          return;
+        }
         if (next.version < store.state.layout.version) {
-          // Overtaken, or the TV switched to another source (versions count per source): ask for the state, which
-          // says which source is active (`stateUnchanged` when nothing changed).
+          // Overtaken by a newer layout of the same source: ask for the state (`stateUnchanged` when nothing changed).
           c.getState();
           return;
         }

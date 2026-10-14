@@ -90,8 +90,30 @@ describe('state from another source', () => {
   it('asks for the state again when a layoutChanged is older than the held layout (the TV may have switched source)', () => {
     connect(SECRETS);
     ctl.handlers.state(stateOf('s1', 29));
-    ctl.handlers.layout(4, { ...emptyLayout(), version: 4 });
+    ctl.handlers.layout(4, { ...emptyLayout(), version: 4 }, 's1');
     expect(store.state?.layout.version).toBe(29);
     expect(ctl.getStateCalls).toBe(1);
+  });
+
+  it('ignores a layoutChanged for another source, even a newer one, and asks for the state', () => {
+    connect(SECRETS);
+    ctl.handlers.state(stateOf('s1', 3));
+    ctl.handlers.layout(40, { ...emptyLayout(), version: 40, hideNoEpg: true }, 's2');
+    expect(store.state?.layout.version).toBe(3);
+    expect(store.state?.layout.hideNoEpg).toBe(false);
+    expect(ctl.getStateCalls).toBe(1);
+    // The same source's newer layout is applied.
+    ctl.handlers.layout(4, { ...emptyLayout(), version: 4, hideNoEpg: true }, 's1');
+    expect(store.state?.layout.version).toBe(4);
+    expect(ctl.getStateCalls).toBe(1);
+  });
+
+  it('sends ops with the held state\'s active source id', async () => {
+    connect(SECRETS);
+    ctl.handlers.state(stateOf('s7', 1));
+    const { sendOps } = await import('./actions.ts');
+    void sendOps([{ op: 'setHideNoEpg', value: true }]);
+    await flush();
+    expect(ctl.requests.at(-1)!.msg).toMatchObject({ t: 'ops', sourceId: 's7', baseVersion: 1 });
   });
 });
