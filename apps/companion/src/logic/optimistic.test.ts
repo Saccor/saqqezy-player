@@ -89,4 +89,34 @@ describe('OptimisticLayout', () => {
     expect(o.check([{ op: 'deleteList', listId: 'fav' }])).toEqual(['favourites cannot be deleted']);
     expect(o.check([{ op: 'setHideNoEpg', value: true }])).toEqual([]);
   });
+
+  it('the usual order: layoutChanged arrives before the result, then the ack, then the hold expires', () => {
+    const o = new OptimisticLayout();
+    let tv = tvApply(emptyLayout(), [{ op: 'createList', id: 'mine', name: 'Mine' }]);
+    o.confirm(tv);
+    const ops: LayoutOp[] = [
+      { op: 'addToList', listId: 'mine', channelIds: ['a', 'b', 'c'] },
+      { op: 'moveInList', listId: 'mine', channelId: 'c', toIndex: 0 },
+    ];
+    const id = o.add(ops);
+    const expected = tvApply(tv, ops).lists[1]!.channelIds;
+    expect(o.view()!.lists[1]!.channelIds).toEqual(expected);
+
+    // 1. The TV applied it and pushed the layout before its `result` arrived: the batch is not acked yet, so it is
+    //    re-applied on top of a layout that already has it. Ops are absolute intents: the view does not change.
+    tv = tvApply(tv, ops);
+    o.confirm(tv);
+    expect(o.pendingCount).toBe(1);
+    expect(o.view()!.lists[1]!.channelIds).toEqual(expected);
+    expect(o.view()!.lists[1]!.channelIds).toEqual(tv.lists[1]!.channelIds);
+
+    // 2. The result: acked, held (no further TV layout is coming for it).
+    o.ack(id);
+    expect(o.view()!.lists[1]!.channelIds).toEqual(expected);
+
+    // 3. The hold expires: dropped, and the view is exactly the TV's layout.
+    o.drop(id);
+    expect(o.pendingCount).toBe(0);
+    expect(o.view()).toEqual(tv);
+  });
 });
