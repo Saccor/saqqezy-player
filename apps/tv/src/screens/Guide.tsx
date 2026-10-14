@@ -237,7 +237,24 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       tick = setInterval(() => setNow(Date.now()), MINUTE);
     }, MINUTE - (Date.now() % MINUTE));
     const off = onEvent('refreshed', () => cache.invalidate());
-    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); });
+    // A companion switched, added or deleted a source: re-read the groups and open the new source's list.
+    const offSources = onEvent('sourcesChanged', (e) => {
+      if ((e as { origin?: string }).origin !== 'remote') return;
+      void (async () => {
+        try {
+          const gs = await api.getGroups();
+          if (!alive) return;
+          cache.invalidate();
+          setGroups(gs);
+          const located = await locatePlaying(gs);
+          if (!alive || located === 'superseded') return;
+          if (located.g !== undefined) openGroup(located.g, located.index);
+        } catch (err) {
+          console.warn('Guide reload failed', err instanceof Error ? err.name : 'Error');
+        }
+      })();
+    });
+    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); offSources(); });
 
     void (async () => {
       try {

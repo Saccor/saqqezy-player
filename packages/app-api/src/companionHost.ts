@@ -468,21 +468,21 @@ export class CompanionHost implements CompanionControl {
         return;
       }
       case 'addSource':
-        await api.addSource(checked(msg.input));
+        await api.addSource(checked(msg.input), 'remote');
         await this.result(s, msgId);
         return;
       case 'updateSource': {
         const { id, ...input } = msg.source;
-        await api.updateSource({ ...checked(input as NewSource), id });
+        await api.updateSource({ ...checked(input as NewSource), id }, 'remote');
         await this.result(s, msgId);
         return;
       }
       case 'deleteSource':
-        await api.deleteSource(msg.id);
+        await api.deleteSource(msg.id, 'remote');
         await this.result(s, msgId);
         return;
       case 'setActiveSource':
-        await api.setActiveSource(msg.id);
+        await api.setActiveSource(msg.id, 'remote');
         await this.result(s, msgId);
         return;
       case 'refresh':

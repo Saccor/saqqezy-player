@@ -34,6 +34,11 @@ export type AppEvent =
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
   /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */
   | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean }
+  /**
+   * The active source or the source list changed (added, edited, deleted, switched). `activeSourceId` is the active
+   * source afterwards (absent without sources); `origin` says who asked: this device's UI or a paired companion.
+   */
+  | { type: 'sourcesChanged'; activeSourceId?: string; origin: LayoutOrigin }
   /** The phone companion session changed state. */
   | { type: 'companion'; status: CompanionStatus };
 

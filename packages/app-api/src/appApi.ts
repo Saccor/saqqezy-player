@@ -121,7 +121,8 @@ export class AppApi {
     return this.run('getSource', async () => (await this.service.listSources()).find((s) => s.id === id));
   }
 
-  addSource(input: NewSource): Promise<{ sourceId: string; channelCount: number }> {
+  /** `origin` says who asked (a paired companion passes 'remote'); every source change ends in a `sourcesChanged` event. */
+  addSource(input: NewSource, origin: LayoutOrigin = 'local'): Promise<{ sourceId: string; channelCount: number }> {
     return this.run('addSource', async () => {
       const { source, result } = await this.service.addSource(input, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
@@ -130,11 +131,12 @@ export class AppApi {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      this.sourcesChanged(origin);
       return { sourceId: source.id, channelCount: result.channelCount };
     });
   }
 
-  updateSource(source: SourceConfig): Promise<{ channelCount: number }> {
+  updateSource(source: SourceConfig, origin: LayoutOrigin = 'local'): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
@@ -142,11 +144,12 @@ export class AppApi {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      this.sourcesChanged(origin);
       return { channelCount: result.channelCount };
     });
   }
 
-  deleteSource(id: string): Promise<InitState> {
+  deleteSource(id: string, origin: LayoutOrigin = 'local'): Promise<InitState> {
     return this.run('deleteSource', async () => {
       // Queued behind any background task of this source, so nothing writes to it after the delete.
       await this.enqueue(id, () => this.service.deleteSource(id));
@@ -160,16 +163,18 @@ export class AppApi {
         await this.activate(next);
         if (next) this.startBackground(next);
       }
+      this.sourcesChanged(origin);
       return this.initState();
     });
   }
 
-  setActiveSource(id: string): Promise<InitState> {
+  setActiveSource(id: string, origin: LayoutOrigin = 'local'): Promise<InitState> {
     return this.run('setActiveSource', async () => {
       await this.service.setActiveSource(id);
       this.companionStale();
       await this.activate(id);
       this.startBackground(id);
+      this.sourcesChanged(origin);
       return this.initState();
     });
   }
@@ -558,6 +563,13 @@ export class AppApi {
     this.index = new ChannelIndex(channels, layout, coverage);
     this.favSet = undefined;
     this.companionStale();
+  }
+
+  /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
+  private sourcesChanged(origin: LayoutOrigin): void {
+    const event: Extract<AppEvent, { type: 'sourcesChanged' }> = { type: 'sourcesChanged', origin: origin === 'remote' ? 'remote' : 'local' };
+    if (this.activeId !== undefined) event.activeSourceId = this.activeId;
+    this.emit(event);
   }
 
   /** The companion state's channels, guide coverage or sources changed: the host drops its cached state. */

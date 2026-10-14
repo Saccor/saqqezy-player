@@ -5,7 +5,7 @@ import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
 import { detectPlatform, type PlatformId } from '@iptv/platform';
 import type { Router } from '../shell/router.ts';
-import { initialRoute, offlineAfter, toastFor, toastPriority } from './events.ts';
+import { initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority, type SourcesChanged } from './events.ts';
 
 /** App-wide state shared by the shell and the screens. */
 const [initState, setInitState] = createSignal<InitState | undefined>(undefined);
@@ -95,10 +95,50 @@ export async function bootstrap(
   }
 }
 
-/** Subscribes the shell to worker events (toasts, offline badge, companion status). Returns an unsubscribe function. */
+/** What `wireEvents` needs to follow source changes made from the phone. */
+export interface SourceFollowDeps {
+  api: { init(): Promise<InitState> };
+  router: Pick<Router, 'reset' | 'current'>;
+  /** Whether a channel is playing, and stopping it. */
+  playing(): boolean;
+  stopPlayback(): void;
+}
+
+/**
+ * A paired phone switched, added, edited or deleted a source: re-reads `InitState`, stops a stream that belonged to
+ * a source that is gone or no longer active, and fixes the route. Home and the Guide re-read their own lists on the
+ * same event. Idempotent: applying the same state twice is harmless.
+ */
+async function followSources(e: SourcesChanged, deps: SourceFollowDeps): Promise<void> {
+  const route = deps.router.current()?.screen;
+  const reaction = sourcesReaction(e, initState(), route, deps.playing());
+  if (!reaction.applyState) return;
+  if (reaction.stopPlayback) deps.stopPlayback();
+  try {
+    const next = await deps.api.init();
+    setInitState(next);
+    if (reaction.resetToAddSource || next.sources.length === 0) {
+      if (deps.router.current()?.screen !== 'addSource') deps.router.reset('addSource', {});
+      return;
+    }
+    const screen = deps.router.current()?.screen;
+    if ((reaction.leavePlayer && screen === 'player') || (reaction.openHome && screen === 'addSource')) {
+      const root = initialRoute(next);
+      deps.router.reset(root.screen, root.params);
+    }
+  } catch (err) {
+    console.warn('Follow source change failed', err instanceof Error ? err.name : 'Error');
+  }
+}
+
+/**
+ * Subscribes the shell to worker events (toasts, offline badge, companion status, source changes). Returns an
+ * unsubscribe function. Without `follow` a source change only shows its toast.
+ */
 export function wireEvents(
   on: (type: string, fn: (payload: unknown) => void) => () => void,
   toast: (text: string, priority?: number) => void,
+  follow?: SourceFollowDeps,
 ): () => void {
   const handle = (payload: unknown) => {
     const e = payload as AppEvent;
@@ -106,11 +146,12 @@ export function wireEvents(
       setCompanionStatus(e.status);
       return;
     }
+    if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);
     setOffline((prev) => offlineAfter(prev, e));
     const text = toastFor(e);
     if (text) toast(text, toastPriority(e));
   };
-  // `layoutChanged` from a companion shows "Updated from your phone" on any screen; Home also re-reads its list.
-  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'companion'] as const).map((t) => on(t, handle));
+  // `layoutChanged` / `sourcesChanged` from a companion show "Updated from your phone" on any screen; Home also re-reads its list.
+  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };
 }

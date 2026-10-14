@@ -352,11 +352,20 @@ describe('CompanionHost', () => {
     const b = await s.api.addSource({ ...xt(), name: 'Second' });
     const { p } = await pairQr(s);
     await hello(p);
+    s.events.length = 0;
     expect((await p.call({ t: 'setActiveSource', id: b.sourceId })).ok).toBe(true);
     expect((await s.api.listSources()).find((x) => x.active)!.id).toBe(b.sourceId);
+    // The TV UI follows: the event names the phone as the origin.
+    expect(s.events.filter((e) => e.type === 'sourcesChanged')).toEqual([
+      { type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' },
+    ]);
     expect((await p.call({ t: 'refresh', what: 'playlist' })).ok).toBe(true);
+    s.events.length = 0;
     expect((await p.call({ t: 'deleteSource', id: a.sourceId })).ok).toBe(true);
     expect(await s.api.listSources()).toHaveLength(1);
+    expect(s.events.filter((e) => e.type === 'sourcesChanged')).toEqual([
+      { type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' },
+    ]);
   });
 
   test('code mode pairs with the displayed code', async () => {

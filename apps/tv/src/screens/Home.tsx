@@ -50,6 +50,7 @@ const FAV_LIST_ID = 'fav';
 
 type Progress = Extract<AppEvent, { type: 'progress' }>;
 type LayoutChanged = Extract<AppEvent, { type: 'layoutChanged' }>;
+type SourcesChanged = Extract<AppEvent, { type: 'sourcesChanged' }>;
 
 /** The channel menu, opened on a row; `inListId` is set while the user browses that list. */
 interface MenuState { row: ChannelRow; items: MenuItem[]; inListId?: string; isFavourite: boolean }
@@ -538,6 +539,15 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         void reload().then(rebuildMenu).catch(() => undefined);
         const p = picker();
         if (p) void rereadPicker(p.row).catch(() => undefined);
+      }),
+      // A companion switched, added or deleted a source (the shell shows "Updated from your phone"): drop menus of
+      // the old source and re-read the groups and list of the new one. Changes from this screen's own app re-read themselves.
+      onEvent('sourcesChanged', (e) => {
+        if ((e as SourcesChanged).origin !== 'remote') return;
+        dismissAll();
+        void reload().then(() => {
+          if (alive) setWaiting((groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0);
+        }).catch(() => undefined);
       }),
       onEvent('refreshFailed', () => setWaiting(false)),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).

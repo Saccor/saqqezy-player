@@ -85,7 +85,9 @@ export function App() {
   };
 
   onMount(() => {
-    onCleanup(wireEvents(onEvent, showToast));
+    onCleanup(wireEvents(onEvent, showToast, {
+      api, router, playing: () => playback.current() !== undefined, stopPlayback: () => playback.stop(),
+    }));
     void bootstrap(api, router);
   });
   onCleanup(() => playback.stop());

@@ -791,6 +791,60 @@ describe('AppApi – layout', () => {
   });
 });
 
+describe('AppApi – sourcesChanged', () => {
+  type Changed = Extract<AppEvent, { type: 'sourcesChanged' }>;
+  const changes = (events: AppEvent[]) => events.filter((e): e is Changed => e.type === 'sourcesChanged');
+
+  test('every source operation announces the new active source with the caller origin', async () => {
+    const { api, events } = make();
+    const a = await api.addSource(xt());
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'local' }]);
+    await api.idle();
+
+    events.length = 0;
+    const b = await api.addSource({ ...xt(), name: 'Second' }, 'remote');
+    await api.idle();
+    // The first source stays active; the list still changed.
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.setActiveSource(b.sourceId, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.setActiveSource(a.sourceId);
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'local' }]);
+
+    events.length = 0;
+    const cfg = (await api.getSource(a.sourceId))!;
+    await api.updateSource({ ...cfg, name: 'Renamed' }, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.deleteSource(a.sourceId, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.deleteSource(b.sourceId);
+    await api.idle();
+    // No source left: the event carries no activeSourceId.
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', origin: 'local' }]);
+  });
+
+  test('a failed operation announces nothing; an unknown origin counts as local', async () => {
+    const { api, events } = make();
+    await expect(api.addSource(xt('wrong', 'creds'))).rejects.toBeDefined();
+    expect(changes(events)).toEqual([]);
+    const { sourceId } = await api.addSource(xt(), 'bogus' as unknown as 'local');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: sourceId, origin: 'local' }]);
+  });
+});
+
 describe('scrub', () => {
   test('removes Xtream credentials from stream paths and queries', () => {
     const out = scrub('Could not open http://example.test/live/u1/p1/1.ts for playback');
