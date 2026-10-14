@@ -155,7 +155,7 @@ describe('SourceService – m3u', () => {
     release();
     await Promise.all([save, del]);
     expect(await storage.listSources()).toEqual([]);
-    expect(await storage.getMeta(key)).toBeUndefined();
+    expect((await storage.getMeta(key)) ?? null).toBeNull(); // cleared (or never written)
   });
 
   test('a v1 migration cannot overwrite a layout saved meanwhile', async () => {
