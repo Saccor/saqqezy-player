@@ -58,6 +58,20 @@ export async function* responseText(res: Response, _url: string): AsyncGenerator
   }
   const gzip = head[0] === 0x1f && head[1] === 0x8b;
   let bytes: ReadableStream<Uint8Array> = prepend(head, reader);
-  if (gzip) bytes = bytes.pipeThrough(new DecompressionStream('gzip') as unknown as TransformStream<Uint8Array, Uint8Array>);
-  yield* readAll(bytes.pipeThrough(new TextDecoderStream()));
+  if (gzip) {
+    // DecompressionStream is Chromium 80+ (Tizen 6.5+): older TV engines get a clear error instead of a crash.
+    if (typeof DecompressionStream !== 'function') {
+      await reader.cancel().catch(() => {});
+      throw new SourceNetworkError('This device cannot read compressed lists. Ask for an uncompressed link.');
+    }
+    bytes = bytes.pipeThrough(new DecompressionStream('gzip') as unknown as TransformStream<Uint8Array, Uint8Array>);
+  }
+  // TextDecoder with `stream: true` instead of TextDecoderStream (Chromium 71+), so older TV engines work too.
+  const decoder = new TextDecoder();
+  for await (const chunk of readAll(bytes)) {
+    const text = decoder.decode(chunk, { stream: true });
+    if (text) yield text;
+  }
+  const tail = decoder.decode();
+  if (tail) yield tail;
 }

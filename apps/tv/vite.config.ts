@@ -17,7 +17,14 @@ export default defineConfig({
     // Ships untranspiled .jsx (primitives) that must go through vite-plugin-solid.
     exclude: ['@lightningtv/solid', '@lightningtv/solid/primitives'],
   },
-  worker: { format: 'es' },
+  // Classic (IIFE) worker in the build: module workers need Chromium 80+ (see STACK.md, Tizen).
+  worker: { format: 'iife' },
   server: { port: 5173, strictPort: true },
-  build: { outDir: 'dist', emptyOutDir: true },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    // Oldest supported TV engine: Tizen 6.0 (2021 models) runs Chromium 76. Syntax is lowered to it; runtime
+    // APIs newer than that are avoided or feature-detected in the code (see STACK.md, Tizen).
+    target: 'chrome76',
+  },
 });

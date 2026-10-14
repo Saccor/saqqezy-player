@@ -1,5 +1,6 @@
 import { gzipSync } from 'node:zlib';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { SourceNetworkError } from '../src/errors.ts';
 import { responseText } from '../src/net/textStream.ts';
 
 async function collect(it: AsyncIterable<string>) { let s = ''; for await (const c of it) s += c; return s; }
@@ -36,5 +37,25 @@ describe('responseText', () => {
   });
   test('throws on missing body', async () => {
     await expect(collect(responseText(new Response(null), 'http://example.test/x'))).rejects.toThrow('empty');
+  });
+
+  describe('older TV engines (no DecompressionStream / TextDecoderStream)', () => {
+    afterEach(() => { vi.unstubAllGlobals(); });
+    test('decodes plain utf-8 split across chunks without TextDecoderStream', async () => {
+      vi.stubGlobal('TextDecoderStream', undefined);
+      const bytes = new TextEncoder().encode('Åtta ✓');
+      const body = new ReadableStream<Uint8Array>({
+        start(c) { c.enqueue(bytes.slice(0, 1)); c.enqueue(bytes.slice(1, 3)); c.enqueue(bytes.slice(3)); c.close(); },
+      });
+      expect(await collect(responseText(new Response(body), 'http://example.test/x'))).toBe('Åtta ✓');
+    });
+    test('a gzip body without DecompressionStream fails with a clear network error', async () => {
+      vi.stubGlobal('DecompressionStream', undefined);
+      const res = new Response(gzipSync(Buffer.from('<tv/>')));
+      const p = collect(responseText(res, 'http://example.test/xmltv.php'));
+      await expect(p).rejects.toBeInstanceOf(SourceNetworkError);
+      await expect(collect(responseText(new Response(gzipSync(Buffer.from('<tv/>'))), 'http://example.test/x')))
+        .rejects.toThrow('compressed');
+    });
   });
 });

@@ -29,6 +29,6 @@ export function redactUrl(raw: string): string {
     parts[3] = '***';
   }
   const path = parts.join('/');
-  const query = u.searchParams.toString().replaceAll('%2A', '*');
+  const query = u.searchParams.toString().replace(/%2A/g, '*'); // not replaceAll: Chromium 85+ only
   return `${u.protocol}//${u.host}${path}${query ? `?${query}` : ''}`;
 }

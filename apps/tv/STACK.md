@@ -122,7 +122,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 
 ## Worker / RPC
 
-- `src/api.ts` does `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`, then `export const { api, on: onEvent } = wrap<AppApi>(worker)`.
+- `src/api.ts` does `import CoreWorker from './worker.ts?worker'; const worker = new CoreWorker()`, then `export const { api, on: onEvent } = wrap<AppApi>(worker)`. Vite makes it a module worker in dev and a classic worker in the build (`worker.format: 'iife'`); the built URL is relative to the chunk (`new URL('worker-<hash>.js', import.meta.url)`).
 - `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via rawViaDevProxy)` → `SourceService` → `AppApi`, then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
 - In the production build, `@iptv/core` ends up only in the worker chunk.
 
@@ -206,3 +206,18 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - AddSource edit mode: `params.sourceId` prefills the form of the source's kind from `api.getSource` (no type step), saves with `api.updateSource`, and Back returns to Settings. A toast is a Back layer, so call `router.back()` before `showToast`, not after.
 - `DebugOverlay` visibility is a module signal (`debugOverlayVisible` / `setDebugOverlayVisible`), toggled by Settings > Diagnostics as well as Info x3 / F12.
 - Dev handle: `__iptv.renderer` is exposed too (walk `renderer.root` for `.text` to search rendered text).
+
+## Tizen (Task 12)
+
+**Not yet verified on a real TV.** Packaging: `pnpm build:tizen` (`tools/tizen/build-wgt.mjs`, see `tools/tizen/README.md`); user guide `docs/install-on-samsung.md`.
+
+- **Minimum: Tizen 6.0 (2021 models, Chromium 76).** Tizen 5.0 (Chromium 63) lacks `import.meta`; 5.5 (Chromium 69) lacks `queueMicrotask`, `globalThis` and `Object.fromEntries`, which the app and libraries use. `config.xml` keeps `required_version="5.0"` (API level), so older TVs may install it but will not run it.
+- Runtime APIs newer than Chromium 76 must be avoided or feature-detected: no `Object.hasOwn` (93), `String.prototype.replaceAll` (85), `structuredClone` (98, tests/MemoryStorage only), `TextDecoderStream` (core decodes with `TextDecoder`), module workers (80). `DecompressionStream` (80) is feature-detected: without it a gzip list fails with "This device cannot read compressed lists".
+- `src/playback/playback.ts` picks `AvplayPlayer(webapis.avplay)` when `platformId === 'tizen'` and `webapis.avplay` exists, else `Html5Player`. On Tizen, `mountAvplayObject` puts one `<object type="application/avplayer">` in `#video-layer` and makes html, body and the layer transparent (AVPlay draws on a plane beneath the page).
+- `src/video/AvplayPlayer.ts` has no DOM or global access (`AvplayLike` injected; unit-tested with a fake):
+  - `open` = `stop()` old, `avplay.open`, `setListener`, display, `prepareAsync` → `play` → `playing`. `onbufferingstart` → `buffering`; `onbufferingcomplete` → `playing` (only once started); `onerror` → `error`; `onstreamcompleted` → `error` `NETWORK` (a live stream ended: reconnect). Session objects drop late events after `stop()`/`open()`; `attemptId` is echoed.
+  - `stop()` = `avplay.stop()` then `avplay.close()`, each guarded. Every AVPlay call is in try/catch; a throw becomes `error`. Messages are always "Playback error" (no URLs).
+  - Errors (`mapAvplayError`): `NOT_SUPPORTED*` / DRM → `UNSUPPORTED`; `INVALID_STATE`, `INVALID_OPERATION`, `INVALID_PARAMETER`, `SEEK_FAILED`, `GENEREIC` → `MEDIA`; everything else (connection, URI, timeouts, unknown) → `NETWORK`.
+  - `position()` polls `getCurrentTime()` (AVPlay has no position event); audio tracks from `getTotalTrackInfo` (`setSelectTrack('AUDIO', index)`), active track and stream info from `getCurrentStreamInfo` (`extra_info` JSON).
+  - Display (`avplayDisplay`): `auto` → `AUTO_ASPECT_RATIO`; `stretch` → `FULL_SCREEN`; `16:9`/`4:3` → `FULL_SCREEN` in a contained box of that ratio; `zoom` → `LETTER_BOX` in a box of the source ratio covering the rect (overflow cropped by the screen edge). Rects are converted from design space to `AVPLAY_DISPLAY_SPACE` (1920x1080, Samsung's fixed AVPlay coordinate space).
+- `src/platform/tizen.ts`: `registerKeys()` (`registerKeyBatch(TIZEN_KEYS_TO_REGISTER)`, falling back to one `registerKey` per key) is called from `main.tsx` on Tizen; `exit()` is what `exitApp('tizen')` calls. Ambient `tizen` / `webapis` types: `src/types/tizen.d.ts` (read them via `globalThis`).

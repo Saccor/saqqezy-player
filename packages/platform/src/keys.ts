@@ -27,6 +27,10 @@ const WEBOS_CODES: Record<number, LogicalKey> = {
   ...COMMON_CODES, 461: 'Back', 33: 'ChannelUp', 34: 'ChannelDown',
 };
 
+function hasOwn(o: object, k: string): boolean {
+  return Object.prototype.hasOwnProperty.call(o, k);
+}
+
 function digit(n: number): LogicalKey {
   return `Digit${n as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
 }
@@ -34,10 +38,11 @@ function digit(n: number): LogicalKey {
 export function mapKey(platform: PlatformId, e: { key: string; keyCode: number }): LogicalKey | undefined {
   if (platform === 'browser') {
     if (/^[0-9]$/.test(e.key)) return digit(Number(e.key));
-    // Object.hasOwn so inherited names such as 'constructor' or '__proto__' never match.
-    if (Object.hasOwn(BROWSER_KEYS, e.key)) return BROWSER_KEYS[e.key];
+    // Own properties only, so inherited names such as 'constructor' or '__proto__' never match
+    // (hasOwnProperty.call, not Object.hasOwn: that is Chromium 93+, newer than older TV engines).
+    if (hasOwn(BROWSER_KEYS, e.key)) return BROWSER_KEYS[e.key];
     const lower = e.key.toLowerCase();
-    return Object.hasOwn(BROWSER_KEYS, lower) ? BROWSER_KEYS[lower] : undefined;
+    return hasOwn(BROWSER_KEYS, lower) ? BROWSER_KEYS[lower] : undefined;
   }
   if (e.keyCode >= 48 && e.keyCode <= 57) return digit(e.keyCode - 48);
   return (platform === 'tizen' ? TIZEN_CODES : WEBOS_CODES)[e.keyCode];
