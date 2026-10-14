@@ -300,6 +300,21 @@ describe('SourceService – xtream', () => {
     expect(calls).toBe(2);
   });
 
+  test('an account with no live streams fails on add and on refresh, like an empty playlist', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    const err = await service.addSource(xInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The account has no live channels.');
+    expect(await service.listSources()).toEqual([]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
+    const { source } = await service.addSource(xInput);
+    routes['api:get_live_streams'] = () => json([]);
+    await expect(service.refreshPlaylist(source.id)).rejects.toThrow('The account has no live channels.');
+    expect((await service.loadIndex(source.id)).groupSize('all')).toBe(1);
+  });
+
   test('rejected login surfaces SourceAuthError, server error surfaces SourceNetworkError', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 0 } });
     await expect(service.addSource(xInput)).rejects.toBeInstanceOf(SourceAuthError);

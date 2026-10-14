@@ -425,6 +425,7 @@ export class SourceService {
       await client.authenticate();
       const [categories, streams] = await Promise.all([client.liveCategories(), client.liveStreams()]);
       const channels = xtreamToChannels(source.id, client, categories, streams, 'ts');
+      if (channels.length === 0) throw new SourceNetworkError('The account has no live channels.');
       onProgress?.({ phase: 'playlist', count: channels.length });
       return { channels, result: { channelCount: channels.length, skipped: 0 } };
     }
