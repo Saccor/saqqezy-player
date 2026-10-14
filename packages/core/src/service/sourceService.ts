@@ -402,7 +402,7 @@ export class SourceService {
   }
 
   private xtream(s: XtreamSourceConfig): XtreamClient {
-    return new XtreamClient(s, this.fetchFn);
+    return new XtreamClient(s, this.fetchFn, { idleMs: this.bodyIdleMs });
   }
 
   private async get(url: string): Promise<Response> {

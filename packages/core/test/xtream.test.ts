@@ -77,6 +77,28 @@ describe('XtreamClient', () => {
   });
 });
 
+describe('XtreamClient – body reading', () => {
+  test('a stalled JSON body fails with the stall message, invalid JSON keeps its message', async () => {
+    const stalled = () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('{"user_info":')); },
+      pull: () => new Promise<void>(() => {}),
+    }));
+    const c = new XtreamClient(cfg, fakeFetch({ auth: stalled }), { idleMs: 20 });
+    await expect(c.authenticate()).rejects.toThrow('The provider stopped sending data.');
+    const bad = new XtreamClient(cfg, fakeFetch({ auth: () => new Response('<html>') }), { idleMs: 20 });
+    await expect(bad.authenticate()).rejects.toThrow('Unexpected response from the provider.');
+    const chunked = () => new Response(new ReadableStream<Uint8Array>({
+      start(ctl) {
+        const enc = new TextEncoder();
+        ctl.enqueue(enc.encode('{"user_info":{"auth":'));
+        ctl.enqueue(enc.encode('1,"status":"Active"}}'));
+        ctl.close();
+      },
+    }));
+    await expect(new XtreamClient(cfg, fakeFetch({ auth: chunked }), { idleMs: 20 }).authenticate()).resolves.toEqual({});
+  });
+});
+
 describe('xtreamToChannels', () => {
   test('maps groups, ids, numbers and urls', () => {
     const c = new XtreamClient(cfg, fakeFetch({}));

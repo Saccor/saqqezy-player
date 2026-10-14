@@ -1,5 +1,6 @@
 import { SourceAuthError, SourceNetworkError } from '../errors.ts';
-import { API_TIMEOUT_MS } from '../net/timeout.ts';
+import { responseText } from '../net/textStream.ts';
+import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
 
 export interface XtreamCategory { id: string; name: string }
@@ -39,12 +40,16 @@ const posInt = (v: unknown): number | undefined => {
 
 export class XtreamClient {
   private readonly base: string;
+  private readonly idleMs: number;
 
   constructor(
     private readonly cfg: { server: string; username: string; password: string },
     private readonly fetchFn: FetchFn,
+    /** `idleMs`: JSON body inactivity timeout (default `BODY_IDLE_MS`, as for playlist and guide bodies). */
+    opts: { idleMs?: number } = {},
   ) {
     this.base = normalizeServer(cfg.server);
+    this.idleMs = opts.idleMs ?? BODY_IDLE_MS;
   }
 
   private credQuery(): string {
@@ -64,10 +69,21 @@ export class XtreamClient {
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);
+    const unexpected = () => new SourceNetworkError('Unexpected response from the provider.');
+    if (!res.body) throw unexpected();
+    const url = `${this.base}/player_api.php`;
+    let text = '';
     try {
-      return await res.json();
+      for await (const chunk of responseText(res, url, { idleMs: this.idleMs })) text += chunk;
+    } catch (err) {
+      // Our own neutral body errors (stalled, cancelled) are kept; anything else reads as a bad answer.
+      if (err instanceof SourceNetworkError) throw err;
+      throw unexpected();
+    }
+    try {
+      return JSON.parse(text) as unknown;
     } catch {
-      throw new SourceNetworkError('Unexpected response from the provider.');
+      throw unexpected();
     }
   }
 

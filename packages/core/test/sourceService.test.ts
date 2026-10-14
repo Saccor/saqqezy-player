@@ -300,6 +300,36 @@ describe('SourceService – xtream', () => {
     expect(calls).toBe(2);
   });
 
+  const stalledJson = (head: string) => () => new Response(new ReadableStream<Uint8Array>({
+    start(c) { c.enqueue(new TextEncoder().encode(head)); },
+    pull: () => new Promise<void>(() => {}),
+  }));
+
+  test('a stalled get_live_streams body fails on add and refresh and releases the source lock', async () => {
+    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30, newId: () => 'sx' });
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = stalledJson('[');
+    await expect(svc.addSource(xInput)).rejects.toThrow('The provider stopped sending data.');
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
+    const { source } = await svc.addSource(xInput);
+    routes['api:get_live_streams'] = stalledJson('[{');
+    const err = await svc.refreshPlaylist(source.id).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The provider stopped sending data.');
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }, { stream_id: 2, name: 'Channel 2' }]);
+    await expect(svc.refreshPlaylist(source.id)).resolves.toMatchObject({ channelCount: 2 });
+  });
+
+  test('a stalled short EPG body releases its limiter slot', async () => {
+    const { source, channels } = await addX(7);
+    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    routes['api:get_short_epg'] = stalledJson('{"epg_listings":[');
+    expect((await svc.shortEpgFor(source.id, channels.slice(0, 6))).size).toBe(0);
+    routes['api:get_short_epg'] = () => json({ epg_listings: [] });
+    expect((await svc.shortEpgFor(source.id, channels.slice(6))).size).toBe(1);
+  });
+
   test('an account with no live streams fails on add and on refresh, like an empty playlist', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([]);
