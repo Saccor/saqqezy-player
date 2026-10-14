@@ -21,6 +21,8 @@ export const COPY = {
   sessionEnded: 'This session ended. Show a new code on your TV.',
   /** A layout change the reducer refuses (e.g. too many lists, a name that is too long). */
   opRejected: 'That change could not be made.',
+  /** A layout change whose encoded batch is over MAX_OPS_MESSAGE_BYTES. */
+  tooLarge: 'That change is too large to send. Try a smaller move.',
 } as const;
 
 /**

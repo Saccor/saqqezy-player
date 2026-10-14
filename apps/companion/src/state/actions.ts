@@ -1,8 +1,7 @@
-import type { LayoutOp } from '@iptv/core';
 import { RequestError } from '../connection/pending.ts';
 import type { CompanionClient } from '../connection/client.ts';
-import { chunkOps } from '../logic/batches.ts';
 import { COPY, resultErrorCopy } from '../logic/copy.ts';
+import { createOpsSender } from '../logic/opsSender.ts';
 import {
   clearProgress, currentClient, markOpsSent, optimistic, publishLayout, setWork, showNotice, store, type WorkOp,
 } from './store.ts';
@@ -65,62 +64,18 @@ export async function runRequest(msg: Request, opts: RunOptions = {}): Promise<s
 }
 
 /**
- * An acknowledged change stays in the view this long when no TV layout follows (the change was a no-op on the TV,
- * so it pushed nothing). Re-applying it meanwhile is harmless: ops are intents with absolute targets.
+ * Sends a layout change (see `createOpsSender`): it shows at once, goes out as `ops` batches one after another, and
+ * is reconciled when the TV answers. Returns the error copy, if any (the notice is already shown).
  */
-const ACK_HOLD_MS = 5_000;
-
-/**
- * Sends a layout change. It shows at once (the same `applyOps` the TV runs, on the companion's view), goes out
- * as `ops` batches the TV accepts (`chunkOps`), and is reconciled when the TV answers: a `layoutChanged` or
- * `state` replaces the view (the TV wins), a failure reverts it and shows a notice. Returns the error copy, if any.
- */
-export async function sendOps(ops: LayoutOp[]): Promise<string | undefined> {
-  const c = currentClient();
-  const base = optimistic.base();
-  if (!c || !base) return COPY.genericError;
-  if (ops.length === 0) return undefined;
-  if (optimistic.check(ops).length > 0) {
-    showNotice(COPY.opRejected);
-    return COPY.opRejected;
-  }
-  const batches = chunkOps(ops);
-  const ids = batches.map((batch) => optimistic.add(batch));
-  publishLayout();
-  if (import.meta.env.DEV) {
-    markOpsSent();
-    console.info(`[companion] ops sent at ${Date.now()}: ${ops.map((o) => o.op).join(', ')}`);
-  }
-  const errors = await Promise.all(batches.map(async (batch, i): Promise<string | undefined> => {
-    const id = ids[i]!;
-    let err: string | undefined;
-    try {
-      const r = await c.request({ t: 'ops', baseVersion: base.version, ops: batch });
-      err = r.ok ? undefined : resultErrorCopy(r.error);
-    } catch (e) {
-      if (e instanceof RequestError && e.reason === 'timeout') err = COPY.timeout;
-      else if (e instanceof Error && e.name === 'QueueFullError') err = COPY.busy;
-      else err = COPY.genericError;
+export const sendOps = createOpsSender({
+  client: currentClient,
+  optimistic,
+  publish: publishLayout,
+  notice: showNotice,
+  onBatchSent: import.meta.env.DEV
+    ? (batch, bytes) => {
+      markOpsSent();
+      console.info(`[companion] ops sent at ${Date.now()}: ${batch.map((o) => o.op).join(', ')} (${bytes} bytes)`);
     }
-    if (currentClient() !== c) return undefined;
-    if (err) {
-      optimistic.drop(id);
-      publishLayout();
-    } else {
-      optimistic.ack(id);
-      setTimeout(() => {
-        if (currentClient() !== c) return;
-        optimistic.drop(id);
-        publishLayout();
-      }, ACK_HOLD_MS);
-    }
-    return err;
-  }));
-  const err = errors.find((e) => e !== undefined);
-  if (err) {
-    showNotice(err);
-    // Whatever went wrong, the TV's state is the truth: ask for it (cheap when nothing changed).
-    c.getState();
-  }
-  return err;
-}
+    : undefined,
+});
