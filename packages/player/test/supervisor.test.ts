@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PlaybackSupervisor,
-  type AspectMode, type Player, type PlayerState, type Rect, type StreamInfo, type SupervisorStatus, type TrackInfo,
+  type AspectMode, type ErrorCode, type Player, type PlayerState, type Rect, type StreamInfo, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
 
-type Detail = { code?: string; message?: string; attemptId?: number };
+type Detail = { code?: ErrorCode; message?: string; attemptId?: number };
 type Listener = (s: PlayerState, d?: Detail) => void;
 
 class FakePlayer implements Player {
@@ -28,7 +28,7 @@ class FakePlayer implements Player {
   onState(fn: Listener): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   destroy(): void { this.listeners.clear(); }
   /** Emits a state event attributed to open() number `attemptIdx` (default: the latest one). */
-  emit(s: PlayerState, d?: { code?: string; message?: string }, attemptIdx = this.ids.length - 1): void {
+  emit(s: PlayerState, d?: { code?: ErrorCode; message?: string }, attemptIdx = this.ids.length - 1): void {
     const attemptId = this.ids[attemptIdx];
     for (const l of [...this.listeners]) l(s, attemptId === undefined ? d : { ...d, attemptId });
   }
