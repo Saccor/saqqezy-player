@@ -139,7 +139,11 @@ test('title index: retained heap after an XMLTV import stays small (titles sprea
   );
   expect(programmes).toBe(channels * per);
   expect(data.offsets.length).toBe(channels * 25);
-  // Only meaningful when gc is exposed (the perf config passes --expose-gc).
-  if (gcFn) expect(retainedMb).toBeLessThan(30);
+  // Only meaningful when gc is exposed (the perf config passes --expose-gc). Before build the builder's maps are
+  // alive (~31 MB with copies); a `byRaw` key back to the parser's slices pins the guide text (~120 MB).
+  if (gcFn) {
+    expect(beforeBuildMb).toBeLessThan(45);
+    expect(retainedMb).toBeLessThan(30);
+  }
 });
 
