@@ -340,3 +340,27 @@ describe('layoutFromFlags', () => {
     expect(layoutFromFlags({ favourites: [], hidden: [], recent: many }).recent).toHaveLength(20);
   });
 });
+
+describe('ChannelIndex – search keys and epgKey lookup', () => {
+  test('search folds ø/æ and treats punctuation as spaces; prefix matches come first', () => {
+    const cs = [ch(1, 'A', 'Sport Øst'), ch(2, 'A', 'Night-News'), ch(3, 'A', 'Late Night News'), ch(4, 'A', 'Aerial')];
+    const idx = new ChannelIndex(cs);
+    expect(ids(idx.search('ost', 10))).toEqual(['s:1']);
+    expect(ids(idx.search('night news', 10))).toEqual(['s:2', 's:3']);
+    expect(ids(idx.search('æ', 10))).toEqual(['s:4']);
+  });
+
+  test('channelsForEpgKey: shared key maps to every visible channel, number order, renames applied', () => {
+    const cs = [ch(5, 'A', 'Five', 'x.test'), ch(2, 'B', 'Two', 'x.test'), ch(3, 'A', 'Three', 'y.test'), ch(4, 'A', 'No Id')];
+    const idx = new ChannelIndex(cs, lay({ op: 'renameChannel', id: 's:5', name: 'Renamed Five' }));
+    expect(idx.channelsForEpgKey('x.test').map((c) => [c.id, c.name])).toEqual([['s:2', 'Two'], ['s:5', 'Renamed Five']]);
+    expect(ids(idx.channelsForEpgKey('name:no id'))).toEqual(['s:4']);
+    expect(idx.channelsForEpgKey('missing')).toEqual([]);
+  });
+
+  test('channelsForEpgKey excludes hidden channels and hidden groups', () => {
+    const cs = [ch(1, 'A', 'One', 'x.test'), ch(2, 'B', 'Two', 'x.test'), ch(3, 'A', 'Three', 'x.test')];
+    const idx = new ChannelIndex(cs, lay({ op: 'hideChannels', ids: ['s:1'] }, { op: 'hideGroups', ids: ['g:B'] }));
+    expect(ids(idx.channelsForEpgKey('x.test'))).toEqual(['s:3']);
+  });
+});
