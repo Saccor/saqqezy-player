@@ -52,7 +52,7 @@ interface MenuState { row: ChannelRow; items: MenuItem[]; inListId?: string; isF
 /** "Add to list…": every list and the ids of those holding the channel. */
 interface PickerState { row: ChannelRow; lists: ListSummary[]; member: Set<string> }
 /** The on-screen keyboard for "New list…" (from the picker) or "Rename…" (from the menu). */
-interface EditState { kind: 'newList' | 'rename'; row: ChannelRow; value: string }
+interface EditState { kind: 'newList' | 'rename'; row: ChannelRow; value: string; error?: string }
 
 /**
  * In-memory position across Home visits (each push/pop re-creates the screen): the open group, the focused
@@ -347,7 +347,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const closePicker = () => { removePicker = undefined; setPicker(undefined); focusTop(); };
   const closeMenu = () => { removeMenu = undefined; setMenu(undefined); focusTop(); };
   // `dismiss*` close a layer from code.
-  const dismissKeyboard = () => { removeKeyboard?.(); closeKeyboard(); };
+  const dismissKeyboard = () => { if (edit()) { removeKeyboard?.(); closeKeyboard(); } };
   const dismissPicker = () => { if (picker()) { removePicker?.(); closePicker(); } };
   const dismissMenu = () => { if (menu()) { removeMenu?.(); closeMenu(); } };
   const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); };
@@ -469,7 +469,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (!e) return;
     if (e.kind === 'newList') {
       const v = validateListName(e.value);
-      if (!v.ok) { showToast(v.message); return; }
+      // Shown in the keyboard (not a toast, which would be a Back layer above it).
+      if (!v.ok) { setEdit({ ...e, error: v.message }); return; }
       const id = newListId(new Set(picker()?.lists.map((l) => l.id) ?? []));
       dismissKeyboard(); // back to the picker, which shows the new list checked
       const ops: LayoutOp[] = [{ op: 'createList', id, name: v.name }, { op: 'addToList', listId: id, channelIds: [e.row.id] }];
@@ -478,7 +479,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       return;
     }
     const r = renameOutcome(e.value, e.row.name);
-    if (r.kind === 'error') { showToast(r.message); return; }
+    if (r.kind === 'error') { setEdit({ ...e, error: r.message }); return; }
     dismissAll();
     if (r.kind === 'unchanged') return; // Done on the current name: nothing to store
     if (!(await applyOps([{ op: 'renameChannel', id: e.row.id, name: r.name }])) || !alive) return;
@@ -641,8 +642,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2}
             y={(LAYOUT.height - KEYBOARD_H) / 2}
             label={e().kind === 'newList' ? 'New list name' : 'Channel name (empty restores the original)'}
-            value={e().value} onChange={(v) => { const cur = edit(); if (cur) setEdit({ ...cur, value: limitTyping(cur.value, v) }); }}
-            onDone={() => void submitEdit()} hint="Done saves · Back cancels" />
+            value={e().value} onChange={(v) => { const cur = edit(); if (cur) setEdit({ kind: cur.kind, row: cur.row, value: limitTyping(cur.value, v) }); }}
+            onDone={() => void submitEdit()} hint="Done saves · Back cancels" error={e().error} />
         </View>
       )}</Show>
     </View>

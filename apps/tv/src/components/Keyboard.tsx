@@ -39,6 +39,8 @@ export function Keyboard(props: {
   onEdgeRight?: () => void;
   /** Replaces the default footer hint. */
   hint?: string;
+  /** A validation message shown in the footer instead of the hint (the owner clears it on the next edit). */
+  error?: string;
 }) {
   const [cursor, setCursor] = createSignal<Cursor>(START_CURSOR);
   const [shift, setShift] = createSignal(false);
@@ -111,7 +113,7 @@ export function Keyboard(props: {
         }}</For>
       )}</For>
       <Text x={PAD} y={KEYBOARD_H - 56} width={KEYBOARD_W - PAD * 2} maxWidth={KEYBOARD_W - PAD * 2} contain="width"
-        fontSize={FONT.small} color={COLORS.muted}>{hint()}</Text>
+        fontSize={FONT.small} color={props.error ? COLORS.error : COLORS.muted}>{props.error ?? hint()}</Text>
     </View>
   );
 }
