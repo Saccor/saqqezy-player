@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import solid from 'vite-plugin-solid';
+import { prodEnvCheck } from '../../tools/build/prodEnv.mjs';
 import { buildHeaders } from './src/build/headers.ts';
 
 /** Writes dist/_headers (Cloudflare Pages) with the relay origin of this build's VITE_RELAY_URL in the CSP. */
@@ -18,7 +19,8 @@ function companionHeaders(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [solid(), companionHeaders()],
+  // Production builds warn loudly without VITE_RELAY_URL (REQUIRE_PROD_ENV=1: fail).
+  plugins: [solid(), companionHeaders(), prodEnvCheck('companion')],
   resolve: { dedupe: ['solid-js'] },
   // Dev: http://localhost:5174 is a secure context, which WebCrypto needs. Production is served over https.
   server: { port: 5174, strictPort: true, host: 'localhost' },

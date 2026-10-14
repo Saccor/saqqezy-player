@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import solid from 'vite-plugin-solid';
+import { prodEnvCheck } from '../../tools/build/prodEnv.mjs';
 import { devProxy } from './vite.proxy.ts';
 
 export default defineConfig({
@@ -7,6 +8,8 @@ export default defineConfig({
   base: './',
   plugins: [
     devProxy(),
+    // Production builds warn loudly without VITE_RELAY_URL / VITE_COMPANION_ORIGIN (REQUIRE_PROD_ENV=1: fail).
+    prodEnvCheck('tv'),
     // Lightning + Solid: compile JSX with Solid's universal renderer from @lightningtv/solid.
     solid({ solid: { moduleName: '@lightningtv/solid', generate: 'universal', builtIns: [] } }),
   ],

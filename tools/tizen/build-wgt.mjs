@@ -6,11 +6,14 @@
 //      the zip root). Apps2Samsung or Tizen Studio sign it for the target device.
 //   4. if the Tizen CLI (`tizen`) is on PATH and TIZEN_PROFILE names a certificate profile, also signs and packages
 //      dist-tizen/ into a signed .wgt; otherwise prints what to do next and exits 0.
+// It prints the relay and companion addresses baked into the build. Without them the Vite build warns loudly;
+// with REQUIRE_PROD_ENV=1 it fails (tools/build/prodEnv.mjs).
 // Usage: pnpm build:tizen            (TIZEN_PROFILE=<profile name> pnpm build:tizen to sign)
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bakedValues, checkProdEnv, viteEnv } from '../build/prodEnv.mjs';
 import { makeIconPng } from './make-icon.mjs';
 import { zipDirectory } from './zip.mjs';
 
@@ -39,6 +42,16 @@ function run(cmd, args, opts = {}) {
 function fail(msg) {
   console.error(`\nbuild:tizen failed: ${msg}`);
   process.exit(1);
+}
+
+// 0. The addresses this package will talk to (the Vite build checks them again, and fails in strict mode).
+const tvEnv = viteEnv(join(root, 'apps', 'tv'));
+console.log('Baked into this build:');
+for (const line of bakedValues('tv', tvEnv)) console.log(`  ${line}`);
+try {
+  checkProdEnv('tv', tvEnv, { warn: () => {} }); // strict mode stops here; the warning itself comes from the Vite build
+} catch (err) {
+  fail(err instanceof Error ? err.message : String(err));
 }
 
 // 1. Production build.
