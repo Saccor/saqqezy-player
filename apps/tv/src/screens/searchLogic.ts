@@ -1,5 +1,5 @@
 import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
-import { scrollTopFor } from '../components/virtualWindow.ts';
+import { firstSelectable, scrollTopFor } from '../components/virtualWindow.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
 
@@ -109,6 +109,54 @@ export function listRows(rows: readonly SearchRow[]): readonly SearchRow[] {
   return selectableCount(rows) > 0 ? rows : [];
 }
 
+/** True when the answer is still waiting for guide results (it carries the pending note). */
+export function isGuidePending(rows: readonly SearchRow[]): boolean {
+  return rows.some((r) => r.kind === 'note' && r.label === GUIDE_PENDING_NOTE);
+}
+
+export interface FocusInput {
+  rows: readonly SearchRow[];
+  /** Back from the Player or Guide: the next full answer restores `memoryFocus`. */
+  returning: boolean;
+  memoryFocus: number;
+  prevFocus: number;
+  /** The settled answer's query, and the query of the answer before it. */
+  query: string;
+  settledQuery: string;
+  viewRows: number;
+}
+
+export interface FocusDecision {
+  focus: number;
+  /** New window top; absent when the scroll position is kept (a re-run of the same query). */
+  top?: number;
+  /** The restore is done: clear `returning`. */
+  consumeReturning: boolean;
+  /** Move key focus to the result list. */
+  focusList: boolean;
+}
+
+/**
+ * Focus for a settled answer. Returning from the Player or Guide restores the saved row, but an answer still
+ * waiting for guide results (programme rows missing) only sets a provisional focus and keeps `returning`, so the
+ * full answer that follows restores the saved row exactly. A re-run of the same query keeps the focused row; a
+ * new query starts at the top.
+ */
+export function nextFocus(i: FocusInput): FocusDecision {
+  const { rows } = i;
+  const sel = (n: number) => isSelectable(rows[n]);
+  const top = (f: number) => Math.max(0, f - i.viewRows + 1);
+  if (i.returning && selectableCount(rows) > 0) {
+    const focus = firstSelectable(i.memoryFocus, rows.length, sel);
+    return { focus, top: top(focus), consumeReturning: !isGuidePending(rows), focusList: true };
+  }
+  if (!i.returning && i.query !== '' && i.query === i.settledQuery) {
+    return { focus: firstSelectable(Math.min(i.prevFocus, rows.length - 1), rows.length, sel), consumeReturning: false, focusList: false };
+  }
+  const focus = firstSelectable(0, rows.length, sel);
+  return { focus, top: top(focus), consumeReturning: false, focusList: false };
+}
+
 export function isSelectable(row: SearchRow | undefined): boolean {
   return row !== undefined && row.kind !== 'header' && row.kind !== 'note';
 }
@@ -125,7 +173,7 @@ export function resultsMessage(s: SearchState<SearchRow>): string | undefined {
   if (selectableCount(s.results) > 0) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
-  if (s.results.some((r) => r.kind === 'note' && r.label === GUIDE_PENDING_NOTE)) {
+  if (isGuidePending(s.results)) {
     return `No channels match "${s.query}" · ${GUIDE_PENDING_NOTE}`;
   }
   return `No channels or programmes match "${s.query}"`;

@@ -9,6 +9,7 @@ import {
   GUIDE_PENDING_NOTE,
   isSelectable,
   listRows,
+  nextFocus,
   rerunsSearch,
   resultsMessage,
   scrollAnchor,
@@ -130,6 +131,47 @@ describe('flattenResults', () => {
     expect(rows.map(isSelectable)).toEqual([false, true, true, false]);
     expect(selectableCount(rows)).toBe(2);
     expect(isSelectable(undefined)).toBe(false);
+  });
+});
+
+describe('nextFocus', () => {
+  const later = (n: number) => ({ title: `Show ${n}`, channel: row(n), start: 2, stop: 3, more: 0 });
+  // Full answer: header, 3 channels, header, 20 coming-up rows (rows 0..25).
+  const full = flattenResults(result({ channels: [row(1), row(2), row(3)], later: Array.from({ length: 20 }, (_, i) => later(i + 10)) }));
+  // The same query while the guide index is loading: channels and the pending note only.
+  const pending = flattenResults(result({ channels: [row(1), row(2), row(3)], guidePending: true }));
+  const base = { returning: false, memoryFocus: 0, prevFocus: 0, query: 'sh', settledQuery: '', viewRows: 9 };
+
+  it('a fresh query goes to the first selectable row at the top', () => {
+    expect(nextFocus({ ...base, rows: full, prevFocus: 7 })).toEqual({ focus: 1, top: 0, consumeReturning: false, focusList: false });
+  });
+
+  it('a plain re-run of the same query keeps the focused row and the scroll', () => {
+    expect(nextFocus({ ...base, rows: full, prevFocus: 7, settledQuery: 'sh' })).toEqual({ focus: 7, consumeReturning: false, focusList: false });
+  });
+
+  it('a pending answer while returning sets a provisional focus and keeps returning', () => {
+    const d = nextFocus({ ...base, rows: pending, returning: true, memoryFocus: 20, settledQuery: '' });
+    expect(d.consumeReturning).toBe(false);
+    expect(d.focus).toBe(3);
+    expect(d.focusList).toBe(true);
+  });
+
+  it('the full answer after a pending one restores the saved row exactly', () => {
+    const provisional = nextFocus({ ...base, rows: pending, returning: true, memoryFocus: 20 });
+    const d = nextFocus({ ...base, rows: full, returning: true, memoryFocus: 20, prevFocus: provisional.focus, settledQuery: 'sh' });
+    expect(d).toEqual({ focus: 20, top: 12, consumeReturning: true, focusList: true });
+  });
+
+  it('a full answer while returning restores at once', () => {
+    expect(nextFocus({ ...base, rows: full, returning: true, memoryFocus: 6 })).toEqual({ focus: 6, top: 0, consumeReturning: true, focusList: true });
+  });
+
+  it('an empty or failed answer is safe and keeps returning', () => {
+    expect(nextFocus({ ...base, rows: [] })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
+    expect(nextFocus({ ...base, rows: [], returning: true, memoryFocus: 20 })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
+    const lone = flattenResults(result({ guidePending: true }));
+    expect(nextFocus({ ...base, rows: lone, returning: true, memoryFocus: 20, settledQuery: 'sh' })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
   });
 });
 

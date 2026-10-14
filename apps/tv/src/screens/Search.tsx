@@ -11,7 +11,7 @@ import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, rerunsSearch, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -49,17 +49,17 @@ export function SearchScreen() {
     setState(s);
     // While a query runs the previous results stay on screen untouched (focus included).
     if (s.busy) return;
-    const rows = s.results;
-    const sel = (i: number) => isSelectable(rows[i]);
-    // The first answer after returning from the Player or Guide restores the focused row and the list focus.
-    const restore = memory.returning && rows.some((r) => isSelectable(r));
-    // A re-run of the same query (the guide index became ready) keeps the focused row; a new query starts at the top.
-    const rerun = !memory.returning && s.query !== '' && s.query === settledQuery;
+    // Returning from the Player or Guide restores the focused row once the full answer (not a guide-pending one)
+    // is in; a re-run of the same query keeps the focused row; a new query starts at the top.
+    const d = nextFocus({
+      rows: s.results, returning: memory.returning, memoryFocus: memory.focus, prevFocus: focus(),
+      query: s.query, settledQuery, viewRows: LIST_ROWS,
+    });
     settledQuery = s.query;
-    const f = firstSelectable(restore ? memory.focus : rerun ? Math.min(focus(), rows.length - 1) : 0, rows.length, sel);
-    setFocus(f);
-    if (!rerun) lastTop = Math.max(0, f - LIST_ROWS + 1);
-    if (restore) { memory.returning = false; queueMicrotask(() => { if (alive) listNode?.setFocus(); }); }
+    setFocus(d.focus);
+    if (d.top !== undefined) lastTop = d.top;
+    if (d.consumeReturning) memory.returning = false;
+    if (d.focusList) queueMicrotask(() => { if (alive) listNode?.setFocus(); });
   });
 
   const total = () => state().results.length;
