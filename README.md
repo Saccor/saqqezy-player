@@ -9,7 +9,8 @@ full-screen playback with zapping, number entry, previous channel, options and a
 search; settings; and a cached start that reopens the last channel in under a second.
 
 - **Try it:** [docs/try-v1.md](docs/try-v1.md) (install, start, keyboard map, test login)
-- **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md)
+- **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). The Samsung build has
+  not yet been verified on a real TV.
 - **What comes later:** [docs/backlog.md](docs/backlog.md)
 
 ## Guardrails (summary)
