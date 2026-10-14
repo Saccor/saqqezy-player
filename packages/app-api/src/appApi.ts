@@ -1,7 +1,7 @@
 import {
-  ChannelIndex, GROUP_ALL, alternateStreamUrl, applyShift, nowNext, redactUrl,
+  ChannelIndex, FAV_LIST_ID, GROUP_ALL, alternateStreamUrl, applyOps, applyShift, nowNext, redactUrl,
   type AppSettings, type Channel, type GroupInfo, type NewSource, type Programme, type SourceConfig,
-  type SourceService, type Storage,
+  type LayoutOp, type SourceService, type Storage,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import type {
@@ -224,8 +224,9 @@ export class AppApi {
     return this.run('toggleFavourite', () => this.withIndex(async () => {
       if (!this.index.get(channelId)) return false;
       const on = !this.favourites().has(channelId);
-      this.index.setFavourite(channelId, on);
-      this.favSet = undefined;
+      this.applyLayout([on
+        ? { op: 'addToList', listId: FAV_LIST_ID, channelIds: [channelId] }
+        : { op: 'removeFromList', listId: FAV_LIST_ID, channelIds: [channelId] }]);
       await this.persistFlags();
       return on;
     }));
@@ -234,8 +235,8 @@ export class AppApi {
   toggleHidden(channelId: string): Promise<boolean> {
     return this.run('toggleHidden', () => this.withIndex(async () => {
       if (!this.index.get(channelId)) return false;
-      const on = !this.index.flags().hidden.includes(channelId);
-      this.index.setHidden(channelId, on);
+      const on = !this.index.layout().hiddenChannels.includes(channelId);
+      this.applyLayout([{ op: on ? 'hideChannels' : 'unhideChannels', ids: [channelId] }]);
       await this.persistFlags();
       return on;
     }));
@@ -249,7 +250,7 @@ export class AppApi {
     return this.run('markWatched', () => this.withIndex(async () => {
       const id = this.activeId;
       if (!id || !this.index.get(channelId)) return;
-      this.index.markWatched(channelId);
+      this.applyLayout([{ op: 'markWatched', id: channelId }]);
       await this.persistFlags();
       await this.storage.setMeta(`lastChannel:${id}`, channelId);
       await this.storage.setMeta(`lastGroup:${id}`, groupId);
@@ -391,7 +392,7 @@ export class AppApi {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
       const channels = await this.storage.getChannels(id);
-      this.index = new ChannelIndex(channels, this.index.flags());
+      this.index = new ChannelIndex(channels, this.index.layout());
       this.favSet = undefined;
       this.invalidateNowNext();
     });
@@ -419,7 +420,16 @@ export class AppApi {
   }
 
   private favourites(): Set<string> {
-    return (this.favSet ??= new Set(this.index.flags().favourites));
+    const fav = this.index.layout().lists.find((l) => l.id === FAV_LIST_ID);
+    return (this.favSet ??= new Set(fav?.channelIds ?? []));
+  }
+
+  /** Interim (Plan 3 Task 2): applies ops to the active layout and swaps in a rebuilt index. Caller holds the index lock. */
+  private applyLayout(ops: LayoutOp[]): void {
+    const { layout, changed } = applyOps(this.index.layout(), ops);
+    if (!changed) return;
+    this.index = this.index.withLayout(layout);
+    this.favSet = undefined;
   }
 
   private async persistFlags(): Promise<void> {

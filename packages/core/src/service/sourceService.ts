@@ -1,7 +1,8 @@
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
 import { SourceAuthError, SourceNetworkError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
-import { ChannelIndex, type UserFlags } from '../index/channelIndex.ts';
+import { ChannelIndex } from '../index/channelIndex.ts';
+import type { UserFlags } from '../layout/migrate.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { responseText } from '../net/textStream.ts';

@@ -3,3 +3,4 @@ export {
   type ApplyResult, type Layout, type LayoutOp, type SortMode, type UserList,
 } from './types.ts';
 export { applyOps, isLayoutOp, normalizeLayout } from './ops.ts';
+export { isUserFlags, layoutFromFlags, type UserFlags } from './migrate.ts';

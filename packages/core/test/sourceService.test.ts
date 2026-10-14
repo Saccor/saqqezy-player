@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceService } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
+import { applyOps } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 
 const m3u = readFileSync(new URL('./fixtures/basic.m3u', import.meta.url), 'utf8');
@@ -55,9 +56,9 @@ describe('SourceService – m3u', () => {
 
   test('flags persist through saveFlags/loadIndex', async () => {
     const { source } = await service.addSource(m3uInput);
-    const idx = await service.loadIndex(source.id);
-    const first = idx.slice('all', 0, 1)[0]!;
-    idx.setFavourite(first.id, true);
+    const loaded = await service.loadIndex(source.id);
+    const first = loaded.slice('all', 0, 1)[0]!;
+    const idx = loaded.withLayout(applyOps(loaded.layout(), [{ op: 'addToList', listId: 'fav', channelIds: [first.id] }]).layout);
     await service.saveFlags(source.id, idx);
     expect((await service.loadIndex(source.id)).groupSize('fav')).toBe(1);
   });
@@ -478,8 +479,9 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     const { source } = await service.addSource(m3uInput);
     await service.refreshEpg(source.id);
     await service.refreshEpg(source.id);
-    const idx = await service.loadIndex(source.id);
-    idx.setFavourite(idx.slice('all', 0, 1)[0]!.id, true);
+    const loaded = await service.loadIndex(source.id);
+    const favId = loaded.slice('all', 0, 1)[0]!.id;
+    const idx = loaded.withLayout(applyOps(loaded.layout(), [{ op: 'addToList', listId: 'fav', channelIds: [favId] }]).layout);
     await service.saveFlags(source.id, idx);
     await storage.setMeta(`epgStaging:${source.id}`, 7);
     await storage.addProgrammes(`${source.id}@7`, [{ epgId: 'ch1.test', start: 1, stop: 2, title: 'x' }]);
