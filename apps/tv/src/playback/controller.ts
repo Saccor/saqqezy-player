@@ -20,6 +20,8 @@ export interface PlaybackController {
   isLatest(token: number): boolean;
   /** Moves the video only; never touches the stream. */
   setRect(rect: Rect | 'fullscreen'): void;
+  /** True while the last `setRect` covered the whole screen (false until a screen asks for fullscreen). */
+  rectIsFullscreen: Accessor<boolean>;
   /** Which player is active ("AVPlay" on a Samsung TV, else "HTML5"); shown in Diagnostics so a silent fallback is visible. */
   playerKind(): PlayerKind;
   status: Accessor<SupervisorStatus | undefined>;
@@ -27,6 +29,13 @@ export interface PlaybackController {
 }
 
 export type PlayerKind = 'AVPlay' | 'HTML5';
+
+const DESIGN_W = 1920;
+const DESIGN_H = 1080;
+
+function coversScreen(rect: Rect | 'fullscreen'): boolean {
+  return rect === 'fullscreen' || (rect.x <= 0 && rect.y <= 0 && rect.x + rect.w >= DESIGN_W && rect.y + rect.h >= DESIGN_H);
+}
 
 /** Testable core of the `playback` singleton: one player, one supervisor, two signals. */
 export function createPlaybackController(
@@ -37,6 +46,7 @@ export function createPlaybackController(
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
+  const [rectIsFullscreen, setRectIsFullscreen] = createSignal(false);
   const report = (s: SupervisorStatus | undefined) => {
     setStatus(s);
     onStatusChange(s);
@@ -70,7 +80,11 @@ export function createPlaybackController(
     },
     begin: () => ++token,
     isLatest: (t) => t === token,
-    setRect: (rect) => player.setRect(rect),
+    setRect: (rect) => {
+      player.setRect(rect);
+      setRectIsFullscreen(coversScreen(rect));
+    },
+    rectIsFullscreen,
     playerKind: () => kind,
     status,
     current,

@@ -10,6 +10,7 @@ import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/v
 import { playback } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { WORDMARK_H, WORDMARK_Y } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
   HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideWindow, initialViewStart, isOnAir, prefetchRange,
@@ -19,6 +20,8 @@ import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
 
 const MINI: Rect = { x: LAYOUT.safeX, y: LAYOUT.safeY, w: 480, h: 270 };
 const INFO_X = MINI.x + MINI.w + LAYOUT.gap * 2;
+/** First info line, just below the brand wordmark; the expanded 4-line description still ends above the grid. */
+const INFO_TOP = WORDMARK_Y + WORDMARK_H + 6 - MINI.y;
 /** Leaves room for the shell clock in the top-right corner. */
 const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X - 160;
 const GRID_Y = MINI.y + MINI.h + LAYOUT.gap;
@@ -296,17 +299,17 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         </View>
       )}</Show>
 
-      {/* Focused programme */}
+      {/* Focused programme: starts below the brand wordmark (top centre) and ends above the grid. */}
       <View x={INFO_X} y={MINI.y} width={INFO_W} height={MINI.h}>
-        <Text width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+        <Text y={INFO_TOP} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
           {`TV guide${groupName() ? ` · ${groupName()}` : ''}${focusChannel() ? ` · ${focusChannel()!.number} ${focusChannel()!.name}` : ''}`}
         </Text>
-        <Text y={40} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
+        <Text y={INFO_TOP + 26} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
           {focusBlock()?.title ?? (ready() && total() === 0 ? 'No channels here yet.' : '')}
         </Text>
-        <Text y={108} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.body}
+        <Text y={INFO_TOP + 84} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.body}
           color={focusBlock() && isOnAir(focusBlock()!, now()) ? COLORS.focus : COLORS.muted}>{whenLine()}</Text>
-        <Text y={152} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
+        <Text y={INFO_TOP + 116} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
           color={COLORS.text}>{descText()}</Text>
       </View>
 

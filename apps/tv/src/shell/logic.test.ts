@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTapSequence, formatClock, msToNextMinute, toastOnExpiry, toastOnShow } from './logic.ts';
+import { createTapSequence, formatClock, msToNextMinute, showWordmark, toastOnExpiry, toastOnShow } from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -96,5 +96,28 @@ describe('toast precedence', () => {
 
   it('expiry with nothing waiting clears the toast', () => {
     expect(toastOnExpiry({ current: low('a') })).toEqual({});
+  });
+});
+
+describe('showWordmark', () => {
+  it('shows on every browsing screen while the video is not fullscreen', () => {
+    for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
+      expect(showWordmark(route, false)).toBe(true);
+    }
+  });
+
+  it('shows before any screen is open (loading, init error)', () => {
+    expect(showWordmark(undefined, false)).toBe(true);
+  });
+
+  it('hides in the Player', () => {
+    expect(showWordmark('player', false)).toBe(false);
+    expect(showWordmark('player', true)).toBe(false);
+  });
+
+  it('hides whenever the video rect is fullscreen, whatever the screen', () => {
+    expect(showWordmark('home', true)).toBe(false);
+    expect(showWordmark('search', true)).toBe(false);
+    expect(showWordmark(undefined, true)).toBe(false);
   });
 });

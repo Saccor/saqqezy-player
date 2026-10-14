@@ -8,6 +8,7 @@ import { moveFocus, pageFocus, scrollTopFor } from '../components/virtualWindow.
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { PREVIEW_RECT } from './Home.tsx';
 import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -16,6 +17,8 @@ const KB_Y = 150;
 const LIST_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
 const LIST_W = LAYOUT.width - LAYOUT.safeX - LIST_X;
 const LIST_ROWS = 9;
+/** Result count, above the list and below the brand wordmark (top centre). */
+const COUNT_Y = KB_Y - 42;
 const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
@@ -83,6 +86,9 @@ export function SearchScreen() {
   onMount(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     onCleanup(() => clearInterval(tick));
+    // Back from the Player leaves the video fullscreen behind this opaque screen; park it where Home shows it, so
+    // the shell's wordmark (hidden while the video is fullscreen) returns and Home needs no visible move.
+    if (playback.rectIsFullscreen()) playback.setRect(PREVIEW_RECT);
     kbNode?.setFocus();
     if (memory.query !== '') searcher.setQuery(memory.query);
     else memory.returning = false;
@@ -105,7 +111,7 @@ export function SearchScreen() {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}
       forwardFocus={focusKeyboard} onBack={onBack}>
       <Text x={KB_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Search'}</Text>
-      <Text x={LIST_X} y={LAYOUT.safeY + 14} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1}
+      <Text x={LIST_X} y={COUNT_Y} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1}
         fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>
 
       <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel name or number" hint="Right: results · Back returns" value={query()}

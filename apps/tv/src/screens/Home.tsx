@@ -16,6 +16,7 @@ import { playback, previewHold } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, markStartup } from '../state/appState.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
 import {
@@ -37,7 +38,8 @@ const BODY_Y = 170;
 const LIST_ROWS = 9;
 const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
-const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
+/** Home's preview box; also where opaque screens park a fullscreen video they cover (see Search). */
+export const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
 const PREVIEW_DELAY_MS = 700;
 const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
@@ -63,8 +65,8 @@ const memory: { groupId?: string; channelId?: string; rows: Map<string, number> 
 
 const PHONE_BADGE_W = 300;
 const PHONE_BADGE_H = 48;
-/** Offline badge (App shell) width + gap, so the two never overlap. */
-const PHONE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - 400 - LAYOUT.gap - PHONE_BADGE_W;
+/** Left of the brand wordmark's zone (top centre); the offline badge and the clock sit to its right. */
+const PHONE_BADGE_X = WORDMARK_ZONE_X - LAYOUT.gap - PHONE_BADGE_W;
 
 /** "Phone connected": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
 function PhoneBadge() {

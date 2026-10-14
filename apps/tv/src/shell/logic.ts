@@ -1,5 +1,7 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
+import type { ScreenId } from './router.ts';
+
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Local time as 24 h `HH:MM`. */
@@ -45,4 +47,12 @@ export function toastOnShow(s: ToastState, t: ToastItem): ToastState {
 /** The visible toast's time is up: show the waiting one, if any. */
 export function toastOnExpiry(s: ToastState): ToastState {
   return s.pending ? { current: s.pending } : {};
+}
+
+/**
+ * The brand wordmark shows on every browsing screen (and before any screen exists: loading, init error). It
+ * hides in the Player and whenever the video is fullscreen, so it never sits on top of the picture.
+ */
+export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: boolean): boolean {
+  return route !== 'player' && !rectIsFullscreen;
 }

@@ -235,3 +235,11 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - `position()` polls `getCurrentTime()` (`oncurrentplaytime` only updates the fallback value); audio tracks from `getTotalTrackInfo` (`setSelectTrack('AUDIO', index)`), active track and stream info from `getCurrentStreamInfo` (`extra_info` JSON).
   - Display (`avplayDisplay`): `auto` → `AUTO_ASPECT_RATIO`; `stretch` → `FULL_SCREEN`; `16:9`/`4:3` → `FULL_SCREEN` in a contained box of that ratio; `zoom` → in full screen, `LETTER_BOX` in a box of the source ratio covering the screen (overflow cropped by the screen edge); in a smaller rect (preview) it falls back to `auto`. Rects are converted from design space to `AVPLAY_DISPLAY_SPACE` (1920x1080, Samsung's fixed AVPlay coordinate space).
 - `src/platform/tizen.ts`: `registerKeys()` (`registerKeyBatch(TIZEN_KEYS_TO_REGISTER)`, falling back to one `registerKey` per key) is called from `main.tsx` on Tizen; `exit()` is what `exitApp('tizen')` calls. Ambient `tizen` / `webapis` types: `src/types/tizen.d.ts` (read them via `globalThis`).
+
+## Brand wordmark
+
+- `src/shell/Wordmark.tsx`: "SAQQEZY · MULTIMEDIA", text only, centred at the top of the safe area (`WORDMARK_Y` = `safeY`, 44 px tall). The shell renders it once, above the screen host and below badges, toasts, dialogs and the debug HUD. Other top-row elements stay outside `WORDMARK_ZONE_X`..`+WORDMARK_ZONE_W` (Home's phone badge sits left of it; the Guide's info block and Search's result count start below it).
+- Visibility is `showWordmark(route, playback.rectIsFullscreen())` in `shell/logic.ts` (unit-tested): hidden in the Player and whenever the video rect covers the screen. It fades over 200 ms.
+- Search parks a fullscreen video (left by Back from the Player) at Home's `PREVIEW_RECT` on mount, so the wordmark returns there.
+- The `transition` prop does not work with renderer 3.7 (`@lightningtv/solid` calls `lng.animateProp`, which the renderer lacks): animate with `node.animate({...}, settings).start()` instead.
+- Bold text: `fontStyle={'bold' as 'normal'}`. The canvas engine uses `${fontStyle} ${fontSize}px …` as the CSS font for measuring and drawing; `fontWeight` renames the family instead and `richText` is not forwarded by `@lightningtv/solid`.

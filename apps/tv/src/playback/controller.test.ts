@@ -114,4 +114,18 @@ describe('playback controller', () => {
     expect(pb.current()?.id).toBe('2');
     expect(f.supervisor.play).toHaveBeenCalledTimes(1);
   });
+
+  it('tracks whether the video rect is fullscreen (false until a screen asks for it)', () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor);
+    expect(pb.rectIsFullscreen()).toBe(false);
+    pb.setRect('fullscreen');
+    expect(pb.rectIsFullscreen()).toBe(true);
+    expect(f.player.setRect).toHaveBeenLastCalledWith('fullscreen');
+    pb.setRect({ x: 96, y: 54, w: 480, h: 270 });
+    expect(pb.rectIsFullscreen()).toBe(false);
+    // A rect covering the whole design space is fullscreen too.
+    pb.setRect({ x: 0, y: 0, w: 1920, h: 1080 });
+    expect(pb.rectIsFullscreen()).toBe(true);
+  });
 });

@@ -15,10 +15,12 @@ import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
+import { showWordmark } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
+import { Wordmark } from './shell/Wordmark.tsx';
 import { bootstrap, initFailed, offline, platformId, settings, wireEvents } from './state/appState.ts';
 
 const EXIT_ID = 'exitConfirm';
@@ -37,7 +39,7 @@ function OfflineBadge() {
 
 /**
  * App shell: screen stack, layered Back (overlays first, then screens, then the exit question), toasts,
- * offline badge, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
+ * brand wordmark, offline badge, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
  */
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
@@ -96,6 +98,7 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
+      <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen())} />
       <Show when={offline()}><OfflineBadge /></Show>
       {/* Hidden until settings are loaded, so a disabled clock never flashes. */}
       <Show when={settings()?.showClock === true}><Clock /></Show>
