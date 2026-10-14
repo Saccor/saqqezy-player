@@ -281,6 +281,66 @@ describe('SourceService – xtream', () => {
     expect(peak).toBe(6);
   });
 
+  /** Holds every short-EPG request until `open()`; records the requested stream ids and usernames. */
+  const holdShortEpg = () => {
+    const seen: { stream: number; user: string }[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    return { seen, open: () => open(), gate };
+  };
+  const shortRoute = (h: ReturnType<typeof holdShortEpg>): FetchFn => async (url, init) => {
+    const u = new URL(url);
+    if (u.searchParams.get('action') === 'get_short_epg') {
+      h.seen.push({ stream: Number(u.searchParams.get('stream_id')), user: u.searchParams.get('username') ?? '' });
+      await h.gate;
+      return json({ epg_listings: [] });
+    }
+    return fetchFn(url, init);
+  };
+
+  test('shortEpgFor drops the oldest waiters once the queue is past its cap', async () => {
+    const { source, channels } = await addX(32);
+    const h = holdShortEpg();
+    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
+    // 6 run, 24 may wait: the 31st and 32nd push out the two oldest waiters (streams 7 and 8).
+    const done = svc.shortEpgFor(source.id, channels);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(h.seen.map((s) => s.stream)).toEqual([1, 2, 3, 4, 5, 6]);
+    h.open();
+    const found = await done;
+    expect(h.seen.map((s) => s.stream).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 32 }, (_, i) => i + 1).filter((n) => n !== 7 && n !== 8));
+    expect(found.size).toBe(30);
+  });
+
+  test('shortEpgFor sends no request for a lookup that is stale when its turn comes', async () => {
+    const { source, channels } = await addX(8);
+    const h = holdShortEpg();
+    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
+    let stale = false;
+    const done = svc.shortEpgFor(source.id, channels, { isStale: () => stale });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(h.seen).toHaveLength(6);
+    stale = true;
+    h.open();
+    expect((await done).size).toBe(6);
+    expect(h.seen).toHaveLength(6);
+    expect((await svc.shortEpgFor(source.id, channels, { isStale: () => true })).size).toBe(0);
+    expect(h.seen).toHaveLength(6);
+  });
+
+  test('shortEpgFor uses the stored source config at request time', async () => {
+    const { source, channels } = await addX(7);
+    const h = holdShortEpg();
+    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
+    const done = svc.shortEpgFor(source.id, channels);
+    await new Promise((r) => setTimeout(r, 5));
+    await storage.putSource({ ...source, username: 'renamed' } as typeof source);
+    h.open();
+    await done;
+    expect(h.seen.map((s) => s.user)).toEqual(['u', 'u', 'u', 'u', 'u', 'u', 'renamed']);
+  });
+
   test('shortEpgFor is skipped while a guide refresh of the source runs', async () => {
     const { source, channels } = await addX(2);
     let release!: () => void;

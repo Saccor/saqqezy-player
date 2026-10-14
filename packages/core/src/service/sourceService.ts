@@ -31,6 +31,8 @@ export interface SourceServiceDeps {
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
 const SHORT_EPG_CONCURRENCY = 6;
+/** Short-EPG lookups waiting for a slot; past this the oldest waiters are dropped (they resolve to nothing). */
+const SHORT_EPG_QUEUE_CAP = 24;
 /** Wraps an error of the guide body stream, so it can be told apart from a parse error. */
 class StreamFailure extends Error {
   constructor(readonly cause: unknown) {
@@ -70,7 +72,7 @@ export class SourceService {
   private readonly locks = new Map<string, Promise<void>>();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
-  private readonly shortEpgWaiting: (() => void)[] = [];
+  private readonly shortEpgWaiting: ((granted: boolean) => void)[] = [];
 
   constructor(deps: SourceServiceDeps) {
     this.storage = deps.storage;
@@ -323,22 +325,29 @@ export class SourceService {
 
   /**
    * Xtream short EPG for channels without stored programmes. At most `SHORT_EPG_CONCURRENCY` requests run at
-   * once across all calls; skipped (empty map) while a guide refresh of the source runs. Only channels whose
-   * lookup succeeded are in the result.
+   * once across all calls and at most `SHORT_EPG_QUEUE_CAP` wait (the oldest waiters are dropped). Right before
+   * each request the lookup is skipped when `isStale(channel)` says so, when a guide refresh of the source runs
+   * or when the source is gone; the client is built from the source config stored at that moment, so updated
+   * credentials are used. Only channels whose lookup succeeded are in the result.
    */
-  async shortEpgFor(id: string, channels: Channel[]): Promise<Map<string, { now?: Programme; next?: Programme }>> {
+  async shortEpgFor(
+    id: string,
+    channels: Channel[],
+    opts: { isStale?: (channel: Channel) => boolean } = {},
+  ): Promise<Map<string, { now?: Programme; next?: Programme }>> {
     const out = new Map<string, { now?: Programme; next?: Programme }>();
+    const skip = (c: Channel) => this.isRefreshingEpg(id) || (opts.isStale?.(c) ?? false);
     if (this.isRefreshingEpg(id)) return out;
-    const source = (await this.storage.listSources()).find((s) => s.id === id);
-    if (source?.kind !== 'xtream') return out;
-    const client = this.xtream(source);
+    if ((await this.storage.listSources()).find((s) => s.id === id)?.kind !== 'xtream') return out;
     await Promise.all(channels.map(async (c) => {
       const streamId = Number(/:x(\d+)$/.exec(c.id)?.[1]);
-      if (!streamId) return;
-      await this.shortEpgSlot();
+      if (!streamId || skip(c)) return;
+      if (!(await this.shortEpgSlot())) return;
       try {
-        if (this.isRefreshingEpg(id)) return;
-        const list = await client.shortEpg(streamId, epgKey(c));
+        if (skip(c)) return;
+        const source = (await this.storage.listSources()).find((s) => s.id === id);
+        if (source?.kind !== 'xtream' || skip(c)) return;
+        const list = await this.xtream(source).shortEpg(streamId, epgKey(c));
         out.set(c.id, nowNext(list, this.now()));
       } catch {
         // No EPG is an acceptable outcome; the UI shows the channel without programme info.
@@ -351,18 +360,20 @@ export class SourceService {
 
   // ---- internals ----
 
-  private shortEpgSlot(): Promise<void> {
+  /** Resolves true with a slot, or false when this waiter was dropped from a full queue (no slot held). */
+  private shortEpgSlot(): Promise<boolean> {
     if (this.shortEpgActive < SHORT_EPG_CONCURRENCY) {
       this.shortEpgActive++;
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
+    if (this.shortEpgWaiting.length >= SHORT_EPG_QUEUE_CAP) this.shortEpgWaiting.shift()?.(false);
     return new Promise((resolve) => this.shortEpgWaiting.push(resolve));
   }
 
   /** Hands the slot straight to the next waiter (the active count stays), or frees it. */
   private releaseShortEpgSlot(): void {
     const next = this.shortEpgWaiting.shift();
-    if (next) next();
+    if (next) next(true);
     else this.shortEpgActive--;
   }
 

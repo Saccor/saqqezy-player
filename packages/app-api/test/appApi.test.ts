@@ -423,6 +423,69 @@ describe('AppApi', () => {
   });
 });
 
+describe('AppApi – background short EPG', () => {
+  /** No stored guide; every short-EPG request is recorded by stream id and held until `open()`. */
+  const held = () => {
+    const g = gate();
+    const streams: number[] = [];
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) {
+        streams.push(Number(new URL(u).searchParams.get('stream_id')));
+        await g.p;
+      }
+      return fetch(u, i);
+    };
+    return { g, streams, fetchFn };
+  };
+  const streamOf = (id: string) => Number(/:x(\d+)$/.exec(id)?.[1]);
+
+  test('getEpgRows never starts a short-EPG lookup', async () => {
+    const h = held();
+    const { api } = make(storage, SourceService, h.fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    h.g.open();
+    const r = await api.getEpgRows('all', 0, 5, NOW, NOW + 3 * 3600_000);
+    expect(r.rows).toHaveLength(5);
+    await api.idle();
+    expect(h.streams).toEqual([]);
+  });
+
+  test('queued lookups for a window that scrolled away send no request', async () => {
+    const h = held();
+    const { api } = make(storage, SourceService, h.fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const a = await api.getChannelSlice('all', 0, 6); // takes all 6 slots
+    const b = await api.getChannelSlice('all', 10, 3); // waits
+    const c = await api.getChannelSlice('all', 20, 3); // waits
+    const d = await api.getChannelSlice('all', 30, 3); // waits; b is no longer one of the last 2 windows
+    await settle();
+    expect(h.streams).toEqual(a.rows.map((r) => streamOf(r.id)));
+    h.g.open();
+    await api.idle();
+    const asked = new Set(h.streams);
+    for (const r of b.rows) expect(asked.has(streamOf(r.id))).toBe(false);
+    for (const r of [...c.rows, ...d.rows]) expect(asked.has(streamOf(r.id))).toBe(true);
+  });
+
+  test('a settings change makes queued lookups stale', async () => {
+    const h = held();
+    const { api } = make(storage, SourceService, h.fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    await api.getChannelSlice('all', 0, 6);
+    const waiting = await api.getChannelSlice('all', 10, 3);
+    await settle();
+    await api.saveSettings({ epgOffsetHours: 1 });
+    h.g.open();
+    await api.idle();
+    const asked = new Set(h.streams);
+    for (const r of waiting.rows) expect(asked.has(streamOf(r.id))).toBe(false);
+  });
+});
+
 describe('scrub', () => {
   test('removes Xtream credentials from stream paths and queries', () => {
     const out = scrub('Could not open http://example.test/live/u1/p1/1.ts for playback');

@@ -13,6 +13,8 @@ const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
 const NOW_NEXT_MARGIN_MS = 6 * HOUR;
+/** Requested row windows remembered per source; a queued short-EPG lookup outside all of them is dropped. */
+const VISIBLE_WINDOWS = 2;
 
 const noop = () => { /* settled */ };
 
@@ -60,6 +62,8 @@ export class AppApi {
   private readonly shortPending = new Set<string>();
   /** Background short-EPG lookups in flight (awaited by the test-only `idle`). */
   private readonly shortJobs = new Set<Promise<void>>();
+  /** The last `VISIBLE_WINDOWS` requested row windows (channel ids) per source, newest last. */
+  private readonly windows = new Map<string, Set<string>[]>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
 
@@ -117,6 +121,7 @@ export class AppApi {
     return this.run('deleteSource', async () => {
       // Queued behind any background task of this source, so nothing writes to it after the delete.
       await this.enqueue(id, () => this.service.deleteSource(id));
+      this.windows.delete(id);
       for (const key of [`flags:${id}`, `lastChannel:${id}`, `lastGroup:${id}`]) await this.storage.setMeta(key, null);
       const next = await this.resolveActive();
       if (next !== this.activeId || id === this.activeId) {
@@ -182,7 +187,8 @@ export class AppApi {
     Promise<{ total: number; rows: { channel: ChannelRow; programmes: ProgrammeLite[] }[] }> {
     return this.run('getEpgRows', async () => {
       const channels = this.index.slice(groupId, offset, count);
-      const rows = await this.toRows(channels);
+      // The guide grid shows stored programmes only: no background short-EPG lookups from here.
+      const rows = await this.toRows(channels, false);
       const id = this.activeId;
       const settings = await this.currentSettings();
       const shifts = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
@@ -509,7 +515,21 @@ export class AppApi {
     return this.index.groupSize(GROUP_ALL) + this.index.hiddenChannels().length;
   }
 
-  private async nowNextCached(channels: Channel[]): Promise<Map<string, NowNext>> {
+  /** Remembers `channels` as the newest requested row window of the active source. */
+  private noteWindow(channels: Channel[]): void {
+    const id = this.activeId;
+    if (!id) return;
+    const list = this.windows.get(id) ?? [];
+    list.push(new Set(channels.map((c) => c.id)));
+    while (list.length > VISIBLE_WINDOWS) list.shift();
+    this.windows.set(id, list);
+  }
+
+  private inVisibleWindow(id: string, channelId: string): boolean {
+    return (this.windows.get(id) ?? []).some((w) => w.has(channelId));
+  }
+
+  private async nowNextCached(channels: Channel[], shortEpg: boolean): Promise<Map<string, NowNext>> {
     const out = new Map<string, NowNext>();
     const id = this.activeId;
     if (!id || channels.length === 0) return out;
@@ -522,7 +542,7 @@ export class AppApi {
     }
     if (misses.length) {
       const gen = this.generation;
-      const fetched = await this.lookupNowNext(id, misses, t);
+      const fetched = await this.lookupNowNext(id, misses, t, shortEpg);
       for (const c of misses) {
         const nn = fetched.get(c.id) ?? {};
         out.set(c.id, nn);
@@ -540,7 +560,7 @@ export class AppApi {
    * the network. Channels with nothing stored get an empty pair now and a background short-EPG lookup
    * (`startShortEpg`), whose answers update the cache and are announced with `nowNextUpdated`.
    */
-  private async lookupNowNext(id: string, channels: Channel[], t: number): Promise<Map<string, NowNext>> {
+  private async lookupNowNext(id: string, channels: Channel[], t: number, shortEpg: boolean): Promise<Map<string, NowNext>> {
     const settings = await this.currentSettings();
     const hours = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
     const lo = t - Math.max(...hours) * HOUR - NOW_NEXT_MARGIN_MS;
@@ -554,14 +574,16 @@ export class AppApi {
       if (list.length === 0) missing.push({ c, h });
       out.set(c.id, nowNext(list.map((p) => applyShift(p, h)), t));
     });
-    if (missing.length) this.startShortEpg(id, missing);
+    if (missing.length && shortEpg) this.startShortEpg(id, missing);
     return out;
   }
 
   /**
    * Fire-and-forget Xtream short-EPG lookup for channels without stored programmes (the service caps the
-   * concurrency and skips it while a guide refresh of the source runs). Answers for a source or generation that
-   * is no longer current are dropped.
+   * concurrency, bounds the waiting queue and skips it while a guide refresh of the source runs). A lookup is
+   * stale, and sends no request, once the generation or the active source changed, the source was deleted, or
+   * the channel is in none of the last `VISIBLE_WINDOWS` requested row windows. Answers for a source or
+   * generation that is no longer current are dropped.
    */
   private startShortEpg(id: string, missing: { c: Channel; h: number }[]): void {
     if (this.service.isRefreshingEpg(id)) return;
@@ -569,7 +591,9 @@ export class AppApi {
     if (todo.length === 0) return;
     for (const { c } of todo) this.shortPending.add(c.id);
     const gen = this.generation;
-    const job = this.service.shortEpgFor(id, todo.map((m) => m.c)).then((found) => {
+    const isStale = (c: Channel) =>
+      gen !== this.generation || this.activeId !== id || !this.inVisibleWindow(id, c.id);
+    const job = this.service.shortEpgFor(id, todo.map((m) => m.c), { isStale }).then((found) => {
       if (gen !== this.generation || this.activeId !== id) return;
       const t = this.now();
       const changed: string[] = [];
@@ -589,9 +613,11 @@ export class AppApi {
     this.shortJobs.add(job);
   }
 
-  private async toRows(channels: Channel[]): Promise<ChannelRow[]> {
+  /** `shortEpg`: whether channels without a stored guide get a background short-EPG lookup (a visible window). */
+  private async toRows(channels: Channel[], shortEpg = true): Promise<ChannelRow[]> {
     if (channels.length === 0) return [];
-    const nn = await this.nowNextCached(channels);
+    if (shortEpg) this.noteWindow(channels);
+    const nn = await this.nowNextCached(channels, shortEpg);
     const favs = this.favourites();
     return channels.map((c) => {
       const pair = nn.get(c.id);
