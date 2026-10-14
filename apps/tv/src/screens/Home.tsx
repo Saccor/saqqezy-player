@@ -290,10 +290,14 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   // ---- actions ----
 
+  /**
+   * Channels in the open group. The group's count is known before its first slice arrives (and while a reload
+   * has emptied the cache), so a quick Right or a closing overlay is not sent to the groups by mistake.
+   */
+  const listCount = () => total() || (groups().find((g) => g.id === groupId())?.count ?? 0);
+
   const focusArea = (a: 'groups' | 'list') => {
-    // The group's count is known before its first slice arrives, so a quick Right is not lost.
-    const count = total() || (groups().find((g) => g.id === groupId())?.count ?? 0);
-    if (a === 'list' && count === 0) return true;
+    if (a === 'list' && listCount() === 0) return true;
     setArea(a);
     (a === 'groups' ? groupNode : listNode)?.setFocus();
     return true;
@@ -325,13 +329,17 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   // ---- channel menu, list picker, keyboard (Back closes them top first: keyboard, picker, menu) ----
 
-  /** Focuses the topmost open layer, else the list (nodes of a layer just opened exist only after this tick). */
+  /**
+   * Focuses the topmost open layer (nodes of a layer just opened exist only after this tick). With none left,
+   * the list keeps focus, also while a reload has emptied the cache; only a really empty group sends it to
+   * the groups.
+   */
   const focusTop = () => queueMicrotask(() => {
     if (!alive) return;
     if (edit()) keyboardNode?.setFocus();
     else if (picker()) pickerNode?.setFocus();
     else if (menu()) menuNode?.setFocus();
-    else focusArea(total() > 0 ? 'list' : 'groups');
+    else focusArea(listCount() > 0 ? 'list' : 'groups');
   });
 
   // `close*` are the overlays' onClose (Back): the router has already dropped the layer.
