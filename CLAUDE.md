@@ -44,4 +44,5 @@ If a request conflicts with these rules, stop and flag it to the user instead of
 
 - Superpowers flow: brainstorm → spec (`docs/superpowers/specs/`) → plan (`docs/superpowers/plans/`) → TDD implementation → review.
 - Write the core test-first. Parsers get fixture-based tests with synthetic playlists and EPG data.
+- Sessions that edit code work in their own git worktree, never in the checkout a running dev server serves (every saved core/worker file reloads that page). To watch streams undisturbed, run `pnpm dev:stable`.
 - The user communicates in English and sometimes Swedish. Write code and docs in English.

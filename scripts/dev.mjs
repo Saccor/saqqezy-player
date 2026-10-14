@@ -3,10 +3,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
 const isWin = process.platform === 'win32';
+// --stable: the TV dev server never reloads the page by itself (watching sessions); F5 loads code changes.
+const stable = process.argv.includes('--stable');
 const procs = [
   // PORT is pinned: launchers often export PORT for the app itself, and the fake provider must stay on 8899.
   { name: 'fake-xtream', color: 35, args: ['fake-xtream'], env: { PORT: '8899' } },
-  { name: 'tv', color: 36, args: ['--filter', '@iptv/tv', 'dev'], env: {} },
+  { name: 'tv', color: 36, args: ['--filter', '@iptv/tv', 'dev'], env: stable ? { IPTV_DEV_STABLE: '1' } : {} },
 ];
 
 const children = [];

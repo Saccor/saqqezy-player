@@ -26,6 +26,7 @@ Notes:
 - `optimizeDeps.exclude: ['@lightningtv/solid', '@lightningtv/solid/primitives']`. These packages ship untranspiled `.jsx`, which must go through the Solid plugin.
 - `base: './'`, so the build works from a file URL.
 - `worker.format: 'es'`.
+- `IPTV_DEV_STABLE=1` (set by `pnpm dev:stable`): `server.hmr: false, ws: false`. Vite 8 still watches and invalidates changed modules, so F5 serves new code, but it never pushes an update or reload (and no "server restarted" reload, because there is no client socket). Plain `pnpm dev` is unchanged: saving a core, app-api or worker file reloads the whole page.
 - `tsconfig.json` uses `"jsx": "preserve", "jsxImportSource": "@lightningtv/solid"`.
 
 ## Renderer creation (`src/main.tsx`)

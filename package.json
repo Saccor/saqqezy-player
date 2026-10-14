@@ -13,6 +13,7 @@
     "typecheck": "tsc -p packages/core && tsc -p packages/companion-protocol && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p services/relay && tsc -p packages/platform && tsc -p packages/player && tsc -p apps/tv && tsc -p apps/companion",
     "fake-xtream": "pnpm --filter @iptv/fake-xtream start",
     "dev": "node scripts/dev.mjs",
+    "dev:stable": "node scripts/dev.mjs --stable",
     "build:tv": "pnpm --filter @iptv/tv build",
     "build:tizen": "node tools/tizen/build-wgt.mjs",
     "companion:dev": "pnpm --filter @iptv/companion dev",
