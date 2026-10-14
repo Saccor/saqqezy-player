@@ -42,6 +42,8 @@ interface Session {
   mediaRecoveries: number;
   /** Clock ms of the last in-place hls.js network recovery (Task 9). */
   lastNetRecoveryAt: number;
+  /** mpegts.js: the browser refused the audio codec (e.g. Dolby in desktop Chrome); the video plays on, silent. */
+  audioUnsupported?: boolean;
 }
 
 const HLS_MIME = 'application/vnd.apple.mpegurl';
@@ -55,6 +57,11 @@ const HLS_CODEC_ERRORS = new Set<string>([
 const AUTH_STATUSES = new Set([401, 403, 410]);
 /** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
 const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
+
+/** An MSE error from mpegts.js that only concerns the audio SourceBuffer (`addSourceBuffer('audio/mp4;…')`). */
+function isAudioMseError(detail: string, info: { msg?: unknown } | undefined): boolean {
+  return detail === mpegts.ErrorDetails.MEDIA_MSE_ERROR && typeof info?.msg === 'string' && /['"(]audio\//.test(info.msg);
+}
 const EOS_MESSAGE = 'Stream ended';
 /** A wall clock (EXT-X-PROGRAM-DATE-TIME) outside this range is a broken stamp, not a delay. */
 const PDT_MIN_S = -5;
@@ -217,9 +224,16 @@ export class Html5Player implements Player {
       const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: src }, mpegtsConfig(this.profile.preset, this.isTv));
       s.engine = { kind: 'mpegts', player };
       const current = () => !s.dead && s.engine?.kind === 'mpegts' && s.engine.player === player;
-      player.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number }) => {
+      player.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number; msg?: unknown }) => {
         // Nothing from a torn-down instance (stale session or already swapped for the HLS retry) may surface.
         if (!current()) return;
+        // The browser cannot decode the audio (desktop Chrome has no AC-3/E-AC-3, common on UHD channels).
+        // mpegts.js keeps feeding the video SourceBuffer, so the picture plays on without sound; failing here
+        // would only reconnect into the same error, forever black.
+        if (isAudioMseError(detail, info)) {
+          s.audioUnsupported = true;
+          return;
+        }
         if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && AUTH_STATUSES.has(info.code)) {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code });
           return;
@@ -510,7 +524,7 @@ export class Html5Player implements Player {
     } else if (e?.kind === 'mpegts') {
       const mi = e.player.mediaInfo as { videoCodec?: string; audioCodec?: string; fps?: number } | undefined;
       if (mi?.videoCodec) info.videoCodec = mi.videoCodec;
-      if (mi?.audioCodec) info.audioCodec = mi.audioCodec;
+      if (mi?.audioCodec) info.audioCodec = this.session?.audioUnsupported ? `${mi.audioCodec} (not supported here)` : mi.audioCodec;
       if (mi?.fps) info.fps = mi.fps;
     }
     return info;

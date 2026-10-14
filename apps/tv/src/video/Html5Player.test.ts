@@ -44,7 +44,7 @@ vi.mock('mpegts.js', () => ({
     ErrorTypes: { NETWORK_ERROR: 'NetworkError', MEDIA_ERROR: 'MediaError' },
     ErrorDetails: {
       MEDIA_FORMAT_ERROR: 'FormatError', MEDIA_FORMAT_UNSUPPORTED: 'FormatUnsupported',
-      MEDIA_CODEC_UNSUPPORTED: 'CodecUnsupported',
+      MEDIA_CODEC_UNSUPPORTED: 'CodecUnsupported', MEDIA_MSE_ERROR: 'MediaMSEError',
     },
     createPlayer: (_src: unknown, config: unknown) => {
       const p = {
@@ -554,5 +554,32 @@ describe('Html5Player – final fixes', () => {
     expect(player.seekToLive(3)).toBe(true);
     expect(video.currentTime).toBe(18);
     player.destroy();
+  });
+});
+
+describe('Html5Player – mpegts.js audio the browser cannot decode', () => {
+  const ec3 = { code: 9, msg: "Failed to execute 'addSourceBuffer' on 'MediaSource': The type provided ('audio/mp4;codecs=ec-3') is unsupported." };
+
+  test('an unsupported audio codec (Dolby in desktop Chrome) keeps the video playing instead of failing', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/live/u/p/1.ts');
+    const ts = created.mpegts.at(-1)!;
+    (ts as unknown as { mediaInfo: unknown }).mediaInfo = { videoCodec: 'hvc1.1.1.L150.B0', audioCodec: 'ec-3' };
+
+    ts.error!('MediaError', 'MediaMSEError', ec3);
+
+    expect(events.filter(([s]) => s === 'error')).toEqual([]);
+    expect(ts.calls).not.toContain('destroy');
+    expect(player.streamInfo().audioCodec).toBe('ec-3 (not supported here)');
+  });
+
+  test('an MSE error that is not about audio still fails the stream', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/live/u/p/1.ts');
+    const ts = created.mpegts.at(-1)!;
+
+    ts.error!('MediaError', 'MediaMSEError', { code: 9, msg: "The type provided ('video/mp4;codecs=hvc1.1.1.L150.B0') is unsupported." });
+
+    expect(events.filter(([s]) => s === 'error').map(([, d]) => d?.code)).toEqual(['MEDIA']);
   });
 });
