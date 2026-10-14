@@ -292,10 +292,29 @@ describe('AppApi', () => {
     const { api } = make();
     await api.addSource(xt());
     await api.refresh('epg');
-    await api.applyLayoutOps([{ op: 'renameChannel', id: (await api.getChannelSlice('all', 0, 1)).rows[0]!.id, name: 'Programme Guide Channel' }]);
+    const rows = (await api.getChannelSlice('all', 0, 12)).rows;
+    await api.applyLayoutOps(rows.map((r, i) => ({ op: 'renameChannel' as const, id: r.id, name: `Programme Channel ${i + 1}` })));
     const r = await api.search('programme', 12);
-    expect(r.channels.length).toBeLessThanOrEqual(10);
+    expect(r.channels).toHaveLength(10);
     expect(r.channels.length + r.onNow.length + r.later.length).toBeLessThanOrEqual(12);
+  });
+
+  test('search: a failed rebuild reports guidePending once, then clears and records the error', async () => {
+    const { seed, sourceId } = await seeded();
+    await seed.refresh('epg');
+    await storage.setMeta(`titleIndex:${sourceId}`, null);
+    class Failing extends SourceService {
+      override async rebuildTitleIndex(): Promise<void> { throw new Error('boom'); }
+    }
+    const { api, events } = make(storage, Failing);
+    await api.init();
+    expect((await api.search('programme 12', 50)).guidePending).toBe(true);
+    await api.idle();
+    expect(events.some((e) => e.type === 'searchReady')).toBe(false);
+    const second = await api.search('programme 12', 50);
+    expect(second.guidePending).toBe(false);
+    expect(second.onNow).toEqual([]);
+    expect((await api.diagnostics()).lastErrors.some((e) => e.message.includes('boom'))).toBe(true);
   });
 
   test('search: the guide offset decides what is on now', async () => {

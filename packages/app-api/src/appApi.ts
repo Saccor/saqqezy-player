@@ -90,7 +90,7 @@ export class AppApi {
   /** Bumped by every index swap, so a title index load that raced a swap is not cached. */
   private titlesEpoch = 0;
   /** Sources whose title index rebuild was already tried this session. */
-  private readonly titleRebuilds = new Set<string>();
+  private readonly titleRebuilds = new Map<string, 'running' | 'done'>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
@@ -270,11 +270,18 @@ export class AppApi {
     return this.run('search', async () => {
       const id = this.activeId;
       const found = this.index.search(query, limit);
+      const epoch = this.titlesEpoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
       const data = guided ? await this.titleIndex(id) : undefined;
-      if (!data) return { channels: await this.toRows(found), onNow: [], later: [], guidePending: guided };
+      // Pending only while a rebuild is queued or running; a finished one that left no index is not retried.
+      if (!data) {
+        const guidePending = guided && this.titleRebuilds.get(id) === 'running';
+        return { channels: await this.toRows(found), onNow: [], later: [], guidePending };
+      }
       const hits = await this.programmeHits(data, query);
+      // The source changed during the awaits: the index state now belongs to another source.
+      if (this.activeId !== id || this.titlesEpoch !== epoch) return { channels: await this.toRows(found), onNow: [], later: [], guidePending: false };
       const anyProgrammes = hits.onNow.length > 0 || hits.later.length > 0;
       const chans = anyProgrammes ? found.slice(0, SEARCH_CHANNELS_WITH_PROGRAMMES) : found;
       const onNow = hits.onNow.slice(0, Math.min(SEARCH_ON_NOW, Math.max(0, limit - chans.length)));
@@ -713,14 +720,16 @@ export class AppApi {
 
   private startTitleRebuild(id: string): void {
     if (this.titleRebuilds.has(id)) return;
-    this.titleRebuilds.add(id);
+    this.titleRebuilds.set(id, 'running');
     void this.enqueue(id, async () => {
       try {
         await this.service.rebuildTitleIndex(id);
       } catch (err) {
         this.record('rebuildTitleIndex', err);
+        if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
         return;
       }
+      if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
       if (this.activeId === id) this.emit({ type: 'searchReady', sourceId: id });
     });
   }
