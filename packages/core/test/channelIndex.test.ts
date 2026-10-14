@@ -66,6 +66,25 @@ describe('ChannelIndex – v1 behaviour', () => {
     expect(hidden.groups().some((x) => x.id === 'recent')).toBe(false);
   });
 
+  test('recent follows the visibility rules: hidden groups and no-EPG are excluded, hidden channels always, user lists are exempt', () => {
+    const cov = new Set([epgKey(channels[0]!)]); // only s:3 has guide data
+    const base = lay(
+      { op: 'markWatched', id: 's:1' }, { op: 'markWatched', id: 's:3' }, { op: 'markWatched', id: 's:4' },
+      { op: 'addToList', listId: 'fav', channelIds: ['s:1', 's:4'] },
+    );
+    expect(ids(new ChannelIndex(channels, base).slice('recent', 0, 5))).toEqual(['s:4', 's:3', 's:1']);
+    const groupHidden = applyOps(base, [{ op: 'hideGroups', ids: ['g:Movies'] }]).layout;
+    const gi = new ChannelIndex(channels, groupHidden);
+    expect(ids(gi.slice('recent', 0, 5))).toEqual(['s:4', 's:3']);
+    expect(ids(gi.slice('fav', 0, 5))).toEqual(['s:1', 's:4']);
+    const noEpg = applyOps(base, [{ op: 'setHideNoEpg', value: true }]).layout;
+    const ni = new ChannelIndex(channels, noEpg, cov);
+    expect(ids(ni.slice('recent', 0, 5))).toEqual(['s:3']);
+    expect(ids(ni.slice('fav', 0, 5))).toEqual(['s:1', 's:4']);
+    const chHidden = applyOps(base, [{ op: 'hideChannels', ids: ['s:3'] }]).layout;
+    expect(ids(new ChannelIndex(channels, chHidden).slice('recent', 0, 5))).toEqual(['s:4', 's:1']);
+  });
+
   test('recent keeps most-recent-first order', () => {
     const idx = new ChannelIndex(channels, lay(
       { op: 'markWatched', id: 's:1' }, { op: 'markWatched', id: 's:4' }, { op: 'markWatched', id: 's:3' },
@@ -284,6 +303,25 @@ describe('ChannelIndex – v1 flags compatibility', () => {
     const next = idx.withLayout(applyOps(idx.layout(), [{ op: 'addToList', listId: 'fav', channelIds: ['s:2'] }]).layout);
     expect(ids(next.slice('fav', 0, 5))).toEqual(['s:2']);
     expect(idx.groupSize('fav')).toBe(0);
+  });
+
+  test('withLayout after markWatched updates recent and keeps every other group correct', () => {
+    const l0 = lay({ op: 'addToList', listId: 'fav', channelIds: ['s:2'] }, { op: 'renameChannel', id: 's:1', name: 'Zed' });
+    const idx = new ChannelIndex(channels, l0);
+    idx.groups(); idx.slice('g:News', 0, 5); idx.slice('recent', 0, 5);
+    const next = idx.withLayout(applyOps(l0, [{ op: 'markWatched', id: 's:1' }]).layout);
+    expect(ids(next.slice('recent', 0, 5))).toEqual(['s:1']);
+    expect(next.slice('recent', 0, 5)[0]!.name).toBe('Zed');
+    expect(ids(next.slice('fav', 0, 5))).toEqual(['s:2']);
+    expect(ids(next.slice('g:News', 0, 5))).toEqual(ids(idx.slice('g:News', 0, 5)));
+    expect(idx.groupSize('recent')).toBe(0);
+  });
+
+  test('the layout is a frozen snapshot', () => {
+    const idx = new ChannelIndex(channels, lay({ op: 'markWatched', id: 's:1' }));
+    expect(Object.isFrozen(idx.layout())).toBe(true);
+    expect(Object.isFrozen(idx.withLayout(emptyLayout()).layout())).toBe(true);
+    expect(Object.isFrozen(new ChannelIndex(channels, { favourites: [], hidden: [] }).layout())).toBe(true);
   });
 });
 

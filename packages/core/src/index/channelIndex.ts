@@ -28,6 +28,10 @@ interface Base {
   /** Provider group ids in first-appearance order. */
   providerOrder: string[];
   members: Map<string, Channel[]>;
+  /** All channels ordered by number (stable), so `number` sort is a filter in this order, never a per-build sort. */
+  byNumber: Channel[];
+  /** Lazily computed number-ordered members per provider group. */
+  membersByNumber: Map<string, Channel[]>;
   /** Normalised original names. */
   keys: Map<string, string>;
   epgCoverage: Set<string> | undefined;
@@ -43,8 +47,8 @@ function listGroupId(listId: string): string {
   return listId === FAV_LIST_ID ? GROUP_FAV : LIST_PREFIX + listId;
 }
 
-/** Set synchronously by `withLayout` just before it constructs, so the constructor can share the base. */
-let reuseBase: Base | undefined;
+/** Internal constructor seed: the previous index whose base and unchanged caches the new index reuses. */
+interface Seed { prev: ChannelIndex }
 
 function noEpgIds(base: Base, coverage: Set<string>): Set<string> {
   if (!base.noEpg) {
@@ -72,16 +76,17 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
     }
     m.push(c);
   }
-  return { channels, byId, providerOrder, members, keys, epgCoverage };
+  const byNumber = [...channels].sort((a, b) => a.number - b.number);
+  return { channels, byId, providerOrder, members, byNumber, membersByNumber: new Map(), keys, epgCoverage };
 }
 
 export class ChannelIndex {
   private readonly base: Base;
   private readonly lay: Layout;
   /** Display copies of renamed channels; unrenamed channels are returned as-is. */
-  private readonly renamed = new Map<string, Channel>();
+  private readonly renamed: Map<string, Channel>;
   /** Normalised display names of renamed channels. */
-  private readonly renamedKeys = new Map<string, string>();
+  private readonly renamedKeys: Map<string, string>;
   private readonly hiddenCh: Set<string>;
   private readonly hiddenGr: Set<string>;
   private readonly noEpg: Set<string> | undefined;
@@ -89,30 +94,60 @@ export class ChannelIndex {
 
   /**
    * @param layout the user's layout; a v1 `UserFlags` object is converted with `layoutFromFlags`.
+   *   The index keeps and shallow-freezes the layout object it is given.
    * @param epgCoverage epgKeys with guide data; needed for `layout.hideNoEpg` to have any effect.
+   * @param seed internal: used by `withLayout` only.
    */
-  constructor(channels: Channel[], layout?: Layout | UserFlags, epgCoverage?: Set<string>) {
-    const shared = reuseBase;
-    reuseBase = undefined;
-    this.base = shared && shared.channels === channels && shared.epgCoverage === epgCoverage
-      ? shared
+  constructor(channels: Channel[], layout?: Layout | UserFlags, epgCoverage?: Set<string>, seed?: Seed) {
+    const prev = seed?.prev;
+    this.base = prev && prev.base.channels === channels && prev.base.epgCoverage === epgCoverage
+      ? prev.base
       : buildBase(channels, epgCoverage);
-    this.lay = layout === undefined ? emptyLayout() : isUserFlags(layout) ? layoutFromFlags(layout) : layout;
-    this.hiddenCh = new Set(this.lay.hiddenChannels);
-    this.hiddenGr = new Set(this.lay.hiddenGroups);
-    for (const [id, name] of Object.entries(this.lay.channelNames)) {
-      const c = this.base.byId.get(id);
-      if (!c || c.name === name) continue;
-      this.renamed.set(id, { ...c, name });
-      this.renamedKeys.set(id, normalize(name));
+    const lay = layout === undefined ? emptyLayout() : isUserFlags(layout) ? layoutFromFlags(layout) : layout;
+    this.lay = Object.freeze(lay);
+    const old = prev && prev.base === this.base ? prev : undefined;
+    const pl = old?.lay;
+    const sameHiddenCh = pl !== undefined && pl.hiddenChannels === lay.hiddenChannels;
+    const sameHiddenGr = pl !== undefined && pl.hiddenGroups === lay.hiddenGroups;
+    const sameNames = pl !== undefined && pl.channelNames === lay.channelNames;
+    this.hiddenCh = sameHiddenCh ? old!.hiddenCh : new Set(lay.hiddenChannels);
+    this.hiddenGr = sameHiddenGr ? old!.hiddenGr : new Set(lay.hiddenGroups);
+    if (sameNames) {
+      this.renamed = old!.renamed;
+      this.renamedKeys = old!.renamedKeys;
+    } else {
+      this.renamed = new Map();
+      this.renamedKeys = new Map();
+      for (const [id, name] of Object.entries(lay.channelNames)) {
+        const c = this.base.byId.get(id);
+        if (!c || c.name === name) continue;
+        this.renamed.set(id, { ...c, name });
+        this.renamedKeys.set(id, normalize(name));
+      }
     }
-    this.noEpg = this.lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
+    this.noEpg = lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
+
+    // Carry over cached groups whose inputs did not change (layout fields are copy-on-write, so
+    // unchanged fields keep their identity). Membership inputs shared by every group:
+    if (old && pl && sameHiddenCh && sameHiddenGr && sameNames && pl.hideNoEpg === lay.hideNoEpg) {
+      const listsSame = pl.lists === lay.lists;
+      const recentSame = pl.recent === lay.recent;
+      for (const [gid, v] of old.visibleCache) {
+        if (gid === GROUP_RECENT) {
+          if (!recentSame) continue;
+        } else if (gid === GROUP_FAV || gid.startsWith(LIST_PREFIX)) {
+          if (!listsSame) continue;
+        }
+        if (gid !== GROUP_RECENT
+          && (pl.sort[gid] !== lay.sort[gid] || pl.channelOrder[gid] !== lay.channelOrder[gid])) continue;
+        this.visibleCache.set(gid, v);
+      }
+    }
   }
 
-  /** Same playlist and EPG coverage, different layout; reuses the playlist-derived data. */
+  /** Same playlist and EPG coverage, different layout; reuses the playlist-derived data and unaffected cached groups. */
   withLayout(layout: Layout): ChannelIndex {
-    reuseBase = this.base;
-    return new ChannelIndex(this.base.channels, layout, this.base.epgCoverage);
+    return new ChannelIndex(this.base.channels, layout, this.base.epgCoverage, { prev: this });
   }
 
   // ---------- internals ----------
@@ -130,11 +165,14 @@ export class ChannelIndex {
     return this.lay.sort[groupId] ?? (groupId === GROUP_ALL ? 'number' : 'provider');
   }
 
-  /** Applies manual order (restricted to `src`) and the sort mode. `src` is already display channels. */
-  private order(groupId: string, src: Channel[]): Channel[] {
+  /**
+   * Applies manual order (restricted to `src`) and the sort mode. `src` is already display channels.
+   * `byNumber`: `src` is already in number order, so `number` mode needs no sort.
+   */
+  private order(groupId: string, src: Channel[], byNumber = false): Channel[] {
     const mode = this.sortModeFor(groupId);
     let rest = src;
-    if (mode === 'number') rest = [...src].sort((a, b) => a.number - b.number);
+    if (mode === 'number') { if (!byNumber) rest = [...src].sort((a, b) => a.number - b.number); }
     else if (mode === 'name') rest = [...src].sort((a, b) => collator.compare(a.name, b.name));
     const manual = this.lay.channelOrder[groupId];
     if (!manual || manual.length === 0) return rest;
@@ -161,16 +199,32 @@ export class ChannelIndex {
 
   private compute(groupId: string): Channel[] {
     if (groupId === GROUP_ALL) {
-      return this.order(GROUP_ALL, this.base.channels.filter((c) => this.shown(c)).map((c) => this.display(c)));
+      const mode = this.sortModeFor(GROUP_ALL);
+      const src = mode === 'number' ? this.base.byNumber : this.base.channels;
+      return this.order(GROUP_ALL, src.filter((c) => this.shown(c)).map((c) => this.display(c)), mode === 'number');
     }
-    if (groupId === GROUP_RECENT) return this.resolveListed(this.lay.recent);
+    if (groupId === GROUP_RECENT) {
+      // Follows the same visibility rules as `all`; only user lists are exempt from group and no-EPG hiding.
+      return this.resolveListed(this.lay.recent).filter((c) => this.shown(c));
+    }
     if (groupId === GROUP_FAV || groupId.startsWith(LIST_PREFIX)) {
       const list = this.lay.lists.find((l) => listGroupId(l.id) === groupId);
       return list ? this.order(groupId, this.resolveListed(list.channelIds)) : [];
     }
     const m = this.base.members.get(groupId);
     if (!m || this.hiddenGr.has(groupId)) return [];
-    return this.order(groupId, m.filter((c) => this.shown(c)).map((c) => this.display(c)));
+    const mode = this.sortModeFor(groupId);
+    const src = mode === 'number' ? this.membersByNumber(groupId, m) : m;
+    return this.order(groupId, src.filter((c) => this.shown(c)).map((c) => this.display(c)), mode === 'number');
+  }
+
+  private membersByNumber(groupId: string, m: Channel[]): Channel[] {
+    let sorted = this.base.membersByNumber.get(groupId);
+    if (!sorted) {
+      sorted = [...m].sort((a, b) => a.number - b.number);
+      this.base.membersByNumber.set(groupId, sorted);
+    }
+    return sorted;
   }
 
   private visible(groupId: string): Channel[] {
@@ -286,7 +340,7 @@ export class ChannelIndex {
     return [...prefix, ...contains].slice(0, limit);
   }
 
-  /** The layout this index was built with. Treat as immutable; change it with `applyOps`. */
+  /** The layout this index was built with: a frozen (shallow) snapshot. Change it with `applyOps`, which returns a new layout. */
   layout(): Layout {
     return this.lay;
   }
