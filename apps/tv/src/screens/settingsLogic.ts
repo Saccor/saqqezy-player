@@ -164,17 +164,25 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
 // ---- Channels page: hide-without-guide toggle and "My lists" ----
 
 export const HIDE_NO_EPG_UNAVAILABLE = 'Available after the TV guide has been downloaded.';
+export const HIDE_NO_EPG_NO_GUIDE = 'This source has no TV guide.';
 export const HIDE_NO_EPG_HELP = 'Channels with no programme information are hidden everywhere except your lists.';
 
-/** True once the active source has downloaded its TV guide (the no-guide filter needs that guide's coverage). */
-export function guideLoaded(info: DiagnosticsInfo, activeSourceId: string | undefined): boolean {
-  if (activeSourceId === undefined) return false;
-  return (info.sources.find((s) => s.id === activeSourceId)?.epgAt ?? 0) > 0;
+/** What the worker knows about the active source's TV guide (`AppApi.guideStatus`). */
+export interface GuideStatus { coverageKnown: boolean; hasGuideUrl: boolean }
+
+/** True once the active source's guide coverage is known (the no-guide filter needs it). */
+export function guideLoaded(status: GuideStatus): boolean {
+  return status.coverageKnown;
 }
 
-/** The "Hide channels without TV guide" row: disabled (with an explanation) until the guide has been downloaded. */
-export function hideNoEpgRow(loaded: boolean, on: boolean): { disabled: boolean; value: string; help: string } {
-  return { disabled: !loaded, value: onOff(on), help: loaded ? HIDE_NO_EPG_HELP : HIDE_NO_EPG_UNAVAILABLE };
+/**
+ * The "Hide channels without TV guide" row: disabled until coverage is known, with the reason as help text
+ * ("no TV guide" when the source has no guide address, else "after the guide has been downloaded"). A disabled
+ * toggle always reads "Off", whatever the stored setting.
+ */
+export function hideNoEpgRow(status: GuideStatus, on: boolean): { disabled: boolean; value: string; help: string } {
+  if (status.coverageKnown) return { disabled: false, value: onOff(on), help: HIDE_NO_EPG_HELP };
+  return { disabled: true, value: 'Off', help: status.hasGuideUrl ? HIDE_NO_EPG_UNAVAILABLE : HIDE_NO_EPG_NO_GUIDE };
 }
 
 /**

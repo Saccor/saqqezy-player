@@ -5,7 +5,7 @@ import {
   formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
 import {
-  HIDE_NO_EPG_HELP, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
+  HIDE_NO_EPG_HELP, HIDE_NO_EPG_NO_GUIDE, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
@@ -184,35 +184,33 @@ describe('screenLines', () => {
 });
 
 describe('guideLoaded', () => {
-  const diag = (epgAt: number): DiagnosticsInfo => ({
-    appVersion: '1', lastErrors: [], settings: {} as DiagnosticsInfo['settings'],
-    sources: [
-      { id: 's1', name: 'A', kind: 'xtream', channels: 1, skipped: 0, playlistAt: 1, epgAt },
-      { id: 's2', name: 'B', kind: 'm3u', channels: 1, skipped: 0, playlistAt: 1, epgAt: 5 },
-    ],
-  });
-
-  it('is true once the active source has downloaded its guide', () => {
-    expect(guideLoaded(diag(1000), 's1')).toBe(true);
-  });
-
-  it('is false when the guide was never downloaded, or without an active source', () => {
-    expect(guideLoaded(diag(0), 's1')).toBe(false);
-    expect(guideLoaded(diag(1000), undefined)).toBe(false);
-    expect(guideLoaded(diag(1000), 's-gone')).toBe(false);
+  it('follows whether the guide coverage is known', () => {
+    expect(guideLoaded({ coverageKnown: true, hasGuideUrl: true })).toBe(true);
+    expect(guideLoaded({ coverageKnown: false, hasGuideUrl: true })).toBe(false);
+    expect(guideLoaded({ coverageKnown: false, hasGuideUrl: false })).toBe(false);
   });
 });
 
 describe('hideNoEpgRow', () => {
-  it('is disabled with an explanation until the guide has been downloaded', () => {
-    expect(hideNoEpgRow(false, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
-    expect(hideNoEpgRow(false, true).disabled).toBe(true);
+  const waiting = { coverageKnown: false, hasGuideUrl: true };
+  const none = { coverageKnown: false, hasGuideUrl: false };
+  const known = { coverageKnown: true, hasGuideUrl: true };
+
+  it('is disabled until the guide has been downloaded, and reads Off meanwhile', () => {
+    expect(hideNoEpgRow(waiting, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
+    expect(hideNoEpgRow(waiting, true)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
     expect(HIDE_NO_EPG_UNAVAILABLE).toBe('Available after the TV guide has been downloaded.');
   });
 
+  it('says so when the source has no guide at all', () => {
+    expect(hideNoEpgRow(none, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_NO_GUIDE });
+    expect(hideNoEpgRow(none, true).value).toBe('Off');
+    expect(HIDE_NO_EPG_NO_GUIDE).toBe('This source has no TV guide.');
+  });
+
   it('is a toggle once the guide is there', () => {
-    expect(hideNoEpgRow(true, false)).toEqual({ disabled: false, value: 'Off', help: HIDE_NO_EPG_HELP });
-    expect(hideNoEpgRow(true, true).value).toBe('On');
+    expect(hideNoEpgRow(known, false)).toEqual({ disabled: false, value: 'Off', help: HIDE_NO_EPG_HELP });
+    expect(hideNoEpgRow(known, true).value).toBe('On');
     expect(HIDE_NO_EPG_HELP).toBe('Channels with no programme information are hidden everywhere except your lists.');
   });
 });

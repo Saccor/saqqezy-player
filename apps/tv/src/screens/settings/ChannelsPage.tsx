@@ -9,10 +9,11 @@ import { SettingsList, type SettingItem } from '../../components/SettingsList.ts
 import { router } from '../../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
-import { initState, settings } from '../../state/appState.ts';
+import { settings } from '../../state/appState.ts';
 import { limitTyping, validateListName } from '../homeMenuLogic.ts';
 import {
   AUTO_REFRESH_OPTIONS, autoRefreshLabel, cycleOption, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
+  type GuideStatus,
 } from '../settingsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
@@ -22,10 +23,14 @@ const LIST_PREFIX = 'list:';
 const GROUP_PREFIX = 'group:';
 const CHANNEL_PREFIX = 'channel:';
 const NONE = 'none';
+const RETRY = 'retry';
+const NO_GUIDE: GuideStatus = { coverageKnown: false, hasGuideUrl: false };
 
 interface PageData {
   hideNoEpg: boolean;
-  guideLoaded: boolean;
+  guide: GuideStatus;
+  /** The last load failed: show a retry row instead of (empty) lists. */
+  failed?: boolean;
   lists: ListSummary[];
   hiddenGroups: GroupInfo[];
   hiddenChannels: ChannelRow[];
@@ -45,30 +50,32 @@ export function ChannelsPage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
   const [edit, setEdit] = createSignal<EditState | undefined>(undefined);
   let alive = true;
+  /** Bumped by every `load()`; only the newest call may apply its data (an older one finishing late is stale). */
+  let loadSeq = 0;
   let listNode: ElementNode | undefined;
   let keyboardNode: ElementNode | undefined;
   let removeKeyboard: (() => void) | undefined;
   const auto = (): number => settings()?.autoRefreshHours ?? 12;
 
   const load = async () => {
+    const seq = ++loadSeq;
     try {
-      const [layout, lists, hiddenGroups, hiddenChannels, diag] = await Promise.all([
-        api.getLayout(), api.listLists(), api.hiddenGroups(), api.hiddenChannels(), api.diagnostics(),
+      const [layout, lists, hiddenGroups, hiddenChannels, guide] = await Promise.all([
+        api.getLayout(), api.listLists(), api.hiddenGroups(), api.hiddenChannels(), api.guideStatus(),
       ]);
-      if (!alive) return;
-      setData({
-        hideNoEpg: layout.hideNoEpg, guideLoaded: guideLoaded(diag, initState()?.activeSourceId),
-        lists, hiddenGroups, hiddenChannels,
-      });
+      if (!alive || seq !== loadSeq) return;
+      setData({ hideNoEpg: layout.hideNoEpg, guide, lists, hiddenGroups, hiddenChannels });
     } catch (err) {
       console.warn('Channels page failed', err instanceof Error ? err.name : 'Error');
-      if (alive) setData({ hideNoEpg: false, guideLoaded: false, lists: [], hiddenGroups: [], hiddenChannels: [] });
+      if (alive && seq === loadSeq) {
+        setData({ hideNoEpg: false, guide: NO_GUIDE, failed: true, lists: [], hiddenGroups: [], hiddenChannels: [] });
+      }
     }
   };
 
   const items = (): SettingItem[] => {
     const d = data();
-    const noEpg = hideNoEpgRow(d?.guideLoaded ?? false, d?.hideNoEpg ?? false);
+    const noEpg = hideNoEpgRow(d?.guide ?? NO_GUIDE, d?.hideNoEpg ?? false);
     const out: SettingItem[] = [
       { id: 'auto', label: 'Refresh channels and guide', value: autoRefreshLabel(auto()), adjustable: true,
         help: 'How often the list is downloaded again' },
@@ -76,6 +83,7 @@ export function ChannelsPage(props: PageProps) {
         disabled: noEpg.disabled, help: noEpg.help },
     ];
     if (!d) return [...out, { id: NONE, label: 'Loading…' }];
+    if (d.failed) return [...out, { id: RETRY, label: "Couldn't load channel settings. Press OK to retry." }];
     out.push({ id: 'h:lists', label: 'My lists', heading: true });
     for (const l of d.lists) {
       out.push({ id: LIST_PREFIX + l.id, label: l.name, value: countLabel(l.count),
@@ -121,7 +129,7 @@ export function ChannelsPage(props: PageProps) {
 
   const toggleNoEpg = async () => {
     const d = data();
-    if (!d?.guideLoaded) return;
+    if (!d || !guideLoaded(d.guide)) return;
     if (await applyOps([{ op: 'setHideNoEpg', value: !d.hideNoEpg }], "Couldn't change the setting.")) {
       await reloadKeeping('noEpg');
     }
@@ -133,7 +141,8 @@ export function ChannelsPage(props: PageProps) {
       return true;
     }
     if (id === 'noEpg') {
-      if (!data()?.guideLoaded) return false; // disabled: Left still returns to the menu
+      const d = data();
+      if (!d || !guideLoaded(d.guide)) return false; // disabled: Left still returns to the menu
       void toggleNoEpg();
       return true;
     }
@@ -143,7 +152,13 @@ export function ChannelsPage(props: PageProps) {
   // ---- list rename keyboard (a Back layer: Back closes it and returns to the list) ----
 
   const focusList = () => queueMicrotask(() => { if (alive && !edit()) listNode?.setFocus(); });
-  const closeKeyboard = () => { removeKeyboard = undefined; setEdit(undefined); focusList(); };
+  const closeKeyboard = () => {
+    removeKeyboard = undefined;
+    setEdit(undefined);
+    focusList();
+    // Events skipped while the keyboard was open are applied now.
+    void reloadKeeping(items()[sel()]?.id);
+  };
   const dismissKeyboard = () => { if (edit()) { removeKeyboard?.(); closeKeyboard(); } };
   const openKeyboard = (l: ListSummary) => {
     setEdit({ listId: l.id, current: l.name, value: l.name });
@@ -191,6 +206,7 @@ export function ChannelsPage(props: PageProps) {
 
   const onOk = async (id: string) => {
     if (id === 'auto' || id === 'noEpg') { onAdjust(id, 1); return; }
+    if (id === RETRY) { setData(undefined); await reloadKeeping(RETRY); return; }
     if (id.startsWith(LIST_PREFIX)) { await onList(id.slice(LIST_PREFIX.length)); return; }
     if (id.startsWith(GROUP_PREFIX)) {
       if (await applyOps([{ op: 'unhideGroups', ids: [id.slice(GROUP_PREFIX.length)] }], "Couldn't show this group.")) {
