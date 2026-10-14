@@ -1,3 +1,4 @@
+import type { JournalEvent, JournalInput, JournalSink, ReconnectCause } from './journal.ts';
 import { LiveDelayController } from './liveDelay.ts';
 import { DEFAULT_BUDGET, ReconnectBudget, type BudgetRule } from './reconnectBudget.ts';
 import { DEFAULT_POLICY, decide, newWatch, observe, type RecoveryPolicy, type WatchState } from './recovery.ts';
@@ -15,6 +16,7 @@ export interface SupervisorOptions {
   preset?: () => LivePreset;
   allowRate?: boolean;
   liveTargets?: LiveTargetStore;
+  journal?: JournalSink;
   random?: () => number;
   clock?: {
     setTimeout: typeof setTimeout;
@@ -45,7 +47,11 @@ export interface LiveInfo {
   reconnects: number;
 }
 
-export interface PlayOptions { sourceKey?: string }
+export interface PlayOptions {
+  sourceKey?: string;
+  /** The channel's display name, for the playback journal only. */
+  channel?: string;
+}
 
 const ERROR_CODES = new Set<string>(['NETWORK', 'MEDIA', 'DECODE', 'UNSUPPORTED', 'EOS', 'AUTH']);
 const LIVE_EVERY_TICKS = 8; // the delay controller runs every ~2 s
@@ -77,6 +83,7 @@ export class PlaybackSupervisor {
   private readonly preset: () => LivePreset;
   private readonly allowRate: boolean;
   private readonly store: LiveTargetStore | undefined;
+  private readonly journal: JournalSink | undefined;
   private readonly budget: ReconnectBudget;
   private readonly listeners = new Set<(s: SupervisorStatus) => void>();
   private readonly unsubscribe: () => void;
@@ -102,6 +109,7 @@ export class PlaybackSupervisor {
   private playerState: PlayerState = 'idle';
   private stableSince: number | undefined;
   private stalledWhilePlaying = false;
+  private stallStartedAt: number | undefined;
   private watch: WatchState = newWatch(0, 0);
   private delay: LiveDelayController | undefined;
   private rate = 1;
@@ -140,6 +148,7 @@ export class PlaybackSupervisor {
     this.preset = opts.preset ?? (() => 'balanced');
     this.allowRate = opts.allowRate ?? false;
     this.store = opts.liveTargets;
+    this.journal = opts.journal;
     this.budget = new ReconnectBudget(opts.budget ?? DEFAULT_BUDGET, () => this.now());
     this.unsubscribe = player.onState((s, d) => this.onPlayerState(s, d));
   }
@@ -174,11 +183,13 @@ export class PlaybackSupervisor {
     this.playerState = 'loading';
     this.player.releaseLastFrame?.();
     this.player.stop();
+    this.note({ k: 'play', channel: opts.channel, preset: this.preset(), urls: this.urls.length });
     this.emit({ kind: 'loading' });
     this.openCurrent();
   }
 
   stop(): void {
+    const wasActive = this.active;
     this.persistRaise();
     this.clearTimers();
     this.gen++;
@@ -189,6 +200,7 @@ export class PlaybackSupervisor {
       this.player.releaseLastFrame?.();
       this.player.stop();
     }
+    if (wasActive) this.note({ k: 'stop' });
   }
 
   onStatus(fn: (s: SupervisorStatus) => void): () => void {
@@ -221,7 +233,7 @@ export class PlaybackSupervisor {
   goLive(): void {
     if (!this.active || !this.isPlaying || !this.delay || this.notLive()) return;
     this.selfActionAt = this.now();
-    if (!(this.player.seekToLive?.(this.delay.targetS()) ?? false)) this.reopen();
+    if (!(this.player.seekToLive?.(this.delay.targetS()) ?? false)) this.reopen(false, 'goLive');
   }
 
   /** A user seek or pause: drift correction holds off for a moment. */
@@ -251,6 +263,7 @@ export class PlaybackSupervisor {
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
+    this.note({ k: 'open', attempt: id, urlIndex: this.urlIndex });
     this.started = false;
     this.stableSince = undefined;
     this.tickCount = 0;
@@ -262,23 +275,31 @@ export class PlaybackSupervisor {
       this.noBytesTimer = undefined;
       if (!pending()) return;
       const h = this.player.health?.();
-      if (h?.tracksBytes && h.lastByteAt === undefined) this.fail('NETWORK', true);
+      if (h?.tracksBytes && h.lastByteAt === undefined) {
+        this.note({ k: 'error', code: 'NETWORK', detail: 'noBytesAtStart', engine: h.engine });
+        this.fail('NETWORK', true, 'startTimeout');
+      }
     }, p.noBytesStartTimeoutMs);
     this.firstFrameTimer = this.clock.setTimeout(() => {
       this.firstFrameTimer = undefined;
-      if (pending()) this.fail('NETWORK', true);
+      if (pending()) {
+        this.note({ k: 'error', code: 'NETWORK', detail: 'noFirstFrame', engine: this.player.health?.().engine });
+        this.fail('NETWORK', true, 'startTimeout');
+      }
     }, p.firstFrameTimeoutMs);
     this.startTicker();
     let opened: Promise<void>;
     try {
       opened = this.player.open(this.urls[this.urlIndex] ?? '', id);
     } catch (e) {
+      this.note({ k: 'error', code: codeOf(e) ?? 'UNKNOWN', detail: 'openThrew' });
       this.fail(codeOf(e));
       return;
     }
     opened.catch((e: unknown) => {
       // Stale attempt (already failed, replaced or stopped): ignore, so one failure is never counted twice.
       if (gen !== this.gen || !this.active || this.currentAttempt !== id) return;
+      this.note({ k: 'error', code: codeOf(e) ?? 'UNKNOWN', detail: 'openRejected' });
       this.fail(codeOf(e));
     });
   }
@@ -292,6 +313,7 @@ export class PlaybackSupervisor {
     if (s === 'playing') {
       this.playedThisPlay = true;
       if (!this.started) {
+        this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
         this.clearStartTimers();
       }
@@ -304,6 +326,8 @@ export class PlaybackSupervisor {
       }
       if (this.stalledWhilePlaying) {
         this.stalledWhilePlaying = false;
+        if (this.stallStartedAt !== undefined) this.note({ k: 'stall', phase: 'end', durationMs: now - this.stallStartedAt });
+        this.stallStartedAt = undefined;
         this.countStall(now);
       }
       if (prev !== 'playing') {
@@ -313,10 +337,15 @@ export class PlaybackSupervisor {
     } else if (s === 'buffering') {
       // Right after our own seek or recovery, waiting is our doing, not a stall.
       if (this.isPlaying && prev === 'playing' && now - this.selfActionAt >= SELF_ACTION_GRACE_MS) {
+        if (!this.stalledWhilePlaying) {
+          this.stallStartedAt = now;
+          this.note({ k: 'stall', phase: 'start', bufferAheadS: this.lastHealth?.bufferAheadS });
+        }
         this.stalledWhilePlaying = true;
       }
       this.stableSince = undefined;
     } else if (s === 'error') {
+      this.note({ k: 'error', code: d?.code ?? 'UNKNOWN', httpStatus: d?.httpStatus, detail: d?.detail, engine: this.player.health?.().engine });
       this.fail(d?.code);
     } else if (s === 'idle' && this.started) {
       // A non-live stream played to its end: nothing to recover, so the ladder stops (no reconnect).
@@ -371,6 +400,7 @@ export class PlaybackSupervisor {
       this.watch.gapJumpsAt.push(now);
       this.watch.lastGapJumpAt = now;
       this.selfActionAt = now;
+      this.note({ k: 'ladder', action: 'gapJump', bufferAheadS: h.bufferAheadS });
       this.player.recover?.('gapJump');
       return;
     }
@@ -378,11 +408,13 @@ export class PlaybackSupervisor {
       this.watch.lastSeekAt = now;
       this.selfActionAt = now;
       // The edge seek is a recovery step, not a failure: when impossible, reopen without counting one.
-      if (!(this.player.seekToLive?.(this.delay?.targetS() ?? 0) ?? false)) this.reopen(true);
+      this.note({ k: 'ladder', action: 'seekLive', bufferAheadS: h.bufferAheadS });
+      if (!(this.player.seekToLive?.(this.delay?.targetS() ?? 0) ?? false)) this.reopen(true, 'edgeSeekFailed');
       return;
     }
     if (d.do === 'reconnect') {
-      this.fail('NETWORK', true);
+      this.note({ k: 'ladder', action: 'reconnect', reason: d.reason, bufferAheadS: h.bufferAheadS });
+      this.fail('NETWORK', true, d.reason);
       return;
     }
     if (++this.tickCount % LIVE_EVERY_TICKS === 0 && this.playerState === 'playing') this.liveTick(h, now);
@@ -395,6 +427,7 @@ export class PlaybackSupervisor {
   private liveTick(h: PlaybackHealth, now: number): void {
     const delay = this.delay;
     if (!delay || this.streamLive === false || h.behindLiveSource === undefined) return;
+    const behindS = h.behindLiveS ?? h.bufferAheadS;
     const a = delay.tick({
       behindLiveS: h.behindLiveS,
       source: h.behindLiveSource,
@@ -406,12 +439,15 @@ export class PlaybackSupervisor {
       if (this.allowRate && this.player.setPlaybackRate && a.rate !== this.rate) {
         this.rate = a.rate;
         this.player.setPlaybackRate(a.rate);
+        this.note({ k: 'drift', action: 'rate', rate: a.rate, behindS, targetS: delay.targetS() });
       }
     } else if (a.do === 'seek') {
       this.selfActionAt = now;
-      if (!(this.player.seekToLive?.(delay.targetS()) ?? false)) this.reopen(true);
+      this.note({ k: 'drift', action: 'seek', behindS, targetS: delay.targetS() });
+      if (!(this.player.seekToLive?.(delay.targetS()) ?? false)) this.reopen(true, 'drift');
     } else if (a.do === 'reopen') {
-      this.reopen(true);
+      this.note({ k: 'drift', action: 'reopen', behindS, targetS: delay.targetS() });
+      this.reopen(true, 'drift');
     }
     if (now - this.lastPersistAt >= PERSIST_EVERY_MS) {
       this.lastPersistAt = now;
@@ -428,8 +464,9 @@ export class PlaybackSupervisor {
    * `open()`) is not inline: the teardown is deferred one macrotask through the retry timer (0 ms), so it never
    * runs inside an engine callback.
    */
-  private fail(code?: ErrorCode, inline = false): void {
+  private fail(code?: ErrorCode, inline = false, cause?: ReconnectCause): void {
     if (!this.active || this.retryTimer !== undefined) return; // a reconnect is already pending
+    const why: ReconnectCause = cause ?? code ?? 'NETWORK';
     const wasPlaying = this.isPlaying;
     this.endAttempt();
     // The source ending (EOS) or refusing (AUTH) the stream is not a playback stall.
@@ -453,14 +490,14 @@ export class PlaybackSupervisor {
       if (!this.playedThisPlay) this.refusedBeforePlay = true;
       if (!this.authRetried) {
         this.authRetried = true;
-        this.scheduleReconnect(0, inline);
+        this.scheduleReconnect(0, inline, why);
       } else if (!this.nextUrl(inline)) {
         this.terminal('refused');
       }
       return;
     }
     if (code === 'EOS') {
-      this.scheduleReconnect(0, inline);
+      this.scheduleReconnect(0, inline, why);
       return;
     }
     this.fails++;
@@ -473,17 +510,17 @@ export class PlaybackSupervisor {
       }
     }
     const delays = this.policy.reconnectDelaysMs;
-    this.scheduleReconnect(delays[Math.min(this.fails - 1, delays.length - 1)] ?? 0, inline);
+    this.scheduleReconnect(delays[Math.min(this.fails - 1, delays.length - 1)] ?? 0, inline, why);
   }
 
   /** Reopen at once (live drift, "go live"): spends budget, does not count as a failure. */
-  private reopen(inline = false): void {
+  private reopen(inline = false, cause: ReconnectCause = 'drift'): void {
     if (!this.active || this.retryTimer !== undefined) return;
     this.endAttempt();
-    this.scheduleReconnect(0, inline);
+    this.scheduleReconnect(0, inline, cause);
   }
 
-  private scheduleReconnect(delayMs: number, inline = false): void {
+  private scheduleReconnect(delayMs: number, inline = false, cause: ReconnectCause = 'NETWORK'): void {
     if (!this.budget.tryTake()) {
       this.terminal('unavailable');
       return;
@@ -492,6 +529,7 @@ export class PlaybackSupervisor {
     this.player.holdLastFrame?.();
     this.startSpinner();
     const wait = Math.max(this.jitter(delayMs), this.gapWait());
+    this.note({ k: 'reconnect', delayMs: wait, cause });
     if (inline && wait === 0) {
       this.player.stop();
       this.openCurrent();
@@ -513,6 +551,7 @@ export class PlaybackSupervisor {
   private nextUrl(inline = false): boolean {
     if (this.urlIndex + 1 >= this.urls.length) return false;
     this.urlIndex++;
+    this.note({ k: 'alternate', urlIndex: this.urlIndex });
     this.fails = 0;
     this.authRetried = false;
     const switchNow = () => {
@@ -542,6 +581,7 @@ export class PlaybackSupervisor {
   private terminal(reason: 'unavailable' | 'unsupported' | 'refused'): void {
     this.clearTimers();
     this.endAttempt();
+    this.note({ k: 'failed', reason });
     this.emit({ kind: 'failed', reason });
     // Background retries only bring back a stream that was playing; a channel that never started stays stopped.
     if (reason === 'unavailable' && this.playedThisPlay) {
@@ -564,6 +604,7 @@ export class PlaybackSupervisor {
     this.giveUpTimer = this.clock.setTimeout(() => {
       this.giveUpTimer = undefined;
       if (gen !== this.gen || !this.active) return;
+      this.note({ k: 'giveUpRetry' });
       this.urlIndex = 0;
       this.fails = 0;
       this.authRetried = false;
@@ -611,6 +652,16 @@ export class PlaybackSupervisor {
 
   // ---- housekeeping ----
 
+  /** Records one journal event; a faulty journal never affects playback. */
+  private note(e: JournalInput): void {
+    if (!this.journal) return;
+    try {
+      this.journal.add({ ...e, t: this.now() } as JournalEvent);
+    } catch {
+      // diagnostics only
+    }
+  }
+
   /** The current attempt is over: its late events are ignored and its timers stop. */
   private endAttempt(): void {
     this.clearStartTimers();
@@ -620,6 +671,7 @@ export class PlaybackSupervisor {
     this.isPlaying = false;
     this.stableSince = undefined;
     this.stalledWhilePlaying = false;
+    this.stallStartedAt = undefined;
   }
 
   private emit(s: SupervisorStatus): void {

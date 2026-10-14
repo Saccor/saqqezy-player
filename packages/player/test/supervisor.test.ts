@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PlaybackSupervisor,
-  type AspectMode, type LiveProfile, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
+  type AspectMode, type JournalEvent, type LiveProfile, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
 
@@ -741,5 +741,144 @@ describe('PlaybackSupervisor: gentle on sources (single-connection accounts)', (
     expect(m).toBeLessThanOrEqual(n + 6); // 3 minutes at one try per 30 s
     vi.advanceTimersByTime(10 * 60_000);
     expect(player.opened).toHaveLength(m);
+  });
+});
+
+describe('PlaybackSupervisor: journal', () => {
+  function journaled(opts: SupervisorOptions = {}) {
+    const log: JournalEvent[] = [];
+    const s = setup({ ...opts, journal: { add: (e) => { log.push(e); } } });
+    return { ...s, log, kinds: () => log.map((e) => e.k) };
+  }
+
+  it('play, open and the first frame, with the engine and time to picture', () => {
+    const { player, sup, log } = journaled();
+    player.health = () => ({ positionMs: player.pos, engine: 'hls.js' });
+    sup.play(A, B, { channel: 'Channel 1' });
+    vi.advanceTimersByTime(300);
+    player.emit('playing');
+    expect(log).toMatchObject([
+      { k: 'play', channel: 'Channel 1', preset: 'balanced', urls: 2 },
+      { k: 'open', attempt: 1, urlIndex: 0 },
+      { k: 'playing', attempt: 1, firstFrameMs: 300, engine: 'hls.js' },
+    ]);
+    expect(log.every((e) => typeof e.t === 'number')).toBe(true);
+  });
+
+  it('a no-bytes ladder step: ladder reconnect, then reconnect with its cause and real delay', () => {
+    const { player, sup, log } = journaled();
+    const start = Date.now();
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 0.2, tracksBytes: true, lastByteAt: start });
+    sup.play(A);
+    player.emit('playing');
+    vi.advanceTimersByTime(2500);
+    expect(log.slice(-2)).toMatchObject([
+      { k: 'ladder', action: 'reconnect', reason: 'noBytes', bufferAheadS: 0.2 },
+      { k: 'reconnect', cause: 'noBytes', delayMs: 1000 },
+    ]);
+  });
+
+  it('engine errors keep code, status, detail and engine; EOS and AUTH name their cause', () => {
+    const { player, sup, log } = journaled();
+    player.health = () => ({ positionMs: 0, engine: 'mpegts.js' });
+    sup.play(A);
+    player.emit('error', { code: 'AUTH', httpStatus: 403, detail: 'HttpStatusCodeInvalid' });
+    expect(log.slice(-2)).toMatchObject([
+      { k: 'error', code: 'AUTH', httpStatus: 403, detail: 'HttpStatusCodeInvalid', engine: 'mpegts.js' },
+      { k: 'reconnect', cause: 'AUTH', delayMs: 1000 },
+    ]);
+
+    const eos = journaled();
+    eos.sup.play(A);
+    eos.player.emit('playing');
+    eos.player.emit('error', { code: 'EOS' });
+    expect(eos.log.slice(-2)).toMatchObject([{ k: 'error', code: 'EOS' }, { k: 'reconnect', cause: 'EOS' }]);
+  });
+
+  it('an error without a code is UNKNOWN; a start timeout is logged as such', () => {
+    const { player, sup, log } = journaled();
+    sup.play(A);
+    player.emit('error');
+    expect(log.at(-2)).toMatchObject({ k: 'error', code: 'UNKNOWN' });
+
+    const slow = journaled();
+    slow.player.health = () => ({ positionMs: 0, tracksBytes: true });
+    slow.sup.play(A);
+    vi.advanceTimersByTime(4000);
+    expect(slow.log.slice(-2)).toMatchObject([
+      { k: 'error', code: 'NETWORK', detail: 'noBytesAtStart' },
+      { k: 'reconnect', cause: 'startTimeout', delayMs: 1000 },
+    ]);
+  });
+
+  it('a stall while playing logs its start (with the buffer) and its end (with the duration)', () => {
+    const { player, sup, log } = journaled();
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 1.5 });
+    sup.play(A);
+    player.emit('playing');
+    playFor(player, 3000);
+    player.emit('buffering');
+    vi.advanceTimersByTime(700);
+    player.emit('playing');
+    expect(log.filter((e) => e.k === 'stall')).toMatchObject([
+      { phase: 'start', bufferAheadS: 1.5 },
+      { phase: 'end', durationMs: 700 },
+    ]);
+  });
+
+  it('a drift reopen and a go-live reopen name their cause', () => {
+    const { player, sup, log } = journaled();
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 3, behindLiveS: 40, behindLiveSource: 'edge' as const, targetDurationS: 2 });
+    sup.play(A);
+    player.emit('playing');
+    playFor(player, 4000);
+    const at = log.findIndex((e) => e.k === 'drift');
+    expect(log[at]).toMatchObject({ k: 'drift', action: 'reopen', behindS: 40, targetS: expect.any(Number) });
+    expect(log[at + 1]).toMatchObject({ k: 'reconnect', cause: 'drift' });
+
+    const live = journaled();
+    live.player.health = () => ({ positionMs: live.player.pos, isLive: true });
+    live.sup.play(A);
+    live.player.emit('playing');
+    playFor(live.player, 1000);
+    live.sup.goLive();
+    expect(live.log.at(-1)).toMatchObject({ k: 'reconnect', cause: 'goLive', delayMs: 0 });
+  });
+
+  it('a gentle rate change is logged as drift rate', () => {
+    const { player, sup, log } = journaled({ allowRate: true });
+    player.setPlaybackRate = vi.fn();
+    player.health = () => ({ positionMs: player.pos, bufferAheadS: 3, behindLiveS: 9, behindLiveSource: 'edge' as const, targetDurationS: 2 });
+    sup.play(A);
+    player.emit('playing');
+    playFor(player, 2000);
+    expect(log.find((e) => e.k === 'drift')).toMatchObject({ action: 'rate', rate: 1.05, behindS: 9 });
+  });
+
+  it('alternate, failed, give-up retry and stop', () => {
+    const { player, sup, log } = journaled();
+    sup.play(A, B);
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    player.emit('error');
+    expect(log.find((e) => e.k === 'alternate')).toMatchObject({ urlIndex: 1 });
+    expect(log.at(-1)).toMatchObject({ k: 'failed', reason: 'unavailable' });
+
+    const retry = journaled();
+    retry.sup.play(A);
+    retry.player.emit('playing');
+    for (let i = 0; i < 7; i++) { retry.player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    vi.advanceTimersByTime(30_000);
+    expect(retry.kinds()).toContain('giveUpRetry');
+    retry.sup.stop();
+    expect(retry.log.at(-1)).toMatchObject({ k: 'stop' });
+  });
+
+  it('a journal that throws never affects playback', () => {
+    const { player, sup, statuses } = setup({ journal: { add: () => { throw new Error('broken'); } } });
+    sup.play(A);
+    player.emit('playing');
+    expect(statuses).toEqual([{ kind: 'loading' }, { kind: 'playing' }]);
   });
 });
