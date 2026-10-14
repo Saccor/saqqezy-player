@@ -9,6 +9,7 @@ import { GuideScreen } from './screens/Guide.tsx';
 import { HomeScreen } from './screens/Home.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
+import { SearchScreen } from './screens/Search.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -84,7 +85,8 @@ export function App() {
             ? <AddSourceScreen />
             : entry.screen === 'home' ? <HomeScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
-            : entry.screen === 'guide' ? <GuideScreen /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'guide' ? <GuideScreen />
+            : entry.screen === 'search' ? <SearchScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>

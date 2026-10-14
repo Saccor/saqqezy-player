@@ -51,6 +51,8 @@ export function ChannelList(props: {
   row: (index: number) => ChannelRow | undefined;
   now: number;
   playingId: string | undefined;
+  /** Append the next programme to the now line (Search). */
+  showNext?: boolean;
   onFocusChanged?: (focused: boolean) => void;
   onMove: (delta: number) => boolean;
   onPage: (dir: 1 | -1) => boolean;
@@ -83,7 +85,9 @@ export function ChannelList(props: {
         const textW = props.width - textX - 20;
         const nowLine = () => {
           const n = r()?.now;
-          return n ? `${formatRange(n.start, n.stop)} · ${n.title}` : r() ? 'No guide information' : '';
+          const nx = props.showNext ? r()?.next : undefined;
+          if (!n) return r() ? 'No guide information' : '';
+          return `${formatRange(n.start, n.stop)} · ${n.title}${nx ? `  |  Next: ${nx.title}` : ''}`;
         };
         return (
           <View x={0} y={(i - props.top) * ROW_H} width={props.width} height={ROW_H - 6} color={fill()}

@@ -35,6 +35,10 @@ export function Keyboard(props: {
   onChange: (value: string) => void;
   onDone: () => void;
   onToggleReveal?: () => void;
+  /** Called when Right is pressed on the rightmost key (inline use: move focus to a neighbouring list). */
+  onEdgeRight?: () => void;
+  /** Replaces the default footer hint. */
+  hint?: string;
 }) {
   const [cursor, setCursor] = createSignal<Cursor>(START_CURSOR);
   const [shift, setShift] = createSignal(false);
@@ -65,14 +69,19 @@ export function Keyboard(props: {
   );
 
   const shown = () => fieldDisplay(props.value, { secret: props.secret, revealed: props.revealed, editing: true, max: 36 });
-  const hint = () => (props.secret
+  const hint = () => props.hint ?? (props.secret
     ? `Back closes and keeps the text · Yellow: ${props.revealed ? 'hide' : 'show'} password`
     : 'Back closes and keeps the text');
 
   return (
     <View ref={props.ref} x={props.x} y={props.y} width={KEYBOARD_W} height={KEYBOARD_H} zIndex={30}
       color={COLORS.surface} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.muted }}
-      onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
+      onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => {
+        const c = cursor();
+        const n = moveCursor(c, 'right');
+        if (props.onEdgeRight && n.row === c.row && n.col === c.col) { props.onEdgeRight(); return true; }
+        return move('right');
+      }}
       onEnter={() => {
         const c = cursor();
         const cell = KEYBOARD_ROWS[c.row]?.[c.col];

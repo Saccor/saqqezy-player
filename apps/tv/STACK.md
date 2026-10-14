@@ -190,3 +190,9 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - `src/screens/epgCache.ts` (unit-tested) mirrors `SliceCache`: entries are 20 channels x one 3 h-aligned chunk, at most 24 in LRU order, one group at a time (switching or `invalidate()` drops everything and ignores answers in flight), refetched after 15 min. The Guide loads the visible 3 h first, then 3 h either side; it invalidates on `refreshed`.
 - `EpgGrid` draws only visible rows ±2 and only the blocks overlapping the view; block objects are reused across rebuilds so their nodes survive page loads.
 - The mini window is `playback.setRect` 480x270 at the top-left on mount; the Guide never starts playback except on Ok (on-air block, or the channel column), which goes fullscreen and pushes the Player like Home's watch. Home and the Player set their own rect on mount, so nothing is restored on cleanup.
+
+## Search (Task 10)
+
+- `src/screens/searchLogic.ts` (pure, unit-tested): `createSearcher` debounces `api.search` by 150 ms, drops stale answers with a sequence counter, and `resultsMessage` gives the empty/idle texts ("No channels match "xyz"").
+- The `Keyboard` is used inline (no overlay): Back is not captured, so it leaves the screen. `onEdgeRight` moves focus to the results when Right is pressed on the rightmost key; `hint` overrides the footer text. `ChannelList` takes `showNext` to append the next programme.
+- Query and focused row are kept in module memory so Back from the Player returns to the same results (list focused); Ok plays with `groupId: 'all'`.
