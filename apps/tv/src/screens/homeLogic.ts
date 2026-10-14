@@ -49,6 +49,15 @@ export function panelChannel<T>(focused: T | undefined, playing: T | undefined, 
   return { channel: playing ?? focused, starting: false };
 }
 
+/**
+ * `nowNextUpdated` for `changed`: the preview panel's info for the playing channel must be re-read when that
+ * channel is in the update and is not the focused row (the focused row comes from the slice cache, which the
+ * same event already refreshes).
+ */
+export function playingInfoStale(changed: readonly string[], playingId: string | undefined, focusedId: string | undefined): boolean {
+  return playingId !== undefined && playingId !== focusedId && changed.includes(playingId);
+}
+
 /** `HH:MM–HH:MM` in local time. */
 export function formatRange(start: number, stop: number): string {
   return `${formatClock(new Date(start))}–${formatClock(new Date(stop))}`;

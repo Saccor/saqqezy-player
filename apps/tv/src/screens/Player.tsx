@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
-import { api } from '../api.ts';
+import { api, onEvent } from '../api.ts';
 import { InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
@@ -19,7 +19,9 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { settings } from '../state/appState.ts';
-import { aspectLabel, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
+import {
+  aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel,
+} from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
 const BANNER_MS = 4000;
@@ -363,7 +365,15 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     root?.setFocus();
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     const infoTimer = setInterval(() => { if (infoOn()) setInfoTick((v) => v + 1); }, 1000);
-    onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); });
+    // A background short-EPG answer for the playing channel: the visible banner re-reads its now/next.
+    const offNowNext = onEvent('nowNextUpdated', (e) => {
+      const id = playback.current()?.id;
+      if (!id || !bannerNowNextStale((e as { channelIds: string[] }).channelIds, id, shown()?.id, bannerOn())) return;
+      api.getPlayable(id).then((ch) => {
+        if (alive && ch && shown()?.id === id && playback.current()?.id === id) setShown(ch);
+      }).catch(() => undefined);
+    });
+    onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); offNowNext(); });
 
     const cur = playback.current();
     if (cur && cur.id === params.channelId) {

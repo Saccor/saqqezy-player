@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ASPECT_MODES, aspectLabel, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
+import {
+  ASPECT_MODES, aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel,
+} from './playerLogic.ts';
 
 describe('playerStatusText', () => {
   it('maps supervisor states to player copy', () => {
@@ -60,5 +62,17 @@ describe('createJumpGuard', () => {
   it('accepts the answer when nothing newer started', () => {
     const g = createJumpGuard();
     expect(g.isCurrent(g.bump())).toBe(true);
+  });
+});
+
+describe('bannerNowNextStale', () => {
+  it('is true for a visible banner showing the playing channel that got now/next', () => {
+    expect(bannerNowNextStale(['a', 'b'], 'b', 'b', true)).toBe(true);
+  });
+  it('is false when the banner is hidden, shows another channel (zap preview) or the channel is not in the update', () => {
+    expect(bannerNowNextStale(['b'], 'b', 'b', false)).toBe(false);
+    expect(bannerNowNextStale(['b'], 'b', 'c', true)).toBe(false);
+    expect(bannerNowNextStale(['a'], 'b', 'b', true)).toBe(false);
+    expect(bannerNowNextStale(['a'], undefined, undefined, true)).toBe(false);
   });
 });

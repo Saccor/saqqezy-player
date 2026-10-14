@@ -36,6 +36,16 @@ export function sleepLabel(minutes: number, left: number | undefined): string {
   return left === undefined ? `${minutes} min` : `${minutes} min (${left} left)`;
 }
 
+/**
+ * `nowNextUpdated` for `changed`: the visible banner re-reads now/next when it shows the playing channel and
+ * that channel is in the update (a zap preview of another channel is left alone).
+ */
+export function bannerNowNextStale(
+  changed: readonly string[], playingId: string | undefined, shownId: string | undefined, bannerOn: boolean,
+): boolean {
+  return bannerOn && playingId !== undefined && shownId === playingId && changed.includes(playingId);
+}
+
 /** True while a modal layer owns the keys: the "Still watching?" dialog or the options menu. */
 export function isModalOpen(sleepKind: string, menuPage: string | undefined): boolean {
   return sleepKind === 'asking' || menuPage != null;

@@ -15,7 +15,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { markStartup } from '../state/appState.ts';
-import { panelChannel, pickGroup, resolveFocus, restoreIndex } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
 import { SliceCache } from './sliceCache.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
@@ -197,6 +197,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (!info || stop === undefined || stop > t || stop <= info.at) return;
     const id = info.row.id;
     if (focusedRow()?.id === id) return; // shown from the slice cache, which refreshes itself
+    rereadPlayingInfo(id);
+  };
+  const rereadPlayingInfo = (id: string) => {
+    const t = Date.now();
     api.getPlayable(id).then((ch) => {
       if (alive && ch && playback.current()?.id === id) setPlayingInfo({ row: ch, at: t });
     }).catch(() => undefined);
@@ -334,8 +338,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       onEvent('refreshed', () => { setWaiting(false); void reload().catch(() => undefined); }),
       onEvent('refreshFailed', () => setWaiting(false)),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
+      // The playing channel's info outside the list rows (preview panel) is re-read too.
       onEvent('nowNextUpdated', (e) => {
-        if (cache.invalidateRows((e as { channelIds: string[] }).channelIds) > 0) load();
+        const ids = (e as { channelIds: string[] }).channelIds;
+        if (cache.invalidateRows(ids) > 0) load();
+        const playingId = playback.current()?.id;
+        if (playingId !== undefined && playingInfoStale(ids, playingId, focusedRow()?.id)) rereadPlayingInfo(playingId);
       }),
     ];
     const tick = setInterval(onTick, 30_000);

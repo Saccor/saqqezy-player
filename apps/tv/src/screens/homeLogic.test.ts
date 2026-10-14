@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { formatRange, panelChannel, pickGroup, previewMessage, progressOf, resolveFocus, restoreIndex } from './homeLogic.ts';
+import {
+  formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
+} from './homeLogic.ts';
 
 const groups = [
   { id: 'fav', name: 'Favourites', count: 0 },
@@ -63,5 +65,17 @@ describe('home logic', () => {
     expect(panelChannel(focused, undefined, false)).toEqual({ channel: focused, starting: false });
     expect(panelChannel(undefined, playing, true)).toEqual({ channel: playing, starting: false });
     expect(panelChannel(undefined, undefined, false)).toEqual({ channel: undefined, starting: false });
+  });
+});
+
+describe('playingInfoStale', () => {
+  it('is true when the playing channel got now/next and is not the focused row', () => {
+    expect(playingInfoStale(['a', 'b'], 'b', 'c')).toBe(true);
+    expect(playingInfoStale(['a', 'b'], 'b', undefined)).toBe(true);
+  });
+  it('is false when the playing row is focused (the slice cache refreshes it) or not in the update', () => {
+    expect(playingInfoStale(['a', 'b'], 'b', 'b')).toBe(false);
+    expect(playingInfoStale(['a'], 'b', 'c')).toBe(false);
+    expect(playingInfoStale(['a'], undefined, 'c')).toBe(false);
   });
 });
