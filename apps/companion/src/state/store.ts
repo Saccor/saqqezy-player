@@ -171,8 +171,12 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
       },
       state: (state) => {
         if (client !== c) return;
-        // A `layoutChanged` that overtook this state is newer: ignore the older state.
-        if (store.state && state.layout.version < store.state.layout.version) return;
+        // Layout versions count per source. For the same source, a `layoutChanged` that overtook this state is
+        // newer: ignore the older state. Another active source (switched on the TV or here) always wins, and
+        // changes still on their way belonged to the old source's layout.
+        const sameSource = store.state !== undefined && store.state.activeSourceId === state.activeSourceId;
+        if (sameSource && state.layout.version < store.state!.layout.version) return;
+        if (store.state && !sameSource) optimistic.reset();
         // The optimistic layer gets its own copy: store state is proxied and reconciled in place.
         optimistic.confirm(structuredClone(state.layout));
         setChannels(state.channels.slice());
@@ -183,7 +187,12 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
       },
       layout: (version, next) => {
         if (client !== c || !store.state) return;
-        if (next.version < store.state.layout.version) return;
+        if (next.version < store.state.layout.version) {
+          // Overtaken, or the TV switched to another source (versions count per source): ask for the state, which
+          // says which source is active (`stateUnchanged` when nothing changed).
+          c.getState();
+          return;
+        }
         if (import.meta.env.DEV) {
           const now = Date.now();
           const since = lastOpsSentAt === undefined ? '' : ` (${now - lastOpsSentAt} ms after the last ops were sent)`;

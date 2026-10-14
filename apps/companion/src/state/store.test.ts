@@ -4,16 +4,25 @@ import type { PairingSecrets } from '@iptv/companion-protocol';
 type Result = { t: 'result'; requestMsgId: number; ok: boolean };
 interface FakeRequest { msg: { t: string }; onStall?: () => void; resolve: (r: Result) => void }
 
-const ctl = vi.hoisted(() => ({ throwOnConstruct: false, requests: [] as FakeRequest[] }));
+const ctl = vi.hoisted(() => ({
+  throwOnConstruct: false,
+  requests: [] as FakeRequest[],
+  // The handlers the store passed to the client (state, layout, ...), called directly by the tests.
+  handlers: undefined as any,
+  getStateCalls: 0,
+}));
 
 vi.mock('../connection/client.ts', () => ({
   CompanionClient: class {
-    constructor() {
+    constructor(_secrets: unknown, opts: { handlers: unknown }) {
       if (ctl.throwOnConstruct) throw new Error('cannot start');
+      ctl.handlers = opts.handlers;
     }
     start(): void {}
     close(): void {}
-    getState(): void {}
+    getState(): void {
+      ctl.getStateCalls++;
+    }
     resumeIfNeeded(): void {}
     request(msg: { t: string }, onStall?: () => void): Promise<Result> {
       return new Promise((resolve) => ctl.requests.push({ msg, onStall, resolve }));
@@ -22,6 +31,7 @@ vi.mock('../connection/client.ts', () => ({
 }));
 
 const { connect, store } = await import('./store.ts');
+const { emptyLayout } = await import('@iptv/core');
 const { runRequest } = await import('./actions.ts');
 
 const SECRETS = {} as PairingSecrets;
@@ -30,6 +40,7 @@ const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve()
 beforeEach(() => {
   ctl.throwOnConstruct = false;
   ctl.requests = [];
+  ctl.getStateCalls = 0;
 });
 
 describe('connect', () => {
@@ -55,5 +66,32 @@ describe('runRequest working marker', () => {
     ctl.requests[1]!.resolve({ t: 'result', requestMsgId: 2, ok: true });
     await second;
     expect(store.working['s1']).toBeUndefined();
+  });
+});
+
+describe('state from another source', () => {
+  // Layout versions count per source: a source switch can bring a lower version that is still the newer state.
+  const stateOf = (activeSourceId: string, version: number) => ({
+    version, activeSourceId, sources: [], groups: [], channels: [], coverageKnown: false,
+    layout: { ...emptyLayout(), version },
+  });
+
+  it('accepts a state for a different active source even when its layout version is lower', () => {
+    connect(SECRETS);
+    ctl.handlers.state(stateOf('s1', 29));
+    ctl.handlers.state(stateOf('s2', 3));
+    expect(store.state?.activeSourceId).toBe('s2');
+    expect(store.state?.layout.version).toBe(3);
+    // Same source, older layout: still ignored (a newer layoutChanged overtook it).
+    ctl.handlers.state(stateOf('s2', 2));
+    expect(store.state?.layout.version).toBe(3);
+  });
+
+  it('asks for the state again when a layoutChanged is older than the held layout (the TV may have switched source)', () => {
+    connect(SECRETS);
+    ctl.handlers.state(stateOf('s1', 29));
+    ctl.handlers.layout(4, { ...emptyLayout(), version: 4 });
+    expect(store.state?.layout.version).toBe(29);
+    expect(ctl.getStateCalls).toBe(1);
   });
 });
