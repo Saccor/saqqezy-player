@@ -5,6 +5,7 @@ import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
+import { GuideScreen } from './screens/Guide.tsx';
 import { HomeScreen } from './screens/Home.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
@@ -82,7 +83,8 @@ export function App() {
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen />
             : entry.screen === 'home' ? <HomeScreen entry={entry} />
-            : entry.screen === 'player' ? <PlayerScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'player' ? <PlayerScreen entry={entry} />
+            : entry.screen === 'guide' ? <GuideScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>

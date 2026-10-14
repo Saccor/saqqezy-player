@@ -1,0 +1,323 @@
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import type { ChannelRow, ProgrammeLite } from '@iptv/app-api';
+import type { GroupInfo } from '@iptv/core';
+import type { Rect } from '@iptv/player';
+import { api, onEvent } from '../api.ts';
+import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { GroupList } from '../components/GroupList.tsx';
+import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
+import { playback } from '../playback/playback.ts';
+import { router } from '../shell/router.ts';
+import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { EpgCache } from './epgCache.ts';
+import {
+  HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideWindow, initialViewStart, isOnAir, prefetchRange,
+  relativeLabel, stepLeft, stepRight, type Block, type HStep,
+} from './guideLogic.ts';
+import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
+
+const MINI: Rect = { x: LAYOUT.safeX, y: LAYOUT.safeY, w: 480, h: 270 };
+const INFO_X = MINI.x + MINI.w + LAYOUT.gap * 2;
+/** Leaves room for the shell clock in the top-right corner. */
+const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X - 160;
+const GRID_Y = MINI.y + MINI.h + LAYOUT.gap;
+const HINT_Y = LAYOUT.height - LAYOUT.safeY - 30;
+const PICKER_ID = 'guideGroups';
+const PICKER_W = 460;
+const GROUP_ALL = 'all';
+const ROW_BUFFER = 2;
+
+/** The group the guide showed last (kept across visits). */
+const memory: { groupId?: string } = {};
+
+/**
+ * TV guide: a mini video window (the shared `playback`, never restarted here), the focused programme's details,
+ * and the EPG grid. Rows come from `getEpgRows` through a bounded, expiring `EpgCache` (pages of 20 channels x
+ * 3-hour chunks, the visible 3 h first, then 3 h either side). Times are already shifted by the API.
+ */
+export function GuideScreen() {
+  const opened = Date.now();
+  const win = guideWindow(opened);
+
+  const [now, setNow] = createSignal(opened);
+  const [groups, setGroups] = createSignal<GroupInfo[]>([]);
+  const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
+  const [version, setVersion] = createSignal(0);
+  const [row, setRow] = createSignal(0);
+  const [viewStart, setViewStart] = createSignal(initialViewStart(opened, win));
+  const [anchor, setAnchor] = createSignal(opened);
+  const [area, setArea] = createSignal<'grid' | 'channels'>('grid');
+  const [picking, setPicking] = createSignal<number | undefined>(undefined);
+  const [expanded, setExpanded] = createSignal(false);
+  const [ready, setReady] = createSignal(false);
+
+  let root: ElementNode | undefined;
+  let gridNode: ElementNode | undefined;
+  let pickerNode: ElementNode | undefined;
+  let removePicker: (() => void) | undefined;
+  let alive = true;
+  let lastTop = 0;
+  let groupSeq = 0;
+
+  const cache = new EpgCache<ChannelRow, ProgrammeLite>(
+    (g, o, c, f, t) => api.getEpgRows(g, o, c, f, t),
+    { rowsPerPage: 20, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: () => setVersion((v) => v + 1) },
+  );
+
+  const total = () => { version(); return cache.total() ?? 0; };
+  const channelAt = (i: number) => { version(); return cache.channel(i); };
+  const blocksAt = (i: number): Block[] => {
+    version();
+    const covered = cache.covered(i)
+      .map((r) => ({ start: Math.max(r.start, win.start), end: Math.min(r.end, win.end) }))
+      .filter((r) => r.end > r.start);
+    return buildBlocks(cache.programmes(i), covered);
+  };
+  const top = createMemo(() => {
+    const t = total();
+    if (t === 0) return lastTop;
+    lastTop = scrollTopFor(row(), lastTop, EPG_VIEW_ROWS, t);
+    return lastTop;
+  });
+  const rowBlocks = createMemo(() => blocksAt(row()));
+  const focusIndex = createMemo(() => blockIndexAt(rowBlocks(), anchor()));
+  const focusBlock = () => rowBlocks()[focusIndex()];
+  const focusChannel = () => channelAt(row());
+
+  // ---- loading: the visible 3 h first, then the prefetch either side ----
+
+  createEffect(() => {
+    const g = groupId();
+    if (g === undefined) return;
+    const r = renderRange(top(), EPG_VIEW_ROWS, Math.max(total(), 1), ROW_BUFFER);
+    const vs = viewStart();
+    const wide = prefetchRange(vs, win);
+    const warn = (err: unknown) => console.warn('Guide rows failed', err instanceof Error ? err.name : 'Error');
+    cache.ensure(r.from, Math.max(r.to, 1), vs, vs + 3 * HOUR)
+      .then(() => (alive && cache.group() === g ? cache.ensure(r.from, Math.max(r.to, 1), wide.start, wide.end) : undefined))
+      .catch(warn);
+  });
+
+  // ---- groups ----
+
+  const openGroup = (g: string, index: number) => {
+    groupSeq++;
+    memory.groupId = g;
+    cache.setGroup(g);
+    lastTop = Math.max(0, index - 3);
+    setRow(index);
+    setGroupId(g);
+  };
+
+  /** The playing channel's position, in the remembered group or else in All channels. */
+  const locatePlaying = async (gs: GroupInfo[]): Promise<{ g: string | undefined; index: number }> => {
+    const seq = groupSeq;
+    const g = pickGroup(gs, memory.groupId);
+    const id = playback.current()?.id;
+    if (g === undefined || id === undefined) return { g, index: 0 };
+    const index = await api.indexOf(g, id).catch(() => -1);
+    if (index >= 0 || g === GROUP_ALL || !gs.some((x) => x.id === GROUP_ALL) || seq !== groupSeq) {
+      return { g, index: Math.max(0, index) };
+    }
+    const inAll = await api.indexOf(GROUP_ALL, id).catch(() => -1);
+    return inAll >= 0 ? { g: GROUP_ALL, index: inAll } : { g, index: 0 };
+  };
+
+  const openPicker = () => {
+    const gs = groups();
+    if (gs.length === 0) return true;
+    setPicking(Math.max(0, gs.findIndex((x) => x.id === groupId())));
+    removePicker = router.pushOverlay(PICKER_ID, closePicker);
+    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
+    return true;
+  };
+  function closePicker() {
+    removePicker = undefined;
+    setPicking(undefined);
+    queueMicrotask(() => { if (alive) gridNode?.setFocus(); });
+  }
+  const choosePicked = () => {
+    const g = groups()[picking() ?? -1];
+    removePicker?.();
+    closePicker();
+    if (g && g.id !== groupId()) {
+      setArea('grid');
+      openGroup(g.id, 0);
+    }
+    return true;
+  };
+
+  // ---- keys ----
+
+  const setFocusRow = (i: number) => {
+    setRow(i);
+    setExpanded(false);
+    return true;
+  };
+  const applyStep = (s: HStep) => {
+    if (s.kind === 'move' || s.kind === 'scroll') {
+      setViewStart(s.viewStart);
+      setAnchor(s.anchor);
+      setExpanded(false);
+    }
+  };
+
+  /** Plays the channel and opens the Player (Back returns here). */
+  const play = (ch: ChannelRow) => {
+    const g = groupId() ?? GROUP_ALL;
+    const token = playback.begin();
+    void (async () => {
+      try {
+        const pc = await api.getPlayable(ch.id);
+        if (!alive || !pc || !playback.isLatest(token)) return;
+        // Same channel: the stream keeps running and only the rect changes (no reconnect).
+        playback.playChannel(pc);
+        playback.setRect('fullscreen');
+        await api.markWatched(ch.id, g).catch(() => undefined);
+        if (alive && playback.isLatest(token)) router.push('player', { channelId: ch.id, groupId: g });
+      } catch (err) {
+        console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
+      }
+    })();
+  };
+
+  const keys = {
+    onUp: () => setFocusRow(moveFocus(row(), -1, total())),
+    onDown: () => setFocusRow(moveFocus(row(), 1, total())),
+    onPage: (dir: 1 | -1) => setFocusRow(pageFocus(row(), dir, EPG_VIEW_ROWS, total())),
+    onLeft: () => {
+      if (area() === 'channels') return openPicker();
+      const s = stepLeft(rowBlocks(), focusIndex(), { viewStart: viewStart(), anchor: anchor() }, win);
+      if (s.kind === 'edge') setArea('channels');
+      else applyStep(s);
+      return true;
+    },
+    onRight: () => {
+      if (area() === 'channels') { setArea('grid'); return true; }
+      applyStep(stepRight(rowBlocks(), focusIndex(), { viewStart: viewStart(), anchor: anchor() }, win));
+      return true;
+    },
+    onOk: () => {
+      const ch = focusChannel();
+      if (!ch) return true;
+      const b = focusBlock();
+      if (area() === 'channels' || !b || isOnAir(b, Date.now())) play(ch);
+      else setExpanded((v) => !v); // future or past: details only (no catch-up in v1)
+      return true;
+    },
+  };
+
+  // ---- lifecycle ----
+
+  onMount(() => {
+    playback.setRect(MINI);
+    root?.setFocus();
+    const tick = setInterval(() => setNow(Date.now()), MINUTE);
+    const off = onEvent('refreshed', () => cache.invalidate());
+    onCleanup(() => { clearInterval(tick); off(); });
+
+    void (async () => {
+      try {
+        const gs = await api.getGroups();
+        if (!alive) return;
+        setGroups(gs);
+        const { g, index } = await locatePlaying(gs);
+        if (!alive) return;
+        if (g !== undefined) openGroup(g, index);
+      } catch (err) {
+        console.warn('Guide load failed', err instanceof Error ? err.name : 'Error');
+      } finally {
+        if (alive) {
+          setReady(true);
+          gridNode?.setFocus();
+        }
+      }
+    })();
+  });
+
+  onCleanup(() => {
+    alive = false;
+    removePicker?.();
+    router.removeOverlay(PICKER_ID);
+  });
+
+  const onBack = () => {
+    if (router.topOverlay() !== undefined) return false; // the shell closes the top layer first
+    if (area() === 'channels') { setArea('grid'); return true; }
+    return false; // back to the previous screen, which sets its own video rect
+  };
+
+  // ---- header ----
+
+  const groupName = () => groups().find((g) => g.id === groupId())?.name ?? '';
+  const miniMessage = () => {
+    const playing = playback.current() !== undefined;
+    return playing ? previewMessage(playback.status(), true) : 'Nothing playing';
+  };
+  const whenLine = () => {
+    const b = focusBlock();
+    if (!b) return '';
+    return `${dayLabel(b.start, now())} ${formatRange(b.start, b.stop)} · ${relativeLabel(b, now())}`;
+  };
+  const descText = () => {
+    const b = focusBlock();
+    if (!b) return '';
+    if (b.filler) return 'There is no guide information for this time.';
+    return b.desc ?? '';
+  };
+
+  return (
+    <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}
+      forwardFocus={() => { gridNode?.setFocus(); return true; }}>
+      {/* Opaque everywhere except the mini window, a hole onto the video. */}
+      <View width={LAYOUT.width} height={MINI.y} color={COLORS.background} />
+      <View y={MINI.y + MINI.h} width={LAYOUT.width} height={LAYOUT.height - MINI.y - MINI.h} color={COLORS.background} />
+      <View y={MINI.y} width={MINI.x} height={MINI.h} color={COLORS.background} />
+      <View x={MINI.x + MINI.w} y={MINI.y} width={LAYOUT.width - MINI.x - MINI.w} height={MINI.h} color={COLORS.background} />
+      <Show when={miniMessage()}>{(m) => (
+        <View x={MINI.x} y={MINI.y} width={MINI.w} height={MINI.h} borderRadius={LAYOUT.radius}
+          color={playback.current() ? COLORS.panel : COLORS.surface}>
+          <Text x={24} y={MINI.h / 2 - FONT.body} width={MINI.w - 48} maxWidth={MINI.w - 48} contain="width" maxLines={2}
+            textAlign="center" fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
+        </View>
+      )}</Show>
+
+      {/* Focused programme */}
+      <View x={INFO_X} y={MINI.y} width={INFO_W} height={MINI.h}>
+        <Text width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+          {`TV guide${groupName() ? ` · ${groupName()}` : ''}${focusChannel() ? ` · ${focusChannel()!.number} ${focusChannel()!.name}` : ''}`}
+        </Text>
+        <Text y={40} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
+          {focusBlock()?.title ?? (ready() && total() === 0 ? 'No channels here yet.' : '')}
+        </Text>
+        <Text y={108} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.body}
+          color={focusBlock() && isOnAir(focusBlock()!, now()) ? COLORS.focus : COLORS.muted}>{whenLine()}</Text>
+        <Text y={152} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
+          color={COLORS.text}>{descText()}</Text>
+      </View>
+
+      <EpgGrid ref={(el) => { gridNode = el; }} x={LAYOUT.safeX} y={GRID_Y} total={total()} top={top()} focusRow={row()}
+        focusStart={focusBlock()?.start} area={area()} viewStart={viewStart()} now={now()}
+        playingId={playback.current()?.id} dayLabel={dayLabel(viewStart(), now())}
+        channel={channelAt} blocks={blocksAt} {...keys} />
+
+      <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
+        fontSize={FONT.small} color={COLORS.muted}>
+        {area() === 'channels'
+          ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
+          : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
+      </Text>
+
+      <Show when={picking() !== undefined}>
+        <View x={LAYOUT.safeX} y={GRID_Y} width={PICKER_W} height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H}
+          color={COLORS.surface} borderRadius={LAYOUT.radius} zIndex={20}>
+          <Text x={24} y={16} fontSize={FONT.heading} color={COLORS.text}>{'Groups'}</Text>
+          <GroupList ref={(el) => { pickerNode = el; }} x={16} y={68} width={PICKER_W - 32}
+            height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H - 84} groups={groups()} selected={picking() ?? 0}
+            onSelect={(i) => setPicking(i)} onRight={choosePicked} />
+        </View>
+      </Show>
+    </View>
+  );
+}

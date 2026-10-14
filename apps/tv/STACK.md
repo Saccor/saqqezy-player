@@ -183,3 +183,10 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - Preview: a 700 ms debounce keyed on the focused channel id (page loads do not restart it). The preview panel shows the playing (or failed) channel's info; while a preview is pending it shows the focused channel with a muted "Starting…".
 - Decision (accepted for v1): the preview keeps playing behind non-player screens (Search, Guide, Settings) that Home pushes. Those screens are opaque, so it is not visible; it avoids a reconnect when the user comes back. Revisit if bandwidth matters.
 
+
+## Guide (Task 9)
+
+- `src/screens/guideLogic.ts` (pure, unit-tested) holds the time math: 480 px/h, a 3 h view that opens at the half hour before now, a fixed window of now −6 h..+48 h (half-hour aligned), `buildBlocks` ("No information" fillers for gaps inside the loaded ranges only), and `stepLeft`/`stepRight`. Focus is a row plus an `anchor` time; the focused block is the one containing the anchor, so Up/Down keep the time position and late data never loses focus. A block running more than an hour past the view edge scrolls 1 h per press instead of jumping past it.
+- `src/screens/epgCache.ts` (unit-tested) mirrors `SliceCache`: entries are 20 channels x one 3 h-aligned chunk, at most 24 in LRU order, one group at a time (switching or `invalidate()` drops everything and ignores answers in flight), refetched after 15 min. The Guide loads the visible 3 h first, then 3 h either side; it invalidates on `refreshed`.
+- `EpgGrid` draws only visible rows ±2 and only the blocks overlapping the view; block objects are reused across rebuilds so their nodes survive page loads.
+- The mini window is `playback.setRect` 480x270 at the top-left on mount; the Guide never starts playback except on Ok (on-air block, or the channel column), which goes fullscreen and pushes the Player like Home's watch. Home and the Player set their own rect on mount, so nothing is restored on cleanup.
