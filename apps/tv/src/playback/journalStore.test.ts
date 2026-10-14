@@ -13,6 +13,7 @@ describe('journalStore', () => {
     const m = memory();
     const a = new PlaybackJournal({ persist: createJournalPersist(() => m) });
     a.add({ k: 'stop', t: 5 });
+    a.flush();
     expect(JSON.parse(m.data.get(JOURNAL_KEY)!)).toEqual({ v: 1, e: [{ k: 'stop', t: 5 }] });
     const b = new PlaybackJournal({ persist: createJournalPersist(() => m) });
     expect(b.entries()).toEqual([{ k: 'stop', t: 5 }]);

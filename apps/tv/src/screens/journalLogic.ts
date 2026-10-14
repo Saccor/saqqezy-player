@@ -1,4 +1,5 @@
 import type { JournalEvent, ReconnectReason } from '@iptv/player';
+import { stripUrls } from './settingsLogic.ts';
 
 /**
  * Text for Diagnostics → Playback log. Neutral copy (CLAUDE.md rule 3); events never carry URLs, so neither do
@@ -42,7 +43,7 @@ export function eventText(e: JournalEvent): string {
       if (e.what === 'visible') return 'App back in front';
       return e.nav === 'reload' ? 'Page reload' : 'App started';
     case 'play':
-      return join('Play', e.channel ?? 'Channel', PRESET[e.preset]);
+      return join('Play', (e.channel && stripUrls(e.channel)) || 'Channel', PRESET[e.preset]);
     case 'open':
       return join(`Connect (attempt ${e.attempt})`, e.urlIndex > 0 && 'other format');
     case 'playing':

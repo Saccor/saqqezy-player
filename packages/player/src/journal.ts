@@ -38,6 +38,7 @@ const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
+const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;
 const CHANNEL_MAX = 60;
 const VERSION = 1;
 
@@ -62,14 +63,15 @@ export function sanitizeEvent(e: unknown): JournalEvent | undefined {
       if (typeof v === 'string' && DETAIL_RE.test(v)) out.detail = v;
       continue;
     }
-    out[key] = v;
+    // Every other field is a number, boolean or a short enum-like token; anything else could carry a URL.
+    if (typeof v === 'number' || typeof v === 'boolean' || (typeof v === 'string' && TOKEN_RE.test(v))) out[key] = v;
   }
   return out as JournalEvent;
 }
 
 /**
- * What the player did, newest last, capped (default 200). Saved through `persist` at once and then at most once
- * per `saveEveryMs`; `flush()` saves anything pending (call it on pagehide). Storage failures are swallowed:
+ * What the player did, newest last, capped (default 200). Saved through `persist` shortly after a change (deferred, never inside `add`),
+ * at most once per `saveEveryMs`; `flush()` saves anything pending (call it on pagehide). Storage failures are swallowed:
  * the journal then simply lives in memory.
  */
 export class PlaybackJournal implements JournalSink {
@@ -115,16 +117,13 @@ export class PlaybackJournal implements JournalSink {
 
   private scheduleSave(): void {
     if (!this.persist || this.timerPending) return;
-    const wait = this.lastSaveAt + this.saveEveryMs - this.now();
-    if (wait <= 0) {
-      this.save();
-      return;
-    }
+    // Clamped so a backward clock step cannot stall saves; never saved inside add() (keeps JSON + setItem off the zap path).
+    const wait = Math.min(this.saveEveryMs, this.lastSaveAt + this.saveEveryMs - this.now());
     this.timerPending = true;
     globalThis.setTimeout(() => {
       this.timerPending = false;
       this.flush();
-    }, wait);
+    }, Math.max(0, wait));
   }
 
   private save(): void {

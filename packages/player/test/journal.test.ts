@@ -40,6 +40,16 @@ describe('sanitizeEvent', () => {
   });
 });
 
+describe('sanitizeEvent tokens', () => {
+  it('drops string fields that are not plain tokens, and non-primitive values', () => {
+    expect(sanitizeEvent({ k: 'stop', t: 1, extra: 'http://host/x' })).toEqual({ k: 'stop', t: 1 });
+    expect(sanitizeEvent({ k: 'stop', t: 1, extra: { a: 1 } })).toEqual({ k: 'stop', t: 1 });
+    expect(sanitizeEvent({ k: 'stop', t: 1, extra: ['a'] })).toEqual({ k: 'stop', t: 1 });
+    expect(sanitizeEvent({ k: 'stop', t: 1, extra: () => 1 })).toEqual({ k: 'stop', t: 1 });
+    expect(sanitizeEvent({ k: 'playing', t: 1, attempt: 1, engine: 'hls.js' })).toEqual({ k: 'playing', t: 1, attempt: 1, engine: 'hls.js' });
+  });
+});
+
 describe('PlaybackJournal', () => {
   it('keeps the newest events up to the capacity, oldest first', () => {
     const j = new PlaybackJournal({ capacity: 3 });
@@ -62,10 +72,12 @@ describe('PlaybackJournal', () => {
     expect(j.entries()).toHaveLength(1);
   });
 
-  it('saves at once, then at most once per second; flush saves what is pending', () => {
+  it('saves deferred, at most once per second; flush saves what is pending', () => {
     const m = memory();
     const j = new PlaybackJournal({ persist: m });
     j.add(stop(1));
+    expect(m.saved).toHaveLength(0); // never inside add
+    vi.advanceTimersByTime(0);
     expect(m.saved).toHaveLength(1);
     j.add(stop(2));
     j.add(stop(3));
@@ -78,6 +90,20 @@ describe('PlaybackJournal', () => {
     expect(m.saved).toHaveLength(3);
     j.flush(); // nothing new
     expect(m.saved).toHaveLength(3);
+  });
+
+  it('a backward clock step cannot stall saves beyond saveEveryMs', () => {
+    const m = memory();
+    let skew = 0;
+    const j = new PlaybackJournal({ persist: m, now: () => Date.now() + skew });
+    j.add(stop(1));
+    vi.advanceTimersByTime(0);
+    expect(m.saved).toHaveLength(1);
+    skew = -3_600_000;
+    j.add(stop(2));
+    j.add(stop(3));
+    vi.advanceTimersByTime(1000);
+    expect(m.saved).toHaveLength(2);
   });
 
   it('loads what was saved, and clear() empties and saves at once', () => {

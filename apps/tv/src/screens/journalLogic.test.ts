@@ -23,6 +23,7 @@ describe('eventText', () => {
     [{ k: 'page', t, what: 'visible' }, 'App back in front'],
     [{ k: 'play', t, channel: 'Channel X', preset: 'balanced', urls: 2 }, 'Play · Channel X · Balanced'],
     [{ k: 'play', t, preset: 'stable', urls: 1 }, 'Play · Channel · Stable'],
+    [{ k: 'play', t, channel: 'News http://example.test/u/p/1.ts', preset: 'low', urls: 1 }, 'Play · News [link] · Low'],
     [{ k: 'open', t, attempt: 2, urlIndex: 0 }, 'Connect (attempt 2)'],
     [{ k: 'open', t, attempt: 3, urlIndex: 1 }, 'Connect (attempt 3) · other format'],
     [{ k: 'playing', t, attempt: 1, firstFrameMs: 1234, engine: 'hls.js' }, 'Playing · hls.js · 1.2 s to picture'],
@@ -77,7 +78,7 @@ describe('summary, rows and copy text', () => {
     expect(formatEvent({ k: 'stop', t: at(22, 9, 14) }, NOW)).toEqual({ time: '22:09:14', text: 'Stopped' });
   });
 
-  it('rows are newest first with stable ids', () => {
+  it('rows are newest first, with ids by index in this snapshot', () => {
     const rows = logRows(entries.slice(-2), NOW);
     expect(rows).toEqual([
       { id: 'e1', time: '22:06:00', text: 'Reconnect · source ended the stream · 0 ms' },

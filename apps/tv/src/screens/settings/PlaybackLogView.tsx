@@ -63,15 +63,27 @@ export function PlaybackLogView(props: {
       setArmed(true);
       armTimer = setTimeout(() => setArmed(false), CLEAR_ARM_MS);
     } else if (id === 'copy' && clipboard) {
-      clipboard.writeText(journalText(journal.entries(), Date.now()))
-        .then(() => setCopyNote('Copied'), () => setCopyNote('Copy not available'));
+      try {
+        clipboard.writeText(journalText(journal.entries(), Date.now()))
+          .then(() => setCopyNote('Copied'), () => setCopyNote('Copy not available'));
+      } catch {
+        setCopyNote('Copy not available');
+      }
     }
+  };
+
+  const select = (i: number) => {
+    if (i !== sel()) {
+      clearTimeout(armTimer);
+      setArmed(false);
+    }
+    setSel(i);
   };
 
   return (
     <View width={props.width} height={props.height} onBack={() => { props.onClose(); return true; }}>
       <SettingsList ref={props.register} x={0} y={0} width={props.width} height={props.height}
-        items={items()} selected={sel()} onSelect={setSel} onOk={ok}
+        items={items()} selected={sel()} onSelect={select} onOk={ok}
         onLeftEdge={() => { props.onClose(); return true; }} />
     </View>
   );

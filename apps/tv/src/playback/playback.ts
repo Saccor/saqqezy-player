@@ -79,6 +79,8 @@ let hiddenAt: number | undefined;
 document.addEventListener('visibilitychange', () => {
   supervisor.setHidden(document.hidden);
   journal.add({ k: 'page', t: Date.now(), what: document.hidden ? 'hidden' : 'visible' });
+  // TVs may suspend or kill a backgrounded app without firing pagehide.
+  if (document.hidden) journal.flush();
   if (document.hidden) {
     hiddenAt = Date.now();
     return;
