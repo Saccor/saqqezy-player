@@ -157,6 +157,11 @@ export class AppApi {
     }));
   }
 
+  /** Position of `channelId` among the visible channels of `groupId`, or -1 (Home restores focus by id with it). */
+  indexOf(groupId: string, channelId: string): Promise<number> {
+    return this.run('indexOf', async () => this.index.indexOf(groupId, channelId));
+  }
+
   getPlayable(channelId: string): Promise<PlayableChannel | undefined> {
     return this.run('getPlayable', () => this.playable(this.index.get(channelId)));
   }
@@ -592,7 +597,7 @@ function toLite(p: Programme): ProgrammeLite {
 /** Methods callable over RPC; the worker passes this to `expose` so internals (and `idle`) stay unreachable. */
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
-  'getGroups', 'getChannelSlice', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
+  'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
 ] as const satisfies readonly (keyof AppApi)[];

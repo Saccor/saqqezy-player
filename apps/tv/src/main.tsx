@@ -7,21 +7,15 @@ import { api } from './api.ts';
 import { router } from './shell/router.ts';
 import { showToast } from './shell/Toast.tsx';
 import { installKeys } from './input/keys.ts';
-import { Html5Player } from './video/Html5Player.ts';
-import { DESIGN_HEIGHT, DESIGN_WIDTH, createVideoLayer, designScale } from './video/videoLayer.ts';
+import { playback, player, videoLayer as layer } from './playback/playback.ts';
+import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
 
 // Canvas text with the platform's default sans-serif face: no font files are bundled.
 Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: 0xe8eaf0ff };
 Config.animationsEnabled = true;
 
-const videoRoot = document.getElementById('video-layer');
 const appRoot = document.getElementById('app');
-if (!videoRoot || !appRoot) throw new Error('index.html is missing #video-layer or #app');
-
-const layer = createVideoLayer(videoRoot);
-// Dev-only switch to exercise the hls.js path on browsers that also have native HLS: `?hlsjs`.
-const forceHlsJs = import.meta.env.DEV && new URLSearchParams(location.search).has('hlsjs');
-const player = new Html5Player(layer, { preferNativeHls: !forceHlsJs });
+if (!appRoot) throw new Error('index.html is missing #app');
 
 const { render, renderer } = createRenderer(
   {
@@ -44,7 +38,7 @@ window.addEventListener('resize', () => {
 });
 
 // Dev-only debug handle for the browser console; stripped from production builds.
-if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, api, router, showToast };
+if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, playback, api, router, showToast };
 
 installKeys();
-render(() => <App player={player} />);
+render(() => <App />);

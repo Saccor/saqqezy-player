@@ -100,6 +100,15 @@ describe('AppApi', () => {
     expect(await again.toggleFavourite(id)).toBe(false);
   });
 
+  test('indexOf finds a channel position in a group (-1 when absent)', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const row = (await api.getChannelSlice('all', 7, 1)).rows[0]!;
+    expect(await api.indexOf('all', row.id)).toBe(7);
+    expect(await api.indexOf('fav', row.id)).toBe(-1);
+    expect(await api.indexOf('all', 'nope')).toBe(-1);
+  });
+
   test('hidden channels', async () => {
     const { api } = make();
     await api.addSource(xt());

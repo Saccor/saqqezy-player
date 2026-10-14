@@ -1,9 +1,8 @@
 import { For, Text, View } from '@lightningtv/solid';
-import { createSignal, onMount } from 'solid-js';
+import { createSignal } from 'solid-js';
 import { Row } from '@lightningtv/solid/primitives';
 import { router, type ScreenEntry, type ScreenId } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { markStartup } from '../state/appState.ts';
 
 const TITLES: Record<ScreenId, string> = {
   addSource: 'Add source',
@@ -40,9 +39,6 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
   const params = Object.entries(props.entry.params).map(([k, v]) => `${k}=${String(v)}`).join(', ');
   const panelW = LAYOUT.width - LAYOUT.safeX * 2;
   const rowW = HOME_LINKS.length * (BTN_W + LAYOUT.gap) - LAYOUT.gap;
-
-  // Placeholder for the startup metric: the real Home marks it when its cached list first renders.
-  if (isHome) onMount(() => markStartup());
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={screen === 'player' ? 0x00000000 : COLORS.background}>

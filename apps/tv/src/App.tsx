@@ -1,10 +1,11 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
-import type { Player } from '@iptv/player';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
+import { playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
+import { HomeScreen } from './screens/Home.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
@@ -31,10 +32,9 @@ function OfflineBadge() {
 
 /**
  * App shell: screen stack, layered Back (overlays first, then screens, then the exit question), toasts,
- * offline badge, clock and debug HUD. The `player` is the single shared playback instance; screens that
- * play (Tasks 7 and 8) receive it from here.
+ * offline badge, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
  */
-export function App(props: { player: Player }) {
+export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
 
   const [current, setCurrent] = createSignal(router.current());
@@ -72,13 +72,15 @@ export function App(props: { player: Player }) {
     onCleanup(wireEvents(onEvent, showToast));
     void bootstrap(api, router, showToast);
   });
-  onCleanup(() => props.player.stop());
+  onCleanup(() => playback.stop());
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}>
       <View ref={screenHost} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
         <Show when={current()} keyed fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
-          {(entry) => (entry.screen === 'addSource' ? <AddSourceScreen /> : <PlaceholderScreen entry={entry} />)}
+          {(entry) => (entry.screen === 'addSource'
+            ? <AddSourceScreen />
+            : entry.screen === 'home' ? <HomeScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>
