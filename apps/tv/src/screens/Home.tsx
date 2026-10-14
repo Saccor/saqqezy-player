@@ -102,6 +102,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const g = groupId();
     if (g === undefined) return;
     const r = visibleRange();
+    // Cached pages scrolled into view may hold rolled-over now/next: mark them so `ensure` refetches them now.
+    cache.invalidateStale(g, r.from, r.to);
     cache.ensure(g, r.from, Math.max(r.to, 1)).catch((err: unknown) => {
       console.warn('Channel slice failed', err instanceof Error ? err.name : 'Error');
     });
@@ -203,11 +205,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   /** 30 s tick: progress bars, rolled-over visible pages and the playing channel's info. */
   const onTick = () => {
     setNow(Date.now());
-    const g = groupId();
-    if (g !== undefined) {
-      const r = visibleRange();
-      if (cache.invalidateStale(g, r.from, r.to) > 0) load();
-    }
+    load(); // refetches visible pages whose programmes rolled over
     refreshPlayingInfo();
   };
 
