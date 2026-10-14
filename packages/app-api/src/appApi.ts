@@ -267,7 +267,22 @@ export class AppApi {
     return this.run('providerGroups', async () => this.index.allProviderGroups());
   }
 
-  /** Snapshot for a companion: every channel (hidden ones included) and the layout. No URLs, no credentials. */
+  /**
+   * Whether the active source's TV guide coverage is known (a guide has been downloaded), and whether the source
+   * has a guide address at all (an M3U with a guide URL, or any Xtream source). Both false without an active source.
+   */
+  guideStatus(): Promise<{ coverageKnown: boolean; hasGuideUrl: boolean }> {
+    return this.run('guideStatus', async () => {
+      const id = this.activeId;
+      if (!id) return { coverageKnown: false, hasGuideUrl: false };
+      const source = (await this.service.listSources()).find((s) => s.id === id);
+      const hasGuideUrl = source?.kind === 'xtream' || (source?.kind === 'm3u' && !!source.epgUrl);
+      const coverageKnown = Array.isArray(await this.storage.getMeta<unknown>(`epgCoverage:${id}`));
+      return { coverageKnown, hasGuideUrl };
+    });
+  }
+
+  /** Snapshot for a companion: every channel (hidden ones included) and the layout. No credentials or stream URLs. */
   getCompanionState(): Promise<CompanionState> {
     return this.run('getCompanionState', async () => {
       const index = this.index;
@@ -283,6 +298,7 @@ export class AppApi {
       });
       const state: CompanionState = {
         version: layout.version, sources: await this.summaries(), groups: index.allProviderGroups(), channels, layout,
+        coverageKnown: coverage !== undefined,
       };
       if (this.activeId) state.activeSourceId = this.activeId;
       return state;
@@ -796,7 +812,7 @@ function toLite(p: Programme): ProgrammeLite {
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState',
+  'getLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
 ] as const satisfies readonly (keyof AppApi)[];

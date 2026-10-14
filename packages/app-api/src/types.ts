@@ -54,7 +54,7 @@ export interface CompanionChannel {
   hasEpg: boolean;
 }
 
-/** Everything a companion needs to edit the active source's layout. Credential- and URL-free. */
+/** Everything a companion needs to edit the active source's layout. No credentials or stream URLs (logos are URLs). */
 export interface CompanionState {
   version: number;
   activeSourceId?: string;
@@ -63,6 +63,8 @@ export interface CompanionState {
   /** Every channel of the active source, hidden ones included. */
   channels: CompanionChannel[];
   layout: Layout;
+  /** False while the guide has not been downloaded: every channel's `hasEpg` is then true by default. */
+  coverageKnown: boolean;
 }
 
 export interface DiagnosticsInfo {

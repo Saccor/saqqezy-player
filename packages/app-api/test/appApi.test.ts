@@ -162,6 +162,50 @@ describe('AppApi', () => {
     expect(await api.toggleHidden(id)).toBe(false);
   });
 
+  describe('guideStatus', () => {
+    const playlist = ['#EXTM3U', '#EXTINF:-1 group-title="News",Channel 001', 'http://example.test/live/1.ts', ''].join('\n');
+    const m3uFetch: FetchFn = async (u, i) => (u === 'http://example.test/p.m3u' ? new Response(playlist) : fetch(u, i));
+
+    test('no active source: nothing known, no guide URL', async () => {
+      const { api } = make();
+      await api.init();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: false });
+    });
+
+    test('an M3U source without a guide URL never has coverage', async () => {
+      const { api } = make(storage, SourceService, m3uFetch);
+      await api.addSource({ kind: 'm3u', name: 'Plain', playlistUrl: 'http://example.test/p.m3u' });
+      await api.idle();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: false });
+      expect((await api.getCompanionState()).coverageKnown).toBe(false);
+    });
+
+    test('a source with a guide URL knows its coverage only after the guide download', async () => {
+      const gated = gate();
+      const fetchFn: FetchFn = async (u, i) => {
+        if (u.includes('/xmltv.php')) await gated.p;
+        return m3uFetch(u, i);
+      };
+      const { api } = make(storage, SourceService, fetchFn);
+      await api.addSource({
+        kind: 'm3u', name: 'Guided', playlistUrl: 'http://example.test/p.m3u',
+        epgUrl: `${server.url}/xmltv.php?username=test&password=test`,
+      });
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: true });
+      expect((await api.getCompanionState()).coverageKnown).toBe(false);
+      gated.open();
+      await api.idle();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: true, hasGuideUrl: true });
+      expect((await api.getCompanionState()).coverageKnown).toBe(true);
+    });
+
+    test('an Xtream source always has a guide URL', async () => {
+      const { api } = make();
+      await api.addSource(xt());
+      expect((await api.guideStatus()).hasGuideUrl).toBe(true);
+    });
+  });
+
   test('toggleFavourite and toggleHidden report the real state when the change is refused', async () => {
     const { api } = make();
     await api.addSource(xt());
