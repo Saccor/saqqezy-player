@@ -19,7 +19,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { settings } from '../state/appState.ts';
-import { aspectLabel, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
+import { aspectLabel, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
 const BANNER_MS = 4000;
@@ -29,6 +29,8 @@ const FLASH_MS = 2000;
 const OPTIONS_ID = 'playerOptions';
 const INFO_ID = 'streamInfo';
 const SLEEP_ID = 'stillWatching';
+/** DEV-only (`?sleepTest=1`): sleep choices run in seconds-scale (x0.05) so the dialog can be reached quickly. */
+const SLEEP_SCALE = import.meta.env.DEV && new URLSearchParams(location.search).has('sleepTest') ? 0.05 : 1;
 
 /** Session-only choices (not persisted): aspect for every channel, audio track per channel. */
 let sessionAspect: AspectMode = 'auto';
@@ -87,6 +89,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   let bannerTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   const removers = new Map<string, () => void>();
+  const jumps = createJumpGuard();
+  // Channels that were found by falling back to "All": committing one switches the zap group.
+  const fallbackGroup = new WeakSet<PlayableChannel>();
 
   const focusRoot = () => queueMicrotask(() => { if (alive) root?.setFocus(); });
 
@@ -118,6 +123,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     setShown(ch);
     channelHistory.visit(ch.id);
     zapper.setCurrent(ch.id);
+    if (fallbackGroup.has(ch)) zapGroup = GROUP_ALL;
     showBanner();
     api.markWatched(ch.id, zapGroup).catch(() => undefined);
   };
@@ -127,7 +133,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const inGroup = await lookup(api.neighbour(zapGroup, anchor, offset));
     if (inGroup || zapGroup === GROUP_ALL) return inGroup;
     const inAll = await lookup(api.neighbour(GROUP_ALL, anchor, offset));
-    if (inAll) zapGroup = GROUP_ALL;
+    if (inAll) fallbackGroup.add(inAll);
     return inAll;
   };
 
@@ -141,14 +147,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const zap = (delta: number) => {
     numbers.clear();
+    jumps.bump();
     zapper.press(delta);
     return true;
   };
 
   const jumpTo = async (load: () => Promise<PlayableChannel | undefined>, missText?: string) => {
+    const mine = jumps.bump();
     try {
       const ch = await lookup(load());
-      if (!alive) return;
+      if (!alive || !jumps.isCurrent(mine)) return;
       if (ch) {
         zapper.cancel();
         commit(ch);
@@ -169,7 +177,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const previous = () => {
     const prev = channelHistory.previous();
-    if (prev) void jumpTo(() => api.getPlayable(prev));
+    if (prev) void jumpTo(() => api.getPlayable(prev), 'Previous channel not available');
     return true;
   };
 
@@ -185,25 +193,37 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const sleepTimer = createSleepTimer({
     onChange: (s) => {
+      const wasAsking = sleep().kind === 'asking';
       setSleep(s);
-      if (s.kind === 'asking') openOverlay(SLEEP_ID, () => { sleepTimer.stillWatching(); focusRoot(); });
-      else removeOverlay(SLEEP_ID);
+      if (s.kind === 'asking') {
+        if (!wasAsking) openOverlay(SLEEP_ID, keepWatching);
+      } else removeOverlay(SLEEP_ID);
       if (s.kind === 'off') setSleepMinutes(0);
     },
-    onExpire: () => {
-      if (!alive) return;
-      playback.stop();
-      previewHold.set();
-      leave();
-    },
+    onExpire: () => { if (alive) sleepStop(); },
   });
 
-  /** Closes this screen's layers, then pops it (back to Home). */
-  const leave = () => {
+  /** "Keep watching" (button or Back): focus returns to the options menu when it is open, else to the root. */
+  function keepWatching() {
+    sleepTimer.stillWatching();
+    if (menuPage()) queueMicrotask(() => { if (alive) menuNode?.setFocus(); });
+    else focusRoot();
+  }
+
+  /** Closes this screen's layers, then pops it (back to Home, which focuses `lastChannelId`). */
+  const leave = (lastChannelId?: string) => {
     for (const id of [...removers.keys()]) removeOverlay(id);
     while (router.topOverlay() !== undefined) router.back();
-    router.back();
+    router.back(lastChannelId !== undefined ? { focusChannelId: lastChannelId } : undefined);
   };
+
+  /** The sleep timer ran out (or "Stop"): stop playback and return to Home on the last watched channel. */
+  function sleepStop() {
+    const last = playback.current()?.id ?? shown()?.id;
+    playback.stop();
+    previewHold.set();
+    leave(last);
+  }
 
   // ---- overlays ----
 
@@ -286,7 +306,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     } else if (id === 'sleep') {
       const next = nextSleepOption(sleepMinutes());
       setSleepMinutes(next);
-      sleepTimer.set(next);
+      sleepTimer.set(next * SLEEP_SCALE);
     } else if (id === 'info') {
       setInfo(!infoOn());
     } else if (id === 'favourite') {
@@ -308,6 +328,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   // ---- keys ----
 
+  const modal = () => isModalOpen(sleep().kind, menuPage());
+  /** Keys that the dialog / options menu own: swallowed here while one is open. */
+  const unlessModal = (fn: () => boolean) => () => (modal() ? true : fn());
   const onEnter = () => {
     if (numbers.submit()) return true;
     if (bannerOn()) hideBanner();
@@ -321,7 +344,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     return false; // back to Home
   };
   const digitHandlers = Object.fromEntries(
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, () => { numbers.digit(d); return true; }]),
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, unlessModal(() => { numbers.digit(d); return true; })]),
   );
 
   // ---- lifecycle ----
@@ -365,10 +388,11 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
-      onUp={() => zap(1)} onDown={() => zap(-1)} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)}
+      onUp={unlessModal(() => zap(1))} onDown={unlessModal(() => zap(-1))}
+      onChannelUp={unlessModal(() => zap(1))} onChannelDown={unlessModal(() => zap(-1))}
       onLeft={() => true} onRight={() => true}
-      onInfo={() => { if (bannerOn()) hideBanner(); else showBanner(); return true; }}
-      onMenu={openMenu} onLongOk={openMenu} onRed={previous} {...digitHandlers}>
+      onInfo={unlessModal(() => { if (bannerOn()) hideBanner(); else showBanner(); return true; })}
+      onMenu={unlessModal(openMenu)} onLongOk={unlessModal(openMenu)} onRed={unlessModal(previous)} {...digitHandlers}>
       <Show when={status()} keyed>{(s) => (
         s.kind === 'toast'
           ? (
@@ -408,8 +432,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         <ConfirmDialog
           message={`Still watching? Stopping in ${(s() as { secondsLeft: number }).secondsLeft} s`}
           yes="Stop" no="Keep watching"
-          onYes={() => { removeOverlay(SLEEP_ID); sleepTimer.set(0); playback.stop(); previewHold.set(); leave(); }}
-          onNo={() => { removeOverlay(SLEEP_ID); sleepTimer.stillWatching(); focusRoot(); }} />
+          onYes={() => { removeOverlay(SLEEP_ID); sleepTimer.set(0); sleepStop(); }}
+          onNo={() => { removeOverlay(SLEEP_ID); keepWatching(); }} />
       )}</Show>
     </View>
   );

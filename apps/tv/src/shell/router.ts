@@ -16,7 +16,8 @@ export interface Router {
   replace(screen: ScreenId, params?: ScreenParams): void;
   /** Clears the stack and opens `screen` as the root. */
   reset(screen: ScreenId, params?: ScreenParams): void;
-  back(): BackResult;
+  /** `params` are merged into the screen revealed by a screen pop (not by closing an overlay). */
+  back(params?: ScreenParams): BackResult;
   current(): ScreenEntry | undefined;
   depth(): number;
   /** Registers an overlay on top (moving it there if `id` is already open). The remover does not call `onClose`. */
@@ -55,7 +56,7 @@ export function createRouter(): Router {
       stack.push(entry(screen, params));
       emitScreen();
     },
-    back() {
+    back(params) {
       const top = layers[layers.length - 1];
       if (top) {
         layers = layers.slice(0, -1);
@@ -69,6 +70,8 @@ export function createRouter(): Router {
       }
       if (stack.length > 1) {
         stack.pop();
+        const revealed = stack[stack.length - 1];
+        if (params && revealed) revealed.params = { ...revealed.params, ...params };
         emitScreen();
         return 'screen';
       }

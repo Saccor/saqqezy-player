@@ -45,7 +45,10 @@ const memory: { groupId?: string; channelId?: string; rows: Map<string, number> 
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string };
+  // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
+  const focusHint = params.focusChannelId;
+  delete params.focusChannelId;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
@@ -352,7 +355,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           && await api.indexOf(g, playingId).catch(() => -1) < 0) g = GROUP_ALL;
         if (!alive) return;
         const found = g === undefined ? undefined
-          : await openGroup(g, [playingId, memory.channelId, params.lastChannelId]);
+          : await openGroup(g, [playingId, focusHint, memory.channelId, params.lastChannelId]);
         if (!alive) return;
         // The preview resumes the last channel right away (no-op when it is already playing). A last channel
         // that is gone or hidden is not resumed; the focused row previews after the usual delay instead.

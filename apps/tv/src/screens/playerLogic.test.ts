@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ASPECT_MODES, aspectLabel, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
+import { ASPECT_MODES, aspectLabel, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
   it('maps supervisor states to player copy', () => {
@@ -28,5 +28,37 @@ describe('sleepLabel', () => {
     expect(sleepLabel(0, undefined)).toBe('Off');
     expect(sleepLabel(30, 12)).toBe('30 min (12 left)');
     expect(sleepLabel(30, undefined)).toBe('30 min');
+  });
+});
+
+describe('isModalOpen', () => {
+  it('is true while the sleep dialog is asking or the options menu is open', () => {
+    expect(isModalOpen('off', undefined)).toBe(false);
+    expect(isModalOpen('armed', undefined)).toBe(false);
+    expect(isModalOpen('asking', undefined)).toBe(true);
+    expect(isModalOpen('off', 'main')).toBe(true);
+    expect(isModalOpen('armed', 'audio')).toBe(true);
+  });
+});
+
+describe('createJumpGuard', () => {
+  it('drops a late number-entry answer after a zap press', () => {
+    const g = createJumpGuard();
+    const jump = g.bump(); // number submitted, byNumber in flight
+    g.bump(); // Up pressed
+    expect(g.isCurrent(jump)).toBe(false); // the late answer is ignored
+  });
+
+  it('keeps only the newest of two jumps resolving out of order', () => {
+    const g = createJumpGuard();
+    const first = g.bump(); // Red
+    const second = g.bump(); // Red again
+    expect(g.isCurrent(second)).toBe(true); // the newer answer arrives first and applies
+    expect(g.isCurrent(first)).toBe(false); // the older answer arrives late and is dropped
+  });
+
+  it('accepts the answer when nothing newer started', () => {
+    const g = createJumpGuard();
+    expect(g.isCurrent(g.bump())).toBe(true);
   });
 });

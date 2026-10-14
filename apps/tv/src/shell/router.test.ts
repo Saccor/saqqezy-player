@@ -53,6 +53,19 @@ describe('router screen stack', () => {
   });
 });
 
+describe('router back params', () => {
+  it('merges params into the revealed screen on a screen pop only', () => {
+    const r = createRouter();
+    r.push('home', { a: 1 });
+    r.push('player', {});
+    r.pushOverlay('x', () => undefined);
+    r.back({ b: 2 }); // closes the overlay: params are not applied
+    expect(r.current()?.screen).toBe('player');
+    r.back({ b: 2 });
+    expect(r.current()).toEqual({ screen: 'home', params: { a: 1, b: 2 } });
+  });
+});
+
 describe('router overlays and layered Back', () => {
   it('Back closes the top overlay first, then pops the screen', () => {
     const r = createRouter();

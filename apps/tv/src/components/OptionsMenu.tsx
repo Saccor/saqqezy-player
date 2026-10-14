@@ -25,13 +25,17 @@ export function OptionsMenu(props: {
     setSel((s) => Math.max(0, Math.min(props.items.length - 1, s + d)));
     return true;
   };
+  // Digits are swallowed so they never reach the Player's number entry while the menu is open.
+  const digitHandlers = Object.fromEntries(
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, () => true]),
+  );
   const height = () => PAD * 2 + 64 + props.items.length * (ITEM_H + ITEM_GAP);
   return (
     <View ref={props.ref} x={LAYOUT.width - LAYOUT.safeX - W} y={LAYOUT.safeY + 64} width={W} height={height()}
       color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={40}
       onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
       onChannelUp={() => true} onChannelDown={() => true} onMenu={() => true} onLongOk={() => true} onInfo={() => true}
-      onRed={() => true}
+      onRed={() => true} {...digitHandlers}
       onEnter={() => { const it = props.items[sel()]; if (it) props.onChoose(it.id); return true; }}>
       <Text x={PAD} y={PAD} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
       <For each={props.items}>{(it, i) => (

@@ -35,3 +35,21 @@ export function sleepLabel(minutes: number, left: number | undefined): string {
   if (minutes <= 0) return 'Off';
   return left === undefined ? `${minutes} min` : `${minutes} min (${left} left)`;
 }
+
+/** True while a modal layer owns the keys: the "Still watching?" dialog or the options menu. */
+export function isModalOpen(sleepKind: string, menuPage: string | undefined): boolean {
+  return sleepKind === 'asking' || menuPage != null;
+}
+
+/**
+ * One monotonically increasing token shared by every channel jump and every zap press. A jump result is applied
+ * only if nothing newer started since it began.
+ */
+export function createJumpGuard() {
+  let token = 0;
+  return {
+    /** Starts a new action; all earlier ones become stale. */
+    bump(): number { return ++token; },
+    isCurrent(t: number): boolean { return t === token; },
+  };
+}
