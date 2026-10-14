@@ -107,8 +107,9 @@ export class TitleIndexBuilder {
 }
 
 /** Title id whose key contains haystack position `pos` (largest t with offsets[t] <= pos). */
-function titleAt(offsets: Uint32Array, pos: number): number {
-  let lo = 0;
+function titleAt(offsets: Uint32Array, pos: number, from = 0): number {
+  let lo = from; // callers pass a lower bound: positions only increase during a scan
+  if (lo + 1 < offsets.length && offsets[lo + 1]! > pos) return lo;
   let hi = offsets.length - 1;
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
@@ -124,46 +125,117 @@ function firstLive(d: TitleIndexData, t: number, nowMin: number): number {
   return -1;
 }
 
+/** True when candidate i (start si, id ti) sorts after candidate j: later start, or same start and higher id. */
+function after(starts: number[], ids: number[], i: number, j: number): boolean {
+  return starts[i]! > starts[j]! || (starts[i] === starts[j] && ids[i]! > ids[j]!);
+}
+
+/** Indices of the `k` earliest candidates (by start, then id), ascending. Bounded max-heap: O(n log k). */
+function earliest(ids: number[], starts: number[], k: number): number[] {
+  const n = ids.length;
+  const heap: number[] = [];
+  if (n <= k) for (let i = 0; i < n; i++) heap.push(i);
+  else {
+    // Max-heap on (start, id): the root is the worst of the k kept.
+    for (let i = 0; i < k; i++) {
+      let c = heap.push(i) - 1;
+      while (c > 0) {
+        const p = (c - 1) >> 1;
+        if (!after(starts, ids, heap[c]!, heap[p]!)) break;
+        [heap[c], heap[p]] = [heap[p]!, heap[c]!];
+        c = p;
+      }
+    }
+    for (let i = k; i < n; i++) {
+      if (!after(starts, ids, heap[0]!, i)) continue;
+      heap[0] = i;
+      let p = 0;
+      for (;;) {
+        const l = 2 * p + 1;
+        if (l >= k) break;
+        const c = l + 1 < k && after(starts, ids, heap[l + 1]!, heap[l]!) ? l + 1 : l;
+        if (!after(starts, ids, heap[c]!, heap[p]!)) break;
+        [heap[c], heap[p]] = [heap[p]!, heap[c]!];
+        p = c;
+      }
+    }
+  }
+  return heap.sort((x, y) => starts[x]! - starts[y]! || ids[x]! - ids[y]!);
+}
+
+// Per-title scan state (Uint8Array, one byte per title).
+const DEAD = 1; // no live airing: ignore
+const SEEN2 = 2; // recorded at rank 2 (a later rank-1 hit may still upgrade it)
+const DONE = 3; // recorded at rank 0 or 1: final
+
 /**
  * Titles containing `query` (by `searchKey`) that still have an airing ending after `nowMs`. Sorted by rank,
- * then earliest remaining airing; at most `limit`. Scanning stops once `limit` rank-0 titles were found.
+ * then earliest remaining airing (then title id); at most `limit`. Scanning stops once `limit` rank-0 titles
+ * were found. Rank-1 and rank-2 titles are chosen with a bounded heap, so a query matching most titles costs
+ * O(hits log limit), not a full sort.
  */
 export function queryTitles(data: TitleIndexData, query: string, nowMs: number, limit: number): TitleMatch[] {
   const q = searchKey(query);
   if (!q || limit <= 0 || data.offsets.length === 0) return [];
   const nowMin = nowMs / MIN;
-  const best = new Map<number, { rank: 0 | 1 | 2; first: number }>();
-  const dead = new Set<number>();
+  const state = new Uint8Array(data.offsets.length);
+  // Candidates per rank: title id and the start of its first live airing.
+  const ids: [number[], number[], number[]] = [[], [], []];
+  const starts: [number[], number[], number[]] = [[], [], []];
   const h = data.haystack;
-  let rank0 = 0;
   let pos = h.indexOf(q);
+  let t = 0;
   while (pos !== -1) {
-    const t = titleAt(data.offsets, pos);
+    t = titleAt(data.offsets, pos, t);
+    const next = data.offsets[t + 1] ?? h.length; // where the next title's key begins
+    const st = state[t]!;
     const before = h.charCodeAt(pos - 1);
     const rank: 0 | 1 | 2 = before === NL ? 0 : before === SP ? 1 : 2;
-    const prev = best.get(t);
-    if (!dead.has(t) && (prev === undefined || rank < prev.rank)) {
-      const first = prev?.first ?? firstLive(data, t, nowMin);
-      if (first === -1) dead.add(t);
-      else {
-        best.set(t, { rank, first });
-        if (rank === 0 && ++rank0 >= limit) break;
-      }
+    if (st === SEEN2 && rank === 2) {
+      pos = h.indexOf(q, pos + 1);
+      continue;
     }
-    // A rank-0 hit is the best this title can do: continue at the next title.
-    pos = h.indexOf(q, rank === 0 ? (data.offsets[t + 1] ?? h.length) : pos + 1);
+    const first = firstLive(data, t, nowMin);
+    if (first === -1) {
+      state[t] = DEAD;
+      pos = h.indexOf(q, next);
+      continue;
+    }
+    ids[rank].push(t);
+    starts[rank].push(data.airStart[first]!);
+    if (rank === 2) {
+      state[t] = SEEN2;
+      pos = h.indexOf(q, pos + 1); // a later word-start hit in this title would beat rank 2
+    } else {
+      state[t] = DONE; // rank 0 is a title's first position; rank 1 can only be beaten by rank 0, which came earlier
+      if (rank === 0 && ids[0].length >= limit) break;
+      pos = h.indexOf(q, next);
+    }
   }
-  const out = [...best.entries()]
-    .sort(([, x], [, y]) => x.rank - y.rank || data.airStart[x.first]! - data.airStart[y.first]!)
-    .slice(0, limit);
-  return out.map(([t, { rank, first }]) => {
-    const airings: TitleAiring[] = [];
-    for (let a = first; a < data.airFirst[t + 1]!; a++) {
-      if (data.airStop[a]! <= nowMin) continue;
-      airings.push({ epgKey: data.keys[data.airKey[a]!]!, start: data.airStart[a]! * MIN, stop: data.airStop[a]! * MIN });
+  // Titles upgraded from rank 2 are stale in the rank-2 list.
+  let w = 0;
+  for (let i = 0; i < ids[2].length; i++) {
+    if (state[ids[2][i]!] !== SEEN2) continue;
+    ids[2][w] = ids[2][i]!;
+    starts[2][w++] = starts[2][i]!;
+  }
+  ids[2].length = starts[2].length = w;
+
+  const out: TitleMatch[] = [];
+  for (const rank of [0, 1, 2] as const) {
+    const room = limit - out.length;
+    if (room <= 0) break;
+    for (const i of earliest(ids[rank], starts[rank], room)) {
+      const t = ids[rank][i]!;
+      const airings: TitleAiring[] = [];
+      for (let a = firstLive(data, t, nowMin); a < data.airFirst[t + 1]!; a++) {
+        if (data.airStop[a]! <= nowMin) continue;
+        airings.push({ epgKey: data.keys[data.airKey[a]!]!, start: data.airStart[a]! * MIN, stop: data.airStop[a]! * MIN });
+      }
+      out.push({ titleId: t, display: data.display[t]!, rank, airings });
     }
-    return { titleId: t, display: data.display[t]!, rank, airings };
-  });
+  }
+  return out;
 }
 
 /** Shape check for a record read back from storage. */

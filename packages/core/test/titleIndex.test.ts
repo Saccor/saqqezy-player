@@ -83,4 +83,31 @@ describe('TitleIndexBuilder + queryTitles', () => {
     expect(isTitleIndexData(data)).toBe(true);
     expect(queryTitles(data, 'x', NOW, 10)).toEqual([]);
   });
+
+  test('a title first seen after the airing cap has no airings and is absent', () => {
+    const { b, data } = build([['One', 'k', 101, 102], ['Two', 'k', 101, 102], ['Three', 'k', 101, 102]], 2);
+    expect(b.truncated).toBe(true);
+    expect(queryTitles(data, 'three', NOW, 10)).toEqual([]);
+    expect(queryTitles(data, 'one', NOW, 10)).toHaveLength(1);
+  });
+
+  test('a later-starting airing that has ended does not hide an earlier, longer live one', () => {
+    const { data } = build([['Long Show', 'k', 95, 110], ['Long Show', 'k', 98, 99]]);
+    const m = queryTitles(data, 'long', NOW, 10);
+    expect(m).toHaveLength(1);
+    expect(m[0]!.airings).toEqual([{ epgKey: 'k', start: 95 * H, stop: 110 * H }]);
+  });
+
+  test('many rank-1 and rank-2 candidates: the earliest-starting ones win, in order', () => {
+    const n = 500;
+    const starts = Array.from({ length: n }, (_, i) => (101 * 60 + ((i * 197) % n)) * MIN); // shuffled, distinct
+    const expected = [...starts].sort((a, b) => a - b).slice(0, 5);
+    for (const [name, rank] of [[(i: number) => `Zed Item ${i}`, 1], [(i: number) => `Zeditem${i}`, 2]] as const) {
+      const b = new TitleIndexBuilder();
+      starts.forEach((s, i) => b.add(name(i), 'k', s, s + H));
+      const m = queryTitles(b.build(), 'item', NOW, 5);
+      expect(m.map((x) => x.rank)).toEqual([rank, rank, rank, rank, rank]);
+      expect(m.map((x) => x.airings[0]!.start)).toEqual(expected);
+    }
+  });
 });
