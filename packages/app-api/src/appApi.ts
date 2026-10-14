@@ -803,19 +803,23 @@ export class AppApi {
     for (const m of queryTitles(data, query, t - maxShift, SEARCH_TITLES)) {
       let next: { c: Channel; start: number; stop: number } | undefined;
       let upcoming = 0;
+      const titleNow: { c: Channel; title: string; start: number; stop: number }[] = [];
+      // Airings tied on start come in index (epgKey) order; ties go to the lower channel number.
       for (const a of m.airings) {
         for (const c of this.index.channelsForEpgKey(a.epgKey)) {
           const s = shiftOf(c);
           const start = a.start + s;
           const stop = a.stop + s;
           if (stop <= t) continue;
-          if (start <= t) onNow.push({ c, title: m.display, start, stop });
+          if (start <= t) titleNow.push({ c, title: m.display, start, stop });
           else {
             upcoming++;
-            if (!next || start < next.start) next = { c, start, stop };
+            if (!next || start < next.start || (start === next.start && c.number < next.c.number)) next = { c, start, stop };
           }
         }
       }
+      titleNow.sort((x, y) => x.start - y.start || x.c.number - y.c.number);
+      for (const h of titleNow) onNow.push(h);
       if (next) later.push({ ...next, title: m.display, more: upcoming - 1 });
     }
     return { onNow, later };
