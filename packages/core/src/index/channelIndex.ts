@@ -3,6 +3,7 @@ import { epgKey } from '../epg/window.ts';
 import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/types.ts';
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
 import { normalize } from '../text/normalize.ts';
+import { orderGroupChannels } from './order.ts';
 import type { Channel, GroupInfo } from '../types.ts';
 
 export type { UserFlags } from '../layout/migrate.ts';
@@ -19,7 +20,8 @@ export interface ProviderGroupInfo {
 
 const GROUP_PREFIX = 'g:';
 const LIST_PREFIX = 'list:';
-const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+/** `src` holds display channels, so the name sort uses the user's renames. */
+const channelName = (c: Channel): string => c.name;
 
 /** Layout-independent data, computed once per playlist and shared by `withLayout` rebuilds. */
 interface Base {
@@ -175,21 +177,7 @@ export class ChannelIndex {
    * `byNumber`: `src` is already in number order, so `number` mode needs no sort.
    */
   private order(groupId: string, src: Channel[], byNumber = false): Channel[] {
-    const mode = this.sortModeFor(groupId);
-    let rest = src;
-    if (mode === 'number') { if (!byNumber) rest = [...src].sort((a, b) => a.number - b.number); }
-    else if (mode === 'name') rest = [...src].sort((a, b) => collator.compare(a.name, b.name));
-    const manual = this.lay.channelOrder[groupId];
-    if (!manual || manual.length === 0) return rest;
-    const byId = new Map(src.map((c) => [c.id, c]));
-    const first: Channel[] = [];
-    const taken = new Set<string>();
-    for (const id of manual) {
-      const c = byId.get(id);
-      if (c && !taken.has(id)) { first.push(c); taken.add(id); }
-    }
-    if (first.length === 0) return rest;
-    return first.concat(rest.filter((c) => !taken.has(c.id)));
+    return orderGroupChannels(src, this.sortModeFor(groupId), this.lay.channelOrder[groupId], channelName, byNumber);
   }
 
   private resolveListed(ids: readonly string[]): Channel[] {

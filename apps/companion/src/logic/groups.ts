@@ -1,8 +1,7 @@
 import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
-import type { Layout, SortMode } from '@iptv/core';
+import { orderGroupChannels, type Layout, type SortMode } from '@iptv/core';
 
 const GROUP_PREFIX = 'g:';
-const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
 export interface GroupView {
   id: string;
@@ -74,26 +73,13 @@ export function hasManualOrder(layout: Layout, groupId: string): boolean {
   return (layout.channelOrder[groupId]?.length ?? 0) > 0;
 }
 
-/** Every channel of a provider group (hidden ones included) in the TV's order: manual order first, then the sort. */
+/**
+ * Every channel of a provider group (hidden ones included) in the TV's order: manual order first, then the sort.
+ * The same `orderGroupChannels` the TV's ChannelIndex runs, so the two cannot drift.
+ */
 export function groupChannels(model: GroupModel, groupId: string, layout: Layout): CompanionChannel[] {
   const src = model.members.get(groupId) ?? [];
-  const mode = sortModeOf(layout, groupId);
-  let rest = src;
-  if (mode === 'number') rest = [...src].sort((a, b) => a.number - b.number);
-  else if (mode === 'name') {
-    rest = [...src].sort((a, b) => collator.compare(channelLabel(a, layout), channelLabel(b, layout)));
-  }
-  const manual = layout.channelOrder[groupId];
-  if (!manual || manual.length === 0) return rest;
-  const inGroup = new Map(src.map((c) => [c.id, c]));
-  const first: CompanionChannel[] = [];
-  const taken = new Set<string>();
-  for (const id of manual) {
-    const c = inGroup.get(id);
-    if (c && !taken.has(id)) { first.push(c); taken.add(id); }
-  }
-  if (first.length === 0) return rest;
-  return first.concat(rest.filter((c) => !taken.has(c.id)));
+  return orderGroupChannels(src, sortModeOf(layout, groupId), layout.channelOrder[groupId], (c) => channelLabel(c, layout));
 }
 
 /**
