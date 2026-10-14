@@ -19,7 +19,7 @@ const SORTS: { mode: SortMode; label: string }[] = [
 
 /**
  * One provider group: its channels (hidden ones included) in the TV's order. Sort by Provider / Number / A–Z
- * (`setSort`), drag or Move up/down for a custom order (`setChannelOrder` with the full order), "Reset to provider
+ * (`setSort`), drag or Move up/down for a custom order (`setChannelOrder` with the changed prefix), "Reset to provider
  * order", and per-channel rename and hide.
  */
 export function GroupDetailPage(props: { groupId: string; onBack: () => void }) {
@@ -94,7 +94,10 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
               label={label}
               itemHeight={narrow() ? 116 : 72}
               aria-label={`Channels in ${g().name}`}
-              onMove={(from, to) => void sendOps(channelOrderOps(props.groupId, list().map((c) => c.id), from, to))}
+              onMove={(from, to) => {
+                const manualLength = layout()?.channelOrder[props.groupId]?.length ?? 0;
+                void sendOps(channelOrderOps(props.groupId, list().map((c) => c.id), from, to, manualLength));
+              }}
             >
               {(row) => {
                 const c = () => row.item();

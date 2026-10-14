@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyOps, emptyLayout, FAV_LIST_ID } from '@iptv/core';
+import type { CompanionChannel } from '@iptv/companion-protocol';
+import { applyOps, emptyLayout, FAV_LIST_ID, type Layout, type LayoutOp } from '@iptv/core';
+import { groupChannels, GroupModel } from './groups.ts';
 import { arrayMove, channelOrderOps, groupOrderOps, listChannelMoveOps, listMoveOps, newListId } from './reorder.ts';
 
 describe('arrayMove', () => {
@@ -56,5 +58,46 @@ describe('reorder to ops', () => {
     expect(ids.size).toBe(50);
     const r = applyOps(emptyLayout(), [{ op: 'createList', id: newListId(), name: 'X' }]);
     expect(r.rejected).toEqual([]);
+  });
+});
+
+describe('channelOrderOps sends only the changed prefix', () => {
+  const NAMES = ['Kilo', 'alpha', 'Echo 10', 'Echo 9', 'bravo', 'Zulu', 'delta', 'Mike', 'Charlie', 'Lima', 'foxtrot', 'Hotel'];
+  const channels: CompanionChannel[] = NAMES.map((name, i) => ({ id: `c${i}`, name, group: 'G', number: (i * 7) % 12 + 1, hasEpg: true }));
+  const model = new GroupModel(channels);
+  const gid = 'g:G';
+  const shown = (l: Layout) => groupChannels(model, gid, l).map((c) => c.id);
+
+  const starts: [string, LayoutOp[]][] = [
+    ['provider', []],
+    ['number', [{ op: 'setSort', groupId: gid, mode: 'number' }]],
+    ['name', [{ op: 'setSort', groupId: gid, mode: 'name' }]],
+    ['name + partial manual', [{ op: 'setSort', groupId: gid, mode: 'name' }, { op: 'setChannelOrder', groupId: gid, ids: ['c5', 'c2', 'c9'] }]],
+    ['number + manual with a stale id', [{ op: 'setSort', groupId: gid, mode: 'number' }, { op: 'setChannelOrder', groupId: gid, ids: ['gone', 'c3'] }]],
+    ['full manual', [{ op: 'setChannelOrder', groupId: gid, ids: ['c11', 'c10', 'c9', 'c8', 'c7', 'c6', 'c5', 'c4', 'c3', 'c2', 'c1', 'c0'] }]],
+  ];
+
+  it.each(starts)('%s: the TV order is the moved order for every move', (_name, setup) => {
+    const l = applyOps(emptyLayout(), setup).layout;
+    const ids = shown(l);
+    const m = l.channelOrder[gid]?.length ?? 0;
+    for (let from = 0; from < ids.length; from++) {
+      for (let to = 0; to < ids.length; to++) {
+        if (from === to) continue;
+        const ops = channelOrderOps(gid, ids, from, to, m);
+        expect(ops).toHaveLength(1);
+        const sent = (ops[0] as { ids: string[] }).ids;
+        expect(sent).toHaveLength(Math.min(ids.length, Math.max(Math.max(from, to) + 1, m)));
+        const r = applyOps(l, ops);
+        expect(r.rejected).toEqual([]);
+        expect(shown(r.layout), `${from} -> ${to}`).toEqual(arrayMove(ids, from, to));
+      }
+    }
+  });
+
+  it('a move near the top of a big group sends a short prefix', () => {
+    const ids = Array.from({ length: 5000 }, (_, i) => `ch${i}`);
+    const ops = channelOrderOps('g:A', ids, 3, 1, 0);
+    expect((ops[0] as { ids: string[] }).ids).toEqual(['ch0', 'ch3', 'ch1', 'ch2']);
   });
 });

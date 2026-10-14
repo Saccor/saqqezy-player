@@ -33,10 +33,19 @@ export function groupOrderOps(groupIds: readonly string[], from: number, to: num
   return [{ op: 'setGroupOrder', ids: arrayMove(groupIds, from, to) }];
 }
 
-/** A channel dragged inside a provider group: the TV gets the group's full manual order. */
-export function channelOrderOps(groupId: string, ids: readonly string[], from: number, to: number): LayoutOp[] {
+/**
+ * A channel dragged inside a provider group (`ids`: the group's channels as shown). Only the changed prefix goes to
+ * the TV: the manual order always comes first and the rest follows the sort, so the moved order up to
+ * `max(from, to)` (and at least as long as the existing manual order, `manualLength`, so it is fully replaced)
+ * gives the TV exactly the moved order, while a move near the top of a 50k group stays a few bytes.
+ */
+export function channelOrderOps(
+  groupId: string, ids: readonly string[], from: number, to: number, manualLength = 0,
+): LayoutOp[] {
   if (from === to || ids[from] === undefined) return [];
-  return [{ op: 'setChannelOrder', groupId, ids: arrayMove(ids, from, to) }];
+  const moved = arrayMove(ids, from, to);
+  const k = Math.min(Math.max(from, to), ids.length - 1);
+  return [{ op: 'setChannelOrder', groupId, ids: moved.slice(0, Math.max(k + 1, manualLength)) }];
 }
 
 /** A fresh user-list id in the reducer's format (`[a-z0-9-]{1,32}`). */
