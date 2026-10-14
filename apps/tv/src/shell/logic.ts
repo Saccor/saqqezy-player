@@ -27,3 +27,22 @@ export function createTapSequence(count: number, windowMs: number): (at: number)
     return false;
   };
 }
+
+/** A toast message and its precedence (higher wins while it is visible). */
+export interface ToastItem { text: string; priority: number }
+/** What the toast area shows now, plus at most one lower-priority toast waiting for it to expire. */
+export interface ToastState { current?: ToastItem; pending?: ToastItem }
+
+/**
+ * A new toast replaces the visible one unless the visible one has higher priority; then the new one waits
+ * (only the newest waiting toast is kept) and is shown when the visible one expires.
+ */
+export function toastOnShow(s: ToastState, t: ToastItem): ToastState {
+  if (s.current && s.current.priority > t.priority) return { current: s.current, pending: t };
+  return s.pending ? { current: t, pending: s.pending } : { current: t };
+}
+
+/** The visible toast's time is up: show the waiting one, if any. */
+export function toastOnExpiry(s: ToastState): ToastState {
+  return s.pending ? { current: s.pending } : {};
+}

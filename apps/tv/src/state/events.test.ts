@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { initialRoute, offlineAfter, toastFor } from './events.ts';
+import { initialRoute, offlineAfter, toastFor, toastPriority } from './events.ts';
 
 const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS };
 
@@ -39,6 +39,14 @@ describe('toastFor', () => {
   it('ignores other events', () => {
     expect(toastFor({ type: 'refreshed', what: 'playlist', sourceId: 's' })).toBeUndefined();
     expect(toastFor({ type: 'offline', value: true })).toBeUndefined();
+  });
+});
+
+describe('toastPriority', () => {
+  const err = { name: 'SourceNetworkError', message: 'x' };
+  it('gives playlist failures precedence over guide failures', () => {
+    expect(toastPriority({ type: 'refreshFailed', what: 'playlist', sourceId: 's', error: err }))
+      .toBeGreaterThan(toastPriority({ type: 'refreshFailed', what: 'epg', sourceId: 's', error: err }));
   });
 });
 

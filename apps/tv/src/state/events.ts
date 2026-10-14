@@ -17,6 +17,14 @@ export function toastFor(e: AppEvent): string | undefined {
 }
 
 /**
+ * Toast precedence for a worker event: a failed channel refresh matters more than a failed guide refresh, so
+ * a guide toast arriving right after it waits instead of replacing it.
+ */
+export function toastPriority(e: AppEvent): number {
+  return e.type === 'refreshFailed' && e.what === 'playlist' ? 1 : 0;
+}
+
+/**
  * Offline badge state after an event. Mirrors the worker's rule: a network failure without an HTTP status
  * means offline; any successful refresh means online again.
  */

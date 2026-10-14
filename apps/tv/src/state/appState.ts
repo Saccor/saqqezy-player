@@ -5,7 +5,7 @@ import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
 import { detectPlatform, type PlatformId } from '@iptv/platform';
 import type { Router } from '../shell/router.ts';
-import { initialRoute, offlineAfter, toastFor } from './events.ts';
+import { initialRoute, offlineAfter, toastFor, toastPriority } from './events.ts';
 
 /** App-wide state shared by the shell and the screens. */
 const [initState, setInitState] = createSignal<InitState | undefined>(undefined);
@@ -91,13 +91,13 @@ export async function bootstrap(
 /** Subscribes the shell to worker events (toasts, offline badge). Returns an unsubscribe function. */
 export function wireEvents(
   on: (type: string, fn: (payload: unknown) => void) => () => void,
-  toast: (text: string) => void,
+  toast: (text: string, priority?: number) => void,
 ): () => void {
   const handle = (payload: unknown) => {
     const e = payload as AppEvent;
     setOffline((prev) => offlineAfter(prev, e));
     const text = toastFor(e);
-    if (text) toast(text);
+    if (text) toast(text, toastPriority(e));
   };
   const offs = (['refreshed', 'refreshFailed', 'offline'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };

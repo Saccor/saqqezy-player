@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTapSequence, formatClock, msToNextMinute } from './logic.ts';
+import { createTapSequence, formatClock, msToNextMinute, toastOnExpiry, toastOnShow } from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -63,5 +63,38 @@ describe('exitApp', () => {
 
   it('a missing Tizen API does not throw', () => {
     expect(() => exitApp('tizen', {})).not.toThrow();
+  });
+});
+
+describe('toast precedence', () => {
+  const low = (text: string) => ({ text, priority: 0 });
+  const high = (text: string) => ({ text, priority: 1 });
+
+  it('shows a toast when none is visible', () => {
+    expect(toastOnShow({}, low('a'))).toEqual({ current: low('a') });
+  });
+
+  it('a newer toast of equal or higher priority replaces the visible one', () => {
+    expect(toastOnShow({ current: low('a') }, low('b'))).toEqual({ current: low('b') });
+    expect(toastOnShow({ current: low('a') }, high('b'))).toEqual({ current: high('b') });
+    expect(toastOnShow({ current: high('a') }, high('b'))).toEqual({ current: high('b') });
+  });
+
+  it('a lower-priority toast waits until the visible higher one expires', () => {
+    const s = toastOnShow({ current: high('playlist') }, low('epg'));
+    expect(s).toEqual({ current: high('playlist'), pending: low('epg') });
+    expect(toastOnExpiry(s)).toEqual({ current: low('epg') });
+  });
+
+  it('keeps only the newest waiting toast and keeps it pending across a higher replacement', () => {
+    let s = toastOnShow({ current: high('p1') }, low('e1'));
+    s = toastOnShow(s, low('e2'));
+    expect(s.pending).toEqual(low('e2'));
+    s = toastOnShow(s, high('p2'));
+    expect(s).toEqual({ current: high('p2'), pending: low('e2') });
+  });
+
+  it('expiry with nothing waiting clears the toast', () => {
+    expect(toastOnExpiry({ current: low('a') })).toEqual({});
   });
 });
