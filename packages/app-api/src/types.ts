@@ -1,4 +1,4 @@
-import type { AppSettings, GroupInfo } from '@iptv/core';
+import type { AppSettings, ChannelIndex, GroupInfo, Layout } from '@iptv/core';
 import type { RpcError } from './rpc.ts';
 
 export interface ProgrammeLite { title: string; start: number; stop: number; desc?: string }
@@ -23,7 +23,47 @@ export type AppEvent =
   | { type: 'refreshFailed'; what: 'playlist' | 'epg'; sourceId: string; error: RpcError }
   | { type: 'offline'; value: boolean }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
-  | { type: 'nowNextUpdated'; channelIds: string[] };
+  | { type: 'nowNextUpdated'; channelIds: string[] }
+  /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
+  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin };
+
+/** Who applied a layout change: this device's UI, or a paired companion. */
+export type LayoutOrigin = 'local' | 'remote';
+
+export interface LayoutOpsResult {
+  /** The layout version after the batch (unchanged when nothing changed). */
+  version: number;
+  /** Ops that were not applied, by their index in the batch. */
+  rejected: { index: number; reason: string }[];
+}
+
+/** A user list (Favourites included) with its browsable group id and visible channel count. */
+export interface ListSummary { id: string; groupId: string; name: string; count: number }
+
+export interface CompanionChannel {
+  id: string;
+  /** The playlist name. */
+  name: string;
+  /** The user's rename, or the playlist name. */
+  displayName: string;
+  /** Provider group name. */
+  group: string;
+  number: number;
+  logo?: string;
+  /** True when the guide has data for the channel, or while guide coverage is unknown. */
+  hasEpg: boolean;
+}
+
+/** Everything a companion needs to edit the active source's layout. Credential- and URL-free. */
+export interface CompanionState {
+  version: number;
+  activeSourceId?: string;
+  sources: SourceSummary[];
+  groups: ReturnType<ChannelIndex['allProviderGroups']>;
+  /** Every channel of the active source, hidden ones included. */
+  channels: CompanionChannel[];
+  layout: Layout;
+}
 
 export interface DiagnosticsInfo {
   appVersion: string;
