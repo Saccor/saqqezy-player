@@ -1,5 +1,7 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { SourceService, SourceAuthError, type Channel, type FetchFn } from '@iptv/core';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import {
+  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp,
+} from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import { APP_API_METHODS, AppApi, scrub } from '../src/appApi.ts';
@@ -158,6 +160,63 @@ describe('AppApi', () => {
     expect((await api.getChannelSlice('all', 0, 100)).total).toBe(39);
     expect((await api.hiddenChannels()).map((r) => r.id)).toEqual([id]);
     expect(await api.toggleHidden(id)).toBe(false);
+  });
+
+  describe('guideStatus', () => {
+    const playlist = ['#EXTM3U', '#EXTINF:-1 group-title="News",Channel 001', 'http://example.test/live/1.ts', ''].join('\n');
+    const m3uFetch: FetchFn = async (u, i) => (u === 'http://example.test/p.m3u' ? new Response(playlist) : fetch(u, i));
+
+    test('no active source: nothing known, no guide URL', async () => {
+      const { api } = make();
+      await api.init();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: false });
+    });
+
+    test('an M3U source without a guide URL never has coverage', async () => {
+      const { api } = make(storage, SourceService, m3uFetch);
+      await api.addSource({ kind: 'm3u', name: 'Plain', playlistUrl: 'http://example.test/p.m3u' });
+      await api.idle();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: false });
+      expect((await api.getCompanionState()).coverageKnown).toBe(false);
+    });
+
+    test('a source with a guide URL knows its coverage only after the guide download', async () => {
+      const gated = gate();
+      const fetchFn: FetchFn = async (u, i) => {
+        if (u.includes('/xmltv.php')) await gated.p;
+        return m3uFetch(u, i);
+      };
+      const { api } = make(storage, SourceService, fetchFn);
+      await api.addSource({
+        kind: 'm3u', name: 'Guided', playlistUrl: 'http://example.test/p.m3u',
+        epgUrl: `${server.url}/xmltv.php?username=test&password=test`,
+      });
+      expect(await api.guideStatus()).toEqual({ coverageKnown: false, hasGuideUrl: true });
+      expect((await api.getCompanionState()).coverageKnown).toBe(false);
+      gated.open();
+      await api.idle();
+      expect(await api.guideStatus()).toEqual({ coverageKnown: true, hasGuideUrl: true });
+      expect((await api.getCompanionState()).coverageKnown).toBe(true);
+    });
+
+    test('an Xtream source always has a guide URL', async () => {
+      const { api } = make();
+      await api.addSource(xt());
+      expect((await api.guideStatus()).hasGuideUrl).toBe(true);
+    });
+  });
+
+  test('toggleFavourite and toggleHidden report the real state when the change is refused', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const spy = vi.spyOn(api as unknown as { applyLayoutLocked: () => Promise<unknown> }, 'applyLayoutLocked')
+      .mockResolvedValue({ version: 1, rejected: [{ index: 0, reason: 'cap' }] });
+    expect(await api.toggleFavourite(id)).toBe(false);
+    expect(await api.toggleHidden(id)).toBe(false);
+    spy.mockRestore();
+    expect(await api.toggleFavourite(id)).toBe(true);
+    expect(await api.toggleHidden(id)).toBe(true);
   });
 
   test('markWatched creates recent group and sets last channel on next init', async () => {
@@ -497,6 +556,292 @@ describe('AppApi – background short EPG', () => {
     await api.idle();
     const asked = new Set(h.streams);
     for (const r of waiting.rows) expect(asked.has(streamOf(r.id))).toBe(false);
+  });
+});
+
+describe('AppApi – layout', () => {
+  type Changed = Extract<AppEvent, { type: 'layoutChanged' }>;
+  const changes = (events: AppEvent[]) => events.filter((e): e is Changed => e.type === 'layoutChanged');
+
+  test('v1 flags are migrated to a stored layout on first load', async () => {
+    const { seed, sourceId } = await seeded();
+    const rows = (await seed.getChannelSlice('all', 0, 3)).rows;
+    await storage.setMeta(`layout:${sourceId}`, null);
+    await storage.setMeta(`flags:${sourceId}`, { favourites: [rows[0]!.id], hidden: [rows[1]!.id], recent: [rows[2]!.id] });
+    const { api } = make();
+    const state = await api.init();
+    expect(state.groups.find((g) => g.id === 'fav')?.count).toBe(1);
+    expect(state.groups.find((g) => g.id === 'all')?.count).toBe(39);
+    expect(state.groups.find((g) => g.id === 'recent')?.count).toBe(1);
+    const layout = await api.getLayout();
+    expect(layout.lists[0]!.channelIds).toEqual([rows[0]!.id]);
+    expect(await storage.getMeta(`layout:${sourceId}`)).toEqual(layout);
+  });
+
+  test('ops round trip: lists, renames and hidden groups persist across a new instance', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const [a, b] = (await api.getChannelSlice('g:News', 0, 2)).rows.map((r) => r.id);
+    const res = await api.applyLayoutOps([
+      { op: 'createList', id: 'evening', name: 'Evening' },
+      { op: 'addToList', listId: 'evening', channelIds: [a!, b!] },
+      { op: 'renameChannel', id: a!, name: 'Morning desk' },
+      { op: 'hideGroups', ids: ['g:Kids'] },
+    ]);
+    expect(res).toEqual({ version: 1, rejected: [] });
+    const groups = await api.getGroups();
+    expect(groups.find((g) => g.id === 'list:evening')).toEqual({ id: 'list:evening', name: 'Evening', count: 2 });
+    expect(groups.some((g) => g.id === 'g:Kids')).toBe(false);
+    expect((await api.getChannelSlice('list:evening', 0, 5)).rows[0]!.name).toBe('Morning desk');
+    expect(await api.listLists()).toEqual([
+      { id: 'fav', groupId: 'fav', name: 'Favourites', count: 0 },
+      { id: 'evening', groupId: 'list:evening', name: 'Evening', count: 2 },
+    ]);
+    expect(await api.channelLists(a!)).toEqual(['evening']);
+    expect(await api.channelLists('nope')).toEqual([]);
+    expect((await api.hiddenGroups()).map((g) => g.id)).toEqual(['g:Kids']);
+    expect((await api.providerGroups()).map((g) => [g.id, g.hidden])).toEqual([
+      ['g:News', false], ['g:Movies', false], ['g:Kids', true], ['g:Music', false],
+    ]);
+    await api.idle();
+
+    const { api: again } = make();
+    const state = await again.init();
+    expect(state.groups.find((g) => g.id === 'list:evening')?.count).toBe(2);
+    expect(await again.getLayout()).toEqual(await api.getLayout());
+    expect((await again.getChannelSlice('list:evening', 0, 1)).rows[0]!.name).toBe('Morning desk');
+  });
+
+  test('layoutChanged carries the version and origin; no-op batches emit nothing', async () => {
+    const { api, events } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.applyLayoutOps([{ op: 'hideChannels', ids: [id] }]);
+    await api.applyLayoutOps([{ op: 'unhideChannels', ids: [id] }], 'remote');
+    await api.applyLayoutOps([{ op: 'unhideChannels', ids: [id] }], 'remote');
+    expect(await api.toggleFavourite(id)).toBe(true);
+    expect(changes(events)).toEqual([
+      { type: 'layoutChanged', version: 1, origin: 'local' },
+      { type: 'layoutChanged', version: 2, origin: 'remote' },
+      { type: 'layoutChanged', version: 3, origin: 'local' },
+    ]);
+    expect((await api.getLayout()).version).toBe(3);
+  });
+
+  test('invalid and refused ops are reported as rejected; valid ones still apply', async () => {
+    const { api, events } = make();
+    await api.addSource(xt());
+    const [id, other] = (await api.getChannelSlice('all', 0, 2)).rows.map((r) => r.id);
+    const res = await api.applyLayoutOps([
+      { op: 'hideChannels', ids: [id!] },
+      { op: 'bogus' } as unknown as LayoutOp,
+      { op: 'deleteList', listId: 'fav' },
+      { op: 'addToList', listId: 'fav', channelIds: [other!] },
+    ]);
+    expect(res.version).toBe(1);
+    expect(res.rejected.map((r) => r.index)).toEqual([1, 2]);
+    for (const r of res.rejected) expect(r.reason).toEqual(expect.any(String));
+    expect((await api.getChannelSlice('fav', 0, 5)).total).toBe(1);
+    expect(changes(events)).toHaveLength(1);
+  });
+
+  test('a batch over MAX_OPS_PER_BATCH is rejected whole', async () => {
+    const { api, events } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const ops: LayoutOp[] = Array.from({ length: MAX_OPS_PER_BATCH + 1 }, () => ({ op: 'hideChannels', ids: [id] }));
+    const res = await api.applyLayoutOps(ops);
+    expect(res.version).toBe(0);
+    expect(res.rejected).toHaveLength(MAX_OPS_PER_BATCH + 1);
+    expect((await api.getChannelSlice('all', 0, 1)).total).toBe(40);
+    expect(changes(events)).toEqual([]);
+    expect(await api.applyLayoutOps('nope' as unknown as LayoutOp[]))
+      .toEqual({ version: 0, rejected: [{ index: 0, reason: expect.any(String) }] });
+  });
+
+  test('ops scoped to a source that is no longer active fail with WrongSource and change nothing', async () => {
+    const { api, events } = make();
+    const { sourceId: a } = await api.addSource(xt());
+    const { sourceId: b } = await api.addSource({ ...xt(), name: 'Second' });
+    await api.setActiveSource(b);
+    const before = await api.getLayout();
+    const err = await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }], 'remote', a).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).name).toBe('WrongSource');
+    expect((err as Error).message).toBe('The TV switched to another source.');
+    expect(await api.getLayout()).toEqual(before);
+    expect(changes(events)).toEqual([]);
+    // The active source's id is accepted.
+    expect((await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }], 'remote', b)).rejected).toEqual([]);
+  });
+
+  test('getActiveLayout returns the active source id with its layout', async () => {
+    const { api } = make();
+    expect(await api.getActiveLayout()).toEqual({ sourceId: undefined, layout: expect.objectContaining({ version: 0 }) });
+    const { sourceId } = await api.addSource(xt());
+    await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+    const got = await api.getActiveLayout();
+    expect(got.sourceId).toBe(sourceId);
+    expect(got.layout).toEqual(await api.getLayout());
+  });
+
+  test('a batch that only touched recently watched is flagged recentOnly', async () => {
+    const { api, events } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.markWatched(id, 'all');
+    await api.applyLayoutOps([{ op: 'hideChannels', ids: [id] }]);
+    expect(changes(events)).toEqual([
+      { type: 'layoutChanged', version: 1, origin: 'local', recentOnly: true },
+      { type: 'layoutChanged', version: 2, origin: 'local' },
+    ]);
+  });
+
+  test('without an active source every op is rejected', async () => {
+    const { api } = make();
+    await api.init();
+    const res = await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+    expect(res).toEqual({ version: 0, rejected: [{ index: 0, reason: expect.any(String) }] });
+  });
+
+  test('renaming a channel keeps its guide when the guide matched it by name', async () => {
+    const playlist = ['#EXTM3U', '#EXTINF:-1 group-title="News",Channel 001', 'http://example.test/live/1.ts', ''].join('\n');
+    const fetchFn: FetchFn = async (u, i) => (u === 'http://example.test/p.m3u' ? new Response(playlist) : fetch(u, i));
+    const { api } = make(storage, SourceService, fetchFn);
+    await api.addSource({
+      kind: 'm3u', name: 'By name', playlistUrl: 'http://example.test/p.m3u',
+      epgUrl: `${server.url}/xmltv.php?username=test&password=test`,
+    });
+    await api.refresh('epg');
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    expect((await api.getChannelSlice('all', 0, 1)).rows[0]!.now).toBeDefined();
+    await api.applyLayoutOps([{ op: 'renameChannel', id, name: 'Something else' }]);
+    const row = (await api.getChannelSlice('all', 0, 1)).rows[0]!;
+    expect(row.name).toBe('Something else');
+    expect(row.now?.title).toMatch(/^Programme /);
+    const epg = await api.getEpgRows('all', 0, 1, NOW, NOW + 3600_000);
+    expect(epg.rows[0]!.programmes.length).toBeGreaterThan(0);
+  });
+
+  describe('with a partial guide', () => {
+    let partial: Awaited<ReturnType<typeof startFakeXtream>>;
+    beforeAll(async () => { partial = await startFakeXtream({ port: 0, channels: 40, epgChannels: 10, now: () => NOW }); });
+    afterAll(async () => { await partial.close(); });
+    const px = () => ({ kind: 'xtream' as const, name: 'Partial', server: partial.url, username: 'test', password: 'test' });
+
+    test('hideNoEpg hides channels without guide data once coverage is known; lists keep them', async () => {
+      const gated = gate();
+      const fetchFn: FetchFn = async (u, i) => {
+        if (u.includes('/xmltv.php')) await gated.p;
+        return fetch(u, i);
+      };
+      const { api } = make(storage, SourceService, fetchFn);
+      await api.addSource(px());
+      const last = (await api.getChannelSlice('all', 39, 1)).rows[0]!.id;
+      await api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }, { op: 'addToList', listId: 'fav', channelIds: [last] }]);
+      // Guide not loaded yet: coverage unknown, nothing is hidden.
+      expect((await api.getChannelSlice('all', 0, 1)).total).toBe(40);
+      expect((await api.getCompanionState()).channels.every((c) => c.hasEpg)).toBe(true);
+      gated.open();
+      await api.idle();
+      expect((await api.getChannelSlice('all', 0, 1)).total).toBe(10);
+      expect((await api.getChannelSlice('fav', 0, 5)).rows.map((r) => r.id)).toEqual([last]);
+      await api.applyLayoutOps([{ op: 'setHideNoEpg', value: false }]);
+      expect((await api.getChannelSlice('all', 0, 1)).total).toBe(40);
+
+      const { api: again } = make();
+      await again.init();
+      await again.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+      expect((await again.getChannelSlice('all', 0, 1)).total).toBe(10);
+    });
+
+    test('getCompanionState lists every channel, hidden ones included, with hasEpg and no credentials', async () => {
+      const { api } = make();
+      await api.addSource(px());
+      await api.refresh('epg');
+      const [a, b] = (await api.getChannelSlice('all', 0, 2)).rows.map((r) => r.id);
+      await api.applyLayoutOps([
+        { op: 'hideChannels', ids: [a!] },
+        { op: 'hideGroups', ids: ['g:Movies'] },
+        { op: 'renameChannel', id: b!, name: 'Renamed' },
+      ]);
+      const state = await api.getCompanionState();
+      expect(state.version).toBe(1);
+      expect(state.activeSourceId).toBe((await api.listSources())[0]!.id);
+      expect(state.channels).toHaveLength(40);
+      expect(state.channels.some((c) => c.id === a)).toBe(true);
+      expect(state.channels.filter((c) => c.group === 'Movies')).toHaveLength(10);
+      const renamed = state.channels.find((c) => c.id === b)!;
+      expect(renamed.displayName).toBe('Renamed');
+      expect(renamed.name).not.toBe('Renamed');
+      expect(state.channels.filter((c) => c.hasEpg)).toHaveLength(10);
+      expect(state.groups.find((g) => g.id === 'g:Movies')).toMatchObject({ hidden: true, count: 10 });
+      expect(state.layout).toEqual(await api.getLayout());
+      for (const s of state.sources) {
+        expect(Object.keys(s).sort()).toEqual(['active', 'id', 'kind', 'name']);
+        expect(s).not.toHaveProperty('password');
+        expect(s).not.toHaveProperty('username');
+      }
+      const json = JSON.stringify(state);
+      expect(json).not.toContain('password');
+      expect(json).not.toContain('username');
+      expect(json).not.toContain('/live/');
+      expect(json).not.toContain(partial.url);
+    });
+  });
+});
+
+describe('AppApi – sourcesChanged', () => {
+  type Changed = Extract<AppEvent, { type: 'sourcesChanged' }>;
+  const changes = (events: AppEvent[]) => events.filter((e): e is Changed => e.type === 'sourcesChanged');
+
+  test('every source operation announces the new active source with the caller origin', async () => {
+    const { api, events } = make();
+    const a = await api.addSource(xt());
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'local' }]);
+    await api.idle();
+
+    events.length = 0;
+    const b = await api.addSource({ ...xt(), name: 'Second' }, 'remote');
+    await api.idle();
+    // The first source stays active; the list still changed.
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.setActiveSource(b.sourceId, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.setActiveSource(a.sourceId);
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'local' }]);
+
+    events.length = 0;
+    const cfg = (await api.getSource(a.sourceId))!;
+    await api.updateSource({ ...cfg, name: 'Renamed' }, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: a.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.deleteSource(a.sourceId, 'remote');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: b.sourceId, origin: 'remote' }]);
+
+    events.length = 0;
+    await api.deleteSource(b.sourceId);
+    await api.idle();
+    // No source left: the event carries no activeSourceId.
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', origin: 'local' }]);
+  });
+
+  test('a failed operation announces nothing; an unknown origin counts as local', async () => {
+    const { api, events } = make();
+    await expect(api.addSource(xt('wrong', 'creds'))).rejects.toBeDefined();
+    expect(changes(events)).toEqual([]);
+    const { sourceId } = await api.addSource(xt(), 'bogus' as unknown as 'local');
+    await api.idle();
+    expect(changes(events)).toEqual([{ type: 'sourcesChanged', activeSourceId: sourceId, origin: 'local' }]);
   });
 });
 

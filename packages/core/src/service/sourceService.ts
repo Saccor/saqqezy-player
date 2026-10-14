@@ -1,7 +1,10 @@
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
 import { SourceAuthError, SourceNetworkError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
-import { ChannelIndex, type UserFlags } from '../index/channelIndex.ts';
+import { ChannelIndex } from '../index/channelIndex.ts';
+import { isUserFlags, layoutFromFlags } from '../layout/migrate.ts';
+import { normalizeLayout } from '../layout/ops.ts';
+import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { responseText } from '../net/textStream.ts';
@@ -129,6 +132,13 @@ export class SourceService {
       const staging = await this.stagingGen(id);
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.deleteSource(id);
+      // Lock order is always `id` then `layout:<id>`. Taking the layout lock waits out a layout write that had
+      // already seen the source, then removes whatever it left behind; later writes see no source and no-op.
+      await this.withLock(`layout:${id}`, async () => {
+        for (const key of [`layout:${id}`, `flags:${id}`]) {
+          if ((await this.storage.getMeta<unknown>(key)) != null) await this.storage.setMeta(key, null);
+        }
+      });
       if ((await this.getActiveSourceId()) === id) {
         const [next] = await this.storage.listSources();
         await this.storage.setMeta('activeSource', next?.id ?? null);
@@ -157,7 +167,7 @@ export class SourceService {
     return next;
   }
 
-  /** Drops channels and guide data; the source and the user's flags stay. */
+  /** Drops channels and guide data (with its coverage); the source and the user's layout stay. */
   clearCachedData(id: string): Promise<void> {
     return this.withLock(id, async () => {
       await this.requireSource(id);
@@ -168,6 +178,7 @@ export class SourceService {
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.setMeta(`epgGen:${id}`, null);
       await this.storage.setMeta(`epgStaging:${id}`, null);
+      await this.storage.setMeta(`epgCoverage:${id}`, null);
       await this.storage.replaceChannels(id, []);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
@@ -191,15 +202,50 @@ export class SourceService {
   }
 
   async loadIndex(id: string): Promise<ChannelIndex> {
-    const [channels, flags] = await Promise.all([
+    const [channels, layout, coverage] = await Promise.all([
       this.storage.getChannels(id),
-      this.storage.getMeta<UserFlags>(`flags:${id}`),
+      this.loadLayout(id),
+      this.loadEpgCoverage(id),
     ]);
-    return new ChannelIndex(channels, flags ?? undefined);
+    return new ChannelIndex(channels, layout, coverage);
   }
 
-  saveFlags(id: string, index: ChannelIndex): Promise<void> {
-    return this.storage.setMeta(`flags:${id}`, index.flags());
+  /**
+   * The stored layout of source `id`, repaired with `normalizeLayout`. Without one, v1 `flags:<id>` are
+   * migrated (and the result persisted); otherwise an empty layout.
+   */
+  loadLayout(id: string): Promise<Layout> {
+    // Read, migrate and write under the layout lock, so a concurrent save can never be overwritten.
+    return this.withLock(`layout:${id}`, async () => {
+      const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
+      if (stored !== undefined && stored !== null) return normalizeLayout(stored);
+      const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
+      if (!isUserFlags(flags)) return emptyLayout();
+      const layout = normalizeLayout(layoutFromFlags(flags));
+      await this.saveLayoutLocked(id, layout);
+      return layout;
+    });
+  }
+
+  /**
+   * Persists the layout of source `id`; a no-op once the source is gone. Layout writes are serialised on their
+   * own lock, so a user's edit never waits behind a running playlist or guide download.
+   */
+  saveLayout(id: string, layout: Layout): Promise<void> {
+    return this.withLock(`layout:${id}`, () => this.saveLayoutLocked(id, layout));
+  }
+
+  /** The write of `saveLayout`; the caller holds the `layout:<id>` lock. */
+  private async saveLayoutLocked(id: string, layout: Layout): Promise<void> {
+    if (!(await this.sourceExists(id))) return;
+    await this.storage.setMeta(`layout:${id}`, layout);
+  }
+
+  /** epgKeys with stored guide data, or undefined when no guide has been loaded (so a no-EPG filter is skipped). */
+  async loadEpgCoverage(id: string): Promise<Set<string> | undefined> {
+    const keys = await this.storage.getMeta<unknown>(`epgCoverage:${id}`);
+    if (!Array.isArray(keys)) return undefined;
+    return new Set(keys.filter((k): k is string => typeof k === 'string'));
   }
 
   refreshEpg(id: string, onProgress?: Progress): Promise<EpgResult> {
@@ -223,6 +269,8 @@ export class SourceService {
         await this.storage.setMeta(`epgStaging:${id}`, null);
       }
       await this.storage.clearProgrammes(await this.currentEpgKey(id));
+      // No guide configured: coverage is unknown rather than empty, so a no-EPG filter hides nothing.
+      await this.storage.setMeta(`epgCoverage:${id}`, null);
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
@@ -246,6 +294,7 @@ export class SourceService {
     const now = this.now();
     let batch: Programme[] = [];
     let stored = 0;
+    const coverage = new Set<string>();
     let storageFailure: { error: unknown } | undefined;
     const store = async (rows: Programme[]) => {
       try {
@@ -264,6 +313,7 @@ export class SourceService {
         const key = matcher.resolve(item.programme.epgId);
         if (!key || !inWindow(item.programme, now)) continue;
         batch.push({ ...item.programme, epgId: key });
+        coverage.add(key);
         if (batch.length >= EPG_BATCH) {
           await store(batch);
           stored += batch.length;
@@ -293,6 +343,7 @@ export class SourceService {
     stored += batch.length;
     onProgress?.({ phase: 'epg', count: stored });
     await this.storage.setMeta(`epgGen:${id}`, newGen);
+    await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
     await this.storage.setMeta(`epgStaging:${id}`, null);
     await this.storage.clearProgrammes(oldKey);
     await this.storage.setMeta(`epgAt:${id}`, now);

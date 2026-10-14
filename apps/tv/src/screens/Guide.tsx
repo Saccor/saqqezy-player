@@ -10,6 +10,7 @@ import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/v
 import { playback } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
   HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideWindow, initialViewStart, isOnAir, prefetchRange,
@@ -21,6 +22,14 @@ const MINI: Rect = { x: LAYOUT.safeX, y: LAYOUT.safeY, w: 480, h: 270 };
 const INFO_X = MINI.x + MINI.w + LAYOUT.gap * 2;
 /** Leaves room for the shell clock in the top-right corner. */
 const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X - 160;
+/**
+ * The brand wordmark sits in the top centre of the info area. The short context and time lines go beside it
+ * (`SIDE_X`, relative to the info block); the title and description use the full width below it, so the
+ * expanded 4-line description still ends above the grid.
+ */
+const SIDE_X = WORDMARK_RIGHT - INFO_X;
+const SIDE_W = INFO_W - SIDE_X;
+const TITLE_TOP = WORDMARK_BOTTOM + 4 - MINI.y;
 const GRID_Y = MINI.y + MINI.h + LAYOUT.gap;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 30;
 const PICKER_ID = 'guideGroups';
@@ -228,7 +237,24 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       tick = setInterval(() => setNow(Date.now()), MINUTE);
     }, MINUTE - (Date.now() % MINUTE));
     const off = onEvent('refreshed', () => cache.invalidate());
-    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); });
+    // A companion switched, added or deleted a source: re-read the groups and open the new source's list.
+    const offSources = onEvent('sourcesChanged', (e) => {
+      if ((e as { origin?: string }).origin !== 'remote') return;
+      void (async () => {
+        try {
+          const gs = await api.getGroups();
+          if (!alive) return;
+          cache.invalidate();
+          setGroups(gs);
+          const located = await locatePlaying(gs);
+          if (!alive || located === 'superseded') return;
+          if (located.g !== undefined) openGroup(located.g, located.index);
+        } catch (err) {
+          console.warn('Guide reload failed', err instanceof Error ? err.name : 'Error');
+        }
+      })();
+    });
+    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); offSources(); });
 
     void (async () => {
       try {
@@ -296,17 +322,17 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         </View>
       )}</Show>
 
-      {/* Focused programme */}
+      {/* Focused programme: context and time beside the brand wordmark, title and description below it. */}
       <View x={INFO_X} y={MINI.y} width={INFO_W} height={MINI.h}>
-        <Text width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+        <Text x={SIDE_X} y={8} width={SIDE_W} maxWidth={SIDE_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
           {`TV guide${groupName() ? ` · ${groupName()}` : ''}${focusChannel() ? ` · ${focusChannel()!.number} ${focusChannel()!.name}` : ''}`}
         </Text>
-        <Text y={40} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
+        <Text y={TITLE_TOP} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
           {focusBlock()?.title ?? (ready() && total() === 0 ? 'No channels here yet.' : '')}
         </Text>
-        <Text y={108} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.body}
+        <Text x={SIDE_X} y={40} width={SIDE_W} maxWidth={SIDE_W} contain="width" maxLines={1} fontSize={FONT.body}
           color={focusBlock() && isOnAir(focusBlock()!, now()) ? COLORS.focus : COLORS.muted}>{whenLine()}</Text>
-        <Text y={152} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
+        <Text y={TITLE_TOP + 58} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
           color={COLORS.text}>{descText()}</Text>
       </View>
 

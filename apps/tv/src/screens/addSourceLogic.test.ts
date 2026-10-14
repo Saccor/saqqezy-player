@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_NAME, GENERIC_ERROR, afterAdd, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
+  DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, SOURCE_NAME_MAX, URL_MAX, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
   toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 
@@ -129,5 +129,35 @@ describe('afterAdd', () => {
   });
   it('from Settings, a source that became active (no other sources): a fresh Home', () => {
     expect(afterAdd({ depth: 3, becameActive: true })).toBe('resetHome');
+  });
+});
+
+describe('field limits (shared with the companion protocol)', () => {
+  it('the name and URL limits are the core NAME_MAX and the protocol MAX_FIELD_LEN', async () => {
+    const { NAME_MAX } = await import('@iptv/core');
+    const { MAX_FIELD_LEN } = await import('@iptv/companion-protocol');
+    expect(SOURCE_NAME_MAX).toBe(NAME_MAX);
+    expect(URL_MAX).toBe(MAX_FIELD_LEN);
+    expect(FIELD_MAX).toEqual({
+      name: NAME_MAX, server: MAX_FIELD_LEN, username: MAX_FIELD_LEN, password: MAX_FIELD_LEN,
+      playlistUrl: MAX_FIELD_LEN, epgUrl: MAX_FIELD_LEN,
+    });
+  });
+
+  it('clampField cuts at the limit without splitting a surrogate pair', () => {
+    expect(clampField('abcdef', 4)).toBe('abcd');
+    expect(clampField('abc', 4)).toBe('abc');
+    expect(clampField('ab\u{1F600}', 3)).toBe('ab');
+    expect(clampField('ab\u{1F600}', 4)).toBe('ab\u{1F600}');
+  });
+
+  it('validation rejects a name over the limit (after trimming), in both forms', () => {
+    const long = 'n'.repeat(SOURCE_NAME_MAX + 1);
+    expect(validateXtream({ name: long, server: 'http://example.test', username: 'u', password: 'p' }))
+      .toEqual({ ok: false, field: 'name', message: NAME_TOO_LONG });
+    expect(validateM3u({ name: long, playlistUrl: 'http://example.test/a.m3u', epgUrl: '' }))
+      .toEqual({ ok: false, field: 'name', message: NAME_TOO_LONG });
+    const exact = ` ${'n'.repeat(SOURCE_NAME_MAX)} `;
+    expect(validateM3u({ name: exact, playlistUrl: 'http://example.test/a.m3u', epgUrl: '' }).ok).toBe(true);
   });
 });

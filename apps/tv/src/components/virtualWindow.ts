@@ -31,3 +31,18 @@ export function moveFocus(focus: number, delta: number, total: number): number {
 export function pageFocus(focus: number, dir: 1 | -1, viewRows: number, total: number): number {
   return moveFocus(focus, dir * viewRows, total);
 }
+
+/** The next selectable row from `focus` in direction `d` (skipping e.g. section headings), or `focus` if none. */
+export function stepSelectable(focus: number, d: 1 | -1, total: number, selectable: (i: number) => boolean): number {
+  for (let i = focus + d; i >= 0 && i < total; i += d) if (selectable(i)) return i;
+  return focus;
+}
+
+/** `index` clamped to the list and moved off a non-selectable row: the next selectable row below, else above. */
+export function firstSelectable(index: number, total: number, selectable: (i: number) => boolean): number {
+  if (total <= 0) return 0;
+  const i = Math.max(0, Math.min(index, total - 1));
+  if (selectable(i)) return i;
+  const down = stepSelectable(i, 1, total, selectable);
+  return down !== i ? down : stepSelectable(i, -1, total, selectable);
+}

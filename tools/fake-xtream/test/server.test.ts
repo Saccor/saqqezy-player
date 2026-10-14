@@ -63,3 +63,19 @@ describe('fake xtream + SourceService end to end', () => {
     expect(opts.headers.get('access-control-allow-headers')).toBe('*');
   });
 });
+
+describe('fake xtream options', () => {
+  test('epgChannels limits the XMLTV guide to the first N channels', async () => {
+    const partial = await startFakeXtream({ port: 0, channels: 10, epgChannels: 3, now: () => NOW });
+    try {
+      const xml = await (await fetch(`${partial.url}/xmltv.php?username=test&password=test`)).text();
+      const ids = new Set([...xml.matchAll(/channel="([^"]+)"/g)].map((m) => m[1]));
+      expect([...ids].sort()).toEqual(['c1.test', 'c2.test', 'c3.test']);
+      expect(xml.match(/<channel id=/g)).toHaveLength(3);
+      const streams = await (await fetch(`${partial.url}/player_api.php?username=test&password=test&action=get_live_streams`)).json();
+      expect(streams).toHaveLength(10);
+    } finally {
+      await partial.close();
+    }
+  });
+});

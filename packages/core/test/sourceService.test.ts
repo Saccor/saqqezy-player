@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceService } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
+import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 
 const m3u = readFileSync(new URL('./fixtures/basic.m3u', import.meta.url), 'utf8');
@@ -53,13 +54,133 @@ describe('SourceService – m3u', () => {
     expect(await service.getActiveSourceId()).toBeUndefined();
   });
 
-  test('flags persist through saveFlags/loadIndex', async () => {
+  test('layout persists through saveLayout/loadLayout/loadIndex', async () => {
     const { source } = await service.addSource(m3uInput);
-    const idx = await service.loadIndex(source.id);
-    const first = idx.slice('all', 0, 1)[0]!;
-    idx.setFavourite(first.id, true);
-    await service.saveFlags(source.id, idx);
+    const loaded = await service.loadIndex(source.id);
+    const first = loaded.slice('all', 0, 1)[0]!;
+    const { layout } = applyOps(loaded.layout(), [{ op: 'addToList', listId: 'fav', channelIds: [first.id] }]);
+    await service.saveLayout(source.id, layout);
+    expect(await storage.getMeta(`layout:${source.id}`)).toEqual(layout);
+    expect(await service.loadLayout(source.id)).toEqual(layout);
     expect((await service.loadIndex(source.id)).groupSize('fav')).toBe(1);
+  });
+
+  test('loadLayout returns an empty layout when nothing is stored', async () => {
+    const { source } = await service.addSource(m3uInput);
+    expect(await service.loadLayout(source.id)).toEqual(emptyLayout());
+    expect(await storage.getMeta(`layout:${source.id}`)).toBeUndefined();
+  });
+
+  test('loadLayout migrates v1 flags once and persists the layout', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const [a, b, c] = (await service.loadIndex(source.id)).slice('all', 0, 3).map((x) => x.id);
+    await storage.setMeta(`flags:${source.id}`, { favourites: [a, 'gone:1'], hidden: [b], recent: [c] });
+    const layout = await service.loadLayout(source.id);
+    expect(layout.lists[0]).toEqual({ id: 'fav', name: 'Favourites', channelIds: [a, 'gone:1'] });
+    expect(layout.hiddenChannels).toEqual([b]);
+    expect(layout.recent).toEqual([c]);
+    expect(await storage.getMeta(`layout:${source.id}`)).toEqual(layout);
+    // The stored layout wins from now on.
+    await storage.setMeta(`flags:${source.id}`, { favourites: [], hidden: [], recent: [] });
+    expect(await service.loadLayout(source.id)).toEqual(layout);
+    const idx = await service.loadIndex(source.id);
+    expect(idx.groupSize('fav')).toBe(1);
+    expect(idx.groupSize('all')).toBe(3);
+  });
+
+  test('loadLayout repairs a corrupt stored layout', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await storage.setMeta(`layout:${source.id}`, { version: -3, lists: 'nope', hiddenChannels: [1, 'x', 'x'], hideNoEpg: 'yes' });
+    const layout = await service.loadLayout(source.id);
+    expect(layout).toEqual({ ...emptyLayout(), hiddenChannels: ['x'] });
+  });
+
+  test('EPG coverage is unknown before the first guide load, then lists the covered epg keys', async () => {
+    const { source } = await service.addSource(m3uInput);
+    expect(await service.loadEpgCoverage(source.id)).toBeUndefined();
+    await service.refreshEpg(source.id);
+    expect(await service.loadEpgCoverage(source.id)).toEqual(new Set(['ch1.test', 'ch2.test']));
+    expect([...(await storage.getMeta<string[]>(`epgCoverage:${source.id}`))!].sort()).toEqual(['ch1.test', 'ch2.test']);
+  });
+
+  test('loadIndex applies hideNoEpg with the stored coverage', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const { layout } = applyOps(await service.loadLayout(source.id), [{ op: 'setHideNoEpg', value: true }]);
+    await service.saveLayout(source.id, layout);
+    // Coverage unknown: the filter is skipped instead of hiding everything.
+    expect((await service.loadIndex(source.id)).groupSize('all')).toBe(4);
+    await service.refreshEpg(source.id);
+    expect((await service.loadIndex(source.id)).groupSize('all')).toBe(2);
+  });
+
+  test('a failed guide refresh keeps the previous coverage', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    routes['/epg.xml'] = () => new Response('<html>nope</html>', { status: 500 });
+    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await service.loadEpgCoverage(source.id)).toEqual(new Set(['ch1.test', 'ch2.test']));
+  });
+
+  test('deleteSource removes layout and coverage', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    await service.saveLayout(source.id, applyOps(emptyLayout(), [{ op: 'hideChannels', ids: ['x'] }]).layout);
+    await service.deleteSource(source.id);
+    expect(await storage.getMeta(`layout:${source.id}`)).toBeUndefined();
+    expect(await storage.getMeta(`epgCoverage:${source.id}`)).toBeUndefined();
+  });
+
+  test('saveLayout for a deleted source writes nothing', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.deleteSource(source.id);
+    await service.saveLayout(source.id, emptyLayout());
+    expect(await storage.getMeta(`layout:${source.id}`)).toBeUndefined();
+  });
+
+  test('a saveLayout racing deleteSource leaves no orphan layout key', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const key = `layout:${source.id}`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = storage.setMeta.bind(storage);
+    // The layout write is held open after saveLayout has seen the source, while the delete runs.
+    storage.setMeta = async (k: string, v: unknown) => {
+      if (k === key && v !== null) await gate;
+      await inner(k, v);
+    };
+    const save = service.saveLayout(source.id, applyOps(emptyLayout(), [{ op: 'hideChannels', ids: ['x'] }]).layout);
+    await new Promise((r) => setTimeout(r, 5));
+    const del = service.deleteSource(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.all([save, del]);
+    expect(await storage.listSources()).toEqual([]);
+    expect((await storage.getMeta(key)) ?? null).toBeNull(); // cleared (or never written)
+  });
+
+  test('a v1 migration cannot overwrite a layout saved meanwhile', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const key = `layout:${source.id}`;
+    await storage.setMeta(`flags:${source.id}`, { favourites: ['a'], hidden: [], recent: [] });
+    const inner = storage.getMeta.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held = false;
+    // Hold the migration after it has read the (absent) layout, so a save can try to slip in.
+    storage.getMeta = (async (k: string) => {
+      const v = await inner(k);
+      if (k === key && !held) { held = true; await gate; }
+      return v;
+    }) as typeof storage.getMeta;
+    const load = service.loadLayout(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    const mine = applyOps(emptyLayout(), [{ op: 'hideChannels', ids: ['x'] }]).layout;
+    const save = service.saveLayout(source.id, mine);
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.all([load, save]);
+    storage.getMeta = inner;
+    expect(await service.loadLayout(source.id)).toEqual(mine);
   });
 
   test('refresh timing helpers', async () => {
@@ -474,13 +595,13 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     expect(writes).toEqual([]);
   });
 
-  test('clearCachedData empties channels and guide but keeps source and flags', async () => {
+  test('clearCachedData empties channels, guide and coverage but keeps source and layout', async () => {
     const { source } = await service.addSource(m3uInput);
     await service.refreshEpg(source.id);
     await service.refreshEpg(source.id);
-    const idx = await service.loadIndex(source.id);
-    idx.setFavourite(idx.slice('all', 0, 1)[0]!.id, true);
-    await service.saveFlags(source.id, idx);
+    const loaded = await service.loadIndex(source.id);
+    const favId = loaded.slice('all', 0, 1)[0]!.id;
+    await service.saveLayout(source.id, applyOps(loaded.layout(), [{ op: 'addToList', listId: 'fav', channelIds: [favId] }]).layout);
     await storage.setMeta(`epgStaging:${source.id}`, 7);
     await storage.addProgrammes(`${source.id}@7`, [{ epgId: 'ch1.test', start: 1, stop: 2, title: 'x' }]);
 
@@ -494,7 +615,8 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     for (const key of [source.id, `${source.id}@1`, `${source.id}@2`, `${source.id}@7`]) {
       expect(await storage.getProgrammes(key, ['ch1.test', 'ch2.test'], ...WIDE)).toEqual([]);
     }
-    expect((await storage.getMeta<{ favourites: string[] }>(`flags:${source.id}`))?.favourites).toHaveLength(1);
+    expect((await service.loadLayout(source.id)).lists[0]!.channelIds).toEqual([favId]);
+    expect(await service.loadEpgCoverage(source.id)).toBeUndefined();
     expect(await service.needsPlaylistRefresh(source.id)).toBe(true);
     expect(await service.needsEpgRefresh(source.id)).toBe(true);
     await service.refreshPlaylist(source.id);
@@ -544,7 +666,10 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     const { source } = await service.addSource({ kind: 'm3u', name: 'No guide', playlistUrl: m3uInput.playlistUrl });
     await storage.setMeta(`epgStaging:${source.id}`, 3);
     await storage.addProgrammes(`${source.id}@3`, [{ epgId: 'ch1.test', start: 1, stop: 2, title: 'x' }]);
+    await storage.setMeta(`epgCoverage:${source.id}`, ['ch1.test']);
     await service.refreshEpg(source.id);
+    // No guide configured: coverage is unknown, so a no-EPG filter never hides everything.
+    expect(await service.loadEpgCoverage(source.id)).toBeUndefined();
     expect(await storage.getMeta(`epgStaging:${source.id}`) ?? null).toBeNull();
     expect(await storage.getProgrammes(`${source.id}@3`, ['ch1.test'], ...WIDE)).toEqual([]);
   });

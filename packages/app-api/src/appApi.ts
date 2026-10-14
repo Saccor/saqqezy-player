@@ -1,11 +1,13 @@
 import {
-  ChannelIndex, GROUP_ALL, alternateStreamUrl, applyShift, nowNext, redactUrl,
-  type AppSettings, type Channel, type GroupInfo, type NewSource, type Programme, type SourceConfig,
-  type SourceService, type Storage,
+  ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
+  epgKey, isLayoutOp, isLayoutOpBatch, nowNext, redactUrl,
+  type AppSettings, type Channel, type GroupInfo, type Layout, type LayoutOp, type NewSource, type Programme,
+  type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import type {
-  AppEvent, ChannelRow, DiagnosticsInfo, InitState, PlayableChannel, ProgrammeLite, SourceSummary,
+  AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
+  ListSummary, PlayableChannel, ProgrammeLite, SourceSummary,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -17,6 +19,7 @@ const NOW_NEXT_MARGIN_MS = 6 * HOUR;
 const VISIBLE_WINDOWS = 2;
 
 const noop = () => { /* settled */ };
+const HAS = Object.prototype.hasOwnProperty;
 
 interface NowNext { now?: Programme; next?: Programme }
 
@@ -35,6 +38,11 @@ export interface AppApiDeps {
   emit: (e: AppEvent) => void;
   now?: () => number;
   appVersion?: string;
+  /**
+   * Builds the phone companion host (the worker passes a CompanionHost factory). `onStatus` emits
+   * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
+   */
+  companion?: (api: AppApi, onStatus: (status: CompanionStatus) => void) => CompanionControl;
 }
 
 export class AppApi {
@@ -46,6 +54,12 @@ export class AppApi {
 
   private activeId: string | undefined;
   private index = new ChannelIndex([]);
+  /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
+  private channels: Channel[] = [];
+  /** epgKeys with stored guide data for the active source; undefined until a guide was loaded. */
+  private coverage: Set<string> | undefined;
+  /** Lazily built: `channels` by id, to look renamed channels' guide up under their playlist name. */
+  private originalById: Map<string, Channel> | undefined;
   private favSet: Set<string> | undefined;
   private settings: AppSettings | undefined;
   private nnCache = new Map<string, { at: number; nn: NowNext }>();
@@ -66,13 +80,26 @@ export class AppApi {
   private readonly windows = new Map<string, Set<string>[]>();
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
+  private readonly companion: CompanionControl | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
     this.storage = deps.storage;
-    this.emit = deps.emit;
+    this.emit = (e) => {
+      deps.emit(e);
+      try {
+        this.companion?.handleEvent(e);
+      } catch {
+        // The companion must never break the TV.
+      }
+    };
     this.now = deps.now ?? Date.now;
     this.appVersion = deps.appVersion ?? '0.0.0';
+    this.companion = deps.companion?.(this, (status) => {
+      // Why a session ended, for diagnostics (relay close reasons carry no secrets).
+      if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
+      deps.emit({ type: 'companion', status });
+    });
   }
 
   // ---- lifecycle & sources ----
@@ -94,49 +121,60 @@ export class AppApi {
     return this.run('getSource', async () => (await this.service.listSources()).find((s) => s.id === id));
   }
 
-  addSource(input: NewSource): Promise<{ sourceId: string; channelCount: number }> {
+  /** `origin` says who asked (a paired companion passes 'remote'); every source change ends in a `sourcesChanged` event. */
+  addSource(input: NewSource, origin: LayoutOrigin = 'local'): Promise<{ sourceId: string; channelCount: number }> {
     return this.run('addSource', async () => {
       const { source, result } = await this.service.addSource(input, (p) => this.emit({ type: 'progress', ...p }));
+      this.companionStale();
       const active = await this.service.getActiveSourceId();
       if (active === source.id) {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      this.sourcesChanged(origin);
       return { sourceId: source.id, channelCount: result.channelCount };
     });
   }
 
-  updateSource(source: SourceConfig): Promise<{ channelCount: number }> {
+  updateSource(source: SourceConfig, origin: LayoutOrigin = 'local'): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
+      this.companionStale();
       if (this.activeId === source.id) {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      this.sourcesChanged(origin);
       return { channelCount: result.channelCount };
     });
   }
 
-  deleteSource(id: string): Promise<InitState> {
+  deleteSource(id: string, origin: LayoutOrigin = 'local'): Promise<InitState> {
     return this.run('deleteSource', async () => {
       // Queued behind any background task of this source, so nothing writes to it after the delete.
       await this.enqueue(id, () => this.service.deleteSource(id));
+      this.companionStale();
       this.windows.delete(id);
-      for (const key of [`flags:${id}`, `lastChannel:${id}`, `lastGroup:${id}`]) await this.storage.setMeta(key, null);
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`]) {
+        await this.storage.setMeta(key, null);
+      }
       const next = await this.resolveActive();
       if (next !== this.activeId || id === this.activeId) {
         await this.activate(next);
         if (next) this.startBackground(next);
       }
+      this.sourcesChanged(origin);
       return this.initState();
     });
   }
 
-  setActiveSource(id: string): Promise<InitState> {
+  setActiveSource(id: string, origin: LayoutOrigin = 'local'): Promise<InitState> {
     return this.run('setActiveSource', async () => {
       await this.service.setActiveSource(id);
+      this.companionStale();
       await this.activate(id);
       this.startBackground(id);
+      this.sourcesChanged(origin);
       return this.initState();
     });
   }
@@ -197,7 +235,7 @@ export class AppApi {
         // Displayed = stored + shift, so the stored window is [from - shift, to - shift]; widen it to cover every channel.
         const lo = from - Math.max(...shifts) * HOUR;
         const hi = to - Math.min(...shifts) * HOUR;
-        byChannel = await this.service.programmesFor(id, channels, lo, hi);
+        byChannel = await this.service.programmesFor(id, this.originals(channels), lo, hi);
       }
       return {
         total: this.index.groupSize(groupId),
@@ -218,26 +256,112 @@ export class AppApi {
     return this.run('search', async () => this.toRows(this.index.search(query, limit)));
   }
 
-  // ---- user flags ----
+  // ---- layout ----
+
+  /** The active source's layout (an empty one without a source). */
+  getLayout(): Promise<Layout> {
+    return this.run('getLayout', async () => this.index.layout());
+  }
+
+  /**
+   * Validates and applies a batch of layout ops to the active source, persists the result and swaps in the
+   * rebuilt index. Malformed ops, ops the reducer refuses, and every op of an oversized batch (more than
+   * `MAX_OPS_PER_BATCH`) are reported in `rejected`. Emits `layoutChanged` when the layout changed.
+   * With `sourceId` (a companion's ops), a batch made for another source than the active one throws
+   * WrongSourceError and changes nothing.
+   */
+  applyLayoutOps(ops: LayoutOp[], origin: LayoutOrigin = 'local', sourceId?: string): Promise<LayoutOpsResult> {
+    return this.run('applyLayoutOps', () => this.withIndex(async () => {
+      // Checked under the index lock, so a source switch cannot slip in between the check and the change.
+      if (sourceId !== undefined && sourceId !== this.activeId) throw new WrongSourceError();
+      return this.applyLayoutLocked(ops, origin);
+    }));
+  }
+
+  /** The active source's id with its layout, read together (for the companion's source-scoped `layoutChanged`). */
+  getActiveLayout(): Promise<{ sourceId: string | undefined; layout: Layout }> {
+    return this.run('getActiveLayout', async () => ({ sourceId: this.activeId, layout: this.index.layout() }));
+  }
+
+  listLists(): Promise<ListSummary[]> {
+    return this.run('listLists', async () => this.index.layout().lists.map((l) => {
+      const groupId = listGroupId(l.id);
+      return { id: l.id, groupId, name: l.name, count: this.index.groupSize(groupId) };
+    }));
+  }
+
+  /** Ids of the lists that contain `channelId` (for the context menu). */
+  channelLists(channelId: string): Promise<string[]> {
+    return this.run('channelLists', async () =>
+      this.index.layout().lists.filter((l) => l.channelIds.includes(channelId)).map((l) => l.id));
+  }
+
+  hiddenGroups(): Promise<GroupInfo[]> {
+    return this.run('hiddenGroups', async () => this.index.hiddenGroupInfos());
+  }
+
+  /** Every provider group of the active source, hidden ones included. */
+  providerGroups(): Promise<ProviderGroupInfo[]> {
+    return this.run('providerGroups', async () => this.index.allProviderGroups());
+  }
+
+  /**
+   * Whether the active source's TV guide coverage is known (a guide has been downloaded), and whether the source
+   * has a guide address at all (an M3U with a guide URL, or any Xtream source). Both false without an active source.
+   */
+  guideStatus(): Promise<{ coverageKnown: boolean; hasGuideUrl: boolean }> {
+    return this.run('guideStatus', async () => {
+      const id = this.activeId;
+      if (!id) return { coverageKnown: false, hasGuideUrl: false };
+      const source = (await this.service.listSources()).find((s) => s.id === id);
+      const hasGuideUrl = source?.kind === 'xtream' || (source?.kind === 'm3u' && !!source.epgUrl);
+      const coverageKnown = Array.isArray(await this.storage.getMeta<unknown>(`epgCoverage:${id}`));
+      return { coverageKnown, hasGuideUrl };
+    });
+  }
+
+  /** Snapshot for a companion: every channel (hidden ones included) and the layout. No credentials or stream URLs. */
+  getCompanionState(): Promise<CompanionState> {
+    return this.run('getCompanionState', async () => {
+      const index = this.index;
+      const coverage = this.coverage;
+      const layout = index.layout();
+      const channels = this.channels.map((c) => {
+        const out: CompanionChannel = {
+          id: c.id, name: c.name, group: c.group, number: c.number, hasEpg: coverage ? coverage.has(epgKey(c)) : true,
+        };
+        // Only renamed channels carry displayName; the companion shows `displayName ?? name`.
+        const displayName = index.displayName(c.id);
+        if (displayName !== undefined && displayName !== c.name) out.displayName = displayName;
+        if (c.logo) out.logo = c.logo;
+        return out;
+      });
+      const state: CompanionState = {
+        version: layout.version, sources: await this.summaries(), groups: index.allProviderGroups(), channels, layout,
+        coverageKnown: coverage !== undefined,
+      };
+      if (this.activeId) state.activeSourceId = this.activeId;
+      return state;
+    });
+  }
 
   toggleFavourite(channelId: string): Promise<boolean> {
     return this.run('toggleFavourite', () => this.withIndex(async () => {
       if (!this.index.get(channelId)) return false;
       const on = !this.favourites().has(channelId);
-      this.index.setFavourite(channelId, on);
-      this.favSet = undefined;
-      await this.persistFlags();
-      return on;
+      await this.applyLayoutLocked([on
+        ? { op: 'addToList', listId: FAV_LIST_ID, channelIds: [channelId] }
+        : { op: 'removeFromList', listId: FAV_LIST_ID, channelIds: [channelId] }], 'local');
+      return this.favourites().has(channelId); // the real state: false if the change was refused
     }));
   }
 
   toggleHidden(channelId: string): Promise<boolean> {
     return this.run('toggleHidden', () => this.withIndex(async () => {
       if (!this.index.get(channelId)) return false;
-      const on = !this.index.flags().hidden.includes(channelId);
-      this.index.setHidden(channelId, on);
-      await this.persistFlags();
-      return on;
+      const on = !this.index.layout().hiddenChannels.includes(channelId);
+      await this.applyLayoutLocked([{ op: on ? 'hideChannels' : 'unhideChannels', ids: [channelId] }], 'local');
+      return this.index.layout().hiddenChannels.includes(channelId); // the real state, even if refused
     }));
   }
 
@@ -249,11 +373,30 @@ export class AppApi {
     return this.run('markWatched', () => this.withIndex(async () => {
       const id = this.activeId;
       if (!id || !this.index.get(channelId)) return;
-      this.index.markWatched(channelId);
-      await this.persistFlags();
+      await this.applyLayoutLocked([{ op: 'markWatched', id: channelId }], 'local');
       await this.storage.setMeta(`lastChannel:${id}`, channelId);
       await this.storage.setMeta(`lastGroup:${id}`, groupId);
     }));
+  }
+
+  // ---- phone companion ----
+
+  /** Starts a new pairing session (replacing any current one). The result holds secrets for the pairing screen. */
+  companionStart(mode: 'qr' | 'code'): Promise<CompanionStartResult> {
+    return this.run('companionStart', async () => {
+      if (!this.companion) throw new Error('The phone companion is not available.');
+      if (mode !== 'qr' && mode !== 'code') throw new Error('Unknown pairing mode.');
+      return this.companion.start(mode);
+    });
+  }
+
+  /** Ends the current pairing session, if any (the companion gets a goodbye). */
+  companionStop(): Promise<void> {
+    return this.run('companionStop', async () => { this.companion?.stop(); });
+  }
+
+  companionStatus(): Promise<CompanionStatus> {
+    return this.run('companionStatus', async () => this.companion?.status() ?? { state: 'idle' });
   }
 
   // ---- settings, cache, diagnostics ----
@@ -333,9 +476,14 @@ export class AppApi {
       : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}) });
     if (this.recorded.has(out)) return out;
     this.recorded.add(out);
+    this.note(where, message);
+    return out;
+  }
+
+  /** Adds a credential-free message to the diagnostics ring. */
+  private note(where: string, message: string): void {
     this.errors.push({ at: this.now(), where, message });
     if (this.errors.length > ERROR_RING) this.errors.shift();
-    return out;
   }
 
   private async currentSettings(): Promise<AppSettings> {
@@ -378,23 +526,113 @@ export class AppApi {
   /** Makes `id` the in-memory active source and loads its cached index; both are swapped in together. */
   private activate(id: string | undefined): Promise<void> {
     return this.withIndex(async () => {
-      const index = id ? await this.service.loadIndex(id) : new ChannelIndex([]);
+      const [channels, layout, coverage] = id
+        ? await Promise.all([this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id)])
+        : [[], emptyLayout(), undefined];
       this.activeId = id;
-      this.index = index;
-      this.favSet = undefined;
+      this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
   }
 
-  /** After a playlist refresh: rebuild the active index from the new channels, keeping the in-memory flags. */
+  /** After a playlist refresh: rebuild the active index from the new channels, keeping the in-memory layout. */
   private rebuildIndex(id: string): Promise<void> {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
-      const channels = await this.storage.getChannels(id);
-      this.index = new ChannelIndex(channels, this.index.flags());
-      this.favSet = undefined;
+      const [channels, coverage] = await Promise.all([this.storage.getChannels(id), this.service.loadEpgCoverage(id)]);
+      this.setIndex(channels, this.index.layout(), coverage);
       this.invalidateNowNext();
     });
+  }
+
+  /** After a guide refresh: rebuild the active index with the new coverage (the channels in memory are reused). */
+  private reloadCoverage(id: string): Promise<void> {
+    return this.withIndex(async () => {
+      if (this.activeId !== id) return;
+      const coverage = await this.service.loadEpgCoverage(id);
+      this.setIndex(this.channels, this.index.layout(), coverage);
+      this.invalidateNowNext();
+    });
+  }
+
+  /** Swaps in a fresh index. Caller holds the index lock. */
+  private setIndex(channels: Channel[], layout: Layout, coverage: Set<string> | undefined): void {
+    this.channels = channels;
+    this.coverage = coverage;
+    this.originalById = undefined;
+    this.index = new ChannelIndex(channels, layout, coverage);
+    this.favSet = undefined;
+    this.companionStale();
+  }
+
+  /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
+  private sourcesChanged(origin: LayoutOrigin): void {
+    const event: Extract<AppEvent, { type: 'sourcesChanged' }> = { type: 'sourcesChanged', origin: origin === 'remote' ? 'remote' : 'local' };
+    if (this.activeId !== undefined) event.activeSourceId = this.activeId;
+    this.emit(event);
+  }
+
+  /** The companion state's channels, guide coverage or sources changed: the host drops its cached state. */
+  private companionStale(): void {
+    try {
+      this.companion?.stateChanged?.();
+    } catch {
+      // The companion must never break the TV.
+    }
+  }
+
+  /** `applyLayoutOps` body. Caller holds the index lock. */
+  private async applyLayoutLocked(input: unknown, origin: LayoutOrigin): Promise<LayoutOpsResult> {
+    const before = this.index.layout();
+    const version = before.version;
+    const rejectAll = (n: number, reason: string): LayoutOpsResult =>
+      ({ version, rejected: Array.from({ length: n }, (_, index) => ({ index, reason })) });
+    if (!Array.isArray(input)) return rejectAll(1, 'Expected a list of changes.');
+    if (input.length > MAX_OPS_PER_BATCH) {
+      return rejectAll(input.length, `Too many changes at once (at most ${MAX_OPS_PER_BATCH}).`);
+    }
+    const id = this.activeId;
+    if (!id) return rejectAll(input.length, 'No active source.');
+
+    const rejected: LayoutOpsResult['rejected'] = [];
+    const valid: LayoutOp[] = [];
+    /** Batch index of each op in `valid`; unset when the whole batch is valid. */
+    let at: number[] | undefined;
+    if (isLayoutOpBatch(input)) {
+      valid.push(...input);
+    } else {
+      const positions: number[] = [];
+      input.forEach((op: unknown, index) => {
+        if (isLayoutOp(op)) {
+          valid.push(op);
+          positions.push(index);
+        } else {
+          rejected.push({ index, reason: 'Unrecognised change.' });
+        }
+      });
+      at = positions;
+    }
+    const res = applyOps(before, valid);
+    for (const r of res.rejected) rejected.push({ index: at ? at[r.index]! : r.index, reason: r.reason });
+    rejected.sort((a, b) => a.index - b.index);
+    if (!res.changed) return { version, rejected };
+
+    await this.service.saveLayout(id, res.layout);
+    this.index = this.index.withLayout(res.layout);
+    this.favSet = undefined;
+    if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
+    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
+    if (onlyRecentChanged(before, res.layout)) event.recentOnly = true;
+    this.emit(event);
+    return { version: res.layout.version, rejected };
+  }
+
+  /** The playlist originals of renamed channels, so guide lookups use the playlist name (and its epgKey). */
+  private originals(channels: Channel[]): Channel[] {
+    const names = this.index.layout().channelNames;
+    if (!channels.some((c) => HAS.call(names, c.id))) return channels;
+    const byId = (this.originalById ??= new Map(this.channels.map((c) => [c.id, c])));
+    return channels.map((c) => (HAS.call(names, c.id) ? byId.get(c.id) ?? c : c));
   }
 
   /** Small mutex around the active index: swaps and flag mutations never interleave. */
@@ -419,11 +657,8 @@ export class AppApi {
   }
 
   private favourites(): Set<string> {
-    return (this.favSet ??= new Set(this.index.flags().favourites));
-  }
-
-  private async persistFlags(): Promise<void> {
-    if (this.activeId) await this.service.saveFlags(this.activeId, this.index);
+    const fav = this.index.layout().lists.find((l) => l.id === FAV_LIST_ID);
+    return (this.favSet ??= new Set(fav?.channelIds ?? []));
   }
 
   private setOffline(value: boolean): void {
@@ -457,7 +692,7 @@ export class AppApi {
     } catch (err) {
       this.failed('epg', id, 'refreshEpg', err);
     }
-    if (this.activeId === id) this.invalidateNowNext();
+    await this.reloadCoverage(id);
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
@@ -510,9 +745,9 @@ export class AppApi {
     if (epg) await this.refreshEpgFor(id);
   }
 
-  /** Every channel in the active index, hidden ones included. */
+  /** Every channel of the active source, hidden ones (and those in hidden groups or without a guide) included. */
   private totalChannels(): number {
-    return this.index.groupSize(GROUP_ALL) + this.index.hiddenChannels().length;
+    return this.channels.length;
   }
 
   /** Remembers `channels` as the newest requested row window of the active source. */
@@ -565,7 +800,7 @@ export class AppApi {
     const hours = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
     const lo = t - Math.max(...hours) * HOUR - NOW_NEXT_MARGIN_MS;
     const hi = t - Math.min(...hours) * HOUR + NOW_NEXT_MARGIN_MS;
-    const stored = await this.service.programmesFor(id, channels, lo, hi);
+    const stored = await this.service.programmesFor(id, this.originals(channels), lo, hi);
     const out = new Map<string, NowNext>();
     const missing: { c: Channel; h: number }[] = [];
     channels.forEach((c, i) => {
@@ -593,7 +828,7 @@ export class AppApi {
     const gen = this.generation;
     const isStale = (c: Channel) =>
       gen !== this.generation || this.activeId !== id || !this.inVisibleWindow(id, c.id);
-    const job = this.service.shortEpgFor(id, todo.map((m) => m.c), { isStale }).then((found) => {
+    const job = this.service.shortEpgFor(id, this.originals(todo.map((m) => m.c)), { isStale }).then((found) => {
       if (gen !== this.generation || this.activeId !== id) return;
       const t = this.now();
       const changed: string[] = [];
@@ -647,6 +882,10 @@ export class AppApi {
   }
 }
 
+function listGroupId(listId: string): string {
+  return listId === FAV_LIST_ID ? GROUP_FAV : `list:${listId}`;
+}
+
 function toLite(p: Programme): ProgrammeLite {
   const out: ProgrammeLite = { title: p.title, start: p.start, stop: p.stop };
   if (p.desc) out.desc = p.desc;
@@ -654,11 +893,30 @@ function toLite(p: Programme): ProgrammeLite {
 }
 
 /** Methods callable over RPC; the worker passes this to `expose` so internals (and `idle`) stay unreachable. */
+/** A companion's layout ops were made for a source that is no longer the active one. */
+export class WrongSourceError extends Error {
+  constructor() {
+    super('The TV switched to another source.');
+    this.name = 'WrongSource';
+  }
+}
+
+/** True when nothing but `recent` (and the version) differs: layouts are copy-on-write, so identity is enough. */
+function onlyRecentChanged(before: Layout, after: Layout): boolean {
+  if (before.recent === after.recent) return false;
+  for (const k of Object.keys(after) as (keyof Layout)[]) {
+    if (k !== 'recent' && k !== 'version' && before[k] !== after[k]) return false;
+  }
+  return true;
+}
+
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
+  'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
+  'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];
 
 // Compile-time check: every public method except the test-only `idle` is listed above.

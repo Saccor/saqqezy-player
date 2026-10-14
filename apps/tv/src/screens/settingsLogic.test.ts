@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, screenLines, uaVersions,
   formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
+} from './settingsLogic.ts';
+import {
+  HIDE_NO_EPG_HELP, HIDE_NO_EPG_NO_GUIDE, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
-  it('lists the eight pages in menu order', () => {
+  it('lists the nine pages in menu order', () => {
     expect(SETTINGS_PAGES.map((p) => p.title)).toEqual([
-      'Sources', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
+      'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
     ]);
   });
 });
@@ -135,5 +138,120 @@ describe('diagnosticsLines', () => {
       .map(([k, v]) => `${k}: ${v}`);
     expect(text).toContain('Sources: None');
     expect(text).toContain('Errors: None');
+  });
+});
+
+describe('uaVersions', () => {
+  it('keeps only the Tizen and Chrome versions', () => {
+    const ua = 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 7.0) AppleWebKit/537.36 (KHTML, like Gecko) 94.0.4606.31/7.0 TV Safari/537.36 Chrome/94.0.4606.31';
+    expect(uaVersions(ua)).toBe('Tizen 7.0 \u00b7 Chrome 94.0.4606.31');
+  });
+  it('handles desktop Chrome and unknown strings', () => {
+    expect(uaVersions('Mozilla/5.0 (Windows NT 10.0) Chrome/126.0.0.0 Safari/537.36')).toBe('Chrome 126.0.0.0');
+    expect(uaVersions('Foo/1')).toBe('unknown');
+    expect(uaVersions(undefined)).toBe('unknown');
+  });
+});
+
+describe('screenLines', () => {
+  const dev = { innerWidth: 1920, innerHeight: 1080, screenWidth: 5120, screenHeight: 1440, devicePixelRatio: 1,
+    designScale: 1, userAgent: 'x Tizen 7.0 Chrome/94.0.1' };
+  it('shows viewport, screen, pixel ratio, design scale and engine', () => {
+    const t = screenLines(dev, 'browser').map(([k, v]) => `${k}: ${v}`);
+    expect(t).toEqual([
+      'Viewport: 1920\u00d71080 \u00b7 design scale 1.00',
+      'Screen: 5120\u00d71440 \u00b7 pixel ratio 1',
+      'Engine: Tizen 7.0 \u00b7 Chrome 94.0.1',
+    ]);
+  });
+  it('adds the Tizen device line only on Tizen, with fallbacks', () => {
+    expect(screenLines({ ...dev, tizenPlatformVersion: '7.0', tizenModel: 'QE-TEST' }, 'tizen')[2])
+      .toEqual(['Device', 'Tizen 7.0 \u00b7 QE-TEST']);
+    expect(screenLines(dev, 'tizen')[2]).toEqual(['Device', 'Tizen version unknown \u00b7 model unknown']);
+  });
+  it('says unknown for missing numbers and rounds odd ones', () => {
+    const t = screenLines({ devicePixelRatio: 1.3333, designScale: 2 / 3 }, 'browser');
+    expect(t[0]).toEqual(['Viewport', 'unknown \u00b7 design scale 0.67']);
+    expect(t[1]).toEqual(['Screen', 'unknown \u00b7 pixel ratio 1.33']);
+  });
+  it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
+    const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true } };
+    const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
+    expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
+    expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
+  });
+});
+
+describe('guideLoaded', () => {
+  it('follows whether the guide coverage is known', () => {
+    expect(guideLoaded({ coverageKnown: true, hasGuideUrl: true })).toBe(true);
+    expect(guideLoaded({ coverageKnown: false, hasGuideUrl: true })).toBe(false);
+    expect(guideLoaded({ coverageKnown: false, hasGuideUrl: false })).toBe(false);
+  });
+});
+
+describe('hideNoEpgRow', () => {
+  const waiting = { coverageKnown: false, hasGuideUrl: true };
+  const none = { coverageKnown: false, hasGuideUrl: false };
+  const known = { coverageKnown: true, hasGuideUrl: true };
+
+  it('is disabled until the guide has been downloaded, and reads Off meanwhile', () => {
+    expect(hideNoEpgRow(waiting, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
+    expect(hideNoEpgRow(waiting, true)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_UNAVAILABLE });
+    expect(HIDE_NO_EPG_UNAVAILABLE).toBe('Available after the TV guide has been downloaded.');
+  });
+
+  it('says so when the source has no guide at all', () => {
+    expect(hideNoEpgRow(none, false)).toEqual({ disabled: true, value: 'Off', help: HIDE_NO_EPG_NO_GUIDE });
+    expect(hideNoEpgRow(none, true).value).toBe('Off');
+    expect(HIDE_NO_EPG_NO_GUIDE).toBe('This source has no TV guide.');
+  });
+
+  it('is a toggle once the guide is there', () => {
+    expect(hideNoEpgRow(known, false)).toEqual({ disabled: false, value: 'Off', help: HIDE_NO_EPG_HELP });
+    expect(hideNoEpgRow(known, true).value).toBe('On');
+    expect(HIDE_NO_EPG_HELP).toBe('Channels with no programme information are hidden everywhere except your lists.');
+  });
+});
+
+describe('listMoveTarget', () => {
+  it('Favourites (first) never moves', () => {
+    expect(listMoveTarget(0, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(0, 1, 4)).toBeUndefined();
+  });
+
+  it('a list never moves above Favourites', () => {
+    expect(listMoveTarget(1, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(2, -1, 4)).toBe(1);
+  });
+
+  it('the last list cannot move down', () => {
+    expect(listMoveTarget(3, 1, 4)).toBeUndefined();
+    expect(listMoveTarget(2, 1, 4)).toBe(3);
+  });
+
+  it('out-of-range indexes do not move', () => {
+    expect(listMoveTarget(-1, 1, 4)).toBeUndefined();
+    expect(listMoveTarget(4, -1, 4)).toBeUndefined();
+    expect(listMoveTarget(1, 1, 2)).toBeUndefined();
+  });
+});
+
+describe('listActions', () => {
+  const ids = (items: { id: string }[]) => items.map((i) => i.id);
+
+  it('Favourites: rename only (cannot be moved or deleted)', () => {
+    expect(ids(listActions('fav', 0, 3))).toEqual(['rename', 'cancel']);
+  });
+
+  it('a middle list can move both ways and be deleted', () => {
+    expect(ids(listActions('l-a', 1, 3))).toEqual(['rename', 'moveDown', 'delete', 'cancel']);
+    expect(ids(listActions('l-b', 2, 4))).toEqual(['rename', 'moveUp', 'moveDown', 'delete', 'cancel']);
+    expect(ids(listActions('l-c', 3, 4))).toEqual(['rename', 'moveUp', 'delete', 'cancel']);
+  });
+
+  it('labels', () => {
+    expect(listActions('l-b', 2, 4).map((i) => i.label)).toEqual(['Rename…', 'Move up', 'Move down', 'Delete…', 'Cancel']);
   });
 });

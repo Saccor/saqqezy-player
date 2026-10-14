@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { initialRoute, offlineAfter, toastFor, toastPriority } from './events.ts';
+import { initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
 
 const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS };
 
@@ -36,6 +36,16 @@ describe('toastFor', () => {
       .toBe("Couldn't refresh the TV guide.");
   });
 
+  it('a remote layout change says it came from the phone; a local one shows nothing', () => {
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'remote' })).toBe('Updated from your phone');
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'local' })).toBeUndefined();
+  });
+
+  it('a remote source change says it came from the phone; a local one shows nothing', () => {
+    expect(toastFor({ type: 'sourcesChanged', activeSourceId: 's1', origin: 'remote' })).toBe('Updated from your phone');
+    expect(toastFor({ type: 'sourcesChanged', activeSourceId: 's1', origin: 'local' })).toBeUndefined();
+  });
+
   it('ignores other events', () => {
     expect(toastFor({ type: 'refreshed', what: 'playlist', sourceId: 's' })).toBeUndefined();
     expect(toastFor({ type: 'offline', value: true })).toBeUndefined();
@@ -68,5 +78,40 @@ describe('offlineAfter', () => {
     expect(offlineAfter(false, { type: 'refreshFailed', what: 'epg', sourceId: 's', error: http })).toBe(false);
     expect(offlineAfter(true, { type: 'refreshFailed', what: 'epg', sourceId: 's', error: auth })).toBe(true);
     expect(offlineAfter(true, { type: 'progress', phase: 'epg', count: 1 })).toBe(true);
+  });
+});
+
+describe('sourcesReaction', () => {
+  const one = { activeSourceId: 's1', sources: [{ id: 's1', name: 'A', kind: 'm3u' as const, active: true }] };
+  const none = { sources: [] };
+  const remote = (activeSourceId?: string) => ({ type: 'sourcesChanged' as const, origin: 'remote' as const, ...(activeSourceId ? { activeSourceId } : {}) });
+  const off = { applyState: false, resetToAddSource: false, stopPlayback: false, leavePlayer: false, openHome: false };
+
+  it('ignores changes made on this device: the screen that made them already applied them', () => {
+    expect(sourcesReaction({ type: 'sourcesChanged', origin: 'local', activeSourceId: 's2' }, one, 'settings', true)).toEqual(off);
+  });
+
+  it('a phone switching the active source re-reads the state and stops the old stream', () => {
+    expect(sourcesReaction(remote('s2'), one, 'home', true)).toEqual({ ...off, applyState: true, stopPlayback: true });
+  });
+
+  it('keeps playing when the active source did not change (a source added or renamed) or nothing plays', () => {
+    expect(sourcesReaction(remote('s1'), one, 'home', true)).toEqual({ ...off, applyState: true });
+    expect(sourcesReaction(remote('s2'), one, 'guide', false)).toEqual({ ...off, applyState: true });
+  });
+
+  it('the Player leaves for Home when its stream is stopped', () => {
+    expect(sourcesReaction(remote('s2'), one, 'player', true)).toEqual({ ...off, applyState: true, stopPlayback: true, leavePlayer: true });
+  });
+
+  it('no source left: back to Add source and the stream stops (unless Add source is already open)', () => {
+    expect(sourcesReaction(remote(), one, 'home', true)).toEqual({ ...off, applyState: true, resetToAddSource: true, stopPlayback: true });
+    expect(sourcesReaction(remote(), one, 'addSource', false)).toEqual({ ...off, applyState: true });
+    expect(sourcesReaction(remote(), one, 'player', true).leavePlayer).toBe(false);
+  });
+
+  it('the first source arriving while Add source is the empty root opens Home', () => {
+    expect(sourcesReaction(remote('s1'), none, 'addSource', false)).toEqual({ ...off, applyState: true, openHome: true });
+    expect(sourcesReaction(remote('s2'), one, 'addSource', false)).toEqual({ ...off, applyState: true });
   });
 });

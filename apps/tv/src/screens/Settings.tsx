@@ -9,6 +9,7 @@ import { ChannelsPage } from './settings/ChannelsPage.tsx';
 import { DiagnosticsPage } from './settings/DiagnosticsPage.tsx';
 import { DisplayPage } from './settings/DisplayPage.tsx';
 import { GuidePage } from './settings/GuidePage.tsx';
+import { ManageOnPhonePage } from './settings/ManageOnPhonePage.tsx';
 import { PlaybackPage } from './settings/PlaybackPage.tsx';
 import { consumeSubscreenLeave, type PageProps } from './settings/shared.ts';
 import { SourcesPage } from './settings/SourcesPage.tsx';
@@ -58,7 +59,7 @@ function Menu(props: { ref: (el: ElementNode) => void; selected: number; onSelec
 }
 
 /**
- * Settings: a left menu of eight pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
+ * Settings: a left menu of nine pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
  * it, Left/Back return to the menu, Back on the menu leaves. Pages share the confirm dialog, the action menu
  * and the busy panel owned here (each a Back layer through `router.pushOverlay`, except busy, which ignores Back).
  */
@@ -177,6 +178,7 @@ export function SettingsScreen() {
       <Text x={PAGE_X + 28} y={MENU_Y + 8} fontSize={FONT.heading} color={COLORS.text}>{title()}</Text>
       <Switch>
         <Match when={id() === 'sources'}><SourcesPage {...pageProps()} /></Match>
+        <Match when={id() === 'phone'}><ManageOnPhonePage {...pageProps()} /></Match>
         <Match when={id() === 'guide'}><GuidePage {...pageProps()} /></Match>
         <Match when={id() === 'playback'}><PlaybackPage {...pageProps()} /></Match>
         <Match when={id() === 'channels'}><ChannelsPage {...pageProps()} /></Match>

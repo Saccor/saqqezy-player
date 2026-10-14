@@ -1,4 +1,33 @@
-# Backlog (after v1)
+# Backlog (after v1.1)
+
+## Next: mobile app (sub-project, approved)
+
+The next piece of work after v1.1, approved by the user. Start with a brainstorm and a spec
+(`docs/superpowers/specs/`), as usual.
+
+- **What:** a phone app for Android and iOS, built with **Capacitor**, that looks like the TV app (same colours,
+  type and layout language, adapted to touch).
+- **It can:**
+  - **watch**: the user's own sources, with the same core (`@iptv/core`, `@iptv/app-api`) and a native player;
+  - **manage**: sources, lists, groups and display, like the companion web app (`apps/companion`);
+  - **pair with the TV**: scan the TV's QR code with the camera (or type the code) and manage the TV over the same
+    end-to-end encrypted relay (`@iptv/companion-protocol`).
+- **Questions for the brainstorm:** how much of `apps/companion` can be reused as-is; the native player on each
+  platform (Media3 on Android, AVPlayer on iOS) versus a web player; where pairing secrets live on the phone
+  (never persisted across sessions today); store rules for a neutral player (guardrails 1–4 apply to the store
+  listings); one licence per account.
+
+## Done in v1.1
+
+Organisation and the companion (Plans 3 and 4):
+
+- **Lists:** Favourites plus your own lists; add, remove, reorder and rename, on the TV and on the companion.
+- **Groups:** order, hide and show, rename; **channels:** rename, hide, and per-group sort (provider order / number /
+  A–Z) or a custom order by dragging. (Was "Sort options" in the features table.)
+- **Hide channels without TV guide.**
+- **Manage on phone or computer** (was "Phone QR setup"): QR or 12-character code pairing, end-to-end encrypted
+  (AES-GCM, PBKDF2 for codes), a Cloudflare relay that stores nothing, and the companion web app for sources, lists,
+  groups and display. Deployment: [deploy-companion.md](deploy-companion.md).
 
 Items deliberately left out of v1. Evidence comes from the user-needs research,
 [`research/user-needs-2026-10.md`](research/user-needs-2026-10.md) (section numbers below refer to it). Legal
@@ -9,19 +38,17 @@ credentials stay on the device.
 
 | Item | Why | Evidence | Notes |
 |---|---|---|---|
-| **Parental PIN** (locked groups/channels) | Competitors ship it; a family-TV differentiator | Research §1 #18, §2; [Televizo changelog](https://apkmirror.com/apk/andrey-menscikov/televizo-iptv-player/televizo-iptv-player-1-9-2-3-release), [Airo IPTV PIN](https://github.com/zigorminsk-debug/IP-TV-player/pull/1) | PIN stored locally only |
+| **Parental PIN** (locked groups/channels) | Competitors ship it; a family-TV differentiator | Research §1 #18, §2; Televizo changelog (no link), [Airo IPTV PIN](https://github.com/zigorminsk-debug/IP-TV-player/pull/1) | PIN stored locally only |
 | **User-Agent / Referer setting** applied to playlist, guide **and** stream requests | Header-gated lists load but fail in playback when only the list fetch sends them | Research §1 #8, §2, §5; [iptvnator #1221](https://github.com/4gray/iptvnator/issues/1221) | **Caveat:** limited on Tizen web apps (the web layer restricts headers; check AVPlay `setStreamingProperty` support first) |
 | **Quality cap** (Auto / 720p / 1080p) | Weak TV chips overheat or stutter on high bitrates | Research §1 #23, §2; [StreamVault #263](https://github.com/Davidona/StreamVault-IPTV/issues/263) | |
 | **Local XMLTV file** (and paste-a-URL, gz / double-gz tolerant) | Guide data is hosted in odd ways | Research §2; [iptvnator v0.24 notes](https://4gray.github.io/iptvnator/blog/v0-24-release-notes/) | Needs a file picker per platform |
-| **Sort options** (provider order / A–Z / number) | Losing the provider's order is reported as a regression; v1 keeps provider order only | Research §1 #24, §2; [iptvnator v0.24 notes](https://4gray.github.io/iptvnator/blog/v0-24-release-notes/) | |
 | **Catch-up / archive** | Strongest long-running demand | Research §1 #17, §3; [Kodi pvr.iptvsimple issues](https://github.com/kodi-pvr/pvr.iptvsimple/issues?q=is%3Aissue+sort%3Acomments-desc), [iptvnator #1562](https://github.com/4gray/iptvnator/issues/1562) | Start times must use the server's time zone |
 | **Timeshift** (pause / restart live) | Frequently asked for | Research §1 #16, §3; [Kodi pvr.iptvsimple issues](https://github.com/kodi-pvr/pvr.iptvsimple/issues?q=is%3Aissue+sort%3Acomments-desc) | Tizen AVPlay cannot pause live ([note](https://github.com/muratcode/iptv-player-tizen)) |
 | **Recording** | Asked for; competitors' versions are unreliable | Research §3 | Hard in TV web apps (storage, background) |
 | **Multiview** | Premium feature in competitors | Research §3 (low confidence) | One-stream-at-a-time rule must be revisited |
 | **VOD / series** | Dominant in competitor changelogs | Research §3 | Off-scope for v1 by design |
-| **Phone QR setup** (type URLs and logins on the phone) | Typing long URLs with a remote is the stated pain | Research §1 #10, §3; [Tizen player notes](https://github.com/muratcode/iptv-player-tizen), [remote keyboard pain](https://github.com/Dead96/iptvplayer-tizen-tv) | Must not route credentials through our servers in readable form |
-| **Sync** between devices | Same sources on every TV | Research §3 | End-to-end encrypted only (guardrail 7) |
-| **Profiles** | Separate favourites / history per person | Research §3; [OTT Navigator changelog](https://www.apkmirror.com/?p=4127005) | |
+| **Sync** between devices | Same sources on every TV | Research §3 | End-to-end encrypted only (guardrail 7). The companion's pairing and `SecureChannel` are a starting point |
+| **Profiles** | Separate favourites / history per person | Research §3; OTT Navigator changelog (no link) | |
 
 ## Platforms and distribution
 
@@ -49,6 +76,56 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
 - Performance on the TV: cached start to the Channels list under 1 s, key response under 100 ms, smooth with a
   large list (50k channels) and a large guide.
 - Dolby (AC3 / E-AC3) audio plays on the TV (it cannot in desktop browsers).
+- Manage on phone page: the once-a-second countdown redraw does not flicker on the TV's GPU (it re-renders one `Text`
+  node per second). If it does, update the text only when the displayed `mm:ss` changes or render it as a fixed-width node.
+  In the v1.1 end-to-end pass (desktop, in a browser pane that was often hidden) the countdown line was sometimes
+  missing while connected: the renderer held the text node with a loaded texture but `isRenderable` false and an
+  update still pending. It could not be confirmed with a visible, normally running page; check it on the TV.
+- Companion over the deployed relay: pairing from the packaged app (`Origin` null or `file://` for `role=tv`) to
+  `wss://` works; the TV's `CompressionStream` is detected (TV→phone states are compressed only when it exists).
+
+## Companion deployment (first real deploy)
+
+- **First `pnpm relay:deploy`:** confirm the Durable Object migration (`new_sqlite_classes`) applies under
+  `--env production` (the `[[migrations]]` block is top level).
+- **Logging check** in the Cloudflare dashboard after the first deploy (Workers Logs off, no Logpush for the relay
+  host); see [deploy-companion.md](deploy-companion.md) §9.
+- **GDPR review** of the relay (Cloudflare as processor, DPA, privacy policy text) before anyone else uses it.
+
+## v1.1 follow-ups
+
+Open items from the Plan 3 and Plan 4 reviews and the v1.1 end-to-end pass.
+
+Done in the v1.1 final review:
+
+- ~~Companion: the TV does not push source changes made on the TV itself.~~ **Done:** while a companion is
+  connected, the TV pushes a coalesced `state` (300 ms, single-flight, cached) when the active source, the source
+  list or the channel set changes.
+- ~~Companion: `layoutChanged` carries no source id.~~ **Done:** protocol 1 (unshipped) now has `sourceId` on `ops`
+  and `layoutChanged`; ops for a source that is no longer active fail with `WrongSource` and the companion resyncs.
+- ~~App API: a connected companion gets a layout push per zap (`markWatched`).~~ **Done:** a batch that only changed
+  "recently watched" is not pushed. (`markWatched` still writes the whole layout to storage on every zap.)
+- **Done:** one field-limit contract (name `NAME_MAX`, URLs and credentials 8192) for the TV form, the companion form
+  and `validateSourceInput`; the companion validates every request with `isPhoneToTv` before sending it.
+- **Done:** the wordmark hides under in-screen overlays and is drawn after the cold start.
+- **Done:** production builds warn about missing `VITE_RELAY_URL` / `VITE_COMPANION_ORIGIN` (`REQUIRE_PROD_ENV=1`
+  fails them); the API-floor guard covers `crypto.randomUUID`, `TextDecoderStream` and block comments.
+
+Still open:
+
+- Companion: the Sources page's Set active, Edit and Refresh buttons have no source name in their accessible name
+  (Delete has one). Add `aria-label`s like `Set ${name} as active`.
+- App API: `markWatched` writes the whole layout to storage on every zap. Keep "recently watched" out of the
+  stored layout, or debounce the write.
+- App API: `deleteSource` should take the layout lock; `loadLayout` migration runs outside the lock; guide coverage
+  is not updated atomically with the guide generation; no test for a layout op during a refresh.
+- App API: logo URLs from the user's playlist can carry tokens; they go to the companion (end-to-end encrypted). Consider
+  dropping query strings from logos in the companion state.
+- Core: table-driven test for `withLayout` invalidation; document that the index cache reuse relies on
+  copy-on-write layouts.
+- Protocol: sweep the `Reassembler` on `setTransport` / close; use a monotonic clock (`performance.now`) for
+  reassembly and queue ages.
+- Relay: retry the per-IP key derivation when it rejects; `forwardedBytes` wording in the code and README.
 
 ## Remaining technical items
 
@@ -85,3 +162,10 @@ Small items from the implementation reviews that v1 ships without.
 - Input: `captureTextInput` and `unwrapDevProxyResponse` untested.
 - Home: preview panel flickers after the debounce; "No information" gap rows never expire; `stopPreview` naming.
 - Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
+
+## Follow-ups from the v1.1 merge review
+- Source switch can push two full states. Call `companionStale()` once after `activate()` in the source operations.
+- Home `dismissAll()` on remote `sourcesChanged` should only run when the active source actually changed.
+- Background guide/playlist refresh pushes up to two full states to a connected phone; consider a delta or coalescing across both.
+- `getCompanionState` should capture `activeSourceId` together with the index.
+- Tests: an op interleaved with an in-flight `setActiveSource`; `pushState` across a link drop and reconnect; latest-wins guard in `followSources`.

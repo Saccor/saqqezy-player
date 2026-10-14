@@ -4,8 +4,18 @@
     {
       "name": "tv-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
+      "runtimeArgs": [
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "companion-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "companion:dev"
+      ],
+      "port": 5174
     }
   ]
 }

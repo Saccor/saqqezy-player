@@ -1,0 +1,16 @@
+{
+  "name": "@iptv/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --ip 127.0.0.1 --port 8787 --var RELAY_TTL_UNPAIRED_MS:60000",
+    "test:int": "node scripts/integration.mjs",
+    "deploy": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261014.1",
+    "wrangler": "4.151.0",
+    "ws": "8.22.0"
+  }
+}

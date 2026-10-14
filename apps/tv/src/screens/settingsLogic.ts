@@ -4,10 +4,11 @@ import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { AppSettings } from '@iptv/core';
 
 export type SettingsPageId =
-  | 'sources' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
+  | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
 
 export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = [
   { id: 'sources', title: 'Sources' },
+  { id: 'phone', title: 'Manage on phone or computer' },
   { id: 'guide', title: 'TV guide' },
   { id: 'playback', title: 'Playback' },
   { id: 'channels', title: 'Channels' },
@@ -85,14 +86,61 @@ export function rollbackTarget<T>(previous: T | undefined, seq: number, latestSe
 
 const KIND_LABEL: Record<string, string> = { xtream: 'Xtream', m3u: 'M3U' };
 
+/** Raw display and engine facts for Diagnostics, gathered by `readDeviceInfo` (all optional; nothing is required). */
+export interface DeviceInfo {
+  innerWidth?: number;
+  innerHeight?: number;
+  screenWidth?: number;
+  screenHeight?: number;
+  devicePixelRatio?: number;
+  /** `designScale()` from the video layer. */
+  designScale?: number;
+  userAgent?: string;
+  /** Tizen only: `tizen.systeminfo` platform.version capability. */
+  tizenPlatformVersion?: string;
+  /** Tizen only: `webapis.productinfo.getRealModel()`. */
+  tizenModel?: string;
+}
+
+const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+const size = (w?: number, h?: number): string => (isNum(w) && isNum(h) ? `${Math.round(w)}\u00d7${Math.round(h)}` : 'unknown');
+/** Short, safe text from a platform string: printable ASCII only, capped. */
+const clean = (v: string): string => v.replace(/[^\x20-\x7e]/g, '').trim().slice(0, 40);
+
+/** Only the Tizen and Chrome version substrings of a user agent (never the whole string). */
+export function uaVersions(ua: string | undefined): string {
+  const tizen = /Tizen[ /](\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
+  const chrome = /Chrom(?:e|ium)\/(\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
+  const parts = [tizen ? `Tizen ${tizen}` : '', chrome ? `Chrome ${chrome}` : ''].filter(Boolean);
+  return parts.length > 0 ? parts.join(' \u00b7 ') : 'unknown';
+}
+
+/** Display and engine lines: viewport, screen, pixel ratio, design scale, (Tizen) platform version and model, engine. */
+export function screenLines(d: DeviceInfo, platform: string): [string, string][] {
+  const scale = isNum(d.designScale) ? d.designScale.toFixed(2) : 'unknown';
+  const ratio = isNum(d.devicePixelRatio) ? String(Math.round(d.devicePixelRatio * 100) / 100) : 'unknown';
+  const lines: [string, string][] = [
+    ['Viewport', `${size(d.innerWidth, d.innerHeight)} \u00b7 design scale ${scale}`],
+    ['Screen', `${size(d.screenWidth, d.screenHeight)} \u00b7 pixel ratio ${ratio}`],
+  ];
+  if (platform === 'tizen') {
+    const version = d.tizenPlatformVersion ? clean(d.tizenPlatformVersion) : '';
+    const model = d.tizenModel ? clean(d.tizenModel) : '';
+    lines.push(['Device', `Tizen ${version || 'version unknown'} \u00b7 ${model || 'model unknown'}`]);
+  }
+  lines.push(['Engine', uaVersions(d.userAgent)]);
+  return lines;
+}
+
 /**
  * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
  * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
  */
-export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string }): [string, string][] {
+export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo }): [string, string][] {
   const lines: [string, string][] = [
     ['App version', info.appVersion],
     ['Platform', env.platform],
+    ...(env.device ? screenLines(env.device, env.platform) : []),
   ];
   if (info.sources.length === 0) lines.push(['Sources', 'None']);
   info.sources.forEach((s, i) => {
@@ -112,4 +160,51 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string 
     ['Clock', onOff(st.showClock)],
   );
   return lines;
+}
+
+// ---- Channels page: hide-without-guide toggle and "My lists" ----
+
+export const HIDE_NO_EPG_UNAVAILABLE = 'Available after the TV guide has been downloaded.';
+export const HIDE_NO_EPG_NO_GUIDE = 'This source has no TV guide.';
+export const HIDE_NO_EPG_HELP = 'Channels with no programme information are hidden everywhere except your lists.';
+
+/** What the worker knows about the active source's TV guide (`AppApi.guideStatus`). */
+export interface GuideStatus { coverageKnown: boolean; hasGuideUrl: boolean }
+
+/** True once the active source's guide coverage is known (the no-guide filter needs it). */
+export function guideLoaded(status: GuideStatus): boolean {
+  return status.coverageKnown;
+}
+
+/**
+ * The "Hide channels without TV guide" row: disabled until coverage is known, with the reason as help text
+ * ("no TV guide" when the source has no guide address, else "after the guide has been downloaded"). A disabled
+ * toggle always reads "Off", whatever the stored setting.
+ */
+export function hideNoEpgRow(status: GuideStatus, on: boolean): { disabled: boolean; value: string; help: string } {
+  if (status.coverageKnown) return { disabled: false, value: onOff(on), help: HIDE_NO_EPG_HELP };
+  return { disabled: true, value: 'Off', help: status.hasGuideUrl ? HIDE_NO_EPG_UNAVAILABLE : HIDE_NO_EPG_NO_GUIDE };
+}
+
+/**
+ * Where "Move up" (-1) / "Move down" (+1) takes the list at `index` of `count` lists, or undefined when it
+ * cannot move. Favourites is always first and never moves, so no list moves above it.
+ */
+export function listMoveTarget(index: number, dir: 1 | -1, count: number): number | undefined {
+  if (index < 1 || index >= count) return undefined;
+  const to = index + dir;
+  return to >= 1 && to < count ? to : undefined;
+}
+
+export type ListActionId = 'rename' | 'moveUp' | 'moveDown' | 'delete' | 'cancel';
+
+/** Actions for a list on the Channels page. Favourites can be renamed but not moved or deleted. */
+export function listActions(listId: string, index: number, count: number): { id: ListActionId; label: string }[] {
+  const fav = listId === 'fav';
+  const out: { id: ListActionId; label: string }[] = [{ id: 'rename', label: 'Rename…' }];
+  if (!fav && listMoveTarget(index, -1, count) !== undefined) out.push({ id: 'moveUp', label: 'Move up' });
+  if (!fav && listMoveTarget(index, 1, count) !== undefined) out.push({ id: 'moveDown', label: 'Move down' });
+  if (!fav) out.push({ id: 'delete', label: 'Delete…' });
+  out.push({ id: 'cancel', label: 'Cancel' });
+  return out;
 }

@@ -70,9 +70,8 @@ Samsung only installs apps that are signed with a certificate made for **your** 
 
 ## Step 4: Build and install the app
 
-1. Once only: open `apps/tv/tizen/config.xml` in a text editor and replace both `XXXXXXXXXX` with your own
-   10-character package ID (letters and digits). The easiest way to get one: in Tizen Studio create a new
-   "TV > Web Application > Basic Project", and copy the package ID from that project's `config.xml`.
+1. The package ID is already set (`IptvPlyr01`, app ID `IptvPlyr01.IptvPlayer`). A package ID is exactly 10
+   letters or digits; the build checks the format. You do not need to change it.
 2. In a terminal, in the app's folder, build the signed package with your **profile name**:
 
    - Mac / Linux:
@@ -96,6 +95,10 @@ Samsung only installs apps that are signed with a certificate made for **your** 
    ```
 
 4. The app appears on the TV's Apps screen as **IPTV Player**. Open it and add your source in Settings.
+
+Without the Tizen CLI, `pnpm build:tizen` still makes an **unsigned** package, `dist-tizen/IPTV-Player-unsigned.wgt`,
+which Apps2Samsung can sign and install (see [install-on-odyssey-g9.md](install-on-odyssey-g9.md), which works for
+any Samsung TV or monitor in developer mode).
 
 To update the app later, repeat step 4 (points 2 and 3). The TV must still be in developer mode with your
 computer's IP address.

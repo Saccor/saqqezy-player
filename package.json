@@ -10,16 +10,24 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:perf": "vitest run --config vitest.perf.config.ts",
-    "typecheck": "tsc -p packages/core && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p packages/platform && tsc -p packages/player && tsc -p apps/tv",
+    "typecheck": "tsc -p packages/core && tsc -p packages/companion-protocol && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p services/relay && tsc -p packages/platform && tsc -p packages/player && tsc -p apps/tv && tsc -p apps/companion",
     "fake-xtream": "pnpm --filter @iptv/fake-xtream start",
     "dev": "node scripts/dev.mjs",
     "build:tv": "pnpm --filter @iptv/tv build",
-    "build:tizen": "node tools/tizen/build-wgt.mjs"
+    "build:tizen": "node tools/tizen/build-wgt.mjs",
+    "companion:dev": "pnpm --filter @iptv/companion dev",
+    "build:companion": "pnpm --filter @iptv/companion build",
+    "relay:dev": "pnpm --filter @iptv/relay run dev",
+    "relay:test:int": "node services/relay/scripts/integration.mjs",
+    "relay:deploy": "pnpm --filter @iptv/relay run deploy",
+    "fake-phone": "node --import tsx scripts/dev/fake-phone.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "4.23.15",
     "typescript": "~5.6.3",
     "vitest": "~2.1.8",
-    "@types/node": "^22.10.0"
+    "ws": "8.22.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTapSequence, formatClock, msToNextMinute, toastOnExpiry, toastOnShow } from './logic.ts';
+import {
+  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  toastOnShow,
+} from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -96,5 +99,66 @@ describe('toast precedence', () => {
 
   it('expiry with nothing waiting clears the toast', () => {
     expect(toastOnExpiry({ current: low('a') })).toEqual({});
+  });
+});
+
+describe('showWordmark', () => {
+  it('shows on every browsing screen while the video is not fullscreen', () => {
+    for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
+      expect(showWordmark(route, false, false)).toBe(true);
+    }
+  });
+
+  it('shows before any screen is open (loading, init error)', () => {
+    expect(showWordmark(undefined, false, false)).toBe(true);
+  });
+
+  it('hides in the Player', () => {
+    expect(showWordmark('player', false, false)).toBe(false);
+    expect(showWordmark('player', true, false)).toBe(false);
+  });
+
+  it('hides whenever the video rect is fullscreen, whatever the screen', () => {
+    expect(showWordmark('home', true, false)).toBe(false);
+    expect(showWordmark('search', true, false)).toBe(false);
+    expect(showWordmark(undefined, true, false)).toBe(false);
+  });
+
+  it('hides while an in-screen overlay (keyboard, menu, picker, dialog) is open', () => {
+    expect(showWordmark('addSource', false, true)).toBe(false);
+    expect(showWordmark('home', false, true)).toBe(false);
+  });
+});
+
+describe('screenOverlayOpen', () => {
+  it("counts the screens' own overlays from the router stack, not the shell's toast or exit question", () => {
+    expect(screenOverlayOpen([])).toBe(false);
+    expect(screenOverlayOpen([TOAST_OVERLAY_ID])).toBe(false);
+    expect(screenOverlayOpen([EXIT_OVERLAY_ID, TOAST_OVERLAY_ID])).toBe(false);
+    expect(screenOverlayOpen(['keyboard'])).toBe(true);
+    expect(screenOverlayOpen([TOAST_OVERLAY_ID, 'menu'])).toBe(true);
+  });
+});
+
+describe('deferWordmark', () => {
+  const base = { route: undefined, initFailed: false, startupMarked: false, waitedOut: false } as const;
+
+  it('waits while Home (or the boot before it) has not painted its first rows', () => {
+    expect(deferWordmark(base)).toBe(true);
+    expect(deferWordmark({ ...base, route: 'home' })).toBe(true);
+  });
+
+  it('draws once the startup metric is marked', () => {
+    expect(deferWordmark({ ...base, route: 'home', startupMarked: true })).toBe(false);
+  });
+
+  it('draws at once on screens that never mark startup (first run, init error)', () => {
+    expect(deferWordmark({ ...base, route: 'addSource' })).toBe(false);
+    expect(deferWordmark({ ...base, initFailed: true })).toBe(false);
+    expect(deferWordmark({ ...base, route: 'settings' })).toBe(false);
+  });
+
+  it('draws after the safety wait even if Home never shows rows', () => {
+    expect(deferWordmark({ ...base, route: 'home', waitedOut: true })).toBe(false);
   });
 });

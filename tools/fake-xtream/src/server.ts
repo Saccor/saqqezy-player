@@ -2,13 +2,20 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { channels, GROUPS, m3u, slots, TEST_STREAM, xmltv } from './data.ts';
 
-export interface FakeXtreamOptions { port?: number; channels?: number; now?: () => number }
+export interface FakeXtreamOptions {
+  port?: number;
+  channels?: number;
+  /** Only the first N channels get guide data in the XMLTV (default: all). */
+  epgChannels?: number;
+  now?: () => number;
+}
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const chs = channels(opts.channels ?? 200);
   const now = opts.now ?? Date.now;
+  const guided = chs.slice(0, opts.epgChannels ?? chs.length);
   let base = '';
 
   const send = (res: ServerResponse, status: number, body: string, type = 'application/json') => {
@@ -76,7 +83,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     if (url.pathname === '/xmltv.php') {
       if (!valid) return send(res, 401, '');
       res.writeHead(200, { 'content-type': 'application/xml' });
-      for (const part of xmltv(chs, now())) res.write(part);
+      for (const part of xmltv(guided, now())) res.write(part);
       return res.end();
     }
 

@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { SourceSummary } from '@iptv/app-api';
-import { api } from '../../api.ts';
+import { api, onEvent } from '../../api.ts';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';
@@ -110,7 +110,12 @@ export function SourcesPage(props: PageProps) {
     else if (choice === 'delete') await remove(s);
   };
 
-  onMount(() => void load());
+  // A paired phone changed the sources while this page is open: re-read the list.
+  onMount(() => {
+    void load();
+    const off = onEvent('sourcesChanged', () => void load());
+    onCleanup(off);
+  });
   onCleanup(() => { alive = false; props.register(undefined); });
 
   return (

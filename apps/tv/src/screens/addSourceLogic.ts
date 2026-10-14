@@ -3,6 +3,25 @@
 import type { NewSource, SourceConfig } from '@iptv/core';
 
 export const DEFAULT_NAME = 'My TV';
+
+/**
+ * Field limits, shared with the phone companion's contract: the name limit is `NAME_MAX` in @iptv/core, the others
+ * the companion protocol's `MAX_FIELD_LEN`. Copied as numbers because neither package may enter the main-thread
+ * bundle; addSourceLogic.test.ts checks that they agree.
+ */
+export const SOURCE_NAME_MAX = 60;
+export const URL_MAX = 8192;
+export const FIELD_MAX: Readonly<Record<string, number>> = {
+  name: SOURCE_NAME_MAX, server: URL_MAX, username: URL_MAX, password: URL_MAX, playlistUrl: URL_MAX, epgUrl: URL_MAX,
+};
+export const NAME_TOO_LONG = `Use a name of ${SOURCE_NAME_MAX} characters or fewer.`;
+
+/** Cuts `v` to at most `max` UTF-16 units (the protocol's measure) without splitting a surrogate pair. */
+export function clampField(v: string, max: number): string {
+  if (v.length <= max) return v;
+  const code = v.charCodeAt(max - 1);
+  return v.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max);
+}
 export const GENERIC_ERROR = 'Something went wrong. Please try again.';
 
 export interface XtreamForm { name: string; server: string; username: string; password: string }
@@ -23,9 +42,11 @@ export function isHttpUrl(s: string): boolean {
 }
 
 const nameOf = (name: string) => name.trim() || DEFAULT_NAME;
+const nameTooLong = (name: string) => name.trim().length > SOURCE_NAME_MAX;
 
 /** The password is kept exactly as typed (it may legitimately contain spaces); everything else is trimmed. */
 export function validateXtream(f: XtreamForm): Validation<XtreamForm> {
+  if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
   const server = f.server.trim();
   const username = f.username.trim();
   if (!server) return { ok: false, field: 'server', message: 'Enter the server address.' };
@@ -38,6 +59,7 @@ export function validateXtream(f: XtreamForm): Validation<XtreamForm> {
 }
 
 export function validateM3u(f: M3uForm): Validation<M3uForm> {
+  if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
   const playlistUrl = f.playlistUrl.trim();
   const epgUrl = f.epgUrl.trim();
   if (!playlistUrl) return { ok: false, field: 'playlistUrl', message: 'Enter the playlist URL.' };

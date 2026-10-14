@@ -1,69 +1,264 @@
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
-import type { ChannelRow } from '@iptv/app-api';
-import { api } from '../../api.ts';
+import type { ChannelRow, ListSummary } from '@iptv/app-api';
+// Type-only: @iptv/core must stay out of the main-thread bundle.
+import type { GroupInfo, LayoutOp } from '@iptv/core';
+import { api, onEvent } from '../../api.ts';
+import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
+import { router } from '../../shell/router.ts';
+import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { settings } from '../../state/appState.ts';
-import { AUTO_REFRESH_OPTIONS, autoRefreshLabel, cycleOption } from '../settingsLogic.ts';
+import { limitTyping, validateListName } from '../homeMenuLogic.ts';
+import {
+  AUTO_REFRESH_OPTIONS, autoRefreshLabel, cycleOption, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
+  type GuideStatus,
+} from '../settingsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
-const NONE_ID = '__none';
+const KEYBOARD_ID = 'channelsKeyboard';
+const NOTE_H = 72;
+const LIST_PREFIX = 'list:';
+const GROUP_PREFIX = 'group:';
+const CHANNEL_PREFIX = 'channel:';
+const NONE = 'none';
+const RETRY = 'retry';
+const NO_GUIDE: GuideStatus = { coverageKnown: false, hasGuideUrl: false };
 
-/** Channels: auto-refresh interval, then the hidden channels (Ok shows one again). */
+interface PageData {
+  hideNoEpg: boolean;
+  guide: GuideStatus;
+  /** The last load failed: show a retry row instead of (empty) lists. */
+  failed?: boolean;
+  lists: ListSummary[];
+  hiddenGroups: GroupInfo[];
+  hiddenChannels: ChannelRow[];
+}
+
+/** "Rename…" of a list: the on-screen keyboard over the page. */
+interface EditState { listId: string; current: string; value: string; error?: string }
+
+const countLabel = (n: number) => (n === 1 ? '1 channel' : `${n} channels`);
+
+/**
+ * Channels: auto-refresh interval, "Hide channels without TV guide", the user's lists (rename, move, delete),
+ * hidden provider groups and hidden channels (Ok shows one again), and a note about organising from a phone.
+ */
 export function ChannelsPage(props: PageProps) {
-  const [hidden, setHidden] = createSignal<ChannelRow[] | undefined>(undefined);
+  const [data, setData] = createSignal<PageData | undefined>(undefined);
   const [sel, setSel] = createSignal(0);
+  const [edit, setEdit] = createSignal<EditState | undefined>(undefined);
   let alive = true;
+  /** Bumped by every `load()`; only the newest call may apply its data (an older one finishing late is stale). */
+  let loadSeq = 0;
+  let listNode: ElementNode | undefined;
+  let keyboardNode: ElementNode | undefined;
+  let removeKeyboard: (() => void) | undefined;
   const auto = (): number => settings()?.autoRefreshHours ?? 12;
 
   const load = async () => {
+    const seq = ++loadSeq;
     try {
-      const rows = await api.hiddenChannels();
-      if (alive) setHidden(rows);
+      const [layout, lists, hiddenGroups, hiddenChannels, guide] = await Promise.all([
+        api.getLayout(), api.listLists(), api.hiddenGroups(), api.hiddenChannels(), api.guideStatus(),
+      ]);
+      if (!alive || seq !== loadSeq) return;
+      setData({ hideNoEpg: layout.hideNoEpg, guide, lists, hiddenGroups, hiddenChannels });
     } catch (err) {
-      console.warn('Hidden channels failed', err instanceof Error ? err.name : 'Error');
-      if (alive) setHidden([]);
+      console.warn('Channels page failed', err instanceof Error ? err.name : 'Error');
+      if (alive && seq === loadSeq) {
+        setData({ hideNoEpg: false, guide: NO_GUIDE, failed: true, lists: [], hiddenGroups: [], hiddenChannels: [] });
+      }
     }
   };
 
   const items = (): SettingItem[] => {
-    const list = hidden();
-    const rest: SettingItem[] = list === undefined
-      ? [{ id: NONE_ID, label: 'Loading hidden channels…' }]
-      : list.length === 0
-        ? [{ id: NONE_ID, label: 'No hidden channels', help: 'Hide channels from the channel options' }]
-        : list.map((c) => ({ id: c.id, label: `${c.number} · ${c.name}`, value: 'Hidden', help: 'Ok: show this channel again' }));
-    return [
+    const d = data();
+    const noEpg = hideNoEpgRow(d?.guide ?? NO_GUIDE, d?.hideNoEpg ?? false);
+    const out: SettingItem[] = [
       { id: 'auto', label: 'Refresh channels and guide', value: autoRefreshLabel(auto()), adjustable: true,
         help: 'How often the list is downloaded again' },
-      ...rest,
+      { id: 'noEpg', label: 'Hide channels without TV guide', value: noEpg.value, adjustable: !noEpg.disabled,
+        disabled: noEpg.disabled, help: noEpg.help },
     ];
+    if (!d) return [...out, { id: NONE, label: 'Loading…' }];
+    if (d.failed) return [...out, { id: RETRY, label: "Couldn't load channel settings. Press OK to retry." }];
+    out.push({ id: 'h:lists', label: 'My lists', heading: true });
+    for (const l of d.lists) {
+      out.push({ id: LIST_PREFIX + l.id, label: l.name, value: countLabel(l.count),
+        help: l.id === 'fav' ? 'Ok: rename' : 'Ok: rename, move or delete' });
+    }
+    out.push({ id: 'h:groups', label: 'Hidden groups', heading: true });
+    if (d.hiddenGroups.length === 0) out.push({ id: `${NONE}:groups`, label: 'No hidden groups' });
+    for (const g of d.hiddenGroups) {
+      out.push({ id: GROUP_PREFIX + g.id, label: g.name, value: 'Hidden', help: 'Ok: show this group again' });
+    }
+    out.push({ id: 'h:channels', label: 'Hidden channels', heading: true });
+    if (d.hiddenChannels.length === 0) {
+      out.push({ id: `${NONE}:channels`, label: 'No hidden channels', help: 'Hide channels from the channel options' });
+    }
+    for (const c of d.hiddenChannels) {
+      out.push({ id: CHANNEL_PREFIX + c.id, label: `${c.number} · ${c.name}`, value: 'Hidden',
+        help: 'Ok: show this channel again' });
+    }
+    return out;
+  };
+
+  /** Keeps the selection on `id` after a reload (else on the same row, clamped). */
+  const reloadKeeping = async (id?: string) => {
+    await load();
+    if (!alive) return;
+    const list = items();
+    const i = id === undefined ? -1 : list.findIndex((it) => it.id === id);
+    setSel((cur) => (i >= 0 ? i : Math.min(cur, list.length - 1)));
+  };
+
+  /** Applies layout ops; false (after a toast) when the worker refused any. */
+  const applyOps = async (ops: LayoutOp[], failure: string): Promise<boolean> => {
+    try {
+      const res = await api.applyLayoutOps(ops);
+      if (res.rejected.length === 0) return true;
+      console.warn('Layout change refused', res.rejected.map((x) => x.reason).join(', '));
+    } catch (err) {
+      console.warn('Layout change failed', err instanceof Error ? err.name : 'Error');
+    }
+    if (alive) showToast(failure);
+    return false;
+  };
+
+  const toggleNoEpg = async () => {
+    const d = data();
+    if (!d || !guideLoaded(d.guide)) return;
+    if (await applyOps([{ op: 'setHideNoEpg', value: !d.hideNoEpg }], "Couldn't change the setting.")) {
+      await reloadKeeping('noEpg');
+    }
   };
 
   const onAdjust = (id: string, dir: 1 | -1) => {
-    if (id !== 'auto') return false;
-    void saveSetting({ autoRefreshHours: cycleOption<number>(AUTO_REFRESH_OPTIONS, auto(), dir) });
-    return true;
-  };
-  const onOk = async (id: string) => {
-    if (id === 'auto') { onAdjust(id, 1); return; }
-    if (id === NONE_ID) return;
-    try {
-      await api.toggleHidden(id);
-      showToast('Channel shown again');
-    } catch (err) {
-      console.warn('Unhide failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't change this channel.");
+    if (id === 'auto') {
+      void saveSetting({ autoRefreshHours: cycleOption<number>(AUTO_REFRESH_OPTIONS, auto(), dir) });
+      return true;
     }
-    await load();
-    if (alive) setSel((i) => Math.min(i, items().length - 1));
+    if (id === 'noEpg') {
+      const d = data();
+      if (!d || !guideLoaded(d.guide)) return false; // disabled: Left still returns to the menu
+      void toggleNoEpg();
+      return true;
+    }
+    return false;
   };
 
-  onMount(() => void load());
-  onCleanup(() => { alive = false; props.register(undefined); });
+  // ---- list rename keyboard (a Back layer: Back closes it and returns to the list) ----
+
+  const focusList = () => queueMicrotask(() => { if (alive && !edit()) listNode?.setFocus(); });
+  const closeKeyboard = () => {
+    removeKeyboard = undefined;
+    setEdit(undefined);
+    focusList();
+    // Events skipped while the keyboard was open are applied now.
+    void reloadKeeping(items()[sel()]?.id);
+  };
+  const dismissKeyboard = () => { if (edit()) { removeKeyboard?.(); closeKeyboard(); } };
+  const openKeyboard = (l: ListSummary) => {
+    setEdit({ listId: l.id, current: l.name, value: l.name });
+    removeKeyboard = router.pushOverlay(KEYBOARD_ID, closeKeyboard);
+    queueMicrotask(() => keyboardNode?.setFocus());
+  };
+  const submitRename = async () => {
+    const e = edit();
+    if (!e) return;
+    const v = validateListName(e.value);
+    if (v.ok && v.name === e.current) { dismissKeyboard(); return; } // unchanged: nothing to store
+    // Shown in the keyboard (not a toast, which would be a Back layer above it).
+    if (!v.ok) { setEdit({ ...e, error: v.message }); return; }
+    dismissKeyboard();
+    if (await applyOps([{ op: 'renameList', listId: e.listId, name: v.name }], "Couldn't rename the list.")) {
+      showToast('List renamed');
+      await reloadKeeping(LIST_PREFIX + e.listId);
+    }
+  };
+
+  const onList = async (listId: string) => {
+    const lists = data()?.lists ?? [];
+    const index = lists.findIndex((l) => l.id === listId);
+    const l = lists[index];
+    if (!l) return;
+    const choice = await props.choose(l.name, listActions(l.id, index, lists.length));
+    if (!alive || !choice) return;
+    if (choice === 'rename') { openKeyboard(l); return; }
+    if (choice === 'moveUp' || choice === 'moveDown') {
+      const to = listMoveTarget(index, choice === 'moveUp' ? -1 : 1, lists.length);
+      if (to === undefined) return;
+      if (await applyOps([{ op: 'moveList', listId: l.id, toIndex: to }], "Couldn't move the list.")) {
+        await reloadKeeping(LIST_PREFIX + l.id);
+      }
+      return;
+    }
+    if (choice === 'delete') {
+      if (!(await props.confirm(`Delete the list "${l.name}"? The channels stay in your playlist.`, 'Delete'))) return;
+      if (await applyOps([{ op: 'deleteList', listId: l.id }], "Couldn't delete the list.")) {
+        showToast('List deleted');
+        await reloadKeeping();
+      }
+    }
+  };
+
+  const onOk = async (id: string) => {
+    if (id === 'auto' || id === 'noEpg') { onAdjust(id, 1); return; }
+    if (id === RETRY) { setData(undefined); await reloadKeeping(RETRY); return; }
+    if (id.startsWith(LIST_PREFIX)) { await onList(id.slice(LIST_PREFIX.length)); return; }
+    if (id.startsWith(GROUP_PREFIX)) {
+      if (await applyOps([{ op: 'unhideGroups', ids: [id.slice(GROUP_PREFIX.length)] }], "Couldn't show this group.")) {
+        showToast('Group shown again');
+        await reloadKeeping();
+      }
+      return;
+    }
+    if (id.startsWith(CHANNEL_PREFIX)) {
+      if (await applyOps([{ op: 'unhideChannels', ids: [id.slice(CHANNEL_PREFIX.length)] }], "Couldn't change this channel.")) {
+        showToast('Channel shown again');
+        await reloadKeeping();
+      }
+    }
+  };
+
+  onMount(() => {
+    void load();
+    const offs = [
+      // A phone changed the layout, or a guide download made the no-guide filter available.
+      // Changes made on this page re-read on their own.
+      onEvent('layoutChanged', (e) => {
+        if ((e as { origin?: string }).origin === 'remote' && !edit()) void reloadKeeping(items()[sel()]?.id);
+      }),
+      onEvent('refreshed', () => { if (!edit()) void reloadKeeping(items()[sel()]?.id); }),
+    ];
+    onCleanup(() => { for (const off of offs) off(); });
+  });
+  onCleanup(() => {
+    alive = false;
+    removeKeyboard?.();
+    router.removeOverlay(KEYBOARD_ID);
+    props.register(undefined);
+  });
+
   return (
-    <SettingsList ref={props.register} x={props.x} y={props.y} width={props.width} height={props.height}
-      items={items()} selected={sel()} onSelect={setSel} onAdjust={onAdjust} onOk={(id) => void onOk(id)}
-      onLeftEdge={props.onLeftEdge} />
+    <>
+      <SettingsList ref={(el) => { listNode = el; props.register(el); }} x={props.x} y={props.y} width={props.width}
+        height={props.height - NOTE_H} items={items()} selected={sel()} onSelect={setSel} onAdjust={onAdjust}
+        onOk={(id) => void onOk(id)} onLeftEdge={props.onLeftEdge} />
+      <Text x={props.x + 28} y={props.y + props.height - NOTE_H + 16} width={props.width - 56} maxWidth={props.width - 56}
+        contain="width" maxLines={2} fontSize={FONT.small} color={COLORS.muted}>
+        {"Tip: it's easier to organise channels from your phone. Open Settings → Manage on phone or computer."}
+      </Text>
+      <Show when={edit()}>{(e) => (
+        <View x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
+          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
+            label="List name" value={e().value} error={e().error} hint="Done saves · Back cancels"
+            onChange={(v) => { const cur = edit(); if (cur) setEdit({ ...cur, value: limitTyping(cur.value, v), error: undefined }); }}
+            onDone={() => void submitRename()} />
+        </View>
+      )}</Show>
+    </>
   );
 }
