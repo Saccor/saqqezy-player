@@ -9,7 +9,13 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
+      liveDelay: 'balanced',
     });
+  });
+
+  test('liveDelay keeps known values and falls back to balanced', () => {
+    for (const v of ['low', 'balanced', 'stable'] as const) expect(sanitizeSettings({ liveDelay: v }).liveDelay).toBe(v);
+    for (const v of ['fast', 3, null, undefined]) expect(sanitizeSettings({ liveDelay: v }).liveDelay).toBe('balanced');
   });
 
   test('epgOffsetHours clamps to [-12, 12] in 0.5 steps', () => {

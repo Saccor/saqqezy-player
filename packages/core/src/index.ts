@@ -17,7 +17,7 @@ export {
 export { xtreamToChannels } from './xtream/toChannels.ts';
 export { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from './net/timeout.ts';
 export { alternateStreamUrl } from './net/alternate.ts';
-export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings } from './settings.ts';
+export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';

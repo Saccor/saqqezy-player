@@ -2,17 +2,22 @@ import { createSignal, onCleanup } from 'solid-js';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { playback } from '../../playback/playback.ts';
 import { settings } from '../../state/appState.ts';
-import { FORMAT_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, sleepDefaultLabel } from '../settingsLogic.ts';
+import {
+  FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel, sleepDefaultLabel,
+} from '../settingsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
-/** Playback: preferred stream format (TS / HLS) and the default sleep timer. */
+/** Playback: preferred stream format (TS / HLS), live delay and the default sleep timer. */
 export function PlaybackPage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
   const format = () => settings()?.preferredFormat ?? 'ts';
+  const liveDelay = () => settings()?.liveDelay ?? 'balanced';
   const sleep = (): number => settings()?.sleepTimerMinutes ?? 0;
   const items = (): SettingItem[] => [
     { id: 'format', label: 'Preferred stream format', value: formatLabel(format()), adjustable: true,
       help: "If channels don't start, try the other format." },
+    { id: 'liveDelay', label: 'Live delay', value: liveDelayLabel(liveDelay()), adjustable: true,
+      help: 'Low keeps you closer to live but may pause more often on Wi-Fi. Applies from the next channel.' },
     { id: 'sleep', label: 'Default sleep timer', value: sleepDefaultLabel(sleep()), adjustable: true,
       help: 'Starts with every channel you watch full screen' },
   ];
@@ -21,6 +26,11 @@ export function PlaybackPage(props: PageProps) {
       void saveSetting({ preferredFormat: cycleOption(FORMAT_OPTIONS, format(), dir) });
       // The running stream used the old format: the next play (Home resumes it) picks the new one.
       playback.stop();
+      return true;
+    }
+    if (id === 'liveDelay') {
+      // Not applied to the running stream (the engine settings are fixed per open); the next channel uses it.
+      void saveSetting({ liveDelay: cycleOption(LIVE_DELAY_OPTIONS, liveDelay(), dir) });
       return true;
     }
     if (id === 'sleep') {

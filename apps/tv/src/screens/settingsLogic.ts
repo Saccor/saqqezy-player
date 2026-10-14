@@ -22,6 +22,9 @@ export const OFFSET_LIMIT = 12;
 export const OFFSET_STEP = 0.5;
 export const AUTO_REFRESH_OPTIONS = [0, 6, 12, 24] as const;
 export const FORMAT_OPTIONS = ['ts', 'm3u8'] as const;
+export const LIVE_DELAY_OPTIONS = ['low', 'balanced', 'stable'] as const;
+export const liveDelayLabel = (v: AppSettings['liveDelay']): string =>
+  (v === 'low' ? 'Low' : v === 'stable' ? 'Stable' : 'Balanced (default)');
 /** Same choices as the Player's sleep timer (and core's sanitizer). */
 export const SLEEP_DEFAULT_OPTIONS = [0, 15, 30, 60, 90, 120] as const;
 /** Errors shown on the Diagnostics page (most recent first). */
@@ -155,6 +158,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
   lines.push(
     ['Guide offset', offsetLabel(st.epgOffsetHours)],
     ['Stream format', formatLabel(st.preferredFormat)],
+    ['Live delay', liveDelayLabel(st.liveDelay)],
     ['Auto-refresh', autoRefreshLabel(st.autoRefreshHours)],
     ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
     ['Clock', onOff(st.showClock)],

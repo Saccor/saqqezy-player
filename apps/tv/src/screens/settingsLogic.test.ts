@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, screenLines, uaVersions,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
 import {
@@ -109,7 +109,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low' },
   };
 
   it('shows version, platform, sources, errors and settings', () => {
@@ -119,6 +119,7 @@ describe('diagnosticsLines', () => {
     expect(text.some((l) => l.includes('Test') && l.includes('120 channels') && l.includes('2 skipped'))).toBe(true);
     expect(text).toContain('Guide offset: +1.5 h');
     expect(text).toContain('Stream format: HLS (m3u8)');
+    expect(text).toContain('Live delay: Low');
     expect(text).toContain('Auto-refresh: 6 h');
     expect(text).toContain('Sleep timer: 30 min');
     expect(text).toContain('Clock: Off');
@@ -176,10 +177,16 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced' } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
+  });
+});
+
+describe('liveDelayLabel', () => {
+  it('labels each choice', () => {
+    expect(LIVE_DELAY_OPTIONS.map(liveDelayLabel)).toEqual(['Low', 'Balanced (default)', 'Stable']);
   });
 });
 

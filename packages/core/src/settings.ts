@@ -1,9 +1,13 @@
+export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
+
 export interface AppSettings {
   epgOffsetHours: number;
   preferredFormat: 'ts' | 'm3u8';
   autoRefreshHours: number;
   sleepTimerMinutes: number;
   showClock: boolean;
+  /** Closeness to live versus stall resistance (the player's live delay preset). */
+  liveDelay: LiveDelaySetting;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -12,7 +16,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoRefreshHours: 12,
   sleepTimerMinutes: 0,
   showClock: true,
+  liveDelay: 'balanced',
 };
+
+const LIVE_DELAY_CHOICES: readonly LiveDelaySetting[] = ['low', 'balanced', 'stable'];
 
 const AUTO_REFRESH_CHOICES = [0, 6, 12, 24];
 const SLEEP_CHOICES = [0, 15, 30, 60, 90, 120];
@@ -36,5 +43,8 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     autoRefreshHours: oneOf(src.autoRefreshHours, AUTO_REFRESH_CHOICES, DEFAULT_SETTINGS.autoRefreshHours),
     sleepTimerMinutes: oneOf(src.sleepTimerMinutes, SLEEP_CHOICES, DEFAULT_SETTINGS.sleepTimerMinutes),
     showClock: typeof src.showClock === 'boolean' ? src.showClock : DEFAULT_SETTINGS.showClock,
+    liveDelay: LIVE_DELAY_CHOICES.includes(src.liveDelay as LiveDelaySetting)
+      ? (src.liveDelay as LiveDelaySetting)
+      : DEFAULT_SETTINGS.liveDelay,
   };
 }
