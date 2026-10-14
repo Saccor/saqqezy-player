@@ -92,6 +92,8 @@ export class PlaybackSupervisor {
   private refusedBeforePlay = false;
   /** Something played during this play(). */
   private playedThisPlay = false;
+  /** Clock ms of the last `player.open()`, for the minimum gap between connection attempts. */
+  private lastOpenAt = Number.NEGATIVE_INFINITY;
   private sourceKey: string | undefined;
   private attemptCounter = 0;
   private currentAttempt: number | undefined;
@@ -245,6 +247,7 @@ export class PlaybackSupervisor {
   // ---- attempts ----
 
   private openCurrent(): void {
+    this.lastOpenAt = this.now();
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
@@ -461,7 +464,14 @@ export class PlaybackSupervisor {
       return;
     }
     this.fails++;
-    if (this.fails >= this.policy.failuresBeforeAlternate && this.nextUrl(inline)) return;
+    if (this.fails >= this.policy.failuresBeforeAlternate) {
+      if (this.nextUrl(inline)) return;
+      // Never started on any format: stop quietly instead of knocking on the source again and again.
+      if (!this.playedThisPlay) {
+        this.terminal('unavailable');
+        return;
+      }
+    }
     const delays = this.policy.reconnectDelaysMs;
     this.scheduleReconnect(delays[Math.min(this.fails - 1, delays.length - 1)] ?? 0, inline);
   }
@@ -481,7 +491,7 @@ export class PlaybackSupervisor {
     this.reconnects++;
     this.player.holdLastFrame?.();
     this.startSpinner();
-    const wait = this.jitter(delayMs);
+    const wait = Math.max(this.jitter(delayMs), this.gapWait());
     if (inline && wait === 0) {
       this.player.stop();
       this.openCurrent();
@@ -510,7 +520,8 @@ export class PlaybackSupervisor {
       this.emit({ kind: 'loading' });
       this.openCurrent();
     };
-    if (inline) {
+    const wait = this.gapWait();
+    if (inline && wait === 0) {
       switchNow();
       return true;
     }
@@ -519,15 +530,21 @@ export class PlaybackSupervisor {
       this.retryTimer = undefined;
       if (gen !== this.gen || !this.active) return;
       switchNow();
-    }, 0);
+    }, wait);
     return true;
+  }
+
+  /** How long until another connection attempt is allowed (the minimum gap since the last open). */
+  private gapWait(): number {
+    return Math.max(0, Math.ceil(this.policy.minOpenGapMs - (this.now() - this.lastOpenAt)));
   }
 
   private terminal(reason: 'unavailable' | 'unsupported' | 'refused'): void {
     this.clearTimers();
     this.endAttempt();
     this.emit({ kind: 'failed', reason });
-    if (reason === 'unavailable') {
+    // Background retries only bring back a stream that was playing; a channel that never started stays stopped.
+    if (reason === 'unavailable' && this.playedThisPlay) {
       this.givingUp = true;
       this.giveUpSince = this.now();
       this.scheduleGiveUpRetry();

@@ -77,20 +77,25 @@ describe('PlaybackSupervisor: starting and failing', () => {
     expect(player.setLiveProfile).toHaveBeenCalledWith({ preset: 'stable', targetS: 6, allowRate: true });
   });
 
-  it('the first reconnect is immediate and holds the last frame; later ones back off 0.5 s, 1 s, 2 s', () => {
+  it('the first reconnect waits 1 s and holds the last frame; later ones back off 2 s, 4 s', () => {
     const { player, sup } = setup();
     sup.play(A);
+    player.emit('playing');
     player.emit('error', { code: 'NETWORK' });
     expect(player.holdLastFrame).toHaveBeenCalled();
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(2);
+    player.emit('playing');
     player.emit('error', { code: 'NETWORK' });
-    vi.advanceTimersByTime(499);
+    vi.advanceTimersByTime(1999);
     expect(player.opened).toHaveLength(2);
     vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(3);
+    player.emit('playing');
     player.emit('error', { code: 'NETWORK' });
-    vi.advanceTimersByTime(999);
+    vi.advanceTimersByTime(3999);
     expect(player.opened).toHaveLength(3);
     vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(4);
@@ -99,25 +104,43 @@ describe('PlaybackSupervisor: starting and failing', () => {
   it('applies jitter from the injected random source', () => {
     const { player, sup } = setup({ random: () => 1 }); // +20 %
     sup.play(A);
-    player.emit('error'); vi.advanceTimersByTime(0);
+    player.emit('playing');
     player.emit('error');
-    vi.advanceTimersByTime(599);
+    vi.advanceTimersByTime(1199);
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toHaveLength(2);
+    player.emit('playing');
+    player.emit('error');
+    vi.advanceTimersByTime(2399);
     expect(player.opened).toHaveLength(2);
     vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(3);
   });
 
   it('shows "reconnecting" only after 1 s without playing; a quick recovery shows nothing', () => {
-    const { player, sup, statuses } = setup();
+    // The shortest reconnect wait is now 1 s, the same as the spinner delay, so with the default a reconnect
+    // shows the spinner at once; a longer spinner delay keeps the "quick recovery shows nothing" case testable.
+    const d = setup();
+    d.sup.play(A);
+    d.player.emit('playing');
+    d.player.emit('error');
+    vi.advanceTimersByTime(999);
+    expect(d.statuses.at(-1)).toEqual({ kind: 'playing' });
+    vi.advanceTimersByTime(1);
+    expect(d.statuses.at(-1)).toEqual({ kind: 'reconnecting', attempt: 1 });
+    d.sup.dispose();
+
+    const { player, sup, statuses } = setup({ policy: { showSpinnerAfterMs: 1500 } });
     sup.play(A);
     player.emit('playing');
     player.emit('error');
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000); // reconnected within the spinner delay
     player.emit('playing');
     vi.advanceTimersByTime(2000);
     expect(statuses.map((s) => s.kind)).toEqual(['loading', 'playing']);
-    player.emit('error'); // second failure in a row: retried after 500 ms, still not playing at 1 s
-    vi.advanceTimersByTime(999);
+    player.emit('error'); // second failure in a row: retried after 2 s, still not playing at 1.5 s
+    vi.advanceTimersByTime(1499);
     expect(statuses.at(-1)).toEqual({ kind: 'playing' });
     vi.advanceTimersByTime(1);
     expect(statuses.at(-1)).toEqual({ kind: 'reconnecting', attempt: 2 });
@@ -127,20 +150,22 @@ describe('PlaybackSupervisor: starting and failing', () => {
     for (const alt of [B, [B]] as const) {
       const { player, sup, statuses } = setup();
       sup.play(A, alt);
-      player.emit('error'); vi.advanceTimersByTime(0);
+      player.emit('error'); vi.advanceTimersByTime(1000);
       player.emit('error');
-      vi.advanceTimersByTime(0); // the switch runs one macrotask after the player's event
+      vi.advanceTimersByTime(999); // the switch waits for the 1 s gap since the last open
+      expect(player.opened.at(-1)).toBe(A);
+      vi.advanceTimersByTime(1);
       expect(player.opened.at(-1)).toBe(B);
       expect(statuses.at(-1)).toEqual({ kind: 'loading' });
       sup.dispose();
     }
   });
 
-  it('UNSUPPORTED goes to the alternate at once, then fails as unsupported', () => {
+  it('UNSUPPORTED goes to the alternate after the 1 s gap, then fails as unsupported', () => {
     const { player, sup, statuses } = setup();
     sup.play(A, B);
     player.emit('error', { code: 'UNSUPPORTED' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, B]);
     player.emit('error', { code: 'UNSUPPORTED' });
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unsupported' });
@@ -150,7 +175,7 @@ describe('PlaybackSupervisor: starting and failing', () => {
     const { player, sup } = setup();
     player.throwOnOpen = { code: 'UNSUPPORTED' };
     sup.play(A, B);
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, B]);
   });
 
@@ -158,13 +183,13 @@ describe('PlaybackSupervisor: starting and failing', () => {
     const { player, sup, statuses } = setup();
     sup.play(A, B);
     player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
     expect(player.opened).toEqual([A, A]);
     player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, B]);
-    player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
     player.emit('error', { code: 'AUTH' });
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
   });
@@ -174,9 +199,9 @@ describe('PlaybackSupervisor: starting and failing', () => {
     const { player, sup, statuses } = setup();
     sup.play(A, B);
     player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, B]);
     player.emit('error', { code: 'NETWORK' });
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
@@ -189,17 +214,17 @@ describe('PlaybackSupervisor: starting and failing', () => {
     sup.play(A, B);
     player.emit('playing');
     player.emit('error', { code: 'AUTH' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     player.emit('error', { code: 'NETWORK' });
     expect(statuses.at(-1)).not.toEqual({ kind: 'failed', reason: 'refused' });
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened.length).toBeGreaterThan(2);
   });
 
-  it('EOS reconnects at once and never counts toward the alternate switch', () => {
+  it('EOS reconnects after the 1 s gap and never counts toward the alternate switch', () => {
     const { player, sup } = setup();
     sup.play(A, B);
-    for (let i = 0; i < 3; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(0); }
+    for (let i = 0; i < 3; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
     expect(player.opened).toEqual([A, A, A, A]);
   });
 
@@ -209,7 +234,9 @@ describe('PlaybackSupervisor: starting and failing', () => {
     sup.play(A);
     vi.advanceTimersByTime(3999);
     expect(player.opened).toHaveLength(1);
-    vi.advanceTimersByTime(1);
+    vi.advanceTimersByTime(1); // fails here; the reconnect follows after the 1 s back-off
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toHaveLength(2);
 
     const second = setup();
@@ -218,6 +245,8 @@ describe('PlaybackSupervisor: starting and failing', () => {
     vi.advanceTimersByTime(14_999);
     expect(second.player.opened).toHaveLength(1);
     vi.advanceTimersByTime(1);
+    expect(second.player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
     expect(second.player.opened).toHaveLength(2);
   });
 });
@@ -229,7 +258,9 @@ describe('PlaybackSupervisor: stall ladder while playing', () => {
     player.emit('playing');
     vi.advanceTimersByTime(7750);
     expect(player.opened).toHaveLength(1);
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(250); // the backstop decides here; the reconnect follows after 1 s
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toHaveLength(2);
   });
 
@@ -261,30 +292,35 @@ describe('PlaybackSupervisor: stall ladder while playing', () => {
     player.emit('playing');
     vi.advanceTimersByTime(2250);
     expect(player.opened).toHaveLength(1);
-    vi.advanceTimersByTime(250);
+    vi.advanceTimersByTime(250); // decided here; the reconnect follows after 1 s
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toHaveLength(2);
   });
 
-  it('30 s of stable play restores the immediate first retry', () => {
+  it('30 s of stable play restores the 1 s first retry', () => {
     const { player, sup } = setup();
     sup.play(A);
     player.emit('playing');
-    player.emit('error'); vi.advanceTimersByTime(0); // failure 1
+    player.emit('error'); vi.advanceTimersByTime(1000); // failure 1
     player.emit('playing');
     playFor(player, 30_000);
     player.emit('error');
-    vi.advanceTimersByTime(0);
-    expect(player.opened).toHaveLength(3); // delay 0 again, not 500 ms
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toHaveLength(3); // 1 s again, not the 2 s of a second failure
   });
 
-  it('runs out of budget after 6 reconnects in a minute, then retries every 15 s and recovers', () => {
+  it('runs out of budget after 6 reconnects in a minute, then retries every 30 s and recovers', () => {
     const { player, sup, statuses } = setup();
     sup.play(A);
-    for (let i = 0; i < 6; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(0); }
+    player.emit('playing'); // background retries are only for a stream that played
+    for (let i = 0; i < 6; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
     expect(player.opened).toHaveLength(7);
     player.emit('error', { code: 'EOS' });
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
-    vi.advanceTimersByTime(14_999);
+    vi.advanceTimersByTime(29_999);
     expect(player.opened).toHaveLength(7);
     vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(8);
@@ -292,18 +328,21 @@ describe('PlaybackSupervisor: stall ladder while playing', () => {
     expect(statuses.at(-1)).toEqual({ kind: 'playing' });
   });
 
-  it('give-up retries stop after 5 minutes and on stop()', () => {
+  it('give-up retries stop after 3 minutes and on stop()', () => {
     const { player, sup } = setup();
     sup.play(A);
-    for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(0); }
-    for (let i = 0; i < 25; i++) { vi.advanceTimersByTime(15_000); player.emit('error'); }
+    player.emit('playing');
+    for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    for (let i = 0; i < 10; i++) { vi.advanceTimersByTime(30_000); player.emit('error'); }
     const n = player.opened.length;
+    expect(n).toBeLessThanOrEqual(7 + 6); // 3 minutes at one try per 30 s
     vi.advanceTimersByTime(60_000);
     expect(player.opened).toHaveLength(n);
 
     const other = setup();
     other.sup.play(A);
-    for (let i = 0; i < 7; i++) { other.player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(0); }
+    other.player.emit('playing');
+    for (let i = 0; i < 7; i++) { other.player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
     other.sup.stop();
     vi.advanceTimersByTime(60_000);
     expect(other.player.opened).toHaveLength(7);
@@ -396,7 +435,9 @@ describe('PlaybackSupervisor: live delay', () => {
     player.emit('playing');
     sup.goLive();
     expect(player.seekToLive).toHaveBeenCalledWith(3);
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(2);
   });
 
@@ -598,7 +639,7 @@ describe('PlaybackSupervisor: final fixes', () => {
     vi.advanceTimersByTime(0);
     expect(player.opened).toEqual([A, A]);
     player.emit('error', { code: 'NETWORK' }); // the first real failure: retried on A, not the alternate
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, A]);
   });
 
@@ -618,7 +659,9 @@ describe('PlaybackSupervisor: final fixes', () => {
     sup.play(A, B);
     player.emit('error', { code: 'UNSUPPORTED' });
     expect(player.opened).toEqual([A]); // never torn down inside the engine callback
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
     expect(player.opened).toEqual([A, B]);
     expect(statuses.at(-1)).toEqual({ kind: 'loading' });
 
@@ -626,7 +669,77 @@ describe('PlaybackSupervisor: final fixes', () => {
     s.sup.play(A, B);
     s.player.emit('error', { code: 'UNSUPPORTED' });
     s.sup.stop();
-    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1000);
     expect(s.player.opened).toEqual([A]);
+  });
+});
+
+describe('PlaybackSupervisor: gentle on sources (single-connection accounts)', () => {
+  it('never opens the stream again sooner than 1 s after the last open, whatever failed', () => {
+    for (const code of ['NETWORK', 'EOS'] as const) {
+      const { player, sup } = setup();
+      sup.play(A);
+      player.emit('playing');
+      player.emit('error', { code });
+      vi.advanceTimersByTime(999);
+      expect(player.opened).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(player.opened).toHaveLength(2);
+      sup.dispose();
+    }
+  });
+
+  it('backs off 1 s, 2 s, 4 s between repeated failures of a stream that had played', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    player.emit('playing');
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    expect(player.opened).toHaveLength(2);
+    player.emit('error'); vi.advanceTimersByTime(1999);
+    expect(player.opened).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toHaveLength(3);
+    player.emit('error'); vi.advanceTimersByTime(3999);
+    expect(player.opened).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toHaveLength(4);
+  });
+
+  it('switches to the alternate no sooner than 1 s after the last open', () => {
+    const { player, sup } = setup();
+    sup.play(A, B);
+    player.emit('error', { code: 'UNSUPPORTED' });
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, B]);
+  });
+
+  it('a channel that never started gets two tries per format, then stops for good', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A, B);
+    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(5000); }
+    expect(player.opened).toEqual([A, A, B, B]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(player.opened).toEqual([A, A, B, B]);
+  });
+
+  it('a stream that played and then dropped is retried in the background every 30 s for 3 minutes', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A);
+    player.emit('playing');
+    for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+    const n = player.opened.length;
+    vi.advanceTimersByTime(28_999); // the loop already advanced 1 s after the give-up began
+    expect(player.opened).toHaveLength(n);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toHaveLength(n + 1);
+    for (let i = 0; i < 10; i++) { player.emit('error'); vi.advanceTimersByTime(30_000); }
+    const m = player.opened.length;
+    expect(m).toBeLessThanOrEqual(n + 6); // 3 minutes at one try per 30 s
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(player.opened).toHaveLength(m);
   });
 });

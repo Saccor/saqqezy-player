@@ -14,6 +14,12 @@ export interface RecoveryPolicy {
   noBytesStartTimeoutMs: number;
   firstFrameTimeoutMs: number;
   reconnectDelaysMs: number[];
+  /**
+   * No connection attempt sooner than this after the previous one. Most sources allow one connection per account
+   * and release a closed one only after a moment; reconnecting faster is seen as a second connection (403), and
+   * bursts of attempts get accounts blocked.
+   */
+  minOpenGapMs: number;
   jitter: number;
   failuresBeforeAlternate: number;
   stableMs: number;
@@ -34,13 +40,14 @@ export const DEFAULT_POLICY: RecoveryPolicy = {
   backstopStallMs: 8000,
   noBytesStartTimeoutMs: 4000,
   firstFrameTimeoutMs: 15000,
-  reconnectDelaysMs: [0, 500, 1000, 2000, 4000, 5000],
+  reconnectDelaysMs: [1000, 2000, 4000, 8000, 15000],
+  minOpenGapMs: 1000,
   jitter: 0.2,
   failuresBeforeAlternate: 2,
   stableMs: 30000,
   showSpinnerAfterMs: 1000,
-  giveUpRetryEveryMs: 15000,
-  giveUpRetryForMs: 300000,
+  giveUpRetryEveryMs: 30000,
+  giveUpRetryForMs: 180000,
 };
 
 /** What the supervisor remembers between ticks of one playing attempt. */
