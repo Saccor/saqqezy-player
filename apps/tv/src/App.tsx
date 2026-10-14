@@ -15,7 +15,7 @@ import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
-import { showWordmark } from './shell/logic.ts';
+import { EXIT_OVERLAY_ID, screenOverlayOpen, showWordmark } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
@@ -23,7 +23,7 @@ import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { bootstrap, initFailed, offline, platformId, settings, wireEvents } from './state/appState.ts';
 
-const EXIT_ID = 'exitConfirm';
+const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
 const BADGE_H = 48;
 
@@ -46,6 +46,8 @@ export function App() {
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));
+  const [overlayIds, setOverlayIds] = createSignal(router.overlays());
+  onCleanup(router.subscribeOverlays(setOverlayIds));
 
   const [exitOpen, setExitOpen] = createSignal(false);
   let screenHost: ElementNode | undefined;
@@ -98,7 +100,7 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
-      <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen())} />
+      <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))} />
       <Show when={offline()}><OfflineBadge /></Show>
       {/* Hidden until settings are loaded, so a disabled clock never flashes. */}
       <Show when={settings()?.showClock === true}><Clock /></Show>

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTapSequence, formatClock, msToNextMinute, showWordmark, toastOnExpiry, toastOnShow } from './logic.ts';
+import {
+  createTapSequence, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  toastOnShow,
+} from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -102,22 +105,37 @@ describe('toast precedence', () => {
 describe('showWordmark', () => {
   it('shows on every browsing screen while the video is not fullscreen', () => {
     for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
-      expect(showWordmark(route, false)).toBe(true);
+      expect(showWordmark(route, false, false)).toBe(true);
     }
   });
 
   it('shows before any screen is open (loading, init error)', () => {
-    expect(showWordmark(undefined, false)).toBe(true);
+    expect(showWordmark(undefined, false, false)).toBe(true);
   });
 
   it('hides in the Player', () => {
-    expect(showWordmark('player', false)).toBe(false);
-    expect(showWordmark('player', true)).toBe(false);
+    expect(showWordmark('player', false, false)).toBe(false);
+    expect(showWordmark('player', true, false)).toBe(false);
   });
 
   it('hides whenever the video rect is fullscreen, whatever the screen', () => {
-    expect(showWordmark('home', true)).toBe(false);
-    expect(showWordmark('search', true)).toBe(false);
-    expect(showWordmark(undefined, true)).toBe(false);
+    expect(showWordmark('home', true, false)).toBe(false);
+    expect(showWordmark('search', true, false)).toBe(false);
+    expect(showWordmark(undefined, true, false)).toBe(false);
+  });
+
+  it('hides while an in-screen overlay (keyboard, menu, picker, dialog) is open', () => {
+    expect(showWordmark('addSource', false, true)).toBe(false);
+    expect(showWordmark('home', false, true)).toBe(false);
+  });
+});
+
+describe('screenOverlayOpen', () => {
+  it("counts the screens' own overlays from the router stack, not the shell's toast or exit question", () => {
+    expect(screenOverlayOpen([])).toBe(false);
+    expect(screenOverlayOpen([TOAST_OVERLAY_ID])).toBe(false);
+    expect(screenOverlayOpen([EXIT_OVERLAY_ID, TOAST_OVERLAY_ID])).toBe(false);
+    expect(screenOverlayOpen(['keyboard'])).toBe(true);
+    expect(screenOverlayOpen([TOAST_OVERLAY_ID, 'menu'])).toBe(true);
   });
 });

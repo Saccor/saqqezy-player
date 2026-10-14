@@ -1,6 +1,6 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
-import { toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
+import { TOAST_OVERLAY_ID, toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
 import { router } from './router.ts';
 import { COLORS, FONT, LAYOUT } from './theme.ts';
 
@@ -31,7 +31,7 @@ function clear(): void {
 function startWindow(): void {
   stopTimer();
   removeOverlay?.();
-  removeOverlay = router.pushOverlay('toast', clear);
+  removeOverlay = router.pushOverlay(TOAST_OVERLAY_ID, clear);
   timer = setTimeout(expire, TOAST_MS);
 }
 

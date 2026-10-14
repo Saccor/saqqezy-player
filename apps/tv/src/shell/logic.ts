@@ -49,10 +49,24 @@ export function toastOnExpiry(s: ToastState): ToastState {
   return s.pending ? { current: s.pending } : {};
 }
 
+/** Router overlay ids owned by the shell itself (not by a screen). */
+export const TOAST_OVERLAY_ID = 'toast';
+export const EXIT_OVERLAY_ID = 'exitConfirm';
+const SHELL_OVERLAYS: ReadonlySet<string> = new Set([TOAST_OVERLAY_ID, EXIT_OVERLAY_ID]);
+
+/**
+ * True while a screen's own overlay (keyboard, menu, picker, dialog) is on the router's overlay stack. The shell's
+ * toast and exit question do not count: they never sit under the wordmark.
+ */
+export function screenOverlayOpen(overlayIds: readonly string[]): boolean {
+  return overlayIds.some((id) => !SHELL_OVERLAYS.has(id));
+}
+
 /**
  * The brand wordmark shows on every browsing screen (and before any screen exists: loading, init error). It
- * hides in the Player and whenever the video is fullscreen, so it never sits on top of the picture.
+ * hides in the Player and whenever the video is fullscreen, so it never sits on top of the picture, and while a
+ * screen overlay is open, because the shell draws the mark above the screen and so above the screen's overlays.
  */
-export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: boolean): boolean {
-  return route !== 'player' && !rectIsFullscreen;
+export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: boolean, overlayOpen: boolean): boolean {
+  return route !== 'player' && !rectIsFullscreen && !overlayOpen;
 }
