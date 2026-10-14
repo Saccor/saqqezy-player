@@ -37,7 +37,9 @@ export function DebugOverlay() {
   const [heap, setHeap] = createSignal('n/a');
 
   const infoTaps = createTapSequence(3, 2000);
-  const offKey = onLogicalKey((k) => {
+  const offKey = onLogicalKey((k, e) => {
+    // A held Info key auto-repeats; only real presses count as taps.
+    if (e.repeat) return;
     if (k === 'Info' && infoTaps(performance.now())) setVisible((v) => !v);
   });
   const offRaw = onUnmappedKey((e) => {
