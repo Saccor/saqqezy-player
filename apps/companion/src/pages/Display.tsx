@@ -1,4 +1,5 @@
 import { createMemo, Show } from 'solid-js';
+import { sendAndSync } from '../components/controls.ts';
 import { canHideNoEpg } from '../logic/groups.ts';
 import { sendOps } from '../state/actions.ts';
 import { channels, layout, store } from '../state/store.ts';
@@ -26,7 +27,10 @@ export function DisplayPage() {
           <label class="switch big">
             <input type="checkbox" role="switch" checked={on()} disabled={!available() && !on()}
               aria-describedby="hide-no-epg-hint"
-              onChange={(e) => void sendOps([{ op: 'setHideNoEpg', value: e.currentTarget.checked }])} />
+              onChange={(e) => {
+                const el = e.currentTarget;
+                void sendAndSync(() => sendOps([{ op: 'setHideNoEpg', value: el.checked }]), [el], on);
+              }} />
             <span class="switch-track" aria-hidden="true" />
             <span class="switch-label">Hide channels without TV guide</span>
           </label>

@@ -1,4 +1,6 @@
 import { createMemo, createSignal, Show } from 'solid-js';
+import type { LayoutOp } from '@iptv/core';
+import { sendAndSync } from '../components/controls.ts';
 import { InlineRename } from '../components/InlineRename.tsx';
 import { SortableList } from '../components/SortableList.tsx';
 import { createNarrow } from '../components/VirtualList.tsx';
@@ -92,7 +94,11 @@ function GroupsOverview(props: { onOpen: (id: string) => void }) {
                     <label class="switch">
                       <input type="checkbox" role="switch" checked={!g().hidden}
                         aria-label={`Show ${g().name} on TV`}
-                        onChange={(e) => void sendOps([{ op: e.currentTarget.checked ? 'unhideGroups' : 'hideGroups', ids: [g().id] }])} />
+                        onChange={(e) => {
+                          const el = e.currentTarget;
+                          const ops: LayoutOp[] = [{ op: el.checked ? 'unhideGroups' : 'hideGroups', ids: [g().id] }];
+                          void sendAndSync(() => sendOps(ops), [el], () => !g().hidden);
+                        }} />
                       <span class="switch-track" aria-hidden="true" />
                       <span class="switch-text">Show</span>
                     </label>

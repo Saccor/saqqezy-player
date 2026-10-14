@@ -1,6 +1,7 @@
 import { createMemo, createSignal, For, Show } from 'solid-js';
 import type { CompanionChannel } from '@iptv/companion-protocol';
 import type { LayoutOp, SortMode } from '@iptv/core';
+import { sendAndSync } from '../components/controls.ts';
 import { InlineRename } from '../components/InlineRename.tsx';
 import { SortableList } from '../components/SortableList.tsx';
 import { createNarrow } from '../components/VirtualList.tsx';
@@ -38,11 +39,12 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
   const manual = () => (layout() ? hasManualOrder(layout()!, props.groupId) : false);
   const label = (c: CompanionChannel) => channelLabel(c, layout());
 
-  const setMode = (m: SortMode) => {
+  const setMode = (m: SortMode, radio: HTMLInputElement) => {
     const ops: LayoutOp[] = [{ op: 'setSort', groupId: props.groupId, mode: m }];
     // A custom order comes before any sort; choosing a sort means "use this sort", so it replaces it.
     if (manual()) ops.push({ op: 'setChannelOrder', groupId: props.groupId, ids: null });
-    void sendOps(ops);
+    const radios = radio.closest('fieldset')?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [radio];
+    void sendAndSync(() => sendOps(ops), radios, (r) => !manual() && mode() === r.value);
   };
   const reset = () => {
     const ops: LayoutOp[] = [{ op: 'setChannelOrder', groupId: props.groupId, ids: null }];
@@ -74,7 +76,7 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
                 {(s) => (
                   <label>
                     <input type="radio" name="group-sort" value={s.mode} checked={!manual() && mode() === s.mode}
-                      onChange={() => setMode(s.mode)} />
+                      onChange={(e) => setMode(s.mode, e.currentTarget)} />
                     <span>{s.label}</span>
                   </label>
                 )}
@@ -138,7 +140,12 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
                     <div class="srow-actions">
                       <label class="switch">
                         <input type="checkbox" role="switch" checked={!isHidden()} aria-label={`Show ${label(c())} on TV`}
-                          onChange={(e) => void sendOps([{ op: e.currentTarget.checked ? 'unhideChannels' : 'hideChannels', ids: [c().id] }])} />
+                          onChange={(e) => {
+                            const el = e.currentTarget;
+                            const id = c().id;
+                            const ops: LayoutOp[] = [{ op: el.checked ? 'unhideChannels' : 'hideChannels', ids: [id] }];
+                            void sendAndSync(() => sendOps(ops), [el], () => !hidden().has(id));
+                          }} />
                         <span class="switch-track" aria-hidden="true" />
                         <span class="switch-text">Show</span>
                       </label>
