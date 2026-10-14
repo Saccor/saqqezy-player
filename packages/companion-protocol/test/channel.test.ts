@@ -4,6 +4,7 @@ import {
   isPhoneToTv,
   isTvToPhone,
   openFrame,
+  QueueFullError,
   sealMessage,
   SecureChannel,
   toB64Url,
@@ -486,6 +487,49 @@ describe('SecureChannel', () => {
     expect(closes).toEqual([]);
   });
 
+  test('a message that does not fit the transport is rejected whole; the channel stays open', async () => {
+    const { tv, tvT, phone } = await pair();
+    const atPhone = collect(phone);
+    const closes: string[] = [];
+    tv.onClose((r) => closes.push(r));
+    const sizes: number[][] = [];
+    let room = true;
+    tvT.fits = (frameBytes) => {
+      sizes.push([...frameBytes]);
+      return room;
+    };
+    room = false;
+    await expect(tv.send({ t: 'state', state: bigState(1 * MIB) })).rejects.toBeInstanceOf(QueueFullError);
+    expect(sizes[0]!.length).toBeGreaterThan(1); // every frame of the message was checked at once
+    expect(tvT.sent).toHaveLength(0);
+    room = true;
+    await tv.send({ t: 'bye' });
+    await until(() => atPhone.length === 1);
+    expect(atPhone[0]!.msg).toEqual({ t: 'bye' });
+    expect(closes).toEqual([]);
+  });
+
+  test('a QueueFullError from send() rejects that message only', async () => {
+    const { tv, tvT } = await pair();
+    const closes: string[] = [];
+    tv.onClose((r) => closes.push(r));
+    const send = tvT.send.bind(tvT);
+    tvT.send = () => { throw new QueueFullError(); };
+    await expect(tv.send({ t: 'bye' })).rejects.toBeInstanceOf(QueueFullError);
+    tvT.send = send;
+    await tv.send({ t: 'bye' });
+    expect(closes).toEqual([]);
+  });
+
+  test('send() uses a pre-serialised json when given', async () => {
+    const { tv, phone } = await pair();
+    const atPhone = collect(phone);
+    const msg: TvToPhone = { t: 'stateUnchanged', version: 4 };
+    await tv.send(msg, { json: JSON.stringify({ t: 'stateUnchanged', version: 5 }) });
+    await until(() => atPhone.length === 1);
+    expect(atPhone[0]!.msg).toEqual({ t: 'stateUnchanged', version: 5 });
+  });
+
   test('a transport that fails to send closes the channel with reason transport', async () => {
     const { tv, tvT } = await pair();
     const closes: string[] = [];
@@ -500,6 +544,8 @@ describe('isPhoneToTv', () => {
   const valid: PhoneToTv[] = [
     { t: 'hello', client: { kind: 'desktop', label: 'Laptop' } },
     { t: 'getState' },
+    { t: 'getState', haveVersion: 0 },
+    { t: 'ping' },
     { t: 'getSource', id: 'src-1' },
     { t: 'ops', baseVersion: 4, ops: [{ op: 'hideChannels', ids: ['a', 'b'] }, { op: 'setHideNoEpg', value: true }] },
     { t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/list.m3u' } },
@@ -583,6 +629,10 @@ describe('isPhoneToTv', () => {
     expect(isPhoneToTv({ t: 'getSource', id: 5 })).toBe(false);
     expect(isPhoneToTv({ t: 'refresh', what: 'all' })).toBe(false);
     expect(isPhoneToTv({ t: 'getState', extra: 1 })).toBe(false);
+    expect(isPhoneToTv({ t: 'getState', haveVersion: -1 })).toBe(false);
+    expect(isPhoneToTv({ t: 'getState', haveVersion: '3' })).toBe(false);
+    expect(isPhoneToTv({ t: 'getState', haveVersion: 1.5 })).toBe(false);
+    expect(isPhoneToTv({ t: 'ping', at: 1 })).toBe(false);
     expect(isPhoneToTv({ t: 'addSource', input: { kind: 'm3u', name: 'Home' } })).toBe(false);
     expect(isPhoneToTv({ t: 'addSource', input: { kind: 'm3u', id: 'x', name: 'Home', playlistUrl: 'u' } })).toBe(false);
     expect(isPhoneToTv({ t: 'addSource', input: { kind: 'xtream', name: 'X', server: 's', username: 'u' } })).toBe(false);
@@ -597,6 +647,8 @@ describe('isTvToPhone', () => {
     const msgs: TvToPhone[] = [
       { t: 'welcome', tv: { label: 'TV', appVersion: '1.1.0' } },
       { t: 'state', state: bigState(1) },
+      { t: 'state', state: { ...bigState(1), channels: [{ id: 'c', name: 'Same', group: 'g', number: 1, hasEpg: true }] } },
+      { t: 'stateUnchanged', version: 3 },
       { t: 'source', source: { kind: 'm3u', id: 'a', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u' } },
       { t: 'layoutChanged', version: 2, layout: emptyLayout() },
       { t: 'progress', phase: 'epg', count: 10 },
@@ -625,6 +677,10 @@ describe('isTvToPhone', () => {
     for (const x of [
       null, {}, { t: 'getState' }, { t: 'welcome', tv: { label: 'TV' } },
       { t: 'state', state: { version: 1 } },
+      { t: 'state', state: { ...bigState(1), channels: [{ id: 'c', name: 'n', displayName: 3 }] } },
+      { t: 'state', state: { ...bigState(1), channels: [{ id: 'c' }] } },
+      { t: 'stateUnchanged' },
+      { t: 'stateUnchanged', version: -1 },
       { t: 'layoutChanged', version: '2', layout: emptyLayout() },
       { t: 'progress', phase: 'other', count: 1 },
       { t: 'result', requestMsgId: 1, ok: 'yes' },

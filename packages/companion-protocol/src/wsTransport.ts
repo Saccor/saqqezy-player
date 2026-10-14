@@ -1,4 +1,4 @@
-import type { RelayTransport } from './channel.ts';
+import { QueueFullError, type RelayTransport } from './channel.ts';
 
 /**
  * A long-lived relay transport over WebSocket, shared by the TV worker and the companion app.
@@ -13,8 +13,12 @@ import type { RelayTransport } from './channel.ts';
  * - The backoff and the failure window reset only after the first frame arrives on a new socket, or once it
  *   has stayed open for STABLE_MS.
  * - Events from an abandoned socket (replaced or given up) are ignored.
- * - `send()` never throws while reconnecting: frames queue (at most QUEUE_MAX_BYTES, each at most
- *   QUEUE_MAX_AGE_MS old; beyond that it gives up). After a final close `send()` throws.
+ * - While reconnecting (or while pacing), frames queue: at most QUEUE_MAX_BYTES, each at most QUEUE_MAX_AGE_MS old.
+ *   A frame that would push the queue past QUEUE_MAX_BYTES is refused with a non-final `QueueFullError`; nothing
+ *   is queued and the transport stays up. `fits()` lets the channel check a whole message before sending any of
+ *   it. A frame older than QUEUE_MAX_AGE_MS when its socket opens gives up ('queue-overflow').
+ *   After a final close `send()` throws.
+ * - Frames are only dequeued while the socket's `readyState` is OPEN (a CLOSING socket would drop them).
  * - Outgoing frames are paced below the relay's 200 frames per 10 s (pings included, across reconnects).
  * - A 0-byte binary ping goes out every HEARTBEAT_MS while connected; incoming 0-byte frames are ignored.
  * - `binaryType = 'arraybuffer'`; only binary frames are sent and only binary frames are delivered.
@@ -26,6 +30,8 @@ import type { RelayTransport } from './channel.ts';
 /** The parts of the browser WebSocket this transport uses (tests inject a fake). */
 export interface WebSocketLike {
   binaryType: string;
+  /** 0 CONNECTING, 1 OPEN, 2 CLOSING, 3 CLOSED. */
+  readonly readyState: number;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
   onclose: ((ev: { code: number; reason?: string }) => void) | null;
@@ -38,7 +44,7 @@ export interface WebSocketLike {
 export type WebSocketFactory = new (url: string) => WebSocketLike;
 
 export type TransportCloseReason =
-  | 'expired' | 'replaced' | 'too-large' | 'rate-limit' | 'bad-role' | 'protocol'
+  | 'expired' | 'replaced' | 'too-large' | 'rate-limit' | 'quota' | 'bad-role' | 'protocol'
   | 'unreachable' | 'deadline' | 'queue-overflow';
 
 export interface WsTransportOptions {
@@ -62,6 +68,9 @@ export const QUEUE_MAX_AGE_MS = 60_000;
 /** Frames (pings included) per PACE_WINDOW_MS; kept well below the relay's 200 to absorb clock skew. */
 export const PACE_MAX_FRAMES = 180;
 export const PACE_WINDOW_MS = 10_000;
+
+/** WebSocket readyState OPEN. */
+const OPEN = 1;
 
 const FINAL_CODES: ReadonlyMap<number, TransportCloseReason> = new Map([
   [4000, 'expired'],
@@ -118,15 +127,32 @@ export class WebSocketRelayTransport implements RelayTransport {
     this.connect();
   }
 
+  /** Queues one frame and sends what the pacing allows. Throws QueueFullError (non-final) when the queue is full. */
   send(frame: Uint8Array): void {
     if (this.final) throw new Error('transport closed');
+    if (!this.fits([frame.byteLength])) throw new QueueFullError();
     this.queue.push({ frame, at: this.now() });
     this.queuedBytes += frame.byteLength;
-    if (this.queuedBytes > QUEUE_MAX_BYTES) {
-      this.giveUp('queue-overflow');
-      return;
-    }
     this.pump();
+  }
+
+  /**
+   * True when frames of these sizes, sent now in order, would all be accepted: the ones that go straight out
+   * (socket open, queue empty, pacing budget left) need no room; the rest must fit in the queue.
+   */
+  fits(frameBytes: readonly number[]): boolean {
+    if (this.final) return false;
+    let direct = this.isOpen && this.ws?.readyState === OPEN && this.queue.length === 0 ? this.budget(this.now()) : 0;
+    let bytes = this.queuedBytes;
+    for (const n of frameBytes) {
+      if (direct > 0) {
+        direct--;
+        continue;
+      }
+      bytes += n;
+      if (bytes > QUEUE_MAX_BYTES) return false;
+    }
+    return true;
   }
 
   onFrame(fn: (f: Uint8Array) => void): () => void {
@@ -183,7 +209,8 @@ export class WebSocketRelayTransport implements RelayTransport {
     };
     ws.onclose = (ev) => {
       if (this.ws !== ws || this.final) return;
-      const reason = FINAL_CODES.get(ev.code);
+      // 4003 covers the per-role rate, the connect rate and the session quota; only the quota says so.
+      const reason = ev.code === 4003 && ev.reason === 'quota' ? 'quota' : FINAL_CODES.get(ev.code);
       if (reason) this.giveUp(reason);
       else this.dropped();
     };
@@ -200,8 +227,11 @@ export class WebSocketRelayTransport implements RelayTransport {
     this.stable = false;
     this.stableTimer = setTimeout(() => this.markStable(), STABLE_MS);
     this.heartbeatTimer = setInterval(() => this.ping(), HEARTBEAT_MS);
+    const ws = this.ws;
     this.pump();
-    if (reconnect && !this.final) this.fire(this.reconnectedListeners);
+    // pump() may have dropped this socket (a throwing send) or given up: then it is not a reconnect.
+    if (this.ws !== ws || !this.isOpen || this.final) return;
+    if (reconnect) this.fire(this.reconnectedListeners);
   }
 
   private markStable(): void {
@@ -317,6 +347,8 @@ export class WebSocketRelayTransport implements RelayTransport {
     this.paceTimer = undefined;
     const ws = this.ws;
     if (!this.isOpen || !ws || this.final) return;
+    // A CLOSING socket accepts send() and silently drops the data: keep the frames for the next socket.
+    if (ws.readyState !== OPEN) return;
     const now = this.now();
     const head = this.queue[0];
     if (head && now - head.at > QUEUE_MAX_AGE_MS) {
@@ -345,7 +377,7 @@ export class WebSocketRelayTransport implements RelayTransport {
 
   private ping(): void {
     const ws = this.ws;
-    if (!this.isOpen || !ws || this.final) return;
+    if (!this.isOpen || !ws || this.final || ws.readyState !== OPEN) return;
     const now = this.now();
     // Queued frames already count as activity for the relay; a ping must not eat their budget.
     if (this.queue.length || this.budget(now) <= 0) return;

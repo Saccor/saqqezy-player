@@ -1,10 +1,18 @@
 import { isLayoutOpBatch, isValidId, NAME_MAX, MAX_OPS_PER_BATCH, type Layout, type LayoutOp, type NewSource, type SourceConfig } from '@iptv/core';
 import type { CompanionState } from './state.ts';
 
-/** Messages a companion (phone or desktop) sends to the TV. */
+/** How often a connected companion sends `ping`; the TV treats PEER_TIMEOUT_MS of silence as gone. */
+export const PING_INTERVAL_MS = 25_000;
+
+/**
+ * Messages a companion (phone or desktop) sends to the TV.
+ * - `getState.haveVersion`: the `state.version` the companion already holds; the TV may answer `stateUnchanged`.
+ * - `ping`: presence, every PING_INTERVAL_MS while connected. The TV does not answer it.
+ */
 export type PhoneToTv =
   | { t: 'hello'; client: { kind: 'phone' | 'desktop'; label: string } }
-  | { t: 'getState' }
+  | { t: 'getState'; haveVersion?: number }
+  | { t: 'ping' }
   | { t: 'getSource'; id: string }
   | { t: 'ops'; baseVersion: number; ops: LayoutOp[] }
   | { t: 'addSource'; input: NewSource }
@@ -18,6 +26,8 @@ export type PhoneToTv =
 export type TvToPhone =
   | { t: 'welcome'; tv: { label: string; appVersion: string } }
   | { t: 'state'; state: CompanionState }
+  /** Answer to `getState{ haveVersion }`: the companion's copy (that version) is still current. */
+  | { t: 'stateUnchanged'; version: number }
   | { t: 'source'; source: SourceConfig }
   | { t: 'layoutChanged'; version: number; layout: Layout }
   | { t: 'progress'; phase: 'playlist' | 'epg'; count: number }
@@ -144,6 +154,8 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
         && (c['kind'] === 'phone' || c['kind'] === 'desktop') && isStr(c['label']) && c['label'].length <= MAX_LABEL_LEN;
     }
     case 'getState':
+      return hasKeys(x, ['t'], ['haveVersion']) && (x['haveVersion'] === undefined || isCount(x['haveVersion']));
+    case 'ping':
     case 'bye':
       return hasKeys(x, ['t']);
     case 'getSource':
@@ -169,6 +181,12 @@ function isSourceSummary(x: unknown): boolean {
     && (x['kind'] === 'xtream' || x['kind'] === 'm3u') && typeof x['active'] === 'boolean';
 }
 
+/** `displayName` is omitted when it equals `name`; the companion then shows `name`. */
+function isChannelLike(x: unknown): boolean {
+  return isRec(x) && typeof x['id'] === 'string' && typeof x['name'] === 'string'
+    && (x['displayName'] === undefined || typeof x['displayName'] === 'string');
+}
+
 function isLayoutLike(x: unknown): x is Layout {
   return isRec(x) && isCount(x['version']) && Array.isArray(x['lists']);
 }
@@ -179,7 +197,7 @@ function isStateLike(x: unknown): x is CompanionState {
     && (x['activeSourceId'] === undefined || typeof x['activeSourceId'] === 'string')
     && Array.isArray(x['sources']) && x['sources'].every(isSourceSummary)
     && Array.isArray(x['groups']) && x['groups'].every(isRec)
-    && Array.isArray(x['channels']) && x['channels'].every(isRec)
+    && Array.isArray(x['channels']) && x['channels'].every(isChannelLike)
     && isLayoutLike(x['layout'])
     && typeof x['coverageKnown'] === 'boolean';
 }
@@ -199,6 +217,8 @@ export function isTvToPhone(x: unknown): x is TvToPhone {
     }
     case 'state':
       return isStateLike(x['state']);
+    case 'stateUnchanged':
+      return isCount(x['version']);
     case 'source':
       return isSourceShape(x['source'], true, false);
     case 'layoutChanged':

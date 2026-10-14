@@ -193,6 +193,8 @@ export interface SealOptions {
    * never compressed. Default false.
    */
   compress?: boolean;
+  /** `JSON.stringify(json)`, already computed by the caller (e.g. a cached message). Used instead of serialising again. */
+  json?: string;
 }
 
 /** Serialises, optionally compresses, chunks and encrypts one message. Returns the wire frames in order. */
@@ -202,7 +204,7 @@ export async function sealMessage(
   checkSessionId(sessionId);
   dirByte(dir);
   if (!isU32(msgId)) throw new FrameError('bad msgId');
-  const text = JSON.stringify(json) as string | undefined;
+  const text = opts.json ?? (JSON.stringify(json) as string | undefined);
   if (typeof text !== 'string') throw new FrameError('value is not JSON-serialisable');
   let payload = new TextEncoder().encode(text);
   if (payload.length > MAX_MESSAGE_BYTES) throw new FrameError('message too large');

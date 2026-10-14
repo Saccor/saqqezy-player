@@ -12,8 +12,8 @@ export interface CompanionChannel {
   id: string;
   /** The playlist name. */
   name: string;
-  /** The user's rename, or the playlist name. */
-  displayName: string;
+  /** The user's rename. Omitted when it equals `name`: show `displayName ?? name`. */
+  displayName?: string;
   /** Provider group name. */
   group: string;
   number: number;

@@ -1,4 +1,4 @@
-import { openFrame, Reassembler, sealMessage, type Direction } from './frames.ts';
+import { openFrame, Reassembler, sealMessage, type Direction, type SealOptions } from './frames.ts';
 import type { PairingSecrets } from './pairing.ts';
 import { ReplayWindow } from './replay.ts';
 
@@ -15,6 +15,23 @@ export interface FrameTransport {
    * it a fresh transport with `SecureChannel.setTransport` before the old one reports close.
    */
   onClose?(fn: () => void): () => void;
+  /**
+   * Optional capacity check: true when frames of these sizes, sent now in order, would all be accepted.
+   * The channel calls it with every frame of a message before sending any, so a message is never half-sent.
+   */
+  fits?(frameBytes: readonly number[]): boolean;
+}
+
+/**
+ * Thrown by a transport's `send()` (and rejected by `SecureChannel.send`) when a frame or message does not fit
+ * in the reconnect queue. It is message-scoped: nothing of that message was sent, and the transport and the
+ * channel stay open.
+ */
+export class QueueFullError extends Error {
+  constructor() {
+    super('send queue full');
+    this.name = 'QueueFullError';
+  }
 }
 
 /**
@@ -23,8 +40,9 @@ export interface FrameTransport {
  * Contract:
  * - It is long-lived and reconnects internally; the channel keeps using the same instance across drops.
  * - `onClose` fires only on a final give-up (no further reconnect attempts), never on a dropped socket.
- * - `send()` never throws while reconnecting. It queues up to 2 MiB or 60 s of frames; on overflow it gives
- *   up and fires `onClose`.
+ * - `send()` queues while reconnecting, up to 2 MiB and 60 s of frames. A frame that does not fit is refused with
+ *   a non-final `QueueFullError` (nothing queued, the transport stays up); any other throw means it is gone.
+ * - It implements `fits()`, so the channel can refuse a whole message that would not fit.
  * - `onReconnected` fires after each successful reconnect, so the app can resend its state.
  */
 export interface RelayTransport extends FrameTransport {
@@ -133,8 +151,17 @@ export class SecureChannel<Out, In> {
     }
   }
 
-  /** Encrypts and sends one message. Resolves with its msgId once every frame was handed to the transport. */
-  send(msg: Out): Promise<number> {
+  /**
+   * Encrypts and sends one message. Resolves with its msgId once every frame was handed to the transport.
+   *
+   * When the transport cannot take every frame of the message (`fits()` says no, or `send()` throws
+   * QueueFullError), the message is rejected with QueueFullError and the channel stays open; nothing of it was
+   * sent. Its msgId is skipped, which the peer's replay window tolerates. Any other transport error closes
+   * the channel with reason 'transport'.
+   *
+   * `opts.json` is `JSON.stringify(msg)` computed earlier (e.g. a cached state); it saves serialising again.
+   */
+  send(msg: Out, opts: { json?: string } = {}): Promise<number> {
     if (this.closed) return Promise.reject(new ChannelClosedError());
     if (this.nextMsgId > MAX_U32) {
       this.shutdown('msgid-exhausted', true);
@@ -144,14 +171,18 @@ export class SecureChannel<Out, In> {
     this.nextMsgId++;
     const run = this.sendChain.then(async () => {
       if (this.closed) throw new ChannelClosedError();
-      const frames = await sealMessage(
-        this.secrets.key, this.secrets.sessionId, this.outDir, msgId, msg, { compress: this.compress },
-      );
+      const sealOpts: SealOptions = { compress: this.compress };
+      if (opts.json !== undefined) sealOpts.json = opts.json;
+      const frames = await sealMessage(this.secrets.key, this.secrets.sessionId, this.outDir, msgId, msg, sealOpts);
+      if (this.closed) throw new ChannelClosedError();
+      const t = this.transport;
+      // All or nothing: the check and the sends below run in one synchronous step.
+      if (t.fits && !t.fits(frames.map((f) => f.byteLength))) throw new QueueFullError();
       for (const f of frames) {
-        if (this.closed) throw new ChannelClosedError();
         try {
-          this.transport.send(f);
+          t.send(f);
         } catch (e) {
+          if (e instanceof QueueFullError) throw e; // message-scoped; the peer drops the partial message
           this.shutdown('transport', true);
           throw e;
         }
