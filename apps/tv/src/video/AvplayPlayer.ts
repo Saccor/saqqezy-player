@@ -1,6 +1,7 @@
 import type {
   AspectMode, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
 /** The part of Samsung's `webapis.avplay` this player uses (injected, so it is testable without a TV). */
 export interface AvplayLike {
@@ -38,8 +39,8 @@ export type AvplayDisplayMethod =
 
 export interface Size { w: number; h: number }
 
-const DESIGN: Size = { w: 1920, h: 1080 };
-const FULL: Rect = { x: 0, y: 0, w: DESIGN.w, h: DESIGN.h };
+const DESIGN: Size = { w: DESIGN_WIDTH, h: DESIGN_HEIGHT };
+const FULL: Rect = FULLSCREEN;
 const FORCED_RATIO: Partial<Record<AspectMode, number>> = { '16:9': 16 / 9, '4:3': 4 / 3 };
 
 /**
@@ -47,8 +48,9 @@ const FORCED_RATIO: Partial<Record<AspectMode, number>> = { '16:9': 16 / 9, '4:3
  * - `auto`: the rect, AUTO_ASPECT_RATIO (source aspect, fitted).
  * - `stretch`: the rect, FULL_SCREEN (fills it).
  * - `16:9` / `4:3`: a centred box of that ratio contained in the rect, FULL_SCREEN (picture forced to the ratio).
- * - `zoom`: a centred box of the source ratio (16:9 if unknown) that covers the rect, LETTER_BOX; what spills
- *   past the rect is cropped by the screen edge (meant for full screen).
+ * - `zoom`: in full screen, a centred box of the source ratio (16:9 if unknown) that covers the screen,
+ *   LETTER_BOX; what spills past is cropped by the screen edge. In any smaller rect (the Home/Guide preview)
+ *   it falls back to `auto`, because the overflow would be drawn outside the box.
  * The result is converted to `space` (AVPlay's display coordinates) and rounded.
  */
 export function avplayDisplay(
@@ -62,7 +64,7 @@ export function avplayDisplay(
   } else if (forced !== undefined) {
     method = 'PLAYER_DISPLAY_MODE_FULL_SCREEN';
     r = fitRatio(rect, forced, 'contain');
-  } else if (aspect === 'zoom') {
+  } else if (aspect === 'zoom' && isFullscreen(rect)) {
     method = 'PLAYER_DISPLAY_MODE_LETTER_BOX';
     const ratio = sourceAspect !== undefined && Number.isFinite(sourceAspect) && sourceAspect > 0 ? sourceAspect : 16 / 9;
     r = fitRatio(rect, ratio, 'cover');
@@ -72,6 +74,10 @@ export function avplayDisplay(
   return {
     x: Math.round(r.x * sx), y: Math.round(r.y * sy), w: Math.round(r.w * sx), h: Math.round(r.h * sy), method,
   };
+}
+
+function isFullscreen(r: Rect): boolean {
+  return r.x <= 0 && r.y <= 0 && r.x + r.w >= DESIGN.w && r.y + r.h >= DESIGN.h;
 }
 
 function fitRatio(rect: Rect, ratio: number, mode: 'contain' | 'cover'): Rect {
@@ -259,7 +265,10 @@ export class AvplayPlayer implements Player {
     return info;
   }
 
-  /** ms; AVPlay has no position event, so this polls `getCurrentTime()` (last good value if it throws). */
+  /**
+   * ms. Polls `getCurrentTime()` (last good value if it throws); `oncurrentplaytime` also updates the fallback
+   * value, but is not relied on.
+   */
   position(): number {
     if (!this.session) return this.lastPosition;
     try {

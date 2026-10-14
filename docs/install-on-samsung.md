@@ -10,7 +10,8 @@ computer on the **same home network** as the TV. It takes about an hour the firs
 
 - Samsung Smart TVs from **2021 or later** (Tizen 6.0 or newer).
 - Older models (2020 and earlier) are **not supported**: their built-in browser engine is too old for this app.
-  The app may install there but will most likely show a black screen.
+  The package declares Tizen 6.0 as its minimum, so the TV should refuse to install it (see
+  [Troubleshooting](#install-refused-platform-version)).
 - To find your TV's model year, see [Troubleshooting](#how-do-i-find-my-tvs-model-year).
 
 The app plays your own sources only. It does not come with any channels.
@@ -120,10 +121,13 @@ computer's IP address.
   network" or "AP isolation"): use the main network.
 - Try `sdb disconnect` and then `sdb connect <TV-IP>` again.
 
-### The app opens to a black screen
+### Install refused: platform version
 
-- Check the TV's model year (below). Models from 2020 or earlier are not supported.
-- Otherwise please report it: this build has not been tested on a real TV yet.
+- If the install fails with a message about the platform or required version, the TV is older than Tizen 6.0
+  (a 2020 or earlier model). Check the TV's model year (below). These models are not supported.
+- If the TV is 2021 or newer and the app still does not start or shows a black screen, please report it: this
+  build has not been tested on a real TV yet. Settings > Diagnostics shows which player is in use ("AVPlay" or
+  "HTML5").
 
 ### How do I find my TV's model year?
 

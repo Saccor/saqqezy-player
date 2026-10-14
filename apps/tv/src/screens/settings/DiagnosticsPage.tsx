@@ -2,6 +2,7 @@ import { For, Text, View } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
+import { playback } from '../../playback/playback.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { platformId } from '../../state/appState.ts';
@@ -30,7 +31,10 @@ export function DiagnosticsPage(props: PageProps) {
   };
   onMount(() => {
     api.diagnostics().then((info) => {
-      if (alive) setLines(diagnosticsLines(info, { platform: platformId }));
+      if (!alive) return;
+      const all = diagnosticsLines(info, { platform: platformId });
+      all.splice(2, 0, ['Player', playback.playerKind()]);
+      setLines(all);
     }, (err: unknown) => {
       console.warn('Diagnostics failed', err instanceof Error ? err.name : 'Error');
       if (alive) setLines([['Diagnostics', 'Not available']]);

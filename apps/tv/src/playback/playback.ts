@@ -41,8 +41,8 @@ export const videoLayer: { relayout(): void } = stack.layer;
 
 export const supervisor = new PlaybackSupervisor(player);
 
-/** `playChannel`, `stop`, `setRect`, `status` and `current`; status changes also feed the debug overlay. */
-export const playback = createPlaybackController(player, supervisor, setSupervisorStatus);
+/** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
+export const playback = createPlaybackController(player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5');
 
 let previewHeld = false;
 /**

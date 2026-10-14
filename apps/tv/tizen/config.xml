@@ -7,7 +7,7 @@
       copy it from that project's config.xml. The certificate profile you sign with must be the same one
       you created for your TV (see docs/install-on-samsung.md).
     -->
-    <tizen:application id="XXXXXXXXXX.IptvPlayer" package="XXXXXXXXXX" required_version="5.0"/>
+    <tizen:application id="XXXXXXXXXX.IptvPlayer" package="XXXXXXXXXX" required_version="6.0"/>
     <content src="index.html"/>
     <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
     <icon src="icon.png"/>

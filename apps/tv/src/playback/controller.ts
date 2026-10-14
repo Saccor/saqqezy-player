@@ -20,15 +20,20 @@ export interface PlaybackController {
   isLatest(token: number): boolean;
   /** Moves the video only; never touches the stream. */
   setRect(rect: Rect | 'fullscreen'): void;
+  /** Which player is active ("AVPlay" on a Samsung TV, else "HTML5"); shown in Diagnostics so a silent fallback is visible. */
+  playerKind(): PlayerKind;
   status: Accessor<SupervisorStatus | undefined>;
   current: Accessor<PlayableChannel | undefined>;
 }
+
+export type PlayerKind = 'AVPlay' | 'HTML5';
 
 /** Testable core of the `playback` singleton: one player, one supervisor, two signals. */
 export function createPlaybackController(
   player: Pick<Player, 'setRect'>,
   supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
+  kind: PlayerKind = 'HTML5',
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -56,6 +61,7 @@ export function createPlaybackController(
     begin: () => ++token,
     isLatest: (t) => t === token,
     setRect: (rect) => player.setRect(rect),
+    playerKind: () => kind,
     status,
     current,
   };

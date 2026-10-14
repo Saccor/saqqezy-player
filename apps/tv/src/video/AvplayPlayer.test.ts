@@ -301,6 +301,11 @@ describe('avplayDisplay (pure)', () => {
     // Unknown source aspect: assume 16:9, so a 16:9 rect is unchanged.
     expect(avplayDisplay(full, 'zoom', space)).toEqual({ x: 0, y: 0, w: 1920, h: 1080, method: 'PLAYER_DISPLAY_MODE_LETTER_BOX' });
   });
+  test('zoom in a preview rect falls back to auto (no spill outside the box)', () => {
+    const preview = { x: 100, y: 100, w: 640, h: 360 };
+    expect(avplayDisplay(preview, 'zoom', space, 4 / 3))
+      .toEqual({ x: 100, y: 100, w: 640, h: 360, method: 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO' });
+  });
   test('converts to another display space and rounds', () => {
     expect(avplayDisplay({ x: 1, y: 1, w: 3, h: 3 }, 'auto', { w: 1280, h: 720 }))
       .toEqual({ x: 1, y: 1, w: 2, h: 2, method: 'PLAYER_DISPLAY_MODE_AUTO_ASPECT_RATIO' });

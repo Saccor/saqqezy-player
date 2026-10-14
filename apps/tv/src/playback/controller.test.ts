@@ -19,6 +19,12 @@ const ch = (id: string) => ({
 });
 
 describe('playback controller', () => {
+  it('reports the active player kind (HTML5 by default, AVPlay when told)', () => {
+    const f = fakes();
+    expect(createPlaybackController(f.player, f.supervisor).playerKind()).toBe('HTML5');
+    expect(createPlaybackController(f.player, f.supervisor, undefined, 'AVPlay').playerKind()).toBe('AVPlay');
+  });
+
   it('plays through the supervisor with the url and alternate url', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor);
