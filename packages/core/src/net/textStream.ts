@@ -1,18 +1,65 @@
 import { SourceNetworkError } from '../errors.ts';
 
-async function* readAll<T>(stream: ReadableStream<T>): AsyncGenerator<T> {
+export interface BodyReadOptions {
+  /** Abort when no chunk arrives for this long (ms). Off when undefined. */
+  idleMs?: number;
+  /** Cancels the read (the body is cancelled too). */
+  signal?: AbortSignal;
+}
+
+const STALLED = 'The provider stopped sending data.';
+const CANCELLED = 'The download was cancelled.';
+
+/**
+ * One `reader.read()` bounded by the inactivity timeout and the abort signal. On either, the reader is
+ * cancelled (which releases the upstream body) and a `SourceNetworkError` is thrown.
+ */
+async function readChunk<T>(reader: ReadableStreamDefaultReader<T>, opts: BodyReadOptions): Promise<ReadableStreamReadResult<T>> {
+  const { idleMs, signal } = opts;
+  if (idleMs === undefined && !signal) return reader.read();
+  if (signal?.aborted) {
+    await reader.cancel().catch(() => {});
+    throw new SourceNetworkError(CANCELLED);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const stop = new Promise<never>((_resolve, reject) => {
+    if (idleMs !== undefined) timer = setTimeout(() => reject(new SourceNetworkError(STALLED)), idleMs);
+    if (signal) {
+      onAbort = () => reject(new SourceNetworkError(CANCELLED));
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+  const read = reader.read();
+  try {
+    return await Promise.race([read, stop]);
+  } catch (err) {
+    read.catch(() => {});
+    await reader.cancel().catch(() => {});
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+async function* readAll<T>(stream: ReadableStream<T>, opts: BodyReadOptions): AsyncGenerator<T> {
   const reader = stream.getReader();
   let completed = false;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readChunk(reader, opts);
       if (done) { completed = true; return; }
       yield value;
     }
   } finally {
-    // Early exit (consumer break/throw): cancel so the upstream body is released.
+    // Early exit (consumer break/throw, timeout): cancel so the upstream body is released.
     if (!completed) await reader.cancel().catch(() => {});
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // A read may still be pending on engines that reject releaseLock() then; the stream is cancelled anyway.
+    }
   }
 }
 
@@ -42,17 +89,21 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
-// Gzip is decided by magic bytes only: a server may label an already-decoded body as gzip.
-// `url` is kept for API compatibility and intentionally unused.
-export async function* responseText(res: Response, _url: string): AsyncGenerator<string> {
+/**
+ * Decodes a playlist or XMLTV body to text chunks. Gzip is decided by magic bytes only: a server may label an
+ * already-decoded body as gzip. `url` is kept for API compatibility and intentionally unused. With `idleMs`,
+ * a body that sends nothing for that long fails with "The provider stopped sending data." (`SourceNetworkError`)
+ * instead of hanging; `signal` cancels it.
+ */
+export async function* responseText(res: Response, _url: string, opts: BodyReadOptions = {}): AsyncGenerator<string> {
   if (!res.body) throw new SourceNetworkError('The provider sent an empty response.');
   const reader = res.body.getReader();
-  const first = await reader.read();
+  const first = await readChunk(reader, opts);
   if (first.done) return;
   let head = first.value;
   let ended = false;
   while (head.length < 2 && !ended) {
-    const next = await reader.read();
+    const next = await readChunk(reader, opts);
     if (next.done) ended = true;
     else head = concat(head, next.value);
   }
@@ -68,7 +119,7 @@ export async function* responseText(res: Response, _url: string): AsyncGenerator
   }
   // TextDecoder with `stream: true` instead of TextDecoderStream (Chromium 71+), so older TV engines work too.
   const decoder = new TextDecoder();
-  for await (const chunk of readAll(bytes)) {
+  for await (const chunk of readAll(bytes, opts)) {
     const text = decoder.decode(chunk, { stream: true });
     if (text) yield text;
   }

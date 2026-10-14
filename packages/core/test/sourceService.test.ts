@@ -163,6 +163,52 @@ describe('SourceService – robustness', () => {
   });
 });
 
+describe('SourceService – timeouts', () => {
+  test('playlist and guide downloads get 90 s to first byte; API calls 15 s', async () => {
+    const seen: [string, number | undefined][] = [];
+    const recording: FetchFn = async (url, init) => {
+      seen.push([new URL(url).pathname, init?.timeoutMs]);
+      return fetchFn(url, init);
+    };
+    const svc = new SourceService({ storage, fetch: recording, now: () => NOW, newId: () => 't1' });
+    const { source } = await svc.addSource(m3uInput);
+    await svc.refreshEpg(source.id);
+    expect(seen).toEqual([['/p.m3u', 90_000], ['/epg.xml', 90_000]]);
+    seen.length = 0;
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
+    await svc.addSource({ kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' });
+    expect(seen.map(([, ms]) => ms)).toEqual([15_000, 15_000, 15_000]);
+  });
+
+  test('a stalled playlist body fails with a neutral error and releases the source lock', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    routes['/p.m3u'] = () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('#EXTM3U\n')); },
+      pull: () => new Promise<void>(() => {}),
+    }));
+    await expect(svc.refreshPlaylist(source.id)).rejects.toThrow('The provider stopped sending data.');
+    routes['/p.m3u'] = () => new Response(m3u);
+    await expect(svc.refreshPlaylist(source.id)).resolves.toMatchObject({ channelCount: 4 });
+  });
+
+  test('a stalled guide body fails with a neutral error and releases the source lock', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    routes['/epg.xml'] = () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('<tv>')); },
+      pull: () => new Promise<void>(() => {}),
+    }));
+    const err = await svc.refreshEpg(source.id).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The provider stopped sending data.');
+    routes['/epg.xml'] = () => new Response(xml);
+    await expect(svc.refreshEpg(source.id)).resolves.toMatchObject({ programmes: 2 });
+  });
+});
+
 describe('SourceService – xtream', () => {
   const xInput = { kind: 'xtream' as const, name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
 

@@ -1,4 +1,5 @@
 import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { API_TIMEOUT_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
 
 export interface XtreamCategory { id: string; name: string }
@@ -56,8 +57,9 @@ export class XtreamClient {
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`);
-    } catch {
+      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS });
+    } catch (err) {
+      if (err instanceof SourceNetworkError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();

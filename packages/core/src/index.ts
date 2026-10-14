@@ -14,10 +14,10 @@ export {
   type XtreamAccount, type XtreamCategory, type XtreamStream,
 } from './xtream/client.ts';
 export { xtreamToChannels } from './xtream/toChannels.ts';
-export { withTimeout } from './net/timeout.ts';
+export { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from './net/timeout.ts';
 export { alternateStreamUrl } from './net/alternate.ts';
 export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings } from './settings.ts';
-export { responseText } from './net/textStream.ts';
+export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from './epg/window.ts';

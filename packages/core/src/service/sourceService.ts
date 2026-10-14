@@ -5,6 +5,7 @@ import { ChannelIndex, type UserFlags } from '../index/channelIndex.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { responseText } from '../net/textStream.ts';
+import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
 import { splitLines } from '../text/lines.ts';
 import type {
@@ -18,7 +19,14 @@ export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, '
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
 export interface IngestResult { channelCount: number; skipped: number }
 export interface EpgResult { programmes: number; skipped: number }
-export interface SourceServiceDeps { storage: Storage; fetch: FetchFn; now?: () => number; newId?: () => string }
+export interface SourceServiceDeps {
+  storage: Storage;
+  fetch: FetchFn;
+  now?: () => number;
+  newId?: () => string;
+  /** Playlist/XMLTV body inactivity timeout (default `BODY_IDLE_MS`). */
+  bodyIdleMs?: number;
+}
 
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
@@ -30,6 +38,7 @@ export class SourceService {
   private readonly fetchFn: FetchFn;
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly bodyIdleMs: number;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
@@ -40,6 +49,7 @@ export class SourceService {
     this.fetchFn = deps.fetch;
     this.now = deps.now ?? Date.now;
     this.newId = deps.newId ?? defaultId;
+    this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
   }
 
   listSources(): Promise<SourceConfig[]> {
@@ -216,7 +226,7 @@ export class SourceService {
       }
     };
     try {
-      for await (const item of parseXmltv(responseText(res, url), stats)) {
+      for await (const item of parseXmltv(responseText(res, url, { idleMs: this.bodyIdleMs }), stats)) {
         if (item.type === 'channel') {
           matcher.addXmltvChannel(item.id, item.names);
           continue;
@@ -232,7 +242,7 @@ export class SourceService {
         }
       }
       if (batch.length) await store(batch);
-    } catch {
+    } catch (err) {
       try {
         await this.storage.clearProgrammes(newKey);
         await this.storage.setMeta(`epgStaging:${id}`, null);
@@ -240,6 +250,8 @@ export class SourceService {
         // Best-effort cleanup; the original failure is the one worth reporting.
       }
       if (storageFailure) throw (storageFailure as { error: unknown }).error;
+      // Our own neutral messages (stalled body, compressed list on an old TV) are kept.
+      if (err instanceof SourceNetworkError) throw err;
       throw new SourceNetworkError('The guide download was interrupted.');
     }
     stored += batch.length;
@@ -362,8 +374,10 @@ export class SourceService {
   private async get(url: string): Promise<Response> {
     let res: Response;
     try {
-      res = await this.fetchFn(url);
-    } catch {
+      res = await this.fetchFn(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
+    } catch (err) {
+      // A header timeout keeps its own message; anything else means the provider could not be reached.
+      if (err instanceof SourceNetworkError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
@@ -383,7 +397,7 @@ export class SourceService {
     const res = await this.get(source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
     const entries: M3uEntry[] = [];
-    for await (const e of parseM3u(splitLines(responseText(res, source.playlistUrl)), stats)) {
+    for await (const e of parseM3u(splitLines(responseText(res, source.playlistUrl, { idleMs: this.bodyIdleMs })), stats)) {
       entries.push(e);
       if (entries.length % PROGRESS_EVERY === 0) onProgress?.({ phase: 'playlist', count: entries.length });
     }

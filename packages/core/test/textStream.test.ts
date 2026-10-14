@@ -35,6 +35,52 @@ describe('responseText', () => {
     await it.return(undefined);
     expect(cancelled).toBe(true);
   });
+  test('aborts with a neutral error when no chunk arrives for idleMs, and cancels the body', async () => {
+    let cancelled = false;
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (sent) return new Promise<void>(() => {}); // stalls forever
+        sent = true;
+        c.enqueue(new TextEncoder().encode('#EXTM3U\n'));
+        return undefined;
+      },
+      cancel() { cancelled = true; },
+    });
+    const got: string[] = [];
+    const err = await (async () => {
+      for await (const t of responseText(new Response(body), 'http://example.test/x', { idleMs: 30 })) got.push(t);
+    })().catch((e: unknown) => e);
+    expect(got.join('')).toBe('#EXTM3U\n');
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The provider stopped sending data.');
+    expect(cancelled).toBe(true);
+  });
+  test('the idle timeout also covers the first chunk', async () => {
+    const body = new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}) });
+    await expect(collect(responseText(new Response(body), 'http://example.test/x', { idleMs: 20 })))
+      .rejects.toThrow('The provider stopped sending data.');
+  });
+  test('a slow but steady body is not cut off', async () => {
+    let n = 0;
+    const body = new ReadableStream<Uint8Array>({
+      async pull(c) {
+        await new Promise((r) => setTimeout(r, 15));
+        if (n++ < 4) c.enqueue(new TextEncoder().encode('x'));
+        else c.close();
+      },
+    });
+    expect(await collect(responseText(new Response(body), 'http://example.test/x', { idleMs: 60 }))).toBe('xxxx');
+  });
+  test('an abort signal cancels the read', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}), cancel() { cancelled = true; } });
+    const ac = new AbortController();
+    const p = collect(responseText(new Response(body), 'http://example.test/x', { signal: ac.signal }));
+    setTimeout(() => ac.abort(), 10);
+    await expect(p).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(cancelled).toBe(true);
+  });
   test('throws on missing body', async () => {
     await expect(collect(responseText(new Response(null), 'http://example.test/x'))).rejects.toThrow('empty');
   });

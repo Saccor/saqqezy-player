@@ -124,7 +124,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 ## Worker / RPC
 
 - `src/api.ts` does `import CoreWorker from './worker.ts?worker'; const worker = new CoreWorker()`, then `export const { api, on: onEvent } = wrap<AppApi>(worker)`. Vite makes it a module worker in dev and a classic worker in the build (`worker.format: 'iife'`); the built URL is relative to the chunk (`new URL('worker-<hash>.js', import.meta.url)`).
-- `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via rawViaDevProxy)` → `SourceService` → `AppApi`, then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
+- `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via rawViaDevProxy, 15 s)` → `SourceService` → `AppApi` (core asks for 90 s to first byte on playlist/XMLTV downloads and aborts a body after 30 s without data), then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
 - In the production build, `@iptv/core` ends up only in the worker chunk.
 
 ## Dev proxy

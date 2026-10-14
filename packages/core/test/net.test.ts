@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SourceNetworkError } from '../src/errors.ts';
 import { alternateStreamUrl } from '../src/net/alternate.ts';
-import { withTimeout } from '../src/net/timeout.ts';
+import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from '../src/net/timeout.ts';
 import type { FetchFn } from '../src/types.ts';
 
 describe('withTimeout', () => {
@@ -60,6 +60,23 @@ describe('withTimeout', () => {
     expect(inner?.aborted).toBe(false);
     outer.abort();
     expect(inner?.aborted).toBe(true);
+  });
+
+  test('a per-call timeoutMs overrides the default and is not passed on', async () => {
+    const seen: (RequestInit | undefined)[] = [];
+    const never: FetchFn = (_url, init) => { seen.push(init); return new Promise(() => {}); };
+    const started = Date.now();
+    await expect(withTimeout(never, 10_000)('http://example.test/a', { timeoutMs: 20 })).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(seen[0]).not.toHaveProperty('timeoutMs');
+    const late: FetchFn = () => new Promise((r) => setTimeout(() => r(new Response('ok')), 40));
+    expect(await (await withTimeout(late, 10)('http://example.test/a', { timeoutMs: 1000 })).text()).toBe('ok');
+  });
+
+  test('timeouts fit real providers', () => {
+    expect(API_TIMEOUT_MS).toBe(15_000);
+    expect(DOWNLOAD_TIMEOUT_MS).toBe(90_000);
+    expect(BODY_IDLE_MS).toBe(30_000);
   });
 
   test('other fetch errors pass through unchanged', async () => {

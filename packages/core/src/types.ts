@@ -44,4 +44,6 @@ export interface GroupInfo {
   count: number;
 }
 
-export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** `RequestInit` plus a per-call header timeout, honoured (and stripped) by `withTimeout`. */
+export type FetchInit = RequestInit & { timeoutMs?: number };
+export type FetchFn = (url: string, init?: FetchInit) => Promise<Response>;
