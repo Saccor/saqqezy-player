@@ -49,3 +49,38 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
 - Performance on the TV: cached start to the Channels list under 1 s, key response under 100 ms, smooth with a
   large list (50k channels) and a large guide.
 - Dolby (AC3 / E-AC3) audio plays on the TV (it cannot in desktop browsers).
+
+## Remaining technical items
+
+| Item | Notes |
+|---|---|
+| **Multi-tab EPG locking** | Per-source locks live in one worker. Two browser tabs (or a future second worker) can refresh the same source's guide at once. Needs a cross-context lock (Web Locks API where available) or a single owner. |
+| **Tizen file-URL module/worker verification** | The built entry is a module script and the worker is loaded relative to the chunk. Confirm both load from the widget's `file://` URL on a real TV; fallbacks are a Blob / inlined classic worker or `@vitejs/plugin-legacy`. |
+
+## Polish backlog
+
+Small items from the implementation reviews that v1 ships without.
+
+- Core: `redactUrl` matches only lower-case `username` / `password` query keys.
+- Core: search `normalize` does not fold ø, æ or ß.
+- Core: 32-bit `fnv1a` channel ids (collisions are suffixed); consider a wider hash.
+- Core: thin edge-case tests in utils; `uniqueId` not tested end to end through `m3uEntriesToChannels`.
+- M3U: `#EXTGRP` before `#EXTINF` is ignored.
+- Channel index: prefix-first search order untested; duplicate favourite ids not de-duplicated; `byNumber` is O(n).
+- Storage: `done()` loses request-level error detail; channels are stored as one record per source.
+- Xtream: base64 decoding may garble plain-text titles; credential query built twice in the client.
+- EPG: matcher fallback for undeclared ids untested; overlapping "now" programmes depend on order.
+- EPG: migration of legacy (pre-generation) guide data untested.
+- Streams: the `responseText` cancel test is timing-sensitive; its `url` parameter is unused.
+- Fake provider: the XMLTV writer ignores backpressure.
+- Net: `withTimeout` leaves one `{ once }` abort listener per request on a shared signal.
+- App API: `updateSource` / `clearCache` run outside the per-source queue; small gap between deleting a source and clearing its meta keys; `refresh` reads the active source before queuing; `deleteSource` can wait on a long guide refresh (needs a busy state in the UI).
+- App API: a guide that cannot be read is reported like a network failure, so the offline badge shows.
+- Player supervisor: events without `attemptId` are accepted; `totalReconnects` never decays on long sessions; a synchronous UNSUPPORTED throw loses its code.
+- Player: an extensionless HLS URL goes to mpegts.js in a browser without MPEG-TS support (only the Xtream short form has an HLS alternate).
+- Dev proxy: security checks (same-origin, header strip) untested; path constants duplicated; DNS-rebinding protection relies on Vite `allowedHosts`.
+- HTML5 player: hls.js teardown is not wrapped in try/catch.
+- Shell: overlays are not screen-scoped; document a cleanup rule.
+- Input: `captureTextInput` and `unwrapDevProxyResponse` untested.
+- Home: preview panel flickers after the debounce; "No information" gap rows never expire; `stopPreview` naming.
+- Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
