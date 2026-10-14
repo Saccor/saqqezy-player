@@ -4,7 +4,7 @@ export const SEARCH_DEBOUNCE_MS = 150;
 export const SEARCH_LIMIT = 50;
 
 export interface SearchState<T> {
-  /** The query the results belong to (trimmed). */
+  /** The latest query (trimmed). While `busy`, `results` may still be the previous query's. */
   query: string;
   results: T[];
   /** A search is scheduled or running for the latest query. */
@@ -29,8 +29,14 @@ export function createSearcher<T>(
   let timer: unknown;
   let seq = 0;
   let disposed = false;
+  /** The last settled results: kept on screen while the next query runs, so the list does not flash empty. */
+  let shown: T[] = [];
 
-  const emit = (s: SearchState<T>) => { if (!disposed) onState(s); };
+  const emit = (s: SearchState<T>) => {
+    if (disposed) return;
+    if (!s.busy) shown = s.results;
+    onState(s);
+  };
 
   return {
     setQuery(raw) {
@@ -42,7 +48,7 @@ export function createSearcher<T>(
         emit({ query: '', results: [], busy: false, failed: false });
         return;
       }
-      emit({ query: q, results: [], busy: true, failed: false });
+      emit({ query: q, results: shown, busy: true, failed: false });
       timer = setTimer(() => {
         timer = undefined;
         run(q).then(
@@ -67,4 +73,35 @@ export function resultsMessage(s: SearchState<unknown>): string | undefined {
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
   return `No channels match "${s.query}"`;
+}
+
+/** The line above the results: a subtle `Searching…` while a query runs over the shown results, else the count. */
+export function countText(s: SearchState<unknown>): string {
+  const n = s.results.length;
+  if (n === 0) return '';
+  if (s.busy) return 'Searching…';
+  return `${n} ${n === 1 ? 'channel' : 'channels'}`;
+}
+
+export interface SearchMemory {
+  query: string;
+  focus: number;
+  /** The next answer restores `focus` (set when Ok opened the Player). */
+  returning: boolean;
+  /** Back left Search: start fresh next time. */
+  leaveBack(): void;
+  /** Ok opened the Player: Back from it returns to the same results and row. */
+  leaveToPlayer(focus: number): void;
+}
+
+/** What Search remembers across visits (each push/pop re-creates the screen). */
+export function createSearchMemory(): SearchMemory {
+  const m: SearchMemory = {
+    query: '',
+    focus: 0,
+    returning: false,
+    leaveBack() { m.query = ''; m.focus = 0; m.returning = false; },
+    leaveToPlayer(focus) { m.focus = focus; m.returning = true; },
+  };
+  return m;
 }

@@ -8,7 +8,7 @@ import { moveFocus, pageFocus, scrollTopFor } from '../components/virtualWindow.
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { SEARCH_LIMIT, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
+import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -20,7 +20,7 @@ const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
-const memory: { query: string; focus: number; returning: boolean } = { query: '', focus: 0, returning: false };
+const memory = createSearchMemory();
 
 /** Search: inline on-screen keyboard (left) and up to 50 results with now/next (right). Ok plays the channel. */
 export function SearchScreen() {
@@ -37,6 +37,8 @@ export function SearchScreen() {
   const searcher = createSearcher<ChannelRow>((q) => api.search(q, SEARCH_LIMIT), (s) => {
     if (!alive) return;
     setState(s);
+    // While a query runs the previous results stay on screen untouched (focus included).
+    if (s.busy) return;
     // The first answer after returning from the Player restores the focused row and the list focus.
     const restore = memory.returning && s.results.length > 0;
     const f = restore ? Math.min(memory.focus, s.results.length - 1) : 0;
@@ -61,8 +63,7 @@ export function SearchScreen() {
   const play = () => {
     const ch = rowAt(focus());
     if (!ch) return true;
-    memory.focus = focus();
-    memory.returning = true;
+    memory.leaveToPlayer(focus());
     const token = playback.begin();
     void (async () => {
       try {
@@ -92,11 +93,17 @@ export function SearchScreen() {
   });
 
   const message = () => resultsMessage(state());
-  const countLine = () => (total() > 0 ? `${total()} ${total() === 1 ? 'channel' : 'channels'}` : '');
+  const countLine = () => countText(state());
+
+  /** Back that reaches the screen (no overlay open) leaves Search: forget the query. The shell then pops. */
+  const onBack = () => {
+    if (router.topOverlay() === undefined) memory.leaveBack();
+    return false;
+  };
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}
-      forwardFocus={focusKeyboard}>
+      forwardFocus={focusKeyboard} onBack={onBack}>
       <Text x={KB_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Search'}</Text>
       <Text x={LIST_X} y={LAYOUT.safeY + 14} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1}
         fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
+import { countText, createSearchMemory, createSearcher, resultsMessage, type SearchState } from './searchLogic.ts';
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
@@ -80,5 +80,47 @@ describe('resultsMessage', () => {
     expect(resultsMessage(st({}))).toBe('No channels match "xyz"');
     expect(resultsMessage(st({ results: ['a'] }))).toBeUndefined();
     expect(resultsMessage(st({ failed: true }))).toBe("Couldn't search right now.");
+  });
+});
+
+describe('stable results while searching', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('keeps the previous results visible while the next query is busy', async () => {
+    const states: SearchState<string>[] = [];
+    const s = createSearcher(async (q: string) => [`${q}-hit`], (st) => states.push(st));
+    s.setQuery('a');
+    vi.advanceTimersByTime(150);
+    await flush();
+    s.setQuery('ab');
+    expect(states[states.length - 1]).toEqual({ query: 'ab', results: ['a-hit'], busy: true, failed: false });
+    vi.advanceTimersByTime(150);
+    await flush();
+    expect(states[states.length - 1]).toEqual({ query: 'ab', results: ['ab-hit'], busy: false, failed: false });
+  });
+
+  it('countText shows a subtle Searching… while busy, otherwise the count', () => {
+    expect(countText({ query: 'a', results: ['x'], busy: true, failed: false })).toBe('Searching…');
+    expect(countText({ query: 'a', results: [], busy: true, failed: false })).toBe('');
+    expect(countText({ query: 'a', results: ['x'], busy: false, failed: false })).toBe('1 channel');
+    expect(countText({ query: 'a', results: ['x', 'y'], busy: false, failed: false })).toBe('2 channels');
+    expect(countText({ query: '', results: [], busy: false, failed: false })).toBe('');
+  });
+});
+
+describe('search memory', () => {
+  it('Back to the previous screen forgets the query and the returning flag', () => {
+    const m = createSearchMemory();
+    m.query = 'abc'; m.focus = 4; m.returning = true;
+    m.leaveBack();
+    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: '', focus: 0, returning: false });
+  });
+
+  it('going to the Player keeps the query, the focused row and sets returning', () => {
+    const m = createSearchMemory();
+    m.query = 'abc';
+    m.leaveToPlayer(3);
+    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 3, returning: true });
   });
 });
