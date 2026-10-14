@@ -1,0 +1,14 @@
+#EXTM3U x-tvg-url="http://example.test/epg.xml"
+#EXTINF:-1 tvg-id="ch1.test" tvg-name="Channel 001" tvg-logo="http://example.test/l/1.png" group-title="News",Channel 001
+http://example.test/live/1.ts
+#EXTINF:-1 tvg-id="ch2.test" group-title="Movies" tvg-chno="10",Channel, with comma "002"
+http://example.test/live/2.ts
+#EXTINF:-1 tvg-id="broken.test",Broken without url
+#EXTINF:-1,Channel 003
+#EXTGRP:Kids
+http://example.test/live/3.ts
+
+# a comment
+http://example.test/live/4.ts
+#EXTINF:-1 group-title="News",Duplicate of 001
+http://example.test/live/1.ts

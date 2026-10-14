@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE tv SYSTEM "xmltv.dtd">
+<tv generator-info-name="synthetic">
+  <channel id="ch1.test"><display-name>Channel 001</display-name><display-name>C1</display-name></channel>
+  <channel id="ch2.test"><display-name>Nyheter Åtta</display-name></channel>
+  <programme start="20261013190000 +0200" stop="20261013193000 +0200" channel="ch1.test">
+    <title lang="en">Evening Bulletin</title><desc>Synthetic &amp; safe.</desc>
+  </programme>
+  <programme start="20261013173000" stop="20261013180000" channel="ch2.test"><title>Åtta Show</title></programme>
+  <programme start="bad" stop="20261013180000" channel="ch2.test"><title>Broken</title></programme>
+  <programme start="20261013180000 +0000" stop="20261013170000 +0000" channel="ch2.test"><title>Backwards</title></programme>
+</tv>
