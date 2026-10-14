@@ -2,14 +2,22 @@
 //   1. `pnpm build:tv` (Vite production build of apps/tv)
 //   2. copies apps/tv/dist + apps/tv/tizen/config.xml + icon.png into dist-tizen/, strips `crossorigin` and injects
 //      the webapis.js script tag into dist-tizen/index.html (and fails if it is missing)
-//   3. if the Tizen CLI (`tizen`) is on PATH and TIZEN_PROFILE names a certificate profile, signs and packages
-//      dist-tizen/ into a .wgt; otherwise prints what to do next and exits 0 (dist-tizen/ is left unsigned).
+//   3. always zips dist-tizen/ into dist-tizen/IPTV-Player-unsigned.wgt (pure JS, no Tizen CLI needed; config.xml at
+//      the zip root). Apps2Samsung or Tizen Studio sign it for the target device.
+//   4. if the Tizen CLI (`tizen`) is on PATH and TIZEN_PROFILE names a certificate profile, also signs and packages
+//      dist-tizen/ into a signed .wgt; otherwise prints what to do next and exits 0.
 // Usage: pnpm build:tizen            (TIZEN_PROFILE=<profile name> pnpm build:tizen to sign)
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeIconPng } from './make-icon.mjs';
+import { zipDirectory } from './zip.mjs';
+
+const UNSIGNED_WGT = 'IPTV-Player-unsigned.wgt';
+/** A Tizen package id is exactly 10 letters or digits; the app id is `<package id>.<name>`. */
+const PACKAGE_ID = /^[A-Za-z0-9]{10}$/;
+const APP_ID = /^[A-Za-z0-9]{10}\.[A-Za-z0-9]+$/;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const dist = join(root, 'apps', 'tv', 'dist');
@@ -72,17 +80,31 @@ if (tagAt === -1 || moduleAt === -1 || tagAt > moduleAt) {
 for (const f of ['index.html', 'config.xml', 'icon.png']) {
   if (!existsSync(join(out, f))) fail(`dist-tizen/${f} is missing.`);
 }
-const appId = /<tizen:application[^>]*\bid="([^"]+)"/.exec(readFileSync(join(out, 'config.xml'), 'utf8'))?.[1] ?? '';
-console.log(`\nAssembled ${out} (unsigned).`);
+const configXml = readFileSync(join(out, 'config.xml'), 'utf8');
+const appId = /<tizen:application[^>]*\bid="([^"]+)"/.exec(configXml)?.[1] ?? '';
+const packageId = /<tizen:application[^>]*\bpackage="([^"]+)"/.exec(configXml)?.[1] ?? '';
+const idProblem = !PACKAGE_ID.test(packageId)
+  ? `the package id "${packageId}" in apps/tv/tizen/config.xml must be exactly 10 letters or digits.`
+  : !APP_ID.test(appId) || !appId.startsWith(`${packageId}.`)
+    ? `the application id "${appId}" in apps/tv/tizen/config.xml must be "<package id>.<Name>", e.g. "${packageId}.IptvPlayer".`
+    : '';
+console.log(`\nAssembled ${out}.`);
 
-// 3. Sign and package when possible.
+// 3. Unsigned .wgt (a zip of the package folder, config.xml at the root). No Tizen CLI needed.
+if (idProblem) fail(idProblem);
+const unsignedPath = join(out, UNSIGNED_WGT);
+const packed = zipDirectory(out, unsignedPath, (f) => f.toLowerCase().endsWith('.wgt'));
+console.log(`Unsigned package: dist-tizen/${UNSIGNED_WGT} (${statSync(unsignedPath).size} bytes, ${packed.length} files).`);
+console.log('Apps2Samsung or Tizen Studio signs it for your device: see docs/install-on-odyssey-g9.md.');
+
+// 4. Sign and package when possible.
 const hasCli = run('tizen', ['version'], { stdio: 'ignore' }).status === 0;
 const profile = process.env.TIZEN_PROFILE?.trim();
 
 if (!hasCli || !profile) {
   const lines = [
     '',
-    'Next steps (no signed .wgt was made):',
+    'Next steps (only the unsigned .wgt was made; the Tizen CLI is optional):',
     !hasCli
       ? '  - The Tizen CLI ("tizen") was not found on PATH. Install Tizen Studio (or the CLI) with the Samsung TV'
         + ' extension and add its tools/ide/bin folder to PATH.'
@@ -91,9 +113,6 @@ if (!hasCli || !profile) {
       ? '  - Set TIZEN_PROFILE to the name of your Samsung certificate profile, e.g.'
         + (isWindows ? '\n      $env:TIZEN_PROFILE="MyTV"; pnpm build:tizen   (PowerShell)' : '\n      TIZEN_PROFILE=MyTV pnpm build:tizen')
       : `  - Certificate profile: ${profile}`,
-    appId.startsWith('XXXXXXXXXX')
-      ? '  - Replace the placeholder package ID "XXXXXXXXXX" in apps/tv/tizen/config.xml first.'
-      : '',
     '  - Full guide: docs/install-on-samsung.md',
     '',
   ];
@@ -101,14 +120,14 @@ if (!hasCli || !profile) {
   process.exit(0);
 }
 
-if (appId.startsWith('XXXXXXXXXX')) {
-  fail('apps/tv/tizen/config.xml still has the placeholder package ID "XXXXXXXXXX". Replace it first.');
-}
-
 console.log(`> tizen package -t wgt -s ${profile} -- dist-tizen`);
+// Keep the unsigned zip out of the folder being signed, then put it back.
+const stash = join(root, 'dist-tizen-unsigned.tmp');
+renameSync(unsignedPath, stash);
 const pkg = run('tizen', ['package', '-t', 'wgt', '-s', profile, '--', out]);
+renameSync(stash, unsignedPath);
 if (pkg.status !== 0) fail('"tizen package" failed (see above). Check the certificate profile name.');
-const wgt = readdirSync(out).find((f) => f.toLowerCase().endsWith('.wgt'));
+const wgt = readdirSync(out).find((f) => f.toLowerCase().endsWith('.wgt') && f !== UNSIGNED_WGT);
 if (!wgt) fail('"tizen package" finished but no .wgt file was found in dist-tizen/.');
 console.log(`\nSigned package: dist-tizen/${wgt}`);
 console.log('Install it on the TV (after "sdb connect <TV-IP>"; find <device> with "sdb devices"):');

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, screenLines, uaVersions,
   formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
 
@@ -135,5 +135,47 @@ describe('diagnosticsLines', () => {
       .map(([k, v]) => `${k}: ${v}`);
     expect(text).toContain('Sources: None');
     expect(text).toContain('Errors: None');
+  });
+});
+
+describe('uaVersions', () => {
+  it('keeps only the Tizen and Chrome versions', () => {
+    const ua = 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 7.0) AppleWebKit/537.36 (KHTML, like Gecko) 94.0.4606.31/7.0 TV Safari/537.36 Chrome/94.0.4606.31';
+    expect(uaVersions(ua)).toBe('Tizen 7.0 \u00b7 Chrome 94.0.4606.31');
+  });
+  it('handles desktop Chrome and unknown strings', () => {
+    expect(uaVersions('Mozilla/5.0 (Windows NT 10.0) Chrome/126.0.0.0 Safari/537.36')).toBe('Chrome 126.0.0.0');
+    expect(uaVersions('Foo/1')).toBe('unknown');
+    expect(uaVersions(undefined)).toBe('unknown');
+  });
+});
+
+describe('screenLines', () => {
+  const dev = { innerWidth: 1920, innerHeight: 1080, screenWidth: 5120, screenHeight: 1440, devicePixelRatio: 1,
+    designScale: 1, userAgent: 'x Tizen 7.0 Chrome/94.0.1' };
+  it('shows viewport, screen, pixel ratio, design scale and engine', () => {
+    const t = screenLines(dev, 'browser').map(([k, v]) => `${k}: ${v}`);
+    expect(t).toEqual([
+      'Viewport: 1920\u00d71080 \u00b7 design scale 1.00',
+      'Screen: 5120\u00d71440 \u00b7 pixel ratio 1',
+      'Engine: Tizen 7.0 \u00b7 Chrome 94.0.1',
+    ]);
+  });
+  it('adds the Tizen device line only on Tizen, with fallbacks', () => {
+    expect(screenLines({ ...dev, tizenPlatformVersion: '7.0', tizenModel: 'QE-TEST' }, 'tizen')[2])
+      .toEqual(['Device', 'Tizen 7.0 \u00b7 QE-TEST']);
+    expect(screenLines(dev, 'tizen')[2]).toEqual(['Device', 'Tizen version unknown \u00b7 model unknown']);
+  });
+  it('says unknown for missing numbers and rounds odd ones', () => {
+    const t = screenLines({ devicePixelRatio: 1.3333, designScale: 2 / 3 }, 'browser');
+    expect(t[0]).toEqual(['Viewport', 'unknown \u00b7 design scale 0.67']);
+    expect(t[1]).toEqual(['Screen', 'unknown \u00b7 pixel ratio 1.33']);
+  });
+  it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
+    const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true } };
+    const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
+    expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
+    expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
   });
 });

@@ -6,6 +6,7 @@ import { playback } from '../../playback/playback.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { platformId } from '../../state/appState.ts';
+import { readDeviceInfo } from '../../platform/deviceInfo.ts';
 import { diagnosticsLines, onOff } from '../settingsLogic.ts';
 import type { PageProps } from './shared.ts';
 
@@ -32,8 +33,8 @@ export function DiagnosticsPage(props: PageProps) {
   onMount(() => {
     api.diagnostics().then((info) => {
       if (!alive) return;
-      const all = diagnosticsLines(info, { platform: platformId });
-      all.splice(2, 0, ['Player', playback.playerKind()]);
+      const all = diagnosticsLines(info, { platform: platformId, device: readDeviceInfo() });
+      all.splice(2, 0, ['Player', playback.playerKind()]); // right after Platform
       setLines(all);
     }, (err: unknown) => {
       console.warn('Diagnostics failed', err instanceof Error ? err.name : 'Error');

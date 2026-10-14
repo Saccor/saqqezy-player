@@ -85,14 +85,61 @@ export function rollbackTarget<T>(previous: T | undefined, seq: number, latestSe
 
 const KIND_LABEL: Record<string, string> = { xtream: 'Xtream', m3u: 'M3U' };
 
+/** Raw display and engine facts for Diagnostics, gathered by `readDeviceInfo` (all optional; nothing is required). */
+export interface DeviceInfo {
+  innerWidth?: number;
+  innerHeight?: number;
+  screenWidth?: number;
+  screenHeight?: number;
+  devicePixelRatio?: number;
+  /** `designScale()` from the video layer. */
+  designScale?: number;
+  userAgent?: string;
+  /** Tizen only: `tizen.systeminfo` platform.version capability. */
+  tizenPlatformVersion?: string;
+  /** Tizen only: `webapis.productinfo.getRealModel()`. */
+  tizenModel?: string;
+}
+
+const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+const size = (w?: number, h?: number): string => (isNum(w) && isNum(h) ? `${Math.round(w)}\u00d7${Math.round(h)}` : 'unknown');
+/** Short, safe text from a platform string: printable ASCII only, capped. */
+const clean = (v: string): string => v.replace(/[^\x20-\x7e]/g, '').trim().slice(0, 40);
+
+/** Only the Tizen and Chrome version substrings of a user agent (never the whole string). */
+export function uaVersions(ua: string | undefined): string {
+  const tizen = /Tizen[ /](\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
+  const chrome = /Chrom(?:e|ium)\/(\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
+  const parts = [tizen ? `Tizen ${tizen}` : '', chrome ? `Chrome ${chrome}` : ''].filter(Boolean);
+  return parts.length > 0 ? parts.join(' \u00b7 ') : 'unknown';
+}
+
+/** Display and engine lines: viewport, screen, pixel ratio, design scale, (Tizen) platform version and model, engine. */
+export function screenLines(d: DeviceInfo, platform: string): [string, string][] {
+  const scale = isNum(d.designScale) ? d.designScale.toFixed(2) : 'unknown';
+  const ratio = isNum(d.devicePixelRatio) ? String(Math.round(d.devicePixelRatio * 100) / 100) : 'unknown';
+  const lines: [string, string][] = [
+    ['Viewport', `${size(d.innerWidth, d.innerHeight)} \u00b7 design scale ${scale}`],
+    ['Screen', `${size(d.screenWidth, d.screenHeight)} \u00b7 pixel ratio ${ratio}`],
+  ];
+  if (platform === 'tizen') {
+    const version = d.tizenPlatformVersion ? clean(d.tizenPlatformVersion) : '';
+    const model = d.tizenModel ? clean(d.tizenModel) : '';
+    lines.push(['Device', `Tizen ${version || 'version unknown'} \u00b7 ${model || 'model unknown'}`]);
+  }
+  lines.push(['Engine', uaVersions(d.userAgent)]);
+  return lines;
+}
+
 /**
  * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
  * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
  */
-export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string }): [string, string][] {
+export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo }): [string, string][] {
   const lines: [string, string][] = [
     ['App version', info.appVersion],
     ['Platform', env.platform],
+    ...(env.device ? screenLines(env.device, env.platform) : []),
   ];
   if (info.sources.length === 0) lines.push(['Sources', 'None']);
   info.sources.forEach((s, i) => {
