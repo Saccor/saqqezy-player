@@ -1,11 +1,11 @@
 import type { NewSource } from '@iptv/core';
 import {
-  isPhoneToTv, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, SecureChannel, secretsFromCode,
-  type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
+  isPhoneToTv, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, QueueFullError, SecureChannel, secretsFromCode,
+  type CloseReason, type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { scrub, type AppApi } from './appApi.ts';
 import { toRpcError } from './rpc.ts';
-import type { AppEvent, CompanionControl, CompanionStartResult, CompanionStatus } from './types.ts';
+import type { AppEvent, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus } from './types.ts';
 
 export type { CompanionStartResult, CompanionStatus };
 
@@ -21,26 +21,44 @@ export type { CompanionStartResult, CompanionStatus };
  * - Unpaired: the session expires UNPAIRED_TTL_MS (15 min) after `start()`.
  * - Paired (any authenticated message arrived): the hard cap is PAIRED_TTL_MS (60 min) from `start()`.
  *   The transport gets the same deadline.
+ * - Every incoming message is checked against the expiry too, because TV standby can delay timers.
  * - Any final transport close (relay 4000 expired/idle, 4001 replaced, limits, ~60 s unreachable, the
- *   deadline) or channel close ends the session with status `expired`; the pairing screen then offers a new
- *   code. (The dev relay expires unpaired sessions after 60 s, which lands here.)
+ *   deadline) or channel close ends the session with status `expired` and a `reason`; the pairing screen then
+ *   offers a new code. (The dev relay expires unpaired sessions after 60 s, which lands here.)
+ *
+ * Peer presence: any authenticated message marks the companion `connected` (label from its last hello;
+ * messages before hello are served too). It pings every 25 s; after PEER_TIMEOUT_MS of silence the status goes
+ * back to `waiting` and the session continues. `bye` makes it `waiting` at once.
  *
  * Incoming messages were already strictly validated by `isPhoneToTv` in the channel. Source input is then
  * checked against the same rules as the on-TV form (http/https only, required fields) before AppApi sees it.
  * Errors sent back are AppApi's credential-free errors, scrubbed once more. Nothing here logs anything.
  *
- * Outgoing `state` is fitted under the protocol's 8 MiB message cap by `fitCompanionState`.
+ * `getState`:
+ * - Single flight: concurrent requests share one build. The fitted (`fitCompanionState`) and serialised
+ *   state is cached for the current (layout version, channel-set generation); `layoutChanged`, `refreshed`
+ *   and source changes (`stateChanged`) drop it.
+ * - `haveVersion` equal to the version this companion last received, with nothing changed since: the answer
+ *   is `stateUnchanged`.
+ * - Overflow is message-scoped: a state that does not fit the transport's queue, or any request while the
+ *   transport is reconnecting, gets `result{ ok: false, error: Busy }` (dropped silently if even that does
+ *   not fit). The session goes on; the phone asks again.
+ *
  * Progress is forwarded while a companion is connected, at most one per phase every PROGRESS_INTERVAL_MS
- * (the relay allows 200 frames per 10 s). Layout changes are pushed as `layoutChanged`, coalesced.
- * While the transport is reconnecting, pushes are skipped: the phone asks for `getState` after it reconnects.
+ * (the relay allows 200 frames per 10 s). Layout changes are pushed as `layoutChanged`, coalesced. While the
+ * transport is reconnecting, pushes are skipped; a layout change in that time is pushed after the reconnect.
  */
 
 export const UNPAIRED_TTL_MS = 15 * 60_000;
 export const PAIRED_TTL_MS = 60 * 60_000;
+/** A companion that sent nothing for this long counts as gone (it pings every 25 s). */
+export const PEER_TIMEOUT_MS = 75_000;
 /** The `state` message's JSON must fit in this many bytes (the protocol cap minus headroom). */
 export const STATE_BUDGET_BYTES = MAX_MESSAGE_BYTES - 64 * 1024;
 /** Logos longer than this (e.g. inline `data:` images) are the first thing dropped from an oversized state. */
 export const LOGO_MAX_CHARS = 512;
+/** The `result` error for a request the TV cannot answer right now. */
+export const BUSY_ERROR = { name: 'Busy', message: 'The TV is busy. Try again.' } as const;
 const PROGRESS_INTERVAL_MS = 500;
 /** How long `stop()` and expiry wait for the goodbye to be handed to the transport before closing. */
 const BYE_GRACE_MS = 1_000;
@@ -80,15 +98,28 @@ interface Session {
   timer: ReturnType<typeof setTimeout> | undefined;
   /** An authenticated message arrived at least once. */
   paired: boolean;
-  /** A companion said hello and has not said bye. */
+  /** The companion sent something within PEER_TIMEOUT_MS and has not said bye. */
   connected: boolean;
-  peerLabel: string | undefined;
+  /** The label from the companion's last hello. */
+  helloLabel: string | undefined;
+  presenceTimer: ReturnType<typeof setTimeout> | undefined;
   /** The transport is reconnecting. */
   linkDown: boolean;
   unsub: (() => void)[];
   layoutBusy: boolean;
+  /** A layout change is still to be pushed (coalesced while a push runs, or held while the link is down). */
   layoutDirty: boolean;
+  /** The last full state this companion received: its version and generation. */
+  sentState: { version: number; generation: number } | undefined;
   progress: Map<'playlist' | 'epg', { last: number; pending?: number; timer?: ReturnType<typeof setTimeout> }>;
+}
+
+/** A fitted state ready to send, for one (layout version, generation). */
+interface StateEntry {
+  generation: number;
+  version: number;
+  msg: TvToPhone;
+  json: string;
 }
 
 export class StateTooLargeError extends Error {
@@ -107,6 +138,25 @@ class ValidationError extends Error {
 
 const noop = () => { /* ignore */ };
 
+/** Relay transport close reasons (see `TransportCloseReason`) to the status reason. Unknown ones are 'stopped'. */
+const TRANSPORT_REASONS: Readonly<Record<string, CompanionEndReason>> = {
+  expired: 'expired',
+  deadline: 'expired',
+  replaced: 'replaced',
+  'rate-limit': 'rate-limit',
+  quota: 'quota',
+  unreachable: 'unreachable',
+  'queue-overflow': 'unreachable',
+};
+
+function endReason(channelReason: CloseReason, transportReason: string | undefined): CompanionEndReason {
+  if (channelReason === 'peer-errors') return 'peer-errors';
+  if (channelReason === 'transport' && transportReason !== undefined) {
+    return TRANSPORT_REASONS[transportReason] ?? 'stopped';
+  }
+  return 'stopped';
+}
+
 export class CompanionHost implements CompanionControl {
   private readonly deps: CompanionHostDeps;
   private readonly now: () => number;
@@ -115,9 +165,14 @@ export class CompanionHost implements CompanionControl {
   private session: Session | undefined;
   /** Status when there is no session. */
   private terminal: 'idle' | 'expired' = 'idle';
+  private terminalReason: CompanionEndReason | undefined;
   /** Bumped by every start() and stop(), so a start() whose key derivation was overtaken gives up. */
   private ticket = 0;
   private lastEmitted = JSON.stringify({ state: 'idle' });
+  /** Bumped whenever the companion state may have changed (layout, channels, coverage, sources). */
+  private generation = 0;
+  private stateCache: StateEntry | undefined;
+  private stateBuild: { generation: number; promise: Promise<StateEntry> } | undefined;
 
   constructor(deps: CompanionHostDeps) {
     this.deps = deps;
@@ -145,15 +200,22 @@ export class CompanionHost implements CompanionControl {
     this.end('idle', true, false);
     const createdAt = this.now();
     const transport = this.deps.openTransport(secrets.sessionIdB64, { deadline: createdAt + this.pairedTtl }) as HostTransport;
+    // Subscribed before the channel, so the transport's reason is known when the channel reports its close.
+    let transportReason: string | undefined;
+    const unsubTransport = transport.onClose?.((r?: unknown) => {
+      transportReason = typeof r === 'string' ? r : undefined;
+    });
     const channel = new SecureChannel<TvToPhone, PhoneToTv>({ secrets, role: 'tv', transport, validate: isPhoneToTv });
     const s: Session = {
       channel, createdAt, expiresAt: createdAt + this.unpairedTtl, timer: undefined, paired: false, connected: false,
-      peerLabel: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false, progress: new Map(),
+      helloLabel: undefined, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
+      sentState: undefined, progress: new Map(),
     };
     this.session = s;
+    if (unsubTransport) s.unsub.push(unsubTransport);
     s.unsub.push(channel.onMessage((msg, msgId) => this.handle(s, msg, msgId)));
-    s.unsub.push(channel.onClose(() => {
-      if (this.session === s) this.end('expired', false);
+    s.unsub.push(channel.onClose((reason) => {
+      if (this.session === s) this.end('expired', false, true, endReason(reason, transportReason));
     }));
     if (transport.onDisconnected) {
       s.unsub.push(transport.onDisconnected(() => {
@@ -167,6 +229,8 @@ export class CompanionHost implements CompanionControl {
         if (this.session !== s) return;
         s.linkDown = false;
         this.emitStatus();
+        // A layout change while the link was down was held back: push it now.
+        if (s.layoutDirty && s.connected && !s.layoutBusy) this.pushLayout(s);
       }));
     }
     this.schedule(s);
@@ -181,32 +245,49 @@ export class CompanionHost implements CompanionControl {
 
   status(): CompanionStatus {
     const s = this.session;
-    if (!s) return { state: this.terminal };
+    if (!s) {
+      const out: CompanionStatus = { state: this.terminal };
+      if (this.terminal === 'expired' && this.terminalReason) out.reason = this.terminalReason;
+      return out;
+    }
     const state = s.linkDown ? 'reconnecting' : s.connected ? 'connected' : 'waiting';
     const out: CompanionStatus = { state, expiresAt: s.expiresAt };
-    if (s.connected && s.peerLabel) out.peerLabel = s.peerLabel;
+    if (s.connected && s.helloLabel) out.peerLabel = s.helloLabel;
     return out;
   }
 
   handleEvent(e: AppEvent): void {
+    if (e.type === 'layoutChanged' || e.type === 'refreshed') this.stateChanged();
     const s = this.session;
-    if (!s || !s.connected || s.linkDown) return;
-    if (e.type === 'layoutChanged') this.pushLayout(s);
-    else if (e.type === 'progress') this.pushProgress(s, e.phase, e.count);
+    if (!s || !s.connected) return;
+    if (e.type === 'layoutChanged') {
+      if (s.linkDown) s.layoutDirty = true; // pushed after the reconnect
+      else this.pushLayout(s);
+    } else if (e.type === 'progress' && !s.linkDown) {
+      this.pushProgress(s, e.phase, e.count);
+    }
+  }
+
+  /** Drops the cached state: the layout, channels, guide coverage or sources changed. */
+  stateChanged(): void {
+    this.generation++;
+    this.stateCache = undefined;
   }
 
   // ---- internals ----
 
   /** Ends the current session. With `bye`, the companion is told first (best effort). */
-  private end(terminal: 'idle' | 'expired', bye = true, emit = true): void {
+  private end(terminal: 'idle' | 'expired', bye = true, emit = true, reason?: CompanionEndReason): void {
     const s = this.session;
     this.terminal = terminal;
+    this.terminalReason = terminal === 'expired' ? reason : undefined;
     if (!s) {
       if (emit) this.emitStatus();
       return;
     }
     this.session = undefined;
     clearTimeout(s.timer);
+    clearTimeout(s.presenceTimer);
     for (const p of s.progress.values()) clearTimeout(p.timer);
     for (const u of s.unsub) u();
     const ch = s.channel;
@@ -230,8 +311,23 @@ export class CompanionHost implements CompanionControl {
   private schedule(s: Session): void {
     clearTimeout(s.timer);
     s.timer = setTimeout(() => {
-      if (this.session === s) this.end('expired');
+      if (this.session === s) this.end('expired', true, true, 'expired');
     }, Math.max(0, s.expiresAt - this.now()));
+  }
+
+  /** The companion is present: (re)starts the PEER_TIMEOUT_MS countdown. */
+  private touchPeer(s: Session): void {
+    clearTimeout(s.presenceTimer);
+    s.presenceTimer = setTimeout(() => {
+      if (this.session !== s) return;
+      // Its pings cannot reach us while our own link is down: wait for the reconnect.
+      if (s.linkDown) {
+        this.touchPeer(s);
+        return;
+      }
+      s.connected = false;
+      this.emitStatus();
+    }, PEER_TIMEOUT_MS);
   }
 
   private emitStatus(): void {
@@ -260,39 +356,52 @@ export class CompanionHost implements CompanionControl {
     return this.send(s, msg);
   }
 
+  /** "Try again": the answer does not fit the transport's queue, or the link is down. Dropped if even this does not fit. */
+  private busy(s: Session, requestMsgId: number): Promise<void> {
+    return this.send(s, { t: 'result', requestMsgId, ok: false, error: { ...BUSY_ERROR } });
+  }
+
   /**
    * Handles one validated message. Handlers start in arrival order and call AppApi synchronously, so AppApi's
    * own locks keep the order of layout batches; long-running source work does not block later messages.
    */
   private handle(s: Session, msg: PhoneToTv, msgId: number): void {
     if (this.session !== s) return;
+    // Timers can be late after TV standby: a message past the expiry ends the session instead.
+    if (this.now() >= s.expiresAt) {
+      this.end('expired', true, true, 'expired');
+      return;
+    }
     if (!s.paired) {
       s.paired = true;
       s.expiresAt = s.createdAt + this.pairedTtl;
       this.schedule(s);
     }
+    if (msg.t === 'bye') {
+      clearTimeout(s.presenceTimer);
+      s.connected = false;
+      s.helloLabel = undefined;
+      this.emitStatus();
+      return;
+    }
+    if (msg.t === 'hello') s.helloLabel = msg.client.label.trim() || undefined;
+    s.connected = true;
+    this.touchPeer(s);
+    this.emitStatus();
     void this.dispatch(s, msg, msgId).catch((err: unknown) => this.result(s, msgId, err));
   }
 
-  private async dispatch(s: Session, msg: PhoneToTv, msgId: number): Promise<void> {
+  private async dispatch(s: Session, msg: Exclude<PhoneToTv, { t: 'bye' }>, msgId: number): Promise<void> {
     const api = this.deps.api;
     switch (msg.t) {
       case 'hello':
-        s.connected = true;
-        s.peerLabel = msg.client.label.trim() || undefined;
-        this.emitStatus();
         await this.send(s, { t: 'welcome', tv: { label: this.deps.tvLabel, appVersion: this.deps.appVersion } });
         return;
-      case 'bye':
-        s.connected = false;
-        s.peerLabel = undefined;
-        this.emitStatus();
+      case 'ping':
+        return; // presence only; handled above
+      case 'getState':
+        await this.answerState(s, msgId, msg.haveVersion);
         return;
-      case 'getState': {
-        const state = fitCompanionState(await api.getCompanionState());
-        await this.send(s, { t: 'state', state });
-        return;
-      }
       case 'getSource': {
         const source = await api.getSource(msg.id);
         if (!source) throw Object.assign(new Error('Source not found.'), { name: 'NotFoundError' });
@@ -338,6 +447,57 @@ export class CompanionHost implements CompanionControl {
     }
   }
 
+  /** `getState`: `stateUnchanged`, the (cached) state, or Busy when it cannot be sent now. */
+  private async answerState(s: Session, msgId: number, haveVersion: number | undefined): Promise<void> {
+    if (s.linkDown) {
+      await this.busy(s, msgId);
+      return;
+    }
+    const entry = await this.stateEntry();
+    if (this.session !== s) return;
+    const sent = s.sentState;
+    if (haveVersion !== undefined && sent !== undefined && sent.version === haveVersion
+      && sent.generation === entry.generation && entry.version === haveVersion) {
+      await this.send(s, { t: 'stateUnchanged', version: haveVersion });
+      return;
+    }
+    // Never queue a full state behind a dropped link: the phone asks again after its reconnect.
+    if (s.linkDown) {
+      await this.busy(s, msgId);
+      return;
+    }
+    try {
+      await s.channel.send(entry.msg, { json: entry.json });
+      s.sentState = { version: entry.version, generation: entry.generation };
+    } catch (err) {
+      if (err instanceof QueueFullError) await this.busy(s, msgId);
+      // Anything else means the channel closed: the session is ending.
+    }
+  }
+
+  /** The fitted, serialised state for the current generation: cached, or one build shared by every waiter. */
+  private stateEntry(): Promise<StateEntry> {
+    const generation = this.generation;
+    const cached = this.stateCache;
+    if (cached && cached.generation === generation) return Promise.resolve(cached);
+    const running = this.stateBuild;
+    if (running && running.generation === generation) return running.promise;
+    const promise = (async (): Promise<StateEntry> => {
+      const state = fitCompanionState(await this.deps.api.getCompanionState());
+      const msg: TvToPhone = { t: 'state', state };
+      const entry: StateEntry = { generation, version: state.version, msg, json: JSON.stringify(msg) };
+      if (this.generation === generation) this.stateCache = entry;
+      return entry;
+    })();
+    const build = { generation, promise };
+    this.stateBuild = build;
+    const clear = () => {
+      if (this.stateBuild === build) this.stateBuild = undefined;
+    };
+    promise.then(clear, clear);
+    return promise;
+  }
+
   /** Sends the current layout; changes that land while a push is in flight are coalesced into one more push. */
   private pushLayout(s: Session): void {
     if (s.layoutBusy) {
@@ -351,8 +511,12 @@ export class CompanionHost implements CompanionControl {
           s.layoutDirty = false;
           const layout = await this.deps.api.getLayout();
           if (this.session !== s || !s.connected) return;
+          if (s.linkDown) {
+            s.layoutDirty = true; // pushed after the reconnect
+            return;
+          }
           await this.send(s, { t: 'layoutChanged', version: layout.version, layout });
-        } while (s.layoutDirty);
+        } while (s.layoutDirty && !s.linkDown);
       } catch {
         // The phone can always ask for getState.
       } finally {

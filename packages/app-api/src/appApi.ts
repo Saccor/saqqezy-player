@@ -95,7 +95,11 @@ export class AppApi {
     };
     this.now = deps.now ?? Date.now;
     this.appVersion = deps.appVersion ?? '0.0.0';
-    this.companion = deps.companion?.(this, (status) => deps.emit({ type: 'companion', status }));
+    this.companion = deps.companion?.(this, (status) => {
+      // Why a session ended, for diagnostics (relay close reasons carry no secrets).
+      if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
+      deps.emit({ type: 'companion', status });
+    });
   }
 
   // ---- lifecycle & sources ----
@@ -120,6 +124,7 @@ export class AppApi {
   addSource(input: NewSource): Promise<{ sourceId: string; channelCount: number }> {
     return this.run('addSource', async () => {
       const { source, result } = await this.service.addSource(input, (p) => this.emit({ type: 'progress', ...p }));
+      this.companionStale();
       const active = await this.service.getActiveSourceId();
       if (active === source.id) {
         await this.activate(source.id);
@@ -132,6 +137,7 @@ export class AppApi {
   updateSource(source: SourceConfig): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
+      this.companionStale();
       if (this.activeId === source.id) {
         await this.activate(source.id);
         this.startBackground(source.id);
@@ -144,6 +150,7 @@ export class AppApi {
     return this.run('deleteSource', async () => {
       // Queued behind any background task of this source, so nothing writes to it after the delete.
       await this.enqueue(id, () => this.service.deleteSource(id));
+      this.companionStale();
       this.windows.delete(id);
       for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`]) {
         await this.storage.setMeta(key, null);
@@ -160,6 +167,7 @@ export class AppApi {
   setActiveSource(id: string): Promise<InitState> {
     return this.run('setActiveSource', async () => {
       await this.service.setActiveSource(id);
+      this.companionStale();
       await this.activate(id);
       this.startBackground(id);
       return this.initState();
@@ -304,9 +312,11 @@ export class AppApi {
       const layout = index.layout();
       const channels = this.channels.map((c) => {
         const out: CompanionChannel = {
-          id: c.id, name: c.name, displayName: index.displayName(c.id) ?? c.name, group: c.group, number: c.number,
-          hasEpg: coverage ? coverage.has(epgKey(c)) : true,
+          id: c.id, name: c.name, group: c.group, number: c.number, hasEpg: coverage ? coverage.has(epgKey(c)) : true,
         };
+        // Only renamed channels carry displayName; the companion shows `displayName ?? name`.
+        const displayName = index.displayName(c.id);
+        if (displayName !== undefined && displayName !== c.name) out.displayName = displayName;
         if (c.logo) out.logo = c.logo;
         return out;
       });
@@ -450,9 +460,14 @@ export class AppApi {
       : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}) });
     if (this.recorded.has(out)) return out;
     this.recorded.add(out);
+    this.note(where, message);
+    return out;
+  }
+
+  /** Adds a credential-free message to the diagnostics ring. */
+  private note(where: string, message: string): void {
     this.errors.push({ at: this.now(), where, message });
     if (this.errors.length > ERROR_RING) this.errors.shift();
-    return out;
   }
 
   private async currentSettings(): Promise<AppSettings> {
@@ -531,6 +546,16 @@ export class AppApi {
     this.originalById = undefined;
     this.index = new ChannelIndex(channels, layout, coverage);
     this.favSet = undefined;
+    this.companionStale();
+  }
+
+  /** The companion state's channels, guide coverage or sources changed: the host drops its cached state. */
+  private companionStale(): void {
+    try {
+      this.companion?.stateChanged?.();
+    } catch {
+      // The companion must never break the TV.
+    }
   }
 
   /** `applyLayoutOps` body. Caller holds the index lock. */

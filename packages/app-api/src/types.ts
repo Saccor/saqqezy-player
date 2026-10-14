@@ -36,12 +36,20 @@ export type AppEvent =
   /** The phone companion session changed state. */
   | { type: 'companion'; status: CompanionStatus };
 
-/** The TV side of a companion pairing session. `expired` covers every session end that was not `stop()`. */
+/** Why a session ended (with state `expired`). Built from relay close reasons and local causes; never secret. */
+export type CompanionEndReason = 'expired' | 'replaced' | 'rate-limit' | 'quota' | 'unreachable' | 'peer-errors' | 'stopped';
+
+/**
+ * The TV side of a companion pairing session. `expired` covers every session end that was not `stop()`.
+ * `waiting` also covers a paired session whose companion went quiet (no message for 75 s); it continues.
+ */
 export interface CompanionStatus {
   state: 'idle' | 'waiting' | 'connected' | 'reconnecting' | 'expired';
-  /** The paired companion's own label (from its hello). */
+  /** The paired companion's own label (from its last hello). */
   peerLabel?: string;
   expiresAt?: number;
+  /** With state `expired`: why the session ended. */
+  reason?: CompanionEndReason;
 }
 
 /** What the pairing screen shows. Both values are secrets: render them, never log or persist them. */
@@ -54,6 +62,8 @@ export interface CompanionControl {
   status(): CompanionStatus;
   /** Every AppApi event, so the host can forward layout changes and progress. Must not throw. */
   handleEvent(e: AppEvent): void;
+  /** The companion state's channels, guide coverage or sources changed (no AppEvent says so). Must not throw. */
+  stateChanged?(): void;
 }
 
 /** Who applied a layout change: this device's UI, or a paired companion. */

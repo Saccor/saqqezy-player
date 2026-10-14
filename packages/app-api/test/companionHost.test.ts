@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { SourceService, type LayoutOp } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -8,8 +8,8 @@ import {
 } from '@iptv/companion-protocol';
 import { AppApi } from '../src/appApi.ts';
 import {
-  CompanionHost, fitCompanionState, LOGO_MAX_CHARS, PAIRED_TTL_MS, STATE_BUDGET_BYTES, UNPAIRED_TTL_MS,
-  type CompanionStatus,
+  BUSY_ERROR, CompanionHost, fitCompanionState, LOGO_MAX_CHARS, PAIRED_TTL_MS, PEER_TIMEOUT_MS, STATE_BUDGET_BYTES,
+  UNPAIRED_TTL_MS, type CompanionStatus,
 } from '../src/companionHost.ts';
 import type { AppEvent } from '../src/types.ts';
 
@@ -21,6 +21,8 @@ afterAll(async () => { await server.close(); });
 
 const live: { api: AppApi; host: CompanionHost }[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const l of live.splice(0)) {
     l.host.stop();
     await l.api.idle();
@@ -32,6 +34,7 @@ beforeEach(() => { storage = new MemoryStorage(); });
 
 interface TestTransport extends FrameTransport {
   closed: boolean;
+  fits?: (frameBytes: readonly number[]) => boolean;
   peer?: TestTransport;
   listeners: Set<(f: Uint8Array) => void>;
   closeListeners: Set<(reason: string) => void>;
@@ -111,7 +114,12 @@ function phone(secrets: PairingSecrets, transport: FrameTransport) {
   return { ch, inbox, next, call };
 }
 
-function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; withSource?: boolean } = {}) {
+/** Fake setTimeout only, advancing with real time too, so socket-like delivery and crypto keep working. */
+function fakeTimers() {
+  vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
+}
+
+function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; now?: () => number } = {}) {
   const events: AppEvent[] = [];
   const statuses: CompanionStatus[] = [];
   const transports: { tv: TestTransport; phone: TestTransport; id: string; deadline: number | undefined }[] = [];
@@ -133,6 +141,7 @@ function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; withSource?
         },
         ...(opts.unpairedTtlMs !== undefined ? { unpairedTtlMs: opts.unpairedTtlMs } : {}),
         ...(opts.pairedTtlMs !== undefined ? { pairedTtlMs: opts.pairedTtlMs } : {}),
+        ...(opts.now !== undefined ? { now: opts.now } : {}),
       });
       return host;
     },
@@ -307,11 +316,27 @@ describe('CompanionHost', () => {
   });
 
   test('a paired session expires at the paired lifetime and says bye', async () => {
-    const s = setup({ unpairedTtlMs: 5_000, pairedTtlMs: 300 });
+    fakeTimers();
+    const s = setup();
     const { p } = await pairQr(s);
     await hello(p);
+    vi.advanceTimersByTime(PAIRED_TTL_MS - UNPAIRED_TTL_MS);
+    expect(s.host.status().state).not.toBe('expired'); // the paired cap replaced the unpaired one
+    vi.advanceTimersByTime(UNPAIRED_TTL_MS);
     await p.next('bye');
-    await until(() => s.host.status().state === 'expired');
+    expect(s.host.status()).toEqual({ state: 'expired', reason: 'expired' });
+  });
+
+  test('a message past the expiry ends the session (timers can be late after standby)', async () => {
+    let skew = 0;
+    const s = setup({ now: () => Date.now() + skew });
+    const { p } = await pairQr(s);
+    await hello(p);
+    skew = PAIRED_TTL_MS;
+    await p.ch.send({ t: 'getState' });
+    await p.next('bye');
+    expect(s.host.status()).toEqual({ state: 'expired', reason: 'expired' });
+    expect(p.inbox.some((m) => m.t === 'state')).toBe(false);
   });
 
   test('the relay expiring the session (4000) marks it expired', async () => {
@@ -319,7 +344,28 @@ describe('CompanionHost', () => {
     const { p, t } = await pairQr(s);
     await hello(p);
     t.tv.finalClose('expired');
-    expect(s.host.status().state).toBe('expired');
+    expect(s.host.status()).toEqual({ state: 'expired', reason: 'expired' });
+  });
+
+  test.each([
+    ['replaced', 'replaced'], ['rate-limit', 'rate-limit'], ['quota', 'quota'], ['unreachable', 'unreachable'],
+    ['deadline', 'expired'], ['bad-role', 'stopped'],
+  ])('a final transport close (%s) ends with reason %s, recorded in diagnostics', async (transportReason, reason) => {
+    const s = setup();
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    t.tv.finalClose(transportReason);
+    expect(s.host.status()).toEqual({ state: 'expired', reason });
+    expect((await s.api.companionStatus()).reason).toBe(reason);
+    const errors = (await s.api.diagnostics()).lastErrors;
+    expect(errors.at(-1)).toMatchObject({ where: 'companion', message: `Phone session ended: ${reason}.` });
+  });
+
+  test('an unpaired session that times out has reason expired', async () => {
+    const s = setup({ unpairedTtlMs: 50 });
+    await s.host.start('code');
+    await until(() => s.host.status().state === 'expired');
+    expect(s.host.status().reason).toBe('expired');
   });
 
   test('reconnecting status while the transport is down; connected again after', async () => {
@@ -344,8 +390,28 @@ describe('CompanionHost', () => {
     // The new session works.
     await hello(second.p);
     expect(s.host.status().state).toBe('connected');
-    // A message on the old pairing goes nowhere.
-    expect(first.t.tv.closed).toBe(true);
+    // A message on the old pairing goes nowhere: neither the old phone nor the new one hears anything back.
+    await first.p.ch.send({ t: 'getState' });
+    await settle(100);
+    expect(first.p.inbox).toEqual([]);
+    expect(second.p.inbox.some((m) => m.t === 'state')).toBe(false);
+    expect(s.host.status().state).toBe('connected');
+  });
+
+  test('stop() during an in-flight addSource: no result goes out and nothing throws', async () => {
+    const s = setup();
+    const { p } = await pairQr(s);
+    await hello(p);
+    let release!: (v: { sourceId: string; channelCount: number }) => void;
+    const spy = vi.spyOn(s.api, 'addSource').mockImplementation(() => new Promise((r) => { release = r; }));
+    const id = await p.ch.send({ t: 'addSource', input: xt() });
+    await until(() => spy.mock.calls.length === 1);
+    s.host.stop();
+    await p.next('bye');
+    release({ sourceId: 'x', channelCount: 0 });
+    await settle(100);
+    expect(p.inbox.some((m) => m.t === 'result' && m.requestMsgId === id)).toBe(false);
+    expect(s.host.status()).toEqual({ state: 'idle' });
   });
 
   test('bye from the phone returns to waiting; stop() says bye and goes idle', async () => {
@@ -360,6 +426,142 @@ describe('CompanionHost', () => {
     await p.next('bye');
     await until(() => t.tv.closed);
     expect(s.host.status()).toEqual({ state: 'idle' });
+  });
+
+  test('getState is single-flight and cached; haveVersion gets stateUnchanged until something changes', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    const spy = vi.spyOn(s.api, 'getCompanionState');
+    await Promise.all([p.ch.send({ t: 'getState' }), p.ch.send({ t: 'getState' }), p.ch.send({ t: 'getState' })]);
+    const states = [await p.next('state'), await p.next('state'), await p.next('state')];
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(states[1]).toEqual(states[0]);
+    const v1 = states[0]!.state.version;
+
+    await p.ch.send({ t: 'getState', haveVersion: v1 });
+    expect((await p.next('stateUnchanged')).version).toBe(v1);
+    // A version this companion never received is answered with the full state (from the cache).
+    await p.ch.send({ t: 'getState', haveVersion: v1 + 7 });
+    await p.next('state');
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // A layout change drops the cache and changes the version.
+    const first = (await s.api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await s.api.toggleFavourite(first.id);
+    await p.ch.send({ t: 'getState', haveVersion: v1 });
+    const v2 = (await p.next('state')).state.version;
+    expect(v2).toBeGreaterThan(v1);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    // A playlist refresh keeps the version but may change the channel set: full state again.
+    await s.api.refresh('playlist');
+    await p.ch.send({ t: 'getState', haveVersion: v2 });
+    expect((await p.next('state')).state.version).toBe(v2);
+    expect(spy).toHaveBeenCalledTimes(3);
+
+    // A source change made on the TV (no event) also drops the cache.
+    await s.api.addSource({ ...xt(), name: 'Second' });
+    await p.ch.send({ t: 'getState', haveVersion: v2 });
+    expect((await p.next('state')).state.sources).toHaveLength(2);
+  });
+
+  test('displayName is sent only for renamed channels', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p);
+    await p.ch.send({ t: 'getState' });
+    const { state } = await p.next('state');
+    expect(state.channels.every((c) => !('displayName' in c))).toBe(true);
+    const id = state.channels[0]!.id;
+    const renamed = await p.call({ t: 'ops', baseVersion: state.version, ops: [{ op: 'renameChannel', id, name: 'Mine' }] });
+    expect(renamed.ok).toBe(true);
+    await p.ch.send({ t: 'getState' });
+    const after = (await p.next('state')).state;
+    expect(after.channels.find((c) => c.id === id)!.displayName).toBe('Mine');
+    expect(after.channels.filter((c) => c.displayName !== undefined)).toHaveLength(1);
+  });
+
+  test('a state that does not fit the send queue gets Busy; the session stays connected', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    // Room for a small result, not for the state.
+    t.tv.fits = (sizes) => sizes.reduce((a, b) => a + b, 0) < 400;
+    const busy = await p.call({ t: 'getState' });
+    expect(busy).toMatchObject({ ok: false, error: BUSY_ERROR });
+    expect(s.host.status().state).toBe('connected');
+    // Not even room for the result: dropped silently, still no session end.
+    t.tv.fits = () => false;
+    const id = await p.ch.send({ t: 'getState' });
+    await settle(100);
+    expect(p.inbox.some((m) => m.t === 'result' && m.requestMsgId === id)).toBe(false);
+    expect(s.host.status().state).toBe('connected');
+    delete t.tv.fits;
+    await p.ch.send({ t: 'getState' });
+    expect((await p.next('state')).state.channels).toHaveLength(40);
+  });
+
+  test('getState while the TV link is down gets Busy instead of a queued state', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    for (const fn of t.tv.disconnected) fn();
+    const res = await p.call({ t: 'getState' });
+    expect(res).toMatchObject({ ok: false, error: BUSY_ERROR });
+    expect(p.inbox.some((m) => m.t === 'state')).toBe(false);
+  });
+
+  test('a layout change while the TV link is down is pushed after the reconnect', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p, t } = await pairQr(s);
+    await hello(p);
+    for (const fn of t.tv.disconnected) fn();
+    const first = (await s.api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await s.api.toggleFavourite(first.id);
+    await settle(100);
+    expect(p.inbox.some((m) => m.t === 'layoutChanged')).toBe(false);
+    for (const fn of t.tv.reconnected) fn();
+    const m = await p.next('layoutChanged');
+    expect(m.layout.lists[0]!.channelIds).toContain(first.id);
+  });
+
+  test('peer presence: 75 s of silence means waiting; any message (a ping) means connected again', async () => {
+    fakeTimers();
+    const s = setup();
+    const { p } = await pairQr(s);
+    await hello(p);
+    const expiresAt = s.host.status().expiresAt;
+    expect(s.host.status()).toMatchObject({ state: 'connected', peerLabel: 'My phone' });
+    vi.advanceTimersByTime(PEER_TIMEOUT_MS - 1_000);
+    expect(s.host.status().state).toBe('connected');
+    vi.advanceTimersByTime(1_000);
+    expect(s.host.status()).toEqual({ state: 'waiting', expiresAt });
+    expect(s.statuses.at(-1)!.state).toBe('waiting');
+    // The session continues: a ping brings the companion back, with the label from its last hello.
+    await p.ch.send({ t: 'ping' });
+    await until(() => s.host.status().state === 'connected');
+    expect(s.host.status()).toEqual({ state: 'connected', peerLabel: 'My phone', expiresAt });
+    // The ping restarted the countdown.
+    vi.advanceTimersByTime(PEER_TIMEOUT_MS - 1_000);
+    expect(s.host.status().state).toBe('connected');
+    vi.advanceTimersByTime(1_000);
+    expect(s.host.status().state).toBe('waiting');
+  });
+
+  test('messages before hello are served and mark the companion connected', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await p.ch.send({ t: 'getState' });
+    expect((await p.next('state')).state.channels).toHaveLength(40);
+    expect(s.host.status().state).toBe('connected');
+    expect(s.host.status().peerLabel).toBeUndefined();
   });
 
   test('AppApi exposes companionStart / companionStatus / companionStop and emits status events', async () => {
