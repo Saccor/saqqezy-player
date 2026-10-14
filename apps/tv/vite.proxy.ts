@@ -84,7 +84,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   // On the hls route a playlist is rewritten, so a byte range of the original would not match the body we send:
   // ranges are only forwarded for non-playlist targets. The raw route never rewrites, so it forwards ranges.
-  // The browser's user-agent is forwarded too: some providers reject Node's default one.
+  // Upstream sees our player's own user-agent, never the browser's (see `proxyHeaders.ts`).
   const headers = upstreamHeaders(req.headers, !(route === 'hls' && isPlaylist('', target.toString())));
 
   const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
