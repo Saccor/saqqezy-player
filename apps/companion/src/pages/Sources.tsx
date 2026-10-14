@@ -34,11 +34,12 @@ export function SourcesPage() {
   const sources = () => store.state?.sources ?? [];
   const work = (id: string) => store.working[id];
 
-  const act = async (key: string, msg: SourceAction) => {
-    if (work(key)) return;
+  const act = async (key: string, msg: SourceAction): Promise<string | undefined> => {
+    if (work(key)) return undefined;
     setError(undefined);
     const err = await runRequest(msg, { key, attached: () => alive });
     if (err && alive) setError(err);
+    return err;
   };
 
   const closeForm = () => {
@@ -53,11 +54,11 @@ export function SourcesPage() {
   };
 
   const confirmDeleteNow = async (id: string) => {
-    await act(id, { t: 'deleteSource', id });
+    const err = await act(id, { t: 'deleteSource', id });
     if (!alive) return;
     setConfirmDelete(undefined);
-    // The row is gone after a successful delete: focus then falls back to Add source.
-    focusLater(`delete:${id}`);
+    // After a successful delete the row goes away with the next state: focus Add source instead.
+    focusLater(err ? `delete:${id}` : 'add');
   };
 
   return (
