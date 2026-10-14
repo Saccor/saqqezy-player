@@ -189,20 +189,30 @@ export class Html5Player implements Player {
     return true;
   }
 
-  /** mpegts.js rejected an extensionless URL as non-MPEG-TS before metadata: retry the same URL once as HLS. */
+  /**
+   * mpegts.js rejected an extensionless URL as non-MPEG-TS before metadata: retry the same URL once as HLS.
+   * Called from mpegts.js's ERROR callback, so the instance is only detached from the session here (its further
+   * errors are ignored); the teardown and the engine switch run after the callback has returned
+   * (`setTimeout(0)`), never inside mpegts.js's own call stack. A `stop()` in between still gets the old
+   * instance torn down, and nothing new is started for a dead session.
+   */
   private retryAsHls(s: Session): boolean {
     const next = nextEngineAfterFailure(s.extensionless ? '' : '.', s.tried, 'format', {
       nativeHls: this.video.canPlayType(HLS_MIME) !== '',
       hlsJs: Hls.isSupported(),
     });
     if (!next) return false;
-    this.teardownEngine(s.engine);
+    const old = s.engine;
     s.engine = undefined;
-    const v = this.video;
-    v.removeAttribute('src');
-    v.load();
-    this.startEngine(s, next, hlsViaDevProxy(s.url));
-    this.play(s);
+    setTimeout(() => {
+      this.teardownEngine(old);
+      if (s.dead || s !== this.session) return;
+      const v = this.video;
+      v.removeAttribute('src');
+      v.load();
+      this.startEngine(s, next, hlsViaDevProxy(s.url));
+      this.play(s);
+    }, 0);
     return true;
   }
 
