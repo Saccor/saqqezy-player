@@ -1,4 +1,5 @@
-import type { AppSettings, ChannelIndex, GroupInfo, Layout } from '@iptv/core';
+import type { AppSettings, GroupInfo } from '@iptv/core';
+import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
 export interface ProgrammeLite { title: string; start: number; stop: number; desc?: string }
@@ -40,32 +41,8 @@ export interface LayoutOpsResult {
 /** A user list (Favourites included) with its browsable group id and visible channel count. */
 export interface ListSummary { id: string; groupId: string; name: string; count: number }
 
-export interface CompanionChannel {
-  id: string;
-  /** The playlist name. */
-  name: string;
-  /** The user's rename, or the playlist name. */
-  displayName: string;
-  /** Provider group name. */
-  group: string;
-  number: number;
-  logo?: string;
-  /** True when the guide has data for the channel, or while guide coverage is unknown. */
-  hasEpg: boolean;
-}
-
-/** Everything a companion needs to edit the active source's layout. No credentials or stream URLs (logos are URLs). */
-export interface CompanionState {
-  version: number;
-  activeSourceId?: string;
-  sources: SourceSummary[];
-  groups: ReturnType<ChannelIndex['allProviderGroups']>;
-  /** Every channel of the active source, hidden ones included. */
-  channels: CompanionChannel[];
-  layout: Layout;
-  /** False while the guide has not been downloaded: every channel's `hasEpg` is then true by default. */
-  coverageKnown: boolean;
-}
+/** Defined in @iptv/companion-protocol (app-api depends on it); re-exported here for compatibility. */
+export type { CompanionChannel, CompanionState };
 
 export interface DiagnosticsInfo {
   appVersion: string;

@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@iptv/core": "workspace:*" },
+  "dependencies": { "@iptv/companion-protocol": "workspace:*", "@iptv/core": "workspace:*" },
   "devDependencies": { "@iptv/storage": "workspace:*", "@iptv/fake-xtream": "workspace:*" }
 }

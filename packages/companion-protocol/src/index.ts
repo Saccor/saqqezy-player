@@ -31,3 +31,13 @@ export {
   MAX_IN_FLIGHT,
 } from './frames.ts';
 export { ReplayWindow } from './replay.ts';
+export type { CompanionChannel, CompanionSourceSummary, CompanionState } from './state.ts';
+export { type PhoneToTv, type TvToPhone, isPhoneToTv, isTvToPhone, MAX_FIELD_LEN } from './messages.ts';
+export {
+  type FrameTransport,
+  type CloseReason,
+  type SecureChannelOptions,
+  SecureChannel,
+  ChannelClosedError,
+  MAX_DECRYPT_FAILURES,
+} from './channel.ts';
