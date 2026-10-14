@@ -186,6 +186,27 @@ describe('PlaybackSupervisor', () => {
     expect(player.opened).toHaveLength(1);
   });
 
+  it('UNSUPPORTED on the primary opens the alternate at once and reaches playing', () => {
+    const { player, sup, statuses } = setup();
+    sup.play('http://a.example.test/live/1.ts', 'http://a.example.test/live/1.m3u8');
+    player.emit('error', { code: 'UNSUPPORTED' });
+    expect(player.opened).toEqual(['http://a.example.test/live/1.ts', 'http://a.example.test/live/1.m3u8']);
+    expect(statuses.at(-1)).toEqual({ kind: 'loading' });
+    expect(statuses.some((s) => s.kind === 'reconnecting' || s.kind === 'failed')).toBe(false);
+    player.emit('playing');
+    expect(statuses.at(-1)).toEqual({ kind: 'playing' });
+  });
+
+  it('UNSUPPORTED on both primary and alternate fails as unsupported', () => {
+    const { player, sup, statuses } = setup();
+    sup.play('http://a.example.test/live/1.ts', 'http://a.example.test/live/1.m3u8');
+    player.emit('error', { code: 'UNSUPPORTED' });
+    player.emit('error', { code: 'UNSUPPORTED' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unsupported' });
+    vi.advanceTimersByTime(60000);
+    expect(player.opened).toHaveLength(2);
+  });
+
   it('dispose stops reacting', () => {
     const { player, sup, statuses } = setup();
     sup.play('http://a.example.test/1');

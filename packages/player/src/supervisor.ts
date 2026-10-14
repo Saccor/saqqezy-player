@@ -203,6 +203,8 @@ export class PlaybackSupervisor {
     this.stableSince = undefined;
     this.isPlaying = false;
     if (code === 'UNSUPPORTED') {
+      // Unsupported in one container (.ts) is often playable in the other (.m3u8): try the alternate at once.
+      if (this.switchToAlternate()) return;
       this.active = false;
       this.emit({ kind: 'failed', reason: 'unsupported' });
       return;
@@ -222,18 +224,22 @@ export class PlaybackSupervisor {
       }, delay);
       return;
     }
-    if (this.alternateUrl !== undefined && !this.altTried) {
-      this.altTried = true;
-      this.currentUrl = this.alternateUrl;
-      this.attempt = 0;
-      this.totalReconnects = 0; // the alternate gets a fresh reconnect budget
-      this.player.stop();
-      this.emit({ kind: 'loading' });
-      this.openCurrent();
-      return;
-    }
+    if (this.switchToAlternate()) return;
     this.active = false;
     this.emit({ kind: 'failed', reason: 'unavailable' });
+  }
+
+  /** Switches to the alternate URL if one exists and is untried; returns whether it did. */
+  private switchToAlternate(): boolean {
+    if (this.alternateUrl === undefined || this.altTried) return false;
+    this.altTried = true;
+    this.currentUrl = this.alternateUrl;
+    this.attempt = 0;
+    this.totalReconnects = 0; // the alternate gets a fresh reconnect budget
+    this.player.stop();
+    this.emit({ kind: 'loading' });
+    this.openCurrent();
+    return true;
   }
 
   private clearStartTimer(): void {
