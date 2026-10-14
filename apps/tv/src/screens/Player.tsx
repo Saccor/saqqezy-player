@@ -353,6 +353,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     playback.setRect('fullscreen');
     player.setAspect(sessionAspect);
     showBanner();
+    // Default sleep timer (Settings > Playback): armed for each fullscreen session.
+    const defaultSleep = settings()?.sleepTimerMinutes ?? 0;
+    if (defaultSleep > 0) {
+      setSleepMinutes(defaultSleep);
+      sleepTimer.set(defaultSleep * SLEEP_SCALE);
+    }
     // The previous screen's focused node is gone: take focus so the keys reach this screen.
     root?.setFocus();
     const tick = setInterval(() => setNow(Date.now()), 30_000);

@@ -38,7 +38,7 @@ window.addEventListener('resize', () => {
 });
 
 // Dev-only debug handle for the browser console; stripped from production builds.
-if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, playback, api, router, showToast };
+if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = { player, layer, playback, api, router, showToast, renderer };
 
 installKeys();
 render(() => <App />);

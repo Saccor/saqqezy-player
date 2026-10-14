@@ -5,10 +5,13 @@ import { api, onEvent } from '../api.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
-import { router } from '../shell/router.ts';
+import { playback } from '../playback/playback.ts';
+import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { showToast } from '../shell/Toast.tsx';
 import {
-  backFromTypeStep, errorMessage, progressText, validateM3u, validateXtream, type M3uForm, type XtreamForm,
+  backFromTypeStep, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
+  type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
 type Kind = 'xtream' | 'm3u';
@@ -66,9 +69,16 @@ function TypeTile(props: {
  * Add source: step 1 picks the login type, step 2 shows only that form. Fields are edited with the
  * on-screen keyboard (a Back-closable overlay). The password is masked unless Yellow toggles it, and it is
  * never logged.
+ *
+ * Edit mode (`params.sourceId`, from Settings > Sources): the form of the source's kind, prefilled from
+ * `api.getSource`, saved with `api.updateSource`; there is no type step, and Back returns to Settings.
  */
-export function AddSourceScreen() {
+export function AddSourceScreen(props: { entry?: ScreenEntry }) {
+  const editId = (props.entry?.params as { sourceId?: string } | undefined)?.sourceId;
   const [step, setStep] = createSignal<Step>('type');
+  // Edit mode draws nothing until the stored source has been loaded into the form.
+  const [ready, setReady] = createSignal(editId === undefined);
+  let activeId: string | undefined;
   const [xtream, setXtream] = createSignal<XtreamForm>({ name: '', server: '', username: '', password: '' });
   const [m3u, setM3u] = createSignal<M3uForm>({ name: '', playlistUrl: '', epgUrl: '' });
   const [editing, setEditing] = createSignal<string | undefined>(undefined);
@@ -155,6 +165,16 @@ export function AddSourceScreen() {
     setBusy(true);
     offProgress = onEvent('progress', (p) => setProgress(p as Progress));
     try {
+      if (editId !== undefined) {
+        await api.updateSource(toUpdatedSource(editId, v.input));
+        offProgress();
+        // The running stream may use the old login or address.
+        if (editId === activeId) playback.stop();
+        // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.
+        if (alive) router.back();
+        showToast('Source saved');
+        return;
+      }
       await api.addSource(v.input);
       offProgress();
       if (alive) router.replace('home');
@@ -162,7 +182,7 @@ export function AddSourceScreen() {
       offProgress();
       if (!alive) return;
       // Only the name: the message is shown on screen, and nothing about the login reaches the console.
-      console.warn('Add source failed', err instanceof Error ? err.name : 'Error');
+      console.warn(editId !== undefined ? 'Save source failed' : 'Add source failed', err instanceof Error ? err.name : 'Error');
       setBusy(false);
       setError(errorMessage(err));
       focusItem(0);
@@ -172,6 +192,7 @@ export function AddSourceScreen() {
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // layered Back: the shell closes the overlay first
     if (busy()) return true;
+    if (editId !== undefined) return false; // back to Settings, nothing saved
     if (step() !== 'type') {
       setError(undefined);
       setStep('type');
@@ -183,9 +204,37 @@ export function AddSourceScreen() {
     return action !== 'bubble';
   };
 
+  /** Edit mode: loads the stored source into the form of its kind. */
+  const loadForEdit = async (id: string) => {
+    try {
+      const src = await api.getSource(id);
+      if (!alive) return;
+      if (!src) {
+        router.back();
+        showToast("This source doesn't exist any more.");
+        return;
+      }
+      const form = formFromSource(src);
+      if (form.kind === 'xtream') setXtream(form.xtream);
+      else setM3u(form.m3u);
+      setReady(true);
+      openStep(form.kind);
+    } catch (err) {
+      console.warn('Load source failed', err instanceof Error ? err.name : 'Error');
+      if (!alive) return;
+      router.back();
+      showToast("Couldn't load this source.");
+    }
+  };
+
   onMount(() => {
     restoreFocus();
-    api.listSources().then((s) => { if (alive) setHasSources(s.length > 0); }, () => { /* treat as none */ });
+    api.listSources().then((s) => {
+      if (!alive) return;
+      setHasSources(s.length > 0);
+      activeId = s.find((x) => x.active)?.id;
+    }, () => { /* treat as none */ });
+    if (editId !== undefined) void loadForEdit(editId);
   });
   onCleanup(() => {
     alive = false;
@@ -200,7 +249,7 @@ export function AddSourceScreen() {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
-      <Show when={step() === 'type'}>
+      <Show when={ready() && step() === 'type'}>
         <Text x={X} y={LAYOUT.safeY + 60} fontSize={56} color={COLORS.text}>{'Add your TV source'}</Text>
         <Text x={X} y={LAYOUT.safeY + 140} fontSize={FONT.heading} color={COLORS.muted}>
           {'Use the login details from your own provider.'}
@@ -216,8 +265,10 @@ export function AddSourceScreen() {
         </Text>
       </Show>
 
-      <Show when={step() !== 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>{FORM_TITLE[kind()]}</Text>
+      <Show when={ready() && step() !== 'type'}>
+        <Text x={X} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>
+          {editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
+        </Text>
         <For each={fields()}>{(f, i) => (
           <TextField ref={(el) => { items[i()] = el; }} x={X} y={FORM_Y + i() * FIELD_STEP} width={FORM_W}
             label={f.label} placeholder={f.placeholder} value={values()[f.key] ?? ''} secret={f.secret}
@@ -228,13 +279,13 @@ export function AddSourceScreen() {
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
         )}</For>
         <Button ref={(el) => { items[fields().length] = el; }} x={X} y={FORM_Y + fields().length * FIELD_STEP + 16}
-          width={260} label={SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
+          width={260} label={editId !== undefined ? 'Save' : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
           onUp={() => focusItem(fields().length - 1)} onDown={() => true} />
         <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - FONT.body) / 2 - 4}
           width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
           fontSize={FONT.body} color={busy() ? COLORS.text : ERROR_COLOR}>{statusText()}</Text>
         <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={FONT.small} color={COLORS.muted}>
-          {'Ok edits a field · Back returns to the login type'}
+          {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
         </Text>
         <Show when={editingField()}>{(f) => (
           <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={130}

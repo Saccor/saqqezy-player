@@ -20,13 +20,22 @@ export const platformId: PlatformId = detectPlatform(
   globalThis as unknown as { tizen?: unknown; webOS?: unknown },
 );
 
-/** Settings from `InitState`; undefined until `api.init()` has answered. */
+/**
+ * Current settings, reactive: from `InitState` until the Settings screen changes one (`patchSettings`).
+ * Undefined until `api.init()` has answered. The clock, Player and Settings read it directly; Home and the
+ * Guide get offset/format changes through the worker, which applies them to every answer.
+ */
 export const settings = (): AppSettings | undefined => initState()?.settings;
 
-/** Updates the cached settings after a `saveSettings` call (Settings screen). */
+/** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 export function patchSettings(next: AppSettings): void {
   const s = initState();
   if (s) setInitState({ ...s, settings: next });
+}
+
+/** Replaces `InitState` after a call that returns a fresh one (set active, delete source, clear cache). */
+export function applyInitState(next: InitState): void {
+  setInitState(next);
 }
 
 /**

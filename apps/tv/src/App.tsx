@@ -10,6 +10,7 @@ import { HomeScreen } from './screens/Home.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
+import { SettingsScreen } from './screens/Settings.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -82,11 +83,12 @@ export function App() {
       <View ref={screenHost} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
         <Show when={current()} keyed fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>
           {(entry) => (entry.screen === 'addSource'
-            ? <AddSourceScreen />
+            ? <AddSourceScreen entry={entry} />
             : entry.screen === 'home' ? <HomeScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
-            : entry.screen === 'search' ? <SearchScreen /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'search' ? <SearchScreen />
+            : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       <Show when={offline()}><OfflineBadge /></Show>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_NAME, GENERIC_ERROR, backFromTypeStep, errorMessage, isHttpUrl, maskSecret, progressText,
-  validateM3u, validateXtream,
+  DEFAULT_NAME, GENERIC_ERROR, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
+  toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 
 const named = (name: string, message: string) => Object.assign(new Error(message), { name });
@@ -103,5 +103,19 @@ describe('backFromTypeStep', () => {
   });
   it('opens Settings when sources exist but Add source is the root', () => {
     expect(backFromTypeStep({ hasSources: true, depth: 1 })).toBe('settings');
+  });
+});
+
+describe('edit mode', () => {
+  it('prefills the form of the source kind', () => {
+    expect(formFromSource({ kind: 'xtream', id: 's1', name: 'A', server: 'http://example.test', username: 'u', password: 'p' }))
+      .toEqual({ kind: 'xtream', xtream: { name: 'A', server: 'http://example.test', username: 'u', password: 'p' } });
+    expect(formFromSource({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' }))
+      .toEqual({ kind: 'm3u', m3u: { name: 'B', playlistUrl: 'http://example.test/a.m3u', epgUrl: '' } });
+  });
+  it('keeps the id when saving the validated form', () => {
+    const v = validateM3u({ name: ' B ', playlistUrl: 'http://example.test/a.m3u', epgUrl: '' });
+    if (!v.ok) throw new Error('invalid');
+    expect(toUpdatedSource('s2', v.input)).toEqual({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' });
   });
 });

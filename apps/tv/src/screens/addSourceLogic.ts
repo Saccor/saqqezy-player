@@ -1,6 +1,6 @@
 /** Pure helpers for the Add source screen (validation, error copy, progress copy). Unit-tested. */
 // Type-only: @iptv/core must stay out of the main-thread bundle.
-import type { NewSource } from '@iptv/core';
+import type { NewSource, SourceConfig } from '@iptv/core';
 
 export const DEFAULT_NAME = 'My TV';
 export const GENERIC_ERROR = 'Something went wrong. Please try again.';
@@ -81,4 +81,19 @@ export function maskSecret(s: string): string {
 export function backFromTypeStep(s: { hasSources: boolean; depth: number }): 'bubble' | 'settings' | 'stay' {
   if (s.hasSources) return s.depth > 1 ? 'bubble' : 'settings';
   return s.depth > 1 ? 'stay' : 'bubble';
+}
+
+export type SourceForm = { kind: 'xtream'; xtream: XtreamForm } | { kind: 'm3u'; m3u: M3uForm };
+
+/** Edit mode: the form of the source's kind, prefilled from the stored source. */
+export function formFromSource(src: SourceConfig): SourceForm {
+  if (src.kind === 'xtream') {
+    return { kind: 'xtream', xtream: { name: src.name, server: src.server, username: src.username, password: src.password } };
+  }
+  return { kind: 'm3u', m3u: { name: src.name, playlistUrl: src.playlistUrl, epgUrl: src.epgUrl ?? '' } };
+}
+
+/** Edit mode: the validated form as the stored source (same id), for `api.updateSource`. */
+export function toUpdatedSource(id: string, input: NewSource): SourceConfig {
+  return { ...input, id } as SourceConfig;
 }

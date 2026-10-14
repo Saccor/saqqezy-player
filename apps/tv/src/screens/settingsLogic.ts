@@ -1,0 +1,101 @@
+/** Pure helpers for the Settings screen (value steppers, option cycling, labels, diagnostics text). Unit-tested. */
+import type { DiagnosticsInfo } from '@iptv/app-api';
+// Type-only: @iptv/core must stay out of the main-thread bundle.
+import type { AppSettings } from '@iptv/core';
+
+export type SettingsPageId =
+  | 'sources' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
+
+export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = [
+  { id: 'sources', title: 'Sources' },
+  { id: 'guide', title: 'TV guide' },
+  { id: 'playback', title: 'Playback' },
+  { id: 'channels', title: 'Channels' },
+  { id: 'display', title: 'Display' },
+  { id: 'storage', title: 'Storage' },
+  { id: 'diagnostics', title: 'Diagnostics' },
+  { id: 'about', title: 'About' },
+];
+
+export const OFFSET_LIMIT = 12;
+export const OFFSET_STEP = 0.5;
+export const AUTO_REFRESH_OPTIONS = [0, 6, 12, 24] as const;
+export const FORMAT_OPTIONS = ['ts', 'm3u8'] as const;
+/** Same choices as the Player's sleep timer (and core's sanitizer). */
+export const SLEEP_DEFAULT_OPTIONS = [0, 15, 30, 60, 90, 120] as const;
+/** Errors shown on the Diagnostics page (most recent first). */
+export const MAX_ERRORS = 4;
+
+/** EPG offset after one Left (-1) or Right (+1): 0.5 h steps on the half-hour grid, clamped to ±12 h. */
+export function stepOffset(hours: number, dir: 1 | -1): number {
+  const clamp = (h: number) => Math.max(-OFFSET_LIMIT, Math.min(OFFSET_LIMIT, h));
+  const snapped = clamp(Math.round((Number.isFinite(hours) ? hours : 0) / OFFSET_STEP) * OFFSET_STEP);
+  return clamp(snapped + dir * OFFSET_STEP) + 0;
+}
+
+export function offsetLabel(hours: number): string {
+  if (hours === 0) return '0 h';
+  return `${hours > 0 ? '+' : '−'}${Math.abs(hours)} h`;
+}
+
+/** The option after (`dir` 1) or before (-1) `current`, wrapping; an unknown value starts at the first option. */
+export function cycleOption<T>(options: readonly T[], current: T, dir: 1 | -1 = 1): T {
+  const i = options.indexOf(current);
+  if (i === -1) return options[0]!;
+  return options[(i + dir + options.length) % options.length]!;
+}
+
+export const autoRefreshLabel = (h: number): string => (h <= 0 ? 'Never' : `${h} h`);
+export const formatLabel = (f: AppSettings['preferredFormat']): string => (f === 'm3u8' ? 'HLS (m3u8)' : 'TS (default)');
+export const sleepDefaultLabel = (m: number): string => (m <= 0 ? 'Off' : `${m} min`);
+export const onOff = (b: boolean): string => (b ? 'On' : 'Off');
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Local date and time `YYYY-MM-DD HH:MM`; 0 (never happened) is "Never". */
+export function formatTime(ts: number): string {
+  if (!ts || ts <= 0) return 'Never';
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Defence in depth for anything shown on Diagnostics: core already scrubs error messages, but every URL and
+ * `user:pass@host` form is replaced here too, so no address or login can reach the screen.
+ */
+export function stripUrls(text: string): string {
+  return text
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[link]')
+    .replace(/\S+@\S+/g, '[link]');
+}
+
+const KIND_LABEL: Record<string, string> = { xtream: 'Xtream', m3u: 'M3U' };
+
+/**
+ * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
+ * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
+ */
+export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string }): [string, string][] {
+  const lines: [string, string][] = [
+    ['App version', info.appVersion],
+    ['Platform', env.platform],
+  ];
+  if (info.sources.length === 0) lines.push(['Sources', 'None']);
+  info.sources.forEach((s, i) => {
+    const kind = KIND_LABEL[s.kind] ?? 'Other';
+    lines.push([`Source ${i + 1}`, `${stripUrls(s.name)} · ${kind} · ${s.channels} channels, ${s.skipped} skipped`]);
+    lines.push(['', `Channels updated ${formatTime(s.playlistAt)} · Guide updated ${formatTime(s.epgAt)}`]);
+  });
+  const errors = [...info.lastErrors].sort((a, b) => b.at - a.at).slice(0, MAX_ERRORS);
+  if (errors.length === 0) lines.push(['Errors', 'None']);
+  for (const e of errors) lines.push([`Error ${formatTime(e.at)}`, `${stripUrls(e.where)}: ${stripUrls(e.message)}`]);
+  const st = info.settings;
+  lines.push(
+    ['Guide offset', offsetLabel(st.epgOffsetHours)],
+    ['Stream format', formatLabel(st.preferredFormat)],
+    ['Auto-refresh', autoRefreshLabel(st.autoRefreshHours)],
+    ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
+    ['Clock', onOff(st.showClock)],
+  );
+  return lines;
+}

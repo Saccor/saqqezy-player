@@ -24,12 +24,15 @@ function heapText(): string {
   return `${(mem.usedJSHeapSize / 1048576).toFixed(1)} MB`;
 }
 
+/** Visibility of the HUD; also toggled from Settings > Diagnostics ("Show debug overlay"). */
+const [visible, setVisible] = createSignal(false);
+export { visible as debugOverlayVisible, setVisible as setDebugOverlayVisible };
+
 /**
  * Developer HUD: startup time, FPS, JS heap, supervisor status, platform. Toggled by Info x3 within 2 s, or
  * F12 in the browser. It is a non-modal HUD (takes no focus and is not a Back layer).
  */
 export function DebugOverlay() {
-  const [visible, setVisible] = createSignal(false);
   const [fps, setFps] = createSignal(0);
   const [heap, setHeap] = createSignal('n/a');
 
