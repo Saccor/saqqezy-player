@@ -1,5 +1,6 @@
 import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
-import { orderGroupChannels, type Layout, type SortMode } from '@iptv/core';
+import { orderGroupChannels, type Layout, type LayoutOp, type SortMode } from '@iptv/core';
+import { COPY } from './copy.ts';
 
 const GROUP_PREFIX = 'g:';
 
@@ -71,6 +72,20 @@ export function sortModeOf(layout: Layout, groupId: string): SortMode {
 
 export function hasManualOrder(layout: Layout, groupId: string): boolean {
   return (layout.channelOrder[groupId]?.length ?? 0) > 0;
+}
+
+/**
+ * Choosing a sort. A custom order always comes before the sort on the TV, so the sort also clears it; when there is
+ * one, `confirm` asks first (COPY.replaceCustomOrder). Undefined: the user said no, send nothing.
+ */
+export function sortChangeOps(
+  groupId: string, mode: SortMode, hasManual: boolean, confirm: (question: string) => boolean,
+): LayoutOp[] | undefined {
+  const ops: LayoutOp[] = [{ op: 'setSort', groupId, mode }];
+  if (!hasManual) return ops;
+  if (!confirm(COPY.replaceCustomOrder)) return undefined;
+  ops.push({ op: 'setChannelOrder', groupId, ids: null });
+  return ops;
 }
 
 /**

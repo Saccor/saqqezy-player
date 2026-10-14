@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
 import { applyOps, emptyLayout, type Layout } from '@iptv/core';
-import { canHideNoEpg, channelLabel, groupChannels, GroupModel, providerGroups } from './groups.ts';
+import { canHideNoEpg, channelLabel, groupChannels, GroupModel, providerGroups, sortChangeOps } from './groups.ts';
 
 const ch = (id: string, name: string, group: string, number: number, hasEpg = true): CompanionChannel =>
   ({ id, name, group, number, hasEpg });
@@ -72,5 +72,29 @@ describe('canHideNoEpg', () => {
     expect(canHideNoEpg(state(false, CHANNELS))).toBe(false);
     expect(canHideNoEpg(state(true, CHANNELS))).toBe(true);
     expect(canHideNoEpg(state(false, [ch('n', 'N', 'G', 1, false)]))).toBe(true);
+  });
+});
+
+describe('sortChangeOps', () => {
+  it('asks before a sort replaces a custom order, and does nothing when the answer is no', () => {
+    const asked: string[] = [];
+    const no = (q: string) => { asked.push(q); return false; };
+    expect(sortChangeOps('g:A', 'name', true, no)).toBeUndefined();
+    expect(asked).toEqual(['This replaces your custom order. Continue?']);
+  });
+
+  it('replaces the custom order when confirmed', () => {
+    expect(sortChangeOps('g:A', 'number', true, () => true)).toEqual([
+      { op: 'setSort', groupId: 'g:A', mode: 'number' },
+      { op: 'setChannelOrder', groupId: 'g:A', ids: null },
+    ]);
+  });
+
+  it('does not ask without a custom order', () => {
+    let asked = false;
+    expect(sortChangeOps('g:A', 'name', false, () => { asked = true; return false; })).toEqual([
+      { op: 'setSort', groupId: 'g:A', mode: 'name' },
+    ]);
+    expect(asked).toBe(false);
   });
 });

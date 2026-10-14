@@ -5,7 +5,7 @@ import { sendAndSync } from '../components/controls.ts';
 import { InlineRename } from '../components/InlineRename.tsx';
 import { SortableList } from '../components/SortableList.tsx';
 import { createNarrow } from '../components/VirtualList.tsx';
-import { channelLabel, groupChannels, hasManualOrder, providerGroups, sortModeOf } from '../logic/groups.ts';
+import { channelLabel, groupChannels, hasManualOrder, providerGroups, sortChangeOps, sortModeOf } from '../logic/groups.ts';
 import { channelOrderOps } from '../logic/reorder.ts';
 import { sendOps } from '../state/actions.ts';
 import { groupModel } from '../state/derived.ts';
@@ -40,11 +40,10 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
   const label = (c: CompanionChannel) => channelLabel(c, layout());
 
   const setMode = (m: SortMode, radio: HTMLInputElement) => {
-    const ops: LayoutOp[] = [{ op: 'setSort', groupId: props.groupId, mode: m }];
-    // A custom order comes before any sort; choosing a sort means "use this sort", so it replaces it.
-    if (manual()) ops.push({ op: 'setChannelOrder', groupId: props.groupId, ids: null });
+    // A custom order comes before any sort; choosing a sort replaces it (after asking).
+    const ops = sortChangeOps(props.groupId, m, manual(), (q) => window.confirm(q));
     const radios = radio.closest('fieldset')?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [radio];
-    void sendAndSync(() => sendOps(ops), radios, (r) => !manual() && mode() === r.value);
+    void sendAndSync(async () => (ops ? sendOps(ops) : undefined), radios, (r) => !manual() && mode() === r.value);
   };
   const reset = () => {
     const ops: LayoutOp[] = [{ op: 'setChannelOrder', groupId: props.groupId, ids: null }];
