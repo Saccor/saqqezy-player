@@ -112,9 +112,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
 
   // ---- groups ----
 
-  const openGroup = (g: string, index: number) => {
+  /** `remember`: a normal open or a user pick; the open at a Search target keeps the remembered group. */
+  const openGroup = (g: string, index: number, remember = true) => {
     groupSeq++;
-    memory.groupId = g;
+    if (remember) memory.groupId = g;
     // The group's count (from getGroups) is the total, so opening needs no extra request for page 0.
     cache.setGroup(g, groups().find((x) => x.id === g)?.count);
     lastTop = Math.max(0, index - 3);
@@ -249,7 +250,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
           setGroups(gs);
           const located = await locatePlaying(gs);
           if (!alive || located === 'superseded') return;
-          if (located.g !== undefined) openGroup(located.g, located.index);
+          if (located.g !== undefined) openGroup(located.g, located.index, target.rememberGroup);
         } catch (err) {
           console.warn('Guide reload failed', err instanceof Error ? err.name : 'Error');
         }
@@ -264,7 +265,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         setGroups(gs);
         const located = await locatePlaying(gs);
         if (!alive || located === 'superseded') return;
-        if (located.g !== undefined) openGroup(located.g, located.index);
+        if (located.g !== undefined) openGroup(located.g, located.index, target.rememberGroup);
       } catch (err) {
         console.warn('Guide load failed', err instanceof Error ? err.name : 'Error');
       } finally {

@@ -218,25 +218,26 @@ describe('guideOpenTarget', () => {
   const gw = guideWindow(now);
 
   it('no params: current behaviour', () => {
-    expect(guideOpenTarget({}, now, gw)).toEqual({ viewStart: initialViewStart(now, gw), anchor: now });
-    expect(guideOpenTarget({ groupId: 'g:News' }, now, gw)).toEqual({ groupId: 'g:News', viewStart: initialViewStart(now, gw), anchor: now });
+    expect(guideOpenTarget({}, now, gw)).toEqual({ viewStart: initialViewStart(now, gw), anchor: now, rememberGroup: true });
+    expect(guideOpenTarget({ groupId: 'g:News' }, now, gw)).toEqual({ groupId: 'g:News', viewStart: initialViewStart(now, gw), anchor: now, rememberGroup: true });
   });
 
   it('channel and time: All channels, view at the half hour of `at`', () => {
     const when = now + 3 * HOUR + 20 * 60_000;
     expect(guideOpenTarget({ channelId: 's:7', at: when }, now, gw)).toEqual({
-      channelId: 's:7', groupId: 'all', viewStart: Math.floor(when / HALF_HOUR) * HALF_HOUR, anchor: when,
+      channelId: 's:7', groupId: 'all', viewStart: Math.floor(when / HALF_HOUR) * HALF_HOUR, anchor: when, rememberGroup: false,
     });
   });
 
   it('an explicit group wins; `at` beyond the window is clamped', () => {
     const t = guideOpenTarget({ channelId: 's:7', groupId: 'g:Kids', at: now + 100 * HOUR }, now, gw);
     expect(t.groupId).toBe('g:Kids');
+    expect(t.rememberGroup).toBe(false);
     expect(t.anchor).toBe(gw.end - 1);
     expect(t.viewStart).toBe(gw.end - 3 * HOUR);
   });
 
   it('ignores a non-numeric `at` and a non-string channel', () => {
-    expect(guideOpenTarget({ channelId: 7, at: 'soon' }, now, gw)).toEqual({ viewStart: initialViewStart(now, gw), anchor: now });
+    expect(guideOpenTarget({ channelId: 7, at: 'soon' }, now, gw)).toEqual({ viewStart: initialViewStart(now, gw), anchor: now, rememberGroup: true });
   });
 });
