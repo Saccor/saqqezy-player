@@ -38,6 +38,7 @@ credentials stay on the device.
 
 | Item | Why | Evidence | Notes |
 |---|---|---|---|
+| **Seconds behind live per channel** (user idea 2026-10-14; next to brainstorm) | Pick the channel or source closest to live at a glance | User request; no rival shows it (research R6) | The value is measured while watching (every engine) and remembered per channel. HLS playlists with a stream clock can be probed in the background without playing. Raw TS can only be measured while watching. Values are relative, not "true broadcast" time |
 | **Parental PIN** (locked groups/channels) | Competitors ship it; a family-TV differentiator | Research §1 #18, §2; Televizo changelog (no link), [Airo IPTV PIN](https://github.com/zigorminsk-debug/IP-TV-player/pull/1) | PIN stored locally only |
 | **User-Agent / Referer setting** applied to playlist, guide **and** stream requests | Header-gated lists load but fail in playback when only the list fetch sends them | Research §1 #8, §2, §5; [iptvnator #1221](https://github.com/4gray/iptvnator/issues/1221) | **Caveat:** limited on Tizen web apps (the web layer restricts headers; check AVPlay `setStreamingProperty` support first) |
 | **Quality cap** (Auto / 720p / 1080p) | Weak TV chips overheat or stutter on high bitrates | Research §1 #23, §2; [StreamVault #263](https://github.com/Davidona/StreamVault-IPTV/issues/263) | |
@@ -83,6 +84,43 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
   update still pending. It could not be confirmed with a visible, normally running page; check it on the TV.
 - Companion over the deployed relay: pairing from the packaged app (`Origin` null or `file://` for `role=tv`) to
   `wss://` works; the TV's `CompressionStream` is detected (TV→phone states are compressed only when it exists).
+
+### Live delay and recovery (from `docs/research/live-latency-and-stalls-2026-10.md` §10)
+
+These gate releasing the live-delay work on TVs. Use synthetic test streams only (the live lab, sub-project 3).
+
+1. `video.playbackRate` 1.05 / 1.1 / 1.2 on MSE live, 30 s each, on Tizen 6+ and webOS 6+. Check whether the speed changes and whether the audio continues. This decides whether TVs may get rate catch-up (`allowRate`).
+2. AVPlay `setBufferingParam` below 4 s: does it throw, clamp or work? Measure how long the picture freezes after a rebuffer with FOR_RESUME at 4, 8 and 10 s.
+3. AVPlay:
+   - The raw formats of `GET_LIVE_DURATION` and `IS_LIVE`.
+   - `seekTo(end − margin)` near the live edge.
+   - Whether `setVideoStillMode` keeps the last frame visible during a reconnect.
+4. Stalls per hour and memory growth over 2 h, per engine and preset, on Wi-Fi and on Ethernet.
+5. Key → frame p95, idle versus playing, AVPlay versus MSE.
+6. Whether the `getVideoPlaybackQuality()` counters advance on Tizen/webOS MSE. Frozen-video detection needs them.
+7. `enableWorker: true` for mpegts.js on Tizen 6 (M76) and webOS 6 (Chromium 79). Does it play, and does key response improve?
+
+## Live delay follow-ups (deferred from the review)
+
+- When a recording or file ends, the screen gives no feedback: the status stays `playing` on a frozen frame. Add an "Ended" state.
+- `.ts` files, and native files reporting an infinite duration, are treated as live, so they reconnect when they end. Detect a file from `LOADING_COMPLETE` arriving with much more buffered than a live stream could hold.
+- While the page is hidden, `buffering`→`playing` events still count as stalls (only the tick pauses).
+- `notifyUserAction()` is not wired to anything yet; there is no user seek or pause.
+- The reconnect budget resets on every give-up retry, so a source that keeps failing soon after starting loops through 5-minute give-up windows.
+- `openCurrent` reapplies the current preset on every reconnect, while the delay controller keeps the preset it had at `play()`.
+- The learned raise is per source and shared by all of its channels.
+- Stall ladder tuning:
+  - With 0.1–0.5 s buffered, a stall waits for the 8 s backstop.
+  - Gap jumps delay `seekLive` to about 4 s.
+  - Tune both with measurements from the live lab.
+- AVPlay `behindLiveS` can be up to 2 s too high because the edge is cached; extrapolate it. AVPlay `seekToLive` ignores asynchronous seek failures.
+- Test gaps:
+  - Overlay 30 s cap and destroy.
+  - hls.js `softReload`.
+  - `livePill` boundary.
+  - Budget exhaustion on a tick reconnect.
+  - Malformed `GET_LIVE_DURATION`.
+  - Edge cases in `liveTargets`.
 
 ## Companion deployment (first real deploy)
 
@@ -154,7 +192,7 @@ Small items from the implementation reviews that v1 ships without.
 - App API: `updateSource` / `clearCache` run outside the per-source queue; small gap between deleting a source and clearing its meta keys; `refresh` reads the active source before queuing; `deleteSource` can wait on a long guide refresh (needs a busy state in the UI).
 - App API: a guide that cannot be read is reported like a network failure, so the offline badge shows.
 - App API: the offline badge shows for parse/stall errors (an unreadable list or guide, or a stalled body, is a status-less `SourceNetworkError`).
-- Player supervisor: events without `attemptId` are accepted; `totalReconnects` never decays on long sessions; a synchronous UNSUPPORTED throw loses its code.
+- Player supervisor: events without `attemptId` are accepted.
 - Player: extensionless HLS URLs (mpegts.js → HLS retry): retry covered by unit tests only; not verified end to end.
 - Dev proxy: security checks (same-origin, header strip) untested; path constants duplicated; DNS-rebinding protection relies on Vite `allowedHosts`.
 - HTML5 player: hls.js teardown is not wrapped in try/catch.
