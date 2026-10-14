@@ -1,11 +1,12 @@
-import Hls, { ErrorDetails, ErrorTypes, type ErrorData } from 'hls.js';
+import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } from 'hls.js';
 import mpegts from 'mpegts.js';
 import type {
-  AspectMode, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
+import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -27,6 +28,14 @@ interface Session {
   /** Engines started so far in this session, in order. */
   tried: TriedEngine[];
   cleanups: (() => void)[];
+  /** Clock ms of the last network byte (mpegts.js statistics); undefined until the first. */
+  lastByteAt?: number;
+  /** HLS target duration in seconds, from the first live LEVEL_LOADED. */
+  targetDurationS?: number;
+  /** Fatal hls.js media errors recovered in place so far (Task 9). */
+  mediaRecoveries: number;
+  /** Clock ms of the last in-place hls.js network recovery (Task 9). */
+  lastNetRecoveryAt: number;
 }
 
 const HLS_MIME = 'application/vnd.apple.mpegurl';
@@ -36,6 +45,14 @@ const HLS_CODEC_ERRORS = new Set<string>([
   ErrorDetails.BUFFER_ADD_CODEC_ERROR,
   ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR,
 ]);
+
+const AUTH_STATUSES = new Set([401, 403, 410]);
+/** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
+const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
+const EOS_MESSAGE = 'Stream ended';
+/** A wall clock (EXT-X-PROGRAM-DATE-TIME) outside this range is a broken stamp, not a delay. */
+const PDT_MIN_S = -5;
+const PDT_MAX_S = 600;
 
 interface NativeAudioTrack { id: string; label: string; language: string; enabled: boolean }
 interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
@@ -64,11 +81,14 @@ export class Html5Player implements Player {
   private session: Session | undefined;
 
   private readonly preferNativeHls: boolean;
+  private readonly isTv: boolean;
   private readonly autoMute: AutoMute;
+  private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
 
-  constructor(private readonly layer: VideoLayer, opts: { preferNativeHls?: boolean } = {}) {
+  constructor(private readonly layer: VideoLayer, opts: { preferNativeHls?: boolean; isTv?: boolean } = {}) {
     this.video = layer.video;
     this.preferNativeHls = opts.preferNativeHls ?? true;
+    this.isTv = opts.isTv ?? false;
     this.autoMute = new AutoMute(this.video);
   }
 
@@ -85,9 +105,10 @@ export class Html5Player implements Player {
     // Once the page has had a user gesture, playback with sound is allowed again.
     this.autoMute.releaseIfActivated(userActivation());
     const path = pathOf(url);
-    const s: Session = { url, attemptId, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [] };
+    const s: Session = { url, attemptId, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [], mediaRecoveries: 0, lastNetRecoveryAt: Number.NEGATIVE_INFINITY };
     this.session = s;
     const v = this.video;
+    v.playbackRate = 1;
     const src = hlsViaDevProxy(url);
 
     const on = <K extends keyof HTMLMediaElementEventMap>(type: K, fn: () => void) => {
@@ -96,6 +117,8 @@ export class Html5Player implements Player {
     };
     on('playing', () => this.emit(s, 'playing'));
     on('waiting', () => this.emit(s, 'buffering'));
+    // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
+    on('ended', () => this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE }));
     on('error', () => {
       const err = v.error;
       // With MSE engines the engine reports errors itself; MediaError 4 is still decisive.
@@ -125,7 +148,8 @@ export class Html5Player implements Player {
     }
     if (choice.engine === 'native' && choice.fallback) s.fallback = choice.fallback;
     this.startEngine(s, choice.engine, src);
-    this.play(s);
+    if (choice.engine === 'mpegts') this.playAfterCushion(s);
+    else this.play(s);
     return Promise.resolve();
   }
 
@@ -136,30 +160,43 @@ export class Html5Player implements Player {
       s.engine = { kind: 'native' };
       v.src = src;
     } else if (kind === 'hls') {
-      const hls = new Hls({ lowLatencyMode: false, backBufferLength: 30 });
+      const hls = new Hls(hlsConfig(this.profile.preset, this.isTv));
       s.engine = { kind: 'hls', hls };
+      hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
+        if (data.details.live && s.targetDurationS === undefined) s.targetDurationS = data.details.targetduration;
+      });
       hls.on(Hls.Events.ERROR, (_e, data: ErrorData) => {
         // Non-fatal codec errors (e.g. one unplayable level) are recoverable: only fatal ones, or a manifest
         // with no playable codec at all, are reported.
         if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
         // After mpegts.js rejected the stream, a manifest that hls.js cannot parse means neither engine fits.
-        const code = HLS_CODEC_ERRORS.has(data.details)
-          || (s.tried.includes('mpegts') && data.details === ErrorDetails.MANIFEST_PARSING_ERROR)
-          ? 'UNSUPPORTED'
-          : data.type === ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
-        this.emit(s, 'error', { code, message: 'Playback error' });
+        if (HLS_CODEC_ERRORS.has(data.details)
+          || (s.tried.includes('mpegts') && data.details === ErrorDetails.MANIFEST_PARSING_ERROR)) {
+          this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'Playback error' });
+          return;
+        }
+        const network = data.type === ErrorTypes.NETWORK_ERROR;
+        const status = data.response?.code;
+        if (network && status !== undefined && AUTH_STATUSES.has(status)) {
+          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status });
+          return;
+        }
+        if (this.recoverHls(s, hls, network ? 'network' : 'media')) return;
+        this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error' });
       });
       hls.loadSource(src);
       hls.attachMedia(v);
     } else {
-      const player = mpegts.createPlayer(
-        { type: 'mpegts', isLive: true, url: src },
-        { enableWorker: false, lazyLoad: false, liveBufferLatencyChasing: true },
-      );
+      const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: src }, mpegtsConfig(this.profile.preset, this.isTv));
       s.engine = { kind: 'mpegts', player };
-      player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
+      const current = () => !s.dead && s.engine?.kind === 'mpegts' && s.engine.player === player;
+      player.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number }) => {
         // Nothing from a torn-down instance (stale session or already swapped for the HLS retry) may surface.
-        if (s.dead || s.engine?.kind !== 'mpegts' || s.engine.player !== player) return;
+        if (!current()) return;
+        if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && AUTH_STATUSES.has(info.code)) {
+          this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code });
+          return;
+        }
         const formatError = detail === mpegts.ErrorDetails.MEDIA_FORMAT_ERROR
           || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED;
         if (formatError && this.video.readyState === 0 && this.retryAsHls(s)) return;
@@ -168,9 +205,21 @@ export class Html5Player implements Player {
         const code = unsupported ? 'UNSUPPORTED' : type === mpegts.ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
         this.emit(s, 'error', { code, message: 'Playback error' });
       });
+      // A clean end of the HTTP body on a live stream: the server closed it. Reconnect now, not after a stall.
+      player.on(mpegts.Events.LOADING_COMPLETE, () => {
+        if (current()) this.emit(s, 'error', { code: 'EOS', message: EOS_MESSAGE });
+      });
+      player.on(mpegts.Events.STATISTICS_INFO, (stats: { speed?: number }) => {
+        if (current() && (stats.speed ?? 0) > 0) s.lastByteAt = Date.now();
+      });
       player.attachMediaElement(v);
       player.load();
     }
+  }
+
+  /** In-place recovery for a fatal hls.js error (implemented in Task 9). False: report the error. */
+  private recoverHls(_s: Session, _hls: Hls, _kind: 'network' | 'media'): boolean {
+    return false;
   }
 
   /**
@@ -342,6 +391,84 @@ export class Html5Player implements Player {
 
   position(): number {
     return this.video.currentTime * 1000;
+  }
+
+  setLiveProfile(p: LiveProfile): void {
+    this.profile = { ...p };
+  }
+
+  setPlaybackRate(rate: number): void {
+    if (this.session) this.video.playbackRate = rate;
+  }
+
+  health(): PlaybackHealth {
+    const v = this.video;
+    const s = this.session;
+    const h: PlaybackHealth = { positionMs: v.currentTime * 1000 };
+    if (v.buffered) {
+      h.bufferAheadS = this.bufferAhead();
+      h.rangeCount = v.buffered.length;
+    }
+    const q = typeof v.getVideoPlaybackQuality === 'function' ? v.getVideoPlaybackQuality() : undefined;
+    // Engines that never count frames report 0: leave it out so frozen-video detection stays off there.
+    if (q && q.totalVideoFrames > 0) h.framesPresented = q.totalVideoFrames - q.droppedVideoFrames;
+    const e = s?.engine;
+    if (s && e?.kind === 'mpegts') {
+      h.tracksBytes = true;
+      if (s.lastByteAt !== undefined) h.lastByteAt = s.lastByteAt;
+      h.behindLiveSource = 'buffer';
+    } else if (s && e?.kind === 'hls') {
+      if (s.targetDurationS !== undefined) h.targetDurationS = s.targetDurationS;
+      const date = e.hls.playingDate;
+      const pdt = date ? (Date.now() - date.getTime()) / 1000 : Number.NaN;
+      if (pdt > PDT_MIN_S && pdt < PDT_MAX_S) {
+        h.behindLiveS = Math.max(0, pdt);
+        h.behindLiveSource = 'pdt';
+      } else if (Number.isFinite(e.hls.latency) && e.hls.latency > 0) {
+        h.behindLiveS = e.hls.latency;
+        h.behindLiveSource = 'edge';
+      }
+    } else if (e?.kind === 'native') {
+      const sk = v.seekable;
+      const end = sk && sk.length > 0 ? sk.end(sk.length - 1) : Number.NaN;
+      if (Number.isFinite(end)) {
+        h.behindLiveS = Math.max(0, end - v.currentTime);
+        h.behindLiveSource = 'edge';
+      }
+    }
+    return h;
+  }
+
+  /** Seconds buffered ahead of the playhead; before the first range (TS start), the length buffered so far. */
+  private bufferAhead(): number {
+    const v = this.video;
+    const b = v.buffered;
+    if (!b || b.length === 0) return 0;
+    const t = v.currentTime;
+    if (t < b.start(0)) return b.end(b.length - 1) - b.start(0);
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.05 && b.end(i) > t) return b.end(i) - t;
+    return 0;
+  }
+
+  /** Raw TS: holds `play()` until the preset's start cushion is buffered (or the wait limit passes). */
+  private playAfterCushion(s: Session): void {
+    const cushion = START_CUSHION_S[this.profile.preset];
+    if (cushion <= 0) {
+      this.play(s);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (s.dead) {
+        clearInterval(timer);
+        return;
+      }
+      if (this.bufferAhead() >= cushion || Date.now() - startedAt >= CUSHION_MAX_WAIT_MS) {
+        clearInterval(timer);
+        this.play(s);
+      }
+    }, 100);
+    s.cleanups.push(() => clearInterval(timer));
   }
 
   onState(fn: (s: PlayerState, detail?: StateDetail) => void): () => void {
