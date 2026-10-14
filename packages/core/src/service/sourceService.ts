@@ -132,6 +132,13 @@ export class SourceService {
       const staging = await this.stagingGen(id);
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.deleteSource(id);
+      // Lock order is always `id` then `layout:<id>`. Taking the layout lock waits out a layout write that had
+      // already seen the source, then removes whatever it left behind; later writes see no source and no-op.
+      await this.withLock(`layout:${id}`, async () => {
+        for (const key of [`layout:${id}`, `flags:${id}`]) {
+          if ((await this.storage.getMeta<unknown>(key)) != null) await this.storage.setMeta(key, null);
+        }
+      });
       if ((await this.getActiveSourceId()) === id) {
         const [next] = await this.storage.listSources();
         await this.storage.setMeta('activeSource', next?.id ?? null);
@@ -207,14 +214,17 @@ export class SourceService {
    * The stored layout of source `id`, repaired with `normalizeLayout`. Without one, v1 `flags:<id>` are
    * migrated (and the result persisted); otherwise an empty layout.
    */
-  async loadLayout(id: string): Promise<Layout> {
-    const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
-    if (stored !== undefined && stored !== null) return normalizeLayout(stored);
-    const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
-    if (!isUserFlags(flags)) return emptyLayout();
-    const layout = normalizeLayout(layoutFromFlags(flags));
-    await this.saveLayout(id, layout);
-    return layout;
+  loadLayout(id: string): Promise<Layout> {
+    // Read, migrate and write under the layout lock, so a concurrent save can never be overwritten.
+    return this.withLock(`layout:${id}`, async () => {
+      const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
+      if (stored !== undefined && stored !== null) return normalizeLayout(stored);
+      const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
+      if (!isUserFlags(flags)) return emptyLayout();
+      const layout = normalizeLayout(layoutFromFlags(flags));
+      await this.saveLayoutLocked(id, layout);
+      return layout;
+    });
   }
 
   /**
@@ -222,10 +232,13 @@ export class SourceService {
    * own lock, so a user's edit never waits behind a running playlist or guide download.
    */
   saveLayout(id: string, layout: Layout): Promise<void> {
-    return this.withLock(`layout:${id}`, async () => {
-      if (!(await this.sourceExists(id))) return;
-      await this.storage.setMeta(`layout:${id}`, layout);
-    });
+    return this.withLock(`layout:${id}`, () => this.saveLayoutLocked(id, layout));
+  }
+
+  /** The write of `saveLayout`; the caller holds the `layout:<id>` lock. */
+  private async saveLayoutLocked(id: string, layout: Layout): Promise<void> {
+    if (!(await this.sourceExists(id))) return;
+    await this.storage.setMeta(`layout:${id}`, layout);
   }
 
   /** epgKeys with stored guide data, or undefined when no guide has been loaded (so a no-EPG filter is skipped). */

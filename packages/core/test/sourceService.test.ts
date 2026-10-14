@@ -137,6 +137,52 @@ describe('SourceService – m3u', () => {
     expect(await storage.getMeta(`layout:${source.id}`)).toBeUndefined();
   });
 
+  test('a saveLayout racing deleteSource leaves no orphan layout key', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const key = `layout:${source.id}`;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const inner = storage.setMeta.bind(storage);
+    // The layout write is held open after saveLayout has seen the source, while the delete runs.
+    storage.setMeta = async (k: string, v: unknown) => {
+      if (k === key && v !== null) await gate;
+      await inner(k, v);
+    };
+    const save = service.saveLayout(source.id, applyOps(emptyLayout(), [{ op: 'hideChannels', ids: ['x'] }]).layout);
+    await new Promise((r) => setTimeout(r, 5));
+    const del = service.deleteSource(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.all([save, del]);
+    expect(await storage.listSources()).toEqual([]);
+    expect(await storage.getMeta(key)).toBeUndefined();
+  });
+
+  test('a v1 migration cannot overwrite a layout saved meanwhile', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const key = `layout:${source.id}`;
+    await storage.setMeta(`flags:${source.id}`, { favourites: ['a'], hidden: [], recent: [] });
+    const inner = storage.getMeta.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held = false;
+    // Hold the migration after it has read the (absent) layout, so a save can try to slip in.
+    storage.getMeta = (async (k: string) => {
+      const v = await inner(k);
+      if (k === key && !held) { held = true; await gate; }
+      return v;
+    }) as typeof storage.getMeta;
+    const load = service.loadLayout(source.id);
+    await new Promise((r) => setTimeout(r, 5));
+    const mine = applyOps(emptyLayout(), [{ op: 'hideChannels', ids: ['x'] }]).layout;
+    const save = service.saveLayout(source.id, mine);
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.all([load, save]);
+    storage.getMeta = inner;
+    expect(await service.loadLayout(source.id)).toEqual(mine);
+  });
+
   test('refresh timing helpers', async () => {
     const { source } = await service.addSource(m3uInput);
     expect(await service.needsPlaylistRefresh(source.id)).toBe(false);
