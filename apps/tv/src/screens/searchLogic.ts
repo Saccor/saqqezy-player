@@ -196,6 +196,8 @@ export interface SearchMemory {
   leaveBack(): void;
   /** Ok opened the Player or the Guide: Back returns to the same results and row. */
   leaveTo(focus: number): void;
+  /** The user handled a key in the results: their own position wins over a pending restore. */
+  userNavigated(): void;
 }
 
 /** What Search remembers across visits (each push/pop re-creates the screen). */
@@ -206,6 +208,7 @@ export function createSearchMemory(): SearchMemory {
     returning: false,
     leaveBack() { m.query = ''; m.focus = 0; m.returning = false; },
     leaveTo(focus) { m.focus = focus; m.returning = true; },
+    userNavigated() { m.returning = false; },
   };
   return m;
 }

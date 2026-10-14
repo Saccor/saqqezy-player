@@ -246,6 +246,19 @@ describe('search memory', () => {
     m.leaveTo(3);
     expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 3, returning: true });
   });
+
+  it('a key handled in the results cancels a pending restore, so the user position wins', () => {
+    const m = createSearchMemory();
+    m.query = 'abc';
+    m.leaveTo(20);
+    m.userNavigated();
+    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 20, returning: false });
+    // The following full answer then keeps the user's row (a plain re-run), not the saved one.
+    const rows = flattenResults(result({ channels: [row(1), row(2), row(3)] }));
+    const d = nextFocus({ rows, returning: m.returning, memoryFocus: m.focus, prevFocus: 2, query: 'abc', settledQuery: 'abc', viewRows: 9 });
+    expect(d.focus).toBe(2);
+    expect(d.consumeReturning).toBe(false);
+  });
 });
 
 describe('scrollAnchor and listTop', () => {

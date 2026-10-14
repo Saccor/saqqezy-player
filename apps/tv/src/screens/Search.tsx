@@ -145,13 +145,15 @@ export function SearchScreen() {
 
       <SearchResultList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
         rows={shownRows()} top={top()} focus={focus()} now={now()} playingId={playback.current()?.id}
-        onMove={(d) => { setFocus(stepSelectable(focus(), d, total(), (i) => isSelectable(rowAt(i)))); return true; }}
+        onMove={(d) => { memory.userNavigated(); setFocus(stepSelectable(focus(), d, total(), (i) => isSelectable(rowAt(i)))); return true; }}
         onPage={(dir) => {
+          memory.userNavigated();
           const target = Math.max(0, Math.min(total() - 1, focus() + dir * LIST_ROWS));
           setFocus(firstSelectable(target, total(), (i) => isSelectable(rowAt(i))));
           return true;
         }}
-        onLeft={focusKeyboard} onOk={open} />
+        onLeft={() => { memory.userNavigated(); return focusKeyboard(); }}
+        onOk={() => { memory.userNavigated(); return open(); }} />
       <Show when={message()}>{(m) => (
         <Text x={LIST_X + 24} y={KB_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
           fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
