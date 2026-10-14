@@ -76,8 +76,9 @@ Small items from the implementation reviews that v1 ships without.
 - Net: `withTimeout` leaves one `{ once }` abort listener per request on a shared signal.
 - App API: `updateSource` / `clearCache` run outside the per-source queue; small gap between deleting a source and clearing its meta keys; `refresh` reads the active source before queuing; `deleteSource` can wait on a long guide refresh (needs a busy state in the UI).
 - App API: a guide that cannot be read is reported like a network failure, so the offline badge shows.
+- App API: the offline badge shows for parse/stall errors (an unreadable list or guide, or a stalled body, is a status-less `SourceNetworkError`).
 - Player supervisor: events without `attemptId` are accepted; `totalReconnects` never decays on long sessions; a synchronous UNSUPPORTED throw loses its code.
-- Player: an extensionless HLS URL goes to mpegts.js in a browser without MPEG-TS support (only the Xtream short form has an HLS alternate).
+- Player: extensionless HLS URLs (mpegts.js → HLS retry): retry covered by unit tests only; not verified end to end.
 - Dev proxy: security checks (same-origin, header strip) untested; path constants duplicated; DNS-rebinding protection relies on Vite `allowedHosts`.
 - HTML5 player: hls.js teardown is not wrapped in try/catch.
 - Shell: overlays are not screen-scoped; document a cleanup rule.
