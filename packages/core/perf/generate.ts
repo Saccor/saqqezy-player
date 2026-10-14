@@ -22,15 +22,17 @@ export function m3uChunks(count: number): AsyncGenerator<string> {
   })());
 }
 
-/** Roughly `channels * perChannel * 170` bytes of XMLTV, generated lazily. */
-export function xmltvChunks(channels: number, perChannel: number): AsyncGenerator<string> {
+/** Roughly `channels * perChannel * 170` bytes of XMLTV, generated lazily. `uniqueTitles` cycles that many titles. */
+export function xmltvChunks(channels: number, perChannel: number, opts: { uniqueTitles?: number } = {}): AsyncGenerator<string> {
   return chunked((function* () {
     yield '<?xml version="1.0" encoding="UTF-8"?><tv>';
     for (let c = 1; c <= channels; c++) yield `<channel id="c${c}.test"><display-name>Channel ${c}</display-name></channel>`;
+    let k = 0;
     for (let c = 1; c <= channels; c++) {
       for (let i = 0; i < perChannel; i++) {
         const h = String(i % 24).padStart(2, '0');
-        yield `<programme start="20261013${h}0000 +0000" stop="20261013${h}3000 +0000" channel="c${c}.test"><title>Programme ${i}</title><desc>Synthetic description ${i}.</desc></programme>`;
+        const title = opts.uniqueTitles ? `Synthetic Title ${(k++ * 7919) % opts.uniqueTitles}` : `Programme ${i}`;
+        yield `<programme start="20261013${h}0000 +0000" stop="20261013${h}3000 +0000" channel="c${c}.test"><title>${title}</title><desc>Synthetic description ${i}.</desc></programme>`;
       }
     }
     yield '</tv>';
