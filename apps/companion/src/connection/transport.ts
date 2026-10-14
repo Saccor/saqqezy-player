@@ -41,10 +41,11 @@ export class CompanionTransport implements RelayTransport {
     this.spawn();
   }
 
-  send(frame: Uint8Array): void {
+  send(frame: Uint8Array, messageId?: number): void {
     if (this.final) throw new Error('transport closed');
     if (!this.inner) throw new QueueFullError(); // parked while hidden: message-scoped, the session stays
-    this.inner.send(frame);
+    // The message id lets the inner transport drop the rest of a message it already partly sent (no half-sent messages).
+    this.inner.send(frame, messageId);
   }
 
   fits(frameBytes: readonly number[]): boolean {

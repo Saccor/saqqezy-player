@@ -142,6 +142,25 @@ describe('CompanionTransport', () => {
     t.close();
   });
 
+  it('passes the message id on, so the rest of a half-sent message is not delivered on the next socket', async () => {
+    const { t } = make({ v: false });
+    const first = last();
+    first.open();
+    await flush();
+    t.send(new Uint8Array([1]), 7);
+    expect(first.sent).toHaveLength(1);
+    first.drop(1006);
+    t.send(new Uint8Array([2]), 7); // the rest of message 7: must not go out alone on the new socket
+    t.send(new Uint8Array([3]), 8); // a whole later message is still delivered
+    await vi.advanceTimersByTimeAsync(10_000);
+    const fresh = last();
+    expect(fresh).not.toBe(first);
+    fresh.open();
+    await flush();
+    expect(fresh.sent.map((f) => f[0])).toEqual([3]);
+    t.close();
+  });
+
   it('gives up at the deadline on resume', () => {
     const { t, ev } = make({ v: false });
     vi.setSystemTime(Date.now() + 61 * 60_000);
