@@ -34,7 +34,7 @@ interface Base {
   byNumber: Channel[];
   /** Lazily computed number-ordered members per provider group. */
   membersByNumber: Map<string, Channel[]>;
-  /** Normalised original names. */
+  /** `searchKey` of each channel's original (playlist) name, by channel id. */
   keys: Map<string, string>;
   epgCoverage: Set<string> | undefined;
   /** Lazily computed ids whose epgKey is not covered. */

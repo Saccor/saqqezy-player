@@ -8,7 +8,7 @@ const FOLD: Record<string, string> = { ø: 'o', Ø: 'o', æ: 'ae', Æ: 'ae', ß:
 export function searchKey(s: string): string {
   return s
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[øØæÆßẞđĐłŁ]/g, (c) => FOLD[c]!)
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
