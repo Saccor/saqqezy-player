@@ -27,8 +27,8 @@ export function redactUrl(raw: string): string {
   if (parts.length >= 5 && ['live', 'movie', 'series'].includes(parts[1] ?? '')) {
     parts[2] = '***';
     parts[3] = '***';
-  } else if (parts.length === 4 && parts[1] && parts[2] && /^\d+$/.test(parts[3] ?? '')) {
-    // Xtream short form: /{user}/{pass}/{id}
+  } else if (parts.length === 4 && parts[1] && parts[2] && /^\d+(?:\.(?:ts|m3u8))?$/.test(parts[3] ?? '')) {
+    // Xtream short form: /{user}/{pass}/{id}, optionally with a .ts or .m3u8 extension
     parts[1] = '***';
     parts[2] = '***';
   }

@@ -99,6 +99,13 @@ describe('alternateStreamUrl', () => {
     expect(alternateStreamUrl('http://example.test/u%40x/p%2Fq/9?token=1')).toBe('http://example.test/live/u%40x/p%2Fq/9.m3u8?token=1');
   });
 
+  test('maps the short form with an extension to the other format on the live path', () => {
+    expect(alternateStreamUrl('http://example.test:8080/u/p/123.ts')).toBe('http://example.test:8080/live/u/p/123.m3u8');
+    expect(alternateStreamUrl('http://example.test/u/p/123.m3u8?token=1')).toBe('http://example.test/live/u/p/123.ts?token=1');
+    expect(alternateStreamUrl('http://example.test/u/p/123.mp4')).toBeUndefined();
+    expect(alternateStreamUrl('http://example.test/u/p/abc.ts')).toBeUndefined();
+  });
+
   test('leaves other extensionless paths alone', () => {
     expect(alternateStreamUrl('http://example.test/u/p/abc')).toBeUndefined();
     expect(alternateStreamUrl('http://example.test/a/u/p/123')).toBeUndefined();

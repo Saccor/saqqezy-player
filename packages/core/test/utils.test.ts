@@ -40,9 +40,14 @@ describe('redactUrl', () => {
     expect(redactUrl('http://example.test:8080/user1/pass1/42')).toBe('http://example.test:8080/***/***/42');
     expect(redactUrl('http://example.test/user1/pass1/42?token=1')).toBe('http://example.test/***/***/42?token=1');
   });
+  test('hides credentials in the short form with a .ts or .m3u8 extension', () => {
+    expect(redactUrl('http://example.test:8080/user1/pass1/42.ts')).toBe('http://example.test:8080/***/***/42.ts');
+    expect(redactUrl('http://example.test/user1/pass1/42.m3u8?token=1')).toBe('http://example.test/***/***/42.m3u8?token=1');
+  });
   test('leaves other three-segment paths alone', () => {
     expect(redactUrl('http://example.test/a/b/c')).toBe('http://example.test/a/b/c');
-    expect(redactUrl('http://example.test/a/b/42.m3u8')).toBe('http://example.test/a/b/42.m3u8');
+    expect(redactUrl('http://example.test/a/b/42.mp4')).toBe('http://example.test/a/b/42.mp4');
+    expect(redactUrl('http://example.test/a/b/x.ts')).toBe('http://example.test/a/b/x.ts');
     expect(redactUrl('http://example.test/x/a/b/42')).toBe('http://example.test/x/a/b/42');
     expect(redactUrl('http://example.test/a/42')).toBe('http://example.test/a/42');
   });
