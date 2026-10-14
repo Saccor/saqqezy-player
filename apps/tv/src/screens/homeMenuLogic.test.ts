@@ -19,38 +19,47 @@ describe('limits mirror core', () => {
 
 describe('buildChannelMenu', () => {
   const actions = (m: { action: string }[]) => m.map((i) => i.action);
+  const base = { isHidden: false, isFavourite: false, lists };
 
-  it('outside a list: add, hide, rename, cancel', () => {
-    const m = buildChannelMenu({ isHidden: false, lists });
-    expect(actions(m)).toEqual(['addToList', 'hide', 'rename', 'cancel']);
-    expect(m.map((i) => i.label)).toEqual(['Add to list…', 'Hide channel', 'Rename…', 'Cancel']);
+  it('outside a list: quick favourite first, then add, hide, rename, cancel', () => {
+    const m = buildChannelMenu(base);
+    expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'hide', 'rename', 'cancel']);
+    expect(m.map((i) => i.label))
+      .toEqual(['Add to Favourites', 'Add to list…', 'Hide channel', 'Rename…', 'Cancel']);
+  });
+
+  it('a favourite offers "Remove from Favourites" as the first item', () => {
+    const m = buildChannelMenu({ ...base, isFavourite: true });
+    expect(m[0]).toEqual({ action: 'toggleFavourite', label: 'Remove from Favourites' });
   });
 
   it('inside a list: adds "Remove from" with the list name after Add to list', () => {
-    const m = buildChannelMenu({ inListId: 'l-abc', isHidden: false, lists });
-    expect(actions(m)).toEqual(['addToList', 'removeFromList', 'hide', 'rename', 'cancel']);
-    expect(m[1]?.label).toBe('Remove from "Evening"');
+    const m = buildChannelMenu({ ...base, inListId: 'l-abc' });
+    expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'removeFromList', 'hide', 'rename', 'cancel']);
+    expect(m[2]?.label).toBe('Remove from "Evening"');
   });
 
-  it('inside Favourites', () => {
-    const m = buildChannelMenu({ inListId: 'fav', isHidden: false, lists });
-    expect(m[1]).toEqual({ action: 'removeFromList', label: 'Remove from "Favourites"' });
+  it('inside Favourites the quick item already removes it: no second "Remove from"', () => {
+    const m = buildChannelMenu({ ...base, inListId: 'fav', isFavourite: true });
+    expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'hide', 'rename', 'cancel']);
+    expect(m[0]?.label).toBe('Remove from Favourites');
   });
 
   it('a hidden channel offers Show instead of Hide', () => {
-    expect(actions(buildChannelMenu({ isHidden: true, lists }))).toEqual(['addToList', 'unhide', 'rename', 'cancel']);
-    expect(buildChannelMenu({ isHidden: true, lists })[1]?.label).toBe('Show channel');
-    expect(actions(buildChannelMenu({ inListId: 'l-abc', isHidden: true, lists })))
-      .toEqual(['addToList', 'removeFromList', 'unhide', 'rename', 'cancel']);
+    expect(actions(buildChannelMenu({ ...base, isHidden: true })))
+      .toEqual(['toggleFavourite', 'addToList', 'unhide', 'rename', 'cancel']);
+    expect(buildChannelMenu({ ...base, isHidden: true })[2]?.label).toBe('Show channel');
+    expect(actions(buildChannelMenu({ ...base, inListId: 'l-abc', isHidden: true })))
+      .toEqual(['toggleFavourite', 'addToList', 'removeFromList', 'unhide', 'rename', 'cancel']);
   });
 
   it('an unknown list id (deleted meanwhile) has no Remove item', () => {
-    expect(actions(buildChannelMenu({ inListId: 'l-gone', isHidden: false, lists })))
-      .toEqual(['addToList', 'hide', 'rename', 'cancel']);
+    expect(actions(buildChannelMenu({ ...base, inListId: 'l-gone' })))
+      .toEqual(['toggleFavourite', 'addToList', 'hide', 'rename', 'cancel']);
   });
 
   it('never puts two spaces in a label', () => {
-    const m = buildChannelMenu({ inListId: 'l-abc', isHidden: false, lists: [{ id: 'l-abc', name: 'A  B' }] });
+    const m = buildChannelMenu({ ...base, inListId: 'l-abc', lists: [{ id: 'l-abc', name: 'A  B' }] });
     for (const i of m) expect(i.label).not.toMatch(/ {2}/);
   });
 });

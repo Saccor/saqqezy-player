@@ -42,12 +42,13 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const GROUP_ALL = 'all';
+const FAV_LIST_ID = 'fav';
 
 type Progress = Extract<AppEvent, { type: 'progress' }>;
 type LayoutChanged = Extract<AppEvent, { type: 'layoutChanged' }>;
 
 /** The channel menu, opened on a row; `inListId` is set while the user browses that list. */
-interface MenuState { row: ChannelRow; items: MenuItem[]; inListId?: string }
+interface MenuState { row: ChannelRow; items: MenuItem[]; inListId?: string; isFavourite: boolean }
 /** "Add to list…": every list and the ids of those holding the channel. */
 interface PickerState { row: ChannelRow; lists: ListSummary[]; member: Set<string> }
 /** The on-screen keyboard for "New list…" (from the picker) or "Rename…" (from the menu). */
@@ -355,7 +356,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     stopPreview();
     const inListId = listIdOfGroup(groupId());
     // Home never shows hidden channels (they are hidden everywhere), so the menu always offers Hide.
-    setMenu({ row: r, inListId, items: buildChannelMenu({ inListId, isHidden: false, lists: listsFromGroups() }) });
+    setMenu({ row: r, inListId, isFavourite: r.favourite, items: buildChannelMenu({
+      inListId, isHidden: false, isFavourite: r.favourite, lists: listsFromGroups(),
+    }) });
     removeMenu = router.pushOverlay(MENU_ID, closeMenu);
     focusTop();
     return true;
@@ -408,7 +411,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (action === 'rename') { openKeyboard('rename', r, r.name); return; }
     dismissMenu();
     let ok = false;
-    if (action === 'removeFromList' && m.inListId !== undefined) {
+    if (action === 'toggleFavourite') {
+      const isFav = m.isFavourite;
+      ok = await applyOps([{ op: isFav ? 'removeFromList' : 'addToList', listId: FAV_LIST_ID, channelIds: [r.id] }]);
+      if (ok) showToast(isFav ? 'Removed from Favourites' : 'Added to Favourites');
+    } else if (action === 'removeFromList' && m.inListId !== undefined) {
       ok = await applyOps([{ op: 'removeFromList', listId: m.inListId, channelIds: [r.id] }]);
       const name = listsFromGroups().find((l) => l.id === m.inListId)?.name;
       if (ok) showToast(name ? `Removed from "${name}"` : 'Removed from the list');

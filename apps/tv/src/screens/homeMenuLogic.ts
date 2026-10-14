@@ -12,7 +12,7 @@ export const MAX_LISTS = 50;
 const FAV_LIST_ID = 'fav';
 const LIST_PREFIX = 'list:';
 
-export type ChannelMenuAction = 'addToList' | 'removeFromList' | 'hide' | 'unhide' | 'rename' | 'cancel';
+export type ChannelMenuAction = 'toggleFavourite' | 'addToList' | 'removeFromList' | 'hide' | 'unhide' | 'rename' | 'cancel';
 export interface MenuItem { action: ChannelMenuAction; label: string }
 export interface ListLite { id: string; name: string }
 
@@ -20,12 +20,19 @@ export interface ListLite { id: string; name: string }
 const oneSpace = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
 /**
- * The channel menu. "Remove from" appears only while the user browses a list (`inListId`) that still exists;
- * a hidden channel offers "Show channel" instead of "Hide channel".
+ * The channel menu. The first item adds the channel to Favourites (or removes it) in one step. "Remove from"
+ * appears only while the user browses a list (`inListId`) that still exists, and not in Favourites, where the
+ * first item already removes it. A hidden channel offers "Show channel" instead of "Hide channel".
  */
-export function buildChannelMenu(o: { inListId?: string; isHidden: boolean; lists: readonly ListLite[] }): MenuItem[] {
-  const items: MenuItem[] = [{ action: 'addToList', label: 'Add to list…' }];
-  const list = o.inListId === undefined ? undefined : o.lists.find((l) => l.id === o.inListId);
+export function buildChannelMenu(o: {
+  inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[];
+}): MenuItem[] {
+  const items: MenuItem[] = [
+    { action: 'toggleFavourite', label: o.isFavourite ? 'Remove from Favourites' : 'Add to Favourites' },
+    { action: 'addToList', label: 'Add to list…' },
+  ];
+  const list = o.inListId === undefined || o.inListId === FAV_LIST_ID ? undefined
+    : o.lists.find((l) => l.id === o.inListId);
   if (list) items.push({ action: 'removeFromList', label: oneSpace(`Remove from "${list.name}"`) });
   items.push(o.isHidden ? { action: 'unhide', label: 'Show channel' } : { action: 'hide', label: 'Hide channel' });
   items.push({ action: 'rename', label: 'Rename…' }, { action: 'cancel', label: 'Cancel' });
