@@ -1,12 +1,14 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
-import type { AppEvent, ChannelRow } from '@iptv/app-api';
-import type { GroupInfo } from '@iptv/core';
+import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
+import type { GroupInfo, LayoutOp } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { ChannelList, ROW_H } from '../components/ChannelList.tsx';
-import { ContextMenu, type ContextAction } from '../components/ContextMenu.tsx';
+import { ContextMenu } from '../components/ContextMenu.tsx';
 import { GroupList } from '../components/GroupList.tsx';
+import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
+import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { createDebounce } from '../playback/debounce.ts';
@@ -16,6 +18,10 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { markStartup } from '../state/appState.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
+import {
+  buildChannelMenu, clampName, emptyGroupText, focusAfterRefresh, listIdOfGroup, newListId, pickerRows,
+  validateListName, validateRename, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
+} from './homeMenuLogic.ts';
 import { SliceCache } from './sliceCache.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
@@ -33,9 +39,19 @@ const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
 const PREVIEW_DELAY_MS = 700;
 const MENU_ID = 'contextMenu';
+const PICKER_ID = 'listPicker';
+const KEYBOARD_ID = 'keyboard';
 const GROUP_ALL = 'all';
 
 type Progress = Extract<AppEvent, { type: 'progress' }>;
+type LayoutChanged = Extract<AppEvent, { type: 'layoutChanged' }>;
+
+/** The channel menu, opened on a row; `inListId` is set while the user browses that list. */
+interface MenuState { row: ChannelRow; items: MenuItem[]; inListId?: string }
+/** "Add to list…": every list and the ids of those holding the channel. */
+interface PickerState { row: ChannelRow; lists: ListSummary[]; member: Set<string> }
+/** The on-screen keyboard for "New list…" (from the picker) or "Rename…" (from the menu). */
+interface EditState { kind: 'newList' | 'rename'; row: ChannelRow; value: string }
 
 /**
  * In-memory position across Home visits (each push/pop re-creates the screen): the open group, the focused
@@ -58,7 +74,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const [ready, setReady] = createSignal(false);
   const [waiting, setWaiting] = createSignal(false);
   const [progress, setProgress] = createSignal<Progress | undefined>(undefined);
-  const [menu, setMenu] = createSignal<ChannelRow | undefined>(undefined);
+  const [menu, setMenu] = createSignal<MenuState | undefined>(undefined);
+  const [picker, setPicker] = createSignal<PickerState | undefined>(undefined);
+  const [edit, setEdit] = createSignal<EditState | undefined>(undefined);
+  // A layout refresh has emptied the cache: hide the empty-group text until the group is re-read.
+  const [reloading, setReloading] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
   // A preview is scheduled (debounce running) for the focused channel.
   const [starting, setStarting] = createSignal(false);
@@ -68,7 +88,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let groupNode: ElementNode | undefined;
   let listNode: ElementNode | undefined;
   let menuNode: ElementNode | undefined;
+  let pickerNode: ElementNode | undefined;
+  let keyboardNode: ElementNode | undefined;
   let removeMenu: (() => void) | undefined;
+  let removePicker: (() => void) | undefined;
+  let removeKeyboard: (() => void) | undefined;
   let alive = true;
   let startupMarked = false;
   // Playback was stopped on purpose (sleep timer): no resume and no auto-preview until the user moves.
@@ -166,8 +190,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (r) memory.channelId = r.id;
   };
   // Schedules the preview whenever the focused channel changes while the list has focus.
-  createEffect(on([focusedId, area, ready], ([id, a, isReady]) => {
-    if (id === undefined || a !== 'list' || !isReady) {
+  // No preview starts while the channel menu, the list picker or the keyboard is open.
+  const modalOpen = () => menu() !== undefined || picker() !== undefined || edit() !== undefined;
+  createEffect(on([focusedId, area, ready, modalOpen], ([id, a, isReady, modal]) => {
+    if (id === undefined || a !== 'list' || !isReady || modal) {
       cancelTimer(); // leaving the list drops a pending preview (and its "Starting…")
       return;
     }
@@ -219,8 +245,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
    * Opens group `g` and focuses the first of `keepIds` that is in it (else the remembered row, else the first
    * row). Resolves with the id it focused, or undefined. Only the latest call writes the selection.
    */
-  const openGroup = async (g: string, keepIds: readonly (string | undefined)[] = [], keepScroll = false):
-    Promise<string | undefined> => {
+  const openGroup = async (g: string, keepIds: readonly (string | undefined)[] = [], keepScroll = false,
+    fallbackIndex?: number): Promise<string | undefined> => {
     const seq = ++groupSeq;
     if (!keepScroll) lastTop = 0;
     setGroupId(g);
@@ -229,19 +255,36 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const t = cache.total(g) ?? 0;
     const hit = await resolveFocus(keepIds, (id) => api.indexOf(g, id).catch(() => -1));
     if (!alive || seq !== groupSeq) return undefined;
-    selectRow(restoreIndex(hit.index, memory.rows.get(g), t));
+    // After a layout change a channel that left the group hands its row to the neighbour that took its place.
+    selectRow(fallbackIndex !== undefined ? focusAfterRefresh(hit.index, fallbackIndex, t)
+      : restoreIndex(hit.index, memory.rows.get(g), t));
     return hit.id;
   };
 
-  /** Re-reads groups and the visible slice, keeping focus on the same channel id when it still exists. */
-  const reload = async () => {
-    const keepId = focusedRow()?.id ?? memory.channelId;
-    const gs = await api.getGroups();
-    if (!alive) return;
-    setGroups(gs);
-    cache.invalidate();
-    const g = pickGroup(gs, groupId());
-    if (g !== undefined) await openGroup(g, [keepId], g === groupId());
+  /**
+   * Re-reads groups and the visible slice, keeping focus on the same channel id (`keepId`, else the focused
+   * one) when it is still in the group. If it left (hidden, removed from the list), the neighbour that took
+   * its row is focused. A group that disappeared falls back to All channels.
+   */
+  let reloadSeq = 0;
+  const reload = async (keepId?: string) => {
+    const seq = ++reloadSeq;
+    const id = keepId ?? focusedRow()?.id ?? memory.channelId;
+    const before = groupId();
+    const oldIndex = focus();
+    setReloading(true);
+    try {
+      const gs = await api.getGroups();
+      if (!alive) return;
+      setGroups(gs);
+      cache.invalidate();
+      const g = pickGroup(gs, before);
+      if (g !== undefined) await openGroup(g, [id], g === before, g === before ? oldIndex : undefined);
+    } finally {
+      if (seq === reloadSeq) setReloading(false);
+    }
+    // The list emptied under the focus (e.g. its last channel was removed): move to the groups.
+    if (alive && seq === reloadSeq && !modalOpen() && area() === 'list' && total() === 0) focusArea('groups');
   };
 
   // ---- actions ----
@@ -279,38 +322,135 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  const closeMenu = () => {
-    removeMenu = undefined;
-    setMenu(undefined);
-    queueMicrotask(() => { if (alive) focusArea('list'); });
-  };
+  // ---- channel menu, list picker, keyboard (Back closes them top first: keyboard, picker, menu) ----
+
+  /** Focuses the topmost open layer, else the list (nodes of a layer just opened exist only after this tick). */
+  const focusTop = () => queueMicrotask(() => {
+    if (!alive) return;
+    if (edit()) keyboardNode?.setFocus();
+    else if (picker()) pickerNode?.setFocus();
+    else if (menu()) menuNode?.setFocus();
+    else focusArea(total() > 0 ? 'list' : 'groups');
+  });
+
+  // `close*` are the overlays' onClose (Back): the router has already dropped the layer.
+  const closeKeyboard = () => { removeKeyboard = undefined; setEdit(undefined); focusTop(); };
+  const closePicker = () => { removePicker = undefined; setPicker(undefined); focusTop(); };
+  const closeMenu = () => { removeMenu = undefined; setMenu(undefined); focusTop(); };
+  // `dismiss*` close a layer from code.
+  const dismissKeyboard = () => { removeKeyboard?.(); closeKeyboard(); };
+  const dismissPicker = () => { if (picker()) { removePicker?.(); closePicker(); } };
+  const dismissMenu = () => { if (menu()) { removeMenu?.(); closeMenu(); } };
+  const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); };
+
+  /** User lists as shown in the group column (names and order), for the menu's "Remove from" label. */
+  const listsFromGroups = (): ListLite[] => groups().flatMap((g) => {
+    const id = listIdOfGroup(g.id);
+    return id === undefined ? [] : [{ id, name: g.name }];
+  });
+
   const openMenu = () => {
     const r = focusedRow();
-    if (!r) return true;
+    if (!r || modalOpen()) return true;
     stopPreview();
-    setMenu(r);
+    const inListId = listIdOfGroup(groupId());
+    // Home never shows hidden channels (they are hidden everywhere), so the menu always offers Hide.
+    setMenu({ row: r, inListId, items: buildChannelMenu({ inListId, isHidden: false, lists: listsFromGroups() }) });
     removeMenu = router.pushOverlay(MENU_ID, closeMenu);
-    queueMicrotask(() => menuNode?.setFocus());
+    focusTop();
     return true;
   };
-  const choose = async (action: ContextAction) => {
-    const r = menu();
-    removeMenu?.();
-    closeMenu();
-    if (!r || action === 'cancel') return;
+
+  /** Applies layout ops; resolves false (after a toast) when the worker refused any of them. */
+  const applyOps = async (ops: LayoutOp[]): Promise<boolean> => {
     try {
-      if (action === 'favourite') {
-        const on = await api.toggleFavourite(r.id);
-        showToast(on ? 'Added to favourites' : 'Removed from favourites');
-      } else {
-        await api.toggleHidden(r.id);
-        showToast('Channel hidden');
-      }
-      if (alive) await reload();
+      const res = await api.applyLayoutOps(ops);
+      if (res.rejected.length === 0) return true;
+      console.warn('Layout change refused', res.rejected.map((x) => x.reason).join(', '));
     } catch (err) {
-      console.warn('Channel option failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't change this channel.");
+      console.warn('Layout change failed', err instanceof Error ? err.name : 'Error');
     }
+    if (alive) showToast("Couldn't change this channel.");
+    return false;
+  };
+
+  /** Re-reads the picker's lists and checks (after a toggle, a new list or a remote change). */
+  const rereadPicker = async (row: ChannelRow) => {
+    const [lists, ids] = await Promise.all([api.listLists(), api.channelLists(row.id)]);
+    if (alive && picker()?.row.id === row.id) setPicker({ row, lists, member: new Set(ids) });
+  };
+
+  const openPicker = async (row: ChannelRow) => {
+    try {
+      const [lists, ids] = await Promise.all([api.listLists(), api.channelLists(row.id)]);
+      if (!alive || menu()?.row.id !== row.id || picker()) return;
+      setPicker({ row, lists, member: new Set(ids) });
+      removePicker = router.pushOverlay(PICKER_ID, closePicker);
+      focusTop();
+    } catch (err) {
+      console.warn('Load lists failed', err instanceof Error ? err.name : 'Error');
+      showToast("Couldn't load your lists.");
+    }
+  };
+
+  const openKeyboard = (kind: EditState['kind'], row: ChannelRow, value: string) => {
+    setEdit({ kind, row, value: clampName(value) });
+    removeKeyboard = router.pushOverlay(KEYBOARD_ID, closeKeyboard);
+    focusTop();
+  };
+
+  const choose = async (action: ChannelMenuAction) => {
+    const m = menu();
+    if (!m) return;
+    const r = m.row;
+    if (action === 'cancel') { dismissMenu(); return; }
+    if (action === 'addToList') { await openPicker(r); return; }
+    if (action === 'rename') { openKeyboard('rename', r, r.name); return; }
+    dismissMenu();
+    let ok = false;
+    if (action === 'removeFromList' && m.inListId !== undefined) {
+      ok = await applyOps([{ op: 'removeFromList', listId: m.inListId, channelIds: [r.id] }]);
+      const name = listsFromGroups().find((l) => l.id === m.inListId)?.name;
+      if (ok) showToast(name ? `Removed from "${name}"` : 'Removed from the list');
+    } else if (action === 'hide' || action === 'unhide') {
+      ok = await applyOps([{ op: action === 'hide' ? 'hideChannels' : 'unhideChannels', ids: [r.id] }]);
+      if (ok) showToast(action === 'hide' ? 'Channel hidden' : 'Channel shown');
+    }
+    if (ok && alive) await reload(r.id).catch(() => undefined);
+  };
+
+  /** Picker Ok: toggles the channel in a list, or opens the keyboard for a new one. The picker stays open. */
+  const pick = async (p: PickerRow) => {
+    const s = picker();
+    if (!s || edit()) return;
+    if (p.kind === 'new') { openKeyboard('newList', s.row, 'New list'); return; }
+    const op: LayoutOp = p.checked
+      ? { op: 'removeFromList', listId: p.id, channelIds: [s.row.id] }
+      : { op: 'addToList', listId: p.id, channelIds: [s.row.id] };
+    if (!(await applyOps([op])) || !alive) return;
+    await Promise.all([rereadPicker(s.row), reload(s.row.id)]).catch(() => undefined);
+  };
+
+  /** Keyboard Done: creates the list (with the channel in it) or renames the channel. */
+  const submitEdit = async () => {
+    const e = edit();
+    if (!e) return;
+    if (e.kind === 'newList') {
+      const v = validateListName(e.value);
+      if (!v.ok) { showToast(v.message); return; }
+      const id = newListId(new Set(picker()?.lists.map((l) => l.id) ?? []));
+      dismissKeyboard(); // back to the picker, which shows the new list checked
+      const ops: LayoutOp[] = [{ op: 'createList', id, name: v.name }, { op: 'addToList', listId: id, channelIds: [e.row.id] }];
+      if (!(await applyOps(ops)) || !alive) return;
+      await Promise.all([rereadPicker(e.row), reload(e.row.id)]).catch(() => undefined);
+      return;
+    }
+    const v = validateRename(e.value);
+    if (!v.ok) { showToast(v.message); return; }
+    dismissAll();
+    if (!(await applyOps([{ op: 'renameChannel', id: e.row.id, name: v.name }])) || !alive) return;
+    showToast(v.name === null ? 'Original name restored' : 'Channel renamed');
+    await reload(e.row.id).catch(() => undefined);
   };
 
   const listKeys = {
@@ -336,6 +476,14 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
       onEvent('refreshed', () => { setWaiting(false); void reload().catch(() => undefined); }),
+      // A companion changed the layout (the shell shows "Updated from your phone"): re-read, keeping focus by
+      // id. Changes made on this screen re-read on their own.
+      onEvent('layoutChanged', (e) => {
+        if ((e as LayoutChanged).origin !== 'remote') return;
+        void reload().catch(() => undefined);
+        const p = picker();
+        if (p) void rereadPicker(p.row).catch(() => undefined);
+      }),
       onEvent('refreshFailed', () => setWaiting(false)),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
       // The playing channel's info outside the list rows (preview panel) is re-read too.
@@ -385,7 +533,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     alive = false;
     preview.cancel();
     playback.begin(); // drops any preview request still in flight
+    removeKeyboard?.();
+    removePicker?.();
     removeMenu?.();
+    router.removeOverlay(KEYBOARD_ID);
+    router.removeOverlay(PICKER_ID);
     router.removeOverlay(MENU_ID);
   });
 
@@ -402,7 +554,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       const p = progress();
       return p ? `Loading channels… ${p.count}` : 'Loading channels…';
     }
-    return 'No channels here yet.';
+    return emptyGroupText(groupId());
   };
 
   return (
@@ -429,7 +581,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
         total={total()} top={top()} focus={focus()} row={rowAt} now={now()} playingId={playback.current()?.id}
         onFocusChanged={(f) => { if (f) setArea('list'); }} {...listKeys} />
-      <Show when={ready() && total() === 0}>
+      <Show when={ready() && !reloading() && total() === 0}>
         <Text x={LIST_X + 24} y={BODY_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width"
           fontSize={FONT.body} color={COLORS.muted}>{emptyText()}</Text>
       </Show>
@@ -442,9 +594,22 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         {'Ok watch · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings'}
       </Text>
 
-      <Show when={menu()}>{(r) => (
-        <ContextMenu ref={(el) => { menuNode = el; }} title={r().name} favourite={r().favourite}
+      <Show when={menu()}>{(m) => (
+        <ContextMenu ref={(el) => { menuNode = el; }} title={m().row.name} items={m().items} cancel="cancel"
           onChoose={(a) => void choose(a)} />
+      )}</Show>
+      <Show when={picker()}>{(p) => (
+        <ListPicker ref={(el) => { pickerNode = el; }} title={`Add "${p().row.name}" to`}
+          rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} />
+      )}</Show>
+      <Show when={edit()}>{(e) => (
+        <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
+          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2}
+            y={(LAYOUT.height - KEYBOARD_H) / 2}
+            label={e().kind === 'newList' ? 'New list name' : 'Channel name (empty restores the original)'}
+            value={e().value} onChange={(v) => { const cur = edit(); if (cur) setEdit({ ...cur, value: clampName(v) }); }}
+            onDone={() => void submitEdit()} hint="Done saves · Back cancels" />
+        </View>
       )}</Show>
     </View>
   );

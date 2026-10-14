@@ -99,6 +99,7 @@ export function wireEvents(
     const text = toastFor(e);
     if (text) toast(text, toastPriority(e));
   };
-  const offs = (['refreshed', 'refreshFailed', 'offline'] as const).map((t) => on(t, handle));
+  // `layoutChanged` from a companion shows "Updated from your phone" on any screen; Home also re-reads its list.
+  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };
 }

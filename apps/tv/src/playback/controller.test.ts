@@ -44,6 +44,20 @@ describe('playback controller', () => {
     expect(f.supervisor.play).toHaveBeenCalledTimes(1);
   });
 
+  it('a fresh answer for the playing channel updates its info (e.g. a rename) without reopening', () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor);
+    pb.playChannel(ch('1'));
+    f.emit({ kind: 'playing' });
+    const renamed = { ...ch('1'), name: 'Renamed', url: 'http://example.test/live/u/p/1.m3u8', alternateUrl: undefined };
+    expect(pb.playChannel(renamed)).toBe(false);
+    expect(pb.current()?.name).toBe('Renamed');
+    // The stream keeps running, so the urls stay those of the open stream.
+    expect(pb.current()?.url).toBe('http://example.test/live/u/p/1.ts');
+    expect(pb.current()?.alternateUrl).toBe('http://example.test/live/u/p/1.m3u8');
+    expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+  });
+
   it('retries a failed channel and switches channels', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor);

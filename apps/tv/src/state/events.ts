@@ -12,6 +12,8 @@ export function initialRoute(s: InitState): ScreenEntry {
 
 /** Neutral toast copy for a worker event, or undefined when the event shows no toast. */
 export function toastFor(e: AppEvent): string | undefined {
+  // Changes made on this device need no toast; a paired companion's do.
+  if (e.type === 'layoutChanged') return e.origin === 'remote' ? 'Updated from your phone' : undefined;
   if (e.type !== 'refreshFailed') return undefined;
   return e.what === 'playlist' ? "Couldn't refresh channels. Showing saved list." : "Couldn't refresh the TV guide.";
 }

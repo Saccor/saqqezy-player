@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { INIT_TIMEOUT_MS, bootstrap, initFailed, initState } from './appState.ts';
+import { INIT_TIMEOUT_MS, bootstrap, initFailed, initState, wireEvents } from './appState.ts';
 
 const ready: InitState = {
   sources: [{ id: 's1', name: 'Mine', kind: 'xtream', active: true }],
@@ -65,5 +65,21 @@ describe('bootstrap', () => {
     await bootstrap({ init: () => Promise.resolve(ready) }, router);
     expect(initFailed()).toBe(false);
     expect(router.reset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('wireEvents', () => {
+  it('toasts a remote layout change and unsubscribes everything', () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const offs: string[] = [];
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => { offs.push(t); }; };
+    const toast = vi.fn();
+    const off = wireEvents(on, toast);
+    fns.get('layoutChanged')?.({ type: 'layoutChanged', version: 2, origin: 'remote' });
+    fns.get('layoutChanged')?.({ type: 'layoutChanged', version: 3, origin: 'local' });
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast.mock.calls[0]?.[0]).toBe('Updated from your phone');
+    off();
+    expect(offs).toContain('layoutChanged');
   });
 });

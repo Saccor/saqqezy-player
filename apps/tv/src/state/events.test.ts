@@ -36,6 +36,11 @@ describe('toastFor', () => {
       .toBe("Couldn't refresh the TV guide.");
   });
 
+  it('a remote layout change says it came from the phone; a local one shows nothing', () => {
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'remote' })).toBe('Updated from your phone');
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'local' })).toBeUndefined();
+  });
+
   it('ignores other events', () => {
     expect(toastFor({ type: 'refreshed', what: 'playlist', sourceId: 's' })).toBeUndefined();
     expect(toastFor({ type: 'offline', value: true })).toBeUndefined();

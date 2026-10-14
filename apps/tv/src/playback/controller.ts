@@ -4,9 +4,9 @@ import type { Player, PlaybackSupervisor, Rect, SupervisorStatus } from '@iptv/p
 
 export interface PlaybackController {
   /**
-   * Plays `ch` through the supervisor (which stops the old stream before opening the next). Returns false and
-   * does nothing when `ch` is already the current channel and has not failed: the stream keeps running, so
-   * moving from the preview to fullscreen never reconnects.
+   * Plays `ch` through the supervisor (which stops the old stream before opening the next). Returns false when
+   * `ch` is already the current channel and has not failed: the stream keeps running, so moving from the
+   * preview to fullscreen never reconnects; only `current`'s info (name, now/next) is refreshed from `ch`.
    */
   playChannel(ch: PlayableChannel): boolean;
   /** Stops the stream and supersedes every pending request (see `begin`). */
@@ -47,7 +47,17 @@ export function createPlaybackController(
   return {
     playChannel(ch) {
       const cur = current();
-      if (cur?.id === ch.id && status()?.kind !== 'failed') return false;
+      if (cur?.id === ch.id && status()?.kind !== 'failed') {
+        // Same stream: keep it running, but take the fresh info (a rename, now/next). The urls stay those of
+        // the open stream.
+        if (cur !== ch) {
+          const next: PlayableChannel = { ...ch, url: cur.url };
+          if (cur.alternateUrl !== undefined) next.alternateUrl = cur.alternateUrl;
+          else delete next.alternateUrl;
+          setCurrent(next);
+        }
+        return false;
+      }
       setCurrent(ch);
       supervisor.play(ch.url, ch.alternateUrl);
       return true;
