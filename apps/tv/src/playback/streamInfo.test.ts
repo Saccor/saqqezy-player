@@ -39,7 +39,7 @@ describe('streamInfoLines', () => {
       ['Bitrate', '2.5 Mbps'],
       ['Format', 'TS'],
       ['Host', 'tv.example.test:8080'],
-      ['Status', 'Reconnecting (2/3)'],
+      ['Status', 'Reconnecting'],
     ]);
     const all = JSON.stringify(lines);
     for (const bad of ['alice', 's3cret', 'live', '1234', 'token', 'abc', 'frag']) expect(all).not.toContain(bad);

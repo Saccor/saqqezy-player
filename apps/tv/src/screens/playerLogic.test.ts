@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ASPECT_MODES, aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, nextAspect, playerStatusText, sleepLabel,
+  ASPECT_MODES, aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerStatusText, sleepLabel,
 } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
@@ -8,7 +8,7 @@ describe('playerStatusText', () => {
     expect(playerStatusText(undefined)).toBeUndefined();
     expect(playerStatusText({ kind: 'playing' })).toBeUndefined();
     expect(playerStatusText({ kind: 'loading' })).toBeUndefined();
-    expect(playerStatusText({ kind: 'reconnecting', attempt: 2 })).toEqual({ kind: 'toast', text: 'Reconnecting… (2/3)' });
+    expect(playerStatusText({ kind: 'reconnecting', attempt: 2 })).toEqual({ kind: 'toast', text: 'Reconnecting…' });
     expect(playerStatusText({ kind: 'failed', reason: 'unavailable' }))
       .toEqual({ kind: 'centre', text: "This channel isn't available right now" });
     expect(playerStatusText({ kind: 'failed', reason: 'unsupported' }))
@@ -74,5 +74,31 @@ describe('bannerNowNextStale', () => {
     expect(bannerNowNextStale(['b'], 'b', 'c', true)).toBe(false);
     expect(bannerNowNextStale(['a'], 'b', 'b', true)).toBe(false);
     expect(bannerNowNextStale(['a'], undefined, undefined, true)).toBe(false);
+  });
+});
+
+describe('playerStatusText refused', () => {
+  it('refused has its own message', () => {
+    expect(playerStatusText({ kind: 'failed', reason: 'refused' }))
+      .toEqual({ kind: 'centre', text: 'Your source refused this stream' });
+  });
+});
+
+describe('livePill', () => {
+  const info = (behindLiveS: number | undefined, source: 'pdt' | 'edge' | 'buffer' = 'edge') =>
+    ({ behindLiveS, source, targetS: 6, stalls: 0, reconnects: 0 });
+  it('nothing while loading, reconnecting or failed', () => {
+    expect(livePill(undefined, undefined)).toBeUndefined();
+    expect(livePill({ kind: 'loading' }, info(30))).toBeUndefined();
+    expect(livePill({ kind: 'reconnecting', attempt: 1 }, info(30))).toBeUndefined();
+    expect(livePill({ kind: 'failed', reason: 'unavailable' }, info(30))).toBeUndefined();
+  });
+  it('LIVE when close to the target, or when only the buffer is known', () => {
+    expect(livePill({ kind: 'playing' }, info(9))).toEqual({ text: 'LIVE' });
+    expect(livePill({ kind: 'playing' }, info(undefined, 'buffer'))).toEqual({ text: 'LIVE' });
+    expect(livePill({ kind: 'playing' }, undefined)).toEqual({ text: 'LIVE' });
+  });
+  it('−N s with a Go live hint when more than 3 s past the target', () => {
+    expect(livePill({ kind: 'playing' }, info(21.6))).toEqual({ text: '−22 s', hint: 'OK: Go live' });
   });
 });

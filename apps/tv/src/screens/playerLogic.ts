@@ -1,18 +1,36 @@
-import type { AspectMode, SupervisorStatus } from '@iptv/player';
+import type { AspectMode, LiveInfo, SupervisorStatus } from '@iptv/player';
 
 /** How the Player shows the supervisor status: a small toast, a centred message, or nothing. */
 export function playerStatusText(s: SupervisorStatus | undefined): { kind: 'toast' | 'centre'; text: string } | undefined {
   if (!s) return undefined;
-  if (s.kind === 'reconnecting') return { kind: 'toast', text: `Reconnecting… (${s.attempt}/3)` };
+  if (s.kind === 'reconnecting') return { kind: 'toast', text: 'Reconnecting…' };
   if (s.kind === 'failed') {
     return {
       kind: 'centre',
       text: s.reason === 'unsupported'
         ? "This stream's format isn't supported on this device"
-        : "This channel isn't available right now",
+        : s.reason === 'refused'
+          ? 'Your source refused this stream'
+          : "This channel isn't available right now",
     };
   }
   return undefined;
+}
+
+/** Beyond the target by more than this, the banner shows "−N s" and OK jumps to live. */
+const PILL_BEHIND_MARGIN_S = 3;
+
+/**
+ * The banner's live pill: "LIVE", or "−N s" with an "OK: Go live" hint when the stream is behind its target.
+ * Raw TS only knows its buffer, so it always shows "LIVE" (never a delay it cannot measure).
+ */
+export function livePill(status: SupervisorStatus | undefined, info: LiveInfo | undefined): { text: string; hint?: string } | undefined {
+  if (status?.kind !== 'playing') return undefined;
+  if (info && info.source !== 'buffer' && info.behindLiveS !== undefined
+    && info.behindLiveS > info.targetS + PILL_BEHIND_MARGIN_S) {
+    return { text: `−${Math.round(info.behindLiveS)} s`, hint: 'OK: Go live' };
+  }
+  return { text: 'LIVE' };
 }
 
 export const ASPECT_MODES: readonly AspectMode[] = ['auto', '16:9', '4:3', 'zoom', 'stretch'];

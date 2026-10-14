@@ -1,5 +1,6 @@
 /** Pure helpers for the Settings screen (value steppers, option cycling, labels, diagnostics text). Unit-tested. */
 import type { DiagnosticsInfo } from '@iptv/app-api';
+import type { LiveInfo } from '@iptv/player';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings } from '@iptv/core';
 
@@ -211,4 +212,21 @@ export function listActions(listId: string, index: number, count: number): { id:
   if (!fav) out.push({ id: 'delete', label: 'Delete…' });
   out.push({ id: 'cancel', label: 'Cancel' });
   return out;
+}
+
+const SOURCE_LABEL = { pdt: 'stream clock', edge: 'stream edge', buffer: 'buffered' } as const;
+
+/** Diagnostics lines for the live delay (no URLs). */
+export function liveLines(info: LiveInfo): [string, string][] {
+  let behind = 'Unknown';
+  if (info.source !== 'buffer' && info.behindLiveS !== undefined && info.source !== undefined) {
+    behind = `${Math.round(info.behindLiveS)} s (${SOURCE_LABEL[info.source]})`;
+  } else if (info.bufferAheadS !== undefined) {
+    behind = `${info.bufferAheadS.toFixed(1)} s buffered`;
+  }
+  return [
+    ['Behind live', behind],
+    ['Live target', `${info.targetS.toFixed(1)} s`],
+    ['Stalls / reconnects', `${info.stalls} / ${info.reconnects}`],
+  ];
 }

@@ -33,7 +33,7 @@ function statusLabel(s: SupervisorStatus | undefined): string {
   switch (s.kind) {
     case 'loading': return 'Loading';
     case 'playing': return 'Playing';
-    case 'reconnecting': return `Reconnecting (${s.attempt}/3)`;
+    case 'reconnecting': return 'Reconnecting';
     case 'failed': return `Failed (${s.reason})`;
   }
 }

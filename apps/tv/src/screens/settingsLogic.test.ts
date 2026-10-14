@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import {
   AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
-  formatTime, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
+  formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
 } from './settingsLogic.ts';
 import {
   HIDE_NO_EPG_HELP, HIDE_NO_EPG_NO_GUIDE, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
@@ -260,5 +260,16 @@ describe('listActions', () => {
 
   it('labels', () => {
     expect(listActions('l-b', 2, 4).map((i) => i.label)).toEqual(['Rename…', 'Move up', 'Move down', 'Delete…', 'Cancel']);
+  });
+});
+
+describe('liveLines', () => {
+  it('shows the delay with its source, the target and the counters', () => {
+    expect(liveLines({ behindLiveS: 12.4, source: 'pdt', targetS: 6, stalls: 2, reconnects: 1 })).toEqual([
+      ['Behind live', '12 s (stream clock)'], ['Live target', '6.0 s'], ['Stalls / reconnects', '2 / 1'],
+    ]);
+    expect(liveLines({ bufferAheadS: 2.46, source: 'buffer', targetS: 3, stalls: 0, reconnects: 0 })[0])
+      .toEqual(['Behind live', '2.5 s buffered']);
+    expect(liveLines({ targetS: 0, stalls: 0, reconnects: 0 })[0]).toEqual(['Behind live', 'Unknown']);
   });
 });

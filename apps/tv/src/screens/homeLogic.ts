@@ -79,6 +79,8 @@ export function previewMessage(status: SupervisorStatus | undefined, hasChannel:
     case 'failed':
       return status.reason === 'unsupported'
         ? "This channel's format isn't supported on this device"
-        : "This channel isn't available right now";
+        : status.reason === 'refused'
+          ? 'Your source refused this stream'
+          : "This channel isn't available right now";
   }
 }
