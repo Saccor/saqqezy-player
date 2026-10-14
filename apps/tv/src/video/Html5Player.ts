@@ -40,6 +40,11 @@ const HLS_CODEC_ERRORS = new Set<string>([
 interface NativeAudioTrack { id: string; label: string; language: string; enabled: boolean }
 interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
 
+/** `navigator.userActivation` where the engine has it (Chromium 72+). */
+function userActivation(): { isActive: boolean; hasBeenActive: boolean } | undefined {
+  return (navigator as Navigator & { userActivation?: { isActive: boolean; hasBeenActive: boolean } }).userActivation;
+}
+
 function pathOf(url: string): string {
   try {
     return new URL(url, location.href).pathname.toLowerCase();
@@ -67,15 +72,18 @@ export class Html5Player implements Player {
     this.autoMute = new AutoMute(this.video);
   }
 
-  /** Gives the sound back after an autoplay-policy mute; call it from a user gesture (key press). */
+  /**
+   * Gives the sound back after an autoplay-policy mute; call it from a keydown. Only a key that really
+   * activated the page counts (see `AutoMute.releaseOnGesture`).
+   */
   unmuteIfAutoMuted(): void {
-    this.autoMute.release();
+    this.autoMute.releaseOnGesture(userActivation());
   }
 
   open(url: string, attemptId?: number): Promise<void> {
     this.stop();
     // Once the page has had a user gesture, playback with sound is allowed again.
-    this.autoMute.releaseIfActivated((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation);
+    this.autoMute.releaseIfActivated(userActivation());
     const path = pathOf(url);
     const s: Session = { url, attemptId, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [] };
     this.session = s;

@@ -27,6 +27,15 @@ export class AutoMute {
     this.media.muted = false;
   }
 
+  /**
+   * From a keydown: drops our mute only when that key really activated the page (`isActive`), or on engines
+   * without `navigator.userActivation`. Keys such as Esc do not activate it, and unmuting then would make the
+   * browser pause the playing preview.
+   */
+  releaseOnGesture(activation: { isActive: boolean } | undefined): void {
+    if (!activation || activation.isActive) this.release();
+  }
+
   /** `navigator.userActivation`: once the page has had a gesture, sound may play, so drop our mute. */
   releaseIfActivated(activation: { hasBeenActive: boolean } | undefined): void {
     if (activation?.hasBeenActive) this.release();

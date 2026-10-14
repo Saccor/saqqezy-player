@@ -56,7 +56,8 @@ const gestureListeners = new Set<() => void>();
 
 /**
  * Observer for every real keydown (mapped or not, typed or not), called while the browser still counts it as a
- * user gesture. The player uses it to give the sound back after an autoplay-policy mute.
+ * user gesture. The player uses it to give the sound back after an autoplay-policy mute (only when the key
+ * really activated the page; see `AutoMute.releaseOnGesture`).
  */
 export function onUserGesture(fn: () => void): () => void {
   gestureListeners.add(fn);

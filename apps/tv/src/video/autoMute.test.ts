@@ -44,4 +44,18 @@ describe('AutoMute', () => {
     expect(media.muted).toBe(false);
     expect(m.active).toBe(false);
   });
+
+  test('releaseOnGesture() unmutes only on a real activation (or where userActivation is missing)', () => {
+    const media = { muted: false };
+    const m = new AutoMute(media);
+    m.mute();
+    // Esc and similar keys do not activate the page: unmuting then would make the browser pause the preview.
+    m.releaseOnGesture({ isActive: false });
+    expect(media.muted).toBe(true);
+    m.releaseOnGesture({ isActive: true });
+    expect(media.muted).toBe(false);
+    m.mute();
+    m.releaseOnGesture(undefined);
+    expect(media.muted).toBe(false);
+  });
 });
