@@ -1,5 +1,5 @@
 import type { AppSettings, GroupInfo } from '@iptv/core';
-import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
+import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
 export interface ProgrammeLite { title: string; start: number; stop: number; desc?: string }
@@ -12,6 +12,12 @@ export interface ChannelRow {
 export interface PlayableChannel extends ChannelRow { url: string; alternateUrl?: string }
 
 export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u'; active: boolean }
+
+// Compile-time drift check: SourceSummary and the companion protocol's copy must stay mutually assignable.
+type Assert<T extends true> = T;
+export type _SourceSummaryInSync = Assert<
+  [SourceSummary] extends [CompanionSourceSummary] ? ([CompanionSourceSummary] extends [SourceSummary] ? true : false) : false
+>;
 
 export interface InitState {
   sources: SourceSummary[]; activeSourceId?: string; groups: GroupInfo[];

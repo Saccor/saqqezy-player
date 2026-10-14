@@ -17,9 +17,27 @@ export interface FrameTransport {
   onClose?(fn: () => void): () => void;
 }
 
-export type CloseReason = 'decrypt-failures' | 'transport' | 'closed' | 'msgid-exhausted';
+/**
+ * The transport the relay clients (TV and companion) hand to a SecureChannel.
+ *
+ * Contract:
+ * - It is long-lived and reconnects internally; the channel keeps using the same instance across drops.
+ * - `onClose` fires only on a final give-up (no further reconnect attempts), never on a dropped socket.
+ * - `send()` never throws while reconnecting. It queues up to 2 MiB or 60 s of frames; on overflow it gives
+ *   up and fires `onClose`.
+ * - `onReconnected` fires after each successful reconnect, so the app can resend its state.
+ */
+export interface RelayTransport extends FrameTransport {
+  onClose(fn: (reason: string) => void): () => void;
+  onReconnected(fn: () => void): () => void;
+}
 
-/** Consecutive bad frames or invalid messages before the channel closes. */
+export type CloseReason = 'peer-errors' | 'transport' | 'closed' | 'msgid-exhausted';
+
+/**
+ * Consecutive failures before the channel closes. Before the first message is accepted every bad frame
+ * counts (so a wrong key is detected during pairing). Afterwards only post-authentication problems count.
+ */
 export const MAX_DECRYPT_FAILURES = 5;
 
 const MAX_U32 = 0xffffffff;
@@ -51,10 +69,15 @@ export interface SecureChannelOptions<In> {
  * - Sends are serialised, so the frames of different messages never interleave on the wire.
  * - tv->phone messages are gzip-compressed when the TV has `CompressionStream`; phone->tv messages never are.
  * - Incoming frames are processed one at a time, in arrival order: decrypt, reassemble, then exactly once per
- *   completed message a replay check on its msgId, then `validate`. A frame that fails to decrypt or
- *   reassemble, a replayed message, and a message that fails validation each count as a failure and are dropped.
- *   MAX_DECRYPT_FAILURES consecutive failures close the channel with reason 'decrypt-failures'; an accepted
- *   message resets the count.
+ *   completed message a replay check on its msgId, then `validate`. Failure policy:
+ *   - Until the first message is accepted, every bad frame (including GCM authentication failures) counts.
+ *   - After that, frames that fail to open (authentication, framing, a compressed phone->tv frame) are dropped
+ *     silently and never count, so an outsider injecting garbage on the relay cannot kill the session.
+ *   - Post-authentication problems (replay, validation failure or throw, reassembly or gunzip error) always
+ *     count.
+ *   MAX_DECRYPT_FAILURES consecutive counted failures close the channel with reason 'peer-errors'; any
+ *   accepted message resets the count.
+ * - After `setTransport`, frames still in flight from the previous transport are dropped.
  */
 export class SecureChannel<Out, In> {
   private readonly secrets: PairingSecrets;
@@ -72,6 +95,8 @@ export class SecureChannel<Out, In> {
   private sendChain: Promise<unknown> = Promise.resolve();
   private recvChain: Promise<void> = Promise.resolve();
   private failures = 0;
+  private accepted = false;
+  private generation = 0;
   private closed = false;
 
   constructor(opts: SecureChannelOptions<In>) {
@@ -95,6 +120,7 @@ export class SecureChannel<Out, In> {
     if (this.closed) throw new ChannelClosedError();
     const old = this.transport;
     this.detach();
+    this.generation++;
     this.transport = transport;
     this.reassembler = new Reassembler();
     this.attach(transport);
@@ -151,7 +177,8 @@ export class SecureChannel<Out, In> {
   }
 
   private attach(t: FrameTransport): void {
-    this.unsubscribe.push(t.onFrame((f) => this.receive(f)));
+    const gen = this.generation;
+    this.unsubscribe.push(t.onFrame((f) => this.receive(f, gen)));
     if (t.onClose) {
       this.unsubscribe.push(t.onClose(() => {
         if (this.transport === t) this.shutdown('transport', false);
@@ -164,41 +191,55 @@ export class SecureChannel<Out, In> {
     this.unsubscribe = [];
   }
 
-  private receive(frame: Uint8Array): void {
-    if (this.closed) return;
-    this.recvChain = this.recvChain.then(() => this.process(frame));
+  private receive(frame: Uint8Array, gen: number): void {
+    if (this.closed || gen !== this.generation) return;
+    // process() never rejects, so the chain can never stay rejected and stall later frames.
+    this.recvChain = this.recvChain.then(() => this.process(frame, gen)).catch(() => undefined);
   }
 
-  private async process(frame: Uint8Array): Promise<void> {
-    if (this.closed) return;
-    let value: unknown;
-    let msgId: number;
+  private async process(frame: Uint8Array, gen: number): Promise<void> {
+    if (this.closed || gen !== this.generation) return;
     try {
-      const { header, plaintextChunk } = await openFrame(this.secrets.key, this.secrets.sessionId, this.inDir, frame);
-      msgId = header.msgId;
-      value = await this.reassembler.push(header, plaintextChunk);
-    } catch {
-      this.fail();
-      return;
-    }
-    if (value === undefined || this.closed) return; // incomplete message
-    if (!this.replay.accept(msgId) || !this.validate(value)) {
-      this.fail();
-      return;
-    }
-    this.failures = 0;
-    for (const fn of [...this.messageListeners]) {
+      const reassembler = this.reassembler;
+      let opened: Awaited<ReturnType<typeof openFrame>>;
       try {
-        fn(value, msgId);
+        opened = await openFrame(this.secrets.key, this.secrets.sessionId, this.inDir, frame);
       } catch {
-        // A listener's error must not break the channel.
+        // Unauthenticated garbage. Counted only until the first message was accepted.
+        if (!this.accepted) this.fail();
+        return;
       }
+      if (this.closed || gen !== this.generation) return;
+      let value: unknown;
+      try {
+        value = await reassembler.push(opened.header, opened.plaintextChunk);
+      } catch {
+        this.fail();
+        return;
+      }
+      if (value === undefined || this.closed || gen !== this.generation) return; // incomplete message
+      const msgId = opened.header.msgId;
+      if (!this.replay.accept(msgId) || !this.validate(value)) {
+        this.fail();
+        return;
+      }
+      this.accepted = true;
+      this.failures = 0;
+      for (const fn of [...this.messageListeners]) {
+        try {
+          fn(value, msgId);
+        } catch {
+          // A listener's error must not break the channel.
+        }
+      }
+    } catch {
+      this.fail(); // e.g. a throwing validator
     }
   }
 
   private fail(): void {
     this.failures++;
-    if (this.failures >= MAX_DECRYPT_FAILURES) this.shutdown('decrypt-failures', true);
+    if (this.failures >= MAX_DECRYPT_FAILURES) this.shutdown('peer-errors', true);
   }
 
   private shutdown(reason: CloseReason, closeTransport: boolean): void {

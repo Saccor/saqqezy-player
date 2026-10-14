@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { emptyLayout, MAX_OPS_PER_BATCH, type LayoutOp } from '@iptv/core';
+import { emptyLayout, MAX_OPS_PER_BATCH, NAME_MAX, type LayoutOp } from '@iptv/core';
 import {
   isPhoneToTv,
   isTvToPhone,
+  openFrame,
   sealMessage,
   SecureChannel,
   toB64Url,
@@ -211,7 +212,7 @@ describe('SecureChannel', () => {
     await until(() => atTv.length === 2);
   }, 20000);
 
-  test('5 consecutive bad frames close the channel with reason decrypt-failures', async () => {
+  test('5 garbage frames before the first message close the channel with reason peer-errors', async () => {
     const { tv, tvT } = await pair();
     const closes: string[] = [];
     tv.onClose((r) => closes.push(r));
@@ -223,7 +224,7 @@ describe('SecureChannel', () => {
 
     tvT.inject(garbage());
     await until(() => closes.length > 0);
-    expect(closes).toEqual(['decrypt-failures']);
+    expect(closes).toEqual(['peer-errors']);
     expect(tvT.closed).toBe(true);
     await expect(tv.send({ t: 'bye' })).rejects.toThrow();
   });
@@ -236,7 +237,146 @@ describe('SecureChannel', () => {
       for (const f of await sealMessage(secrets.key, secrets.sessionId, 'tv->phone', 1 + i, { t: 'getState' })) tvT.inject(f);
     }
     await until(() => closes.length > 0);
-    expect(closes).toEqual(['decrypt-failures']);
+    expect(closes).toEqual(['peer-errors']);
+  });
+
+  describe('failure policy', () => {
+    const garbage = () => crypto.getRandomValues(new Uint8Array(80));
+    const good = async (secrets: PairingSecrets, id: number, v: unknown = { t: 'getState' }) =>
+      sealMessage(secrets.key, secrets.sessionId, 'phone->tv', id, v);
+
+    test('4 bad, 1 good, 4 bad: stays open (the good message resets the count)', async () => {
+      const { secrets, tv, tvT } = await pair();
+      const atTv = collect(tv);
+      const closes: string[] = [];
+      tv.onClose((r) => closes.push(r));
+      for (let i = 0; i < 4; i++) tvT.inject(garbage());
+      for (const f of await good(secrets, 10)) tvT.inject(f);
+      await until(() => atTv.length === 1);
+      for (let i = 0; i < 4; i++) tvT.inject(garbage());
+      await settle();
+      expect(closes).toEqual([]);
+    });
+
+    test('garbage after authentication never closes the channel', async () => {
+      const { secrets, tv, tvT } = await pair();
+      const atTv = collect(tv);
+      const closes: string[] = [];
+      tv.onClose((r) => closes.push(r));
+      for (const f of await good(secrets, 10)) tvT.inject(f);
+      await until(() => atTv.length === 1);
+      for (let i = 0; i < 50; i++) tvT.inject(garbage());
+      await settle();
+      expect(closes).toEqual([]);
+      for (const f of await good(secrets, 11)) tvT.inject(f);
+      await until(() => atTv.length === 2);
+    });
+
+    test('post-auth validation failures still count and close with peer-errors', async () => {
+      const { secrets, tv, tvT } = await pair();
+      const atTv = collect(tv);
+      const closes: string[] = [];
+      tv.onClose((r) => closes.push(r));
+      for (const f of await good(secrets, 10)) tvT.inject(f);
+      await until(() => atTv.length === 1);
+      for (let i = 0; i < 5; i++) for (const f of await good(secrets, 20 + i, { t: 'nope' })) tvT.inject(f);
+      await until(() => closes.length > 0);
+      expect(closes).toEqual(['peer-errors']);
+    });
+
+    test('a throwing validator counts as a failure and never stalls the receive chain', async () => {
+      const secrets = await newSecrets();
+      const [tvT] = transportPair();
+      let throwing = true;
+      const tv = new SecureChannel<TvToPhone, PhoneToTv>({
+        secrets, role: 'tv', transport: tvT,
+        validate: (x): x is PhoneToTv => {
+          if (throwing) throw new Error('boom');
+          return isPhoneToTv(x);
+        },
+      });
+      const atTv = collect(tv);
+      const closes: string[] = [];
+      tv.onClose((r) => closes.push(r));
+      for (const f of await good(secrets, 10)) tvT.inject(f);
+      await settle();
+      throwing = false;
+      for (const f of await good(secrets, 11)) tvT.inject(f);
+      await until(() => atTv.length === 1);
+      expect(closes).toEqual([]);
+
+      throwing = true;
+      for (let i = 0; i < 5; i++) for (const f of await good(secrets, 30 + i)) tvT.inject(f);
+      await until(() => closes.length > 0);
+      expect(closes).toEqual(['peer-errors']);
+    });
+
+    test('a compressed phone->tv frame is rejected before any inflate', async () => {
+      const { secrets, tv, tvT } = await pair();
+      const atTv = collect(tv);
+      const frames = await sealMessage(secrets.key, secrets.sessionId, 'phone->tv', 5, { t: 'getState' });
+      const f = frames[0]!.slice();
+      f[1] = 1; // set the compressed flag
+      await expect(openFrame(secrets.key, secrets.sessionId, 'phone->tv', f)).rejects.toThrow(/compressed/);
+      tvT.inject(f);
+      await settle();
+      expect(atTv.length).toBe(0);
+    });
+  });
+
+  describe('transport lifecycle', () => {
+    function closableTransport(): TestTransport & { listeners: Set<(f: Uint8Array) => void>; fireClose(): void } {
+      const [t] = transportPair();
+      const fns = new Set<() => void>();
+      return Object.assign(t as TestTransport & { listeners: Set<(f: Uint8Array) => void> }, {
+        onClose(fn: () => void) {
+          fns.add(fn);
+          return () => fns.delete(fn);
+        },
+        fireClose() {
+          for (const fn of [...fns]) fn();
+        },
+      });
+    }
+
+    test('a transport-initiated onClose closes the channel with reason transport', async () => {
+      const secrets = await newSecrets();
+      const t = closableTransport();
+      const ch = new SecureChannel<TvToPhone, PhoneToTv>({ secrets, role: 'tv', transport: t, validate: isPhoneToTv });
+      const closes: string[] = [];
+      ch.onClose((r) => closes.push(r));
+      t.fireClose();
+      expect(closes).toEqual(['transport']);
+    });
+
+    test('a stale onClose from an old transport after setTransport is ignored', async () => {
+      const secrets = await newSecrets();
+      const oldT = closableTransport();
+      const ch = new SecureChannel<TvToPhone, PhoneToTv>({ secrets, role: 'tv', transport: oldT, validate: isPhoneToTv });
+      const closes: string[] = [];
+      ch.onClose((r) => closes.push(r));
+      const newT = closableTransport();
+      ch.setTransport(newT);
+      oldT.fireClose();
+      expect(closes).toEqual([]);
+      await ch.send({ t: 'bye' });
+      newT.fireClose();
+      expect(closes).toEqual(['transport']);
+    });
+
+    test('frames from the old transport are dropped after setTransport', async () => {
+      const secrets = await newSecrets();
+      const oldT = closableTransport();
+      const ch = new SecureChannel<TvToPhone, PhoneToTv>({ secrets, role: 'tv', transport: oldT, validate: isPhoneToTv });
+      const atTv = collect(ch);
+      const frames = await sealMessage(secrets.key, secrets.sessionId, 'phone->tv', 7, { t: 'getState' });
+      // Keep a handle on the channel's old listener, as a transport with a late in-flight delivery would.
+      const listener = [...oldT.listeners][0]!;
+      ch.setTransport(closableTransport());
+      listener(frames[0]!);
+      await settle();
+      expect(atTv.length).toBe(0);
+    });
   });
 
   test('close() fires onClose once with reason closed and closes the transport', async () => {
@@ -389,6 +529,51 @@ describe('isPhoneToTv', () => {
     expect(isPhoneToTv({ t: 'ops', baseVersion: 1.5, ops: [] })).toBe(false);
     const many = Array.from({ length: MAX_OPS_PER_BATCH + 1 }, () => ({ op: 'setHideNoEpg', value: true }));
     expect(isPhoneToTv({ t: 'ops', baseVersion: 1, ops: many })).toBe(false);
+  });
+
+  test('caps and required strings', () => {
+    const m3u = (o: Record<string, unknown>) => ({ t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', ...o } });
+    const xt = (o: Record<string, unknown>) => ({ t: 'addSource', input: { kind: 'xtream', name: 'X', server: 'https://x.example.test', username: 'u', password: 'p', ...o } });
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(128) } })).toBe(true);
+    expect(isPhoneToTv({ t: 'hello', client: { kind: 'phone', label: 'a'.repeat(129) } })).toBe(false);
+    expect(isPhoneToTv(m3u({ name: 'a'.repeat(NAME_MAX) }))).toBe(true);
+    expect(isPhoneToTv(m3u({ name: 'a'.repeat(NAME_MAX + 1) }))).toBe(false);
+    expect(isPhoneToTv(xt({ name: 'a'.repeat(NAME_MAX + 1) }))).toBe(false);
+    expect(isPhoneToTv(xt({ server: '' }))).toBe(false);
+    expect(isPhoneToTv(xt({ username: '' }))).toBe(false);
+    expect(isPhoneToTv(xt({ password: '' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ playlistUrl: '' }))).toBe(false);
+  });
+
+  test('URLs must be http(s); an Xtream server may omit the scheme', () => {
+    const m3u = (o: Record<string, unknown>) => ({ t: 'addSource', input: { kind: 'm3u', name: 'Home', playlistUrl: 'https://media.example.test/l.m3u', ...o } });
+    const xt = (server: string) => ({ t: 'addSource', input: { kind: 'xtream', name: 'X', server, username: 'u', password: 'p' } });
+    expect(isPhoneToTv(m3u({ playlistUrl: 'http://media.example.test/l.m3u' }))).toBe(true);
+    expect(isPhoneToTv(m3u({ playlistUrl: 'file:///etc/passwd' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ playlistUrl: 'javascript:alert(1)' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ playlistUrl: 'media.example.test/l.m3u' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ playlistUrl: 'ftp://media.example.test/l.m3u' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ epgUrl: 'https://media.example.test/e.xml' }))).toBe(true);
+    expect(isPhoneToTv(m3u({ epgUrl: 'ftp://media.example.test/e.xml' }))).toBe(false);
+    expect(isPhoneToTv(m3u({ epgUrl: '' }))).toBe(false);
+    expect(isPhoneToTv(xt('x.example.test'))).toBe(true);
+    expect(isPhoneToTv(xt('x.example.test:8080'))).toBe(true);
+    expect(isPhoneToTv(xt('x.example.test:8080/path'))).toBe(true);
+    expect(isPhoneToTv(xt('http://x.example.test:8080'))).toBe(true);
+    expect(isPhoneToTv(xt('ftp://x.example.test'))).toBe(false);
+    expect(isPhoneToTv(xt('file:///etc/passwd'))).toBe(false);
+    expect(isPhoneToTv(xt('javascript:alert(1)'))).toBe(false);
+  });
+
+  test('ops: unknown keys per op type are rejected', () => {
+    const ops = (op: Record<string, unknown>) => ({ t: 'ops', baseVersion: 1, ops: [op] });
+    expect(isPhoneToTv(ops({ op: 'hideChannels', ids: ['a'] }))).toBe(true);
+    expect(isPhoneToTv(ops({ op: 'hideChannels', ids: ['a'], extra: 1 }))).toBe(false);
+    expect(isPhoneToTv(ops({ op: 'setHideNoEpg', value: true, extra: 1 }))).toBe(false);
+    expect(isPhoneToTv(ops({ op: 'createList', id: 'l1', name: 'Mine', extra: 1 }))).toBe(false);
+    expect(isPhoneToTv(ops({ op: 'moveInList', listId: 'l', channelId: 'c', toIndex: 0, ids: [] }))).toBe(false);
+    expect(isPhoneToTv(ops({ op: 'markWatched', id: 'a', note: 'x' }))).toBe(false);
+    expect(isPhoneToTv(ops({ op: 'hideChannels' }))).toBe(false);
   });
 
   test('rejects wrong field types and unknown fields', () => {

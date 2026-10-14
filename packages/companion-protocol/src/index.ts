@@ -37,6 +37,7 @@ export type { CompanionChannel, CompanionSourceSummary, CompanionState } from '.
 export { type PhoneToTv, type TvToPhone, isPhoneToTv, isTvToPhone, MAX_FIELD_LEN } from './messages.ts';
 export {
   type FrameTransport,
+  type RelayTransport,
   type CloseReason,
   type SecureChannelOptions,
   SecureChannel,

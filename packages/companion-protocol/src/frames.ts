@@ -246,6 +246,8 @@ export async function openFrame(
   if (frame[0] !== WIRE_VERSION) throw new FrameError('unsupported version');
   const flags = frame[1]!;
   if ((flags & ~FLAG_COMPRESSED) !== 0) throw new FrameError('unknown flags');
+  // phone->tv frames are never compressed; reject before any decryption or inflate work.
+  if ((flags & FLAG_COMPRESSED) !== 0 && dir === 'phone->tv') throw new FrameError('compressed phone frame');
   const msgId = ((frame[2]! << 24) | (frame[3]! << 16) | (frame[4]! << 8) | frame[5]!) >>> 0;
   const index = (frame[6]! << 8) | frame[7]!;
   const count = (frame[8]! << 8) | frame[9]!;

@@ -1,4 +1,4 @@
-import { isLayoutOpBatch, isValidId, type Layout, type LayoutOp, type NewSource, type SourceConfig } from '@iptv/core';
+import { isLayoutOpBatch, isValidId, NAME_MAX, MAX_OPS_PER_BATCH, type Layout, type LayoutOp, type NewSource, type SourceConfig } from '@iptv/core';
 import type { CompanionState } from './state.ts';
 
 /** Messages a companion (phone or desktop) sends to the TV. */
@@ -27,6 +27,9 @@ export type TvToPhone =
 /** Longest accepted free-text field (names, labels, URLs, credentials). */
 export const MAX_FIELD_LEN = 8192;
 
+/** Longest accepted `hello.label`. */
+export const MAX_LABEL_LEN = 128;
+
 type Rec = Record<string, unknown>;
 
 const isRec = (x: unknown): x is Rec => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -41,11 +44,73 @@ function hasKeys(x: Rec, required: readonly string[], optional: readonly string[
   return true;
 }
 
+const nonEmpty = (x: unknown): x is string => isStr(x) && x.length > 0;
+
+function isHttpUrl(u: URL): boolean {
+  return u.protocol === 'http:' || u.protocol === 'https:';
+}
+
+/** A URL with an explicit http: or https: scheme. */
+function isHttpUrlStr(x: unknown): boolean {
+  if (!nonEmpty(x)) return false;
+  try {
+    return isHttpUrl(new URL(x));
+  } catch {
+    return false;
+  }
+}
+
+/** An Xtream server: an http(s) URL, or a bare host[:port][/path] with no scheme. Any other scheme is rejected. */
+function isServerStr(x: unknown): boolean {
+  if (!nonEmpty(x)) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(x)) return isHttpUrlStr(x);
+  try {
+    return isHttpUrl(new URL(`http://${x}`));
+  } catch {
+    return false;
+  }
+}
+
+const isSourceName = (x: unknown): x is string => isStr(x) && x.length <= NAME_MAX;
+
+/** Allowed keys per layout op type (all required). Anything else is rejected before the core shape check. */
+const OP_KEYS: Readonly<Record<string, readonly string[]>> = {
+  createList: ['op', 'id', 'name'],
+  renameList: ['op', 'listId', 'name'],
+  deleteList: ['op', 'listId'],
+  moveList: ['op', 'listId', 'toIndex'],
+  addToList: ['op', 'listId', 'channelIds'],
+  removeFromList: ['op', 'listId', 'channelIds'],
+  moveInList: ['op', 'listId', 'channelId', 'toIndex'],
+  hideChannels: ['op', 'ids'],
+  unhideChannels: ['op', 'ids'],
+  hideGroups: ['op', 'ids'],
+  unhideGroups: ['op', 'ids'],
+  renameChannel: ['op', 'id', 'name'],
+  renameGroup: ['op', 'id', 'name'],
+  setGroupOrder: ['op', 'ids'],
+  setChannelOrder: ['op', 'groupId', 'ids'],
+  setSort: ['op', 'groupId', 'mode'],
+  setHideNoEpg: ['op', 'value'],
+  markWatched: ['op', 'id'],
+};
+
+function opsHaveKnownKeys(ops: unknown): boolean {
+  if (!Array.isArray(ops) || ops.length > MAX_OPS_PER_BATCH) return false;
+  for (const op of ops as unknown[]) {
+    if (!isRec(op) || typeof op['op'] !== 'string') return false;
+    if (!Object.prototype.hasOwnProperty.call(OP_KEYS, op['op'])) return false;
+    if (!hasKeys(op, OP_KEYS[op['op']]!)) return false;
+  }
+  return true;
+}
+
 /**
  * NewSource / SourceConfig check: known kind and correct field types. With `strict` (the TV side), unknown
  * fields are rejected too; without it (the companion side) they are ignored for forward compatibility.
  */
 function isSourceShape(x: unknown, withId: boolean, strict: boolean): boolean {
+  const limits = strict;
   if (!isRec(x)) return false;
   const id = withId ? ['id'] : [];
   if (withId && !isValidId(x['id'])) return false;
@@ -53,12 +118,15 @@ function isSourceShape(x: unknown, withId: boolean, strict: boolean): boolean {
     strict ? hasKeys(x, required, optional) : hasKeys(x, required, Object.keys(x));
   if (x['kind'] === 'xtream') {
     return keys(['kind', 'name', 'server', 'username', 'password', ...id])
-      && isStr(x['name']) && isStr(x['server']) && isStr(x['username']) && isStr(x['password']);
+      && (limits ? isSourceName(x['name']) : isStr(x['name']))
+      && (limits ? isServerStr(x['server']) : isStr(x['server']))
+      && (limits ? nonEmpty(x['username']) && nonEmpty(x['password']) : isStr(x['username']) && isStr(x['password']));
   }
   if (x['kind'] === 'm3u') {
     return keys(['kind', 'name', 'playlistUrl', ...id], ['epgUrl'])
-      && isStr(x['name']) && isStr(x['playlistUrl'])
-      && (x['epgUrl'] === undefined || isStr(x['epgUrl']));
+      && (limits ? isSourceName(x['name']) : isStr(x['name']))
+      && (limits ? isHttpUrlStr(x['playlistUrl']) : isStr(x['playlistUrl']))
+      && (x['epgUrl'] === undefined || (limits ? isHttpUrlStr(x['epgUrl']) : isStr(x['epgUrl'])));
   }
   return false;
 }
@@ -73,7 +141,7 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
     case 'hello': {
       const c = x['client'];
       return hasKeys(x, ['t', 'client']) && isRec(c) && hasKeys(c, ['kind', 'label'])
-        && (c['kind'] === 'phone' || c['kind'] === 'desktop') && isStr(c['label']);
+        && (c['kind'] === 'phone' || c['kind'] === 'desktop') && isStr(c['label']) && c['label'].length <= MAX_LABEL_LEN;
     }
     case 'getState':
     case 'bye':
@@ -83,7 +151,8 @@ export function isPhoneToTv(x: unknown): x is PhoneToTv {
     case 'setActiveSource':
       return hasKeys(x, ['t', 'id']) && isValidId(x['id']);
     case 'ops':
-      return hasKeys(x, ['t', 'baseVersion', 'ops']) && isCount(x['baseVersion']) && isLayoutOpBatch(x['ops']);
+      return hasKeys(x, ['t', 'baseVersion', 'ops']) && isCount(x['baseVersion']) && opsHaveKnownKeys(x['ops'])
+        && isLayoutOpBatch(x['ops']);
     case 'addSource':
       return hasKeys(x, ['t', 'input']) && isSourceShape(x['input'], false, true);
     case 'updateSource':
