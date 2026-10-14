@@ -350,8 +350,17 @@ export class SourceService {
     stored += batch.length;
     onProgress?.({ phase: 'epg', count: stored });
     // Written before the generation switch: a crash in between leaves a record for a gen that never went live,
-    // which titleIndexFor treats as missing.
-    await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: titles.build(), truncated: titles.truncated } satisfies TitleIndexRecord);
+    // which titleIndexFor treats as missing. Search is optional: a failed build or write (quota, value size,
+    // allocation) never aborts the import; the record then reads as missing and search rebuilds it later.
+    try {
+      await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: titles.build(), truncated: titles.truncated } satisfies TitleIndexRecord);
+    } catch {
+      try {
+        await this.storage.setMeta(titleIndexKey(id), null);
+      } catch {
+        // Best effort: an older record has another gen, so it still reads as missing.
+      }
+    }
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
     await this.storage.setMeta(`epgStaging:${id}`, null);

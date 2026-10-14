@@ -755,6 +755,42 @@ describe('SourceService – title index', () => {
     expect(queryTitles(rebuilt, 'bulletin', NOW, 10)).toEqual(queryTitles(built!, 'bulletin', NOW, 10));
   });
 
+  test('a title index write that throws does not abort the guide import', async () => {
+    class FailingTitles extends MemoryStorage {
+      override async setMeta(key: string, value: unknown): Promise<void> {
+        if (key.startsWith('titleIndex:')) throw new Error('value too large');
+        return super.setMeta(key, value);
+      }
+    }
+    const st = new FailingTitles();
+    const svc = new SourceService({ storage: st, fetch: fetchFn, now: () => NOW, newId: () => 't1' });
+    const { source } = await svc.addSource(m3uInput);
+    const genBefore = await st.getMeta(`epgGen:${source.id}`);
+    const r = await svc.refreshEpg(source.id);
+    expect(r.programmes).toBeGreaterThan(0);
+    const gen = await st.getMeta(`epgGen:${source.id}`);
+    expect(typeof gen).toBe('number');
+    expect(gen).not.toBe(genBefore);
+    expect(await st.getMeta(`titleIndex:${source.id}`) ?? null).toBeNull();
+    expect(await svc.titleIndexFor(source.id)).toBeUndefined();
+    expect((await svc.programmesFor(source.id, (await svc.loadIndex(source.id)).slice('all', 0, 4), NOW - 86_400_000, NOW + 86_400_000)).size).toBe(4);
+  });
+
+  test('rebuildTitleIndex handles a legacy guide stored under the bare source id (no epgGen)', async () => {
+    const { source } = await service.addSource({ kind: 'm3u', name: 'Legacy', playlistUrl: m3uInput.playlistUrl });
+    expect(await storage.getMeta(`epgGen:${source.id}`)).toBeUndefined();
+    await storage.addProgrammes(source.id, [
+      { epgId: 'ch1.test', start: NOW - 600_000, stop: NOW + 1_200_000, title: 'Legacy Morning Show' },
+    ]);
+    expect(await service.titleIndexFor(source.id)).toBeUndefined();
+    await service.rebuildTitleIndex(source.id);
+    const rec = await storage.getMeta<{ gen: number }>(`titleIndex:${source.id}`);
+    expect(rec?.gen).toBe(0);
+    const data = (await service.titleIndexFor(source.id))!;
+    expect(data).toBeDefined();
+    expect(queryTitles(data, 'legacy', NOW, 10).map((m) => m.display)).toEqual(['Legacy Morning Show']);
+  });
+
   test('rebuildTitleIndex is a no-op for a deleted source', async () => {
     const { source } = await service.addSource(m3uInput);
     await service.deleteSource(source.id);
