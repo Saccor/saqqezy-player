@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { chooseEngine, type EngineCaps } from './engineChoice.ts';
+import { chooseEngine, nextEngineAfterFailure, type EngineCaps } from './engineChoice.ts';
 
 const chrome: EngineCaps = { nativeHls: false, nativeTs: false, hlsJs: true, mpegtsJs: true, preferNativeHls: true };
 const safari: EngineCaps = { nativeHls: true, nativeTs: false, hlsJs: true, mpegtsJs: true, preferNativeHls: true };
@@ -31,5 +31,25 @@ describe('chooseEngine', () => {
     expect(chooseEngine('/user/pass/123', { ...chrome, mpegtsJs: false })).toEqual({ engine: 'native' });
     expect(chooseEngine('/a.b/123', chrome)).toEqual({ engine: 'mpegts' });
     expect(chooseEngine('/', chrome)).toEqual({ engine: 'mpegts' });
+  });
+});
+
+describe('nextEngineAfterFailure', () => {
+  const caps = { nativeHls: false, hlsJs: true };
+  test('extensionless URL: a format error in mpegts.js retries with hls.js once', () => {
+    expect(nextEngineAfterFailure('', ['mpegts'], 'format', caps)).toBe('hls');
+    expect(nextEngineAfterFailure('', ['mpegts', 'hls'], 'format', caps)).toBeUndefined();
+  });
+  test('uses native HLS when the element supports it', () => {
+    expect(nextEngineAfterFailure('', ['mpegts'], 'format', { nativeHls: true, hlsJs: true })).toBe('native');
+    expect(nextEngineAfterFailure('', ['mpegts', 'native'], 'format', { nativeHls: true, hlsJs: true })).toBeUndefined();
+  });
+  test('no retry for other error kinds, for URLs with an extension, or without an HLS engine', () => {
+    expect(nextEngineAfterFailure('', ['mpegts'], 'other', caps)).toBeUndefined();
+    expect(nextEngineAfterFailure('.ts', ['mpegts'], 'format', caps)).toBeUndefined();
+    expect(nextEngineAfterFailure('', ['mpegts'], 'format', { nativeHls: false, hlsJs: false })).toBeUndefined();
+  });
+  test('only follows an mpegts attempt', () => {
+    expect(nextEngineAfterFailure('', ['hls'], 'format', caps)).toBeUndefined();
   });
 });

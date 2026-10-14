@@ -34,3 +34,22 @@ export function chooseEngine(path: string, caps: EngineCaps): EngineChoice {
   if (caps.nativeTs) return caps.mpegtsJs ? { engine: 'native', fallback: 'mpegts' } : { engine: 'native' };
   return caps.mpegtsJs ? { engine: 'mpegts' } : { engine: 'native' };
 }
+
+export type TriedEngine = 'native' | 'hls' | 'mpegts';
+
+/**
+ * Which engine to retry the same URL with after `tried` (in order) failed. Only an extensionless URL that mpegts.js
+ * rejected as not MPEG-TS/FLV (`errorKind` 'format', before metadata) is retried, once, as HLS: natively when the
+ * element plays it, else hls.js. `ext` is the URL's extension ('' when it has none).
+ */
+export function nextEngineAfterFailure(
+  ext: string,
+  tried: readonly TriedEngine[],
+  errorKind: 'format' | 'other',
+  caps: Pick<EngineCaps, 'nativeHls' | 'hlsJs'>,
+): 'native' | 'hls' | undefined {
+  if (ext !== '' || errorKind !== 'format' || !tried.includes('mpegts')) return undefined;
+  if (tried.includes('hls') || tried.includes('native')) return undefined;
+  if (caps.nativeHls) return 'native';
+  return caps.hlsJs ? 'hls' : undefined;
+}

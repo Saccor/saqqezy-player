@@ -5,7 +5,7 @@ import type {
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
-import { chooseEngine } from './engineChoice.ts';
+import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -22,6 +22,10 @@ interface Session {
   engine: Engine | undefined;
   /** Engine to switch to if the element fails before metadata (extensionless URLs only). */
   fallback?: 'mpegts';
+  /** True when the URL path has no file extension. */
+  extensionless: boolean;
+  /** Engines started so far in this session, in order. */
+  tried: TriedEngine[];
   cleanups: (() => void)[];
 }
 
@@ -72,11 +76,11 @@ export class Html5Player implements Player {
     this.stop();
     // Once the page has had a user gesture, playback with sound is allowed again.
     this.autoMute.releaseIfActivated((navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation);
-    const s: Session = { url, attemptId, dead: false, engine: undefined, cleanups: [] };
+    const path = pathOf(url);
+    const s: Session = { url, attemptId, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [] };
     this.session = s;
     const v = this.video;
     const src = hlsViaDevProxy(url);
-    const path = pathOf(url);
 
     const on = <K extends keyof HTMLMediaElementEventMap>(type: K, fn: () => void) => {
       v.addEventListener(type, fn);
@@ -119,6 +123,7 @@ export class Html5Player implements Player {
 
   private startEngine(s: Session, kind: 'native' | 'hls' | 'mpegts', src: string): void {
     const v = this.video;
+    s.tried.push(kind);
     if (kind === 'native') {
       s.engine = { kind: 'native' };
       v.src = src;
@@ -129,7 +134,9 @@ export class Html5Player implements Player {
         // Non-fatal codec errors (e.g. one unplayable level) are recoverable: only fatal ones, or a manifest
         // with no playable codec at all, are reported.
         if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
+        // After mpegts.js rejected the stream, a manifest that hls.js cannot parse means neither engine fits.
         const code = HLS_CODEC_ERRORS.has(data.details)
+          || (s.tried.includes('mpegts') && data.details === ErrorDetails.MANIFEST_PARSING_ERROR)
           ? 'UNSUPPORTED'
           : data.type === ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
         this.emit(s, 'error', { code, message: 'Playback error' });
@@ -143,6 +150,11 @@ export class Html5Player implements Player {
       );
       s.engine = { kind: 'mpegts', player };
       player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
+        // Nothing from a torn-down instance (stale session or already swapped for the HLS retry) may surface.
+        if (s.dead || s.engine?.kind !== 'mpegts' || s.engine.player !== player) return;
+        const formatError = detail === mpegts.ErrorDetails.MEDIA_FORMAT_ERROR
+          || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED;
+        if (formatError && this.video.readyState === 0 && this.retryAsHls(s)) return;
         const unsupported = detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED
           || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED;
         const code = unsupported ? 'UNSUPPORTED' : type === mpegts.ErrorTypes.NETWORK_ERROR ? 'NETWORK' : 'MEDIA';
@@ -169,6 +181,44 @@ export class Html5Player implements Player {
     return true;
   }
 
+  /** mpegts.js rejected an extensionless URL as non-MPEG-TS before metadata: retry the same URL once as HLS. */
+  private retryAsHls(s: Session): boolean {
+    const next = nextEngineAfterFailure(s.extensionless ? '' : '.', s.tried, 'format', {
+      nativeHls: this.video.canPlayType(HLS_MIME) !== '',
+      hlsJs: Hls.isSupported(),
+    });
+    if (!next) return false;
+    this.teardownEngine(s.engine);
+    s.engine = undefined;
+    const v = this.video;
+    v.removeAttribute('src');
+    v.load();
+    this.startEngine(s, next, hlsViaDevProxy(s.url));
+    this.play(s);
+    return true;
+  }
+
+  private teardownEngine(e: Engine | undefined): void {
+    if (e?.kind === 'hls') {
+      e.hls.detachMedia();
+      e.hls.destroy();
+    } else if (e?.kind === 'mpegts') {
+      // Each call is guarded on its own so one failure cannot skip the rest.
+      for (const step of [
+        () => e.player.pause(),
+        () => e.player.unload(),
+        () => e.player.detachMediaElement(),
+        () => e.player.destroy(),
+      ]) {
+        try {
+          step();
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   private play(s: Session): void {
     this.video.play().catch((err: unknown) => {
       if (s.dead) return;
@@ -187,25 +237,7 @@ export class Html5Player implements Player {
     s.dead = true;
     this.session = undefined;
     for (const c of s.cleanups) c();
-    const e = s.engine;
-    if (e?.kind === 'hls') {
-      e.hls.detachMedia();
-      e.hls.destroy();
-    } else if (e?.kind === 'mpegts') {
-      // Each call is guarded on its own so one failure cannot skip the rest or the element reset below.
-      for (const step of [
-        () => e.player.pause(),
-        () => e.player.unload(),
-        () => e.player.detachMediaElement(),
-        () => e.player.destroy(),
-      ]) {
-        try {
-          step();
-        } catch {
-          // ignore
-        }
-      }
-    }
+    this.teardownEngine(s.engine);
     const v = this.video;
     v.pause();
     v.removeAttribute('src');
