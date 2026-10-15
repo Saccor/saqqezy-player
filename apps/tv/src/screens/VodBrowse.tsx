@@ -11,12 +11,13 @@ import { TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback } from '../playback/playback.ts';
+import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { pointerMode } from '../input/pointer.ts';
+import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
-import { cellAt, locateFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
+import { cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
@@ -72,6 +73,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   let heroNode: ElementNode | undefined;
   let rowsNode: ElementNode | undefined;
   let errorNode: ElementNode | undefined;
+  let wheelNode: ElementNode | undefined;
   let alive = true;
   const loading = new Set<string>();
   /** Bumped by every load and source change; results from an older generation are dropped. */
@@ -288,6 +290,20 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
+  /**
+   * Pointer mode shows only the focused row (the peek row would sit under the shell's Back button), so the wheel walks
+   * the rows: vertical between rows, horizontal along the row. At the top row a wheel up stays put.
+   */
+  const onWheel = (dy: number, dx: number) => {
+    const key = wheelKey(dy, dx);
+    if (!key || (key === 'up' && focus().row === 0)) return true;
+    if (area() !== 'rows') focusArea('rows');
+    move(key);
+    return true;
+  };
+  // It ends above the shell's Back row, which must keep its clicks. Registered before the rows' own targets, so a poster row (which passes the wheel on) wins where they overlap.
+  usePointerTarget({ node: () => wheelNode, enabled: () => status() === 'ready' && rows().length > 0, onWheel });
+
   // ---- lifecycle ----
 
   onMount(() => {
@@ -409,6 +425,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           onFocusChanged={(f: boolean) => { if (f) choose('rows'); }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
+          <View ref={(el) => { wheelNode = el; }} y={ROW_LABEL_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_LABEL_Y} />
           <For each={visibleRows()}>{(i) => {
             const r = () => rows()[i]!;
             const y = () => (i === focus().row ? ROW_LABEL_Y : NEXT_LABEL_Y);
@@ -418,7 +435,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
                 <PosterRow x={LAYOUT.safeX} y={44} width={LAYOUT.width - LAYOUT.safeX} row={r()}
                   focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                   onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
-                  onCellOptions={(c) => { pointTo(i, c); openMenu(); }} />
+                  onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
               </View>
             );
           }}</For>

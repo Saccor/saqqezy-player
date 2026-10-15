@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
-import { cellAt, cellCount, clampFocus, locateFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
+import { cellAt, cellCount, clampFocus, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
 
 const tile = (n: number): VodTile => ({ id: `s:m${n}`, kind: 'movie', title: `Synthetic Film ${n}`, categoryId: '1', watched: false, favourite: false });
 const row = (id: string, total: number, items: number, loaded = true): RowModel =>
@@ -144,5 +144,14 @@ describe('browseLogic', () => {
       const mem = { row: 0, col: 4, rowId: 'b', tileId: 's:m4' };
       expect(locateFocus([tiles('a', [1]), row('b', 40, 0, false)], mem)).toEqual({ row: 1, col: 0 });
     });
+  });
+
+  test('wheelKey: vertical steps move between rows, horizontal ones along the row; vertical wins', () => {
+    expect(wheelKey(1, 0)).toBe('down');
+    expect(wheelKey(-1, 0)).toBe('up');
+    expect(wheelKey(0, 1)).toBe('right');
+    expect(wheelKey(0, -1)).toBe('left');
+    expect(wheelKey(1, -1)).toBe('down');
+    expect(wheelKey(0, 0)).toBeUndefined();
   });
 });

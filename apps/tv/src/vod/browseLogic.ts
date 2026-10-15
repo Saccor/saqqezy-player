@@ -85,3 +85,10 @@ export function rowsToLoad(rows: RowModel[], focusRow: number): number[] {
 export function rowSort(rows: RowModel[]): VodSort {
   return rows.some((r) => r.id === VOD_ROW_RECENT) ? 'added' : 'title';
 }
+
+/** A wheel step on the rows (pointer mode): vertical moves between rows, horizontal along the row. */
+export function wheelKey(dy: number, dx: number): 'up' | 'down' | 'left' | 'right' | undefined {
+  if (dy !== 0) return dy > 0 ? 'down' : 'up';
+  if (dx !== 0) return dx > 0 ? 'right' : 'left';
+  return undefined;
+}

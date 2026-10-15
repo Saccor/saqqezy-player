@@ -23,6 +23,8 @@ export function PosterRow(props: {
   lit: boolean;
   onCellClick?: (col: number) => void;
   onCellOptions?: (col: number) => void;
+  /** A wheel step over the row (this target wins over the screen's, so the screen's handler is passed down). */
+  onWheel?: (dy: number, dx: number) => boolean;
 }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
@@ -47,6 +49,7 @@ export function PosterRow(props: {
     subAt: (p) => colAt(p.x),
     onClick: (p) => { const c = colAt(p.x); if (c !== undefined) props.onCellClick?.(c); },
     onContextMenu: (p) => { const c = colAt(p.x); if (c !== undefined) props.onCellOptions?.(c); },
+    onWheel: (dy, dx) => props.onWheel?.(dy, dx) ?? false,
   });
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={POSTER_H}>
