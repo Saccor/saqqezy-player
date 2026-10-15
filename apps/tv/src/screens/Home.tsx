@@ -16,7 +16,7 @@ import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
-import { PointerFocusContext, pointerMode } from '../input/pointer.ts';
+import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback, previewHold } from '../playback/playback.ts';
 import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
@@ -778,8 +778,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   // ---- pointer (mouse, pointer remote); hover never reaches Home, so it never previews ----
 
   /**
-   * The rename / new-list keyboard is a screen-layer target with no backdrop: while it is open, Home's other targets
-   * (list, groups, bar, video, bottom buttons, and the menu or picker under it) are off, so clicks behind it do nothing.
+   * The rename / new-list keyboard is a screen-layer target: while it is open, Home's other targets (list, groups, bar,
+   * video, bottom buttons, and the menu or picker under it) are off, and a click on its scrim is Back (cancel).
    */
   const pointerOn = () => edit() === undefined;
 
@@ -1083,15 +1083,24 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         <ListPicker ref={(el) => { pickerNode = el; }} title={`Add "${p().row.name}" to`}
           rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} pointerEnabled={pointerOn()} />
       )}</Show>
-      <Show when={edit()}>{(e) => (
-        <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
-          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2}
-            y={(LAYOUT.height - KEYBOARD_H) / 2}
-            label={e().kind === 'newList' ? 'New list name' : 'Channel name (empty restores the original)'}
-            value={e().value} onChange={(v) => { const cur = edit(); if (cur) setEdit({ kind: cur.kind, row: cur.row, value: limitTyping(cur.value, v) }); }}
-            onDone={() => void submitEdit()} hint="Done saves · Back cancels" error={e().error} />
-        </View>
-      )}</Show>
+      <Show when={edit()}>{(e) => {
+        let scrim: ElementNode | undefined;
+        // A click outside the keyboard is Back (cancel), as in Settings' Channels page. The keyboard is a screen-layer
+        // target, so this backdrop is one too (an overlay backdrop would be modal and block the keys): registered
+        // before the keyboard, it loses to the keys.
+        usePointerTarget({
+          node: () => scrim, onClick: () => shellBack(), onContextMenu: () => shellBack(), onWheel: () => true,
+        });
+        return (
+          <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
+            <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2}
+              y={(LAYOUT.height - KEYBOARD_H) / 2}
+              label={e().kind === 'newList' ? 'New list name' : 'Channel name (empty restores the original)'}
+              value={e().value} onChange={(v) => { const cur = edit(); if (cur) setEdit({ kind: cur.kind, row: cur.row, value: limitTyping(cur.value, v) }); }}
+              onDone={() => void submitEdit()} hint="Done saves · Back cancels" error={e().error} />
+          </View>
+        );
+      }}</Show>
       <Show when={kbOpen()}>
         <Keyboard ref={(el) => { searchKbNode = el; }} layout={COMPACT_LAYOUT} x={GROUP_X} y={HEAD_Y}
           label="Channel or programme" value={query()} onChange={setBarText}
