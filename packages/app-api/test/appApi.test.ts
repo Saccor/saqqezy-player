@@ -580,6 +580,38 @@ describe('AppApi', () => {
     expect(events.some((e) => e.type === 'refreshed' && e.what === 'playlist')).toBe(false);
   });
 
+  test('a VOD-only Xtream account: hasVod before the Movies tab was opened, and no playlist refetch on a second init', async () => {
+    let liveGets = 0;
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('action=get_live_streams')) { liveGets++; return new Response('[]'); }
+      if (u.includes('action=get_live_categories')) return new Response('[]');
+      return fetch(u, i);
+    };
+    const seed = make(storage, SourceService, fetchFn).api;
+    const { sourceId, channelCount } = await seed.addSource(xt());
+    expect(channelCount).toBe(0);
+    await seed.idle();
+    expect(await storage.getMeta(`vodAt:movie:${sourceId}`)).toBeFalsy();
+    const before = liveGets;
+    const { api } = make(storage, SourceService, fetchFn);
+    expect((await api.init()).hasVod).toBe(true);
+    await api.idle();
+    expect(liveGets).toBe(before);
+  });
+
+  test('a source with channels and movies whose channel cache was lost is refetched at start', async () => {
+    const { api: seed } = makeVod();
+    const { sourceId } = await seed.addSource({ kind: 'm3u', name: 'Fake M3U', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    await seed.idle();
+    await storage.replaceChannels(sourceId, []);
+    const { api, events } = make();
+    const state = await api.init();
+    expect(state.hasVod).toBe(true);
+    await api.idle();
+    expect(events.some((e) => e.type === 'refreshed' && e.what === 'playlist')).toBe(true);
+    expect((await api.getGroups()).find((g) => g.id === 'all')?.count).toBeGreaterThan(0);
+  });
+
   test('hasVod: false for a live-only source; true once an Xtream catalogue was fetched', async () => {
     const { sourceId } = await seeded();
     expect((await make().api.init()).hasVod).toBe(false);

@@ -25,7 +25,11 @@ import { xtreamToChannels } from '../xtream/toChannels.ts';
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
-export interface IngestResult { channelCount: number; skipped: number; movieCount?: number; seriesCount?: number }
+export interface IngestResult {
+  channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
+  /** Xtream: the account has no live streams, and its movie or series categories were found (the titles load lazily). */
+  vodCatalogue?: true;
+}
 type IngestVod = Record<VodKind, VodList>;
 export interface EpgResult { programmes: number; skipped: number }
 export interface SourceServiceDeps {
@@ -596,7 +600,9 @@ export class SourceService {
         }
       }
       onProgress?.({ phase: 'playlist', count: channels.length });
-      return { channels, result: { channelCount: channels.length, skipped: 0 } };
+      const result: IngestResult = { channelCount: channels.length, skipped: 0 };
+      if (channels.length === 0) result.vodCatalogue = true;
+      return { channels, result };
     }
     const res = await this.get(source.id, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };

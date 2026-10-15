@@ -619,6 +619,18 @@ describe('SourceService – xtream', () => {
     expect(await service.listSources()).toEqual([]);
   });
 
+  test('a live-empty account with movie or series categories is kept, and the ingest says it has a catalogue', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json([]);
+    routes['api:get_series_categories'] = () => json([{ category_id: '1', category_name: 'Synthetic Shows' }]);
+    const { source, result } = await service.addSource(xInput);
+    expect(result).toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+    expect(await storage.getMeta(`parseStats:${source.id}`)).toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+    await expect(service.refreshPlaylist(source.id)).resolves.toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+  });
+
   test('a provider without the movie action still gives the clear empty-account message', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([]);

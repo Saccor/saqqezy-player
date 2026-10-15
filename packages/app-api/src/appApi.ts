@@ -1096,9 +1096,9 @@ export class AppApi {
     if ((await this.service.guard.status(id)).state !== 'clear') return;
     let playlist: boolean;
     try {
-      // An empty channel cache means "not loaded yet", unless the source only has movies and series: then the normal
-      // staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
-      playlist = (this.activeId === id && this.totalChannels() === 0 && !(await this.hasVod(id)))
+      // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
+      // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
+      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id))
         || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
@@ -1114,12 +1114,22 @@ export class AppApi {
   }
 
   /**
-   * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U), or a catalogue
-   * was fetched (Xtream). An M3U `vodAt` is not used: every M3U ingest stamps it, with or without titles.
+   * Whether an empty channel cache must be filled: the last ingest found channels (a lost cache), or the source is not
+   * known to have movies or series (never loaded, or live only).
+   */
+  private async expectsChannels(id: string): Promise<boolean> {
+    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id));
+  }
+
+  /**
+   * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U) or found the
+   * categories of a live-empty account (Xtream), or a catalogue was fetched (Xtream). An M3U `vodAt` is not used:
+   * every M3U ingest stamps it, with or without titles.
    */
   private async hasVod(id: string): Promise<boolean> {
-    const stats = await this.storage.getMeta<{ movieCount?: number; seriesCount?: number }>(`parseStats:${id}`);
-    if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0) return true;
+    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+    if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0 || stats?.vodCatalogue === true) return true;
     const source = (await this.service.listSources()).find((s) => s.id === id);
     if (source?.kind !== 'xtream') return false;
     for (const kind of ['movie', 'series'] as const) {
