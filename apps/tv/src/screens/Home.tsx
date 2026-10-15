@@ -8,28 +8,43 @@ import { ChannelList, ROW_H } from '../components/ChannelList.tsx';
 import { ContextMenu } from '../components/ContextMenu.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
+import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
-import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
+import { SearchBar } from '../components/SearchBar.tsx';
+import { SearchResultList } from '../components/SearchResultList.tsx';
+import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
+import { captureTextInput } from '../input/keys.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback, previewHold } from '../playback/playback.ts';
+import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
-import { companionStatus, markStartup } from '../state/appState.ts';
+import { companionStatus, initState, markStartup } from '../state/appState.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
+import {
+  BROWSE, HOME_GROUP_W, SEARCH_HINT, applyQuery, exitSearch, groupChoice, groupColumn, leaveTo, listMode, okAction,
+  previewAllowed, restoreOnMount, routeKey, rowChannelId, typedQuery, typingKey, userNavigated,
+  type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type Place,
+} from './homeSearchLogic.ts';
 import { showPhoneBadge } from './pairingLogic.ts';
+import {
+  SEARCH_LIMIT, countText, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch,
+  resultsMessage, selectableCount, type SearchRow, type SearchState,
+} from './searchLogic.ts';
 import { SliceCache } from './sliceCache.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
 const SAFE_W = LAYOUT.width - LAYOUT.safeX * 2;
 const GROUP_X = LAYOUT.safeX;
-const GROUP_W = Math.round(SAFE_W * 0.22);
+/** 22 % of the safe width (380 px): the compact search keyboard covers exactly this column. */
+const GROUP_W = HOME_GROUP_W;
 const PREVIEW_X = LAYOUT.width - LAYOUT.safeX - PREVIEW_W;
 const LIST_X = GROUP_X + GROUP_W + LAYOUT.gap;
 const LIST_W = PREVIEW_X - LAYOUT.gap - LIST_X;
@@ -45,6 +60,8 @@ const PREVIEW_DELAY_MS = 700;
 const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
+const SEARCH_KB_ID = 'searchKeyboard';
+const BROWSE_HINT = 'Ok watch · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
 
@@ -64,6 +81,9 @@ interface EditState { kind: 'newList' | 'rename'; row: ChannelRow; value: string
  * channel and the last focused row per group.
  */
 const memory: { groupId?: string; channelId?: string; rows: Map<string, number> } = { rows: new Map() };
+
+/** Search mode across Home visits: the query, the focused result and the browse position to return to. */
+let searchMemory: HomeSearchState = BROWSE;
 
 const PHONE_BADGE_W = 300;
 const PHONE_BADGE_H = 48;
@@ -92,7 +112,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
   const [focus, setFocus] = createSignal(0);
   const [version, setVersion] = createSignal(0);
-  const [area, setArea] = createSignal<'groups' | 'list'>('list');
+  // Where key focus is. `list` is the channel list while browsing and the results while searching.
+  const [area, setArea] = createSignal<Place>('list');
   const [ready, setReady] = createSignal(false);
   const [waiting, setWaiting] = createSignal(false);
   const [progress, setProgress] = createSignal<Progress | undefined>(undefined);
@@ -143,6 +164,56 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const focusedId = createMemo(() => focusedRow()?.id);
   const groupIndex = () => Math.max(0, groups().findIndex((g) => g.id === groupId()));
 
+  // ---- search mode: the bar above the list filters it in place (homeSearchLogic.ts) ----
+
+  // Back from the Player or the Guide keeps the search, but only on the same source.
+  searchMemory = restoreOnMount(searchMemory, initState()?.activeSourceId);
+  const [query, setQueryText] = createSignal(searchMemory.query);
+  const [sState, setSState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
+  const [sFocus, setSFocus] = createSignal(0);
+  // The compact on-screen keyboard over the groups column (a Back layer).
+  const [kbOpen, setKbOpen] = createSignal(false);
+  const searching = () => query() !== '';
+
+  let barNode: ElementNode | undefined;
+  let resultsNode: ElementNode | undefined;
+  let searchKbNode: ElementNode | undefined;
+  let removeSearchKb: (() => void) | undefined;
+  let sLastTop = 0;
+  /** The query of the last settled answer (see `nextFocus`). */
+  let settledQuery = '';
+
+  // Same debounce, worker search and stale-answer guard as the Search screen.
+  const searcher = createSearcher<SearchRow>(async (q) => flattenResults(await api.search(q, SEARCH_LIMIT)), (s) => {
+    if (!alive) return;
+    setSState(s);
+    // While a query runs the previous results stay on screen untouched (focus included).
+    if (s.busy) return;
+    const d = nextFocus({
+      rows: s.results, returning: searchMemory.returning, memoryFocus: searchMemory.focus, prevFocus: sFocus(),
+      query: s.query, settledQuery, viewRows: LIST_ROWS,
+    });
+    settledQuery = s.query;
+    setSFocus(d.focus);
+    if (d.top !== undefined) sLastTop = d.top;
+    if (d.consumeReturning) searchMemory = { ...searchMemory, returning: false };
+    if (d.focusList) queueMicrotask(() => { if (alive && searching()) focusArea('list'); });
+  });
+
+  const sTotal = () => sState().results.length;
+  const sRowAt = (i: number) => sState().results[i];
+  /** Drawn rows: none while nothing is selectable (the message explains why). */
+  const shownRows = createMemo(() => listRows(sState().results));
+  const sTop = createMemo(() => {
+    sLastTop = listTop(shownRows(), sFocus(), sLastTop, LIST_ROWS);
+    return sLastTop;
+  });
+  // Never true with an empty bar: `routeKey`'s keyboard branch does not check `searching` itself.
+  const hasResults = () => searching() && selectableCount(sState().results) > 0;
+  const firstResult = () => firstSelectable(0, sTotal(), (i) => isSelectable(sRowAt(i)));
+  /** The groups column: a `Search results` entry on top while searching. */
+  const column = createMemo(() => groupColumn(groups(), searching(), selectableCount(sState().results), groupIndex()));
+
   const visibleRange = () => renderRange(top(), LIST_ROWS, Math.max(total(), 1));
   const load = () => {
     const g = groupId();
@@ -181,7 +252,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
   const preview = createDebounce<string>(PREVIEW_DELAY_MS, (id) => {
     setStarting(false);
-    if (alive && focusedId() === id && area() === 'list') void playById(id);
+    if (alive && focusedId() === id && area() === 'list' && !searching()) void playById(id);
   });
   /** (Re)starts the 700 ms preview timer; supersedes any preview request still in flight. */
   const schedulePreview = (id: string) => {
@@ -214,8 +285,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   // Schedules the preview whenever the focused channel changes while the list has focus.
   // No preview starts while the channel menu, the list picker or the keyboard is open.
   const modalOpen = () => menu() !== undefined || picker() !== undefined || edit() !== undefined;
-  createEffect(on([focusedId, area, ready, modalOpen], ([id, a, isReady, modal]) => {
-    if (id === undefined || a !== 'list' || !isReady || modal) {
+  createEffect(on([focusedId, area, ready, modalOpen, () => listMode(query())], ([id, a, isReady, modal, mode]) => {
+    // Search mode never previews: typing and moving through results do not start a stream.
+    if (id === undefined || a !== 'list' || !isReady || modal || !previewAllowed(mode)) {
       cancelTimer(); // leaving the list drops a pending preview (and its "Starting…")
       return;
     }
@@ -235,7 +307,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const info = playingInfo();
     return info?.row.id === c.id ? info.row : c;
   };
-  const panel = () => panelChannel(focusedRow(), playingRow(), starting());
+  // While searching the panel keeps describing what is playing, never the focused result.
+  const panel = () => (searching() ? { channel: playingRow(), starting: false } : panelChannel(focusedRow(), playingRow(), starting()));
 
   /** Re-reads the playing channel's now/next once its programme has ended since it was last read. */
   const refreshPlayingInfo = () => {
@@ -306,7 +379,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       if (seq === reloadSeq) setReloading(false);
     }
     // The list emptied under the focus (e.g. its last channel was removed): move to the groups.
-    if (alive && seq === reloadSeq && !modalOpen() && area() === 'list' && total() === 0) focusArea('groups');
+    if (alive && seq === reloadSeq && !modalOpen() && !searching() && area() === 'list' && total() === 0) focusArea('groups');
   };
 
   // ---- actions ----
@@ -317,34 +390,124 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
    */
   const listCount = () => total() || (groups().find((g) => g.id === groupId())?.count ?? 0);
 
-  const focusArea = (a: 'groups' | 'list') => {
-    if (a === 'list' && listCount() === 0) return true;
+  /** Moves key focus. While searching, `list` is the results, which take focus only when a row is selectable. */
+  const focusArea = (a: Place) => {
+    if (a === 'list' && (searching() ? !hasResults() : listCount() === 0)) return true;
     setArea(a);
-    (a === 'groups' ? groupNode : listNode)?.setFocus();
+    const node = a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
+      : searching() ? resultsNode : listNode;
+    node?.setFocus();
     return true;
+  };
+
+  const navResult = (place: Place, key: NavKey, atEdge = false): NavResult => routeKey(place, key, {
+    searching: searching(), keyboardOpen: kbOpen(), hasResults: hasResults(), hasChannels: listCount() > 0, atEdge,
+  });
+  /** Applies a focus decision; false lets the key run its usual handler. */
+  const applyNav = (r: NavResult): boolean => {
+    if (r.kind === 'focus') return focusArea(r.place);
+    if (r.kind === 'exit') { endSearch(r.focus); return true; }
+    return r.kind === 'stay';
+  };
+  const nav = (place: Place, key: NavKey, atEdge = false) => applyNav(navResult(place, key, atEdge));
+
+  /** The browse position search mode returns to. */
+  const browseNow = (): BrowsePosition | undefined => {
+    const g = groupId();
+    return g === undefined ? undefined : { groupId: g, channelId: focusedRow()?.id ?? memory.channelId, top: top() };
+  };
+
+  /**
+   * New bar text (hardware keys, remote digits or the compact keyboard). The first non-blank text enters search
+   * mode, with no new stream. Blank text leaves it, and focus stays where the user is typing.
+   */
+  const setBarText = (text: string) => {
+    const ch = applyQuery(searchMemory, text, browseNow(), initState()?.activeSourceId);
+    if (ch.kind === 'none') return;
+    if (ch.kind === 'exit') { finishExit(ch.restore, kbOpen() ? 'keyboard' : 'bar'); return; }
+    if (ch.kind === 'enter') stopPreview(); // a pending preview never fires after typing starts
+    searchMemory = ch.state;
+    setQueryText(text);
+    searcher.setQuery(text);
+  };
+
+  /** Back (bar or results) ends search mode: the saved group, row and scroll come back. */
+  const endSearch = (focusTo: Place) => {
+    const ex = exitSearch(searchMemory);
+    finishExit(ex.restore, focusTo);
+  };
+
+  const finishExit = (restore: BrowsePosition | undefined, focusTo: Place) => {
+    searchMemory = BROWSE;
+    settledQuery = '';
+    sLastTop = 0;
+    setSFocus(0);
+    setQueryText('');
+    searcher.setQuery('');
+    // The video keeps playing: the restored row does not auto-preview until the user moves.
+    held = true;
+    if (restore) {
+      lastTop = restore.top;
+      void openGroup(restore.groupId, [restore.channelId], true);
+    }
+    // The channel list mounts again in this update; focus it once its node exists.
+    queueMicrotask(() => { if (alive) focusArea(focusTo); });
+  };
+
+  /** Fullscreen on channel `id`: the playing channel keeps its stream (only the rect changes), then the Player opens. */
+  const openFullscreen = (id: string, g: string) => {
+    cancelTimer();
+    const token = playback.begin();
+    requestedId = undefined;
+    void (async () => {
+      try {
+        const ch = await api.getPlayable(id);
+        if (!alive || !ch || !playback.isLatest(token)) return;
+        // Same channel: the stream keeps running and only the rect changes (no reconnect).
+        playback.playChannel(ch);
+        playback.setRect('fullscreen');
+        await api.markWatched(id, g).catch(() => undefined);
+        if (alive && playback.isLatest(token)) router.push('player', { channelId: id, groupId: g });
+      } catch (err) {
+        console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
+      }
+    })();
   };
 
   const watch = () => {
     const r = focusedRow();
     const g = groupId();
     if (!r || g === undefined) return true;
-    cancelTimer();
-    const token = playback.begin();
-    requestedId = undefined;
     memory.channelId = r.id;
-    void (async () => {
-      try {
-        const ch = await api.getPlayable(r.id);
-        if (!alive || !ch || !playback.isLatest(token)) return;
-        // Same channel: the stream keeps running and only the rect changes (no reconnect).
-        playback.playChannel(ch);
-        playback.setRect('fullscreen');
-        await api.markWatched(r.id, g).catch(() => undefined);
-        if (alive && playback.isLatest(token)) router.push('player', { channelId: r.id, groupId: g });
-      } catch (err) {
-        console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
-      }
-    })();
+    openFullscreen(r.id, g);
+    return true;
+  };
+
+  /**
+   * Ok on a result. A channel that is not playing plays in the small video, and Home and the results stay. The
+   * playing channel goes fullscreen. A coming-up row opens the Guide at that time. The Player zaps in All channels.
+   */
+  const openResult = () => {
+    const r = sRowAt(sFocus());
+    const action = okAction(r, playback.current()?.id);
+    if (action === 'guide' && r?.kind === 'later') {
+      searchMemory = leaveTo(searchMemory, sFocus());
+      router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
+      return true;
+    }
+    const id = rowChannelId(r);
+    if (id === undefined) return true;
+    if (action === 'preview') {
+      cancelTimer();
+      void playById(id).then(() => {
+        if (alive && playback.current()?.id === id) void api.markWatched(id, GROUP_ALL).catch(() => undefined);
+      });
+      return true;
+    }
+    if (action === 'fullscreen') {
+      searchMemory = leaveTo(searchMemory, sFocus());
+      openFullscreen(id, GROUP_ALL);
+    }
     return true;
   };
 
@@ -372,6 +535,54 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const dismissPicker = () => { if (picker()) { removePicker?.(); closePicker(); } };
   const dismissMenu = () => { if (menu()) { removeMenu?.(); closeMenu(); } };
   const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); };
+
+  // ---- compact search keyboard (over the groups column; a Back layer like the other keyboards) ----
+
+  /** Closes the keyboard (as Back: the router already dropped the layer). Focus goes to `to`, else to the bar unless it is on the results. */
+  const closeSearchKeyboard = (to?: Place) => {
+    removeSearchKb = undefined;
+    setKbOpen(false);
+    const target = to ?? (area() === 'list' ? undefined : 'bar');
+    if (target !== undefined) queueMicrotask(() => { if (alive) focusArea(target); });
+  };
+  const dismissSearchKeyboard = (to?: Place) => { if (kbOpen()) { removeSearchKb?.(); closeSearchKeyboard(to); } };
+  /** Ok on the bar: opens the keyboard for remote typing. */
+  const openSearchKeyboard = () => {
+    if (kbOpen() || modalOpen()) return true;
+    setKbOpen(true);
+    removeSearchKb = router.pushOverlay(SEARCH_KB_ID, () => closeSearchKeyboard());
+    queueMicrotask(() => { if (alive && kbOpen()) focusArea('keyboard'); });
+    return true;
+  };
+  /** Right edge, Up from the top row, and Done. The results are entered at their first selectable row. */
+  const fromKeyboard = (key: NavKey, atEdge: boolean, close: boolean) => {
+    const r = navResult('keyboard', key, atEdge);
+    if (r.kind === 'focus' && r.place === 'list') {
+      searchMemory = userNavigated(searchMemory);
+      setSFocus(firstResult());
+    }
+    if (close) dismissSearchKeyboard(r.kind === 'focus' ? r.place : 'bar');
+    else applyNav(r);
+  };
+
+  // Hardware typing while no Home layer is open. A letter starts a search from anywhere and moves focus to the bar.
+  // In the bar every printable key types and Backspace deletes. Digits outside the bar stay remote keys. The rename
+  // and search keyboards capture typing themselves while they are open.
+  createEffect(() => {
+    if (modalOpen() || kbOpen()) return;
+    const release = captureTextInput((e) => {
+      const k = typingKey(e, {
+        overlayOpen: router.overlays().some((id) => id !== TOAST_OVERLAY_ID),
+        barFocused: area() === 'bar',
+        query: query(),
+      });
+      if (!k) return false;
+      if (area() !== 'bar') focusArea('bar');
+      setBarText(typedQuery(query(), k));
+      return true;
+    });
+    onCleanup(release);
+  });
 
   /** User lists as shown in the group column (names and order), for the menu's "Remove from" label. */
   const listsFromGroups = (): ListLite[] => groups().flatMap((g) => {
@@ -509,7 +720,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const listKeys = {
-    onMove: (d: number) => { held = false; selectRow(moveFocus(focus(), d, total())); return true; },
+    onMove: (d: number) => {
+      if (d < 0 && focus() === 0) return nav('list', 'up', true); // Up from the first row: the search bar
+      held = false;
+      selectRow(moveFocus(focus(), d, total()));
+      return true;
+    },
     onPage: (dir: 1 | -1) => { held = false; selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
     onLeft: () => focusArea('groups'),
     onOk: watch,
@@ -517,9 +733,16 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const onGroupSelect = (i: number) => {
-    const g = groups()[i];
+    const gi = groupChoice(i, searching());
+    const g = gi === undefined ? undefined : groups()[gi];
     if (!g) return;
     stopPreview();
+    if (searching()) {
+      // Choosing a group ends search mode and opens that group.
+      finishExit({ groupId: g.id, top: 0 }, 'groups');
+      held = false;
+      return;
+    }
     held = false;
     void openGroup(g.id);
   };
@@ -528,9 +751,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     playback.setRect(PREVIEW_RECT);
+    // The guide's title index became ready, or a guide import finished: re-run the open query (as on Search).
+    const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && searching()) searcher.setQuery(query()); };
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
-      onEvent('refreshed', () => { setWaiting(false); void reload().catch(() => undefined); }),
+      onEvent('refreshed', (e) => { setWaiting(false); void reload().catch(() => undefined); rerun(e); }),
+      onEvent('searchReady', rerun),
       // A companion changed the layout (the shell shows "Updated from your phone"): re-read, keeping focus by
       // id. Changes made on this screen re-read on their own.
       onEvent('layoutChanged', (e) => {
@@ -545,8 +771,14 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       onEvent('sourcesChanged', (e) => {
         if ((e as SourcesChanged).origin !== 'remote') return;
         dismissAll();
+        dismissSearchKeyboard();
+        // Results belong to the old source: leave search mode first, then re-read as before.
+        const wasSearching = searching();
+        if (wasSearching) finishExit(undefined, 'bar');
         void reload().then(() => {
-          if (alive) setWaiting((groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0);
+          if (!alive) return;
+          setWaiting((groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0);
+          if (wasSearching) focusArea(total() > 0 ? 'list' : 'groups');
         }).catch(() => undefined);
       }),
       onEvent('refreshFailed', () => setWaiting(false)),
@@ -561,6 +793,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     ];
     const tick = setInterval(onTick, 30_000);
     onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });
+    // Back from the Player or the Guide while searching: the bar takes focus and the remembered query runs again.
+    // `nextFocus` then restores the focused result.
+    if (searching()) {
+      focusArea('bar');
+      searcher.setQuery(query());
+    }
 
     void (async () => {
       try {
@@ -586,7 +824,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         const resume = playingId ?? found;
         if (resume && !held) void playById(resume);
         setReady(true);
-        focusArea(total() > 0 ? 'list' : 'groups');
+        if (!searching()) focusArea(total() > 0 ? 'list' : 'groups');
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);
@@ -601,6 +839,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     removeKeyboard?.();
     removePicker?.();
     removeMenu?.();
+    removeSearchKb?.();
+    router.removeOverlay(SEARCH_KB_ID);
+    searcher.dispose();
     router.removeOverlay(KEYBOARD_ID);
     router.removeOverlay(PICKER_ID);
     router.removeOverlay(MENU_ID);
@@ -608,11 +849,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the top layer first
+    if (searching()) return nav(area(), 'back');
     if (area() === 'groups' && total() > 0) return focusArea('list');
     return false;
   };
 
-  const groupName = () => groups().find((g) => g.id === groupId())?.name ?? '';
   const emptyText = () => {
     if (!ready()) return '';
     if (waiting()) {
@@ -638,18 +879,47 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
       <Text x={GROUP_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Channels'}</Text>
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
-      <Text x={LIST_X} y={HEAD_Y} width={LIST_W} maxWidth={LIST_W} contain="width" maxLines={1} fontSize={FONT.body}
-        color={COLORS.muted}>{groupName() ? `${groupName()} · ${total()}` : ''}</Text>
+      <SearchBar ref={(el) => { barNode = el; }} x={LIST_X} y={HEAD_Y} width={LIST_W} value={query()}
+        count={searching() ? countText(sState()) : ''} editing={kbOpen()}
+        onFocusChanged={(f) => { if (f) setArea('bar'); }}
+        onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onLeft={() => nav('bar', 'left')}
+        onBack={onBack} onType={(t) => setBarText(query() + t)} />
 
       <GroupList ref={(el) => { groupNode = el; }} x={GROUP_X} y={BODY_Y} width={GROUP_W} height={LIST_H}
-        groups={groups()} selected={groupIndex()} onSelect={onGroupSelect} onRight={() => focusArea('list')} />
+        groups={column().rows} selected={column().selected} onSelect={onGroupSelect} onRight={() => focusArea('list')}
+        onEdgeUp={() => nav('groups', 'up', true)} />
 
-      <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
-        total={total()} top={top()} focus={focus()} row={rowAt} now={now()} playingId={playback.current()?.id}
-        onFocusChanged={(f) => { if (f) setArea('list'); }} {...listKeys} />
-      <Show when={ready() && !reloading() && total() === 0}>
+      <Show when={!searching()}>
+        <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
+          total={total()} top={top()} focus={focus()} row={rowAt} now={now()} playingId={playback.current()?.id}
+          onFocusChanged={(f) => { if (f) setArea('list'); }} {...listKeys} />
+      </Show>
+      <Show when={!searching() && ready() && !reloading() && total() === 0}>
         <Text x={LIST_X + 24} y={BODY_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width"
           fontSize={FONT.body} color={COLORS.muted}>{emptyText()}</Text>
+      </Show>
+      <Show when={searching()}>
+        <SearchResultList ref={(el) => { resultsNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
+          rows={shownRows()} top={sTop()} focus={sFocus()} now={now()} playingId={playback.current()?.id}
+          onMove={(d) => {
+            searchMemory = userNavigated(searchMemory);
+            const next = stepSelectable(sFocus(), d, sTotal(), (i) => isSelectable(sRowAt(i)));
+            if (d < 0 && next === sFocus()) return nav('list', 'up', true); // Up from the first result: the bar
+            setSFocus(next);
+            return true;
+          }}
+          onPage={(dir) => {
+            searchMemory = userNavigated(searchMemory);
+            const target = Math.max(0, Math.min(sTotal() - 1, sFocus() + dir * LIST_ROWS));
+            setSFocus(firstSelectable(target, sTotal(), (i) => isSelectable(sRowAt(i))));
+            return true;
+          }}
+          onLeft={() => nav('list', 'left')}
+          onOk={() => { searchMemory = userNavigated(searchMemory); return openResult(); }} />
+        <Show when={resultsMessage(sState())}>{(m) => (
+          <Text x={LIST_X + 24} y={BODY_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
+            fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
+        )}</Show>
       </Show>
 
       <PreviewPanel x={PREVIEW_X} y={BODY_Y} channel={panel().channel} starting={panel().starting}
@@ -657,7 +927,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
       <Text x={GROUP_X} y={HINT_Y} width={SAFE_W} maxWidth={SAFE_W} contain="width" maxLines={1} fontSize={FONT.small}
         color={COLORS.muted}>
-        {'Ok watch · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings'}
+        {searching() ? SEARCH_HINT : BROWSE_HINT}
       </Text>
 
       <Show when={menu()}>{(m) => (
@@ -677,6 +947,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
             onDone={() => void submitEdit()} hint="Done saves · Back cancels" error={e().error} />
         </View>
       )}</Show>
+      <Show when={kbOpen()}>
+        <Keyboard ref={(el) => { searchKbNode = el; }} layout={COMPACT_LAYOUT} x={GROUP_X} y={HEAD_Y}
+          label="Channel or programme" value={query()} onChange={setBarText}
+          onDone={() => fromKeyboard('done', false, true)}
+          onEdgeRight={() => fromKeyboard('right', true, false)} onEdgeUp={() => fromKeyboard('up', true, false)} />
+      </Show>
     </View>
   );
 }
