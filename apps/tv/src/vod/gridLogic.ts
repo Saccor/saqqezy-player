@@ -1,0 +1,67 @@
+import type { VodSort } from '@iptv/core';
+
+/** The category grid. Pure: no Solid, no Lightning. */
+
+export const GRID_COLS = 7;
+/** Rows fully visible (a third peeks in). */
+export const GRID_VIEW_ROWS = 2;
+/** Tiles per `getVodSlice` page: six grid rows. */
+export const GRID_PAGE = 42;
+
+export function gridMove(index: number, key: 'up' | 'down' | 'left' | 'right', total: number): number | 'rail' | 'header' {
+  const col = index % GRID_COLS;
+  if (key === 'left') return col === 0 ? 'rail' : index - 1;
+  if (key === 'right') return col === GRID_COLS - 1 || index + 1 >= total ? index : index + 1;
+  if (key === 'up') return index < GRID_COLS ? 'header' : index - GRID_COLS;
+  if (index + GRID_COLS < total) return index + GRID_COLS;
+  // Down into a shorter last row: its last item; already on the last row: stay.
+  const lastRowStart = Math.floor((total - 1) / GRID_COLS) * GRID_COLS;
+  return index < lastRowStart ? total - 1 : index;
+}
+
+export function gridPage(index: number, dir: 1 | -1, total: number): number {
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(total - 1, index + dir * GRID_COLS * GRID_VIEW_ROWS));
+}
+
+/** Page numbers covering tile indexes `fromIndex..toIndex` (inclusive). */
+export function pagesFor(fromIndex: number, toIndex: number): number[] {
+  if (toIndex < fromIndex) return [];
+  const out: number[] = [];
+  for (let p = Math.floor(fromIndex / GRID_PAGE); p <= Math.floor(toIndex / GRID_PAGE); p++) out.push(p);
+  return out;
+}
+
+export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', title: 'A–Z', rating: 'Rating' };
+
+export function sortsFor(hasRecent: boolean): VodSort[] {
+  return hasRecent ? ['added', 'title', 'rating'] : ['title', 'rating'];
+}
+
+export function nextSort(current: VodSort, sorts: VodSort[]): VodSort {
+  const i = sorts.indexOf(current);
+  return sorts[(i + 1) % sorts.length] ?? sorts[0]!;
+}
+
+export interface SortStore { getItem(k: string): string | null; setItem(k: string, v: string): void }
+
+const sortKey = (kind: string) => `vodSort:${kind}`;
+
+/** The remembered sort when this source offers it, else the first available. Storage may be missing or throw. */
+export function loadSort(kind: string, sorts: VodSort[], store: SortStore | undefined): VodSort {
+  try {
+    const v = store?.getItem(sortKey(kind));
+    if (v && (sorts as string[]).includes(v)) return v as VodSort;
+  } catch {
+    // Private mode, blocked storage: fall back.
+  }
+  return sorts[0]!;
+}
+
+export function saveSort(kind: string, sort: VodSort, store: SortStore | undefined): void {
+  try {
+    store?.setItem(sortKey(kind), sort);
+  } catch {
+    // Not remembered this time.
+  }
+}
