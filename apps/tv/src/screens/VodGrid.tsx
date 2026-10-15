@@ -188,6 +188,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const reload = async () => {
     const myGen = ++gen;
     inflight.clear();
+    // The rail counts (Continue watching, Favourites) may have changed too. The pseudo-categories are always listed, so
+    // indexes stay put.
+    void api.getVodCategories(kind).then((cs) => { if (alive) setCats(cs); }).catch(() => undefined);
     const id = cat()?.id;
     if (!id) return;
     const keep = focus();

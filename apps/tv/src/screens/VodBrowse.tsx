@@ -17,6 +17,7 @@ import { showToast } from '../shell/Toast.tsx';
 import { initState } from '../state/appState.ts';
 import { cellAt, clampFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type RowModel } from '../vod/browseLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
+import { scrimTexture } from '../vod/scrim.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
 
@@ -30,8 +31,8 @@ const ART_X = 640;
 const ART_W = LAYOUT.width - ART_X;
 const ART_H = 720;
 const BG = COLORS.background;
-/** The background with alpha 0, for the scrims (colours are 0xRRGGBBAA). */
-const BG_CLEAR = 0x0b0d1200;
+/** The background colour without alpha (0xRRGGBB), for the fade textures. */
+const BG_RGB = Math.floor(COLORS.background / 0x100);
 
 type Area = 'tabs' | 'hero' | 'rows';
 
@@ -299,17 +300,21 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
       {/* Hero art: the backdrop, else the poster, faded into the background. */}
       <Show when={heroTile()}>
+        {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
+        <View zIndex={0}>
         <Show when={art() && posterCache.usable(art()) ? art() : undefined} keyed fallback={
-          <Show when={heroTile()?.poster} keyed>
-            {(u) => <View x={LAYOUT.width - LAYOUT.safeX - 360} y={120} width={360} height={540} src={rawViaDevProxy(u)} alpha={0.9} />}
+          <Show when={heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
+            {(u) => <View x={LAYOUT.width - LAYOUT.safeX - 300} y={130} width={300} height={450} src={rawViaDevProxy(u)} alpha={0.9} />}
           </Show>
         }>
           {(u) => <View x={ART_X} y={0} width={ART_W} height={ART_H} src={rawViaDevProxy(u)}
             onEvent={{ failed: () => posterCache.markFailed(u) }} />}
         </Show>
-        {/* Scrims: left to right, and into the rows. Check the gradient direction in the preview; flip `angle` if it runs the wrong way. */}
-        <View x={ART_X} y={0} width={ART_W} height={ART_H} linearGradient={{ colors: [BG, BG_CLEAR], angle: Math.PI / 2, stops: [0.1, 0.7] }} />
-        <View y={ART_H - 280} width={LAYOUT.width} height={280} linearGradient={{ colors: [BG_CLEAR, BG], angle: Math.PI, stops: [0, 1] }} />
+        </View>
+        {/* Scrims: left to right, and into the rows. */}
+        <View zIndex={1} x={ART_X} y={0} width={ART_W} height={ART_H} src={scrimTexture('left', BG_RGB)} />
+        <View zIndex={1} y={ART_H - 280} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+        <View zIndex={2}>
         <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{focusedRowTitle()}</Text>
         <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={HERO_Y + 116} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
@@ -323,6 +328,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         </Text>
         <ActionBar ref={(el) => { heroNode = el; }} x={HERO_X} y={HERO_Y + 290} actions={heroActions()} onAction={onHeroAction}
           onUp={() => focusArea('tabs')} onDown={() => focusArea('rows')} onFocusChanged={(f) => { if (f) choose('hero'); }} />
+        </View>
       </Show>
 
       <TabBar ref={(el) => { tabsNode = el; }} active="movies" onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
@@ -341,7 +347,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         </View>
       }>
         {/* Rows: the focused row sits in the fixed slot, the next one peeks in below. One focusable node owns the keys. */}
-        <View ref={(el) => { rowsNode = el; }} y={0} width={LAYOUT.width} height={LAYOUT.height}
+        <View ref={(el) => { rowsNode = el; }} y={0} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
           onFocusChanged={(f: boolean) => { if (f) choose('rows'); }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
@@ -360,7 +366,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           }}</For>
         </View>
       </Show>
-      <menu.View />
+      <View zIndex={5}><menu.View /></View>
     </View>
   );
 }

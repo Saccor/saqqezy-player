@@ -12,9 +12,11 @@ import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
+import { scrimTexture } from '../vod/scrim.ts';
 
 const BG = COLORS.background;
-const BG_CLEAR = 0x0b0d1200;
+/** The background colour without alpha (0xRRGGBB), for the fade textures. */
+const BG_RGB = Math.floor(COLORS.background / 0x100);
 const POSTER_X = LAYOUT.safeX;
 const POSTER_Y = 150;
 const BIG_W = 320;
@@ -184,11 +186,15 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>
-      <Show when={backdrop() && posterCache.usable(backdrop()) ? backdrop() : undefined} keyed>
-        {(u) => <View x={640} y={0} width={1280} height={720} src={rawViaDevProxy(u)} onEvent={{ failed: () => posterCache.markFailed(u) }} />}
-      </Show>
-      <View x={640} y={0} width={1280} height={720} linearGradient={{ colors: [BG, BG_CLEAR], angle: Math.PI / 2, stops: [0.1, 0.75] }} />
-      <View y={440} width={LAYOUT.width} height={280} linearGradient={{ colors: [BG_CLEAR, BG], angle: Math.PI, stops: [0, 1] }} />
+      {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
+      <View zIndex={0}>
+        <Show when={backdrop() && posterCache.usable(backdrop()) ? backdrop() : undefined} keyed>
+          {(u) => <View x={640} y={0} width={1280} height={720} src={rawViaDevProxy(u)} onEvent={{ failed: () => posterCache.markFailed(u) }} />}
+        </Show>
+      </View>
+      <View zIndex={1} x={640} y={0} width={1280} height={720} src={scrimTexture('left', BG_RGB)} />
+      <View zIndex={1} y={440} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+      <View zIndex={2}>
 
       <PosterTile x={POSTER_X} y={POSTER_Y} w={BIG_W} h={BIG_H} tile={tile()} lit={false} />
       <Text x={INFO_X} y={POSTER_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>
@@ -200,12 +206,12 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Text>
       <Show when={detail()?.director}>
         <Text x={INFO_X} y={POSTER_Y + 296} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {`Director  ${detail()?.director ?? ''}`}
+          {`Director: ${detail()?.director ?? ''}`}
         </Text>
       </Show>
       <Show when={detail()?.cast}>
         <Text x={INFO_X} y={POSTER_Y + 332} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {`Cast  ${detail()?.cast ?? ''}`}
+          {`Cast: ${detail()?.cast ?? ''}`}
         </Text>
       </Show>
       <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={POSTER_Y + 392} actions={actions()} onAction={(id) => void onAction(id)}
@@ -221,7 +227,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
             onCellClick={(c) => { setMoreCol(c); openMore(); }} onCellOptions={(c) => { setMoreCol(c); openMenu(c); }} />
         </View>
       </Show>
-      <menu.View />
+      </View>
+      <View zIndex={5}><menu.View /></View>
     </View>
   );
 }
