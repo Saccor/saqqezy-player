@@ -113,7 +113,21 @@ export function createPlaybackController(
   });
   let token = 0;
 
+  /** The VOD request in flight (also while held by the cooldown): a held title resumes as VOD, never as live. */
+  let pendingVod: { p: VodPlayable; startMs: number } | undefined;
+  const startPlay = (url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }) => {
+    held = false;
+    const key = sourceKey();
+    playKey = key;
+    answeredReported = false;
+    supervisor.play(url, alt, { sourceKey: key, ...opts });
+  };
+
   const hold = () => {
+    if (pendingVod) {
+      const pos = supervisor.positionMs();
+      if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
+    }
     held = true;
     playKey = undefined;
     supervisor.stop();
@@ -134,31 +148,25 @@ export function createPlaybackController(
         }
         return false;
       }
+      pendingVod = undefined;
       setCurrent(ch);
       if (gate?.blocked()) {
         hold();
         return false;
       }
-      held = false;
-      const key = sourceKey();
-      playKey = key;
-      answeredReported = false;
-      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: key, channel: ch.name });
+      startPlay(ch.url, ch.alternateUrl, { channel: ch.name });
       return true;
     },
     playVod(p, startMs) {
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
+      pendingVod = { p, startMs };
       setCurrent(stand);
       if (gate?.blocked()) {
         hold();
         return;
       }
-      held = false;
-      const key = sourceKey();
-      playKey = key;
-      answeredReported = false;
-      supervisor.play(p.url, undefined, { sourceKey: key, vod: true, startMs });
+      startPlay(p.url, undefined, { vod: true, startMs });
     },
     pause: () => supervisor.pause(),
     resume: () => supervisor.resume(),
@@ -176,12 +184,21 @@ export function createPlaybackController(
       if (current() !== undefined && !held && kind !== 'playing') hold();
     },
     resumeHeld() {
+      if (!held) return;
+      const v = pendingVod;
+      if (v) {
+        const pos = supervisor.positionMs();
+        const start = pos !== undefined && pos > v.startMs ? pos : v.startMs;
+        this.playVod(v.p, start);
+        return;
+      }
       const cur = current();
-      if (held && cur) this.playChannel(cur);
+      if (cur) this.playChannel(cur);
     },
     stop() {
       token++;
       held = false;
+      pendingVod = undefined;
       playKey = undefined;
       supervisor.stop();
       setCurrent(undefined);

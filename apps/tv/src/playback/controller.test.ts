@@ -269,5 +269,56 @@ describe('playback controller', () => {
       pb.playVod(vod, 0);
       expect(f.supervisor.play).not.toHaveBeenCalled();
     });
+
+    it('a VOD held by the cooldown gate resumes as VOD with its start and source key', () => {
+      const f = fakes();
+      let blocked = true;
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', { blocked: () => blocked, refused: () => undefined, answered: () => undefined });
+      f.supervisor.positionMs.mockReturnValue(undefined);
+      pb.playVod(vod, 7000);
+      blocked = false;
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(f.supervisor.play).toHaveBeenCalledWith(vod.url, undefined, { sourceKey: 'src-1', vod: true, startMs: 7000 });
+    });
+
+    it('holdForCooldown during VOD loading resumes as VOD at the later known position', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor);
+      pb.playVod(vod, 7000);
+      f.emit({ kind: 'loading' } as SupervisorStatus);
+      f.supervisor.positionMs.mockReturnValue(9000);
+      pb.holdForCooldown();
+      expect(f.supervisor.stop).toHaveBeenCalled();
+      f.supervisor.positionMs.mockReturnValue(undefined);
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenLastCalledWith(vod.url, undefined, { sourceKey: undefined, vod: true, startMs: 9000 });
+    });
+
+    it('playChannel after a held VOD plays live and drops the VOD; stop drops it too', () => {
+      const f = fakes();
+      let blocked = true;
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', undefined, { blocked: () => blocked, refused: () => undefined, answered: () => undefined });
+      pb.playVod(vod, 7000);
+      pb.playChannel(ch('1'));
+      blocked = false;
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('1').url, ch('1').alternateUrl, { sourceKey: undefined, channel: 'Channel' });
+      blocked = true;
+      pb.playVod(vod, 1);
+      pb.stop();
+      blocked = false;
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(pb.current()).toBeUndefined();
+    });
+
+    it('playVod supersedes a stale live begin() token', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor);
+      const t = pb.begin();
+      pb.playVod(vod, 0);
+      expect(pb.isLatest(t)).toBe(false);
+    });
   });
 });

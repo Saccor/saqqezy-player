@@ -1301,12 +1301,12 @@ describe('PlaybackSupervisor: VOD mode', () => {
   it('seek clamps to [0, duration - 1 s] when the duration is known', () => {
     const { player, sup } = setup();
     player.duration = () => 100_000;
-    player.seek = vi.fn(() => true);
+    player.seek = vi.fn((ms: number) => { player.pos = ms; return true; });
     sup.play(V, undefined, { vod: true });
     player.emit('playing');
     sup.seek(500_000);
     expect(player.seek).toHaveBeenLastCalledWith(99_000);
-    expect(sup.positionMs()).toBeDefined();
+    expect(sup.positionMs()).toBe(99_000);
     sup.seek(-5);
     expect(player.seek).toHaveBeenLastCalledWith(0);
     player.duration = () => undefined;
