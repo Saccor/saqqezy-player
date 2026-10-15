@@ -8,7 +8,8 @@ import { router } from './shell/router.ts';
 import { showToast } from './shell/Toast.tsx';
 import { installKeys, onUserGesture } from './input/keys.ts';
 import { installPointer } from './input/pointer.ts';
-import { playback, player, videoLayer as layer } from './playback/playback.ts';
+import { installFormatReport } from './playback/formatReport.ts';
+import { playback, player, supervisor, videoLayer as layer } from './playback/playback.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
 import { platformId } from './state/appState.ts';
 import { registerKeys } from './platform/tizen.ts';
@@ -50,6 +51,13 @@ if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = {
 if (platformId === 'tizen') registerKeys();
 // Desktop autoplay may have started the stream muted: the first key press or mouse click gives the sound back.
 onUserGesture(() => player.unmuteIfAutoMuted?.());
+// The worker remembers per source which stream format played last and tries it first next time (no URL is sent).
+installFormatReport({
+  onStatus: (fn) => supervisor.onStatus(fn),
+  current: () => playback.current(),
+  inFlight: () => player.currentUrl(),
+  report: (id, format) => { void api.notePlayed(id, format).catch(() => undefined); },
+});
 installKeys();
 // Mouse and pointer remotes (desktop, the LG Magic Remote); a no-op on Tizen.
 installPointer({ canvas: (renderer as RendererMain).canvas, platform: platformId });

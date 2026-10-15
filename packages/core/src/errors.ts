@@ -36,3 +36,14 @@ export function redactUrl(raw: string): string {
   const query = u.searchParams.toString().replace(/%2A/g, '*'); // not replaceAll: Chromium 85+ only
   return `${u.protocol}//${u.host}${path}${query ? `?${query}` : ''}`;
 }
+
+/** What the app says while a source is in its refusal cooldown (neutral: no provider, no "ban"). */
+export const SOURCE_REFUSING_MESSAGE = "Your source is refusing connections. The app is waiting so you don't get blocked.";
+
+/** Thrown instead of sending a request while the source is in its refusal cooldown. Nothing reached the source. */
+export class SourceRefusedError extends Error {
+  constructor(message = SOURCE_REFUSING_MESSAGE) {
+    super(message);
+    this.name = 'SourceRefused';
+  }
+}

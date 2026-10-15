@@ -60,6 +60,27 @@ export function panelChannel<T>(focused: T | undefined, playing: T | undefined, 
 }
 
 /**
+ * What Home resumes on mount, if anything. Only a channel the user played comes back by itself:
+ * - `held` (playback was stopped on purpose, e.g. the sleep timer): nothing;
+ * - the playing channel (back from the Player): the same channel again, with no reconnect;
+ * - otherwise the last channel from init (`lastChannelId`), once per page (`startupDone`), and only when the list
+ *   found it (`found`; a gone or hidden channel is not resumed).
+ * A row the user only browsed to is never resumed: browsing never starts a stream.
+ */
+export function resumeTarget(s: {
+  playingId: string | undefined;
+  lastChannelId: string | undefined;
+  found: string | undefined;
+  startupDone: boolean;
+  held: boolean;
+}): string | undefined {
+  if (s.held) return undefined;
+  if (s.playingId !== undefined) return s.playingId;
+  if (s.startupDone || s.lastChannelId === undefined || s.found !== s.lastChannelId) return undefined;
+  return s.lastChannelId;
+}
+
+/**
  * `nowNextUpdated` for `changed`: the preview panel's info for the playing channel must be re-read when that
  * channel is in the update and is not the focused row (the focused row comes from the slice cache, which the
  * same event already refreshes).
@@ -79,9 +100,13 @@ export function progressOf(p: { start: number; stop: number } | undefined, now: 
   return Math.max(0, Math.min(1, (now - p.start) / (p.stop - p.start)));
 }
 
-/** Copy shown in the preview's video hole, or undefined while the picture is playing. */
-export function previewMessage(status: SupervisorStatus | undefined, hasChannel: boolean): string | undefined {
-  if (!hasChannel || !status) return 'Preview';
+/**
+ * Copy shown in the preview's video hole, or undefined while the picture is playing. `idle` replaces "Preview" while
+ * nothing plays (Home: paused after a reload).
+ */
+export function previewMessage(status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview'): string | undefined {
+  if (!hasChannel) return idle;
+  if (!status) return 'Preview';
   switch (status.kind) {
     case 'playing': return undefined;
     case 'loading': return 'Loading…';

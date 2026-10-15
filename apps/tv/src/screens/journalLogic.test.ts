@@ -44,6 +44,7 @@ describe('eventText', () => {
     [{ k: 'reconnect', t, delayMs: 0, cause: 'startTimeout' }, 'Reconnect · no picture at start · 0 ms'],
     [{ k: 'reconnect', t, delayMs: 0, cause: 'drift' }, 'Reconnect · far behind live · 0 ms'],
     [{ k: 'alternate', t, urlIndex: 1 }, 'Trying another stream format'],
+    [{ k: 'rateWait', t, delayMs: 4200 }, 'Waiting to connect · connection limit for this source · 4.2 s'],
     [{ k: 'drift', t, action: 'seek', behindS: 14.6, targetS: 6 }, 'Caught up to live · 15 s behind · target 6.0 s'],
     [{ k: 'drift', t, action: 'reopen', behindS: 40, targetS: 6 }, 'Restarted to catch up · 40 s behind · target 6.0 s'],
     [{ k: 'drift', t, action: 'rate', rate: 1.05, behindS: 9, targetS: 6 }, 'Speed 1.05× · 9 s behind · target 6.0 s'],

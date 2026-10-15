@@ -10,8 +10,8 @@ const storage = new IdbStorage();
 // bodies then fail after 30 s without data (BODY_IDLE_MS) instead of holding the source lock forever.
 const fetchFn = withTimeout(async (url, init) => unwrapDevProxyResponse(await fetch(rawViaDevProxy(url), init)), API_TIMEOUT_MS);
 const service = new SourceService({ storage, fetch: fetchFn });
-// Movies and series: same storage and network path; catalogues load lazily and one stays resident.
-const vod = new VodService({ storage, fetch: fetchFn });
+// Movies and series: same storage, network path and refusal cooldown; catalogues load lazily and one stays resident.
+const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard });
 
 // Phone companion. The relay only ever sees ciphertext; never log these URLs (they carry the session id).
 const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787').replace(/\/+$/, '');

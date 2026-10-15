@@ -13,6 +13,7 @@ import type {
   Episode, MovieDetail, SeriesDetail, SeriesPointer, VodItem, VodKind, VodList, VodUserRecord, VodUserState,
 } from '../vod/types.ts';
 import { XtreamClient, normalizeServer } from '../xtream/client.ts';
+import type { RefusalGuard } from '../net/refusalGuard.ts';
 
 export interface VodServiceDeps {
   storage: Storage;
@@ -20,6 +21,11 @@ export interface VodServiceDeps {
   now?: () => number;
   /** JSON body inactivity timeout (default `BODY_IDLE_MS`). */
   bodyIdleMs?: number;
+  /**
+   * The source service's refusal guard (`SourceService.guard`): catalogue and detail requests then wait out a
+   * source's refusal cooldown like every other request (`SourceRefusedError`, nothing sent) and their answers feed it.
+   */
+  guard?: RefusalGuard;
 }
 
 const vodAtKey = (kind: VodKind, sourceId: string) => `vodAt:${kind}:${sourceId}`;
@@ -30,6 +36,7 @@ export class VodService {
   private readonly fetchFn: FetchFn;
   private readonly now: () => number;
   private readonly bodyIdleMs: number;
+  private readonly guard: RefusalGuard | undefined;
   private readonly locks = new Map<string, Promise<void>>();
 
   constructor(deps: VodServiceDeps) {
@@ -37,6 +44,7 @@ export class VodService {
     this.fetchFn = deps.fetch;
     this.now = deps.now ?? Date.now;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
+    this.guard = deps.guard;
   }
 
   async loadCatalog(sourceId: string, kind: VodKind): Promise<VodCatalog> {
@@ -165,7 +173,7 @@ export class VodService {
   }
 
   private client(s: XtreamSourceConfig): XtreamClient {
-    return new XtreamClient(s, this.fetchFn, { idleMs: this.bodyIdleMs });
+    return new XtreamClient(s, this.guard ? this.guard.wrap(s.id, this.fetchFn) : this.fetchFn, { idleMs: this.bodyIdleMs });
   }
 
   private withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {

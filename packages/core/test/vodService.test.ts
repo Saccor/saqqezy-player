@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { VodService } from '../src/service/vodService.ts';
 import { VodFetchCancelled } from '../src/vod/fetchXtream.ts';
-import { SourceNetworkError } from '../src/errors.ts';
+import { SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
+import { RefusalGuard } from '../src/net/refusalGuard.ts';
 import type { FetchFn, SourceConfig } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0);
@@ -58,6 +59,14 @@ describe('VodService catalogues', () => {
     const cat = await svc.loadCatalog('x', 'movie');
     expect(cat.size).toBe(2);
     expect(cat.categories().map((c) => c.name)).toEqual(['Drama', 'Comedy']);
+  });
+
+  test('with the refusal guard, a cooling source is not asked for its catalogue', async () => {
+    const guard = new RefusalGuard({ storage, now: () => now });
+    const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
+    await guard.report('x', 'refused');
+    await expect(guarded.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceRefusedError);
+    expect(calls).toEqual([]);
   });
 
   test('autoRefreshHours 0 means never stale once fetched', async () => {

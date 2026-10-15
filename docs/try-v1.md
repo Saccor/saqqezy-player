@@ -85,12 +85,12 @@ in Settings → Diagnostics.
    - **Password:** `test`
 3. Go down to **Log in** and press Enter.
 
-After a moment you see **Channels** with 200 test channels in four groups, and the first one plays in the
-preview. Things to try:
+After a moment you see **Channels** with 200 test channels in four groups. Moving through the list never
+changes what plays. Things to try:
 
-- **Enter** on a channel: watch it full screen. **Up/Down** or **Page Up/Down** zaps, digits jump to a number,
-  **F1** goes back to the previous channel, **M** opens options (audio, aspect ratio, sleep timer, stream info,
-  favourite).
+- **Enter** on a channel: it plays in the small video. **Enter** again: watch it full screen. There **Up/Down** or
+  **Page Up/Down** zaps, digits jump to a number, **F1** goes back to the previous channel, **M** opens options
+  (audio, aspect ratio, sleep timer, stream info, favourite).
 - **M** on a channel in the list: add it to favourites, or hide it. Hidden channels come back in
   Settings → Channels.
 - **F2**: the TV guide. **F3**: search by name or number. **F4**: Settings.
@@ -114,6 +114,11 @@ Good to know when you try your own source **in a browser**:
 - **It goes through a local helper.** Many services do not allow web pages to read their lists directly. While
   `pnpm dev` runs, the app's requests go through a small helper on your own computer (the "dev proxy"). Nothing
   is sent anywhere else. On a TV the app connects directly and this helper is not used.
+- **Start the app with `pnpm dev:stable` instead of `pnpm dev`.** It never reloads the page by itself when code
+  changes (press F5 to load changes). Every reload opens new connections to your service, and some services block
+  devices that connect too often.
+- **In the browser (`pnpm dev` or `pnpm dev:stable`), the app does not resume a channel from your own source after a
+  page reload:** the preview says "Paused after reload: press OK to play". The local fake source still resumes.
 - **If your service offers an Xtream login, prefer it in the browser.** It loads faster than a big playlist
   link, finds the TV guide by itself, and lets the app try each channel in its other stream format.
 - **Most desktop Chrome/Edge setups can't decode AC3/E-AC3 (Dolby) audio.** Those channels may fail to start or

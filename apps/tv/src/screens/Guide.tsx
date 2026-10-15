@@ -10,6 +10,7 @@ import { GroupList } from '../components/GroupList.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import type { GridHit } from '../input/pointerLogic.ts';
+import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -188,6 +189,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
 
   /** Plays the channel and opens the Player (Back returns here). */
   const play = (ch: ChannelRow) => {
+    devResume.release(); // the user started a channel (spec §3.1)
     const g = groupId() ?? GROUP_ALL;
     const token = playback.begin();
     void (async () => {

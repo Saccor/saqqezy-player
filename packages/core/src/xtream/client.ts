@@ -1,4 +1,4 @@
-import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { responseText } from '../net/textStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
@@ -7,6 +7,9 @@ import { isObj, posInt, str } from './json.ts';
 import {
   parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
 } from './vod.ts';
+
+/** The message of a `SourceNetworkError` for an answer that is not the JSON the action should return. */
+export const UNEXPECTED_RESPONSE = 'Unexpected response from the provider.';
 
 export interface XtreamCategory { id: string; name: string }
 export interface XtreamStream {
@@ -61,12 +64,12 @@ export class XtreamClient {
     try {
       res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS, ...(signal ? { signal } : {}) });
     } catch (err) {
-      if (err instanceof SourceNetworkError) throw err;
+      if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);
-    const unexpected = () => new SourceNetworkError('Unexpected response from the provider.');
+    const unexpected = () => new SourceNetworkError(UNEXPECTED_RESPONSE);
     if (!res.body) throw unexpected();
     const url = `${this.base}/player_api.php`;
     let text = '';

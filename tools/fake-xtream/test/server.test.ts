@@ -78,6 +78,16 @@ describe('fake xtream options', () => {
       await partial.close();
     }
   });
+
+  test('refusal mode answers 403 to everything and counts it', async () => {
+    const ctl = (q = '') => fetch(`${server.url}/__control/refuse${q}`).then((r) => r.json());
+    expect(await ctl('?on=1')).toEqual({ refusing: true, refused: 0 });
+    expect((await fetch(`${server.url}/player_api.php?username=test&password=test`)).status).toBe(403);
+    expect((await fetch(`${server.url}/live/test/test/1.ts`, { redirect: 'manual' })).status).toBe(403);
+    expect(await ctl()).toEqual({ refusing: true, refused: 2 });
+    expect(await ctl('?on=0')).toEqual({ refusing: false, refused: 0 });
+    expect((await fetch(`${server.url}/player_api.php?username=test&password=test`)).status).toBe(200);
+  });
 });
 
 describe('fake xtream VOD end to end', () => {

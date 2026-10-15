@@ -2,6 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import type { ChannelRow } from '@iptv/app-api';
 import type { SupervisorStatus } from '@iptv/player';
 import { usePointerTarget } from '../input/pointer.ts';
+import { CooldownNotice } from './CooldownNotice.tsx';
 import { formatRange, previewMessage, progressOf } from '../screens/homeLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
@@ -22,12 +23,17 @@ export function PreviewPanel(props: {
   starting?: boolean;
   status: SupervisorStatus | undefined;
   playing: boolean;
+  /** Shown in the empty video box instead of "Preview" while nothing plays (Home: paused after a reload). */
+  idle?: string;
   now: number;
   onVideoClick?: () => void;
+  /** The source is cooling down: this copy fills the video box instead of any status message. */
+  cooldown?: { text: string; hint: string };
+  onRetry?: () => void;
 }) {
   let video: ElementNode | undefined;
   usePointerTarget({ node: () => video, enabled: () => props.onVideoClick !== undefined, onClick: () => props.onVideoClick?.() });
-  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing);
+  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing, props.idle);
   const failed = () => props.playing && props.status?.kind === 'failed';
   const infoY = PREVIEW_H + LAYOUT.gap;
   const titleW = () => (props.starting ? PREVIEW_W - STARTING_W - LAYOUT.gap : PREVIEW_W);
@@ -35,7 +41,11 @@ export function PreviewPanel(props: {
     <View x={props.x} y={props.y} width={PREVIEW_W} height={PREVIEW_H + 360}>
       {/* The video box's click area. No colour: it draws nothing. */}
       <View ref={(el) => { video = el; }} width={PREVIEW_W} height={PREVIEW_H} />
-      <Show when={msg()}>{(m) => (
+      <Show when={props.cooldown}>{(c) => (
+        <CooldownNotice width={PREVIEW_W} height={PREVIEW_H} text={c().text} hint={c().hint}
+          onRetry={() => props.onRetry?.()} />
+      )}</Show>
+      <Show when={props.cooldown ? undefined : msg()}>{(m) => (
         <View width={PREVIEW_W} height={PREVIEW_H} borderRadius={LAYOUT.radius}
           color={failed() || !props.playing ? COLORS.surface : COLORS.panel}>
           <Text x={24} y={PREVIEW_H / 2 - FONT.body} width={PREVIEW_W - 48} maxWidth={PREVIEW_W - 48} contain="width"
