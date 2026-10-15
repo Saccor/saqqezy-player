@@ -33,6 +33,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { id: string; tile?: VodTile };
   const [view, setView] = createSignal<MovieView | undefined>(undefined);
   const [loaded, setLoaded] = createSignal(false);
+  const [loadFailed, setLoadFailed] = createSignal(false);
   const [catName, setCatName] = createSignal('');
   const [moreCol, setMoreCol] = createSignal(0);
   const [area, setArea] = createSignal<Area>('actions');
@@ -46,9 +47,19 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   let busy = false;
   const cols = new Map<string, number>();
 
-  const tile = () => view()?.tile ?? params.tile;
+  /** Set after a successful toggle; a failed reload then still shows the right state. Cleared when a reload lands. */
+  const [favOverride, setFavOverride] = createSignal<boolean | undefined>(undefined);
+  const baseTile = () => view()?.tile ?? params.tile;
+  const tile = (): VodTile | undefined => {
+    const t = baseTile();
+    const f = favOverride();
+    return t && f !== undefined ? { ...t, favourite: f } : t;
+  };
   const detail = () => view()?.detail ?? undefined;
   const moreRow = createMemo((): RowModel => ({ id: 'more', title: '', total: view()?.more.length ?? 0, items: view()?.more ?? [], loaded: true }));
+
+  /** No overlay or poster menu is open (a key or click behind one must not act). */
+  const free = () => router.topOverlay() === undefined && !menu.isOpen();
 
   /** Focuses an area. A refocus (`fallback`) lands on the actions when the More row is gone; a Down press just stays. */
   const focusArea = (a: Area, fallback = false) => {
@@ -72,13 +83,17 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const load = async (first: boolean) => {
     const g = ++gen;
     let v: MovieView | undefined;
+    let failed = false;
     try {
       v = await api.getMovie(params.id);
     } catch (err) {
       console.warn('Movie load failed', errName(err));
+      failed = true;
     }
     if (!alive || g !== gen) return;
     if (v || first) setView(v);
+    if (first || v) setLoadFailed(failed);
+    if (v) setFavOverride(undefined);
     setLoaded(true);
     settleFocus();
     if (v && catName() === '') {
@@ -98,7 +113,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   ];
   const onAction = async (id: string) => {
     const t = tile();
-    if (!t || busy) return;
+    if (!t || busy || !free()) return;
     busy = true;
     try {
       if (id === 'play') {
@@ -122,7 +137,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
           if (alive) showToast("Couldn't save that. Try again.");
           return;
         }
-        if (alive) await load(false);
+        if (!alive) return;
+        // Show the new state at once; the reload below only refines it.
+        setFavOverride(!t.favourite);
+        await load(false);
       }
     } finally {
       busy = false;
@@ -136,6 +154,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     return true;
   };
   const openMore = () => {
+    if (!free()) return true;
     const t = moreRow().items[moreCol()];
     if (t) router.replace('movieDetail', { id: t.id, tile: t });
     return true;
@@ -161,7 +180,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   onCleanup(() => { alive = false; });
 
   const backdrop = () => detail()?.backdrop;
-  const notAvailable = () => loaded() && view() !== undefined && view()!.detail === null;
+  const notAvailable = () => loaded() && (loadFailed() || (view() !== undefined && view()!.detail === null));
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>

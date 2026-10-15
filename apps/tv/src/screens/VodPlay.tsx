@@ -26,7 +26,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     playback.setRect('fullscreen');
     // The playback controller speaks channels: a VOD title is a channel-shaped stand-in (never shown in channel UI).
-    const ch: PlayableChannel = { id: `vod:${p.itemId}`, number: 0, name: p.title, group: '', favourite: false, url: p.url };
+    // The name stays empty: it would land in the persisted playback journal; the title is shown from `p`.
+    const ch: PlayableChannel = { id: `vod:${p.itemId}`, number: 0, name: '', group: '', favourite: false, url: p.url };
     playback.playChannel(ch);
     armTitle();
     root?.setFocus();
