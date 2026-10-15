@@ -66,26 +66,51 @@ test('vod catalogue: resident heap at 60k movies with realistic ids and poster U
   const n = 60_000;
   // 14 characters, like SourceService's default ids.
   const sourceId = 'mgq3x7k2a9f1zp';
-  gcFn();
-  const before = process.memoryUsage().heapUsed;
-  const categories: VodCategory[] = Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), kind: 'movie', name: `Synthetic Category ${i + 1}`, count: 0 }));
-  const items: VodItem[] = Array.from({ length: n }, (_, i) => ({
-    id: `${sourceId}:m${100_000 + i}`, kind: 'movie', title: `Synthetic Film Title Number ${i} Part ${i % 7}`,
-    categoryId: String((i % 80) + 1), xid: 100_000 + i,
-    // 86 characters, typical of provider poster URLs.
-    poster: `https://img.example.test/t/p/w600_and_h900_bestv2/${i.toString(16).padStart(32, '0')}.jpg`,
-    year: 1950 + (i % 75), rating: (i % 100) / 10, added: 1_760_000_000 - i * 60, ext: 'mkv',
+
+  const measure = () => {
+    gcFn();
+    const mem0 = process.memoryUsage();
+    const categories: VodCategory[] = Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), kind: 'movie', name: `Synthetic Category ${i + 1}`, count: 0 }));
+    let raw: VodItem[] | undefined = Array.from({ length: n }, (_, i) => ({
+      id: `${sourceId}:m${100_000 + i}`, kind: 'movie', title: `Synthetic Film Title Number ${i} Part ${i % 7}`,
+      categoryId: String((i % 80) + 1), xid: 100_000 + i,
+      // 86 characters, typical of provider poster URLs.
+      poster: `https://img.example.test/t/p/w600_and_h900_bestv2/${i.toString(16).padStart(32, '0')}.jpg`,
+      year: 1950 + (i % 75), rating: (i % 100) / 10, added: 1_760_000_000 - i * 60, ext: 'mkv',
+    }));
+    // The app reads the catalogue from IndexedDB, which yields flat strings (structured clone), not the ropes template literals leave.
+    const items = structuredClone(raw);
+    raw = undefined;
+    const list = buildVodList('movie', items, categories);
+    const catalog = new VodCatalog('movie', list);
+    // What a browse session builds: one sort and the search keys.
+    catalog.slice('all', 'title', 0, 30);
+    catalog.search('a', 20);
+    gcFn();
+    const mem1 = process.memoryUsage();
+    void [items, list];
+    const result = {
+      heapMB: (mem1.heapUsed - mem0.heapUsed) / 1e6,
+      externalMB: (mem1.external - mem0.external) / 1e6,
+      arrayBuffersMB: (mem1.arrayBuffers - mem0.arrayBuffers) / 1e6,
+      jsonMB: JSON.stringify(list).length / 1e6,
+      posterChars: items[0]!.poster!.length,
+      size: catalog.size,
+    };
+    void [items, list, catalog];
+    return result;
+  };
+
+  const runs = [measure(), measure(), measure()];
+  const med = median(runs.map((r) => r.heapMB));
+  console.log(JSON.stringify({
+    heapMB: runs.map((r) => r.heapMB.toFixed(1)), medianHeapMB: med.toFixed(1),
+    externalMB: runs.map((r) => r.externalMB.toFixed(1)), arrayBuffersMB: runs.map((r) => r.arrayBuffersMB.toFixed(1)),
+    jsonMB: runs[0]!.jsonMB.toFixed(1), posterChars: runs[0]!.posterChars,
   }));
-  const list = buildVodList('movie', items, categories);
-  const catalog = new VodCatalog('movie', list);
-  // What a browse session builds: one sort and the search keys.
-  catalog.slice('all', 'title', 0, 30);
-  catalog.search('a', 20);
-  gcFn();
-  const heapMB = (process.memoryUsage().heapUsed - before) / 1e6;
-  const jsonMB = JSON.stringify(list).length / 1e6;
-  console.log(JSON.stringify({ heapMB: heapMB.toFixed(1), jsonMB: jsonMB.toFixed(1), posterChars: items[0]!.poster!.length }));
-  expect(items[0]!.poster!.length).toBe(86);
-  expect(catalog.size).toBe(n);
-  expect(heapMB).toBeLessThan(40);
+  for (const r of runs) {
+    expect(r.posterChars).toBe(86);
+    expect(r.size).toBe(n);
+  }
+  expect(med).toBeLessThan(40);
 });
