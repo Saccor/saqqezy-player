@@ -889,13 +889,15 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     playback.setRect(PREVIEW_RECT);
     // The guide's title index became ready, or a guide import finished: re-run the open query (as on Search).
+    // A source without live channels ends with focus on the tab bar (after a refresh, or when that refresh failed).
+    const tabsIfNoLive = () => { if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs'); };
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && searching()) searcher.setQuery(query()); };
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
       onEvent('refreshed', (e) => {
         setWaiting(false);
         void reload().then(() => {
-          if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs');
+          tabsIfNoLive();
         }).catch(() => undefined);
         rerun(e);
       }),
@@ -924,7 +926,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           if (wasSearching) focusArea(total() > 0 ? 'list' : 'groups');
         }).catch(() => undefined);
       }),
-      onEvent('refreshFailed', () => setWaiting(false)),
+      onEvent('refreshFailed', () => { setWaiting(false); tabsIfNoLive(); }),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
       // The playing channel's info outside the list rows (preview panel) is re-read too.
       onEvent('nowNextUpdated', (e) => {
