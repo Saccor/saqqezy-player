@@ -266,7 +266,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     } catch (err) {
       console.warn('Preview failed', err instanceof Error ? err.name : 'Error');
     } finally {
-      if (playback.isLatest(token)) setRequested(undefined);
+      if (requested() === id) setRequested(undefined);
     }
   };
 
@@ -292,7 +292,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     } catch (err) {
       console.warn('Preview failed', err instanceof Error ? err.name : 'Error');
     } finally {
-      if (playback.isLatest(token)) setRequested(undefined);
+      if (requested() === id) setRequested(undefined);
     }
   };
 
