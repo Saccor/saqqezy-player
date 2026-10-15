@@ -1,5 +1,6 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
+import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { maskSecret } from '../screens/addSourceLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { visibleTail } from './keyboardLogic.ts';
@@ -20,7 +21,7 @@ export function fieldDisplay(value: string, opts: { secret?: boolean; revealed?:
 
 /**
  * A labelled single-line field. It does no editing itself: Ok calls `onEnter`, which opens the on-screen
- * keyboard; `editing` shows the caret while it is open.
+ * keyboard; `editing` shows the caret while it is open. A pointer click does the same as Ok; hover shows a muted ring.
  */
 export function TextField(props: {
   ref?: (el: ElementNode) => void;
@@ -41,16 +42,20 @@ export function TextField(props: {
   onYellow?: () => boolean | void;
 }) {
   const [focused, setFocused] = createSignal(false);
+  const [hovered, setHovered] = createSignal(false);
+  let node: ElementNode | undefined;
+  usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onEnter() });
   const max = () => Math.floor((props.width - 48) * CHARS_PER_PX);
   const empty = () => props.value === '';
   const text = () => (empty() && !props.editing
     ? (props.placeholder ?? '—')
     : fieldDisplay(props.value, { secret: props.secret, revealed: props.revealed, editing: props.editing, max: max() }));
   const active = () => focused() || props.editing === true;
+  const ring = () => (active() ? COLORS.focus : hovered() && pointerMode() ? COLORS.muted : 0x00000000);
 
   return (
-    <View ref={props.ref} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={FIELD_H} borderRadius={LAYOUT.radius}
-      color={active() ? FOCUS_FILL : COLORS.surface} border={{ width: 3, color: active() ? COLORS.focus : 0x00000000 }}
+    <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={FIELD_H}
+      borderRadius={LAYOUT.radius} color={active() ? FOCUS_FILL : COLORS.surface} border={{ width: 3, color: ring() }}
       onFocusChanged={setFocused}
       onEnter={() => { props.onEnter(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}

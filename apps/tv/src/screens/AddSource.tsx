@@ -5,6 +5,7 @@ import { api, onEvent } from '../api.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
+import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -12,8 +13,8 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, progressText, toUpdatedSource, validateM3u, validateXtream,
-  type M3uForm, type XtreamForm,
+  FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, progressText, revealLabel, toUpdatedSource, validateM3u,
+  validateXtream, type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
 type Kind = 'xtream' | 'm3u';
@@ -49,15 +50,21 @@ const TILE_W = 600;
 const TILE_H = 260;
 const TILE_FOCUS_FILL = 0x1b2436ff;
 const ERROR_COLOR = 0xff8a80ff;
+/** Pointer mode: the `Show password` / `Hide password` button inside the password field's right end. */
+const REVEAL_W = 240;
 
 function TypeTile(props: {
   ref: (el: ElementNode) => void; x: number; title: string; body: string; badge?: string;
   onPress: () => void; onLeft?: () => boolean; onRight?: () => boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
+  const [hovered, setHovered] = createSignal(false);
+  let node: ElementNode | undefined;
+  usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
+  const ring = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.muted : 0x00000000);
   return (
-    <View ref={props.ref} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={LAYOUT.radius}
-      color={focused() ? TILE_FOCUS_FILL : COLORS.surface} border={{ width: 3, color: focused() ? COLORS.focus : 0x00000000 }}
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={LAYOUT.radius}
+      color={focused() ? TILE_FOCUS_FILL : COLORS.surface} border={{ width: 3, color: ring() }}
       scale={focused() ? 1.03 : 1} onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? false}>
@@ -149,6 +156,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
   };
   const openKeyboard = (key: string) => {
     if (busy()) return;
+    // A click on another field while the keyboard is open switches fields: the password is hidden again.
+    if (editing() !== undefined && editing() !== key) setRevealed(false);
     setEditing(key);
     removeKeyboard = router.pushOverlay(KEYBOARD_ID, closeKeyboard);
     restoreFocus();
@@ -307,14 +316,19 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           <TextField ref={(el) => { items[i()] = el; }} x={X} y={FORM_Y + i() * FIELD_STEP} width={FORM_W}
             label={f.label} placeholder={f.placeholder} value={values()[f.key] ?? ''} secret={f.secret}
             revealed={f.secret ? revealed() : undefined} editing={editing() === f.key}
-            hint={f.secret ? `Yellow: ${revealed() ? 'hide' : 'show'}` : undefined}
-            onEnter={() => openKeyboard(f.key)}
+            hint={f.secret && !pointerMode() ? `Yellow: ${revealed() ? 'hide' : 'show'}` : undefined}
+            onEnter={() => { lastItem = i(); openKeyboard(f.key); }}
             onUp={() => focusItem(i() - 1)} onDown={() => focusItem(i() + 1)}
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
         )}</For>
         <Button ref={(el) => { items[fields().length] = el; }} x={X} y={FORM_Y + fields().length * FIELD_STEP + 16}
           width={260} label={editId !== undefined ? 'Save' : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
           onUp={() => focusItem(fields().length - 1)} onDown={() => true} />
+        {/* Pointer mode: the Yellow key's action as a button inside the password field's right end. */}
+        <Show when={pointerMode() && fields().some((f) => f.secret === true)}>
+          <Button x={X + FORM_W - REVEAL_W - 14} y={FORM_Y + fields().findIndex((f) => f.secret === true) * FIELD_STEP + (FIELD_H - BUTTON_H) / 2}
+            width={REVEAL_W} label={revealLabel(revealed())} onPress={() => setRevealed((r) => !r)} />
+        </Show>
         <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - FONT.body) / 2 - 4}
           width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
           fontSize={FONT.body} color={busy() ? COLORS.text : ERROR_COLOR}>{statusText()}</Text>

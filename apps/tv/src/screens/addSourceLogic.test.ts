@@ -3,7 +3,7 @@ import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
 import { NAME_MAX } from '@iptv/core';
 import {
   DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, SOURCE_NAME_MAX, URL_MAX, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
-  toUpdatedSource, validateM3u, validateXtream,
+  revealLabel, toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 
 const named = (name: string, message: string) => Object.assign(new Error(message), { name });
@@ -159,5 +159,12 @@ describe('field limits (shared with the companion protocol)', () => {
       .toEqual({ ok: false, field: 'name', message: NAME_TOO_LONG });
     const exact = ` ${'n'.repeat(SOURCE_NAME_MAX)} `;
     expect(validateM3u({ name: exact, playlistUrl: 'http://example.test/a.m3u', epgUrl: '' }).ok).toBe(true);
+  });
+});
+
+describe('revealLabel (pointer button next to the password)', () => {
+  it('uses the spec copy', () => {
+    expect(revealLabel(false)).toBe('Show password');
+    expect(revealLabel(true)).toBe('Hide password');
   });
 });

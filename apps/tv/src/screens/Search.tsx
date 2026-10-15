@@ -153,7 +153,15 @@ export function SearchScreen() {
           return true;
         }}
         onLeft={() => { memory.userNavigated(); return focusKeyboard(); }}
-        onOk={() => { memory.userNavigated(); return open(); }} />
+        onOk={() => { memory.userNavigated(); return open(); }}
+        onRowClick={(i, double) => {
+          // The first click already opened it (the Player or the Guide): a double click adds nothing.
+          if (double || !isSelectable(rowAt(i))) return;
+          memory.userNavigated();
+          setFocus(i);
+          listNode?.setFocus();
+          open();
+        }} />
       <Show when={message()}>{(m) => (
         <Text x={LIST_X + 24} y={KB_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
           fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>

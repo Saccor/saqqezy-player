@@ -6,6 +6,7 @@ import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
+import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { router } from '../../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
@@ -251,14 +252,23 @@ export function ChannelsPage(props: PageProps) {
         contain="width" maxLines={2} fontSize={FONT.small} color={COLORS.muted}>
         {"Tip: it's easier to organise channels from your phone. Open Settings → Manage on phone or computer."}
       </Text>
-      <Show when={edit()}>{(e) => (
-        <View x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
-          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
-            label="List name" value={e().value} error={e().error} hint="Done saves · Back cancels"
-            onChange={(v) => { const cur = edit(); if (cur) setEdit({ ...cur, value: limitTyping(cur.value, v), error: undefined }); }}
-            onDone={() => void submitRename()} />
-        </View>
-      )}</Show>
+      <Show when={edit()}>{(e) => {
+        let scrim: ElementNode | undefined;
+        // A click outside the keyboard is Back (cancel). The keyboard is a screen-layer target, so this backdrop is
+        // one too (an overlay backdrop would be modal and block the keys): registered before the keyboard, it loses
+        // to the keys and beats the list and menu under the scrim.
+        usePointerTarget({
+          node: () => scrim, onClick: () => shellBack(), onContextMenu: () => shellBack(), onWheel: () => true,
+        });
+        return (
+          <View ref={(el) => { scrim = el; }} x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
+            <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
+              label="List name" value={e().value} error={e().error} hint="Done saves · Back cancels"
+              onChange={(v) => { const cur = edit(); if (cur) setEdit({ ...cur, value: limitTyping(cur.value, v), error: undefined }); }}
+              onDone={() => void submitRename()} />
+          </View>
+        );
+      }}</Show>
     </>
   );
 }

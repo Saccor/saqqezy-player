@@ -1,12 +1,14 @@
-import { For, Show, Text, View } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
-import { BUTTON_H } from '../../components/Button.tsx';
+import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
+import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
+import { rowAt } from '../../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
-  countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy,
+  countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy, toggleButtonLabel,
   type PairingActionId, type PairingMode, type ShownPairing,
 } from '../pairingLogic.ts';
 import type { PageProps } from './shared.ts';
@@ -20,6 +22,8 @@ const COL_X = PANEL_X + PANEL_W + LAYOUT.gap * 2;
 const ACTION_W = 480;
 const ACTION_GAP = 20;
 const ACTIONS_Y = 220;
+/** Pointer mode: the button that replaces the Yellow hint under the panel. */
+const TOGGLE_W = 320;
 
 /**
  * Module memory, so reopening the page shows the live session instead of replacing it (leaving the page
@@ -59,6 +63,9 @@ export function ManageOnPhonePage(props: PageProps) {
   /** The selected action by id, so it stays put when the list changes (e.g. the phone leaves). */
   const [selId, setSelId] = createSignal<PairingActionId | undefined>(undefined);
   const [focused, setFocused] = createSignal(false);
+  const [hover, setHover] = createSignal<number | undefined>(undefined);
+  const focusFromPointer = usePointerFocus();
+  let actionsNode: ElementNode | undefined;
   let alive = true;
 
   const status = companionStatus;
@@ -125,6 +132,20 @@ export function ManageOnPhonePage(props: PageProps) {
     else if (id === 'newCode') void start(mode());
     else void disconnect();
   };
+
+  /** A click on an action: select it, focus the actions (through Settings, so Back returns to the menu) and run it. */
+  usePointerTarget({
+    node: () => actionsNode,
+    onHover: (p) => setHover(p ? rowAt(p.y, 0, BUTTON_H + ACTION_GAP, actions().length) : undefined),
+    onClick: (p) => {
+      const i = rowAt(p.y, 0, BUTTON_H + ACTION_GAP, actions().length);
+      const a = i === undefined ? undefined : actions()[i];
+      if (!a) return;
+      setSelId(a.id);
+      focusFromPointer(actionsNode);
+      run(a.id);
+    },
+  });
 
   onMount(() => {
     const timer = setInterval(() => setTick((n) => n + 1), 1000);
@@ -209,7 +230,7 @@ export function ManageOnPhonePage(props: PageProps) {
       <Text x={COL_X} y={148} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
         fontSize={FONT.small} color={COLORS.muted}>{'The connection is end-to-end encrypted.'}</Text>
 
-      <View ref={props.register} x={COL_X} y={ACTIONS_Y} width={ACTION_W}
+      <View ref={(el) => { actionsNode = el; props.register(el); }} x={COL_X} y={ACTIONS_Y} width={ACTION_W}
         height={actions().length * (BUTTON_H + ACTION_GAP)} onFocusChanged={setFocused}
         onUp={() => moveSel(-1)} onDown={() => moveSel(1)}
         onLeft={() => props.onLeftEdge()} onRight={() => true}
@@ -219,7 +240,8 @@ export function ManageOnPhonePage(props: PageProps) {
           const active = () => focused() && i() === selIndex();
           return (
             <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={LAYOUT.radius}
-              color={active() ? COLORS.focus : COLORS.surface} border={{ width: 2, color: COLORS.focus }}>
+              color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}
+              border={{ width: 2, color: COLORS.focus }}>
               <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
                 textAlign="center" fontSize={FONT.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
             </View>
@@ -227,7 +249,13 @@ export function ManageOnPhonePage(props: PageProps) {
         }}</For>
       </View>
 
-      <Text x={PANEL_X} y={PANEL_H + 32} fontSize={FONT.small} color={COLORS.muted}>{yellowHint()}</Text>
+      <Show when={!pointerMode()} fallback={
+        <Show when={yellowHint()}>
+          <Button x={PANEL_X} y={PANEL_H + 16} width={TOGGLE_W} label={toggleButtonLabel(mode())} onPress={() => run('toggleMode')} />
+        </Show>
+      }>
+        <Text x={PANEL_X} y={PANEL_H + 32} fontSize={FONT.small} color={COLORS.muted}>{yellowHint()}</Text>
+      </Show>
     </View>
   );
 }
