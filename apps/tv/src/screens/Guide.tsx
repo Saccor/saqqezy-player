@@ -4,13 +4,14 @@ import type { ChannelRow, ProgrammeLite } from '@iptv/app-api';
 import type { GroupInfo } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CHANNEL_W, EPG_GRID_W, EPG_ROW_H, EPG_TIMELINE_X, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
 import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
-import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
+import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import type { GridHit } from '../input/pointerLogic.ts';
 import { playback } from '../playback/playback.ts';
+import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
@@ -39,8 +40,6 @@ const PICKER_ID = 'guideGroups';
 const PICKER_W = 460;
 const GROUP_ALL = 'all';
 const ROW_BUFFER = 2;
-/** `‹ Earlier` / `Later ›` (pointer mode, in the ruler). */
-const PAGE_BTN_W = 150;
 
 /** The group the guide showed last (kept across visits). */
 const memory: { groupId?: string } = {};
@@ -382,20 +381,22 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         playingId={playback.current()?.id} dayLabel={dayLabel(viewStart(), now())}
         channel={channelAt} blocks={blocksAt} {...keys} onCellClick={onCellClick} onPointerWheel={onGridWheel} />
 
-      {/* Pointer mode only, in the ruler: Groups over the day label, Earlier and Later at the timeline's ends. */}
-      <PointerBar x={LAYOUT.safeX} y={GRID_Y + 2} height={RULER_H - 4}
-        items={[{ id: 'groups', label: GUIDE_POINTER_LABELS.groups, width: CHANNEL_W - 10, onPress: () => { openPicker(); } }]} />
-      <PointerBar x={LAYOUT.safeX + EPG_TIMELINE_X} y={GRID_Y + 2} height={RULER_H - 4}
-        items={[{ id: 'earlier', label: GUIDE_POINTER_LABELS.earlier, width: PAGE_BTN_W, onPress: () => pageBy(-1) }]} />
-      <PointerBar x={LAYOUT.safeX + EPG_GRID_W - PAGE_BTN_W} y={GRID_Y + 2} height={RULER_H - 4}
-        items={[{ id: 'later', label: GUIDE_POINTER_LABELS.later, width: PAGE_BTN_W, onPress: () => pageBy(1) }]} />
+      {/* Pointer mode only: the bottom row, after the shell's Back. The ruler stays as the remote sees it. */}
+      <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={[
+        { id: 'groups', label: GUIDE_POINTER_LABELS.groups, onPress: () => { openPicker(); } },
+        { id: 'earlier', label: GUIDE_POINTER_LABELS.earlier, onPress: () => pageBy(-1) },
+        { id: 'later', label: GUIDE_POINTER_LABELS.later, onPress: () => pageBy(1) },
+      ]} />
 
-      <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
-        fontSize={FONT.small} color={COLORS.muted}>
-        {area() === 'channels'
-          ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
-          : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
-      </Text>
+      {/* Pointer mode: the shell's Back button stands on this line instead. */}
+      <Show when={!pointerMode()}>
+        <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
+          fontSize={FONT.small} color={COLORS.muted}>
+          {area() === 'channels'
+            ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
+            : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
+        </Text>
+      </Show>
 
       <Show when={picking() !== undefined}>{(_open) => {
         let backdrop: ElementNode | undefined;

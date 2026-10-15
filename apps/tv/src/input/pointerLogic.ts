@@ -13,6 +13,17 @@ export const POINTER_BAR_H = 56;
 export const POINTER_BTN_W = 200;
 /** The options button at the right end of a hovered channel row. */
 export const ROW_OPTIONS_LABEL = '⋯';
+/** The options pill's size and its inset from the row's right edge. */
+export const ROW_OPTIONS_W = 64;
+export const ROW_OPTIONS_H = 48;
+export const ROW_OPTIONS_PAD = 8;
+/** The gap between a row's text or progress bar and the options pill. */
+const ROW_OPTIONS_GAP = 8;
+
+/** Where a channel row's name, now line and progress bar end (row-local x): 20 px in, or 8 px before the `⋯` pill. */
+export function rowTextEnd(width: number, optionsShown: boolean): number {
+  return optionsShown ? width - ROW_OPTIONS_PAD - ROW_OPTIONS_W - ROW_OPTIONS_GAP : width - 20;
+}
 
 // ---- pointer mode ----
 

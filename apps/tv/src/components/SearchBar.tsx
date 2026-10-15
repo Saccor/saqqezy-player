@@ -6,7 +6,8 @@ import { BAR_PLACEHOLDER, KEYBOARD_BUTTON_LABEL } from '../screens/homeSearchLog
 import { COLORS, FONT } from '../shell/theme.ts';
 import { fieldDisplay } from './TextField.tsx';
 
-export const SEARCH_BAR_H = 40;
+/** Short enough to leave a clear gap under the brand wordmark (Home's header row). */
+export const SEARCH_BAR_H = 34;
 const TEXT_X = 52;
 const COUNT_W = 200;
 const PAD_R = 16;
@@ -77,8 +78,8 @@ export function SearchBar(props: {
       onUp={() => true} onRight={() => true} onBack={() => props.onBack()}
       onLongOk={() => true} onMenu={() => true} {...digitHandlers}>
       {/* Magnifier: a ring and a short handle. */}
-      <View x={16} y={8} width={18} height={18} borderRadius={9} border={{ width: 3, color: COLORS.muted }} />
-      <View x={30} y={23} width={4} height={10} color={COLORS.muted} rotation={-Math.PI / 4} />
+      <View x={16} y={SEARCH_BAR_H / 2 - 12} width={18} height={18} borderRadius={9} border={{ width: 3, color: COLORS.muted }} />
+      <View x={30} y={SEARCH_BAR_H / 2 + 3} width={4} height={10} color={COLORS.muted} rotation={-Math.PI / 4} />
       <Text x={TEXT_X} y={(SEARCH_BAR_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={FONT.body} color={empty() ? COLORS.muted : COLORS.text}>{shown()}</Text>
       <Text x={countX()} y={(SEARCH_BAR_H - FONT.small) / 2 - 2} width={COUNT_W} maxWidth={COUNT_W}

@@ -18,8 +18,6 @@ export const CHANNEL_W = 260;
 export const TIMELINE_W = 1440;
 export const EPG_GRID_W = LAYOUT.width - LAYOUT.safeX * 2;
 const TL_X = EPG_GRID_W - TIMELINE_W;
-/** Where the timeline starts inside the grid (the Guide puts `‹ Earlier` there). */
-export const EPG_TIMELINE_X = TL_X;
 /**
  * The grid's layout for pointer hit-testing (`cellAt`), in px relative to the grid node: the channel tiles start at
  * x 0 and are `CHANNEL_W` wide (no margin); the timeline starts at `TL_X`. A row is `EPG_ROW_H` tall including the

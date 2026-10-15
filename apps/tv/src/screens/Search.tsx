@@ -10,6 +10,7 @@ import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
+import { pointerMode } from '../input/pointer.ts';
 import { PREVIEW_RECT } from './Home.tsx';
 import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
 
@@ -167,10 +168,13 @@ export function SearchScreen() {
           fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
       )}</Show>
 
-      <Text x={KB_X} y={HINT_Y} width={LAYOUT.width - KB_X * 2} maxWidth={LAYOUT.width - KB_X * 2} contain="width"
-        maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-        {'Type with the keyboard or remote · Right: results · Ok watch or open in guide · Left: keyboard · Back'}
-      </Text>
+      {/* Pointer mode: the shell's Back button stands on this line instead. */}
+      <Show when={!pointerMode()}>
+        <Text x={KB_X} y={HINT_Y} width={LAYOUT.width - KB_X * 2} maxWidth={LAYOUT.width - KB_X * 2} contain="width"
+          maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+          {'Type with the keyboard or remote · Right: results · Ok watch or open in guide · Left: keyboard · Back'}
+        </Text>
+      </Show>
     </View>
   );
 }

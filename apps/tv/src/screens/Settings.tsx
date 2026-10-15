@@ -227,9 +227,12 @@ export function SettingsScreen() {
         <Match when={id() === 'about'}><AboutPage {...pageProps()} /></Match>
       </Switch>
       </PointerFocusContext.Provider>
-      <Text x={LAYOUT.safeX} y={HINT_Y} fontSize={FONT.small} color={COLORS.muted}>
-        {area() === 'page' ? 'Ok select · Left/Right change · Back menu' : 'Up/Down choose · Ok or Right open · Back leave'}
-      </Text>
+      {/* Pointer mode: the shell's Back button stands on this line instead. */}
+      <Show when={!pointerMode()}>
+        <Text x={LAYOUT.safeX} y={HINT_Y} fontSize={FONT.small} color={COLORS.muted}>
+          {area() === 'page' ? 'Ok select · Left/Right change · Back menu' : 'Up/Down choose · Ok or Right open · Back leave'}
+        </Text>
+      </Show>
 
       <Show when={chooser()}>{(c) => (
         <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} onChoose={(cid) => c().answer(cid)} />
