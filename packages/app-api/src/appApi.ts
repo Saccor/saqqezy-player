@@ -2,12 +2,15 @@ import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
   epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
   type AppSettings, type Channel, type GroupInfo, type Layout, type LayoutOp, type NewSource, type Programme,
-  type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage, type TitleIndexData,
+  type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceService, type Storage, type TitleIndexData,
+  type VodKind, type VodService, type VodSort,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
+import { VodController } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
+  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
+  VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -49,6 +52,8 @@ export interface AppApiDeps {
    * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
    */
   companion?: (api: AppApi, onStatus: (status: CompanionStatus) => void) => CompanionControl;
+  /** Movies and series. Without it, the VOD methods reject with "Movies and series are not available." */
+  vod?: VodService;
 }
 
 export class AppApi {
@@ -100,6 +105,7 @@ export class AppApi {
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
+  private readonly vodc: VodController | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -119,6 +125,9 @@ export class AppApi {
       if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
       deps.emit({ type: 'companion', status });
     });
+    this.vodc = deps.vod
+      ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
+      : undefined;
   }
 
   // ---- lifecycle & sources ----
@@ -450,6 +459,61 @@ export class AppApi {
     return this.run('companionStatus', async () => this.companion?.status() ?? { state: 'idle' });
   }
 
+  // ---- movies & series ----
+
+  getVodHome(kind: VodKind): Promise<VodHome> {
+    return this.run('getVodHome', () => this.vodFor(kind).home(kind));
+  }
+
+  getVodCategories(kind: VodKind): Promise<VodCategoryView[]> {
+    return this.run('getVodCategories', () => this.vodFor(kind).categories(kind));
+  }
+
+  getVodSlice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
+    return this.run('getVodSlice', () => this.vodFor(kind).slice(kind, categoryId, sort, offset, count));
+  }
+
+  getMovie(id: string): Promise<MovieView | undefined> {
+    return this.run('getMovie', () => this.vodOrThrow().movie(id));
+  }
+
+  getSeries(id: string): Promise<SeriesView | undefined> {
+    return this.run('getSeries', () => this.vodOrThrow().series(id));
+  }
+
+  getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
+    return this.run('getVodPlayable', () => this.vodOrThrow().playable(itemId, seriesId));
+  }
+
+  saveVodProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {
+    return this.run('saveVodProgress', () => this.vodOrThrow().saveProgress(itemId, positionMs, durationMs, series));
+  }
+
+  setVodFavourite(itemId: string, on: boolean): Promise<void> {
+    return this.run('setVodFavourite', () => this.vodOrThrow().setFavourite(itemId, on));
+  }
+
+  setVodWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
+    return this.run('setVodWatched', () => this.vodOrThrow().setWatched(itemId, on, series));
+  }
+
+  clearVodProgress(itemId: string): Promise<void> {
+    return this.run('clearVodProgress', () => this.vodOrThrow().clearProgress(itemId));
+  }
+
+  setVodTracks(itemId: string, tracks: VodTracks): Promise<void> {
+    return this.run('setVodTracks', () => this.vodOrThrow().setTracks(itemId, tracks));
+  }
+
+  refreshVod(kind: VodKind): Promise<void> {
+    return this.run('refreshVod', () => this.vodFor(kind).refresh(kind));
+  }
+
+  /** Idle-time warm-up after live playback starts: loads the stored catalogue into memory; never fetches. */
+  preloadVod(kind: VodKind): Promise<void> {
+    return this.run('preloadVod', () => this.vodFor(kind).preload(kind));
+  }
+
   // ---- settings, cache, diagnostics ----
 
   getSettings(): Promise<AppSettings> {
@@ -505,9 +569,21 @@ export class AppApi {
     while (this.queues.size || this.shortJobs.size || this.titleJobs.size) {
       await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
     }
+    await this.vodc?.idle();
   }
 
   // ---- internals ----
+
+  private vodOrThrow(): VodController {
+    if (!this.vodc) throw new Error('Movies and series are not available.');
+    return this.vodc;
+  }
+
+  /** The controller, after checking `kind` (RPC input). */
+  private vodFor(kind: VodKind): VodController {
+    if (kind !== 'movie' && kind !== 'series') throw new Error('Unknown kind of title.');
+    return this.vodOrThrow();
+  }
 
   /** Wraps every public call: records failures (credential-free) and rethrows. */
   private async run<T>(where: string, fn: () => Promise<T>): Promise<T> {
@@ -581,6 +657,7 @@ export class AppApi {
         ? await Promise.all([this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id)])
         : [[], emptyLayout(), undefined];
       this.activeId = id;
+      this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
@@ -1084,6 +1161,8 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
+  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'setVodTracks', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

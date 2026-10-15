@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -25,6 +25,16 @@ const make = (st: MemoryStorage = storage, Svc: typeof SourceService = SourceSer
   const api = new AppApi({ service, storage: st, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3' });
   live.push(api);
   return { api, events };
+};
+
+const makeVod = (st: MemoryStorage = storage) => {
+  const events: AppEvent[] = [];
+  const deps = { storage: st, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+  const service = new SourceService(deps);
+  const vod = new VodService(deps);
+  const api = new AppApi({ service, storage: st, vod, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3' });
+  live.push(api);
+  return { api, events, vod };
 };
 const xt = (username = 'test', password = 'test') =>
   ({ kind: 'xtream' as const, name: 'Fake', server: server.url, username, password });
@@ -1078,5 +1088,45 @@ describe('APP_API_METHODS', () => {
     for (const m of APP_API_METHODS) expect(typeof (AppApi.prototype as unknown as Record<string, unknown>)[m]).toBe('function');
     for (const m of ['idle', 'run', 'record', 'activate', 'constructor']) expect(APP_API_METHODS).not.toContain(m);
     expect(new Set(APP_API_METHODS).size).toBe(APP_API_METHODS.length);
+  });
+});
+
+describe('AppApi VOD', () => {
+  test('without a VodService every VOD call rejects clearly', async () => {
+    const { api } = make();
+    await expect(api.getVodHome('movie')).rejects.toThrow('Movies and series are not available.');
+  });
+
+  test('home loads in the background and is ready after the fetch', async () => {
+    const { api, events } = makeVod();
+    await api.addSource(xt());
+    expect((await api.getVodHome('movie')).status).toBe('loading');
+    await api.idle();
+    expect(events.some((e) => e.type === 'vodRefreshed')).toBe(true);
+    const home = await api.getVodHome('movie');
+    expect(home.status).toBe('ready');
+    const first = home.rows.find((r) => r.items.length)!.items[0]!;
+    expect((await api.getMovie(first.id))?.tile.id).toBe(first.id);
+    expect((await api.getVodPlayable(first.id))?.url).toContain('/movie/');
+  });
+
+  test('switching source resets VOD state', async () => {
+    const { api, vod } = makeVod();
+    const { sourceId: a } = await api.addSource(xt());
+    await api.refreshVod('movie');
+    const { sourceId: b } = await api.addSource({ ...xt(), name: 'Second' });
+    await api.setActiveSource(b);
+    const spy = vi.spyOn(vod, 'storedCatalog');
+    await api.getVodCategories('movie');
+    expect(spy.mock.calls[0]).toEqual([b, 'movie']);
+    await api.setActiveSource(a);
+    await api.preloadVod('movie');
+    expect(spy.mock.calls.at(-1)).toEqual([a, 'movie']);
+  });
+
+  test('an invalid kind is rejected', async () => {
+    const { api } = makeVod();
+    await api.addSource(xt());
+    await expect(api.getVodHome('music' as never)).rejects.toThrow('Unknown kind');
   });
 });
