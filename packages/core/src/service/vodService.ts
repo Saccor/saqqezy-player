@@ -12,7 +12,7 @@ import {
 import type {
   Episode, MovieDetail, SeriesDetail, SeriesPointer, VodItem, VodKind, VodList, VodUserRecord, VodUserState,
 } from '../vod/types.ts';
-import { XtreamClient } from '../xtream/client.ts';
+import { XtreamClient, normalizeServer } from '../xtream/client.ts';
 
 export interface VodServiceDeps {
   storage: Storage;
@@ -65,8 +65,8 @@ export class VodService {
   }
 
   /**
-   * Fetches and stores the catalogue (Xtream). A source removed meanwhile stores nothing; a cancel rejects with
-   * `VodFetchCancelled` and stores nothing.
+   * Fetches and stores the catalogue (Xtream). A source removed or switched to another account (server or user name)
+   * meanwhile, or a cancel, rejects with `VodFetchCancelled` and stores nothing.
    * An empty answer never replaces a non-empty stored catalogue (it rejects with `SourceNetworkError`). One refresh per source and kind at a time.
    */
   refresh(
@@ -79,8 +79,13 @@ export class VodService {
         const list = (await this.storage.getVod(sourceId, kind)) ?? emptyVodList();
         return { count: list.items.length, truncated: list.truncated === true, list };
       }
+      const server = normalizeServer(source.server);
       const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, opts);
-      if (!(await this.source(sourceId))) return { count: 0, truncated: false, list: emptyVodList() };
+      // The account may have been removed or changed during the fetch: this list belongs to the old one.
+      const now = await this.source(sourceId);
+      if (!now || now.kind !== 'xtream' || normalizeServer(now.server) !== server || now.username !== source.username) {
+        throw new VodFetchCancelled();
+      }
       // A 200 with an error body parses to an empty list: keep a good cached catalogue rather than wipe it.
       if (list.items.length === 0 && ((await this.storage.getVod(sourceId, kind))?.items.length ?? 0) > 0) {
         throw new SourceNetworkError('Unexpected response from the provider.');

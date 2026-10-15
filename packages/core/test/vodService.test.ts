@@ -14,12 +14,15 @@ let storage: MemoryStorage;
 let svc: VodService;
 let now = NOW;
 let calls: string[];
+/** When set, the get_vod_streams answer waits for it. */
+let hold: Promise<void> | undefined;
 let api: Record<string, (q: URLSearchParams) => unknown>;
 
 const fetchFn: FetchFn = async (url) => {
   const u = new URL(url);
   const action = u.searchParams.get('action') ?? 'auth';
   calls.push(action + (u.searchParams.get('category_id') ? `:${u.searchParams.get('category_id')}` : ''));
+  if (hold && action === 'get_vod_streams') await hold;
   const h = api[action];
   if (!h) throw new TypeError(`no route ${action}`);
   return json(h(u.searchParams));
@@ -31,6 +34,7 @@ beforeEach(async () => {
   await storage.putSource(ms);
   now = NOW;
   calls = [];
+  hold = undefined;
   api = {
     get_vod_categories: () => [{ category_id: '1', category_name: 'Drama' }, { category_id: '2', category_name: 'Comedy' }],
     get_vod_streams: (q) => [{ stream_id: Number(q.get('category_id')) * 10, name: `Synthetic Film ${q.get('category_id')}`, category_id: q.get('category_id'), container_extension: 'mkv' }],
@@ -115,13 +119,44 @@ describe('VodService catalogues', () => {
     expect(await svc.fetchedAt('x', 'movie')).toBe(0);
   });
 
-  test('a source deleted during the fetch stores nothing', async () => {
+  test('a source deleted during the fetch stores nothing and cancels', async () => {
     api.get_vod_streams = (q) => {
       void storage.deleteSource('x');
       return [{ stream_id: 1, name: 'A', category_id: q.get('category_id') }];
     };
-    expect(await svc.refresh('x', 'movie')).toMatchObject({ count: 0, truncated: false });
+    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(VodFetchCancelled);
     expect(await storage.getVod('x', 'movie')).toBeUndefined();
+  });
+
+  test('an account change during the fetch cancels and stores nothing', async () => {
+    let release!: () => void;
+    hold = new Promise<void>((r) => { release = r; });
+    const running = svc.refresh('x', 'movie');
+    const outcome = running.then(() => 'resolved', (e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 0));
+    await storage.putSource({ ...xs, username: 'other' });
+    release();
+    expect(await outcome).toBeInstanceOf(VodFetchCancelled);
+    expect(await storage.getVod('x', 'movie')).toBeUndefined();
+    expect(await svc.fetchedAt('x', 'movie')).toBe(0);
+  });
+
+  test('a server change during the fetch cancels; a trailing slash alone does not', async () => {
+    await storage.putSource({ ...xs, server: 'http://example.test' });
+    let release!: () => void;
+    hold = new Promise<void>((r) => { release = r; });
+    const same = svc.refresh('x', 'movie').catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 0));
+    await storage.putSource({ ...xs, server: 'http://example.test/' });
+    release();
+    expect(await same).toMatchObject({ count: 2 });
+    await storage.replaceVod('x', 'movie', { items: [], categories: [] });
+    hold = new Promise<void>((r) => { release = r; });
+    const moved = svc.refresh('x', 'movie').then(() => 'resolved', (e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 0));
+    await storage.putSource({ ...xs, server: 'http://other.test' });
+    release();
+    expect(await moved).toBeInstanceOf(VodFetchCancelled);
   });
 });
 

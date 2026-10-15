@@ -106,6 +106,7 @@ export class AppApi {
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
   private readonly vodc: VodController | undefined;
+  private readonly vod: VodService | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -125,6 +126,7 @@ export class AppApi {
       if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
       deps.emit({ type: 'companion', status });
     });
+    this.vod = deps.vod;
     this.vodc = deps.vod
       ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
       : undefined;
@@ -166,6 +168,8 @@ export class AppApi {
 
   updateSource(source: SourceConfig, origin: LayoutOrigin = 'local'): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
+      // The account may change under a running VOD fetch: cancel it before anything is rewritten.
+      if (this.activeId === source.id) this.vodc?.invalidate(source.id);
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
       if (this.activeId === source.id) {
@@ -470,7 +474,11 @@ export class AppApi {
   }
 
   getVodSlice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
-    return this.run('getVodSlice', () => this.vodFor(kind).slice(kind, categoryId, sort, offset, count));
+    return this.run('getVodSlice', async () => {
+      const c = this.vodFor(kind);
+      if (sort !== 'added' && sort !== 'title' && sort !== 'rating') throw new Error('Unknown sort order.');
+      return c.slice(kind, categoryId, sort, offset, count);
+    });
   }
 
   getMovie(id: string): Promise<MovieView | undefined> {
@@ -928,8 +936,28 @@ export class AppApi {
       this.failed('playlist', id, 'refreshPlaylist', err);
     }
     await this.rebuildIndex(id);
+    await this.vodAfterPlaylist(id);
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'playlist', sourceId: id });
+  }
+
+  /**
+   * An M3U playlist refresh re-stores its movie and series lists: the active source's resident catalogue is stale,
+   * so the controller drops it and the TV is told (once per kind that has a stored list).
+   */
+  private async vodAfterPlaylist(id: string): Promise<void> {
+    if (!this.vodc || !this.vod || this.activeId !== id) return;
+    try {
+      const source = (await this.service.listSources()).find((s) => s.id === id);
+      if (source?.kind !== 'm3u' || this.activeId !== id) return;
+      this.vodc.invalidate(id);
+      for (const kind of ['movie', 'series'] as const) {
+        const catalog = await this.vod.storedCatalog(id, kind);
+        if (catalog && this.activeId === id) this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: catalog.size, truncated: catalog.truncated });
+      }
+    } catch (err) {
+      this.record('refreshPlaylist', err);
+    }
   }
 
   private async refreshEpgFor(id: string): Promise<void> {

@@ -52,6 +52,8 @@ export class VodController {
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
+  /** The user-state load in flight (one per epoch; concurrent callers join it). */
+  private userLoad: { epoch: number; p: Promise<Map<string, VodUserState>> } | undefined;
   private readonly jobs = new Map<VodKind, Job>();
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
@@ -71,8 +73,24 @@ export class VodController {
     this.resident = undefined;
     this.loading = undefined;
     this.user = undefined;
+    this.userLoad = undefined;
     this.resetDetails();
     this.sourceId = sourceId;
+    this.epoch++;
+  }
+
+  /**
+   * The active source's stored lists changed under us (an M3U playlist refresh): drops the resident catalogue,
+   * the loading read, details and failures, and aborts fetches. The user's own state is kept.
+   */
+  invalidate(sourceId: string): void {
+    if (this.sourceId !== sourceId) return;
+    for (const job of this.jobs.values()) job.ac.abort();
+    this.jobs.clear();
+    this.failures.clear();
+    this.resident = undefined;
+    this.loading = undefined;
+    this.resetDetails();
     this.epoch++;
   }
 
@@ -209,16 +227,18 @@ export class VodController {
       const item = (await this.catalog('movie'))?.byId(itemId);
       if (!item || this.epoch !== epoch) return undefined;
       const url = await this.vod.streamUrl(src, item);
+      if (this.epoch !== epoch) return undefined;
       return { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
     }
     const show = (await this.catalog('series'))?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
-    const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show));
-    if (this.epoch !== epoch) return undefined;
-    if (!detail) throw new Error('This series could not be loaded. Try again.');
+    // A failure is recorded once, here, and that same Error is rethrown (AppApi does not record it again).
+    const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show), true);
+    if (this.epoch !== epoch || !detail) return undefined;
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
     if (!ep) return undefined;
     const url = await this.vod.streamUrl(src, ep);
+    if (this.epoch !== epoch) return undefined;
     const next = nextEpisode(detail.seasons, itemId);
     const series: SeriesPointer = { id: seriesId, season: ep.season, episode: ep.episode };
     if (next) series.next = { id: next.id, season: next.season, episode: next.episode };
@@ -299,9 +319,18 @@ export class VodController {
     const id = this.sourceId;
     if (!id) return new Map();
     const epoch = this.epoch;
-    const map = new Map((await this.vod.listUser(id)).map((r) => [r.itemId, r.state]));
-    if (this.epoch === epoch) this.user = map;
-    return map;
+    if (this.userLoad?.epoch === epoch) return this.userLoad.p;
+    const p: Promise<Map<string, VodUserState>> = this.vod.listUser(id).then((records) => {
+      const map = new Map(records.map((r) => [r.itemId, r.state]));
+      // Installed only if nothing else did meanwhile; every caller of this epoch gets the installed map.
+      if (this.epoch !== epoch) return map;
+      this.user ??= map;
+      return this.user;
+    }).finally(() => {
+      if (this.userLoad?.p === p) this.userLoad = undefined;
+    });
+    this.userLoad = { epoch, p };
+    return p;
   }
 
   /** Needs `userMap()` to have run (every public caller awaits `records()` or `userMap()` first). */
@@ -319,8 +348,8 @@ export class VodController {
     this.details.clear();
   }
 
-  /** Cached detail (most recently used first out); a failure is recorded, returns null and is not cached. */
-  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, where: string, load: () => Promise<T>): Promise<T | null> {
+  /** Cached detail (most recently used first out); a failure is recorded and not cached: returns null, or with `rethrow` throws the recorded Error. */
+  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, where: string, load: () => Promise<T>, rethrow = false): Promise<T | null> {
     const hit = this.details.get(item.id);
     if (hit) {
       this.details.delete(item.id);
@@ -336,7 +365,8 @@ export class VodController {
       }
       return d;
     } catch (err) {
-      this.record(where, err);
+      const out = this.record(where, err);
+      if (rethrow) throw out;
       return null;
     }
   }

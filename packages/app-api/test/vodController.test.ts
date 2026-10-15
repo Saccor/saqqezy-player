@@ -426,8 +426,8 @@ describe('VodController detail failures', () => {
   test('playable for an episode whose series detail fails: rejects, recorded, nothing cached', async () => {
     const { c, fake, recorded } = detailFake(0, 2);
     fake.seriesDetail.mockRejectedValueOnce(new Error('detail failed'));
-    await expect(c.playable(epId(showId(1), 1), showId(1))).rejects.toThrow('This series could not be loaded. Try again.');
-    expect(recorded).toContain('getVodPlayable');
+    await expect(c.playable(epId(showId(1), 1), showId(1))).rejects.toThrow('detail failed');
+    expect(recorded).toEqual(['getVodPlayable']);
     expect((await c.playable(epId(showId(1), 1), showId(1)))?.kind).toBe('episode');
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
   });
@@ -611,3 +611,103 @@ function writeFake() {
   });
   return { c: base.c, fake, users: base.users };
 }
+
+describe('VodController invalidate', () => {
+  test('drops the resident catalogue and details, keeps the user map, aborts jobs', async () => {
+    const { c, fake, users } = detailFake(2);
+    users.push({ itemId: movieId(1), state: userState({ favourite: true, updatedAt: 1 }) });
+    await c.home('movie');
+    await c.movie(movieId(1));
+    expect(fake.storedCatalog).toHaveBeenCalledTimes(1);
+    expect(fake.listUser).toHaveBeenCalledTimes(1);
+    expect(fake.movieDetail).toHaveBeenCalledTimes(1);
+    c.invalidate('src');
+    await c.movie(movieId(1));
+    expect(fake.storedCatalog).toHaveBeenCalledTimes(2);
+    expect(fake.movieDetail).toHaveBeenCalledTimes(2);
+    expect(fake.listUser).toHaveBeenCalledTimes(1);
+    expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(1);
+  });
+
+  test('another source id changes nothing', async () => {
+    const { c, fake } = detailFake(2);
+    await c.home('movie');
+    c.invalidate('other');
+    await c.home('movie');
+    expect(fake.storedCatalog).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('VodController user map load', () => {
+  test('a write that joins a slow first load is not lost when the load finishes', async () => {
+    const { c, fake } = writeFake();
+    const first = deferred<VodUserRecord[]>();
+    fake.listUser.mockImplementationOnce(() => first.promise);
+    const home = c.home('movie');
+    await new Promise((r) => setTimeout(r, 0));
+    const write = c.setFavourite(movieId(1), true);
+    await new Promise((r) => setTimeout(r, 0));
+    first.resolve([]);
+    await Promise.all([home, write]);
+    expect(fake.listUser).toHaveBeenCalledTimes(1);
+    const again = await c.home('movie');
+    expect(again.rows[0]!.id).toBe(VOD_ROW_FAVOURITES);
+    expect(again.rows[0]!.items[0]).toMatchObject({ id: movieId(1), favourite: true });
+  });
+
+  test('reset drops an in-flight load: the next source loads its own', async () => {
+    const { c, fake } = writeFake();
+    const first = deferred<VodUserRecord[]>();
+    fake.listUser.mockImplementationOnce(() => first.promise);
+    const home = c.home('movie');
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset('src2');
+    first.resolve([{ itemId: movieId(1), state: userState({ favourite: true, updatedAt: 1 }) }]);
+    await home;
+    expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(0);
+    expect(fake.listUser).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VodController playable vs reset', () => {
+  test('a reset while the movie stream URL resolves: undefined', async () => {
+    const { c, fake } = detailFake(1);
+    const gate = deferred<string>();
+    fake.streamUrl.mockImplementationOnce(() => gate.promise);
+    const p = c.playable(movieId(1));
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset('src2');
+    gate.resolve('https://media.invalid/x');
+    expect(await p).toBeUndefined();
+  });
+
+  test('a reset while an episode stream URL resolves: undefined', async () => {
+    const { c, fake } = detailFake(0, 1);
+    const gate = deferred<string>();
+    fake.streamUrl.mockImplementationOnce(() => gate.promise);
+    const p = c.playable(epId(showId(1), 1), showId(1));
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset('src2');
+    gate.resolve('https://media.invalid/x');
+    expect(await p).toBeUndefined();
+  });
+});
+
+describe('VodController stale refresh failure', () => {
+  test('a stored catalogue whose background refresh fails stays ready, one failure event, no retry', async () => {
+    const { c, fake, calls, events } = fakeController();
+    fake.storedCatalog = async () => new VodCatalog('movie', listOf('movie', 1, 2));
+    fake.needsRefresh = async () => true;
+    fake.refresh = async () => { calls.refresh++; throw new Error('fetch failed'); };
+    const first = await c.home('movie');
+    expect(first.status).toBe('ready');
+    expect(first.rows.length).toBeGreaterThan(0);
+    await c.idle();
+    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodRefreshFailed']);
+    const second = await c.home('movie');
+    expect(second.status).toBe('ready');
+    await c.idle();
+    expect(calls.refresh).toBe(1);
+    expect(events).toHaveLength(2);
+  });
+});

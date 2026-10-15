@@ -27,9 +27,9 @@ const make = (st: MemoryStorage = storage, Svc: typeof SourceService = SourceSer
   return { api, events };
 };
 
-const makeVod = (st: MemoryStorage = storage) => {
+const makeVod = (st: MemoryStorage = storage, fetchFn: FetchFn = (u, i) => fetch(u, i)) => {
   const events: AppEvent[] = [];
-  const deps = { storage: st, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+  const deps = { storage: st, fetch: fetchFn, now: () => NOW };
   const service = new SourceService(deps);
   const vod = new VodService(deps);
   const api = new AppApi({ service, storage: st, vod, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3' });
@@ -1122,6 +1122,97 @@ describe('AppApi VOD', () => {
     await api.setActiveSource(a);
     await api.preloadVod('movie');
     expect(spy.mock.calls.at(-1)).toEqual([a, 'movie']);
+  });
+
+  test('an unknown sort order is rejected', async () => {
+    const { api } = makeVod();
+    await api.addSource(xt());
+    await expect(api.getVodSlice('movie', 'all', 'bogus' as never, 0, 10)).rejects.toThrow('Unknown sort order.');
+    for (const sort of ['added', 'title', 'rating'] as const) await expect(api.getVodSlice('movie', 'all', sort, 0, 1)).resolves.toBeDefined();
+  });
+
+  test('deleting the active source resets VOD state to the next one', async () => {
+    const { api, vod } = makeVod();
+    const { sourceId: a } = await api.addSource(xt());
+    const { sourceId: b } = await api.addSource({ ...xt(), name: 'Second' });
+    await api.refreshVod('movie');
+    await api.deleteSource(a);
+    const spy = vi.spyOn(vod, 'storedCatalog');
+    await api.getVodCategories('movie');
+    expect(spy.mock.calls[0]).toEqual([b, 'movie']);
+  });
+
+  test('updating the active source resets VOD state (the catalogue is read again)', async () => {
+    const { api, vod } = makeVod();
+    const { sourceId: a } = await api.addSource(xt());
+    await api.refreshVod('movie');
+    const spy = vi.spyOn(vod, 'storedCatalog');
+    await api.getVodCategories('movie');
+    expect(spy).toHaveBeenCalledTimes(0);
+    await api.updateSource({ ...(await api.getSource(a))!, name: 'Renamed' });
+    await api.getVodCategories('movie');
+    expect(spy.mock.calls[0]).toEqual([a, 'movie']);
+  });
+
+  test('updating the active source cancels its in-flight VOD fetch before the source is rewritten', async () => {
+    const hold = gate();
+    let holding = false;
+    let heldStreams = 0;
+    const fetchFn: FetchFn = async (u, i) => {
+      if (holding && /action=get_vod_streams/.test(u)) { heldStreams++; await hold.p; }
+      // The rewrite's own requests start while the VOD fetch waits: let the VOD fetch finish during them.
+      else if (holding && heldStreams > 0 && !/action=get_(vod|series)/.test(u)) {
+        hold.open();
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      return fetch(u, i);
+    };
+    const { api, events } = makeVod(storage, fetchFn);
+    const { sourceId: a } = await api.addSource(xt());
+    holding = true;
+    expect((await api.getVodHome('movie')).status).toBe('loading');
+    await vi.waitFor(() => expect(heldStreams).toBeGreaterThan(0));
+    await api.updateSource({ ...(await api.getSource(a))!, name: 'Renamed' });
+    hold.open();
+    await api.idle();
+    expect(events.some((e) => e.type === 'vodRefreshed')).toBe(false);
+    expect(await storage.getVod(a, 'movie')).toBeUndefined();
+  });
+
+  test('an episode whose series detail fails is recorded once', async () => {
+    let failInfo = false;
+    const fetchFn: FetchFn = async (u, i) => {
+      if (failInfo && /action=get_series_info/.test(u)) throw new TypeError('fetch failed');
+      return fetch(u, i);
+    };
+    const { api } = makeVod(storage, fetchFn);
+    await api.addSource(xt());
+    await api.refreshVod('series');
+    const show = (await api.getVodSlice('series', 'all', 'title', 0, 1)).rows[0]!;
+    failInfo = true;
+    await expect(api.getVodPlayable(`${show.id}:e1`, show.id)).rejects.toBeInstanceOf(Error);
+    const mine = (await api.diagnostics()).lastErrors.filter((e) => e.where === 'getVodPlayable' || e.where === 'refreshVod');
+    expect(mine.map((e) => e.where)).toEqual(['getVodPlayable']);
+  });
+
+  test('M3U: a playlist refresh reloads the catalogue and announces both kinds', async () => {
+    const { api, events, vod } = makeVod();
+    await api.addSource({ kind: 'm3u', name: 'Fake M3U', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    expect((await api.getVodHome('movie')).status).toBe('ready');
+    await api.idle();
+    events.length = 0;
+    const spy = vi.spyOn(vod, 'storedCatalog');
+    await api.refresh('playlist');
+    const refreshed = events.filter((e) => e.type === 'vodRefreshed');
+    expect(refreshed.map((e) => (e as { kind: string }).kind).sort()).toEqual(['movie', 'series']);
+    expect(refreshed[0]).toMatchObject({ truncated: false });
+    expect((refreshed.find((e) => (e as { kind: string }).kind === 'movie') as { count: number }).count).toBeGreaterThan(0);
+    const before = spy.mock.calls.length;
+    expect((await api.getVodHome('movie')).status).toBe('ready');
+    expect(spy.mock.calls.length).toBe(before + 1);
+    expect(spy.mock.calls.at(-1)![1]).toBe('movie');
+    await api.getVodHome('movie');
+    expect(spy.mock.calls.length).toBe(before + 1);
   });
 
   test('an invalid kind is rejected', async () => {
