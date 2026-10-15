@@ -15,7 +15,7 @@ import { scrimTexture } from '../vod/scrim.ts';
 import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
 import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, remaining, trackKey, trackRows,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, remaining, trackKey, trackRows, tracksDue,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
@@ -84,6 +84,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let nextBusy = false;
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
+  /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
+  let tracksAppliedAt: number | undefined;
+  /**
+   * Playhead saves wait until the start seek landed (or the user seeked or paused): an engine that dropped the start
+   * seek plays from 0, and saving that would overwrite the resume point. A start at 0 is armed at once.
+   */
+  let saveArmed = progressSaveArmed(false, startMs, undefined);
 
   const status = () => playback.status();
   const failed = () => {
@@ -111,10 +118,17 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // ---- progress ----
 
-  /** Saves `atMs` (default: the trusted playhead) when the duration is known. Never after unmount. */
+  /**
+   * Saves `atMs` (default: the trusted playhead, once saves are armed) when the duration is known. Never after
+   * unmount.
+   */
   const save = (atMs?: number) => {
     if (!alive) return;
     const d = knownDuration(trustedDur(), p.durationMs);
+    if (atMs === undefined) {
+      saveArmed = progressSaveArmed(saveArmed, startMs, trustedPos());
+      if (!saveArmed) return;
+    }
     const at = atMs ?? trustedPos();
     if (d === undefined || at === undefined || !Number.isFinite(at)) return;
     api.saveVodProgress(p.itemId, Math.max(0, Math.min(at, d)), d, p.series).catch((err) => console.warn('Progress save failed', errName(err)));
@@ -149,6 +163,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       playback.resume();
     } else {
       playback.pause();
+      saveArmed = true; // the user paused here: this is where they are
       save();
     }
     setPaused(playback.paused());
@@ -166,6 +181,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const m = marker();
     setMarker(undefined);
     if (!m || !alive) return;
+    saveArmed = true; // the user chose this position
     playback.seek(m.targetMs);
     setPos(m.targetMs);
     lastPos = m.targetMs;
@@ -191,6 +207,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   // ---- tracks ----
 
   const applyTracks = () => {
+    tracksAppliedAt = playback.startedAttempts();
     const a = findTrack(playback.audioTracks(), chosen.audio);
     if (a && !a.active) playback.selectAudioTrack(a.id);
     const texts = playback.textTracks();
@@ -379,7 +396,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // ---- reactions ----
 
-  // Every (re)start: re-apply the remembered tracks.
+  // A (re)start that reaches 'playing': re-apply the remembered tracks at once (the tick catches a quick reopen).
   createEffect(on(() => status()?.kind, (kind) => {
     if (kind === 'playing') applyTracks();
   }));
@@ -426,11 +443,23 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       }
       setDur(knownDuration(trustedDur(), p.durationMs));
       setPaused(playback.paused());
+      // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
+      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), status()?.kind === 'playing')) applyTracks();
+      // Arm progress saves as soon as the start seek has landed.
+      if (!saveArmed) saveArmed = progressSaveArmed(false, startMs, trustedPos());
     }, TICK_MS);
     const saver = setInterval(() => {
       if (status()?.kind === 'playing' && !playback.paused()) save();
     }, PROGRESS_SAVE_MS);
-    const onVisibility = () => { if (document.hidden) save(); };
+    // Hidden: save and pause; visible again stays paused until the user presses Ok.
+    const onVisibility = () => {
+      if (!document.hidden) return;
+      save();
+      if (pauseOnHidden({ hidden: true, paused: playback.paused(), problem: failed() !== undefined || ended() })) {
+        playback.pause();
+        setPaused(playback.paused());
+      }
+    };
     document.addEventListener('visibilitychange', onVisibility);
     // A released Left/Right ends the hold run (the next press steps 10 s again).
     const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Left' || e.key === 'Right') hold = undefined; };

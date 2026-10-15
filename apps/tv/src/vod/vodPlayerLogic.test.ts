@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -141,5 +141,43 @@ describe('titleLengthMs', () => {
     expect(titleLengthMs(0, undefined, 91)).toBe(5_460_000);
     expect(titleLengthMs(60_000, 0, 0)).toBe(0);
     expect(titleLengthMs(0, undefined, undefined)).toBe(0);
+  });
+});
+
+describe('progressSaveArmed', () => {
+  it('is armed at once for a start at 0 (Play from start or no resume point)', () => {
+    expect(progressSaveArmed(false, 0, undefined)).toBe(true);
+    expect(progressSaveArmed(false, 0, 0)).toBe(true);
+  });
+  it('waits until the playhead comes within 5 s of the start position', () => {
+    expect(progressSaveArmed(false, 600_000, undefined)).toBe(false);
+    expect(progressSaveArmed(false, 600_000, 0)).toBe(false); // the start seek did not land: plays from 0
+    expect(progressSaveArmed(false, 600_000, 30_000)).toBe(false);
+    expect(progressSaveArmed(false, 600_000, Number.NaN)).toBe(false);
+    expect(progressSaveArmed(false, 600_000, 594_999)).toBe(false);
+    expect(progressSaveArmed(false, 600_000, 595_000)).toBe(true);
+    expect(progressSaveArmed(false, 600_000, 610_000)).toBe(true);
+  });
+  it('stays armed once armed (later saves follow the playhead anywhere)', () => {
+    expect(progressSaveArmed(true, 600_000, 0)).toBe(true);
+  });
+});
+
+describe('pauseOnHidden', () => {
+  it('pauses a playing title when the page hides, nothing else', () => {
+    expect(pauseOnHidden({ hidden: true, paused: false, problem: false })).toBe(true);
+    expect(pauseOnHidden({ hidden: false, paused: false, problem: false })).toBe(false); // visible again: no auto-resume
+    expect(pauseOnHidden({ hidden: true, paused: true, problem: false })).toBe(false);
+    expect(pauseOnHidden({ hidden: true, paused: false, problem: true })).toBe(false); // ended or failed
+  });
+});
+
+describe('tracksDue', () => {
+  it('re-applies the remembered tracks once per engine attempt that plays', () => {
+    expect(tracksDue(undefined, 0, true)).toBe(false); // nothing started yet
+    expect(tracksDue(undefined, 1, false)).toBe(false);
+    expect(tracksDue(undefined, 1, true)).toBe(true);
+    expect(tracksDue(1, 1, true)).toBe(false); // applied for this attempt: no loop
+    expect(tracksDue(1, 2, true)).toBe(true); // a quick reopen without 'reconnecting'
   });
 });

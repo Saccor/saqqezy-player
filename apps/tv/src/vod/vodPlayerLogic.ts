@@ -41,7 +41,6 @@ export function minutesLeft(positionMs: number, durationMs: number): string {
   return `${Math.max(1, Math.round((durationMs - positionMs) / 60_000))} min left`;
 }
 
-/** A usable duration: the engine's when finite and > 0, else the playable's, else undefined (unknown). */
 /**
  * A title's length for "N min left": the length measured while playing (the saved position over the saved fraction)
  * wins over the catalogue runtime, which providers often get wrong. 0 when neither is known.
@@ -51,6 +50,7 @@ export function titleLengthMs(resumeMs: number, progress: number | undefined, ru
   return runtimeMin && runtimeMin > 0 ? runtimeMin * 60_000 : 0;
 }
 
+/** A usable duration: the engine's when finite and > 0, else the playable's, else undefined (unknown). */
 export function knownDuration(engineMs: number | undefined, fallbackMs: number | undefined): number | undefined {
   const ok = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v) && v > 0;
   if (ok(engineMs)) return engineMs;
@@ -109,4 +109,30 @@ export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[
 /** The next-episode card: "Next: S2 · E5 · Title in 7 s". */
 export function nextCardText(label: string, secondsLeft: number): string {
   return `Next: ${label} in ${secondsLeft} s`;
+}
+
+/** How close the playhead must come to the start position before the start counts as landed. */
+export const START_LANDED_MS = 5000;
+
+/**
+ * Progress saves are armed (latching) once the start seek landed: the playhead came within START_LANDED_MS of
+ * `startMs`. A start at 0 arms at once. Until then a save would overwrite the saved resume point with a playhead that
+ * plays from 0 (an engine that dropped the start seek). The screen also arms on a user seek or pause.
+ */
+export function progressSaveArmed(armed: boolean, startMs: number, posMs: number | undefined): boolean {
+  if (armed || startMs <= 0) return true;
+  return posMs !== undefined && Number.isFinite(posMs) && posMs >= startMs - START_LANDED_MS;
+}
+
+/** The page hid: pause a title that plays (ended or failed: nothing to pause). Visible again never resumes by itself. */
+export function pauseOnHidden(s: { hidden: boolean; paused: boolean; problem: boolean }): boolean {
+  return s.hidden && !s.paused && !s.problem;
+}
+
+/**
+ * The remembered tracks are due when an engine attempt plays that they were not applied to yet (`appliedAt`: the
+ * `startedAttempts` value they were last applied for). Once per attempt, so applying never loops.
+ */
+export function tracksDue(appliedAt: number | undefined, startedAttempts: number, playing: boolean): boolean {
+  return playing && startedAttempts > 0 && startedAttempts !== appliedAt;
 }
