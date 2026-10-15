@@ -903,9 +903,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onLeft={() => nav('bar', 'left')}
         onBack={onBack} onType={(t) => setBarText(query() + t)} />
 
-      <GroupList ref={(el) => { groupNode = el; }} x={GROUP_X} y={BODY_Y} width={GROUP_W} height={LIST_H}
-        groups={column().rows} selected={column().selected} onSelect={onGroupSelect} onRight={() => focusArea('list')}
-        onEdgeUp={() => nav('groups', 'up', true)} />
+      {/* Hidden (not unmounted) under the compact keyboard: `groupNode` stays valid for focus after it closes. */}
+      <View width={LAYOUT.width} height={LAYOUT.height} alpha={kbOpen() ? 0 : 1}>
+        <GroupList ref={(el) => { groupNode = el; }} x={GROUP_X} y={BODY_Y} width={GROUP_W} height={LIST_H}
+          groups={column().rows} selected={column().selected} onSelect={onGroupSelect} onRight={() => focusArea('list')}
+          onEdgeUp={() => nav('groups', 'up', true)} />
+      </View>
 
       <Show when={!searching()}>
         <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
