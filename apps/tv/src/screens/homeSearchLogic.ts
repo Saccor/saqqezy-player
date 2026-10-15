@@ -1,8 +1,9 @@
 // apps/tv/src/screens/homeSearchLogic.ts
 /**
- * Pure model of Home's search bar (unit-tested): search mode and what it saves and restores, Ok on a result and
- * the groups column while searching. `Home.tsx` only wires it.
+ * Pure model of Home's search bar (unit-tested): search mode and what it saves and restores, Ok on a result, the
+ * groups column while searching, focus routing and hardware typing. `Home.tsx` only wires it.
  */
+import { applyKey, textEntryKey, type TextKey } from '../components/keyboardLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import type { GroupLite } from './homeLogic.ts';
 import type { SearchRow } from './searchLogic.ts';
@@ -120,4 +121,86 @@ export function groupColumn(groups: readonly GroupLite[], searching: boolean, re
 export function groupChoice(index: number, searching: boolean): number | undefined {
   if (!searching) return index;
   return index === 0 ? undefined : index - 1;
+}
+
+/** Where key focus is on Home. `list` is the channel list while browsing and the results while searching. */
+export type Place = 'groups' | 'list' | 'bar' | 'keyboard';
+export type NavKey = 'up' | 'down' | 'left' | 'right' | 'back' | 'done';
+
+export interface NavContext {
+  searching: boolean;
+  /** The compact keyboard is open (over the groups column). */
+  keyboardOpen: boolean;
+  /** At least one result row is selectable. */
+  hasResults: boolean;
+  /** The open group has channels (browse mode). */
+  hasChannels: boolean;
+  /** The key hits an edge: the first row (list), the first group (groups), the top row or right end (keyboard). */
+  atEdge: boolean;
+}
+
+/** `focus`: move there. `exit`: leave search mode, then focus. `stay`: handled, no move. `pass`: run the usual handler. */
+export type NavResult =
+  | { kind: 'focus'; place: Place }
+  | { kind: 'exit'; focus: Place }
+  | { kind: 'stay' }
+  | { kind: 'pass' };
+
+const focusTo = (place: Place): NavResult => ({ kind: 'focus', place });
+const STAY: NavResult = { kind: 'stay' };
+const PASS: NavResult = { kind: 'pass' };
+const EXIT: NavResult = { kind: 'exit', focus: 'list' };
+
+/** Focus routing between the bar, the compact keyboard, the list (or results) and the groups column. */
+export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
+  const results = c.hasResults ? focusTo('list') : STAY;
+  switch (place) {
+    case 'bar':
+      if (key === 'down') return c.searching ? results : c.hasChannels ? focusTo('list') : STAY;
+      if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
+      if (key === 'back') return c.searching ? EXIT : PASS;
+      return STAY;
+    case 'list':
+      if (key === 'up' && c.atEdge) return focusTo('bar');
+      if (!c.searching) return PASS;
+      if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
+      if (key === 'back' && !c.keyboardOpen) return EXIT;
+      return PASS;
+    case 'groups':
+      if (key === 'up' && c.atEdge) return focusTo('bar');
+      if (c.searching && key === 'back') return c.hasResults ? focusTo('list') : EXIT;
+      return PASS;
+    case 'keyboard':
+      if (key === 'up' && c.atEdge) return focusTo('bar');
+      if (key === 'right' && c.atEdge) return results;
+      if (key === 'done') return c.hasResults ? focusTo('list') : focusTo('bar');
+      return PASS;
+  }
+}
+
+export interface TypingContext {
+  /** A Home layer or a shell dialog is open (a toast does not count). */
+  overlayOpen: boolean;
+  barFocused: boolean;
+  query: string;
+}
+
+const isLetter = (ch: string) => ch.toLowerCase() !== ch.toUpperCase();
+
+/**
+ * A hardware key on Home (keyboard closed) that types into the bar. Letters start a query from anywhere. Digits,
+ * space and symbols type only while the bar has focus, so digits keep their remote meaning elsewhere. Backspace
+ * deletes only while the bar has focus and text, otherwise it stays Back. Nothing types while an overlay is open.
+ */
+export function typingKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }, c: TypingContext): TextKey | undefined {
+  if (c.overlayOpen) return undefined;
+  const k = textEntryKey(e);
+  if (!k) return undefined;
+  if (k.kind === 'backspace') return c.barFocused && c.query !== '' ? k : undefined;
+  return c.barFocused || isLetter(k.ch) ? k : undefined;
+}
+
+/** The bar text after a typed key (characters are written as typed; the length cap is the keyboard's). */
+export function typedQuery(query: string, k: TextKey): string {
+  return applyKey({ value: query, shift: false }, k.kind === 'char' ? { kind: 'text', text: k.ch } : { kind: 'backspace' }).value;
 }

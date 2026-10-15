@@ -5,7 +5,7 @@ import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
   BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
   groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
-  userNavigated, type BrowsePosition,
+  userNavigated, routeKey, typedQuery, typingKey, type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
 import { nextFocus, type SearchRow } from './searchLogic.ts';
 
@@ -152,5 +152,122 @@ describe('groups column', () => {
     expect(groupChoice(0, true)).toBeUndefined();
     expect(groupChoice(1, true)).toBe(0);
     expect(groupChoice(3, true)).toBe(2);
+  });
+});
+
+const ctx = (over: Partial<NavContext> = {}): NavContext =>
+  ({ searching: false, keyboardOpen: false, hasResults: false, hasChannels: true, atEdge: false, ...over });
+const toBar = { kind: 'focus', place: 'bar' };
+const toList = { kind: 'focus', place: 'list' };
+const STAY = { kind: 'stay' };
+const PASS = { kind: 'pass' };
+
+describe('routeKey', () => {
+  it('Up from the first channel row, the first result or the first group goes to the bar', () => {
+    expect(routeKey('list', 'up', ctx({ atEdge: true }))).toEqual(toBar);
+    expect(routeKey('list', 'up', ctx({ atEdge: true, searching: true, hasResults: true }))).toEqual(toBar);
+    expect(routeKey('groups', 'up', ctx({ atEdge: true }))).toEqual(toBar);
+    expect(routeKey('groups', 'up', ctx({ atEdge: true, searching: true }))).toEqual(toBar);
+  });
+
+  it('Up elsewhere in the list or the groups keeps its usual move', () => {
+    expect(routeKey('list', 'up', ctx())).toEqual(PASS);
+    expect(routeKey('groups', 'up', ctx())).toEqual(PASS);
+    expect(routeKey('list', 'down', ctx({ searching: true, hasResults: true }))).toEqual(PASS);
+  });
+
+  it('bar: Down goes to the results while searching, else to the channel list', () => {
+    expect(routeKey('bar', 'down', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('bar', 'down', ctx({ searching: true, hasResults: false }))).toEqual(STAY);
+    expect(routeKey('bar', 'down', ctx())).toEqual(toList);
+    expect(routeKey('bar', 'down', ctx({ hasChannels: false }))).toEqual(STAY);
+  });
+
+  it('bar: Left goes to the groups, or to the keyboard while it is open', () => {
+    expect(routeKey('bar', 'left', ctx())).toEqual({ kind: 'focus', place: 'groups' });
+    expect(routeKey('bar', 'left', ctx({ searching: true, keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
+  });
+
+  it('bar: Back ends search mode; with no query it is Home Back as today', () => {
+    expect(routeKey('bar', 'back', ctx({ searching: true }))).toEqual({ kind: 'exit', focus: 'list' });
+    expect(routeKey('bar', 'back', ctx())).toEqual(PASS);
+  });
+
+  it('bar: Up and Right stay', () => {
+    expect(routeKey('bar', 'up', ctx())).toEqual(STAY);
+    expect(routeKey('bar', 'right', ctx({ searching: true }))).toEqual(STAY);
+  });
+
+  it('results: Left goes to the keyboard when it is open, else to the groups', () => {
+    expect(routeKey('list', 'left', ctx({ searching: true, keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
+    expect(routeKey('list', 'left', ctx({ searching: true }))).toEqual({ kind: 'focus', place: 'groups' });
+    expect(routeKey('list', 'left', ctx())).toEqual(PASS);
+  });
+
+  it('results: Back ends search mode once the keyboard is closed', () => {
+    expect(routeKey('list', 'back', ctx({ searching: true }))).toEqual({ kind: 'exit', focus: 'list' });
+    expect(routeKey('list', 'back', ctx({ searching: true, keyboardOpen: true }))).toEqual(PASS);
+    expect(routeKey('list', 'back', ctx())).toEqual(PASS);
+  });
+
+  it('groups: Back while searching goes to the results, or ends search when there are none', () => {
+    expect(routeKey('groups', 'back', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('groups', 'back', ctx({ searching: true }))).toEqual({ kind: 'exit', focus: 'list' });
+    expect(routeKey('groups', 'back', ctx())).toEqual(PASS);
+  });
+
+  it('keyboard: Right at the edge goes to the results (when any), Up at the top row to the bar', () => {
+    expect(routeKey('keyboard', 'right', ctx({ searching: true, hasResults: true, atEdge: true }))).toEqual(toList);
+    expect(routeKey('keyboard', 'right', ctx({ atEdge: true }))).toEqual(STAY);
+    expect(routeKey('keyboard', 'right', ctx({ hasResults: true }))).toEqual(PASS);
+    expect(routeKey('keyboard', 'up', ctx({ atEdge: true }))).toEqual(toBar);
+    expect(routeKey('keyboard', 'up', ctx())).toEqual(PASS);
+  });
+
+  it('keyboard: Done goes to the results, or to the bar when there are none', () => {
+    expect(routeKey('keyboard', 'done', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('keyboard', 'done', ctx({ searching: true }))).toEqual(toBar);
+    expect(routeKey('keyboard', 'done', ctx())).toEqual(toBar);
+  });
+});
+
+describe('typingKey (hardware keys on Home)', () => {
+  const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) =>
+    ({ key: k, ctrlKey: false, metaKey: false, altKey: false, ...mods });
+  const away = { overlayOpen: false, barFocused: false, query: '' };
+  const inBar = { overlayOpen: false, barFocused: true, query: 'ab' };
+
+  it('letters start a query from anywhere on Home, m and i included', () => {
+    for (const k of ['a', 'Z', 'm', 'i', 'å']) expect(typingKey(key(k), away)).toEqual({ kind: 'char', ch: k });
+  });
+
+  it('digits, space and symbols type only while the bar has focus (digits keep their remote meaning)', () => {
+    for (const k of ['5', ' ', '-', '@']) {
+      expect(typingKey(key(k), away)).toBeUndefined();
+      expect(typingKey(key(k), inBar)).toEqual({ kind: 'char', ch: k });
+    }
+  });
+
+  it('Backspace deletes only in the bar with text; otherwise it stays Back', () => {
+    expect(typingKey(key('Backspace'), inBar)).toEqual({ kind: 'backspace' });
+    expect(typingKey(key('Backspace'), { ...inBar, query: '' })).toBeUndefined();
+    expect(typingKey(key('Backspace'), { ...away, query: 'ab' })).toBeUndefined();
+  });
+
+  it('nothing types while an overlay is open', () => {
+    expect(typingKey(key('a'), { ...away, overlayOpen: true })).toBeUndefined();
+    expect(typingKey(key('5'), { ...inBar, overlayOpen: true })).toBeUndefined();
+    expect(typingKey(key('Backspace'), { ...inBar, overlayOpen: true })).toBeUndefined();
+  });
+
+  it('navigation keys and shortcuts are never typed', () => {
+    for (const k of ['ArrowUp', 'Enter', 'Escape', 'F3']) expect(typingKey(key(k), inBar)).toBeUndefined();
+    expect(typingKey(key('v', { ctrlKey: true }), inBar)).toBeUndefined();
+  });
+
+  it('typedQuery appends a character or deletes the last one', () => {
+    expect(typedQuery('ab', { kind: 'char', ch: 'c' })).toBe('abc');
+    expect(typedQuery('ab', { kind: 'backspace' })).toBe('a');
+    expect(typedQuery('', { kind: 'backspace' })).toBe('');
   });
 });
