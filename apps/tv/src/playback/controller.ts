@@ -12,7 +12,8 @@ export interface PlaybackController {
   /**
    * The source just entered its refusal cooldown: a stream that is not playing (loading, reconnecting, or refused) is
    * stopped, so no retry reaches the source, while one that plays keeps playing. The channel stays current and is
-   * held: `resumeHeld` (or the next `playChannel`) opens it once the cooldown allows it.
+   * held: `resumeHeld` (or the next `playChannel`) opens it once the cooldown allows it. A VOD title that ended or
+   * failed is left alone: nothing is loading, and its next-episode or error card stays.
    */
   holdForCooldown(): void;
   /** The cooldown ended (a wait ran out, or Retry): opens the channel it held back, if any. */
@@ -31,6 +32,8 @@ export interface PlaybackController {
   /** As `positionMs`: undefined unless the current VOD title was opened. */
   durationMs(): number | undefined;
   paused(): boolean;
+  /** Attempts that reached their first frame (never reset): a new value means a new engine attempt is playing. */
+  startedAttempts(): number;
   /** Subtitle cues from engines that cannot draw them; returns the unsubscribe function. */
   onSubtitle(fn: (text: string | null) => void): () => void;
   audioTracks(): TrackInfo[];
@@ -83,7 +86,7 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  */
 export function createPlaybackController(
   player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack'>,
-  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'onSubtitle'>,
+  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
@@ -185,6 +188,7 @@ export function createPlaybackController(
     positionMs: () => (pendingVod && vodOpened ? supervisor.positionMs() : undefined),
     durationMs: () => (pendingVod && vodOpened ? supervisor.durationMs() : undefined),
     paused: () => supervisor.paused(),
+    startedAttempts: () => supervisor.startedAttempts(),
     onSubtitle: (fn) => supervisor.onSubtitle(fn),
     audioTracks: () => player.audioTracks(),
     selectAudioTrack: (id) => player.selectAudioTrack(id),
@@ -192,6 +196,7 @@ export function createPlaybackController(
     selectTextTrack: (id) => player.selectTextTrack?.(id),
     holdForCooldown() {
       const kind = status()?.kind;
+      if (pendingVod && (kind === 'ended' || kind === 'failed')) return;
       if (current() !== undefined && !held && kind !== 'playing') hold();
     },
     resumeHeld() {

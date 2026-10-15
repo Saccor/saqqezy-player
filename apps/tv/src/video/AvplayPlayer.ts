@@ -498,10 +498,9 @@ export class AvplayPlayer implements Player {
     if (!s) return;
     try {
       if (id === null) {
-        if (this.avplay.setSilentSubtitle) {
-          this.avplay.setSilentSubtitle(true);
-          s.textOff = true;
-        }
+        // Cues are dropped whatever the firmware: without setSilentSubtitle, Off still hides every cue.
+        s.textOff = true;
+        this.avplay.setSilentSubtitle?.(true);
         this.clearCue();
         return;
       }

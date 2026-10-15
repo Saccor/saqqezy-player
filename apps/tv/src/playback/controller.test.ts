@@ -16,6 +16,7 @@ function fakes() {
     durationMs: vi.fn((): number | undefined => 600_000),
     paused: vi.fn(() => true),
     onSubtitle: vi.fn((_fn: (t: string | null) => void) => () => undefined),
+    startedAttempts: vi.fn(() => 3),
   };
   const player = {
     setRect: vi.fn((_r: Rect | 'fullscreen') => undefined),
@@ -330,6 +331,26 @@ describe('playback controller', () => {
       blocked = false;
       pb.resumeHeld();
       expect(f.supervisor.play).toHaveBeenCalledWith(vod.url, undefined, { sourceKey: undefined, vod: true, startMs: 0 });
+    });
+
+    it('holdForCooldown leaves an ended or failed VOD alone (its next-episode or error card stays)', () => {
+      for (const s of [{ kind: 'ended' }, { kind: 'failed', reason: 'unavailable' }] as SupervisorStatus[]) {
+        const f = fakes();
+        const pb = createPlaybackController(f.player, f.supervisor);
+        pb.playVod(vod, 0);
+        f.emit(s);
+        pb.holdForCooldown();
+        expect(f.supervisor.stop).not.toHaveBeenCalled();
+        expect(pb.status()).toEqual(s);
+        pb.resumeHeld();
+        expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it('startedAttempts comes from the supervisor', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor);
+      expect(pb.startedAttempts()).toBe(3);
     });
 
     it('position and duration are undefined unless the current VOD was opened', () => {

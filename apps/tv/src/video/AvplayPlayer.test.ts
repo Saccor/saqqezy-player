@@ -865,14 +865,22 @@ describe('AvplayPlayer: VOD controls', () => {
     }
   });
 
-  test('textOff is set only when setSilentSubtitle exists', async () => {
+  test('Off drops cues and shows no active track even when the firmware lacks setSilentSubtitle', async () => {
     const { av, p } = setup();
     av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
     av.current = [{ index: 2, type: 'TEXT', extra_info: '' }];
     Object.assign(av, { setSilentSubtitle: undefined });
+    const cues: (string | null)[] = [];
+    p.onSubtitle((t) => cues.push(t));
     await p.open(URL_B, 1, { live: false });
     av.prepared[0]!.ok();
     p.selectTextTrack(null);
-    expect(p.textTracks()[0]!.active).toBe(true);
+    cues.length = 0;
+    av.listener!.onsubtitlechange?.(2000, 'Hidden', 0, 0);
+    expect(cues).toEqual([]);
+    expect(p.textTracks()[0]!.active).toBe(false);
+    p.selectTextTrack('2'); // a track again: cues show
+    av.listener!.onsubtitlechange?.(2000, 'Shown', 0, 0);
+    expect(cues).toContain('Shown');
   });
 });
