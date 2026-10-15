@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
+  videoClickGroup,
 } from './homeLogic.ts';
 
 const groups = [
@@ -78,5 +79,16 @@ describe('playingInfoStale', () => {
     expect(playingInfoStale(['a', 'b'], 'b', 'b')).toBe(false);
     expect(playingInfoStale(['a'], 'b', 'c')).toBe(false);
     expect(playingInfoStale(['a'], undefined, 'c')).toBe(false);
+  });
+});
+
+describe('videoClickGroup (fullscreen from a click on the small video)', () => {
+  it('keeps the open group, and remembers the channel, when the video shows the focused row', () => {
+    expect(videoClickGroup('ch-1', 'ch-1', 'g:News')).toEqual({ groupId: 'g:News', remember: true });
+  });
+  it('uses All channels and leaves the remembered channel alone when the playing channel is not the focused row', () => {
+    expect(videoClickGroup('ch-1', 'ch-2', 'g:News')).toEqual({ groupId: 'all', remember: false });
+    expect(videoClickGroup('ch-1', undefined, 'g:News')).toEqual({ groupId: 'all', remember: false });
+    expect(videoClickGroup('ch-1', 'ch-1', undefined)).toEqual({ groupId: 'all', remember: false });
   });
 });

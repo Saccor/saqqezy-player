@@ -4,6 +4,16 @@ import { formatClock } from '../shell/logic.ts';
 
 export interface GroupLite { id: string; name: string; count: number }
 
+/**
+ * The Player's group for a click on Home's small video. The open group only when the video shows the focused row's
+ * channel; otherwise (the playing channel is not in the open group's list) All channels, and Home's remembered
+ * channel is left alone, so it never points at a channel the list does not hold.
+ */
+export function videoClickGroup(id: string, focusedId: string | undefined, openGroup: string | undefined):
+  { groupId: string; remember: boolean } {
+  return openGroup !== undefined && id === focusedId ? { groupId: openGroup, remember: true } : { groupId: 'all', remember: false };
+}
+
 /** The group to open: the wanted one if it still exists, else All channels, else the first group. */
 export function pickGroup(groups: readonly GroupLite[], wanted: string | undefined): string | undefined {
   if (wanted !== undefined && groups.some((g) => g.id === wanted)) return wanted;

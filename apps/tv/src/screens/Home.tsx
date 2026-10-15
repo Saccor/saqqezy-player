@@ -25,7 +25,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, initState, markStartup } from '../state/appState.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, videoClickGroup } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -848,10 +848,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       openFullscreen(id, GROUP_ALL, () => { searchMemory = leaveTo(searchMemory, at); });
       return;
     }
-    const g = groupId();
-    if (g === undefined) return;
-    memory.channelId = id;
-    openFullscreen(id, g);
+    const target = videoClickGroup(id, focusedRow()?.id, groupId());
+    if (target.remember) memory.channelId = id;
+    openFullscreen(id, target.groupId);
   };
 
   /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
