@@ -14,6 +14,16 @@ export function toRowModels(home: VodHome): RowModel[] {
   return home.rows.filter((r) => r.total > 0).map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 || r.total === 0 }));
 }
 
+/** After a reload: a lazy row that was already loaded keeps its items (with the new title and total); rows that vanished are dropped. */
+export function mergeRows(prev: RowModel[], next: RowModel[]): RowModel[] {
+  const byId = new Map(prev.map((r) => [r.id, r]));
+  return next.map((r) => {
+    if (r.loaded) return r;
+    const old = byId.get(r.id);
+    return old?.loaded ? { ...r, items: old.items, loaded: true } : r;
+  });
+}
+
 /** Tiles, then a View all tile when the row has more titles than items; one loading cell until loaded. */
 export function cellCount(r: RowModel): number {
   if (!r.loaded) return 1;

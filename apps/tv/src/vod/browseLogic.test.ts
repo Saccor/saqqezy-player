@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
-import { cellAt, cellCount, clampFocus, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
+import { cellAt, cellCount, clampFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
 
 const tile = (n: number): VodTile => ({ id: `s:m${n}`, kind: 'movie', title: `Synthetic Film ${n}`, categoryId: '1', watched: false, favourite: false });
 const row = (id: string, total: number, items: number, loaded = true): RowModel =>
@@ -75,5 +75,26 @@ describe('browseLogic', () => {
   test('row sort: by date when Recently added exists, else A–Z', () => {
     expect(rowSort([row('vod:recent', 1, 1), row('1', 1, 1)])).toBe('added');
     expect(rowSort([row('1', 1, 1)])).toBe('title');
+  });
+  test('mergeRows: a lazy row stays loaded with its items, taking the new title and total', () => {
+    const prev = [row('a', 5, 5), row('b', 40, 12)];
+    const next = [{ ...row('a', 6, 6), title: 'A2' }, { ...row('b', 41, 0, false), title: 'B2' }];
+    const out = mergeRows(prev, next);
+    expect(out[0]).toBe(next[0]);
+    expect(out[1]!.loaded).toBe(true);
+    expect(out[1]!.items).toHaveLength(12);
+    expect(out[1]!.title).toBe('B2');
+    expect(out[1]!.total).toBe(41);
+  });
+
+  test('mergeRows: a row whose id disappeared is dropped; a new lazy row stays unloaded', () => {
+    const out = mergeRows([row('a', 5, 5), row('gone', 40, 12)], [row('a', 5, 5), row('fresh', 40, 0, false)]);
+    expect(out.map((r) => r.id)).toEqual(['a', 'fresh']);
+    expect(out[1]!.loaded).toBe(false);
+  });
+
+  test('mergeRows: a loaded next row wins over prev', () => {
+    const next = [row('a', 3, 3)];
+    expect(mergeRows([row('a', 9, 9)], next)[0]!.items).toHaveLength(3);
   });
 });
