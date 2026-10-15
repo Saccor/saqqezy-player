@@ -14,6 +14,7 @@ import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
 import { SettingsScreen } from './screens/Settings.tsx';
 import { VodBrowseScreen } from './screens/VodBrowse.tsx';
+import { VodGridScreen } from './screens/VodGrid.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -117,7 +118,8 @@ export function App() {
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen />
             : entry.screen === 'settings' ? <SettingsScreen />
-            : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
+            : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       {/*

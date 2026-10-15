@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_COLS, GRID_PAGE, gridMove, gridPage, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
+import { GRID_COLS, GRID_PAGE, gridCellAt, gridMove, gridPage, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
   test('moves in a 7-column grid', () => {
@@ -43,5 +43,24 @@ describe('gridLogic', () => {
     expect(loadSort('movie', ['title'], broken)).toBe('title');
     expect(() => saveSort('movie', 'title', broken)).not.toThrow();
     expect(loadSort('movie', ['title'], undefined)).toBe('title');
+  });
+
+  describe('gridCellAt', () => {
+    const g = { pad: 16, cellW: 100, gap: 20, rowPitch: 200 };
+    test('maps a local point to a tile, honouring the scroll row', () => {
+      expect(gridCellAt(16, 16, 0, g, 50)).toBe(0);
+      expect(gridCellAt(16 + 120 * 2 + 50, 16 + 100, 0, g, 50)).toBe(2);
+      expect(gridCellAt(16, 16 + 200, 0, g, 50)).toBe(GRID_COLS);
+      expect(gridCellAt(16, 16, 3, g, 50)).toBe(3 * GRID_COLS);
+    });
+    test('padding, gaps and tiles past the end hit nothing', () => {
+      expect(gridCellAt(5, 20, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(16, 5, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(16 + 105, 20, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(20, 16 + 185, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(16 + 120 * 6, 16 + 200, 0, g, 10)).toBeUndefined();
+      expect(gridCellAt(16 + 120 * 7, 20, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(Number.NaN, 20, 0, g, 50)).toBeUndefined();
+    });
   });
 });

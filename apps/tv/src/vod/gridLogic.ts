@@ -65,3 +65,26 @@ export function saveSort(kind: string, sort: VodSort, store: SortStore | undefin
     // Not remembered this time.
   }
 }
+
+export interface GridGeometry {
+  /** Space between the grid node's edge and the first tile (left and top). */
+  pad: number;
+  cellW: number;
+  gap: number;
+  /** Distance between two rows; the tile, its title and its year all belong to the row's cell. */
+  rowPitch: number;
+}
+
+/** The tile index under a grid-node-local point (design px), or undefined over padding, gaps or past the last tile. */
+export function gridCellAt(px: number, py: number, topRow: number, g: GridGeometry, total: number): number | undefined {
+  const x = px - g.pad;
+  const y = py - g.pad;
+  if (!(x >= 0) || !(y >= 0)) return undefined;
+  const colPitch = g.cellW + g.gap;
+  const col = Math.floor(x / colPitch);
+  if (col >= GRID_COLS || x - col * colPitch >= g.cellW) return undefined;
+  const row = topRow + Math.floor(y / g.rowPitch);
+  if (y - (row - topRow) * g.rowPitch >= g.rowPitch - g.gap) return undefined;
+  const i = row * GRID_COLS + col;
+  return i < total ? i : undefined;
+}

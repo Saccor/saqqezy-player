@@ -13,6 +13,8 @@ export function ActionBar(props: {
   x: number; y: number;
   actions: Action[];
   onAction: (id: string) => void;
+  /** Left on the first button (otherwise Left only moves between buttons). */
+  onLeft?: () => boolean;
   onUp?: () => boolean;
   onDown?: () => boolean;
   onFocusChanged?: (f: boolean) => void;
@@ -44,7 +46,7 @@ export function ActionBar(props: {
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x} y={props.y} width={Math.max(0, width())} height={BUTTON_H}
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
-      onLeft={() => { setSel(Math.max(0, cur() - 1)); return true; }}
+      onLeft={() => { if (cur() === 0 && props.onLeft) return props.onLeft(); setSel(Math.max(0, cur() - 1)); return true; }}
       onRight={() => { setSel(Math.min(props.actions.length - 1, cur() + 1)); return true; }}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown?.() ?? true}
       onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}>
