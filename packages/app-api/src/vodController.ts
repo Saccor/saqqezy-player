@@ -1,9 +1,11 @@
 import {
-  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress,
-  type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
+  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress, nextEpisode, resumeMs,
+  type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
-import type { AppEvent, VodCategoryView, VodHome, VodRow, VodTile } from './types.ts';
+import type {
+  AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
+} from './types.ts';
 
 export const VOD_ROW_CONTINUE = 'vod:continue';
 export const VOD_ROW_FAVOURITES = 'vod:favourites';
@@ -14,6 +16,10 @@ export const VOD_ROW_ITEMS = 30;
 export const VOD_HOME_ROWS_WITH_ITEMS = 6;
 /** The "Recently added" grid shows at most this many titles. */
 export const VOD_RECENT_MAX = 200;
+/** Movie and series details kept in memory (most recently used). */
+export const VOD_DETAIL_CACHE = 50;
+/** "More in <category>" on the movie detail. */
+export const VOD_MORE_ITEMS = 20;
 
 const LABELS: Record<string, string> = {
   [VOD_ROW_CONTINUE]: 'Continue watching',
@@ -47,6 +53,7 @@ export class VodController {
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
   private readonly jobs = new Map<VodKind, Job>();
+  private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
@@ -152,6 +159,69 @@ export class VodController {
     await this.records();
   }
 
+  async movie(id: string): Promise<MovieView | undefined> {
+    const src = this.sourceId;
+    const catalog = src ? await this.catalog('movie') : undefined;
+    const item = catalog?.byId(id);
+    if (!src || !catalog || !item) return undefined;
+    const user = await this.userMap();
+    const detail = await this.detailOf<MovieDetail>(item, 'getMovie', () => this.vod.movieDetail(src, item));
+    const s = user.get(id);
+    const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
+    const more = catalog.slice(item.categoryId, sort, 0, VOD_MORE_ITEMS + 1).rows
+      .filter((i) => i.id !== id).slice(0, VOD_MORE_ITEMS).map((i) => this.tile(i));
+    return { tile: this.tile(item), detail, resumeMs: resumeMs(s), tracks: tracksOf(s), more };
+  }
+
+  async series(id: string): Promise<SeriesView | undefined> {
+    const src = this.sourceId;
+    const catalog = src ? await this.catalog('series') : undefined;
+    const item = catalog?.byId(id);
+    if (!src || !catalog || !item) return undefined;
+    const user = await this.userMap();
+    const full = await this.detailOf<SeriesDetail>(item, 'getSeries', () => this.vod.seriesDetail(src, item));
+    const seasons = full?.seasons ?? [];
+    const view: SeriesView = {
+      tile: this.tile(item),
+      detail: full ? withoutSeasons(full) : null,
+      seasons: seasons.map((s): SeasonView => ({ number: s.number, name: s.name, episodes: s.episodes.map((e) => episodeView(e, user.get(e.id))) })),
+    };
+    const primary = primaryOf(id, seasons, [...user].map(([itemId, state]) => ({ itemId, state })));
+    if (primary) view.primary = primary;
+    return view;
+  }
+
+  /** Movies: `playable(movieId)`. Episodes: `playable(episodeId, seriesId)`. */
+  async playable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
+    const src = this.sourceId;
+    if (!src) return undefined;
+    const user = await this.userMap();
+    const s = user.get(itemId);
+    if (seriesId === undefined) {
+      const item = (await this.catalog('movie'))?.byId(itemId);
+      if (!item) return undefined;
+      const url = await this.vod.streamUrl(src, item);
+      return { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
+    }
+    const show = (await this.catalog('series'))?.byId(seriesId);
+    if (!show) return undefined;
+    const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show));
+    if (!detail) throw new Error('This series could not be loaded. Try again.');
+    const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
+    if (!ep) return undefined;
+    const url = await this.vod.streamUrl(src, ep);
+    const next = nextEpisode(detail.seasons, itemId);
+    const series: SeriesPointer = { id: seriesId, season: ep.season, episode: ep.episode };
+    if (next) series.next = { id: next.id, season: next.season, episode: next.episode };
+    const out: VodPlayable = {
+      kind: 'episode', itemId, url, title: show.title, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
+      resumeMs: resumeMs(s), tracks: tracksOf(s), series,
+    };
+    if (ep.runtimeMin) out.durationMs = ep.runtimeMin * 60_000;
+    if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
+    return out;
+  }
+
   async idle(): Promise<void> {
     while (this.jobs.size || this.pending.size) {
       await Promise.allSettled([...this.jobs.values()].map((j) => j.done).concat([...this.pending]));
@@ -171,7 +241,8 @@ export class VodController {
     const epoch = this.epoch;
     const p = this.vod.storedCatalog(id, kind).then((catalog) => {
       if (catalog && this.epoch === epoch && this.loading?.p === p) this.resident = { kind, catalog };
-      return catalog;
+      // A finished fetch may have installed a fresher list meanwhile: callers get that, not this older read.
+      return this.epoch === epoch && this.resident?.kind === kind ? this.resident.catalog : catalog;
     }).finally(() => {
       if (this.loading?.p === p) this.loading = undefined;
     });
@@ -206,9 +277,30 @@ export class VodController {
     return { ...t, ...extra };
   }
 
-  /** Hook for Task 6 (detail cache). */
   protected resetDetails(): void {
-    // Overridden in Task 6.
+    this.details.clear();
+  }
+
+  /** Cached detail (most recently used first out); a failure is recorded, returns null and is not cached. */
+  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, where: string, load: () => Promise<T>): Promise<T | null> {
+    const hit = this.details.get(item.id);
+    if (hit) {
+      this.details.delete(item.id);
+      this.details.set(item.id, hit);
+      return hit as T;
+    }
+    const epoch = this.epoch;
+    try {
+      const d = await load();
+      if (this.epoch === epoch) {
+        this.details.set(item.id, d);
+        if (this.details.size > VOD_DETAIL_CACHE) this.details.delete(this.details.keys().next().value!);
+      }
+      return d;
+    } catch (err) {
+      this.record(where, err);
+      return null;
+    }
   }
 
   private startFetch(kind: VodKind, id: string, epoch: number): Promise<void> {
@@ -300,4 +392,43 @@ export class VodController {
       })
       .sort((a, b) => a.title.localeCompare(b.title));
   }
+}
+
+function tracksOf(s: VodUserState | undefined): VodTracks {
+  const t: VodTracks = {};
+  if (s?.audio) t.audio = s.audio;
+  if (s?.subtitle) t.subtitle = s.subtitle;
+  return t;
+}
+
+function withoutSeasons(d: SeriesDetail): Omit<SeriesDetail, 'seasons'> {
+  const { seasons: _seasons, ...rest } = d;
+  return rest;
+}
+
+function episodeView(e: Episode, s: VodUserState | undefined): EpisodeView {
+  const v: EpisodeView = { id: e.id, season: e.season, episode: e.episode, title: e.title, watched: s?.watched === true };
+  if (e.plot) v.plot = e.plot;
+  if (e.runtimeMin) v.runtimeMin = e.runtimeMin;
+  if (e.still) v.still = e.still;
+  if (s && isInProgress(s) && s.duration > 0) v.progress = Math.min(1, s.position / s.duration);
+  return v;
+}
+
+/** The series' latest episode: resume it, or its known next one; else the first episode of the first season. */
+function primaryOf(seriesId: string, seasons: { episodes: Episode[] }[], records: VodUserRecord[]): SeriesPrimary | undefined {
+  let latest: VodUserRecord | undefined;
+  for (const r of records) {
+    if (r.state.series?.id !== seriesId) continue;
+    if (!latest || r.state.updatedAt > latest.state.updatedAt) latest = r;
+  }
+  const p = latest?.state.series;
+  if (latest && p && isInProgress(latest.state)) {
+    return { episodeId: latest.itemId, season: p.season, episode: p.episode, resumeMs: latest.state.position, mode: 'continue' };
+  }
+  if (latest && p?.next && latest.state.watched) {
+    return { episodeId: p.next.id, season: p.next.season, episode: p.next.episode, resumeMs: 0, mode: 'continue' };
+  }
+  const first = seasons[0]?.episodes[0];
+  return first ? { episodeId: first.id, season: first.season, episode: first.episode, resumeMs: 0, mode: 'start' } : undefined;
 }

@@ -247,7 +247,7 @@ describe('VodController races', () => {
     fetchGate.resolve({ count: 2, truncated: false, list: listOf('movie', 1, 2) });
     await fetching;
     storedGate.resolve(new VodCatalog('movie', listOf('movie', 1)));
-    await firstSlice;
+    expect((await firstSlice).rows.map((t) => t.id)).toEqual(['s:movie1', 's:movie2']);
     const page = await c.slice('movie', 'all', 'title', 0, 10);
     expect(page.rows.map((t) => t.id)).toEqual(['s:movie1', 's:movie2']);
   });
@@ -268,5 +268,65 @@ describe('VodController races', () => {
     expect(calls.stored).toContain('movie');
     seriesGate.resolve(undefined);
     await seriesHome;
+  });
+});
+
+describe('VodController detail views and playable', () => {
+  test('movie view: list fields, detail, more in category without itself; detail cached', async () => {
+    const { c, vod } = await setup();
+    await c.refresh('movie');
+    const spy = vi.spyOn(vod, 'movieDetail');
+    const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
+    const view = (await c.movie(id))!;
+    expect(view.tile.id).toBe(id);
+    expect(view.detail?.plot).toMatch(/^Synthetic plot for /);
+    expect(view.resumeMs).toBe(0);
+    expect(view.tracks).toEqual({});
+    expect(view.more.map((t) => t.id)).not.toContain(id);
+    expect(view.more.length).toBe(5);
+    await c.movie(id);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await c.movie('nope')).toBeUndefined();
+  });
+
+  test('a failed detail fetch: detail null, recorded, not cached', async () => {
+    const { c, recorded } = await setup();
+    await c.refresh('movie');
+    const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
+    failVod = true;
+    expect((await c.movie(id))!.detail).toBeNull();
+    expect(recorded).toContain('getMovie');
+    failVod = false;
+    expect((await c.movie(id))!.detail).not.toBeNull();
+  });
+
+  test('series view: seasons with episode state, primary is S1 E1 to start', async () => {
+    const { c } = await setup();
+    await c.refresh('series');
+    const id = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const view = (await c.series(id))!;
+    expect(view.seasons.length).toBeGreaterThan(0);
+    expect(view.seasons[0]!.episodes[0]).toMatchObject({ season: 1, episode: 1, watched: false });
+    expect(view.primary).toMatchObject({ season: 1, episode: 1, mode: 'start', resumeMs: 0 });
+  });
+
+  test('playable: movie URL, episode URL with series pointer and next', async () => {
+    const { c } = await setup();
+    await c.refresh('movie');
+    const movieId = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
+    const m = (await c.playable(movieId))!;
+    expect(m).toMatchObject({ kind: 'movie', itemId: movieId, resumeMs: 0, tracks: {} });
+    expect(m.url).toMatch(/\/movie\/test\/test\/\d+\.m3u8$/);
+
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const first = (await c.series(showId))!.seasons[0]!.episodes[0]!;
+    const e = (await c.playable(first.id, showId))!;
+    expect(e).toMatchObject({ kind: 'episode', itemId: first.id, series: { id: showId, season: 1, episode: 1 } });
+    expect(e.url).toMatch(/\/series\/test\/test\/\d+\.m3u8$/);
+    expect(e.episodeLabel).toMatch(/^S1 · E1 · /);
+    expect(e.next?.label).toMatch(/^S1 · E2 · /);
+    expect(e.series?.next).toMatchObject({ season: 1, episode: 2 });
+    expect(await c.playable('nope', showId)).toBeUndefined();
   });
 });
