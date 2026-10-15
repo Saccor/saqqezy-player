@@ -19,6 +19,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
 import { cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
+import { minutesLeft } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { metaLine } from '../vod/posterLogic.ts';
@@ -49,7 +50,6 @@ const memoryFor = (key: string): BrowseMemory => {
   return m;
 };
 
-const PLAY_ACTION = { id: 'play', label: 'Play', width: 200 };
 const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
 const FAV_ADD_ACTION = { id: 'fav', label: 'Add to favourites', width: 300 };
 const FAV_ON_ACTION = { id: 'fav', label: 'In favourites', width: 300 };
@@ -233,7 +233,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     alive: () => alive,
     topOverlay: () => router.topOverlay(),
     getPlayable: (id) => api.getVodPlayable(id),
-    push: (playable) => router.push('vodPlay', { playable }),
+    push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
   });
   const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void load() });
@@ -250,7 +250,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const o = favOverride();
     return t ? (o?.id === t.id ? o.on : !!t.favourite) : false;
   });
-  const heroActions = createMemo(() => [PLAY_ACTION, DETAILS_ACTION, isFav() ? FAV_ON_ACTION : FAV_ADD_ACTION]);
+  /** "Resume · N min left" when the focused title has progress and its detail is loaded; else "Play". */
+  const playAction = createMemo(() => {
+    const t = focusedTile();
+    const h = hero()?.tile.id === t?.id ? hero() : undefined;
+    const rt = h?.detail?.runtimeMin;
+    const total = rt ? rt * 60_000 : t?.progress ? (h?.resumeMs ?? 0) / t.progress : 0;
+    if (!t?.progress || !h || h.resumeMs <= 0 || total <= 0) return { id: 'play', label: 'Play', width: 200 };
+    return { id: 'play', label: `Resume · ${minutesLeft(h.resumeMs, total)}`, width: 320 };
+  });
+  const heroActions = createMemo(() => [playAction(), DETAILS_ACTION, isFav() ? FAV_ON_ACTION : FAV_ADD_ACTION]);
   const toggleFav = async (t: VodTile) => {
     if (favBusy) return;
     favBusy = true;

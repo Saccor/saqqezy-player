@@ -11,6 +11,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
+import { minutesLeft, resumeLabel } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import { scrimTexture } from '../vod/scrim.ts';
@@ -49,7 +50,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     alive: () => alive,
     topOverlay: () => router.topOverlay(),
     getPlayable: (id) => api.getVodPlayable(id),
-    push: (playable) => router.push('vodPlay', { playable }),
+    push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
   });
   const cols = new Map<string, number>();
@@ -114,8 +115,19 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     }
   };
 
+  const resumeMs = () => view()?.resumeMs ?? 0;
+  /** Total length: the detail's runtime, else derived from the saved fraction. */
+  const durationMs = () => {
+    const rt = detail()?.runtimeMin;
+    if (rt && rt > 0) return rt * 60_000;
+    const p = tile()?.progress;
+    return p && p > 0 ? resumeMs() / p : 0;
+  };
+  const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : (tile()?.progress ?? 0));
   const actions = () => [
-    { id: 'play', label: 'Play', width: 220 },
+    ...(resumeMs() > 0
+      ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]
+      : [{ id: 'play', label: 'Play', width: 220 }]),
     { id: 'fav', label: tile()?.favourite ? 'In favourites' : 'Add to favourites', width: 320 },
   ];
   const onAction = async (id: string) => {
@@ -125,6 +137,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     try {
       if (id === 'play') {
         await launcher.play(t.id);
+      } else if (id === 'start') {
+        await launcher.play(t.id, { fromStart: true });
       } else if (id === 'fav') {
         try {
           await api.setVodFavourite(t.id, !t.favourite);
@@ -210,6 +224,14 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Show>
       <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={POSTER_Y + 392} actions={actions()} onAction={(id) => void onAction(id)}
         onDown={() => focusArea('more')} onFocusChanged={(f) => { if (f) setArea('actions'); }} />
+      <Show when={resumeMs() > 0}>
+        <View x={INFO_X} y={POSTER_Y + 392 + 80} width={360} height={6} borderRadius={3} color={COLORS.surface}>
+          <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.focus} />
+        </View>
+        <Text x={INFO_X} y={POSTER_Y + 392 + 94} fontSize={FONT.small} color={COLORS.muted}>
+          {durationMs() > 0 ? minutesLeft(resumeMs(), durationMs()) : ''}
+        </Text>
+      </Show>
 
       <Show when={moreRow().items.length > 0}>
         <Text x={LAYOUT.safeX} y={MORE_LABEL_Y} fontSize={FONT.heading} color={COLORS.text}>{catName() ? `More in ${catName()}` : 'More like this'}</Text>

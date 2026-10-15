@@ -5,12 +5,12 @@ import { CANT_PLAY, createVodLauncher } from './launch.ts';
 const playable = { url: 'http://example.test/movie/u/p/1.mp4' } as VodPlayable;
 
 const setup = (answer: () => Promise<VodPlayable | undefined>) => {
-  const s = { alive: true, overlay: undefined as string | undefined, pushed: [] as VodPlayable[], toasts: [] as string[], calls: 0 };
+  const s = { alive: true, overlay: undefined as string | undefined, pushed: [] as VodPlayable[], seriesIds: [] as Array<string | undefined>, fromStarts: [] as boolean[], toasts: [] as string[], calls: 0 };
   const launcher = createVodLauncher({
     alive: () => s.alive,
     topOverlay: () => s.overlay,
-    getPlayable: (id) => { s.calls++; expect(id).toBe('s:m1'); return answer(); },
-    push: (p) => s.pushed.push(p),
+    getPlayable: (id, seriesId) => { s.calls++; expect(id).toBe('s:m1'); s.seriesIds.push(seriesId); return answer(); },
+    push: (p, fromStart) => { s.pushed.push(p); s.fromStarts.push(fromStart); },
     toast: (m) => s.toasts.push(m),
   });
   return { s, launcher };
@@ -27,6 +27,17 @@ describe('createVodLauncher', () => {
     await launcher.play('s:m1');
     expect(s.pushed).toEqual([playable]);
     expect(s.toasts).toEqual([]);
+  });
+
+  test('fromStart and seriesId are passed through; both default to off', async () => {
+    const plain = setup(async () => playable);
+    await plain.launcher.play('s:m1');
+    expect(plain.s.fromStarts).toEqual([false]);
+    expect(plain.s.seriesIds).toEqual([undefined]);
+    const opts = setup(async () => playable);
+    await opts.launcher.play('s:m1', { seriesId: 's:series1', fromStart: true });
+    expect(opts.s.fromStarts).toEqual([true]);
+    expect(opts.s.seriesIds).toEqual(['s:series1']);
   });
 
   test('no playable, or a failure: the can\'t-play toast', async () => {

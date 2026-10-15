@@ -9,15 +9,17 @@ export interface LaunchDeps {
   alive: () => boolean;
   /** The shell's top overlay; a press behind one (or one opened during the wait) must not act. */
   topOverlay: () => unknown;
-  getPlayable: (itemId: string) => Promise<VodPlayable | undefined>;
-  /** Opens the player (`router.push('vodPlay', { playable })`). */
-  push: (playable: VodPlayable) => void;
+  getPlayable: (itemId: string, seriesId?: string) => Promise<VodPlayable | undefined>;
+  /** Opens the player (`router.push('vodPlay', { playable, fromStart })`). */
+  push: (playable: VodPlayable, fromStart: boolean) => void;
   toast: (message: string) => void;
 }
 
+export interface LaunchOpts { seriesId?: string; fromStart?: boolean }
+
 export interface VodLauncher {
   /** Asks for the playable and opens the player, or toasts that it can't play. Ignored while a press is in flight. */
-  play: (itemId: string) => Promise<void>;
+  play: (itemId: string, opts?: LaunchOpts) => Promise<void>;
   busy: () => boolean;
   /** Drops the press in flight: its answer neither opens the player nor toasts. */
   cancel: () => void;
@@ -30,13 +32,13 @@ export function createVodLauncher(deps: LaunchDeps): VodLauncher {
   return {
     busy: () => busy,
     cancel: () => { gen++; busy = false; },
-    play: async (itemId) => {
+    play: async (itemId, opts) => {
       if (busy || !deps.alive() || deps.topOverlay() !== undefined) return;
       busy = true;
       const mine = ++gen;
       let p: VodPlayable | undefined;
       try {
-        p = await deps.getPlayable(itemId);
+        p = await deps.getPlayable(itemId, opts?.seriesId);
       } catch (err) {
         console.warn('Play failed', err instanceof Error ? err.name : 'Error');
         if (deps.alive() && mine === gen) deps.toast(CANT_PLAY);
@@ -45,7 +47,7 @@ export function createVodLauncher(deps: LaunchDeps): VodLauncher {
         if (mine === gen) busy = false;
       }
       if (!deps.alive() || mine !== gen || deps.topOverlay() !== undefined) return;
-      if (p) deps.push(p);
+      if (p) deps.push(p, opts?.fromStart === true);
       else deps.toast(CANT_PLAY);
     },
   };
