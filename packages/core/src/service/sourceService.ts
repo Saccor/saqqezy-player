@@ -170,8 +170,9 @@ export class SourceService {
       const source = await this.requireSource(id);
       const { channels, result, vod } = await this.fetchChannels(source, onProgress);
       if (!(await this.sourceExists(id))) return { channelCount: 0, skipped: 0 };
-      // An empty answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
-      if (channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
+      // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
+      // An M3U answer needs no guard: fetchChannels rejects one with nothing, and one with only movies or series is valid.
+      if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
         throw new SourceNetworkError('The account has no live channels.');
       }
       await this.saveChannels(id, channels, result, vod);
@@ -556,7 +557,9 @@ export class SourceService {
       const channels = xtreamToChannels(source.id, client, categories, streams, 'ts');
       if (channels.length === 0) {
         // An account may offer only movies and series: accept it when either catalogue has categories.
-        const [movieCats, seriesCats] = await Promise.all([client.vodCategories(), client.seriesCategories()]);
+        const [movieCats, seriesCats] = await Promise.all([
+          client.vodCategories().catch(() => []), client.seriesCategories().catch(() => []),
+        ]);
         if (movieCats.length === 0 && seriesCats.length === 0) {
           throw new SourceNetworkError('The account has no channels, movies or series.');
         }

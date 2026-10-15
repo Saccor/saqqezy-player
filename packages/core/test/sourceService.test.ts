@@ -553,6 +553,17 @@ describe('SourceService – xtream', () => {
     expect(await service.listSources()).toEqual([]);
   });
 
+  test('a provider without the movie action still gives the clear empty-account message', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json({}, 500);
+    routes['api:get_series_categories'] = () => json([]);
+    const err = await service.addSource(xInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The account has no channels, movies or series.');
+  });
+
   test('an account with only movies or series is accepted', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([]);
@@ -898,6 +909,15 @@ describe('SourceService – m3u VOD split', () => {
     routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 001\nhttp://example.test/live/u/p/1.ts\n');
     await service.refreshPlaylist('id1');
     expect((await storage.getVod('id1', 'movie'))?.items).toEqual([]);
+  });
+
+  test('a refresh of an M3U playlist that now holds only movies is stored', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    await service.addSource(input);
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Synthetic Film 009\nhttp://example.test/movie/u/p/9.mp4\n');
+    await expect(service.refreshPlaylist('id1')).resolves.toMatchObject({ channelCount: 0, movieCount: 1 });
+    expect(await storage.getChannels('id1')).toEqual([]);
+    expect((await storage.getVod('id1', 'movie'))?.items.map((m) => m.title)).toEqual(['Synthetic Film 009']);
   });
 
   test('a VOD-only playlist is accepted; an empty one is still rejected', async () => {
