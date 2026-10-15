@@ -23,7 +23,7 @@ import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { seriesMetaLine } from '../vod/heroLogic.ts';
-import { primaryLabel } from '../vod/seriesDetailLogic.ts';
+import { primaryLabel, regularSeasonCount } from '../vod/seriesDetailLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { KIND_COPY } from '../vod/kindCopy.ts';
 import { TAB_H, tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
@@ -400,7 +400,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       const runtimeMin = (d as MovieView['detail'] | undefined)?.runtimeMin;
       return metaLine({ year: t?.year, runtimeMin, genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
     }
-    return seriesMetaLine({ year: t?.year, seasons: heroSeries()?.seasons.length ?? 0, genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
+    return seriesMetaLine({ year: t?.year, seasons: regularSeasonCount(heroSeries()?.seasons ?? []), genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
   };
   /** The focused row, and the next one peeking in below; not in pointer mode, where it would sit under the shell's Back button. */
   const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => rows()[i] !== undefined);

@@ -3,9 +3,8 @@ import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { POSTER_H, PosterTile, posterCache } from '../components/PosterTile.tsx';
+import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { rawViaDevProxy } from '../net/devProxy.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -14,11 +13,10 @@ import { createVodLauncher } from '../vod/launch.ts';
 import { minutesLeft, resumeLabel, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
-import { scrimTexture } from '../vod/scrim.ts';
+import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
+import { createFavToggle } from '../vod/favToggle.ts';
 
 const BG = COLORS.background;
-/** The background colour without alpha (0xRRGGBB), for the fade textures. */
-const BG_RGB = Math.floor(COLORS.background / 0x100);
 const POSTER_X = LAYOUT.safeX;
 const POSTER_Y = 150;
 const BIG_W = 320;
@@ -55,14 +53,13 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   });
   const cols = new Map<string, number>();
 
-  /** Set after a successful toggle; a failed reload then still shows the right state. Cleared when a reload lands. */
-  const [favOverride, setFavOverride] = createSignal<boolean | undefined>(undefined);
-  const baseTile = () => view()?.tile ?? params.tile;
-  const tile = (): VodTile | undefined => {
-    const t = baseTile();
-    const f = favOverride();
-    return t && f !== undefined ? { ...t, favourite: f } : t;
-  };
+  const fav = createFavToggle({
+    alive: () => alive,
+    reload: () => load(false),
+    setFavourite: (id, on) => api.setVodFavourite(id, on),
+    toast: showToast,
+  });
+  const tile = (): VodTile | undefined => fav.apply(view()?.tile ?? params.tile);
   const detail = () => view()?.detail ?? undefined;
   const moreRow = createMemo((): RowModel => ({ id: 'more', title: '', total: view()?.more.length ?? 0, items: view()?.more ?? [], loaded: true }));
 
@@ -101,7 +98,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     if (!alive || g !== gen) return;
     if (v || first) setView(v);
     if (first || v) setLoadFailed(failed);
-    if (v) setFavOverride(undefined);
+    if (v) fav.clear();
     setLoaded(true);
     settleFocus();
     if (v && catName() === '') {
@@ -134,17 +131,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       } else if (id === 'start') {
         await launcher.play(t.id, { fromStart: true });
       } else if (id === 'fav') {
-        try {
-          await api.setVodFavourite(t.id, !t.favourite);
-        } catch (err) {
-          console.warn('Favourite failed', errName(err));
-          if (alive) showToast("Couldn't save that. Try again.");
-          return;
-        }
-        if (!alive) return;
-        // Show the new state at once; the reload below only refines it.
-        setFavOverride(!t.favourite);
-        await load(false);
+        await fav.toggle(t);
       }
     } finally {
       busy = false;
@@ -188,14 +175,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>
-      {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
-      <View zIndex={0}>
-        <Show when={backdrop() && posterCache.usable(backdrop()) ? backdrop() : undefined} keyed>
-          {(u) => <View x={640} y={0} width={1280} height={720} src={rawViaDevProxy(u)} onEvent={{ failed: () => posterCache.markFailed(u) }} />}
-        </Show>
-      </View>
-      <View zIndex={1} x={640} y={0} width={1280} height={720} src={scrimTexture('left', BG_RGB)} />
-      <View zIndex={1} y={440} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+      <DetailBackdrop url={backdrop()} />
       <View zIndex={2}>
 
       <PosterTile x={POSTER_X} y={POSTER_Y} w={BIG_W} h={BIG_H} tile={tile()} lit={false} />

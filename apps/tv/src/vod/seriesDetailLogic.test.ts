@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EpisodeView, SeasonView, SeriesView } from '@iptv/app-api';
 import {
-  cardAt, episodeMeta, initialFocus, primaryLabel, refocus, regularSeasonCount, seasonLabel, seasonTabWidth, seriesMeta, stripAt, stripOffset, stripStarts,
+  cardAt, episodeMeta, fallbackArea, initialFocus, primaryLabel, refocus, regularSeasonCount, remountRestore, seasonLabel, seasonTabWidth,
+  seriesActions, seriesMeta, stripAt, stripOffset, stripStarts, tabSelAfterReload,
 } from './seriesDetailLogic.ts';
 
 const ep = (season: number, episode: number, extra: Partial<EpisodeView> = {}): EpisodeView => ({
@@ -42,6 +43,8 @@ describe('episodeMeta', () => {
     expect(episodeMeta(ep(1, 4, { runtimeMin: 42 }))).toBe('E4 · 42 min');
     expect(episodeMeta(ep(1, 4))).toBe('E4');
     expect(episodeMeta(ep(1, 4, { runtimeMin: 0 }))).toBe('E4');
+    expect(episodeMeta(ep(1, 4, { runtimeMin: 90 }))).toBe('E4 · 1 h 30 min');
+    expect(episodeMeta(ep(1, 4, { runtimeMin: 120 }))).toBe('E4 · 2 h');
   });
 });
 
@@ -138,5 +141,56 @@ describe('cardAt', () => {
     expect(cardAt(10, 3, 424, 400, 10)).toBe(3);
     expect(cardAt(430, 9, 424, 400, 10)).toBeUndefined();
     expect(cardAt(-5, 0, 424, 400, 10)).toBeUndefined();
+  });
+});
+
+describe('remountRestore', () => {
+  const focus = { seasonNumber: 2, episodeId: 'e2-4' };
+  it('restores the saved episode and area when the screen was left from the seasons or episodes', () => {
+    expect(remountRestore({ focus, area: 'episodes' })).toEqual({ prev: focus, area: 'episodes' });
+    expect(remountRestore({ focus, area: 'seasons' })).toEqual({ prev: focus, area: 'seasons' });
+  });
+  it('opens on the primary button (and the primary episode) on a first open or when left from the actions', () => {
+    expect(remountRestore({})).toEqual({ prev: undefined, area: 'actions' });
+    expect(remountRestore({ focus, area: 'actions' })).toEqual({ prev: undefined, area: 'actions' });
+    expect(remountRestore({ area: 'episodes' })).toEqual({ prev: undefined, area: 'actions' });
+  });
+});
+
+describe('fallbackArea', () => {
+  it('keeps an area that has something to focus', () => {
+    expect(fallbackArea('episodes', { seasons: 2, episodes: 3 })).toBe('episodes');
+    expect(fallbackArea('seasons', { seasons: 2, episodes: 0 })).toBe('seasons');
+    expect(fallbackArea('actions', { seasons: 0, episodes: 0 })).toBe('actions');
+  });
+  it('falls back from empty episodes to the seasons, and from no seasons to the actions', () => {
+    expect(fallbackArea('episodes', { seasons: 2, episodes: 0 })).toBe('seasons');
+    expect(fallbackArea('episodes', { seasons: 0, episodes: 0 })).toBe('actions');
+    expect(fallbackArea('seasons', { seasons: 0, episodes: 0 })).toBe('actions');
+  });
+});
+
+describe('tabSelAfterReload', () => {
+  it('follows the placed season unless the keys are on the tabs', () => {
+    expect(tabSelAfterReload('episodes', 3, 1, 5)).toBe(1);
+    expect(tabSelAfterReload('actions', 3, 1, 5)).toBe(1);
+  });
+  it('keeps the tab selection while on the tabs, clamped to the seasons', () => {
+    expect(tabSelAfterReload('seasons', 3, 1, 5)).toBe(3);
+    expect(tabSelAfterReload('seasons', 3, 1, 2)).toBe(1);
+    expect(tabSelAfterReload('seasons', 3, 0, 0)).toBe(0);
+  });
+});
+
+describe('seriesActions', () => {
+  const primary = { episodeId: 'e2-4', season: 2, episode: 4, resumeMs: 5, mode: 'continue' as const };
+  it('shows the primary episode and Favourite', () => {
+    expect(seriesActions({ loaded: true, primary, favourite: false }).map((a) => [a.id, a.label]))
+      .toEqual([['play', 'Continue S2 · E4'], ['fav', 'Add to favourites']]);
+    expect(seriesActions({ loaded: true, primary, favourite: true })[1]!.label).toBe('In favourites');
+  });
+  it('shows Play while loading and hides it once loaded without a primary episode', () => {
+    expect(seriesActions({ loaded: false, favourite: false }).map((a) => [a.id, a.label])).toEqual([['play', 'Play'], ['fav', 'Add to favourites']]);
+    expect(seriesActions({ loaded: true, favourite: false }).map((a) => a.id)).toEqual(['fav']);
   });
 });

@@ -4,23 +4,22 @@ import type { SeriesView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
-import { posterCache } from '../components/PosterTile.tsx';
 import { SEASON_TAB_H, SeasonTabs } from '../components/SeasonTabs.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
-import { rawViaDevProxy } from '../net/devProxy.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
+import { createFavToggle } from '../vod/favToggle.ts';
 import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
-import { scrimTexture } from '../vod/scrim.ts';
-import { primaryLabel, refocus, seasonLabel, seriesMeta } from '../vod/seriesDetailLogic.ts';
+import {
+  fallbackArea, refocus, remountRestore, seasonLabel, seriesActions, seriesMeta, tabSelAfterReload, type SavedFocus, type SeriesArea,
+} from '../vod/seriesDetailLogic.ts';
 import { TAB_SWITCH_MS } from '../vod/tabLogic.ts';
 
 const BG = COLORS.background;
-/** The background colour without alpha (0xRRGGBB), for the fade textures. */
-const BG_RGB = Math.floor(COLORS.background / 0x100);
 const HERO_X = LAYOUT.safeX;
 const HERO_W = 1100;
 const TITLE_Y = 110;
@@ -29,9 +28,7 @@ const TABS_Y = 500;
 const ROW_Y = 600;
 const ROW_W = LAYOUT.width - LAYOUT.safeX;
 
-type Area = 'actions' | 'seasons' | 'episodes';
-/** Where the screen was, kept in its router params so a remount (returning from the player) lands there again. */
-interface SavedFocus { seasonNumber: number; episodeId: string }
+type Area = SeriesArea;
 
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
@@ -41,8 +38,8 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
  */
 export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { id: string; tile?: VodTile; focus?: SavedFocus; area?: Area };
-  /** Read before the effect below starts overwriting them. */
-  const saved = { focus: params.focus, area: params.area };
+  /** Read before the effect below starts overwriting the saved focus. */
+  const restore = remountRestore({ focus: params.focus, area: params.area });
   const [view, setView] = createSignal<SeriesView | undefined>(undefined);
   const [loaded, setLoaded] = createSignal(false);
   const [loadFailed, setLoadFailed] = createSignal(false);
@@ -67,13 +64,13 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     toast: showToast,
   });
 
-  /** Set after a successful toggle; a failed reload then still shows the right state. Cleared when a reload lands. */
-  const [favOverride, setFavOverride] = createSignal<boolean | undefined>(undefined);
-  const tile = (): VodTile | undefined => {
-    const t = view()?.tile ?? params.tile;
-    const f = favOverride();
-    return t && f !== undefined ? { ...t, favourite: f } : t;
-  };
+  const fav = createFavToggle({
+    alive: () => alive,
+    reload: () => load(),
+    setFavourite: (id, on) => api.setVodFavourite(id, on),
+    toast: showToast,
+  });
+  const tile = (): VodTile | undefined => fav.apply(view()?.tile ?? params.tile);
   const detail = () => view()?.detail ?? undefined;
   const seasons = () => view()?.seasons ?? [];
   const episodes = () => seasons()[season()]?.episodes ?? [];
@@ -108,16 +105,10 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const commitTab = () => showSeason(tabSel());
 
   /** Focuses an area. A refocus (`fallback`) lands on the nearest live area above; a key press into an empty one stays. */
-  const focusArea = (a: Area, fallback = false): boolean => {
-    if (a === 'episodes' && episodes().length === 0) {
-      if (!fallback) return true;
-      a = 'seasons';
-    }
-    if (a === 'seasons' && seasons().length === 0) {
-      if (!fallback) return true;
-      a = 'actions';
-    }
-    if (a === 'seasons') setTabSel(season());
+  const focusArea = (want: Area, fallback = false): boolean => {
+    const a = fallbackArea(want, { seasons: seasons().length, episodes: episodes().length });
+    if (a !== want && !fallback) return true;
+    if (a === 'seasons' && area() !== 'seasons') setTabSel(season());
     setArea(a);
     (a === 'actions' ? actionsNode : a === 'seasons' ? tabsNode : rowNode)?.setFocus();
     return true;
@@ -130,19 +121,21 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   });
 
   /**
-   * Places the season, tab and episode. First load: the saved focus when the screen was left from the seasons or episodes
-   * (returning from the player), else the primary episode (it may have moved on). A reload keeps the current episode.
+   * Places the season, tab and episode. First load: `restore` (the saved episode, or the primary). A reload keeps the
+   * current episode; while the keys are on the tabs their selection and a pending rest switch are kept.
    */
   const place = (v: SeriesView, first: boolean) => {
-    const prev = first ? (saved.area === 'actions' ? undefined : saved.focus) : position();
-    const pos = refocus(prev, v);
-    clearRest();
+    const pos = refocus(first ? restore.prev : position(), v);
+    const onTabs = !first && area() === 'seasons';
+    if (!onTabs) clearRest();
     setSeason(pos.season);
-    setTabSel(pos.season);
+    setTabSel((t) => tabSelAfterReload(first ? 'actions' : area(), t, pos.season, v.seasons.length));
     setEpCol(Math.max(0, pos.episode));
   };
 
-  const load = async (first: boolean) => {
+  /** True until a load lands: a first load superseded by another (a Favourite toggle) hands its role on. */
+  let firstPending = true;
+  const load = async () => {
     const g = ++gen;
     let v: SeriesView | undefined;
     let failed = false;
@@ -153,15 +146,17 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       failed = true;
     }
     if (!alive || g !== gen) return;
+    const first = firstPending;
+    firstPending = false;
     if (v || first) setView(v);
     if (first || v) setLoadFailed(failed);
     if (v) {
-      setFavOverride(undefined);
+      fav.clear();
       place(v, first);
     }
     setLoaded(true);
-    if (first && v && (saved.area === 'seasons' || saved.area === 'episodes') && free()) {
-      queueMicrotask(() => { if (alive && free()) focusArea(saved.area!, true); });
+    if (first && v && restore.area !== 'actions' && free()) {
+      queueMicrotask(() => { if (alive && free()) focusArea(restore.area, true); });
     } else {
       settleFocus();
     }
@@ -173,13 +168,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     void launcher.play(ep.id, { seriesId: params.id });
   };
 
-  const actions = () => {
-    const p = view()?.primary;
-    return [
-      { id: 'play', label: primaryLabel(p), width: p ? 360 : 220 },
-      { id: 'fav', label: tile()?.favourite ? 'In favourites' : 'Add to favourites', width: 320 },
-    ];
-  };
+  const actions = () => seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true });
   const onAction = async (id: string) => {
     const t = tile();
     if (!t || busy || !free()) return;
@@ -189,17 +178,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
         const p = view()?.primary;
         if (p) await launcher.play(p.episodeId, { seriesId: params.id });
       } else if (id === 'fav') {
-        try {
-          await api.setVodFavourite(t.id, !t.favourite);
-        } catch (err) {
-          console.warn('Favourite failed', errName(err));
-          if (alive) showToast("Couldn't save that. Try again.");
-          return;
-        }
-        if (!alive) return;
-        // Show the new state at once; the reload below only refines it.
-        setFavOverride(!t.favourite);
-        await load(false);
+        await fav.toggle(t);
       }
     } finally {
       busy = false;
@@ -225,7 +204,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   const menu = createPosterMenu({
     refocus: () => { if (alive) focusArea('episodes', true); },
-    onChanged: () => { if (alive) void load(false); },
+    onChanged: () => { if (alive) void load(); },
   });
   const openMenu = (col: number) => {
     const ep = episodes()[col];
@@ -250,7 +229,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   };
 
   onMount(() => {
-    void load(true);
+    void load();
     actionsNode?.setFocus();
   });
   onCleanup(() => {
@@ -259,7 +238,8 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   });
 
   const backdrop = () => detail()?.backdrop;
-  const notAvailable = () => loaded() && (loadFailed() || (view() !== undefined && view()!.detail === null));
+  /** The load failed or found nothing (the hero keeps the tile's fields), or the source has no detail for it. */
+  const notAvailable = () => loaded() && (loadFailed() || view() === undefined || view()!.detail === null);
   const meta = () => {
     const v = view();
     if (v) return seriesMeta(v);
@@ -268,14 +248,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>
-      {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
-      <View zIndex={0}>
-        <Show when={backdrop() && posterCache.usable(backdrop()) ? backdrop() : undefined} keyed>
-          {(u) => <View x={640} y={0} width={1280} height={720} src={rawViaDevProxy(u)} onEvent={{ failed: () => posterCache.markFailed(u) }} />}
-        </Show>
-      </View>
-      <View zIndex={1} x={640} y={0} width={1280} height={720} src={scrimTexture('left', BG_RGB)} />
-      <View zIndex={1} y={440} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+      <DetailBackdrop url={backdrop()} />
       <View zIndex={2}>
         <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={TITLE_Y + 86} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>{meta()}</Text>

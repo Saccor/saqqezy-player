@@ -103,3 +103,37 @@ export function cardAt(px: number, scroll: number, pitch: number, cardW: number,
   const c = scroll + Math.floor(px / pitch);
   return px % pitch < cardW && c < total ? c : undefined;
 }
+
+/** The series detail's focus areas, top to bottom. */
+export type SeriesArea = 'actions' | 'seasons' | 'episodes';
+/** Where the screen was, kept in its router params so a remount (returning from the player) lands there again. */
+export interface SavedFocus { seasonNumber: number; episodeId: string }
+
+/**
+ * The first load after a (re)mount: the saved episode and area when the screen was left from the seasons or episodes
+ * (returning from the player); else the primary episode (it may have moved on) with focus on the primary button.
+ */
+export function remountRestore(saved: { focus?: SavedFocus; area?: SeriesArea }): { prev: SavedFocus | undefined; area: SeriesArea } {
+  if (saved.focus && (saved.area === 'seasons' || saved.area === 'episodes')) return { prev: saved.focus, area: saved.area };
+  return { prev: undefined, area: 'actions' };
+}
+
+/** The area to focus when `a` may have emptied: episodes fall back to the seasons, no seasons to the actions. */
+export function fallbackArea(a: SeriesArea, counts: { seasons: number; episodes: number }): SeriesArea {
+  if (a === 'episodes' && counts.episodes === 0) a = 'seasons';
+  if (a === 'seasons' && counts.seasons === 0) a = 'actions';
+  return a;
+}
+
+/** The season tab selection after a reload: the placed season, except while the keys are on the tabs (kept, clamped). */
+export function tabSelAfterReload(area: SeriesArea, tabSel: number, placedSeason: number, seasons: number): number {
+  if (area !== 'seasons') return placedSeason;
+  return Math.max(0, Math.min(tabSel, seasons - 1));
+}
+
+/** The action buttons: the primary episode (hidden once loaded without one) and Favourite. */
+export function seriesActions(p: { loaded: boolean; primary?: SeriesPrimary; favourite: boolean }): { id: string; label: string; width: number }[] {
+  const fav = { id: 'fav', label: p.favourite ? 'In favourites' : 'Add to favourites', width: 320 };
+  if (p.loaded && !p.primary) return [fav];
+  return [{ id: 'play', label: primaryLabel(p.primary), width: p.primary ? 360 : 220 }, fav];
+}
