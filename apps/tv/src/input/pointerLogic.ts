@@ -189,9 +189,13 @@ export const WHEEL_LINE_PX = 40;
 export const WHEEL_PAGE_PX = 800;
 
 export type WheelDir = -1 | 0 | 1;
-export interface WheelState { accY: number; accX: number; lastY: number; lastX: number }
+/** A pause longer than this drops what an axis had accumulated (a throttled step never waits for a later touch). */
+export const WHEEL_IDLE_MS = 2 * WHEEL_STEP_MS;
+/** Per axis: accumulated px, the last step's time, and the last wheel event's time. */
+export interface WheelState { accY: number; accX: number; lastY: number; lastX: number; seenY: number; seenX: number }
 export const WHEEL_START: WheelState = {
   accY: 0, accX: 0, lastY: Number.NEGATIVE_INFINITY, lastX: Number.NEGATIVE_INFINITY,
+  seenY: Number.NEGATIVE_INFINITY, seenX: Number.NEGATIVE_INFINITY,
 };
 
 /** `WheelEvent.deltaMode`: 0 px, 1 lines, 2 pages. */
@@ -201,20 +205,30 @@ export function wheelPixels(delta: number, deltaMode: number): number {
   return delta;
 }
 
-function axis(acc: number, last: number, d: number, at: number): { acc: number; last: number; step: WheelDir } {
-  if (d === 0 || !Number.isFinite(d)) return { acc, last, step: 0 };
+interface Axis { acc: number; last: number; seen: number; step: WheelDir }
+
+function axis(prev: Omit<Axis, 'step'>, d: number, at: number): Axis {
+  if (d === 0 || !Number.isFinite(d)) return { ...prev, step: 0 };
+  const acc = at - prev.seen > WHEEL_IDLE_MS ? 0 : prev.acc;
   // A change of direction drops what was accumulated the other way.
   const sum = Math.sign(d) !== Math.sign(acc) ? d : acc + d;
   const capped = Math.max(-WHEEL_STEP_PX, Math.min(WHEEL_STEP_PX, sum));
-  if (Math.abs(capped) >= WHEEL_STEP_PX && at - last >= WHEEL_STEP_MS) return { acc: 0, last: at, step: capped > 0 ? 1 : -1 };
-  return { acc: capped, last, step: 0 };
+  if (Math.abs(capped) >= WHEEL_STEP_PX && at - prev.last >= WHEEL_STEP_MS) {
+    return { acc: 0, last: at, seen: at, step: capped > 0 ? 1 : -1 };
+  }
+  return { acc: capped, last: prev.last, seen: at, step: 0 };
 }
 
-/** Accumulates wheel px per axis and yields at most one step per axis every `WHEEL_STEP_MS`. */
+/**
+ * Accumulates wheel px per axis and yields at most one step per axis every `WHEEL_STEP_MS`. An axis idle for more
+ * than `WHEEL_IDLE_MS` starts from zero.
+ */
 export function wheelStep(s: WheelState, dy: number, dx: number, at: number): { state: WheelState; dy: WheelDir; dx: WheelDir } {
-  const y = axis(s.accY, s.lastY, dy, at);
-  const x = axis(s.accX, s.lastX, dx, at);
-  return { state: { accY: y.acc, accX: x.acc, lastY: y.last, lastX: x.last }, dy: y.step, dx: x.step };
+  const y = axis({ acc: s.accY, last: s.lastY, seen: s.seenY }, dy, at);
+  const x = axis({ acc: s.accX, last: s.lastX, seen: s.seenX }, dx, at);
+  return {
+    state: { accY: y.acc, accX: x.acc, lastY: y.last, lastX: x.last, seenY: y.seen, seenX: x.seen }, dy: y.step, dx: x.step,
+  };
 }
 
 // ---- layout ----

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -215,6 +215,32 @@ describe('wheel', () => {
     const r = wheelStep(WHEEL_START, Number.NaN, Number.POSITIVE_INFINITY, 1000);
     expect(r).toEqual({ state: WHEEL_START, dy: 0, dx: 0 });
     expect(wheelStep(r.state, 100, 0, 1000).dy).toBe(1);
+  });
+
+  it('a throttled (parked) step expires after a pause, so a light touch much later does not step', () => {
+    let r = wheelStep(WHEEL_START, 100, 0, 1000);
+    r = wheelStep(r.state, 100, 0, 1050); // throttled: 50 px parked
+    expect(r.dy).toBe(0);
+    r = wheelStep(r.state, 1, 0, 1050 + WHEEL_IDLE_MS + 1);
+    expect(r.dy).toBe(0);
+    r = wheelStep(r.state, 1, 0, 60_000);
+    expect(r.dy).toBe(0);
+    // A real notch after the pause still steps.
+    expect(wheelStep(r.state, 100, 0, 60_010).dy).toBe(1);
+  });
+
+  it('the idle gap is about two throttle periods and is measured per axis', () => {
+    expect(WHEEL_IDLE_MS).toBe(2 * WHEEL_STEP_MS);
+    let r = wheelStep(WHEEL_START, 100, 0, 1000);
+    r = wheelStep(r.state, 100, 0, 1050); // y parks 50 px
+    r = wheelStep(r.state, 0, 10, 1050 + WHEEL_IDLE_MS + 1); // x events do not keep y alive
+    r = wheelStep(r.state, 1, 0, 1050 + WHEEL_IDLE_MS + 2);
+    expect(r.dy).toBe(0);
+    // Within the gap the parked step still fires (continuous scrolling).
+    let q = wheelStep(WHEEL_START, 100, 0, 1000);
+    q = wheelStep(q.state, 100, 0, 1050);
+    q = wheelStep(q.state, 1, 0, 1050 + WHEEL_IDLE_MS);
+    expect(q.dy).toBe(1);
   });
 
   it('throttles the two axes separately', () => {
