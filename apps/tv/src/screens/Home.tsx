@@ -25,7 +25,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, initState, markStartup } from '../state/appState.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, videoClickGroup } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -88,6 +88,9 @@ const memory: { groupId?: string; channelId?: string; rows: Map<string, number> 
 
 /** Search mode across Home visits: the query, the focused result and the browse position to return to. */
 let searchMemory: HomeSearchState = BROWSE;
+
+/** The first Home mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
+let startupResumed = false;
 
 const PHONE_BADGE_W = 300;
 const PHONE_BADGE_H = 48;
@@ -314,12 +317,21 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   // A browse focus that rests for FOCUS_REST_MS tells the worker, which may look up that channel's now/next (short
   // EPG, only for channels without a stored guide). It never plays anything. Search results do not count: while
   // searching, the preview panel describes the playing channel.
+  // A rest was reported and not cleared yet: the worker still holds that focused id.
+  let restReported = false;
   const focusRest = createDebounce<string>(FOCUS_REST_MS, (id) => {
-    if (alive && focusedId() === id && area() === 'list' && !searching()) void api.focusChannel(id).catch(() => undefined);
+    if (!alive || focusedId() !== id || area() !== 'list' || searching()) return;
+    restReported = true;
+    void api.focusChannel(id).catch(() => undefined);
   });
   createEffect(on([focusedId, area, ready, modalOpen, searching], ([id, a, isReady, modal, isSearching]) => {
     if (id === undefined || a !== 'list' || !isReady || modal || isSearching) {
       focusRest.cancel();
+      // The list lost the focus (or search started): the worker drops the stale focused id.
+      if (restReported) {
+        restReported = false;
+        void api.focusChannel(undefined).catch(() => undefined);
+      }
       return;
     }
     memory.channelId = id;
@@ -958,10 +970,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         const found = g === undefined || exited() ? undefined
           : await openGroup(g, [playingId, focusHint, memory.channelId, params.lastChannelId]);
         if (!alive) return;
-        // The preview resumes the last channel right away (a no-op when it is already playing). A last channel that
-        // is gone or hidden is not resumed: nothing plays until Ok. Search mode never starts playback without Ok.
-        const resume = playingId ?? found;
-        if (resume && !held && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
+        // `found` only places the focus. The preview re-plays the playing channel (no reconnect), or on the first
+        // mount of the page resumes init's last channel; never a row that was only browsed to. A last channel that is
+        // gone or hidden is not resumed: nothing plays until Ok. Search mode never starts playback without Ok.
+        const resume = resumeTarget({ playingId, lastChannelId: params.lastChannelId, found, startupDone: startupResumed, held });
+        startupResumed = true;
+        if (resume && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
         if (!searching() && !exited()) focusArea(total() > 0 ? 'list' : 'groups');
       } catch (err) {
