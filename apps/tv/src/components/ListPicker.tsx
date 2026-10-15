@@ -1,7 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
-import { rowAt } from '../input/pointerLogic.ts';
+import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { moveFocus, scrollTopFor } from './virtualWindow.ts';
@@ -52,7 +52,7 @@ export function ListPicker(props: {
   };
   /** Only the drawn rows: the slice from `scrollTop`. */
   const indexAt = (p: Point) => {
-    const k = rowAt(p.y - PAD - HEAD, 0, STEP, Math.min(VIEW_ROWS, props.rows.length - scrollTop()));
+    const k = panelRowHit(p, WIDTH, PAD, PAD + HEAD, STEP, STEP - ITEM_H, Math.min(VIEW_ROWS, props.rows.length - scrollTop()));
     return k === undefined ? undefined : scrollTop() + k;
   };
   // Backdrop first, then the panel: the panel wins where they overlap.

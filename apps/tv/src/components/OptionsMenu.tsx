@@ -1,7 +1,7 @@
 import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
-import { rowAt } from '../input/pointerLogic.ts';
+import { panelRowHit } from '../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
 export interface OptionItem { id: string; label: string; value?: string }
@@ -41,7 +41,7 @@ export function OptionsMenu(props: {
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, () => true]),
   );
   const height = () => PAD * 2 + HEAD + props.items.length * (ITEM_H + ITEM_GAP);
-  const indexAt = (p: Point) => rowAt(p.y - PAD - HEAD, 0, ITEM_H + ITEM_GAP, props.items.length);
+  const indexAt = (p: Point) => panelRowHit(p, W, PAD, PAD + HEAD, ITEM_H + ITEM_GAP, ITEM_GAP, props.items.length);
   // Backdrop first, then the panel: the panel wins where they overlap.
   usePointerBackdrop(() => backdrop);
   usePointerTarget({

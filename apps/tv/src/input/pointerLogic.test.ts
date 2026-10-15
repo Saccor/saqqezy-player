@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, sameGridHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -87,6 +87,23 @@ describe('rowHit (drawn rows with a gap under each)', () => {
     expect(rowHit(10, 5, 92, 20, 10)).toBe(5);
     expect(rowHit(3 * 92, 0, 92, 20, 3)).toBeUndefined();
     expect(rowHit(-1, 0, 92, 20, 3)).toBeUndefined();
+  });
+});
+
+describe('panelRowHit (menu items drawn inside a padded panel)', () => {
+  // Panel 640 wide, padding 32, items start at y 100, pitch 84 with a 12 px gap: items at x 32–607.
+  const at = (x: number, y: number) => panelRowHit({ x, y }, 640, 32, 100, 84, 12, 3);
+  it('hits an item on its drawn area', () => {
+    expect(at(32, 100)).toBe(0);
+    expect(at(607, 171)).toBe(0);
+    expect(at(320, 184)).toBe(1);
+  });
+  it('misses the side padding, the gap between items, the heading and below the last item', () => {
+    expect(at(31, 120)).toBeUndefined();
+    expect(at(608, 120)).toBeUndefined();
+    expect(at(320, 172)).toBeUndefined();
+    expect(at(320, 99)).toBeUndefined();
+    expect(at(320, 100 + 3 * 84)).toBeUndefined();
   });
 });
 

@@ -1,7 +1,7 @@
 import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
-import { rowAt } from '../input/pointerLogic.ts';
+import { panelRowHit } from '../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
 export interface ContextMenuItem<A extends string> { action: A; label: string }
@@ -47,7 +47,7 @@ export function ContextMenu<A extends string>(props: {
     setSel(Math.max(0, Math.min(props.items.length - 1, sel() + d)));
     return true;
   };
-  const indexAt = (p: Point) => rowAt(p.y - PAD - HEAD, 0, ITEM_H + 12, props.items.length);
+  const indexAt = (p: Point) => panelRowHit(p, WIDTH, PAD, PAD + HEAD, ITEM_H + 12, 12, props.items.length);
   // Backdrop first, then the panel: the panel wins where they overlap.
   const enabled = () => props.pointerEnabled !== false;
   usePointerBackdrop(() => scrim, undefined, false, enabled);

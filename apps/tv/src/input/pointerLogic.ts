@@ -108,6 +108,17 @@ export function rowHit(y: number, top: number, pitch: number, gap: number, total
   return y - (i - top) * pitch < pitch - gap ? i : undefined;
 }
 
+/**
+ * The item under a panel-local point for menus whose items are drawn `pad` in from both sides of a `panelW` wide
+ * panel, starting at `listTop`, `pitch` apart with a `gap` under each: the side padding and the gaps hit nothing.
+ */
+export function panelRowHit(
+  p: Point, panelW: number, pad: number, listTop: number, pitch: number, gap: number, total: number,
+): number | undefined {
+  if (p.x < pad || p.x >= panelW - pad) return undefined;
+  return rowHit(p.y - listTop, 0, pitch, gap, total);
+}
+
 /** The guide grid's layout (design px, relative to the grid node). */
 export interface GridGeometry {
   rulerH: number;
