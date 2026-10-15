@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { SourceService, VodCatalog, VodService, type FetchFn, type VodItem, type VodKind, type VodList } from '@iptv/core';
+import {
+  SourceService, VodCatalog, VodService,
+  type Episode, type FetchFn, type Season, type VodItem, type VodKind, type VodList, type VodUserRecord, type VodUserState,
+} from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
-  VOD_HOME_ROWS_WITH_ITEMS, VOD_ROW_CONTINUE, VOD_ROW_FAVOURITES, VOD_ROW_RECENT, VodController,
+  VOD_DETAIL_CACHE, VOD_HOME_ROWS_WITH_ITEMS, VOD_ROW_CONTINUE, VOD_ROW_FAVOURITES, VOD_ROW_RECENT, VodController,
 } from '../src/vodController.ts';
 import type { AppEvent } from '../src/types.ts';
 
@@ -295,7 +298,7 @@ describe('VodController detail views and playable', () => {
     const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
     failVod = true;
     expect((await c.movie(id))!.detail).toBeNull();
-    expect(recorded).toContain('getMovie');
+    expect(recorded).toEqual(['getMovie']);
     failVod = false;
     expect((await c.movie(id))!.detail).not.toBeNull();
   });
@@ -315,7 +318,8 @@ describe('VodController detail views and playable', () => {
     await c.refresh('movie');
     const movieId = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
     const m = (await c.playable(movieId))!;
-    expect(m).toMatchObject({ kind: 'movie', itemId: movieId, resumeMs: 0, tracks: {} });
+    expect(m).toMatchObject({ kind: 'movie', itemId: movieId, resumeMs: 0 });
+    expect(m.tracks).toEqual({});
     expect(m.url).toMatch(/\/movie\/test\/test\/\d+\.m3u8$/);
 
     await c.refresh('series');
@@ -328,5 +332,168 @@ describe('VodController detail views and playable', () => {
     expect(e.next?.label).toMatch(/^S1 · E2 · /);
     expect(e.series?.next).toMatchObject({ season: 1, episode: 2 });
     expect(await c.playable('nope', showId)).toBeUndefined();
+  });
+});
+
+const range = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+const movieId = (n: number) => `s:movie${n}`;
+const showId = (n: number) => `s:series${n}`;
+const epId = (show: string, k: number) => `${show}:ep${k}`;
+const seasonsOf = (show: string): Season[] => {
+  const ep = (season: number, episode: number, k: number): Episode => ({ id: epId(show, k), season, episode, title: `Part ${k}`, runtimeMin: 30 });
+  return [
+    { number: 1, name: 'Season 1', episodes: [ep(1, 1, 1), ep(1, 2, 2)] },
+    { number: 2, name: 'Season 2', episodes: [ep(2, 1, 3)] },
+  ];
+};
+const userState = (over: Partial<VodUserState> = {}): VodUserState => ({ position: 0, duration: 0, watched: false, favourite: false, updatedAt: 0, ...over });
+
+/** A controller over a deterministic fake VodService: `movies` movies and `shows` series, all in category 1. */
+function detailFake(movies: number, shows = 0) {
+  const users: VodUserRecord[] = [];
+  const recorded: string[] = [];
+  const catalogs = {
+    movie: new VodCatalog('movie', listOf('movie', ...range(movies))),
+    series: new VodCatalog('series', listOf('series', ...range(shows))),
+  };
+  const fake = {
+    storedCatalog: vi.fn(async (_id: string, kind: VodKind): Promise<VodCatalog | undefined> => catalogs[kind]),
+    needsRefresh: async (): Promise<boolean> => false,
+    listUser: vi.fn(async () => users),
+    movieDetail: vi.fn(async (_src: string, it: VodItem) => ({ plot: `Plot ${it.id}` })),
+    seriesDetail: vi.fn(async (_src: string, it: VodItem) => ({ plot: `Plot ${it.id}`, seasons: seasonsOf(it.id) })),
+    streamUrl: vi.fn(async (_src: string, it: { id: string }) => `https://media.invalid/${it.id}`),
+  };
+  const c = new VodController({
+    vod: fake as unknown as VodService,
+    emit: () => {},
+    record: (where, err) => { recorded.push(where); return err instanceof Error ? err : new Error(String(err)); },
+  });
+  c.reset('src');
+  return { c, fake, users, recorded };
+}
+
+describe('VodController detail cache', () => {
+  test('keeps at most VOD_DETAIL_CACHE details: the oldest is refetched, the newest is not', async () => {
+    const { c, fake } = detailFake(VOD_DETAIL_CACHE + 1);
+    for (const n of range(VOD_DETAIL_CACHE + 1)) await c.movie(movieId(n));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(VOD_DETAIL_CACHE + 1);
+    fake.movieDetail.mockClear();
+    await c.movie(movieId(VOD_DETAIL_CACHE + 1));
+    expect(fake.movieDetail).not.toHaveBeenCalled();
+    await c.movie(movieId(1));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(1);
+  });
+
+  test('a cache hit refreshes recency: the touched movie survives, the next-oldest is evicted', async () => {
+    const { c, fake } = detailFake(VOD_DETAIL_CACHE + 1);
+    for (const n of range(VOD_DETAIL_CACHE)) await c.movie(movieId(n));
+    await c.movie(movieId(1));
+    await c.movie(movieId(VOD_DETAIL_CACHE + 1));
+    fake.movieDetail.mockClear();
+    await c.movie(movieId(1));
+    expect(fake.movieDetail).not.toHaveBeenCalled();
+    await c.movie(movieId(2));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(1);
+  });
+
+  test('reset clears the cache', async () => {
+    const { c, fake } = detailFake(2);
+    await c.movie(movieId(1));
+    await c.movie(movieId(1));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(1);
+    c.reset('src');
+    await c.movie(movieId(1));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VodController detail failures', () => {
+  test('a series whose detail fails: detail null, no seasons, no primary, recorded once, not cached', async () => {
+    const { c, fake, recorded } = detailFake(0, 2);
+    fake.seriesDetail.mockRejectedValueOnce(new Error('detail failed'));
+    const view = (await c.series(showId(1)))!;
+    expect(view.detail).toBeNull();
+    expect(view.seasons).toEqual([]);
+    expect(view.primary).toBeUndefined();
+    expect(recorded).toEqual(['getSeries']);
+    const again = (await c.series(showId(1)))!;
+    expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
+    expect(again.detail).not.toBeNull();
+    expect(again.seasons.length).toBe(2);
+  });
+
+  test('playable for an episode whose series detail fails: rejects, recorded, nothing cached', async () => {
+    const { c, fake, recorded } = detailFake(0, 2);
+    fake.seriesDetail.mockRejectedValueOnce(new Error('detail failed'));
+    await expect(c.playable(epId(showId(1), 1), showId(1))).rejects.toThrow('This series could not be loaded. Try again.');
+    expect(recorded).toContain('getVodPlayable');
+    expect((await c.playable(epId(showId(1), 1), showId(1)))?.kind).toBe('episode');
+    expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VodController series primary', () => {
+  const show = showId(1);
+  const at = (k: number) => ({ season: k === 3 ? 2 : 1, episode: k === 3 ? 1 : k });
+  const pointer = (k: number, next?: number) => ({
+    id: show, ...at(k), ...(next === undefined ? {} : { next: { id: epId(show, next), ...at(next) } }),
+  });
+
+  test('an episode in progress: continue it at its position', async () => {
+    const { c, users } = detailFake(0, 1);
+    users.push({ itemId: epId(show, 2), state: userState({ position: 600_000, duration: 1_800_000, updatedAt: 5, series: pointer(2) }) });
+    c.reset('src');
+    expect((await c.series(show))!.primary).toEqual({ episodeId: epId(show, 2), season: 1, episode: 2, resumeMs: 600_000, mode: 'continue' });
+  });
+
+  test('the latest episode watched with a next pointer: continue with the next, from 0', async () => {
+    const { c, users } = detailFake(0, 1);
+    users.push({ itemId: epId(show, 2), state: userState({ watched: true, duration: 1_800_000, updatedAt: 5, series: pointer(2, 3) }) });
+    c.reset('src');
+    expect((await c.series(show))!.primary).toEqual({ episodeId: epId(show, 3), season: 2, episode: 1, resumeMs: 0, mode: 'continue' });
+  });
+
+  test('two episode records: the later updatedAt wins, whatever the order', async () => {
+    const { c, users } = detailFake(0, 1);
+    users.push({ itemId: epId(show, 2), state: userState({ position: 300_000, duration: 1_800_000, updatedAt: 9, series: pointer(2) }) });
+    users.push({ itemId: epId(show, 1), state: userState({ position: 120_000, duration: 1_800_000, updatedAt: 1, series: pointer(1) }) });
+    c.reset('src');
+    expect((await c.series(show))!.primary).toMatchObject({ episodeId: epId(show, 2), resumeMs: 300_000, mode: 'continue' });
+    users.reverse();
+    c.reset('src');
+    expect((await c.series(show))!.primary).toMatchObject({ episodeId: epId(show, 2), resumeMs: 300_000, mode: 'continue' });
+  });
+});
+
+describe('VodController tracks', () => {
+  test('a movie without stored tracks has none', async () => {
+    const { c } = detailFake(1);
+    expect((await c.movie(movieId(1)))!.tracks).toEqual({});
+    expect((await c.playable(movieId(1)))!.tracks).toEqual({});
+  });
+
+  test('stored tracks and position come back on the view and on playable', async () => {
+    const { c, users } = detailFake(1);
+    users.push({ itemId: movieId(1), state: userState({ position: 600_000, duration: 3_600_000, audio: 'eng', subtitle: 'swe', updatedAt: 3 }) });
+    c.reset('src');
+    const p = (await c.playable(movieId(1)))!;
+    expect(p.tracks).toEqual({ audio: 'eng', subtitle: 'swe' });
+    expect(p.resumeMs).toBe(600_000);
+    expect((await c.movie(movieId(1)))!.tracks).toEqual({ audio: 'eng', subtitle: 'swe' });
+  });
+});
+
+describe('VodController detail views vs reset', () => {
+  test('a reset while the catalogue loads: movie resolves undefined and fetches no detail', async () => {
+    const { c, fake } = detailFake(2);
+    const gate = deferred<VodCatalog | undefined>();
+    fake.storedCatalog.mockImplementation(() => gate.promise);
+    const view = c.movie(movieId(1));
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset(undefined);
+    gate.resolve(new VodCatalog('movie', listOf('movie', 1, 2)));
+    expect(await view).toBeUndefined();
+    expect(fake.movieDetail).not.toHaveBeenCalled();
   });
 });

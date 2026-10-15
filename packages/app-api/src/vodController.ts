@@ -161,11 +161,14 @@ export class VodController {
 
   async movie(id: string): Promise<MovieView | undefined> {
     const src = this.sourceId;
+    const epoch = this.epoch;
     const catalog = src ? await this.catalog('movie') : undefined;
     const item = catalog?.byId(id);
-    if (!src || !catalog || !item) return undefined;
+    if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
+    if (this.epoch !== epoch) return undefined;
     const detail = await this.detailOf<MovieDetail>(item, 'getMovie', () => this.vod.movieDetail(src, item));
+    if (this.epoch !== epoch) return undefined;
     const s = user.get(id);
     const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
     const more = catalog.slice(item.categoryId, sort, 0, VOD_MORE_ITEMS + 1).rows
@@ -175,11 +178,14 @@ export class VodController {
 
   async series(id: string): Promise<SeriesView | undefined> {
     const src = this.sourceId;
+    const epoch = this.epoch;
     const catalog = src ? await this.catalog('series') : undefined;
     const item = catalog?.byId(id);
-    if (!src || !catalog || !item) return undefined;
+    if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
+    if (this.epoch !== epoch) return undefined;
     const full = await this.detailOf<SeriesDetail>(item, 'getSeries', () => this.vod.seriesDetail(src, item));
+    if (this.epoch !== epoch) return undefined;
     const seasons = full?.seasons ?? [];
     const view: SeriesView = {
       tile: this.tile(item),
@@ -195,17 +201,20 @@ export class VodController {
   async playable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
     const src = this.sourceId;
     if (!src) return undefined;
+    const epoch = this.epoch;
     const user = await this.userMap();
+    if (this.epoch !== epoch) return undefined;
     const s = user.get(itemId);
     if (seriesId === undefined) {
       const item = (await this.catalog('movie'))?.byId(itemId);
-      if (!item) return undefined;
+      if (!item || this.epoch !== epoch) return undefined;
       const url = await this.vod.streamUrl(src, item);
       return { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
     }
     const show = (await this.catalog('series'))?.byId(seriesId);
-    if (!show) return undefined;
+    if (!show || this.epoch !== epoch) return undefined;
     const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show));
+    if (this.epoch !== epoch) return undefined;
     if (!detail) throw new Error('This series could not be loaded. Try again.');
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
     if (!ep) return undefined;
