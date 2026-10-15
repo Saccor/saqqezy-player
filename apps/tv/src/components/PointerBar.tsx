@@ -1,5 +1,5 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createSignal, onCleanup } from 'solid-js';
+import { createMemo, createSignal, onCleanup } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { POINTER_BAR_H, POINTER_BTN_W, barLayout } from '../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -51,7 +51,8 @@ export function PointerBar(props: {
   const h = () => props.height ?? POINTER_BAR_H;
   const gap = () => props.gap ?? LAYOUT.gap / 2;
   const widths = () => props.items.map((it) => it.width ?? POINTER_BTN_W);
-  const layout = () => barLayout(props.vertical ? props.items.map(() => h()) : widths(), gap());
+  const layout = createMemo(() => barLayout(props.vertical ? props.items.map(() => h()) : widths(), gap()));
+  // Ids of the buttons under the pointer; each button clears itself on cleanup, so the set never outlives the bar.
   const over = new Set<string>();
   const hover = (id: string, on: boolean) => {
     const before = over.size > 0;

@@ -118,7 +118,7 @@ export function App() {
       {/* Pointer mode only: every screen except Home and the Player (it has its own) gets a Back button. */}
       <Show when={pointerMode() && shellBackShown(current()?.screen)}>
         <View x={LAYOUT.safeX} y={LAYOUT.safeY} zIndex={45}>
-          <Button width={SHELL_BACK_W} label={SHELL_BACK_LABEL} onPress={shellBack} pointerLayer="overlay" pointerGlobal />
+          <Button width={SHELL_BACK_W} label={SHELL_BACK_LABEL} onPress={shellBack} pointerGlobal />
         </View>
       </Show>
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}

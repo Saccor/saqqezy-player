@@ -261,4 +261,11 @@ describe('pickTarget', () => {
     expect(pickTarget([screen, backdrop, button], P)).toBe(1);
     expect(pickTarget([screen, backdrop, button], { x: 550, y: 350 })).toBe(2);
   });
+
+  it('a global screen-layer target (the shell Back) does not block other screen targets', () => {
+    const back = cand({ seq: 9, rect: { x: 0, y: 0, w: 20, h: 20 } }); // global is resolved into inScope by the caller
+    const other = cand({ seq: 2, rect: { x: 200, y: 200, w: 50, h: 50 } });
+    expect(pickTarget([other, back], { x: 210, y: 210 })).toBe(0);
+    expect(pickTarget([other, back], { x: 5, y: 5 })).toBe(1);
+  });
 });

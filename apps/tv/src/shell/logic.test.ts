@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
-  toastOnShow,
+  SHELL_BACK_LABEL, shellBackShown, toastOnShow,
 } from './logic.ts';
-import { SHELL_BACK_LABEL, shellBackShown } from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
