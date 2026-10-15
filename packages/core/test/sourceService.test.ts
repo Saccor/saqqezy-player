@@ -498,6 +498,56 @@ describe('SourceService – xtream', () => {
     expect((await service.shortEpgFor(source.id, channels)).get(channels[0]!.id)).toEqual({});
   });
 
+  test('shortEpgFor caps the gap wait when the clock jumps back', async () => {
+    const { source, channels } = await addX(2);
+    let clock = NOW;
+    const at: number[] = [];
+    routes['api:get_short_epg'] = () => {
+      at.push(Date.now());
+      if (at.length === 1) clock -= 3_600_000; // NTP corrects the clock by an hour
+      return json({ epg_listings: [] });
+    };
+    const svc = new SourceService({ shortEpgGapMs: 40, storage, fetch: fetchFn, now: () => clock });
+    expect((await svc.shortEpgFor(source.id, channels)).size).toBe(2);
+    expect(at[1]! - at[0]!).toBeLessThan(1000);
+  });
+
+  test('two concurrent shortEpgFor calls to one source are spaced by the gap', async () => {
+    const { source, channels } = await addX(4);
+    const at: number[] = [];
+    routes['api:get_short_epg'] = () => { at.push(Date.now()); return json({ epg_listings: [] }); };
+    const svc = new SourceService({ shortEpgGapMs: 40, storage, fetch: fetchFn });
+    await Promise.all([svc.shortEpgFor(source.id, channels.slice(0, 2)), svc.shortEpgFor(source.id, channels.slice(2))]);
+    expect(at).toHaveLength(4);
+    for (let k = 1; k < at.length; k++) expect(at[k]! - at[k - 1]!).toBeGreaterThanOrEqual(35);
+  });
+
+  test('a failed short-EPG request still counts toward the gap', async () => {
+    const { source, channels } = await addX(2);
+    const at: number[] = [];
+    routes['api:get_short_epg'] = () => { at.push(Date.now()); return new Response('', { status: 500 }); };
+    const svc = new SourceService({ shortEpgGapMs: 40, storage, fetch: fetchFn });
+    expect((await svc.shortEpgFor(source.id, channels)).size).toBe(2);
+    expect(at).toHaveLength(2);
+    expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(35);
+  });
+
+  test('the short-EPG gap is per source: another source is not delayed by it', async () => {
+    const a = await addX(1);
+    const b = await addX(1);
+    expect(b.source.id).not.toBe(a.source.id);
+    const at: Record<string, number> = {};
+    routes['api:get_short_epg'] = () => { at[String(Object.keys(at).length)] = Date.now(); return json({ epg_listings: [] }); };
+    const svc = new SourceService({ shortEpgGapMs: 400, storage, fetch: fetchFn });
+    await svc.shortEpgFor(a.source.id, a.channels);
+    const t0 = Date.now();
+    await svc.shortEpgFor(b.source.id, b.channels);
+    expect(Date.now() - t0).toBeLessThan(200);
+    const t1 = Date.now();
+    await svc.shortEpgFor(a.source.id, a.channels);
+    expect(Date.now() - t1).toBeGreaterThanOrEqual(300);
+  });
+
   const stalledJson = (head: string) => () => new Response(new ReadableStream<Uint8Array>({
     start(c) { c.enqueue(new TextEncoder().encode(head)); },
     pull: () => new Promise<void>(() => {}),

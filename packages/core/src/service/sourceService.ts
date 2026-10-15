@@ -484,7 +484,8 @@ export class SourceService {
   /** Waits until `shortEpgGapMs` has passed since the last short-EPG request to source `id`. */
   private async shortEpgGap(id: string): Promise<void> {
     const last = this.shortEpgLastAt.get(id);
-    const wait = last === undefined ? 0 : last + this.shortEpgGapMs - this.now();
+    // Capped at the gap: a clock that jumped back (NTP after boot) must not sleep for hours holding the only slot.
+    const wait = last === undefined ? 0 : Math.min(this.shortEpgGapMs, last + this.shortEpgGapMs - this.now());
     if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
