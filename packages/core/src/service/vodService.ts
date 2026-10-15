@@ -1,9 +1,10 @@
+import { SourceNetworkError } from '../errors.ts';
 import { BODY_IDLE_MS } from '../net/timeout.ts';
 import { sanitizeSettings } from '../settings.ts';
 import type { Storage } from '../storage.ts';
 import type { FetchFn, SourceConfig, XtreamSourceConfig } from '../types.ts';
 import { VodCatalog } from '../vod/catalog.ts';
-import { fetchXtreamCatalog, xtreamVodApi } from '../vod/fetchXtream.ts';
+import { fetchXtreamCatalog, VodFetchCancelled, xtreamVodApi } from '../vod/fetchXtream.ts';
 import { emptyVodList, seasonsOf } from '../vod/list.ts';
 import {
   applyProgress, clearProgress, setFavourite, setTracks, setWatched,
@@ -59,7 +60,8 @@ export class VodService {
 
   /**
    * Fetches and stores the catalogue (Xtream). A source removed meanwhile stores nothing; a cancel rejects with
-   * `VodFetchCancelled` and stores nothing. One refresh per source and kind at a time.
+   * `VodFetchCancelled` and stores nothing.
+   * An empty answer never replaces a non-empty stored catalogue (it rejects with `SourceNetworkError`). One refresh per source and kind at a time.
    */
   refresh(
     sourceId: string, kind: VodKind, opts: { signal?: AbortSignal; onProgress?: (n: number) => void } = {},
@@ -72,7 +74,12 @@ export class VodService {
         return { count: list?.items.length ?? 0, truncated: list?.truncated === true };
       }
       const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, opts);
+      if (opts.signal?.aborted) throw new VodFetchCancelled();
       if (!(await this.source(sourceId))) return { count: 0, truncated: false };
+      // A 200 with an error body parses to an empty list: keep a good cached catalogue rather than wipe it.
+      if (list.items.length === 0 && ((await this.storage.getVod(sourceId, kind))?.items.length ?? 0) > 0) {
+        throw new SourceNetworkError('Unexpected response from the provider.');
+      }
       await this.storage.replaceVod(sourceId, kind, list);
       await this.storage.setMeta(vodAtKey(kind, sourceId), this.now());
       return { count: list.items.length, truncated: list.truncated === true };

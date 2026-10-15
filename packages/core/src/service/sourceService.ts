@@ -128,6 +128,11 @@ export class SourceService {
       await this.storage.putSource(source);
       await this.saveChannels(source.id, channels, result, vod);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
+      if (source.kind === 'xtream') {
+        // M3U catalogues are re-stored by saveChannels; Xtream ones are fetched lazily, so make them stale.
+        await this.storage.setMeta(`vodAt:movie:${source.id}`, 0);
+        await this.storage.setMeta(`vodAt:series:${source.id}`, 0);
+      }
       return result;
     });
   }

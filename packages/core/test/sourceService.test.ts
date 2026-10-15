@@ -370,6 +370,20 @@ describe('SourceService – xtream', () => {
     expect(nn.get(c7!.id)?.now?.title).toBe('Live Now');
   });
 
+  test('updateSource resets the VOD freshness of an Xtream source', async () => {
+    const { source } = await (async () => {
+      routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+      routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+      routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+      return service.addSource(xInput);
+    })();
+    await storage.setMeta(`vodAt:movie:${source.id}`, NOW);
+    await storage.setMeta(`vodAt:series:${source.id}`, NOW);
+    await service.updateSource({ ...source, name: 'Renamed' });
+    expect(await storage.getMeta(`vodAt:movie:${source.id}`)).toBe(0);
+    expect(await storage.getMeta(`vodAt:series:${source.id}`)).toBe(0);
+  });
+
   const addX = async (streams: number) => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);

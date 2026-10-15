@@ -30,7 +30,7 @@ export function buildVodList(
   return list;
 }
 
-/** Groups episodes into seasons, both ascending; equal episode numbers keep their input order. */
+/** Groups episodes into seasons, both ascending (season 0, the specials, goes last); equal episode numbers keep their input order. */
 export function seasonsOf(episodes: Episode[], names: Map<number, string> = new Map()): Season[] {
   const bySeason = new Map<number, Episode[]>();
   for (const e of episodes) {
@@ -39,10 +39,10 @@ export function seasonsOf(episodes: Episode[], names: Map<number, string> = new 
     bySeason.set(e.season, list);
   }
   return [...bySeason.entries()]
-    .sort(([a], [b]) => a - b)
+    .sort(([a], [b]) => (a === 0 ? 1 : b === 0 ? -1 : a - b))
     .map(([number, eps]) => ({
       number,
-      name: names.get(number) ?? `Season ${number}`,
+      name: names.get(number) ?? (number === 0 ? 'Specials' : `Season ${number}`),
       episodes: eps.map((e, i) => ({ e, i })).sort((a, b) => a.e.episode - b.e.episode || a.i - b.i).map(({ e }) => e),
     }));
 }

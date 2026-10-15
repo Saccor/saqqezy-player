@@ -3,14 +3,14 @@ import { buildVodList } from './list.ts';
 import { VOD_CAP, type VodCategory, type VodItem, type VodKind, type VodList } from './types.ts';
 
 export interface XtreamVodApi {
-  categories(): Promise<VodCategory[]>;
-  list(categoryId?: string): Promise<VodItem[]>;
+  categories(signal?: AbortSignal): Promise<VodCategory[]>;
+  list(categoryId?: string, signal?: AbortSignal): Promise<VodItem[]>;
 }
 
 export function xtreamVodApi(client: XtreamClient, sourceId: string, kind: VodKind): XtreamVodApi {
   return kind === 'movie'
-    ? { categories: () => client.vodCategories(), list: (c) => client.vodStreams(sourceId, c) }
-    : { categories: () => client.seriesCategories(), list: (c) => client.seriesList(sourceId, c) };
+    ? { categories: (s) => client.vodCategories(s), list: (c, s) => client.vodStreams(sourceId, c, s) }
+    : { categories: (s) => client.seriesCategories(s), list: (c, s) => client.seriesList(sourceId, c, s) };
 }
 
 /** The fetch was cancelled (source switched or removed). Nothing was stored. */
@@ -37,7 +37,18 @@ export async function fetchXtreamCatalog(
     if (opts.signal?.aborted) throw new VodFetchCancelled();
   };
 
-  const categories = await api.categories();
+  const signal = opts.signal;
+  // A request that fails after the caller aborted is a cancel, not a network error.
+  const guard = async <T>(p: Promise<T>): Promise<T> => {
+    try {
+      return await p;
+    } catch (e) {
+      check();
+      throw e;
+    }
+  };
+
+  const categories = await guard(api.categories(signal));
   check();
   const items: VodItem[] = [];
   const seen = new Set<string>();
@@ -55,11 +66,11 @@ export async function fetchXtreamCatalog(
   };
 
   if (categories.length === 0) {
-    add(await api.list());
+    add(await guard(api.list(undefined, signal)));
     check();
   } else {
     const firstId = categories[0]!.id;
-    const first = await api.list(firstId);
+    const first = await guard(api.list(firstId, signal));
     check();
     const others = new Set(categories.slice(1).map((c) => c.id));
     others.delete(firstId);
@@ -76,7 +87,7 @@ export async function fetchXtreamCatalog(
         while (!stop && next < categories.length && unique.size < cap) {
           const i = next++;
           try {
-            const list = await api.list(categories[i]!.id);
+            const list = await guard(api.list(categories[i]!.id, signal));
             check();
             results[i] = list;
             for (const it of list) unique.add(it.id);

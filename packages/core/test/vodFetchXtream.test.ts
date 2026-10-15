@@ -35,6 +35,27 @@ describe('fetchXtreamCatalog', () => {
     expect(list.categories.map((c) => c.count)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
+  test('passes the caller signal to every request', async () => {
+    const ac = new AbortController();
+    const seen: (AbortSignal | undefined)[] = [];
+    const api: XtreamVodApi = {
+      categories: async (s) => { seen.push(s); return cats(2); },
+      list: async (id, s) => { seen.push(s); return items(id!, 1); },
+    };
+    await fetchXtreamCatalog(api, 'movie', { signal: ac.signal });
+    expect(seen).toHaveLength(3);
+    expect(seen.every((s) => s === ac.signal)).toBe(true);
+  });
+
+  test('a request that fails after the caller aborted reads as cancelled', async () => {
+    const ac = new AbortController();
+    const api: XtreamVodApi = {
+      categories: async () => { ac.abort(); throw new Error('network down'); },
+      list: async () => [],
+    };
+    await expect(fetchXtreamCatalog(api, 'movie', { signal: ac.signal })).rejects.toBeInstanceOf(VodFetchCancelled);
+  });
+
   test('a server that ignores category_id: the first answer is the whole list', async () => {
     const log: (string | undefined)[] = [];
     const all = [...items('1', 2), ...items('2', 3)];

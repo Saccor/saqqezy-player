@@ -4,7 +4,7 @@ import {
   VOD_UNCATEGORIZED,
   type Episode, type MovieDetail, type SeriesDetail, type VodCategory, type VodItem, type VodKind,
 } from '../vod/types.ts';
-import { isObj, posInt, str } from './json.ts';
+import { isObj, nonNegInt, posInt, str } from './json.ts';
 
 const num = (v: unknown): number | undefined => {
   const n = Number.parseFloat(String(v ?? ''));
@@ -146,24 +146,26 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
   if (Array.isArray(root.seasons)) {
     for (const s of root.seasons) {
       if (!isObj(s)) continue;
-      const n = posInt(s.season_number);
+      const n = nonNegInt(s.season_number);
       const name = str(s.name);
-      if (n && name) names.set(n, name);
+      if (n !== undefined && name) names.set(n, name);
     }
   }
   const groups: { key?: number; list: unknown[] }[] = [];
   if (isObj(root.episodes)) {
-    for (const [k, v] of Object.entries(root.episodes)) if (Array.isArray(v)) groups.push({ key: posInt(k), list: v });
+    for (const [k, v] of Object.entries(root.episodes)) if (Array.isArray(v)) groups.push({ key: nonNegInt(k), list: v });
   } else if (Array.isArray(root.episodes)) {
     for (const v of root.episodes) if (Array.isArray(v)) groups.push({ list: v });
   }
   const episodes: Episode[] = [];
+  const seen = new Set<number>();
   for (const g of groups) {
     g.list.forEach((e, i) => {
       if (!isObj(e)) return;
       const xid = posInt(e.id);
-      if (!xid) return;
-      const season = posInt(e.season) ?? g.key ?? 1;
+      if (!xid || seen.has(xid)) return;
+      seen.add(xid);
+      const season = nonNegInt(e.season) ?? g.key ?? 1;
       const episode = posInt(e.episode_num) ?? i + 1;
       const raw = str(e.title);
       // "Show - S01E02 - Title" → "Title"; a name without a marker stays as it is.

@@ -42,6 +42,11 @@ describe('seasonsOf', () => {
       [2, 'Second', [1]],
     ]);
   });
+  test('season 0 is last and named Specials unless named', () => {
+    const seasons = seasonsOf([ep(0, 1), ep(2, 1), ep(1, 1)]);
+    expect(seasons.map((s) => [s.number, s.name])).toEqual([[1, 'Season 1'], [2, 'Season 2'], [0, 'Specials']]);
+    expect(seasonsOf([ep(0, 1)], new Map([[0, 'Extras']]))[0]!.name).toBe('Extras');
+  });
   test('equal episode numbers keep input order', () => {
     const seasons = seasonsOf([ep(1, 1, 'a'), ep(1, 1, 'b')]);
     expect(seasons[0]!.episodes.map((e) => e.id)).toEqual(['a', 'b']);

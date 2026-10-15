@@ -53,13 +53,13 @@ export class XtreamClient {
     return new URLSearchParams({ username: this.cfg.username, password: this.cfg.password }).toString();
   }
 
-  private async api(action?: string, extra: Record<string, string> = {}): Promise<unknown> {
+  private async api(action?: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<unknown> {
     const params = new URLSearchParams({ username: this.cfg.username, password: this.cfg.password });
     if (action) params.set('action', action);
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS });
+      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS, ...(signal ? { signal } : {}) });
     } catch (err) {
       if (err instanceof SourceNetworkError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
@@ -137,24 +137,24 @@ export class XtreamClient {
     return `${this.base}/live/${u}/${p}/${streamId}.${ext}`;
   }
 
-  async vodCategories(): Promise<VodCategory[]> {
-    return parseVodCategories(await this.api('get_vod_categories'), 'movie');
+  async vodCategories(signal?: AbortSignal): Promise<VodCategory[]> {
+    return parseVodCategories(await this.api('get_vod_categories', {}, signal), 'movie');
   }
 
-  async vodStreams(sourceId: string, categoryId?: string): Promise<VodItem[]> {
-    return parseVodStreams(await this.api('get_vod_streams', categoryId ? { category_id: categoryId } : {}), sourceId);
+  async vodStreams(sourceId: string, categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
+    return parseVodStreams(await this.api('get_vod_streams', categoryId ? { category_id: categoryId } : {}, signal), sourceId);
   }
 
   async vodInfo(xid: number): Promise<MovieDetail> {
     return parseVodInfo(await this.api('get_vod_info', { vod_id: String(xid) }));
   }
 
-  async seriesCategories(): Promise<VodCategory[]> {
-    return parseVodCategories(await this.api('get_series_categories'), 'series');
+  async seriesCategories(signal?: AbortSignal): Promise<VodCategory[]> {
+    return parseVodCategories(await this.api('get_series_categories', {}, signal), 'series');
   }
 
-  async seriesList(sourceId: string, categoryId?: string): Promise<VodItem[]> {
-    return parseSeriesList(await this.api('get_series', categoryId ? { category_id: categoryId } : {}), sourceId);
+  async seriesList(sourceId: string, categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
+    return parseSeriesList(await this.api('get_series', categoryId ? { category_id: categoryId } : {}, signal), sourceId);
   }
 
   async seriesInfo(sourceId: string, xid: number): Promise<SeriesDetail> {

@@ -74,6 +74,19 @@ describe('Xtream VOD parsers', () => {
     expect(d.seasons[1]!.episodes[0]).toMatchObject({ xid: 202, runtimeMin: 51, still: 'http://img.test/e.jpg', ext: 'mp4', plot: 'P' });
   });
 
+  test('series info: season 0 is kept as specials, last; a repeated episode id counts once', () => {
+    const d = parseSeriesInfo({
+      episodes: {
+        '0': [{ id: 9, episode_num: 1, title: 'Behind the scenes' }],
+        '1': [{ id: 1, episode_num: 1, title: 'A' }, { id: 1, episode_num: 1, title: 'A again' }],
+      },
+    }, 'src');
+    expect(d.seasons.map((s) => [s.number, s.name, s.episodes.map((e) => [e.id, e.season, e.title])])).toEqual([
+      [1, 'Season 1', [['src:e1', 1, 'A']]],
+      [0, 'Specials', [['src:e9', 0, 'Behind the scenes']]],
+    ]);
+  });
+
   test('series info: episodes as an array of season arrays', () => {
     const d = parseSeriesInfo({ episodes: [[{ id: 1, episode_num: 1, season: 1, title: 'A' }], [{ id: 2, episode_num: 1, season: 2, title: 'B' }]] }, 'src');
     expect(d.seasons.map((s) => s.number)).toEqual([1, 2]);

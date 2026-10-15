@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { VodService } from '../src/service/vodService.ts';
 import { VodFetchCancelled } from '../src/vod/fetchXtream.ts';
+import { SourceNetworkError } from '../src/errors.ts';
 import type { FetchFn, SourceConfig } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0);
@@ -81,6 +82,37 @@ describe('VodService catalogues', () => {
     };
     await expect(svc.refresh('x', 'movie', { signal: ac.signal })).rejects.toBeInstanceOf(VodFetchCancelled);
     expect(await storage.getVod('x', 'movie')).toBeUndefined();
+  });
+
+  test('an empty answer never replaces a stored catalogue or stamps it', async () => {
+    await svc.refresh('x', 'movie');
+    const before = await storage.getVod('x', 'movie');
+    api.get_vod_categories = () => [];
+    api.get_vod_streams = () => [];
+    now = NOW + 99 * 3600_000;
+    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceNetworkError);
+    await expect(svc.refresh('x', 'movie')).rejects.toThrow('Unexpected response from the provider.');
+    expect(await storage.getVod('x', 'movie')).toEqual(before);
+    expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
+  });
+
+  test('an empty answer with nothing stored is stored (a source with no movies)', async () => {
+    api.get_vod_categories = () => [];
+    api.get_vod_streams = () => [];
+    expect(await svc.refresh('x', 'movie')).toEqual({ count: 0, truncated: false });
+    expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
+  });
+
+  test('an abort during the last answer rejects and stores nothing', async () => {
+    const ac = new AbortController();
+    api.get_vod_categories = () => [{ category_id: '1', category_name: 'Drama' }];
+    api.get_vod_streams = (q) => {
+      ac.abort();
+      return [{ stream_id: 1, name: 'A', category_id: q.get('category_id') }];
+    };
+    await expect(svc.refresh('x', 'movie', { signal: ac.signal })).rejects.toBeInstanceOf(VodFetchCancelled);
+    expect(await storage.getVod('x', 'movie')).toBeUndefined();
+    expect(await svc.fetchedAt('x', 'movie')).toBe(0);
   });
 
   test('a source deleted during the fetch stores nothing', async () => {

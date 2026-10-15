@@ -92,6 +92,8 @@ describe('episodes', () => {
     expect(nextEpisode(seasons, 'b')?.id).toBe('c');
     expect(nextEpisode(seasons, 'c')).toBeUndefined();
     expect(nextEpisode(seasons, 'zz')).toBeUndefined();
+    const withSpecials: Season[] = [...seasons, { number: 0, name: 'Specials', episodes: [{ id: 's', season: 0, episode: 1, title: 'S' }] }];
+    expect(nextEpisode(withSpecials, 'c')?.id).toBe('s');
   });
   test('episodeLabel', () => {
     expect(episodeLabel(2, 4)).toBe('S2 · E4');
