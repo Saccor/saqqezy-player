@@ -1,8 +1,8 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
-import { Button } from './components/Button.tsx';
-import { pointerMode, shellBack } from './input/pointer.ts';
+import { PointerBar } from './components/PointerBar.tsx';
+import { shellBack } from './input/pointer.ts';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { playback } from './playback/playback.ts';
@@ -18,7 +18,7 @@ import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
-  deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, screenOverlayOpen, shellBackShown, showWordmark, WORDMARK_MAX_WAIT_MS,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
@@ -30,8 +30,6 @@ import { bootstrap, initFailed, offline, platformId, settings, startupMs, wireEv
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
 const BADGE_H = 48;
-/** The pointer-mode Back button, top left. */
-const SHELL_BACK_W = 200;
 
 function OfflineBadge() {
   return (
@@ -115,11 +113,13 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
-      {/* Pointer mode only: every screen except Home and the Player (it has its own) gets a Back button. */}
-      <Show when={pointerMode() && shellBackShown(current()?.screen)}>
-        <View x={LAYOUT.safeX} y={LAYOUT.safeY} zIndex={45}>
-          <Button width={SHELL_BACK_W} label={SHELL_BACK_LABEL} onPress={shellBack} pointerGlobal />
-        </View>
+      {/*
+        Pointer mode only: every screen except Home and the Player (it has its own) gets a Back button, the first button
+        of the bottom row (the screen hides its hint line then and puts its own buttons after it).
+      */}
+      <Show when={shellBackShown(current()?.screen)}>
+        <PointerBar x={LAYOUT.safeX} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} zIndex={45} global
+          items={[{ id: 'shellBack', label: SHELL_BACK_LABEL, width: SHELL_BACK_W, onPress: shellBack }]} />
       </Show>
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}
         defer={wordmarkDeferred()} />

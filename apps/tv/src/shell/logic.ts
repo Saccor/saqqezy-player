@@ -1,6 +1,7 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
 import type { ScreenId } from './router.ts';
+import { LAYOUT } from './theme.ts';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -90,8 +91,18 @@ export function deferWordmark(s: {
   return s.route === undefined || s.route === 'home';
 }
 
-/** The shell's pointer-mode Back button (top left). */
+/** The shell's pointer-mode Back button: the first button of the screen's bottom row. */
 export const SHELL_BACK_LABEL = '← Back';
+export const SHELL_BACK_W = 200;
+
+/**
+ * Pointer mode: the bottom row of buttons that replaces a screen's hint line (Home's size). Its bottom edge is the
+ * overscan-safe line.
+ */
+export const BOTTOM_ROW_H = 48;
+export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
+/** Where a screen's own bottom-row buttons start: after the shell's Back, one bar gap apart. */
+export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 
 /** Every screen except Home (Back there is the exit question) and the Player (its overlay has its own Back). */
 export function shellBackShown(route: ScreenId | undefined): boolean {

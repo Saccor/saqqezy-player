@@ -8,8 +8,8 @@ export interface PointerBarItem { id: string; label: string; width?: number; onP
 
 /** One pill button of a `PointerBar`. Not focusable: the remote never reaches it, the pointer clicks it. */
 function PointerButton(props: {
-  x: number; y: number; width: number; height: number; label: string; layer: 'screen' | 'overlay'; enabled: boolean;
-  onPress: () => void; onHover: (over: boolean) => void;
+  x: number; y: number; width: number; height: number; label: string; layer: 'screen' | 'overlay'; global: boolean;
+  enabled: boolean; onPress: () => void; onHover: (over: boolean) => void;
   onWheel?: (dy: number, dx: number) => boolean; onContextMenu?: () => void;
 }) {
   const [hovered, setHovered] = createSignal(false);
@@ -17,6 +17,7 @@ function PointerButton(props: {
   usePointerTarget({
     node: () => node,
     layer: props.layer,
+    global: props.global,
     enabled: () => props.enabled,
     onHover: (p) => {
       const over = p !== undefined;
@@ -49,6 +50,8 @@ export function PointerBar(props: {
   gap?: number;
   vertical?: boolean;
   layer?: 'screen' | 'overlay';
+  /** Shell-owned (the shell's Back): hit-tested on every screen. Default false. */
+  global?: boolean;
   zIndex?: number;
   /** False: the buttons stay drawn but the pointer passes over them (a keyboard is open above). Default true. */
   enabled?: boolean;
@@ -76,7 +79,7 @@ export function PointerBar(props: {
         <For each={props.items}>{(it, i) => (
           <PointerButton x={props.vertical ? 0 : layout().offsets[i()] ?? 0} y={props.vertical ? layout().offsets[i()] ?? 0 : 0}
             width={widths()[i()] ?? POINTER_BTN_W} height={h()} label={it.label} layer={props.layer ?? 'screen'}
-            enabled={props.enabled !== false} onPress={it.onPress} onHover={(on) => hover(it.id, on)}
+            global={props.global === true} enabled={props.enabled !== false} onPress={it.onPress} onHover={(on) => hover(it.id, on)}
             onWheel={props.onWheel} onContextMenu={props.onContextMenu} />
         )}</For>
       </View>

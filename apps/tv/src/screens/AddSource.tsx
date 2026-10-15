@@ -341,9 +341,12 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - FONT.body) / 2 - 4}
           width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
           fontSize={FONT.body} color={busy() ? COLORS.text : ERROR_COLOR}>{statusText()}</Text>
-        <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={FONT.small} color={COLORS.muted}>
-          {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
-        </Text>
+        {/* Pointer mode: the shell's Back button stands on this line instead. */}
+        <Show when={!pointerMode()}>
+          <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={FONT.small} color={COLORS.muted}>
+            {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
+          </Text>
+        </Show>
         <Show when={editingField()}>{(f) => (
           <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={KEYBOARD_Y}
             label={f().label} value={values()[f().key] ?? ''} secret={f().secret} revealed={revealed()}

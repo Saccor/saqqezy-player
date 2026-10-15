@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
-  SHELL_BACK_LABEL, shellBackShown, toastOnShow,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, toastOnShow,
 } from './logic.ts';
+import { LAYOUT } from './theme.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -176,5 +177,15 @@ describe('shell Back button (pointer mode)', () => {
 
   it('uses the spec copy', () => {
     expect(SHELL_BACK_LABEL).toBe('← Back');
+  });
+
+  it("sits at the start of the bottom row, inside the safe area, with Home's button size", () => {
+    expect([BOTTOM_ROW_Y, BOTTOM_ROW_H, SHELL_BACK_W]).toEqual([978, 48, 200]);
+    expect(BOTTOM_ROW_Y + BOTTOM_ROW_H).toBe(LAYOUT.height - LAYOUT.safeY);
+  });
+
+  it("leaves room for it: a screen's own bottom-row buttons start one gap after it", () => {
+    expect(SCREEN_ROW_X).toBe(LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2);
+    expect(SCREEN_ROW_X).toBe(308);
   });
 });

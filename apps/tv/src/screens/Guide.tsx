@@ -8,7 +8,7 @@ import { CHANNEL_W, EPG_GRID_W, EPG_ROW_H, EPG_TIMELINE_X, EPG_VIEW_ROWS, EpgGri
 import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
-import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
+import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import type { GridHit } from '../input/pointerLogic.ts';
 import { playback } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -390,12 +390,15 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       <PointerBar x={LAYOUT.safeX + EPG_GRID_W - PAGE_BTN_W} y={GRID_Y + 2} height={RULER_H - 4}
         items={[{ id: 'later', label: GUIDE_POINTER_LABELS.later, width: PAGE_BTN_W, onPress: () => pageBy(1) }]} />
 
-      <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
-        fontSize={FONT.small} color={COLORS.muted}>
-        {area() === 'channels'
-          ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
-          : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
-      </Text>
+      {/* Pointer mode: the shell's Back button stands on this line instead. */}
+      <Show when={!pointerMode()}>
+        <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
+          fontSize={FONT.small} color={COLORS.muted}>
+          {area() === 'channels'
+            ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
+            : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
+        </Text>
+      </Show>
 
       <Show when={picking() !== undefined}>{(_open) => {
         let backdrop: ElementNode | undefined;
