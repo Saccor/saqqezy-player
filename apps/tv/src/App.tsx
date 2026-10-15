@@ -13,6 +13,7 @@ import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
 import { SettingsScreen } from './screens/Settings.tsx';
+import { VodBrowseScreen } from './screens/VodBrowse.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -115,7 +116,8 @@ export function App() {
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen />
-            : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'settings' ? <SettingsScreen />
+            : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       {/*
