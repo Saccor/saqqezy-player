@@ -12,8 +12,10 @@ export function titleCardColour(title: string): number {
   return CARD_COLOURS[h % CARD_COLOURS.length]!;
 }
 
-export function formatRuntime(min: number | undefined): string | undefined {
-  if (!min || min <= 0) return undefined;
+export function formatRuntime(minutes: number | undefined): string | undefined {
+  if (minutes === undefined || !Number.isFinite(minutes)) return undefined;
+  const min = Math.round(minutes);
+  if (min <= 0) return undefined;
   const h = Math.floor(min / 60);
   const m = min % 60;
   if (h === 0) return `${m} min`;
@@ -28,11 +30,11 @@ export function metaLine(p: { year?: number; runtimeMin?: number; genre?: string
   if (rt) parts.push(rt);
   if (p.genre) parts.push(p.genre);
   if (p.ageRating) parts.push(p.ageRating);
-  if (p.rating !== undefined) parts.push(`★ ${p.rating.toFixed(1)}`);
+  if (p.rating !== undefined && Number.isFinite(p.rating) && p.rating > 0) parts.push(`★ ${p.rating.toFixed(1)}`);
   return parts.join(' · ');
 }
 
 export function barWidth(progress: number | undefined, width: number): number {
-  if (progress === undefined) return 0;
+  if (progress === undefined || Number.isNaN(progress)) return 0;
   return Math.round(Math.max(0, Math.min(1, progress)) * width);
 }

@@ -11,7 +11,7 @@ export const ROW_VISIBLE_COLS = 8;
 
 /** Rows past the first few arrive without items (`getVodHome`); they load as focus comes near. */
 export function toRowModels(home: VodHome): RowModel[] {
-  return home.rows.map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 || r.total === 0 }));
+  return home.rows.filter((r) => r.total > 0).map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 || r.total === 0 }));
 }
 
 /** Tiles, then a View all tile when the row has more titles than items; one loading cell until loaded. */
@@ -23,7 +23,8 @@ export function cellCount(r: RowModel): number {
 export function cellAt(r: RowModel, col: number): Cell {
   if (!r.loaded) return { kind: 'loading' };
   const t = r.items[col];
-  return t ? { kind: 'tile', tile: t } : { kind: 'viewAll', total: r.total };
+  if (t) return { kind: 'tile', tile: t };
+  return col === r.items.length && r.total > r.items.length ? { kind: 'viewAll', total: r.total } : { kind: 'loading' };
 }
 
 const clampCol = (r: RowModel | undefined, col: number) => (r ? Math.max(0, Math.min(col, cellCount(r) - 1)) : 0);
@@ -34,7 +35,7 @@ export function moveBrowse(
 ): { focus: BrowseFocus } | { edge: 'top' } {
   const r = rows[f.row];
   if (!r) return { focus: { row: 0, col: 0 } };
-  if (key === 'left') return { focus: { row: f.row, col: Math.max(0, f.col - 1) } };
+  if (key === 'left') return { focus: { row: f.row, col: clampCol(r, f.col - 1) } };
   if (key === 'right') return { focus: { row: f.row, col: clampCol(r, f.col + 1) } };
   if (key === 'up' && f.row === 0) return { edge: 'top' };
   if (key === 'down' && f.row === rows.length - 1) return { focus: f };

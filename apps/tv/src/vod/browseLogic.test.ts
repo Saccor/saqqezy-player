@@ -13,7 +13,7 @@ describe('browseLogic', () => {
       { id: '9', title: 'Late', total: 40, items: [] },
       { id: '8', title: 'None', total: 0, items: [] },
     ] };
-    expect(toRowModels(home).map((r) => r.loaded)).toEqual([true, false, true]);
+    expect(toRowModels(home).map((r) => r.loaded)).toEqual([true, false]);
   });
 
   test('cells: tiles, a View all tile when more exist, one loading cell before loading', () => {
@@ -23,6 +23,29 @@ describe('browseLogic', () => {
     expect(cellAt(row('a', 40, 30), 0)).toMatchObject({ kind: 'tile' });
     expect(cellCount(row('a', 40, 0, false))).toBe(1);
     expect(cellAt(row('a', 40, 0, false), 0)).toEqual({ kind: 'loading' });
+  });
+
+  test('cellAt: View all only at items.length with more titles; other out-of-range columns are loading', () => {
+    expect(cellAt(row('a', 3, 3), 3)).toEqual({ kind: 'loading' });
+    expect(cellAt(row('a', 40, 30), 31)).toEqual({ kind: 'loading' });
+  });
+
+  test('left clamps a too-large column back into range', () => {
+    expect(moveBrowse([row('a', 3, 3)], { row: 0, col: 9 }, 'left', new Map())).toEqual({ focus: { row: 0, col: 2 } });
+  });
+
+  test('down into an unloaded row lands on its loading cell and remembers the column', () => {
+    const rows = [row('a', 10, 10), row('b', 40, 0, false)];
+    const cols = new Map<string, number>();
+    expect(moveBrowse(rows, { row: 0, col: 4 }, 'down', cols)).toEqual({ focus: { row: 1, col: 0 } });
+    expect(cols.get('a')).toBe(4);
+    expect(moveBrowse(rows, { row: 1, col: 0 }, 'up', cols)).toEqual({ focus: { row: 0, col: 4 } });
+  });
+
+  test('rowsToLoad skips empty rows and an already loaded next row', () => {
+    const empty: RowModel = { id: 'e', title: 'e', total: 0, items: [], loaded: false };
+    expect(rowsToLoad([row('a', 40, 0, false), empty], 0)).toEqual([0]);
+    expect(rowsToLoad([row('a', 40, 0, false), row('b', 3, 3)], 0)).toEqual([0]);
   });
 
   test('moves: left/right clamp, up at the top is an edge, rows remember their column', () => {
