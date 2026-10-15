@@ -10,6 +10,7 @@ export interface PointerBarItem { id: string; label: string; width?: number; onP
 function PointerButton(props: {
   x: number; y: number; width: number; height: number; label: string; layer: 'screen' | 'overlay'; enabled: boolean;
   onPress: () => void; onHover: (over: boolean) => void;
+  onWheel?: (dy: number, dx: number) => boolean; onContextMenu?: () => void;
 }) {
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
@@ -23,6 +24,8 @@ function PointerButton(props: {
       props.onHover(over);
     },
     onClick: () => props.onPress(),
+    onWheel: (dy, dx) => props.onWheel?.(dy, dx) ?? false,
+    onContextMenu: () => props.onContextMenu?.(),
   });
   onCleanup(() => props.onHover(false));
   return (
@@ -50,6 +53,10 @@ export function PointerBar(props: {
   /** False: the buttons stay drawn but the pointer passes over them (a keyboard is open above). Default true. */
   enabled?: boolean;
   onHoverChange?: (over: boolean) => void;
+  /** Wheel steps over a button (the Player zaps, as over the video). Default: dropped. */
+  onWheel?: (dy: number, dx: number) => boolean;
+  /** A right click on a button (the Player opens Options, as over the video). Default: nothing. */
+  onContextMenu?: () => void;
 }) {
   const h = () => props.height ?? POINTER_BAR_H;
   const gap = () => props.gap ?? LAYOUT.gap / 2;
@@ -69,7 +76,8 @@ export function PointerBar(props: {
         <For each={props.items}>{(it, i) => (
           <PointerButton x={props.vertical ? 0 : layout().offsets[i()] ?? 0} y={props.vertical ? layout().offsets[i()] ?? 0 : 0}
             width={widths()[i()] ?? POINTER_BTN_W} height={h()} label={it.label} layer={props.layer ?? 'screen'}
-            enabled={props.enabled !== false} onPress={it.onPress} onHover={(on) => hover(it.id, on)} />
+            enabled={props.enabled !== false} onPress={it.onPress} onHover={(on) => hover(it.id, on)}
+            onWheel={props.onWheel} onContextMenu={props.onContextMenu} />
         )}</For>
       </View>
     </Show>

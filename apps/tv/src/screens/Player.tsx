@@ -384,14 +384,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   };
   // The whole screen, registered before the overlay's buttons (screen layer too, so they win where they are drawn
   // without making the Player modal): wheel zaps (down = Ch+), right click opens Options, double click is `⛶ Window`.
+  const pointerOptions = () => { if (!modal()) openMenu(); };
+  const pointerWheel = (dy: number) => {
+    if (dy !== 0 && !modal()) zap(dy > 0 ? 1 : -1);
+    return true;
+  };
   usePointerTarget({
     node: () => root,
     onDoubleClick: () => { if (!modal()) toHome(); },
-    onContextMenu: () => { if (!modal()) openMenu(); },
-    onWheel: (dy) => {
-      if (dy !== 0 && !modal()) zap(dy > 0 ? 1 : -1);
-      return true;
-    },
+    onContextMenu: pointerOptions,
+    onWheel: pointerWheel,
   });
 
   // ---- lifecycle ----
@@ -485,7 +487,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
       <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
         onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}
-        onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome} />
+        onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome}
+        onWheel={pointerWheel} onContextMenu={pointerOptions} showBack={!infoOn()} />
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />

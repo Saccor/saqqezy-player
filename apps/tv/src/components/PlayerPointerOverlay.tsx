@@ -29,6 +29,11 @@ export function PlayerPointerOverlay(props: {
   onOptions: () => void;
   onGuide: () => void;
   onWindow: () => void;
+  /** Wheel and right click over a button act as over the video (zap, Options). */
+  onWheel: (dy: number) => boolean;
+  onContextMenu: () => void;
+  /** False hides `← Back` (the stream info panel is in its place). */
+  showBack: boolean;
 }) {
   const over = { top: false, side: false, bottom: false };
   const report = (part: keyof typeof over, v: boolean) => {
@@ -47,16 +52,20 @@ export function PlayerPointerOverlay(props: {
     { id: 'guide', label: L.guide, width: BOTTOM_W.guide, onPress: () => props.onGuide() },
     { id: 'window', label: L.window, width: BOTTOM_W.window, onPress: () => props.onWindow() },
   ];
+  const wheel = (dy: number) => props.onWheel(dy);
+  const context = () => props.onContextMenu();
   const sideH = barLayout(side.map(() => POINTER_BAR_H), GAP).total;
   const bottomW = barLayout(bottom.map((b) => b.width ?? 0), GAP).total;
   return (
     <Show when={props.visible}>
-      <PointerBar x={LAYOUT.safeX} y={LAYOUT.safeY} items={top} gap={GAP} layer="screen" zIndex={40}
-        onHoverChange={(v) => report('top', v)} />
+      <Show when={props.showBack}>
+        <PointerBar x={LAYOUT.safeX} y={LAYOUT.safeY} items={top} gap={GAP} layer="screen" zIndex={40}
+          onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('top', v)} />
+      </Show>
       <PointerBar x={LAYOUT.width - LAYOUT.safeX - SIDE_W} y={(LAYOUT.height - sideH) / 2} items={side} gap={GAP} vertical
-        layer="screen" zIndex={40} onHoverChange={(v) => report('side', v)} />
+        layer="screen" zIndex={40} onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('side', v)} />
       <PointerBar x={(LAYOUT.width - bottomW) / 2} y={LAYOUT.height - LAYOUT.safeY - POINTER_BAR_H} items={bottom} gap={GAP}
-        layer="screen" zIndex={40} onHoverChange={(v) => report('bottom', v)} />
+        layer="screen" zIndex={40} onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('bottom', v)} />
     </Show>
   );
 }
