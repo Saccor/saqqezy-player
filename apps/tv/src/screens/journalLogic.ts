@@ -62,6 +62,8 @@ export function eventText(e: JournalEvent): string {
       return join('Reconnect', CAUSE[e.cause] ?? e.cause, `${e.delayMs} ms`);
     case 'alternate':
       return 'Trying another stream format';
+    case 'rateWait':
+      return join('Waiting to connect', 'connection limit for this source', `${secs(e.delayMs)}`);
     case 'drift': {
       const where = [e.behindS !== undefined && `${Math.round(e.behindS)} s behind`, `target ${e.targetS.toFixed(1)} s`] as const;
       if (e.action === 'seek') return join('Caught up to live', ...where);

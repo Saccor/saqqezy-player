@@ -897,3 +897,44 @@ describe('PlaybackSupervisor: journal', () => {
     expect(statuses).toEqual([{ kind: 'loading' }, { kind: 'playing' }]);
   });
 });
+
+describe('PlaybackSupervisor – per-source open rate', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('holds an open until the source has room, across play() calls, and journals the wait', () => {
+    let wait = 0;
+    const taken: string[] = [];
+    const journal: JournalEvent[] = [];
+    const { player, sup } = setup({
+      openRate: { waitMs: () => wait, take: (k) => { taken.push(k); } },
+      journal: { add: (e: unknown) => { journal.push(e as JournalEvent); } } as never,
+    });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    expect(player.opened).toEqual([A]);
+    wait = 5000;
+    sup.play(B, undefined, { sourceKey: 'src' });
+    expect(player.opened).toEqual([A]);
+    expect(journal.some((e) => e.k === 'rateWait')).toBe(true);
+    vi.advanceTimersByTime(4999);
+    expect(player.opened).toEqual([A]);
+    wait = 0;
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, B]);
+    expect(taken).toEqual(['src', 'src']);
+  });
+
+  it('a newer play() or stop() drops the held open', () => {
+    const { player, sup } = setup({ openRate: { waitMs: () => 1000, take: () => undefined } });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    sup.stop();
+    vi.advanceTimersByTime(5000);
+    expect(player.opened).toEqual([]);
+  });
+
+  it('without a source key nothing is limited', () => {
+    const { player, sup } = setup({ openRate: { waitMs: () => 1000, take: () => undefined } });
+    sup.play(A);
+    expect(player.opened).toEqual([A]);
+  });
+});

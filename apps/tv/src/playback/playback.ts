@@ -1,4 +1,4 @@
-import { PlaybackJournal, PlaybackSupervisor, type JournalEvent, type Player } from '@iptv/player';
+import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
 import { api } from '../api.ts';
 import { cooldown, initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
@@ -61,12 +61,25 @@ const liveTargets = createLiveTargetStore(localStore);
 export const journal = new PlaybackJournal({ persist: createJournalPersist(localStore) });
 journal.add(pageLoadEvent(Date.now(), globalThis.performance));
 
+/**
+ * Stream opens per source across zaps, reconnects and reloads (6 a minute, 30 in ten minutes), on this device. Keys
+ * are source ids; nothing else is stored.
+ */
+const OPEN_RATE_KEY = 'iptv.openRate';
+const openRate = new SourceOpenRate({
+  store: {
+    load: () => localStore()?.getItem(OPEN_RATE_KEY),
+    save: (data) => localStore()?.setItem(OPEN_RATE_KEY, data),
+  },
+});
+
 export const supervisor = new PlaybackSupervisor(player, {
   preset: () => settings()?.liveDelay ?? 'balanced',
   // TVs mute or ignore playbackRate changes: they correct drift by seeking only.
   allowRate: !isTv,
   liveTargets,
   journal,
+  openRate,
 });
 
 const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
