@@ -202,6 +202,12 @@ Small items from the implementation reviews that v1 ships without.
 - Player screen: jump-guard wiring covered only by helper tests; a focus hint outside the remembered group falls back to memory.
 - Search: real-TV timing of keystroke-to-paint and heap with the title index loaded (Tizen dev build).
 - Search: import overhead of the title index on device. The spec target is < 5 % of the real guide import (parse plus IndexedDB writes); measure it on a Tizen dev build with a large synthetic guide. On desktop, `packages/core/perf/search.perf.ts` replaced the parse-only ratio test with an absolute builder budget (add + build < 1 µs per pre-parsed programme, median of 5) and a retained-heap check after an import (< 30 MB at 2000 × 270 programmes).
+- Home search bar: one Down in the groups column while searching ends the search (choosing a group); consider requiring Ok. Typing during cold start skips the last-channel resume. A remote `layoutChanged` does not re-run the open query. `Home.tsx` (~1100 lines) should get a `useHomeSearch` controller plus an integration test.
+- Home search bar: hosted TV targets (Titan OS, Vidaa) may send Backspace for the remote's Back; the focused bar consumes Backspace, so confirm what they send before shipping them.
+- Pointer: on an LG webOS device or emulator, check that Magic Remote Ok does not send both a click and Enter (if it does, ignore a logical Ok within ~50 ms of a pointer click), and check `cursorStateChange`.
+- Pointer: confirm in Chrome and WebView2 (Tauri) that the mouse back/forward buttons never navigate history.
+- Pointer: browser checks still to do by mouse: add a whole source, wheel zapping in the Player, Manage on phone, and the search bar's ⌨ button.
+- Pointer: `pointer.ts` has no DOM-level tests (fake-window harness); hit rects ignore node `scale`; the ⋯ hit zone is larger than the drawn pill.
 
 ## Follow-ups from the v1.1 merge review
 - Source switch can push two full states. Call `companionStale()` once after `activate()` in the source operations.
