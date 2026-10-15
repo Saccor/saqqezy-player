@@ -1,6 +1,6 @@
 /**
- * Pure model of the on-screen keyboard (layout, cursor movement, editing). Unit-tested; `Keyboard.tsx` only
- * draws it. Positions are in key units: every row is at most 10 units wide.
+ * Pure model of the on-screen keyboard (layouts, cursor movement, editing). Unit-tested; `Keyboard.tsx` only
+ * draws it. Positions are in key units: the full layout is 10 units wide, the compact search layout 6.
  */
 
 export type KeyDef =
@@ -23,7 +23,10 @@ const chars = (s: string, offset: number): KeyCell[] =>
 
 export const SHORTCUTS = ['http://', 'https://', '.com', ':8080', '/'] as const;
 
-export const KEYBOARD_ROWS: readonly (readonly KeyCell[])[] = [
+export type KeyRows = readonly (readonly KeyCell[])[];
+
+/** Full layout (URLs, names): shortcuts, digits, QWERTY letters, URL symbols, then Shift/Space/⌫/Done. */
+export const FULL_ROWS: KeyRows = [
   SHORTCUTS.map((text, i) => ({ def: { kind: 'text', text }, x: i * 2, w: 2 })),
   chars('1234567890', 0),
   chars('qwertyuiop', 0),
@@ -38,8 +41,55 @@ export const KEYBOARD_ROWS: readonly (readonly KeyCell[])[] = [
   ],
 ];
 
-/** Where the cursor starts when the keyboard opens: the first letter. */
-export const START_CURSOR: Cursor = { row: 2, col: 0 };
+/**
+ * Compact search layout (Home's search bar), 6 units wide: letters in alphabetical rows of six, the digits, then
+ * Space, ⌫ and Done. No Shift and no symbols: search matching ignores case and punctuation (`searchKey`).
+ */
+export const COMPACT_ROWS: KeyRows = [
+  chars('abcdef', 0),
+  chars('ghijkl', 0),
+  chars('mnopqr', 0),
+  chars('stuvwx', 0),
+  chars('yz', 0),
+  chars('123456', 0),
+  chars('7890', 1),
+  [
+    { def: { kind: 'space' }, x: 0, w: 2 },
+    { def: { kind: 'backspace' }, x: 2, w: 2 },
+    { def: { kind: 'done' }, x: 4, w: 2 },
+  ],
+];
+
+/** A layout's keys plus how `Keyboard.tsx` draws them (design px). */
+export interface KeyboardLayout {
+  rows: KeyRows;
+  /** Where the cursor starts when the keyboard opens. */
+  start: Cursor;
+  /** Panel size. */
+  width: number;
+  height: number;
+  /** Inner margin, and the y of the first key row. */
+  pad: number;
+  keysY: number;
+  /** One key unit, the gap between keys, the key height and the row pitch. */
+  unit: number;
+  keyGap: number;
+  keyH: number;
+  rowStep: number;
+  /** Label, value field and footer hint. The compact layout leaves them to its owner (Home's search bar). */
+  chrome: boolean;
+}
+
+export const FULL_LAYOUT: KeyboardLayout = {
+  rows: FULL_ROWS, start: { row: 2, col: 0 }, width: 792, height: 820,
+  pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 64, rowStep: 76, chrome: true,
+};
+
+/** 6 units of 60 px plus 10 px margins: 380 px, the width of Home's groups column. Keys are 54 x 56 px. */
+export const COMPACT_LAYOUT: KeyboardLayout = {
+  rows: COMPACT_ROWS, start: { row: 0, col: 0 }, width: 380, height: 524,
+  pad: 10, keysY: 10, unit: 60, keyGap: 6, keyH: 56, rowStep: 64, chrome: false,
+};
 
 const isLetter = (ch: string) => ch.toLowerCase() !== ch.toUpperCase();
 
@@ -54,16 +104,16 @@ export function keyLabel(def: KeyDef, shift: boolean): string {
   }
 }
 
-export function findKey(kind: KeyDef['kind']): Cursor | undefined {
-  for (let row = 0; row < KEYBOARD_ROWS.length; row++) {
-    const col = (KEYBOARD_ROWS[row] ?? []).findIndex((c) => c.def.kind === kind);
+export function findKey(kind: KeyDef['kind'], rows: KeyRows = FULL_ROWS): Cursor | undefined {
+  for (let row = 0; row < rows.length; row++) {
+    const col = (rows[row] ?? []).findIndex((c) => c.def.kind === kind);
     if (col >= 0) return { row, col };
   }
   return undefined;
 }
 
 /** Moves within a row (stopping at the ends) or to the key nearest in x on the next row up or down. */
-export function moveCursor(c: Cursor, dir: Direction, rows: readonly (readonly KeyCell[])[] = KEYBOARD_ROWS): Cursor {
+export function moveCursor(c: Cursor, dir: Direction, rows: KeyRows = FULL_ROWS): Cursor {
   const row = rows[c.row];
   if (!row) return c;
   if (dir === 'left') return { row: c.row, col: Math.max(0, c.col - 1) };
