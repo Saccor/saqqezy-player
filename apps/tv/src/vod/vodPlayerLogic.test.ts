@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import {
-  SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, minutesLeft, nextCardText, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, minutesLeft, nextCardText, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -65,17 +65,35 @@ describe('tracks', () => {
   const t = (id: string, label: string, language?: string, active = false): TrackInfo =>
     language === undefined ? { id, label, active } : { id, label, language, active };
 
-  it('trackKey prefers the language', () => {
-    expect(trackKey(t('1', 'English', 'en'))).toBe('en');
-    expect(trackKey(t('1', 'Track 2'))).toBe('Track 2');
+  it('trackKey stores language and label', () => {
+    expect(trackKey(t('1', 'English', 'en'))).toBe('en:English');
+    expect(trackKey(t('1', 'Track 2'))).toBe(':Track 2');
+    expect(trackKey(t('1', 'a:b', 'en'))).toBe('en:a:b');
   });
 
-  it('findTrack matches by language, then label', () => {
-    const list = [t('1', 'English', 'en'), t('2', 'Track 2'), t('3', 'en')];
-    expect(findTrack(list, 'en')?.id).toBe('1');
-    expect(findTrack(list, 'Track 2')?.id).toBe('2');
-    expect(findTrack(list, 'xx')).toBeUndefined();
+  it('findTrack matches language and label, then the language, then the label', () => {
+    const list = [t('1', 'English', 'en'), t('2', 'English commentary', 'en'), t('3', 'Track 2'), t('4', 'a:b', 'fr')];
+    expect(findTrack(list, 'en:English commentary')?.id).toBe('2');
+    expect(findTrack(list, 'en:English')?.id).toBe('1');
+    expect(findTrack(list, 'en:Renamed')?.id).toBe('1');
+    expect(findTrack(list, ':Track 2')?.id).toBe('3');
+    expect(findTrack(list, 'fr:a:b')?.id).toBe('4');
+    expect(findTrack(list, 'xx:Nothing')).toBeUndefined();
     expect(findTrack(list, undefined)).toBeUndefined();
+    expect(findTrack(list, SUBTITLE_KEY_OFF)).toBeUndefined();
+  });
+
+  it('findTrack still reads a bare language or label', () => {
+    const list = [t('1', 'English', 'en'), t('3', 'Track 2')];
+    expect(findTrack(list, 'en')?.id).toBe('1');
+    expect(findTrack(list, 'Track 2')?.id).toBe('3');
+  });
+
+  it('the Off row id cannot collide with a track row', () => {
+    const rows = trackRows([t('off', 'X')], [t('off', 'Y'), t('s:off', 'Z')]);
+    const ids = rows.map((r) => (r.kind === 'list' ? r.id : ''));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((id) => id === SUBTITLES_OFF)).toHaveLength(1);
   });
 
   it('trackRows lists audio, then subtitles and Off, checking the active ones', () => {

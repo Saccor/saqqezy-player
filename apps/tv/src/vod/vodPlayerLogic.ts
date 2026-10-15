@@ -48,15 +48,27 @@ export function knownDuration(engineMs: number | undefined, fallbackMs: number |
   return ok(fallbackMs) ? fallbackMs : undefined;
 }
 
-/** What a remembered track choice stores: the language when known, else the label (engine ids change per open). */
+/**
+ * What a remembered track choice stores: `<language>:<label>` (language may be empty). Engine ids change per open, and
+ * two tracks often share a language (main and commentary), so both are kept.
+ */
 export function trackKey(t: TrackInfo): string {
-  return t.language || t.label;
+  return `${t.language ?? ''}:${t.label}`;
 }
 
-/** The track matching a remembered choice: by language first, then by label. */
+/**
+ * The track matching a remembered choice: language and label, then the language alone, then the label alone. A key
+ * without ':' (an older bare language or label) matches by language, then by label.
+ */
 export function findTrack(tracks: readonly TrackInfo[], want: string | undefined): TrackInfo | undefined {
   if (!want) return undefined;
-  return tracks.find((t) => t.language === want) ?? tracks.find((t) => t.label === want);
+  const at = want.indexOf(':');
+  if (at < 0) return tracks.find((t) => t.language === want) ?? tracks.find((t) => t.label === want);
+  const lang = want.slice(0, at);
+  const label = want.slice(at + 1);
+  return tracks.find((t) => (t.language ?? '') === lang && t.label === label)
+    ?? (lang ? tracks.find((t) => t.language === lang) : undefined)
+    ?? tracks.find((t) => t.label === label);
 }
 
 /** Collapses runs of whitespace (a double space breaks Lightning text layout) and trims. */
@@ -64,7 +76,7 @@ export function oneSpace(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-/** What a remembered subtitle choice stores for "Subtitles off" (no language code is "off"). */
+/** What a remembered subtitle choice stores for "Subtitles off" (`trackKey` always contains ':', so never this). */
 export const SUBTITLE_KEY_OFF = 'off';
 
 /** A subtitle cue for display: whitespace runs collapsed per line, blank lines dropped; '' when nothing is left. */
@@ -73,8 +85,8 @@ export function cueText(text: string | null): string {
   return text.split(/\r?\n/).map(oneSpace).filter(Boolean).join('\n');
 }
 
-/** Picker row id for "Subtitles off". Audio rows are `a:<id>`, subtitle rows `s:<id>`. */
-export const SUBTITLES_OFF = 's:off';
+/** Picker row id for "Subtitles off": unprefixed, so no track row (`a:<id>`, `s:<id>`) can produce it. */
+export const SUBTITLES_OFF = 'off';
 
 /** "Audio & subtitles" picker rows: audio tracks, then subtitles, then "Subtitles off"; the active ones are checked. */
 export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[]): PickerRow[] {

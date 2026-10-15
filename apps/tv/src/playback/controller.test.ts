@@ -240,6 +240,7 @@ describe('playback controller', () => {
     it('delegates transport, position and subtitle cues to the supervisor', () => {
       const f = fakes();
       const pb = createPlaybackController(f.player, f.supervisor);
+      pb.playVod(vod, 0);
       pb.pause(); pb.resume(); pb.seek(5000);
       expect(f.supervisor.pause).toHaveBeenCalled();
       expect(f.supervisor.resume).toHaveBeenCalled();
@@ -329,6 +330,23 @@ describe('playback controller', () => {
       blocked = false;
       pb.resumeHeld();
       expect(f.supervisor.play).toHaveBeenCalledWith(vod.url, undefined, { sourceKey: undefined, vod: true, startMs: 0 });
+    });
+
+    it('position and duration are undefined unless the current VOD was opened', () => {
+      const f = fakes(); // the supervisor still reports 42_000 / 600_000: the previous title's leftovers
+      let blocked = true;
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', undefined, { blocked: () => blocked, refused: () => undefined, answered: () => undefined });
+      expect(pb.positionMs()).toBeUndefined();
+      pb.playVod(vod, 0);
+      expect(pb.positionMs()).toBeUndefined();
+      expect(pb.durationMs()).toBeUndefined();
+      blocked = false;
+      pb.resumeHeld();
+      expect(pb.positionMs()).toBe(42_000);
+      expect(pb.durationMs()).toBe(600_000);
+      pb.stop();
+      expect(pb.positionMs()).toBeUndefined();
+      expect(pb.durationMs()).toBeUndefined();
     });
   });
 });

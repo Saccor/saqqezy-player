@@ -26,7 +26,9 @@ export interface PlaybackController {
   resume(): void;
   /** Absolute position in ms (clamped by the supervisor to [0, duration - 1 s]). */
   seek(ms: number): void;
+  /** The current VOD title's playhead; undefined unless that title was actually opened (not while held, not for live). */
   positionMs(): number | undefined;
+  /** As `positionMs`: undefined unless the current VOD title was opened. */
   durationMs(): number | undefined;
   paused(): boolean;
   /** Subtitle cues from engines that cannot draw them; returns the unsubscribe function. */
@@ -179,8 +181,9 @@ export function createPlaybackController(
     pause: () => supervisor.pause(),
     resume: () => supervisor.resume(),
     seek: (ms) => supervisor.seek(ms),
-    positionMs: () => supervisor.positionMs(),
-    durationMs: () => supervisor.durationMs(),
+    // Only the opened title's: a held (never opened) VOD must not read the previous title's leftovers.
+    positionMs: () => (pendingVod && vodOpened ? supervisor.positionMs() : undefined),
+    durationMs: () => (pendingVod && vodOpened ? supervisor.durationMs() : undefined),
     paused: () => supervisor.paused(),
     onSubtitle: (fn) => supervisor.onSubtitle(fn),
     audioTracks: () => player.audioTracks(),

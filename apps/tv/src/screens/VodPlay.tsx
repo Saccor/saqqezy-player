@@ -103,15 +103,19 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     setNow(t);
     setLastKeyAt(t);
   };
+  /** The playhead and duration only while the stream is this title's (never a held title's or another one's). */
+  const ours = () => playback.current()?.id === standId;
+  const trustedPos = () => (ours() ? playback.positionMs() : undefined);
+  const trustedDur = () => (ours() ? playback.durationMs() : undefined);
   const focusRoot = () => queueMicrotask(() => { if (alive) root?.setFocus(); });
 
   // ---- progress ----
 
-  /** Saves `atMs` (default: the playhead) when the duration is known. Never after unmount. */
+  /** Saves `atMs` (default: the trusted playhead) when the duration is known. Never after unmount. */
   const save = (atMs?: number) => {
     if (!alive) return;
-    const d = knownDuration(playback.durationMs(), p.durationMs);
-    const at = atMs ?? playback.positionMs() ?? lastPos;
+    const d = knownDuration(trustedDur(), p.durationMs);
+    const at = atMs ?? trustedPos();
     if (d === undefined || at === undefined || !Number.isFinite(at)) return;
     api.saveVodProgress(p.itemId, Math.max(0, Math.min(at, d)), d, p.series).catch((err) => console.warn('Progress save failed', errName(err)));
   };
@@ -129,6 +133,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** Back: save, stop, leave. */
   const leave = (saveFirst = true) => {
+    if (!alive) return;
     closePicker();
     if (saveFirst) save();
     stopOurs();
@@ -150,6 +155,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
+  const dropSeek = () => {
+    if (commitTimer !== undefined) clearTimeout(commitTimer);
+    commitTimer = undefined;
+    setMarker(undefined);
+  };
+
   const commitSeek = () => {
     commitTimer = undefined;
     const m = marker();
@@ -164,9 +175,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const seekPress = (dir: 1 | -1, stepMs: number) => {
     bump();
     if (failed() || ended()) return true;
-    const d = playback.durationMs();
+    const d = trustedDur();
     if (d === undefined || !Number.isFinite(d) || d <= 0) return true;
-    setMarker(pressSeek(marker(), playback.positionMs() ?? pos(), d, dir, stepMs));
+    setMarker(pressSeek(marker(), trustedPos() ?? pos(), d, dir, stepMs));
     if (commitTimer !== undefined) clearTimeout(commitTimer);
     commitTimer = setTimeout(commitSeek, SEEK_COMMIT_MS);
     return true;
@@ -305,6 +316,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   ];
   const onAction = (id: string) => {
     bump();
+    // Failed or ended: only the card's buttons act (Next episode still may).
+    if ((failed() || ended()) && id !== 'next') return;
     if (id === 'toggle') togglePause();
     else if (id === 'back10') seekPress(-1, SEEK_STEP_MS);
     else if (id === 'fwd10') seekPress(1, SEEK_STEP_MS);
@@ -375,7 +388,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   createEffect(on(ended, (isEnded) => {
     if (!isEnded || endedHandled) return;
     endedHandled = true;
-    const d = knownDuration(playback.durationMs(), p.durationMs);
+    dropSeek();
+    const d = knownDuration(trustedDur(), p.durationMs);
     if (d !== undefined) save(d);
     closePicker();
     if (p.next && p.series) startCountdown();
@@ -385,6 +399,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   // A failure with a Try again button takes the focus; any other failure leaves it on the root (Back still works).
   createEffect(on(() => failed()?.reason, (reason) => {
     if (reason === undefined) return;
+    dropSeek();
     closePicker();
     if (reason !== 'unsupported') queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
     else focusRoot();
@@ -404,12 +419,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
     const tick = setInterval(() => {
       setNow(Date.now());
-      const at = playback.positionMs();
+      const at = trustedPos();
       if (at !== undefined && Number.isFinite(at)) {
         setPos(at);
         lastPos = at;
       }
-      setDur(knownDuration(playback.durationMs(), p.durationMs));
+      setDur(knownDuration(trustedDur(), p.durationMs));
       setPaused(playback.paused());
     }, TICK_MS);
     const saver = setInterval(() => {
@@ -434,7 +449,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   onCleanup(() => {
     alive = false;
-    if (commitTimer !== undefined) clearTimeout(commitTimer);
+    dropSeek();
     if (rowsTimer !== undefined) clearTimeout(rowsTimer);
     if (countdownTimer !== undefined) clearInterval(countdownTimer);
     removePicker?.();
@@ -451,8 +466,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const title = oneSpace(p.title);
   const label = p.episodeLabel ? oneSpace(p.episodeLabel) : '';
   const statusText = () => {
-    const k = status()?.kind;
-    return k === 'loading' ? 'Loading…' : k === 'reconnecting' ? 'Reconnecting…' : '';
+    const s = status();
+    // No status: the open is held (refusal cooldown or open-rate cap) and will start by itself.
+    return s === undefined || s.kind === 'loading' ? 'Loading…' : s.kind === 'reconnecting' ? 'Reconnecting…' : '';
   };
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? BAND_Y + 40 : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
