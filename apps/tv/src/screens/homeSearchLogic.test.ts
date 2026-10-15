@@ -3,7 +3,7 @@ import type { ChannelRow } from '@iptv/app-api';
 import { describe, expect, it } from 'vitest';
 import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
-  BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
+  BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
   groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
@@ -104,6 +104,10 @@ describe('okAction', () => {
     expect(okAction(channelRow(1), 's:2')).toBe('preview');
     expect(okAction(channelRow(1), undefined)).toBe('preview');
     expect(okAction(channelRow(2), 's:2')).toBe('fullscreen');
+    // Ok again while that row's preview is still being fetched: fullscreen, not a restarted request.
+    expect(okAction(channelRow(3), 's:2', 's:3')).toBe('fullscreen');
+    expect(okAction(onNowRow(3), undefined, 's:3')).toBe('fullscreen');
+    expect(okAction(channelRow(1), 's:2', 's:3')).toBe('preview');
   });
 
   it('on-now rows behave like channel rows', () => {
@@ -193,6 +197,13 @@ describe('routeKey', () => {
     expect(routeKey('bar', 'back', ctx())).toEqual(PASS);
   });
 
+  it('list: Left goes to the open keyboard, never to the groups hidden under it (also while browsing)', () => {
+    expect(routeKey('list', 'left', ctx({ keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
+    expect(routeKey('list', 'left', ctx({ keyboardOpen: true, searching: true, hasResults: true })))
+      .toEqual({ kind: 'focus', place: 'keyboard' });
+    expect(routeKey('list', 'left', ctx())).toEqual(PASS);
+  });
+
   it('bar: Up and Right stay', () => {
     expect(routeKey('bar', 'up', ctx())).toEqual(STAY);
     expect(routeKey('bar', 'right', ctx({ searching: true }))).toEqual(STAY);
@@ -248,10 +259,12 @@ describe('typingKey (hardware keys on Home)', () => {
     }
   });
 
-  it('Backspace deletes only in the bar with text; otherwise it stays Back', () => {
+  it('Backspace always belongs to the focused bar (a held key never runs on into Back); elsewhere it stays Back', () => {
     expect(typingKey(key('Backspace'), inBar)).toEqual({ kind: 'backspace' });
-    expect(typingKey(key('Backspace'), { ...inBar, query: '' })).toBeUndefined();
+    expect(typingKey(key('Backspace'), { ...inBar, query: '' })).toEqual({ kind: 'backspace' });
+    expect(typedQuery('', { kind: 'backspace' })).toBe('');
     expect(typingKey(key('Backspace'), { ...away, query: 'ab' })).toBeUndefined();
+    expect(typingKey(key('Escape'), { ...inBar, query: '' })).toBeUndefined();
   });
 
   it('nothing types while an overlay is open', () => {
@@ -290,5 +303,18 @@ describe('focus after leaving search mode', () => {
     expect(exitFocusTarget('bar', 0)).toBe('bar');
     expect(exitFocusTarget('groups', 0)).toBe('groups');
     expect(exitFocusTarget('keyboard', 0)).toBe('keyboard');
+  });
+});
+
+describe('results losing their rows', () => {
+  const base = { area: 'list' as const, searching: true, hasResults: false, keyboardOpen: false };
+  it('focus on empty results moves to the keyboard when it is open, else to the bar', () => {
+    expect(resultsFocusLost(base)).toBe('bar');
+    expect(resultsFocusLost({ ...base, keyboardOpen: true })).toBe('keyboard');
+  });
+  it('nothing moves while results remain, focus is elsewhere, or search mode is off', () => {
+    expect(resultsFocusLost({ ...base, hasResults: true })).toBeUndefined();
+    expect(resultsFocusLost({ ...base, area: 'bar' })).toBeUndefined();
+    expect(resultsFocusLost({ ...base, searching: false })).toBeUndefined();
   });
 });

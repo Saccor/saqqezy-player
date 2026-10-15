@@ -30,7 +30,7 @@ import {
 } from './homeMenuLogic.ts';
 import {
   BROWSE, HOME_GROUP_W, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn, leaveTo, listMode, okAction,
-  previewAllowed, restoreOnMount, routeKey, rowChannelId, typedQuery, typingKey, userNavigated,
+  previewAllowed, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, typedQuery, typingKey, userNavigated,
   type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type Place,
 } from './homeSearchLogic.ts';
 import { showPhoneBadge } from './pairingLogic.ts';
@@ -416,6 +416,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
   const nav = (place: Place, key: NavKey, atEdge = false) => applyNav(navResult(place, key, atEdge));
 
+  // The results lost their last selectable row while focused (narrowed query, empty re-run): focus never stays on
+  // an empty list. It goes to the keyboard when open, else to the bar.
+  createEffect(on(hasResults, (has) => {
+    const to = resultsFocusLost({ area: area(), searching: searching(), hasResults: has, keyboardOpen: kbOpen() });
+    if (to !== undefined) focusArea(to);
+  }, { defer: true }));
+
   /** The browse position search mode returns to. */
   const browseNow = (): BrowsePosition | undefined => {
     const g = groupId();
@@ -501,7 +508,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
    */
   const openResult = () => {
     const r = sRowAt(sFocus());
-    const action = okAction(r, playback.current()?.id);
+    // A second Ok while this row's preview is still being fetched goes fullscreen too.
+    const action = okAction(r, playback.current()?.id, requestedId);
     if (action === 'guide' && r?.kind === 'later') {
       searchMemory = leaveTo(searchMemory, sFocus());
       router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
@@ -740,7 +748,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       return true;
     },
     onPage: (dir: 1 | -1) => { held = false; selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
-    onLeft: () => focusArea('groups'),
+    onLeft: () => nav('list', 'left') || focusArea('groups'), // the open keyboard first: it hides the groups
     onOk: watch,
     onOptions: openMenu,
   };

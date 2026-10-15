@@ -105,14 +105,15 @@ export function rowChannelId(row: SearchRow | undefined): string | undefined {
 }
 
 /**
- * Ok on a result: a channel or on-now row plays in the small video unless that channel is already playing, which
- * goes fullscreen. A coming-up row opens the Guide at that time. Headers and notes do nothing.
+ * Ok on a result: a channel or on-now row plays in the small video unless that channel is already playing (or its
+ * preview is still being fetched, `requestedId`), which goes fullscreen. A coming-up row opens the Guide at that
+ * time. Headers and notes do nothing.
  */
-export function okAction(row: SearchRow | undefined, playingId: string | undefined): OkAction {
+export function okAction(row: SearchRow | undefined, playingId: string | undefined, requestedId?: string): OkAction {
   if (row?.kind === 'later') return 'guide';
   const id = rowChannelId(row);
   if (id === undefined) return 'none';
-  return id === playingId ? 'fullscreen' : 'preview';
+  return id === playingId || id === requestedId ? 'fullscreen' : 'preview';
 }
 
 /**
@@ -159,6 +160,15 @@ export function exitFocusTarget(focusTo: Place, listCount: number): Place {
   return focusTo === 'list' && listCount === 0 ? 'groups' : focusTo;
 }
 
+/**
+ * Focus on the results when they lose their last selectable row (the query narrowed, a re-run found nothing): it
+ * moves to the keyboard while it is open, else to the bar. Undefined: nothing to move.
+ */
+export function resultsFocusLost(c: { area: Place; searching: boolean; hasResults: boolean; keyboardOpen: boolean }): Place | undefined {
+  if (c.area !== 'list' || !c.searching || c.hasResults) return undefined;
+  return c.keyboardOpen ? 'keyboard' : 'bar';
+}
+
 const focusTo = (place: Place): NavResult => ({ kind: 'focus', place });
 const STAY: NavResult = { kind: 'stay' };
 const PASS: NavResult = { kind: 'pass' };
@@ -175,6 +185,8 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       return STAY;
     case 'list':
       if (key === 'up' && c.atEdge) return focusTo('bar');
+      // The groups are hidden under the open keyboard (also after the bar was cleared): Left goes to its keys.
+      if (key === 'left' && c.keyboardOpen) return focusTo('keyboard');
       if (!c.searching) return PASS;
       if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
       if (key === 'back' && !c.keyboardOpen) return EXIT;
@@ -203,13 +215,14 @@ const isLetter = (ch: string) => ch.toLowerCase() !== ch.toUpperCase();
 /**
  * A hardware key on Home (keyboard closed) that types into the bar. Letters start a query from anywhere. Digits,
  * space and symbols type only while the bar has focus, so digits keep their remote meaning elsewhere. Backspace
- * deletes only while the bar has focus and text, otherwise it stays Back. Nothing types while an overlay is open.
+ * belongs to the bar while it has focus (a no-op on empty text), otherwise it stays Back. Nothing types while an overlay is open.
  */
 export function typingKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }, c: TypingContext): TextKey | undefined {
   if (c.overlayOpen) return undefined;
   const k = textEntryKey(e);
   if (!k) return undefined;
-  if (k.kind === 'backspace') return c.barFocused && c.query !== '' ? k : undefined;
+  // In the bar Backspace is always typing, even with no text left: a held key must not auto-repeat into Back.
+  if (k.kind === 'backspace') return c.barFocused ? k : undefined;
   return c.barFocused || isLetter(k.ch) ? k : undefined;
 }
 
