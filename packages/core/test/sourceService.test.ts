@@ -906,6 +906,24 @@ describe('SourceService – refusal cooldown', () => {
     expect(calls).toEqual([]);
   });
 
+  test('short EPG refused locally while a probe runs is skipped, not answered as nothing found', async () => {
+    const { source, channels } = await addX(service);
+    routes['api:get_short_epg'] = () => json({ epg_listings: [] });
+    await service.guard.report(source.id, 'refused');
+    await service.guard.retry(source.id); // the next request is the one probe
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    routes['api:auth'] = async () => { await gate; return json({ user_info: { auth: 1, status: 'Active' } }); };
+    const probe = service.refreshPlaylist(source.id).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 5));
+    calls = [];
+    const found = await service.shortEpgFor(source.id, channels);
+    expect(calls).toEqual([]); // nothing reached the source
+    expect(found.has(channels[0]!.id)).toBe(false); // skipped: not cached as nothing found
+    release();
+    await probe;
+  });
+
   test('a 429 on the guide download counts as a refusal', async () => {
     const m = await service.addSource(m3uInput);
     routes['/epg.xml'] = () => new Response('', { status: 429 });

@@ -436,7 +436,7 @@ export class SourceService {
    * waiters are dropped). Right before each request the lookup is skipped when `isStale(channel)` says so, when a
    * guide refresh of the source runs or when the source is gone; the client is built from the source config stored
    * at that moment, so updated credentials are used. A request that failed answers `{}` (nothing found), so callers
-   * can cache it; skipped and dropped lookups are not in the result.
+   * can cache it; skipped and dropped lookups, and ones the refusal guard stopped before sending, are not in the result.
    */
   async shortEpgFor(
     id: string,
@@ -460,7 +460,9 @@ export class SourceService {
         this.shortEpgLastAt.set(id, this.now());
         const list = await this.xtream(source).shortEpg(streamId, epgKey(c));
         out.set(c.id, nowNext(list, this.now()));
-      } catch {
+      } catch (err) {
+        // Refused by our own guard (blocked or probing): nothing was sent, so it counts as skipped, not cached.
+        if (err instanceof SourceRefusedError) return;
         // No EPG is an acceptable outcome (the UI shows the channel without programme info): answered as nothing found.
         out.set(c.id, {});
       } finally {
