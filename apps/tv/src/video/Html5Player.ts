@@ -92,6 +92,8 @@ interface NativeTextTrackList { length: number; [i: number]: NativeTextTrack }
 const isSubtitleKind = (t: NativeTextTrack | undefined): t is NativeTextTrack => t?.kind === 'subtitles' || t?.kind === 'captions';
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_S = 1;
+/** hls.js back buffer for VOD (s): short rewinds stay in the buffer. */
+const VOD_BACK_BUFFER_S = 60;
 /** hls.js options that only steer a live stream; a VOD session leaves them at the library defaults. */
 const HLS_LIVE_SYNC_KEYS = ['liveSyncMode', 'liveSyncDurationCount', 'liveMaxLatencyDurationCount', 'maxLiveSyncPlaybackRate'] as const;
 
@@ -163,14 +165,19 @@ export class Html5Player implements Player {
     });
     on('waiting', () => this.emit(s, 'buffering'));
     // VOD resume on the element engines (hls.js takes its own `startPosition`): once, when seeking becomes possible.
-    on('loadedmetadata', () => {
+    // Consumed only once the seek lands: the duration may still be unknown (NaN/Infinity), so it is retried on
+    // `durationchange` too.
+    const applyStart = () => {
       const ms = s.startMs;
       if (ms === undefined || s.engine?.kind === 'hls') return;
-      s.startMs = undefined;
-      this.seekTo(ms);
-    });
+      if (this.seekTo(ms)) s.startMs = undefined;
+    };
+    on('loadedmetadata', applyStart);
     // Observe liveness while the stream plays so the latch is set before the server can end it.
-    on('durationchange', () => void this.liveOf(s));
+    on('durationchange', () => {
+      applyStart();
+      void this.liveOf(s);
+    });
     // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
     // A file (or a stream not known to be live) simply ended: 'idle', which never reconnects.
     on('ended', () => {
@@ -295,6 +302,7 @@ export class Html5Player implements Player {
     const config: ReturnType<typeof hlsConfig> = { ...hlsConfig(this.profile.preset, this.isTv), lowLatencyMode: false };
     for (const k of HLS_LIVE_SYNC_KEYS) delete config[k];
     if (s.startMs !== undefined) config.startPosition = s.startMs / 1000;
+    config.backBufferLength = VOD_BACK_BUFFER_S; // short rewinds must not refetch
     return config;
   }
 
@@ -382,7 +390,7 @@ export class Html5Player implements Player {
   }
 
   paused(): boolean {
-    return this.video.paused;
+    return this.session ? this.video.paused : false;
   }
 
   /** Duration in ms of a finite stream; undefined while unknown, and for live (Infinity). */
@@ -428,6 +436,7 @@ export class Html5Player implements Player {
   }
 
   selectTextTrack(id: string | null): void {
+    if (id === '') return;
     const idx = id === null ? -1 : Number(id);
     if (!Number.isInteger(idx) || idx < -1) return;
     const e = this.session?.engine;

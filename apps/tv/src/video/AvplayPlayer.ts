@@ -41,6 +41,8 @@ export interface AvplayListener {
   onevent?: (type: string, data: string) => void;
   onerror?: (type: string) => void;
   onstreamcompleted?: () => void;
+  /** Subtitle cue: `(duration, text, data3, data4)`. */
+  onsubtitlechange?: (duration: unknown, text: unknown, data3?: unknown, data4?: unknown) => void;
 }
 
 /** `extra_info` is a JSON string, e.g. `{"fourCC":"H264","Width":"1920","Height":"1080"}`. */
@@ -151,6 +153,8 @@ interface LiveState { live: boolean | undefined; window?: { start: number; end: 
 interface Session {
   url: string; attemptId: number | undefined; dead: boolean; started: boolean; sawLive?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
+  /** Guards the VOD start seek: if firmware never calls back, playback starts anyway. */
+  seekWatchdog?: ReturnType<typeof setTimeout>;
   /** False when opened as a file/VOD (`open(…, { live: false })`): never live, no live window. */
   live: boolean;
   /** VOD start position (ms), sought once prepared, before `play()`. */
@@ -161,6 +165,8 @@ interface Session {
 
 const MESSAGE = 'Playback error';
 const PREPARE_TIMEOUT_MS = 15_000;
+/** The VOD start seek gets this long to call back before playback starts anyway. */
+const START_SEEK_TIMEOUT_MS = 3_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
@@ -174,6 +180,7 @@ const SEEK_END_MARGIN_MS = 1_000;
  */
 export class AvplayPlayer implements Player {
   private readonly listeners = new Set<(s: PlayerState, d?: StateDetail) => void>();
+  private readonly subtitleListeners = new Set<(text: string | null) => void>();
   private session: Session | undefined;
   private rect: Rect = FULL;
   private aspect: AspectMode = 'auto';
@@ -207,6 +214,10 @@ export class AvplayPlayer implements Player {
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
         // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
+        onsubtitlechange: (_duration, text) => {
+          if (s.dead || s !== this.session || s.textOff) return;
+          this.emitSubtitle(typeof text === 'string' && text !== '' ? text : null);
+        },
         onstreamcompleted: () => {
           if (s.dead || s !== this.session) return;
           if (!s.live || this.liveState().live === false) this.emit(s, 'idle');
@@ -227,11 +238,16 @@ export class AvplayPlayer implements Player {
           // VOD resume: seek before the first play; a failed seek plays from the start.
           if (s.startMs !== undefined && av.seekTo) {
             const to = this.clampSeek(s.startMs) ?? s.startMs;
-            const go = () => { if (!s.dead && s === this.session && !s.started) this.startPlay(s); };
+            const go = () => {
+              clearTimeout(s.seekWatchdog);
+              if (!s.dead && s === this.session && !s.started) this.startPlay(s);
+            };
             try {
+              s.seekWatchdog = setTimeout(go, START_SEEK_TIMEOUT_MS);
               av.seekTo(to, go, go);
               return;
             } catch {
+              clearTimeout(s.seekWatchdog);
               // fall through: play from the start
             }
           }
@@ -264,6 +280,8 @@ export class AvplayPlayer implements Player {
     if (!s) return;
     s.dead = true;
     clearTimeout(s.watchdog);
+    clearTimeout(s.seekWatchdog);
+    this.emitSubtitle(null);
     this.windowCache = undefined;
     this.session = undefined;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
@@ -398,7 +416,8 @@ export class AvplayPlayer implements Player {
   }
 
   play(): void {
-    if (!this.session) return;
+    // During the pending start seek the session starts itself (no double start).
+    if (!this.session || !this.session.started) return;
     try {
       this.avplay.play();
     } catch {
@@ -435,10 +454,16 @@ export class AvplayPlayer implements Player {
     if (to === undefined) return false;
     try {
       this.avplay.seekTo(to, () => {}, () => {});
+      this.emitSubtitle(null);
       return true;
     } catch {
       return false;
     }
+  }
+
+  onSubtitle(fn: (text: string | null) => void): () => void {
+    this.subtitleListeners.add(fn);
+    return () => { this.subtitleListeners.delete(fn); };
   }
 
   textTracks(): TrackInfo[] {
@@ -470,8 +495,11 @@ export class AvplayPlayer implements Player {
     if (!s) return;
     try {
       if (id === null) {
-        this.avplay.setSilentSubtitle?.(true);
-        s.textOff = true;
+        if (this.avplay.setSilentSubtitle) {
+          this.avplay.setSilentSubtitle(true);
+          s.textOff = true;
+        }
+        this.emitSubtitle(null);
         return;
       }
       const idx = Number(id);
@@ -480,6 +508,7 @@ export class AvplayPlayer implements Player {
       this.avplay.setSelectTrack('TEXT', idx);
       this.avplay.setSilentSubtitle?.(false);
       s.textOff = false;
+      this.emitSubtitle(null);
     } catch {
       // ignore: the current choice stays
     }
@@ -514,6 +543,17 @@ export class AvplayPlayer implements Player {
     this.releaseLastFrame();
     this.stop();
     this.listeners.clear();
+    this.subtitleListeners.clear();
+  }
+
+  private emitSubtitle(text: string | null): void {
+    for (const fn of [...this.subtitleListeners]) {
+      try {
+        fn(text);
+      } catch {
+        // A faulty listener must not break the player.
+      }
+    }
   }
 
   /** IDLE only: the preset's buffer sizes and timeout. A failed call leaves the platform default. */

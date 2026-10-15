@@ -788,4 +788,42 @@ describe('Html5Player – VOD', () => {
     expect(list.map((t) => t.mode)).toEqual(['disabled', 'hidden', 'disabled']);
     player.destroy();
   });
+
+  test('a start seek that cannot land yet (duration unknown) is retried on durationchange and lands once', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false, startMs: 90_000 });
+    video.duration = Number.NaN;
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(0);
+    video.duration = Number.POSITIVE_INFINITY;
+    video.fire('durationchange');
+    expect(video.currentTime).toBe(0);
+    video.duration = 600;
+    video.fire('durationchange');
+    expect(video.currentTime).toBe(90);
+    video.currentTime = 200;
+    video.fire('durationchange');
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(200);
+    player.destroy();
+  });
+
+  test('paused() is false without a session, an empty text track id is ignored, VOD hls keeps a 60 s back buffer', async () => {
+    const { player, video } = makePlayer();
+    video.paused = true;
+    expect(player.paused()).toBe(false);
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+    const list = [
+      { kind: 'subtitles', label: 'A', language: 'en', mode: 'disabled' },
+      { kind: 'subtitles', label: 'B', language: 'sv', mode: 'disabled' },
+    ];
+    video.textTracks = list;
+    player.selectTextTrack('');
+    expect(list.map((x) => x.mode)).toEqual(['disabled', 'disabled']);
+    await player.open('http://example.test/movie/2.m3u8', 2, { live: false });
+    expect(created.hls.at(-1)!.config).toMatchObject({ backBufferLength: 60 });
+    await player.open('http://example.test/a.m3u8');
+    expect(created.hls.at(-1)!.config).not.toMatchObject({ backBufferLength: 60 });
+    player.destroy();
+  });
 });
