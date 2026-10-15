@@ -281,8 +281,11 @@ export class VodController {
 
   /** "Remove from Continue watching" on a series tile: clears the latest-updated episode record, the one `continueSeries` picks. */
   async clearSeriesContinue(seriesId: string): Promise<void> {
+    const epoch = this.sourceEpoch;
+    const map = await this.userMap();
+    if (this.sourceEpoch !== epoch) return;
     let latest: { itemId: string; updatedAt: number } | undefined;
-    for (const [itemId, state] of await this.userMap()) {
+    for (const [itemId, state] of map) {
       if (state.series?.id === seriesId && (!latest || state.updatedAt > latest.updatedAt)) latest = { itemId, updatedAt: state.updatedAt };
     }
     if (latest) await this.clearProgress(latest.itemId);

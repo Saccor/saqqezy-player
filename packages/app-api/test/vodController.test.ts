@@ -634,13 +634,11 @@ describe('VodController episode playables and series continue', () => {
   });
   const seriesFake = () => {
     const base = detailFake(0, 1);
-    const store = new Map<string, VodUserState>();
     const fake = Object.assign(base.fake, {
       clearProgress: vi.fn(async (_s: string, id: string) => {
         const rec = base.users.find((r) => r.itemId === id)!;
         const { next: _n, ...rest } = rec.state.series!;
         rec.state = { ...rec.state, position: 0, series: rest };
-        store.set(id, rec.state);
         return rec.state;
       }),
     });
@@ -684,6 +682,28 @@ describe('VodController episode playables and series continue', () => {
     expect(fake.clearProgress).toHaveBeenCalledWith('src', epId(show, 2));
     expect((await c.home('series')).rows.map((r) => r.id)).not.toContain(VOD_ROW_CONTINUE);
     expect((await c.series(show))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+  });
+
+  test('playable: tracks fall back all-or-nothing, never merged with the episode record', async () => {
+    const { c, users } = detailFake(0, 1);
+    users.push({ itemId: show, state: userState({ audio: 'eng' }) });
+    users.push({ itemId: epId(show, 2), state: userState({ subtitle: 'swe' }) });
+    c.reset('src');
+    expect((await c.playable(epId(show, 2), show))!.tracks).toEqual({ audio: 'eng' });
+  });
+
+  test('clearSeriesContinue: a source switch while the user map loads writes nothing', async () => {
+    const { c, fake, users } = seriesFake();
+    users.push({ itemId: epId(show, 2), state: userState({ position: 600_000, duration: 1_800_000, updatedAt: 5, series: pointer(2) }) });
+    const gate = deferred<VodUserRecord[]>();
+    fake.listUser.mockImplementationOnce(() => gate.promise);
+    c.reset('src');
+    const p = c.clearSeriesContinue(show);
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset('src2');
+    gate.resolve(users);
+    await p;
+    expect(fake.clearProgress).not.toHaveBeenCalled();
   });
 
   test('clearSeriesContinue: no record is a no-op', async () => {
