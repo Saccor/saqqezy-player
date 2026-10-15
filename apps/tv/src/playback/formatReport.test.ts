@@ -20,12 +20,12 @@ describe('installFormatReport', () => {
   function rig() {
     let fn: ((s: SupervisorStatus) => void) | undefined;
     const state: { current: Ch | undefined; inFlight: string | undefined } = { current: ch, inFlight: ch.url };
-    const reports: [string, boolean][] = [];
+    const reports: [string, string][] = [];
     const off = installFormatReport({
       onStatus: (f) => { fn = f; return () => { fn = undefined; }; },
       current: () => state.current,
       inFlight: () => state.inFlight,
-      report: (id, alt) => { reports.push([id, alt]); },
+      report: (id, format) => { reports.push([id, format]); },
     });
     return { state, reports, off, emit: (s: SupervisorStatus) => fn?.(s) };
   }
@@ -37,10 +37,10 @@ describe('installFormatReport', () => {
     r.emit({ kind: 'playing' });
     r.emit({ kind: 'reconnecting', attempt: 1 });
     r.emit({ kind: 'playing' });
-    expect(r.reports).toEqual([['s:1', false]]);
+    expect(r.reports).toEqual([['s:1', 'ts']]);
     r.state.inFlight = ch.alternateUrl;
     r.emit({ kind: 'playing' });
-    expect(r.reports).toEqual([['s:1', false], ['s:1', true]]);
+    expect(r.reports).toEqual([['s:1', 'ts'], ['s:1', 'm3u8']]);
   });
 
   it('reports nothing for a channel with one format, and nothing after off()', () => {

@@ -56,7 +56,7 @@ installFormatReport({
   onStatus: (fn) => supervisor.onStatus(fn),
   current: () => playback.current(),
   inFlight: () => player.currentUrl(),
-  report: (id, alternate) => { void api.notePlayed(id, alternate).catch(() => undefined); },
+  report: (id, format) => { void api.notePlayed(id, format).catch(() => undefined); },
 });
 installKeys();
 // Mouse and pointer remotes (desktop, the LG Magic Remote); a no-op on Tizen.

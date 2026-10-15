@@ -6,7 +6,9 @@ import {
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
-import { firstFormat, formatMemoKey, formatOf, isFormatMemo, type FormatMemo } from './streamFormat.ts';
+import {
+  firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
+} from './streamFormat.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
@@ -261,23 +263,20 @@ export class AppApi {
   }
 
   /**
-   * A stream of `channelId` showed its first frame, from its alternate URL (`alternate`) or its first one. The format
-   * that played is remembered for the active source (this device only: a format name, no URL or credentials) and tried
-   * first from then on (spec 2026-10-15-gentle-source §3.4).
+   * A stream of `channelId` showed its first frame in `format`. The format that played is remembered for the active
+   * source (this device only: a format name, no URL or credentials) and tried first from then on (spec
+   * 2026-10-15-gentle-source §3.4). Unknown names, channels with one format and reports for a source that is no longer
+   * active are ignored.
    */
-  notePlayed(channelId: string, alternate: boolean): Promise<void> {
+  notePlayed(channelId: string, format: StreamFormat): Promise<void> {
     return this.run('notePlayed', async () => {
       const id = this.activeId;
       const c = this.index.get(channelId);
-      if (!id || !c) return;
-      const urls = await this.streamUrls(c);
-      if (urls.alternateUrl === undefined) return;
-      const memo: FormatMemo = {
-        format: formatOf(alternate ? urls.alternateUrl : urls.url),
-        pref: (await this.currentSettings()).preferredFormat,
-      };
+      if (!id || !c || !isStreamFormat(format) || alternateStreamUrl(c.url) === undefined) return;
+      const memo: FormatMemo = { format, pref: (await this.currentSettings()).preferredFormat };
       const old = await this.lastFormat(id);
       if (old?.format === memo.format && old.pref === memo.pref) return;
+      if (this.activeId !== id) return; // deleted or switched away meanwhile: no orphan key
       this.formats.set(id, memo);
       await this.storage.setMeta(formatMemoKey(id), memo);
     });

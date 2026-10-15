@@ -949,7 +949,7 @@ describe('AppApi – stream format memory', () => {
     await api.addSource(xt());
     const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
     expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
-    await api.notePlayed(id, true); // the .m3u8 alternate played
+    await api.notePlayed(id, 'm3u8'); // the .m3u8 alternate played
     const p = (await api.getPlayable(id))!;
     expect(p.url).toMatch(/\.m3u8$/);
     expect(p.alternateUrl).toMatch(/\.ts$/);
@@ -962,10 +962,10 @@ describe('AppApi – stream format memory', () => {
     const { api } = make();
     await api.addSource(xt());
     const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
-    await api.notePlayed(id, true); // m3u8 played while TS was preferred
+    await api.notePlayed(id, 'm3u8'); // m3u8 played while TS was preferred
     await api.saveSettings({ preferredFormat: 'm3u8' });
     expect((await api.getPlayable(id))!.url).toMatch(/\.m3u8$/);
-    await api.notePlayed(id, true); // now the .ts alternate played
+    await api.notePlayed(id, 'ts'); // now the .ts alternate played
     expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
     await api.saveSettings({ preferredFormat: 'ts' });
     expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
@@ -975,10 +975,50 @@ describe('AppApi – stream format memory', () => {
     const { api } = make();
     const { sourceId } = await api.addSource(xt());
     const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
-    await api.notePlayed(id, true);
+    await api.notePlayed(id, 'm3u8');
     expect(await storage.getMeta(`streamFormat:${sourceId}`)).toEqual({ format: 'm3u8', pref: 'ts' });
     await api.deleteSource(sourceId);
     expect(await storage.getMeta(`streamFormat:${sourceId}`)).toBeNull();
+  });
+
+  test('a report with an unknown format name is ignored', async () => {
+    const { api } = make();
+    const { sourceId } = await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.notePlayed(id, 'mp4' as unknown as 'ts');
+    expect(await storage.getMeta(`streamFormat:${sourceId}`)).toBeUndefined();
+    expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
+  });
+
+  test('a report that races the deletion of its source leaves no key behind', async () => {
+    const { api } = make();
+    const { sourceId } = await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const g = gate();
+    const getMeta = storage.getMeta.bind(storage);
+    vi.spyOn(storage, 'getMeta').mockImplementation(async (key: string) => {
+      if (key === `streamFormat:${sourceId}`) await g.p;
+      return getMeta(key);
+    });
+    const report = api.notePlayed(id, 'm3u8');
+    await api.deleteSource(sourceId);
+    g.open();
+    await report;
+    expect(await getMeta(`streamFormat:${sourceId}`)).toBeNull();
+  });
+
+  test('a native .m3u8 channel URL is swapped to .ts first when TS played last', async () => {
+    const playlist = '#EXTM3U\n#EXTINF:-1 group-title="News",Synthetic One\nhttp://example.test/live/u/p/7.m3u8\n';
+    const fetchFn: FetchFn = async (u, i) => (u === 'http://example.test/p.m3u' ? new Response(playlist) : fetch(u, i));
+    const { api } = make(storage, SourceService, fetchFn);
+    await api.addSource({ kind: 'm3u', name: 'Plain', playlistUrl: 'http://example.test/p.m3u' });
+    await api.saveSettings({ preferredFormat: 'm3u8' });
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    expect((await api.getPlayable(id))!.url).toBe('http://example.test/live/u/p/7.m3u8');
+    await api.notePlayed(id, 'ts');
+    const p = (await api.getPlayable(id))!;
+    expect(p.url).toBe('http://example.test/live/u/p/7.ts');
+    expect(p.alternateUrl).toBe('http://example.test/live/u/p/7.m3u8');
   });
 });
 

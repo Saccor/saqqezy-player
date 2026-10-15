@@ -14,11 +14,11 @@ export function formatOf(url: string): StreamFormat {
   return /\.m3u8(?:[?#]|$)/.test(url) ? 'm3u8' : 'ts';
 }
 
-const isFormat = (v: unknown): v is StreamFormat => v === 'ts' || v === 'm3u8';
+export const isStreamFormat = (v: unknown): v is StreamFormat => v === 'ts' || v === 'm3u8';
 
 export function isFormatMemo(v: unknown): v is FormatMemo {
   const m = v as Partial<FormatMemo> | null;
-  return typeof m === 'object' && m !== null && isFormat(m.format) && isFormat(m.pref);
+  return typeof m === 'object' && m !== null && isStreamFormat(m.format) && isStreamFormat(m.pref);
 }
 
 /** The format to try first: the one that played last on the source unless the setting changed since, else the setting. */

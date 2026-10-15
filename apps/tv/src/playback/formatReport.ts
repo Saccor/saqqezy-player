@@ -1,3 +1,4 @@
+import { formatOf, type StreamFormat } from '@iptv/app-api';
 import type { SupervisorStatus } from '@iptv/player';
 
 type TwoUrls = { url: string; alternateUrl?: string };
@@ -18,23 +19,25 @@ export interface FormatReportDeps {
   current(): (TwoUrls & { id: string }) | undefined;
   /** The URL the player has open (`player.currentUrl()`). */
   inFlight(): string | undefined;
-  report(channelId: string, alternate: boolean): void;
+  /** `format` is a format name only; the URL never leaves the TV side. */
+  report(channelId: string, format: StreamFormat): void;
 }
 
 /**
- * On a first frame of a channel with two formats, tells the worker which one played (once per channel and format in
- * a row), so it tries that format first next time (spec 2026-10-15-gentle-source §3.4). Returns the unsubscribe.
+ * On a first frame of a channel with two formats, tells the worker which format played (once per channel and format
+ * in a row), so it tries that format first next time (spec 2026-10-15-gentle-source §3.4). Returns the unsubscribe.
  */
 export function installFormatReport(d: FormatReportDeps): () => void {
   let last: string | undefined;
   return d.onStatus((s) => {
     if (s.kind !== 'playing') return;
     const ch = d.current();
-    const alt = playedAlternate(ch, d.inFlight());
-    if (!ch || alt === undefined) return;
-    const key = `${ch.id}|${alt ? 1 : 0}`;
+    const url = d.inFlight();
+    if (!ch || url === undefined || playedAlternate(ch, url) === undefined) return;
+    const format = formatOf(url);
+    const key = `${ch.id}|${format}`;
     if (key === last) return;
     last = key;
-    d.report(ch.id, alt);
+    d.report(ch.id, format);
   });
 }
