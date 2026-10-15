@@ -848,6 +848,99 @@ describe('AppApi – background short EPG', () => {
     await ask(even);
     expect(asked).toHaveLength(4);
   });
+  test('zapping never waits on the short-EPG lookup, and skips it when the row already has now/next', async () => {
+    let hold: Promise<void> | undefined;
+    let reads = 0;
+    class Slow extends SourceService {
+      override async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
+        reads++;
+        if (hold) await hold;
+        return super.programmesFor(id, channels, from, to);
+      }
+    }
+    const fetchFn: FetchFn = (u, i) => (u.includes('/xmltv.php') ? Promise.resolve(new Response('', { status: 500 })) : fetch(u, i));
+    const { api } = make(storage, Slow, fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const id = (await api.getChannelSlice('all', 0, 3)).rows[0]!.id; // now/next cached (empty) for these rows
+    let release!: () => void;
+    hold = new Promise((r) => { release = r; });
+    const zap = await Promise.race([api.getPlayable(id), settle().then(() => 'waiting' as const)]);
+    expect(zap).not.toBe('waiting');
+    hold = undefined;
+    release();
+    await api.idle();
+    const before = reads;
+    expect((await api.getPlayable(id))?.now?.title).toMatch(/^Programme /);
+    await api.idle();
+    expect(reads).toBe(before);
+  });
+
+  test('a source switch clears the playing channel', async () => {
+    let t = NOW;
+    let g: ReturnType<typeof gate> | undefined;
+    const streams: number[] = [];
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) {
+        streams.push(Number(new URL(u).searchParams.get('stream_id')));
+        if (!g) return new Response('', { status: 500 });
+        await g.p;
+      }
+      return fetch(u, i);
+    };
+    const service = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => t });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => t });
+    live.push(api);
+    const { sourceId: first } = await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const [x, a, y] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
+    await api.getPlayable(a!); // nothing found (HTTP 500): cached for 15 min
+    await api.idle();
+    expect(streams).toEqual([streamOf(a!)]);
+    t += 16 * 60_000; // that answer expired
+    const { sourceId: second } = await api.addSource(xt());
+    await api.setActiveSource(second);
+    await api.setActiveSource(first);
+    await api.idle().catch(() => undefined);
+    streams.length = 0;
+    g = gate();
+    await api.focusChannel(x!); // runs (held)
+    await api.focusChannel(a!); // waits
+    await api.focusChannel(y!); // waits; a lost the focus and stopped being the playing channel at the switch
+    await settle();
+    g.open();
+    await api.idle();
+    expect(streams).toEqual([streamOf(x!), streamOf(y!)]);
+  });
+
+  test('a failed lookup (HTTP 500) counts as nothing found: no new request within 15 minutes', async () => {
+    let t = NOW;
+    const asked: number[] = [];
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) {
+        asked.push(Number(new URL(u).searchParams.get('stream_id')));
+        return new Response('', { status: 500 });
+      }
+      return fetch(u, i);
+    };
+    const service = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => t });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => t });
+    live.push(api);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const ask = async () => { await api.focusChannel(id); await api.idle(); };
+    await ask();
+    expect(asked).toEqual([streamOf(id)]);
+    t += 14 * 60_000;
+    await ask();
+    expect(asked).toHaveLength(1);
+    t += 2 * 60_000;
+    await ask();
+    expect(asked).toHaveLength(2);
+  });
 });
 
 describe('AppApi – layout', () => {

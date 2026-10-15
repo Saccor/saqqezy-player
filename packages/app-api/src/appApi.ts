@@ -594,6 +594,11 @@ export class AppApi {
       const [channels, layout, coverage] = id
         ? await Promise.all([this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id)])
         : [[], emptyLayout(), undefined];
+      if (id !== this.activeId) {
+        // Another source: its channels are neither focused nor playing yet.
+        this.focusedId = undefined;
+        this.playingId = undefined;
+      }
       this.activeId = id;
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
@@ -993,6 +998,14 @@ export class AppApi {
     if (id) await this.lookupNowNext(id, [c], this.now(), true);
   }
 
+  /** `wantShortEpg` without waiting (tracked for `idle`); a failure is noted by its name only. */
+  private backgroundShortEpg(c: Channel): void {
+    const job = this.wantShortEpg(c)
+      .catch((err: unknown) => this.note('shortEpg', err instanceof Error ? err.name : 'Error'))
+      .finally(() => this.shortJobs.delete(job));
+    this.shortJobs.add(job);
+  }
+
   /**
    * Fire-and-forget Xtream short-EPG lookup for channels without stored programmes (the service runs one request at
    * a time, spaces them per source, bounds the waiting queue and skips it while a guide refresh of the source runs).
@@ -1054,7 +1067,8 @@ export class AppApi {
     // ask the short EPG.
     this.playingId = channel.id;
     const [row] = await this.toRows([channel]);
-    await this.wantShortEpg(channel);
+    // Never on the zap path's clock: the lookup's local guide read runs in the background.
+    if (!row!.now && !row!.next) this.backgroundShortEpg(channel);
     const settings = await this.currentSettings();
     let url = channel.url;
     let alternateUrl = alternateStreamUrl(url);
