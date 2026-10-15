@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
 import {
-  ASPECT_MODES, PLAYER_POINTER_LABELS, aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill,
-  nextAspect, playerAutoHide, playerOverlayShown, playerStatusText, sleepLabel,
+  ASPECT_MODES, PLAYER_POINTER_LABELS, WHEEL_ZAP_MIN_MS, aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill,
+  nextAspect, playerAutoHide, playerOverlayShown, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
@@ -140,5 +140,15 @@ describe('pointer overlay', () => {
       back: '← Back', channelUp: '▲ Ch+', channelDown: '▼ Ch−', previous: '⟲ Previous',
       info: 'ⓘ Info', options: '☰ Options', guide: '▦ Guide', window: '⛶ Window',
     });
+  });
+});
+
+describe('wheelZapAllowed (trackpad inertia never zaps through many channels)', () => {
+  it('allows the first wheel zap, then one every 300 ms at most', () => {
+    expect(WHEEL_ZAP_MIN_MS).toBe(300);
+    expect(wheelZapAllowed(undefined, 1000)).toBe(true);
+    expect(wheelZapAllowed(1000, 1120)).toBe(false);
+    expect(wheelZapAllowed(1000, 1299)).toBe(false);
+    expect(wheelZapAllowed(1000, 1300)).toBe(true);
   });
 });

@@ -23,7 +23,7 @@ import { showToast } from '../shell/Toast.tsx';
 import { settings } from '../state/appState.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
-  playerStatusText, sleepLabel,
+  playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -385,8 +385,13 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   // The whole screen, registered before the overlay's buttons (screen layer too, so they win where they are drawn
   // without making the Player modal): wheel zaps (down = Ch+), right click opens Options, double click is `⛶ Window`.
   const pointerOptions = () => { if (!modal()) openMenu(); };
+  let lastWheelZap: number | undefined;
   const pointerWheel = (dy: number) => {
-    if (dy !== 0 && !modal()) zap(dy > 0 ? 1 : -1);
+    if (dy === 0 || modal()) return true;
+    const now = Date.now();
+    if (!wheelZapAllowed(lastWheelZap, now)) return true;
+    lastWheelZap = now;
+    zap(dy > 0 ? 1 : -1);
     return true;
   };
   usePointerTarget({

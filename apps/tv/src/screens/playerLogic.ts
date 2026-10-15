@@ -112,3 +112,11 @@ export function playerAutoHide(c: { overButton: boolean; modalOpen: boolean }): 
 export function bannerLift(overlayShown: boolean): number {
   return overlayShown ? POINTER_BAR_H + LAYOUT.gap : 0;
 }
+
+/** The Player's own minimum between two wheel zaps, on top of the generic wheel throttle (trackpad inertia). */
+export const WHEEL_ZAP_MIN_MS = 300;
+
+/** Whether a wheel step may zap now, given when the last wheel zap ran (undefined: none yet). */
+export function wheelZapAllowed(lastZapAt: number | undefined, now: number): boolean {
+  return lastZapAt === undefined || now - lastZapAt >= WHEEL_ZAP_MIN_MS;
+}
