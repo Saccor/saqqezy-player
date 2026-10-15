@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextPress, REVEAL_MS, REVEAL_SLOP_PX, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -368,9 +368,32 @@ describe('isRevealedPress (a press on something the previous press revealed)', (
     expect(isRevealedPress(first, { x: 100, y: 100, at: 200, target: 1 })).toBe(false);
   });
 
+  it('covers slow double clicks and pointer drift: 500 ms and about 24 px', () => {
+    expect(REVEAL_MS).toBe(CLICK_MAX_MS);
+    expect(REVEAL_SLOP_PX).toBe(24);
+    expect(isRevealedPress(first, { x: 120, y: 100, at: 400, target: 2 })).toBe(true);
+    expect(isRevealedPress(first, { x: 100, y: 100 + REVEAL_SLOP_PX, at: REVEAL_MS, target: 2 })).toBe(true);
+    // The same target is never swallowed, however close or quick.
+    expect(isRevealedPress(first, { x: 120, y: 100, at: 400, target: 1 })).toBe(false);
+  });
+
+  it('a fast third press on the same spot stays swallowed until a pause (the first press keeps its target)', () => {
+    const p2 = nextPress(first, { x: 100, y: 100, at: 200, target: 2 });
+    expect(p2).toEqual({ revealed: true, last: { x: 100, y: 100, at: 200, target: 1 } });
+    const p3 = nextPress(p2.last, { x: 101, y: 100, at: 400, target: 2 });
+    expect(p3.revealed).toBe(true);
+    // After a pause the press acts, and becomes the new last press.
+    const p4 = nextPress(p3.last, { x: 101, y: 100, at: 400 + REVEAL_MS + 1, target: 2 });
+    expect(p4).toEqual({ revealed: false, last: { x: 101, y: 100, at: 400 + REVEAL_MS + 1, target: 2 } });
+    // A press on the same target is unaffected and recorded as is.
+    expect(nextPress(first, { x: 100, y: 100, at: 100, target: 1 })).toEqual({
+      revealed: false, last: { x: 100, y: 100, at: 100, target: 1 },
+    });
+  });
+
   it('a later press, a press elsewhere, a press on nothing and the very first press are kept', () => {
-    expect(isRevealedPress(first, { x: 100, y: 100, at: DOUBLE_CLICK_MS + 1, target: 2 })).toBe(false);
-    expect(isRevealedPress(first, { x: 100 + CLICK_SLOP_PX + 1, y: 100, at: 100, target: 2 })).toBe(false);
+    expect(isRevealedPress(first, { x: 100, y: 100, at: REVEAL_MS + 1, target: 2 })).toBe(false);
+    expect(isRevealedPress(first, { x: 100 + REVEAL_SLOP_PX + 1, y: 100, at: 100, target: 2 })).toBe(false);
     expect(isRevealedPress(first, { x: 100, y: 100, at: 100, target: undefined })).toBe(false);
     expect(isRevealedPress(undefined, { x: 100, y: 100, at: 100, target: 2 })).toBe(false);
   });

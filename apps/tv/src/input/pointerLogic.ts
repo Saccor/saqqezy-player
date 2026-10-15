@@ -178,14 +178,31 @@ export interface LastClick { at: number; target: number; sub?: number }
 export interface PressHit extends Press { target: number | undefined }
 
 /**
- * True when a press must be ignored because the previous press revealed what it hits: a quick second press on the
- * same spot (a double click) that now hits a different target than the first did. The first press woke the Player
- * overlay, opened fullscreen or opened the Player, and the second would land on a button the user never saw (Ch+,
- * Previous). A double click on the same, already-visible target is kept.
+ * The revealed-press guard's window. It is wider than a double click (`DOUBLE_CLICK_MS`, `CLICK_SLOP_PX`), so it also
+ * covers the Windows default double-click time and Magic Remote pointer drift. It only ever swallows presses on a
+ * different target.
+ */
+export const REVEAL_MS = CLICK_MAX_MS;
+export const REVEAL_SLOP_PX = 24;
+
+/**
+ * True when a press must be ignored because the previous press revealed what it hits: a quick second press on about
+ * the same spot that now hits a different target than the first did. The first press woke the Player overlay, opened
+ * fullscreen or opened the Player, and the second would land on a button the user never saw (Ch+, Previous). A
+ * double click on the same, already-visible target is kept.
  */
 export function isRevealedPress(prev: PressHit | undefined, now: PressHit): boolean {
   return prev !== undefined && now.target !== undefined && now.target !== prev.target
-    && now.at - prev.at <= DOUBLE_CLICK_MS && Math.hypot(now.x - prev.x, now.y - prev.y) <= CLICK_SLOP_PX;
+    && now.at - prev.at <= REVEAL_MS && Math.hypot(now.x - prev.x, now.y - prev.y) <= REVEAL_SLOP_PX;
+}
+
+/**
+ * Classifies a press and gives the next "last press". A swallowed press keeps the previous press's target and takes
+ * only its time and position, so fast repeats on the same spot stay swallowed until a pause.
+ */
+export function nextPress(prev: PressHit | undefined, now: PressHit): { revealed: boolean; last: PressHit } {
+  const revealed = isRevealedPress(prev, now);
+  return { revealed, last: revealed && prev ? { ...now, target: prev.target } : now };
 }
 
 /** A release within `CLICK_SLOP_PX` and `CLICK_MAX_MS` of its press. */

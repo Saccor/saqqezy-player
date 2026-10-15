@@ -19,7 +19,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
 import { notifyUserGesture, onLogicalKey, sendKey } from './keys.ts';
 import {
-  POINTER_START, WHEEL_START, hitBeforeWake, isClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
+  POINTER_START, WHEEL_START, hitBeforeWake, isClick, localPoint, nextClick, nextPress, pickTarget, pointerModeReducer, toDesign, wheelPixels,
   wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type PressHit, type Rect,
 } from './pointerLogic.ts';
 
@@ -223,7 +223,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   /** The right button's target, read at pointerdown before the wake; undefined when no press was seen. */
   let contextHit: { entry: Entry; local: Point } | null | undefined;
   let lastClick: LastClick | undefined;
-  /** The last left or right press, for `isRevealedPress`. */
+  /** The last left or right press, for `nextPress`. */
   let lastPress: PressHit | undefined;
   let wheel = WHEEL_START;
 
@@ -249,8 +249,9 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     // The second press of a double click never acts on what the first one revealed (the Player's buttons after a
     // wake, the Player itself after a click opened it).
     const press: PressHit = { x: e.clientX, y: e.clientY, at: Date.now(), target: target?.entry.seq };
-    const revealed = isRevealedPress(lastPress, press);
-    lastPress = press;
+    const r = nextPress(lastPress, press);
+    const revealed = r.revealed;
+    lastPress = r.last;
     if (e.button === 2) {
       // Its action runs on contextmenu, on what was under it before the wake.
       contextHit = revealed ? null : target ?? null;
