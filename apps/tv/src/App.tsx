@@ -1,5 +1,5 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
 import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
@@ -26,7 +26,8 @@ import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
-import { bootstrap, initFailed, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { bootstrap, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
@@ -48,6 +49,9 @@ function OfflineBadge() {
  */
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
+  // Movies tab warm-up: once live playback is up, load the stored movie catalogue in idle time (no network).
+  const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
+  createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));
