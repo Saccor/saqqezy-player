@@ -19,6 +19,8 @@ import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback, previewHold } from '../playback/playback.ts';
+import { TabBar } from '../components/TabBar.tsx';
+import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
 import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -64,6 +66,7 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const SEARCH_KB_ID = 'searchKeyboard';
+const NO_LIVE_TEXT = 'This source has no live channels. Movies are in the tab above.';
 const BROWSE_HINT = 'Ok watch · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
@@ -106,10 +109,13 @@ function PhoneBadge() {
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusTabs?: true };
   // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
   const focusHint = params.focusChannelId;
   delete params.focusChannelId;
+  // One-shot from Back on the Movies tab: the tab bar takes focus.
+  const focusTabsHint = params.focusTabs === true;
+  delete params.focusTabs;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
@@ -179,6 +185,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const searching = () => query() !== '';
 
   let barNode: ElementNode | undefined;
+  let tabsNode: ElementNode | undefined;
   let resultsNode: ElementNode | undefined;
   let searchKbNode: ElementNode | undefined;
   let removeSearchKb: (() => void) | undefined;
@@ -402,7 +409,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const focusArea = (a: Place) => {
     if (a === 'list' && (searching() ? !hasResults() : listCount() === 0)) return true;
     setArea(a);
-    const node = a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
+    const node = a === 'tabs' ? tabsNode : a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
       : searching() ? resultsNode : listNode;
     node?.setFocus();
     return true;
@@ -789,6 +796,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
+  /** Movies opens over Home; the live preview stops there and resumes when Home comes back. */
+  const goTab = (t: TabId) => {
+    if (modalOpen()) return;
+    const nav = tabNavigation('live', t);
+    if (nav.action === 'push') router.push('vod', { kind: nav.kind, focus: 'tabs' });
+  };
+
   /** A click focuses the row like the D-pad, then plays at once (no 700 ms wait), or goes fullscreen. */
   const clickChannel = (i: number, double: boolean) => {
     const r = rowAt(i);
@@ -856,7 +870,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
   const focusFromPointer = (node: ElementNode) => {
-    const place: Place | undefined = node === groupNode ? 'groups' : node === barNode ? 'bar' : node === searchKbNode ? 'keyboard'
+    const place: Place | undefined = node === tabsNode ? 'tabs' : node === groupNode ? 'groups' : node === barNode ? 'bar' : node === searchKbNode ? 'keyboard'
       : node === listNode || node === resultsNode ? 'list' : undefined;
     if (place) focusArea(place);
     else node.setFocus();
@@ -877,7 +891,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && searching()) searcher.setQuery(query()); };
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
-      onEvent('refreshed', (e) => { setWaiting(false); void reload().catch(() => undefined); rerun(e); }),
+      onEvent('refreshed', (e) => {
+        setWaiting(false);
+        void reload().then(() => {
+          if (alive && area() === 'groups' && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs');
+        }).catch(() => undefined);
+        rerun(e);
+      }),
       onEvent('searchReady', rerun),
       // A companion changed the layout (the shell shows "Updated from your phone"): re-read, keeping focus by
       // id. Changes made on this screen re-read on their own.
@@ -950,7 +970,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // Search mode never starts playback without Ok.
         if (resume && !held && !searching()) void playById(resume);
         setReady(true);
-        if (!searching() && !exited()) focusArea(total() > 0 ? 'list' : 'groups');
+        const hasLive = (gs.find((x) => x.id === GROUP_ALL)?.count ?? 0) > 0;
+        if (!searching() && !exited()) focusArea(focusTabsHint || !hasLive ? 'tabs' : total() > 0 ? 'list' : 'groups');
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);
@@ -986,7 +1007,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       const p = progress();
       return p ? `Loading channels… ${p.count}` : 'Loading channels…';
     }
-    return emptyGroupText(groupId());
+    return groupId() === GROUP_ALL ? NO_LIVE_TEXT : emptyGroupText(groupId());
   };
 
   return (
@@ -1004,12 +1025,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       <View x={PREVIEW_RECT.x + PREVIEW_RECT.w} y={PREVIEW_RECT.y} width={LAYOUT.width - PREVIEW_RECT.x - PREVIEW_RECT.w}
         height={PREVIEW_RECT.h} color={COLORS.background} />
 
-      <Text x={GROUP_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Channels'}</Text>
+      <TabBar ref={(el) => { tabsNode = el; }} active="live" onSelect={goTab}
+        onDown={() => nav('tabs', 'down')} onFocusChanged={(f) => { if (f) setArea('tabs'); }} pointerEnabled={pointerOn()} />
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
       <SearchBar ref={(el) => { barNode = el; }} x={LIST_X} y={HEAD_Y} width={LIST_W} value={query()}
         count={searching() ? countText(sState()) : ''} editing={kbOpen()}
         onFocusChanged={(f) => { if (f) setArea('bar'); }}
-        onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onLeft={() => nav('bar', 'left')}
+        onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onUp={() => nav('bar', 'up')} onLeft={() => nav('bar', 'left')}
         onBack={onBack} onType={(t) => setBarText(query() + t)}
         onClick={() => { focusArea('bar'); }}
         onKeyboardButton={() => { focusArea('bar'); openSearchKeyboard(); }} pointerEnabled={pointerOn()} />

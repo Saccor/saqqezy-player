@@ -36,6 +36,8 @@ export function SearchBar(props: {
   onFocusChanged?: (focused: boolean) => void;
   onOpenKeyboard: () => boolean;
   onDown: () => boolean;
+  /** Up (Home: the tab bar). Default: swallowed. */
+  onUp?: () => boolean;
   onLeft: () => boolean;
   /** Return false to let Back bubble to the screen. */
   onBack: () => boolean;
@@ -75,7 +77,7 @@ export function SearchBar(props: {
       border={{ width: 2, color: focused() ? COLORS.focus : 0x00000000 }}
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
       onEnter={() => props.onOpenKeyboard()} onDown={() => props.onDown()} onLeft={() => props.onLeft()}
-      onUp={() => true} onRight={() => true} onBack={() => props.onBack()}
+      onUp={() => props.onUp?.() ?? true} onRight={() => true} onBack={() => props.onBack()}
       onLongOk={() => true} onMenu={() => true} {...digitHandlers}>
       {/* Magnifier: a ring and a short handle. */}
       <View x={16} y={SEARCH_BAR_H / 2 - 12} width={18} height={18} borderRadius={9} border={{ width: 3, color: COLORS.muted }} />

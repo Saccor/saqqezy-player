@@ -133,7 +133,7 @@ export function groupChoice(index: number, searching: boolean): number | undefin
 }
 
 /** Where key focus is on Home. `list` is the channel list while browsing and the results while searching. */
-export type Place = 'groups' | 'list' | 'bar' | 'keyboard';
+export type Place = 'groups' | 'list' | 'bar' | 'keyboard' | 'tabs';
 export type NavKey = 'up' | 'down' | 'left' | 'right' | 'back' | 'done';
 
 export interface NavContext {
@@ -179,6 +179,7 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
   const results = c.hasResults ? focusTo('list') : STAY;
   switch (place) {
     case 'bar':
+      if (key === 'up') return c.searching ? STAY : focusTo('tabs');
       if (key === 'down') return c.searching ? results : c.hasChannels ? focusTo('list') : STAY;
       if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
       if (key === 'back') return c.searching ? EXIT : PASS;
@@ -200,6 +201,8 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       if (key === 'right' && c.atEdge) return results;
       if (key === 'done') return c.hasResults ? focusTo('list') : focusTo('bar');
       return PASS;
+    case 'tabs':
+      return key === 'down' ? focusTo('bar') : PASS;
   }
 }
 
