@@ -14,6 +14,8 @@ export const HOME_GROUP_W = Math.round((LAYOUT.width - LAYOUT.safeX * 2) * 0.22)
 export const SEARCH_GROUP_ID = 'search';
 export const SEARCH_GROUP_NAME = 'Search results';
 export const SEARCH_HINT = 'Ok play · Ok again: fullscreen · Back: end search';
+/** Hint line while browsing: moving never plays; Ok plays in the small video, Ok again goes fullscreen. */
+export const BROWSE_HINT = 'Ok play · Ok again: fullscreen · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings';
 export const BAR_PLACEHOLDER = 'Search channels and programmes';
 /** The longest bar text, on every input path (hardware keys, remote digits, the compact keyboard). */
 export const SEARCH_MAX_LENGTH = 100;
@@ -105,9 +107,9 @@ export function rowChannelId(row: SearchRow | undefined): string | undefined {
 }
 
 /**
- * Ok on a result: a channel or on-now row plays in the small video unless that channel is already playing (or its
- * preview is still being fetched, `requestedId`), which goes fullscreen. A coming-up row opens the Guide at that
- * time. Headers and notes do nothing.
+ * Ok on a result, or on a browse row passed as a `channel` row (moving the focus never plays): a channel or on-now
+ * row plays in the small video unless that channel is already playing (or its request is still being fetched,
+ * `requestedId`), which goes fullscreen. A coming-up row opens the Guide at that time. Headers and notes do nothing.
  */
 export function okAction(row: SearchRow | undefined, playingId: string | undefined, requestedId?: string): OkAction {
   if (row?.kind === 'later') return 'guide';

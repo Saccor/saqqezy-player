@@ -44,6 +44,10 @@ describe('home logic', () => {
     expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now");
     expect(previewMessage({ kind: 'failed', reason: 'unsupported' }, true)).toContain("isn't supported");
     expect(previewMessage({ kind: 'failed', reason: 'refused' }, true)).toBe('Your source refused this stream');
+    // Home's paused note replaces "Preview" while nothing plays; a channel without a status yet still says "Preview".
+    expect(previewMessage(undefined, false, 'Paused after reload: press OK to play')).toBe('Paused after reload: press OK to play');
+    expect(previewMessage(undefined, true, 'Paused after reload: press OK to play')).toBe('Preview');
+    expect(previewMessage(undefined, false, undefined)).toBe('Preview');
   });
 
   it('resolves the focus from the first candidate found in the group, in order', async () => {

@@ -79,9 +79,13 @@ export function progressOf(p: { start: number; stop: number } | undefined, now: 
   return Math.max(0, Math.min(1, (now - p.start) / (p.stop - p.start)));
 }
 
-/** Copy shown in the preview's video hole, or undefined while the picture is playing. */
-export function previewMessage(status: SupervisorStatus | undefined, hasChannel: boolean): string | undefined {
-  if (!hasChannel || !status) return 'Preview';
+/**
+ * Copy shown in the preview's video hole, or undefined while the picture is playing. `idle` replaces "Preview" while
+ * nothing plays (Home: paused after a reload).
+ */
+export function previewMessage(status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview'): string | undefined {
+  if (!hasChannel) return idle;
+  if (!status) return 'Preview';
   switch (status.kind) {
     case 'playing': return undefined;
     case 'loading': return 'Loading…';

@@ -22,12 +22,14 @@ export function PreviewPanel(props: {
   starting?: boolean;
   status: SupervisorStatus | undefined;
   playing: boolean;
+  /** Shown in the empty video box instead of "Preview" while nothing plays (Home: paused after a reload). */
+  idle?: string;
   now: number;
   onVideoClick?: () => void;
 }) {
   let video: ElementNode | undefined;
   usePointerTarget({ node: () => video, enabled: () => props.onVideoClick !== undefined, onClick: () => props.onVideoClick?.() });
-  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing);
+  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing, props.idle);
   const failed = () => props.playing && props.status?.kind === 'failed';
   const infoY = PREVIEW_H + LAYOUT.gap;
   const titleW = () => (props.starting ? PREVIEW_W - STARTING_W - LAYOUT.gap : PREVIEW_W);
