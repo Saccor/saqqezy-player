@@ -700,9 +700,11 @@ export class AppApi {
       sources: await this.summaries(),
       groups: id ? this.index.groups() : [],
       settings: await this.currentSettings(),
+      hasVod: false,
     };
     if (id) {
       state.activeSourceId = id;
+      state.hasVod = await this.hasVod(id);
       const lastChannel = await this.storage.getMeta<string>(`lastChannel:${id}`);
       const lastGroup = await this.storage.getMeta<string>(`lastGroup:${id}`);
       if (lastChannel) state.lastChannelId = lastChannel;
@@ -1094,7 +1096,10 @@ export class AppApi {
     if ((await this.service.guard.status(id)).state !== 'clear') return;
     let playlist: boolean;
     try {
-      playlist = (this.activeId === id && this.totalChannels() === 0) || await this.service.needsPlaylistRefresh(id);
+      // An empty channel cache means "not loaded yet", unless the source only has movies and series: then the normal
+      // staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
+      playlist = (this.activeId === id && this.totalChannels() === 0 && !(await this.hasVod(id)))
+        || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
     }
@@ -1106,6 +1111,21 @@ export class AppApi {
       this.failed('epg', id, 'backgroundRefresh', err);
     }
     if (epg) await this.refreshEpgFor(id);
+  }
+
+  /**
+   * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U), or a catalogue
+   * was fetched (Xtream). An M3U `vodAt` is not used: every M3U ingest stamps it, with or without titles.
+   */
+  private async hasVod(id: string): Promise<boolean> {
+    const stats = await this.storage.getMeta<{ movieCount?: number; seriesCount?: number }>(`parseStats:${id}`);
+    if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0) return true;
+    const source = (await this.service.listSources()).find((s) => s.id === id);
+    if (source?.kind !== 'xtream') return false;
+    for (const kind of ['movie', 'series'] as const) {
+      if (((await this.storage.getMeta<number>(`vodAt:${kind}:${id}`)) ?? 0) > 0) return true;
+    }
+    return false;
   }
 
   /** Every channel of the active source, hidden ones (and those in hidden groups or without a guide) included. */

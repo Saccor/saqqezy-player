@@ -3,7 +3,7 @@ import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
 import { initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
 
-const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS };
+const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS, hasVod: false };
 
 describe('initialRoute', () => {
   it('opens addSource as the root when there are no sources', () => {

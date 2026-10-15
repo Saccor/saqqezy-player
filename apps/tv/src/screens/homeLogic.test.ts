@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
-  resumeTarget, videoClickGroup,
+  resumeTarget, videoClickGroup, waitsForChannels,
 } from './homeLogic.ts';
 
 const groups = [
@@ -124,5 +124,14 @@ describe('resumeTarget', () => {
     expect(resumeTarget({ ...base, lastChannelId: 'ch-1', found: 'ch-1', startupDone: true })).toBeUndefined();
     // Gone or hidden: openGroup focused another row instead.
     expect(resumeTarget({ ...base, lastChannelId: 'ch-1', found: 'ch-2' })).toBeUndefined();
+  });
+});
+
+describe('waitsForChannels', () => {
+  it('an empty All group waits for the first channel load, unless the source has movies or series', () => {
+    expect(waitsForChannels(0, false)).toBe(true);
+    expect(waitsForChannels(0, undefined)).toBe(true);
+    expect(waitsForChannels(0, true)).toBe(false);
+    expect(waitsForChannels(12, false)).toBe(false);
   });
 });

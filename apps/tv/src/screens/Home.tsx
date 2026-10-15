@@ -29,7 +29,7 @@ import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -1001,8 +1001,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // last channel from init, then the remembered row / the first row.
         const playingId = playback.current()?.id;
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
-        // An empty cache on first start: the list arrives with a later `refreshed` event.
-        if ((gs.find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) setWaiting(true);
+        // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
+        // and series has no channels to wait for: it shows the no-live text and focuses the tab bar instead.
+        const allCount = gs.find((x) => x.id === GROUP_ALL)?.count ?? 0;
+        if (waitsForChannels(allCount, initState()?.hasVod)) setWaiting(true);
+        const vodOnly = allCount === 0 && initState()?.hasVod === true;
         // A channel reached by number entry may be outside the remembered group: show it in "All".
         if (playingId !== undefined && g !== undefined && g !== GROUP_ALL && gs.some((x) => x.id === GROUP_ALL)
           && await api.indexOf(g, playingId).catch(() => -1) < 0) g = GROUP_ALL;
@@ -1019,7 +1022,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         startupResumed = true;
         if (resume && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
-        if (!searching() && !exited()) focusArea(focusTabsHint ? 'tabs' : total() > 0 ? 'list' : 'groups');
+        if (!searching() && !exited()) {
+          const toTabs = focusTabsHint || (vodOnly && total() === 0 && router.topOverlay() === undefined);
+          focusArea(toTabs ? 'tabs' : total() > 0 ? 'list' : 'groups');
+        }
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);

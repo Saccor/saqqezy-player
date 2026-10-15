@@ -560,6 +560,33 @@ describe('AppApi', () => {
     expect((await api.getGroups()).find((g) => g.id === 'all')?.count).toBe(40);
   });
 
+  test('a VOD-only M3U source: hasVod, and no playlist refetch on a second init within the refresh window', async () => {
+    const vodOnly = '#EXTM3U\n#EXTINF:-1 group-title="Drama",Synthetic Film A (2020)\nhttp://example.test/movie/u/p/1.mp4\n';
+    let gets = 0;
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/vod-only.m3u')) { gets++; return new Response(vodOnly); }
+      return fetch(u, i);
+    };
+    const seed = make(storage, SourceService, fetchFn).api;
+    const { channelCount } = await seed.addSource({ kind: 'm3u', name: 'V', playlistUrl: `${server.url}/vod-only.m3u` });
+    expect(channelCount).toBe(0);
+    await seed.idle();
+    const before = gets;
+    const { api, events } = make(storage, SourceService, fetchFn);
+    const state = await api.init();
+    expect(state.hasVod).toBe(true);
+    await api.idle();
+    expect(gets).toBe(before);
+    expect(events.some((e) => e.type === 'refreshed' && e.what === 'playlist')).toBe(false);
+  });
+
+  test('hasVod: false for a live-only source; true once an Xtream catalogue was fetched', async () => {
+    const { sourceId } = await seeded();
+    expect((await make().api.init()).hasVod).toBe(false);
+    await storage.setMeta(`vodAt:movie:${sourceId}`, NOW);
+    expect((await make().api.init()).hasVod).toBe(true);
+  });
+
   test('a cache whose channels are all hidden is not treated as empty', async () => {
     const { seed } = await seeded();
     for (const r of (await seed.getChannelSlice('all', 0, 100)).rows) await seed.toggleHidden(r.id);

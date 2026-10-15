@@ -26,6 +26,8 @@ export interface InitState {
   lastChannelId?: string; lastGroupId?: string; settings: AppSettings;
   /** The active source's refusal cooldown (with an active source only). */
   cooldown?: SourceCooldown;
+  /** The active source has movies or series (from its last ingest or a fetched catalogue); false without one. */
+  hasVod: boolean;
 }
 
 /** A programme airing now that matched a search (times on the displayed, shifted timeline). */
