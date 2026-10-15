@@ -98,6 +98,16 @@ export function rowAt(y: number, top: number, rowH: number, total: number): numb
   return i >= 0 && i < total ? i : undefined;
 }
 
+/**
+ * Like `rowAt` for rows drawn `pitch - gap` high with a `gap` under each: a point in the gap hits no row, so a click
+ * between two buttons runs neither.
+ */
+export function rowHit(y: number, top: number, pitch: number, gap: number, total: number): number | undefined {
+  const i = rowAt(y, top, pitch, total);
+  if (i === undefined) return undefined;
+  return y - (i - top) * pitch < pitch - gap ? i : undefined;
+}
+
 /** The guide grid's layout (design px, relative to the grid node). */
 export interface GridGeometry {
   rulerH: number;

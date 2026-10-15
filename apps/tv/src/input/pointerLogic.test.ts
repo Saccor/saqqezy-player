@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, toDesign,
+  WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -69,6 +69,24 @@ describe('coordinates', () => {
     expect(inRect(r, { x: 300, y: 60 })).toBe(false);
     expect(inRect(r, { x: 150, y: 90 })).toBe(false);
     expect(localPoint(r, { x: 130, y: 65 })).toEqual({ x: 30, y: 15 });
+  });
+});
+
+describe('rowHit (drawn rows with a gap under each)', () => {
+  // Pitch 92, gap 20: rows are drawn at 0–71, 92–163, …
+  it('hits the drawn part of a row', () => {
+    expect(rowHit(0, 0, 92, 20, 3)).toBe(0);
+    expect(rowHit(71, 0, 92, 20, 3)).toBe(0);
+    expect(rowHit(92, 0, 92, 20, 3)).toBe(1);
+  });
+  it('misses the gap under a row', () => {
+    expect(rowHit(72, 0, 92, 20, 3)).toBeUndefined();
+    expect(rowHit(91, 0, 92, 20, 3)).toBeUndefined();
+  });
+  it('counts from the scrolled top and stays within the list', () => {
+    expect(rowHit(10, 5, 92, 20, 10)).toBe(5);
+    expect(rowHit(3 * 92, 0, 92, 20, 3)).toBeUndefined();
+    expect(rowHit(-1, 0, 92, 20, 3)).toBeUndefined();
   });
 });
 

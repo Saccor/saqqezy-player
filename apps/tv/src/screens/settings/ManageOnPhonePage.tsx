@@ -4,7 +4,7 @@ import { api } from '../../api.ts';
 import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
-import { rowAt } from '../../input/pointerLogic.ts';
+import { rowHit } from '../../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
@@ -133,12 +133,14 @@ export function ManageOnPhonePage(props: PageProps) {
     else void disconnect();
   };
 
+  /** The action under `y`; the gap between two buttons is neither. */
+  const actionAt = (y: number) => rowHit(y, 0, BUTTON_H + ACTION_GAP, ACTION_GAP, actions().length);
   /** A click on an action: select it, focus the actions (through Settings, so Back returns to the menu) and run it. */
   usePointerTarget({
     node: () => actionsNode,
-    onHover: (p) => setHover(p ? rowAt(p.y, 0, BUTTON_H + ACTION_GAP, actions().length) : undefined),
+    onHover: (p) => setHover(p ? actionAt(p.y) : undefined),
     onClick: (p) => {
-      const i = rowAt(p.y, 0, BUTTON_H + ACTION_GAP, actions().length);
+      const i = actionAt(p.y);
       const a = i === undefined ? undefined : actions()[i];
       if (!a) return;
       setSelId(a.id);

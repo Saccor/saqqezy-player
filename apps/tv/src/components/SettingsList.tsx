@@ -1,7 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerFocus, usePointerTarget, type Point } from '../input/pointer.ts';
-import { rowAt } from '../input/pointerLogic.ts';
+import { rowHit } from '../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { firstSelectable, renderRange, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
@@ -24,6 +24,8 @@ const VALUE_W = 380;
 const FOCUS_FILL = 0x1b2436ff;
 /** Pointer: the clickable `‹` and `›` ends of an adjustable row's value column. */
 const STEP_HIT_W = 56;
+/** The space under each drawn row. */
+const ROW_GAP = 12;
 
 /**
  * A settings page's rows: one focusable node (rows only draw), Up/Down move the selection, Ok calls `onOk`,
@@ -77,7 +79,8 @@ export function SettingsList(props: {
   };
 
   const indexAt = (p: Point) => {
-    const i = rowAt(p.y, top(), SETTING_ROW_H, total());
+    // Rows are drawn `SETTING_ROW_H - ROW_GAP` high: the gap under a row is not part of it.
+    const i = rowHit(p.y, top(), SETTING_ROW_H, ROW_GAP, total());
     return i !== undefined && selectable(i) ? i : undefined;
   };
   /** -1 or +1 on an adjustable row's `‹` / `›` end, else 0. */
