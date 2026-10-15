@@ -15,7 +15,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { initState } from '../state/appState.ts';
 import {
-  GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, SORT_LABELS, gridCellAt, gridMove, gridPage, loadSort, nextSort, pagesFor, saveSort, sortsFor,
+  GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, SORT_LABELS, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor,
   type GridGeometry,
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
@@ -200,17 +200,22 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       const probe = await api.getVodSlice(kind, id, sort(), probePage * GRID_PAGE, GRID_PAGE);
       if (!alive || myGen !== gen) return;
       const n = probe.total;
-      const fresh = new Map<number, VodTile[]>([[probePage, probe.rows]]);
+      let fresh = new Map<number, VodTile[]>([[probePage, probe.rows]]);
       const idx = n > 0 ? Math.min(keep, n - 1) : 0;
       if (n > 0) {
         const clamp = (v: number) => Math.max(0, Math.min(n - 1, v));
         const want = new Set(pagesFor(clamp(oldIx[0] ?? idx), clamp(oldIx[oldIx.length - 1] ?? idx)));
         want.add(Math.floor(idx / GRID_PAGE));
-        await Promise.all([...want].filter((p) => p * GRID_PAGE < n && p !== probePage).map(async (p) => {
-          const s = await api.getVodSlice(kind, id, sort(), p * GRID_PAGE, GRID_PAGE);
-          fresh.set(p, s.rows);
-        }));
+        const others = [...want].filter((p) => p * GRID_PAGE < n && p !== probePage);
+        // One failed page must not throw the others away: it keeps its old rows.
+        const results = await Promise.allSettled(others.map((p) => api.getVodSlice(kind, id, sort(), p * GRID_PAGE, GRID_PAGE)));
         if (!alive || myGen !== gen) return;
+        const failedPages: number[] = [];
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled') fresh.set(others[i]!, r.value.rows);
+          else failedPages.push(others[i]!);
+        });
+        fresh = keepFailedPages(fresh, failedPages, pages(), n, GRID_PAGE);
       }
       batch(() => {
         if (n === 0) lastTopRow = 0;
@@ -395,7 +400,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       </View>
       <Show when={failed()}>
         <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{'Movies could not be loaded.'}</Text>
-        <Button ref={(el) => { retryNode = el; }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+        <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
           onUp={() => focusArea('sort')} />
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>

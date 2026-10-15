@@ -32,6 +32,20 @@ export function pagesFor(fromIndex: number, toIndex: number): number[] {
   return out;
 }
 
+/**
+ * After a reload whose page reads were settled one by one: a page that failed keeps the rows it had (trimmed to the
+ * new total) instead of turning into loading cells; a failed page that was never loaded stays out (fetched later).
+ */
+export function keepFailedPages<T>(fresh: ReadonlyMap<number, T[]>, failed: number[], old: ReadonlyMap<number, T[]>, total: number, pageSize: number): Map<number, T[]> {
+  const out = new Map(fresh);
+  for (const p of failed) {
+    const rows = old.get(p);
+    const room = total - p * pageSize;
+    if (rows && room > 0) out.set(p, rows.slice(0, room));
+  }
+  return out;
+}
+
 export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', title: 'A–Z', rating: 'Rating' };
 
 export function sortsFor(hasRecent: boolean): VodSort[] {

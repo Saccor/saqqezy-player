@@ -31,6 +31,16 @@ const { render, renderer } = createRenderer(
     clearColor: 0x00000000,
     renderEngine: WebGlRenderer,
     fontEngines: [CanvasTextRenderer],
+    // Poster and backdrop textures on a 1 GB TV. Images are decoded at their natural size: renderer 3.7 has no
+    // decode-time resize (ImageTexture `sx/sy/sw/sh` only crop, and its image worker never passes `resizeWidth` /
+    // `resizeHeight` to `createImageBitmap`), so a 600×900 poster shown at 188×282 still costs ~2 MB of GPU memory.
+    // Until a resize step exists (Plan 4/5), the budget bounds it: past 100 MB (the 25 MB WebGL baseline included) the
+    // renderer frees textures that are off screen down to half of that, and an idle scene is tidied every 5 s.
+    textureMemory: {
+      criticalThreshold: 100e6,
+      targetThresholdLevel: 0.5,
+      cleanupInterval: 5_000,
+    },
   },
   appRoot,
 );

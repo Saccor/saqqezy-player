@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_COLS, GRID_PAGE, gridCellAt, gridMove, gridPage, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
+import { GRID_COLS, GRID_PAGE, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
   test('moves in a 7-column grid', () => {
@@ -62,5 +62,13 @@ describe('gridLogic', () => {
       expect(gridCellAt(16 + 120 * 7, 20, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(Number.NaN, 20, 0, g, 50)).toBeUndefined();
     });
+  });
+
+  test('keepFailedPages: a page that failed to reload keeps its old rows (trimmed to the new total); others stay out', () => {
+    const fresh = new Map<number, string[]>([[0, ['a']]]);
+    const old = new Map<number, string[]>([[0, ['x']], [1, ['b', 'c', 'd']], [2, ['e']]]);
+    const out = keepFailedPages(fresh, [1, 3], old, 3 + 2, 3);
+    expect([...out.entries()]).toEqual([[0, ['a']], [1, ['b', 'c']]]);
+    expect(out).not.toBe(fresh);
   });
 });
