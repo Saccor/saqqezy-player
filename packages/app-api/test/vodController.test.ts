@@ -588,6 +588,20 @@ describe('VodController user state', () => {
     expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(0);
   });
 
+  test('a write that finishes after an invalidate of the same source still lands in the user map', async () => {
+    const { c, fake } = writeFake();
+    const gate = deferred<VodUserState>();
+    fake.setFavourite.mockImplementationOnce(() => gate.promise);
+    const write = c.setFavourite('s:movie2', true);
+    await new Promise((r) => setTimeout(r, 0));
+    c.invalidate('src');
+    gate.resolve(userState({ favourite: true, updatedAt: 9 }));
+    await write;
+    const slice = await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5);
+    expect(slice.total).toBe(1);
+    expect(slice.rows[0]).toMatchObject({ id: 's:movie2', favourite: true });
+  });
+
   test('a write the service reports as nothing leaves the in-memory state alone', async () => {
     const { c, fake } = writeFake();
     await c.setFavourite('s:movie1', true);
@@ -627,6 +641,15 @@ describe('VodController invalidate', () => {
     expect(fake.movieDetail).toHaveBeenCalledTimes(2);
     expect(fake.listUser).toHaveBeenCalledTimes(1);
     expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(1);
+  });
+
+  test('residentKind names the resident catalogue, if any', async () => {
+    const { c } = detailFake(2);
+    expect(c.residentKind()).toBeUndefined();
+    await c.home('movie');
+    expect(c.residentKind()).toBe('movie');
+    c.invalidate('src');
+    expect(c.residentKind()).toBeUndefined();
   });
 
   test('another source id changes nothing', async () => {

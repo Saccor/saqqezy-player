@@ -1207,12 +1207,26 @@ describe('AppApi VOD', () => {
     expect(refreshed.map((e) => (e as { kind: string }).kind).sort()).toEqual(['movie', 'series']);
     expect(refreshed[0]).toMatchObject({ truncated: false });
     expect((refreshed.find((e) => (e as { kind: string }).kind === 'movie') as { count: number }).count).toBeGreaterThan(0);
+    await api.idle();
     const before = spy.mock.calls.length;
     expect((await api.getVodHome('movie')).status).toBe('ready');
-    expect(spy.mock.calls.length).toBe(before + 1);
-    expect(spy.mock.calls.at(-1)![1]).toBe('movie');
-    await api.getVodHome('movie');
-    expect(spy.mock.calls.length).toBe(before + 1);
+    expect(spy.mock.calls.length).toBe(before);
+    expect(spy.mock.calls.every((c) => c[1] === 'movie')).toBe(true);
+  });
+
+  test('M3U: a playlist refresh takes counts from the ingest and reloads only the resident kind', async () => {
+    const { api, events, vod } = makeVod();
+    await api.addSource({ kind: 'm3u', name: 'Fake M3U', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    expect((await api.getVodHome('movie')).status).toBe('ready');
+    await api.idle();
+    events.length = 0;
+    const spy = vi.spyOn(vod, 'storedCatalog');
+    await api.refresh('playlist');
+    await api.idle();
+    expect(spy.mock.calls.map((c) => c[1])).toEqual(['movie']);
+    const refreshed = events.filter((e) => e.type === 'vodRefreshed') as { kind: string; count: number; truncated: boolean }[];
+    expect(refreshed.find((e) => e.kind === 'movie')).toMatchObject({ count: 6, truncated: false });
+    expect(refreshed.find((e) => e.kind === 'series')).toMatchObject({ count: 1, truncated: false });
   });
 
   test('an invalid kind is rejected', async () => {

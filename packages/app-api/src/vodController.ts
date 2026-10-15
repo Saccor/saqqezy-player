@@ -49,6 +49,8 @@ export class VodController {
   protected sourceId: string | undefined;
   /** Bumped by `reset`: async work started under an older epoch never writes state. */
   protected epoch = 0;
+  /** Bumped by `reset` only (not `invalidate`): the user's own state survives an invalidate but never crosses a source change. */
+  private sourceEpoch = 0;
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
@@ -77,6 +79,12 @@ export class VodController {
     this.resetDetails();
     this.sourceId = sourceId;
     this.epoch++;
+    this.sourceEpoch++;
+  }
+
+  /** The kind of the resident catalogue, if one is loaded. */
+  residentKind(): VodKind | undefined {
+    return this.resident?.kind;
   }
 
   /**
@@ -303,9 +311,9 @@ export class VodController {
   private async write(itemId: string, op: (sourceId: string) => Promise<VodUserState | undefined>): Promise<void> {
     const src = this.sourceId;
     if (!src) return;
-    const epoch = this.epoch;
+    const epoch = this.sourceEpoch;
     const next = await op(src);
-    if (next && this.epoch === epoch) (await this.userMap()).set(itemId, next);
+    if (next && this.sourceEpoch === epoch) (await this.userMap()).set(itemId, next);
   }
 
   /** The active source's user-state records (loaded once per source). */
@@ -318,12 +326,12 @@ export class VodController {
     if (this.user) return this.user;
     const id = this.sourceId;
     if (!id) return new Map();
-    const epoch = this.epoch;
+    const epoch = this.sourceEpoch;
     if (this.userLoad?.epoch === epoch) return this.userLoad.p;
     const p: Promise<Map<string, VodUserState>> = this.vod.listUser(id).then((records) => {
       const map = new Map(records.map((r) => [r.itemId, r.state]));
       // Installed only if nothing else did meanwhile; every caller of this epoch gets the installed map.
-      if (this.epoch !== epoch) return map;
+      if (this.sourceEpoch !== epoch) return map;
       this.user ??= map;
       return this.user;
     }).finally(() => {
