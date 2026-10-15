@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
   BAR_PLACEHOLDER, BROWSE, BROWSE_HINT, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
-  groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
+  groupChoice, groupColumn, isSearching, leaveTo, okAction, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction,
   type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
@@ -92,13 +92,6 @@ describe('search mode', () => {
     const d = nextFocus({ rows, returning: back.returning, memoryFocus: back.focus, prevFocus: 0, query: 'synthetic', settledQuery: '', viewRows: 9 });
     expect(d).toMatchObject({ focus: 4, focusList: true, consumeReturning: true });
     expect(exitSearch(back).restore).toEqual(pos);
-  });
-
-  it('previews run only while browsing', () => {
-    expect(listMode('')).toBe('browse');
-    expect(listMode('a')).toBe('search');
-    expect(previewAllowed('browse')).toBe(true);
-    expect(previewAllowed('search')).toBe(false);
   });
 });
 

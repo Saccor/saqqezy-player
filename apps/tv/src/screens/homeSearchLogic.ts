@@ -26,8 +26,6 @@ export function capQuery(text: string): string {
   return chars.length <= SEARCH_MAX_LENGTH ? text : chars.slice(0, SEARCH_MAX_LENGTH).join('');
 }
 
-export type ListMode = 'browse' | 'search';
-
 /** Where browsing was when search started: the group, its focused channel and the list scroll. */
 export interface BrowsePosition { groupId: string; channelId?: string; top: number }
 
@@ -48,15 +46,6 @@ export const BROWSE: HomeSearchState = { query: '', focus: 0, returning: false }
 
 export function isSearching(s: HomeSearchState): boolean {
   return s.query !== '';
-}
-
-export function listMode(query: string): ListMode {
-  return query === '' ? 'browse' : 'search';
-}
-
-/** Home's 700 ms focus preview runs only while browsing: typing and moving through results never start a stream. */
-export function previewAllowed(mode: ListMode): boolean {
-  return mode === 'browse';
 }
 
 export type QueryChange =

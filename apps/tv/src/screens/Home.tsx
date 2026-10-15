@@ -31,8 +31,8 @@ import {
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
 import {
-  BROWSE, HOME_GROUP_W, HOME_POINTER_LABELS, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn,
-  leaveTo, listMode, okAction, previewAllowed, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, rowPointerAction, typedQuery,
+  BROWSE, BROWSE_HINT, HOME_GROUP_W, HOME_POINTER_LABELS, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn,
+  leaveTo, okAction, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, rowPointerAction, typedQuery,
   typingKey, userNavigated, type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type OkAction, type Place,
 } from './homeSearchLogic.ts';
 import { showPhoneBadge } from './pairingLogic.ts';
@@ -41,6 +41,7 @@ import {
   resultsMessage, selectableCount, type SearchRow, type SearchState,
 } from './searchLogic.ts';
 import { SliceCache } from './sliceCache.ts';
+import { devResume, PAUSED_NOTE } from '../playback/devResume.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
 const SAFE_W = LAYOUT.width - LAYOUT.safeX * 2;
@@ -59,12 +60,12 @@ const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 /** Home's preview box; also where opaque screens park a fullscreen video they cover (see Search). */
 export const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
-const PREVIEW_DELAY_MS = 700;
+/** A browse focus resting this long asks the worker for that channel's now/next. It never plays. */
+const FOCUS_REST_MS = 700;
 const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const SEARCH_KB_ID = 'searchKeyboard';
-const BROWSE_HINT = 'Ok watch · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
 
@@ -126,8 +127,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   // A layout refresh has emptied the cache: hide the empty-group text until the group is re-read.
   const [reloading, setReloading] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
-  // A preview is scheduled (debounce running) for the focused channel.
-  const [starting, setStarting] = createSignal(false);
+  // The channel an Ok (or the startup resume) is fetching right now: its getPlayable has not answered yet.
+  const [requested, setRequested] = createSignal<string | undefined>(undefined);
+  // Dev builds only: the last channel was not resumed after a page load (devResume.ts); the preview box says so.
+  const [pausedNote, setPausedNote] = createSignal(devResume.paused());
   // Fresh now/next for the playing channel when it is not the focused row (refreshed on the 30 s tick).
   const [playingInfo, setPlayingInfo] = createSignal<{ row: ChannelRow; at: number } | undefined>(undefined);
 
@@ -141,13 +144,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let removeKeyboard: (() => void) | undefined;
   let alive = true;
   let startupMarked = false;
-  // Playback was stopped on purpose (sleep timer): no resume and no auto-preview until the user moves.
-  let held = previewHold.take();
+  // Playback was stopped on purpose (sleep timer): no resume on mount.
+  const held = previewHold.take();
   let lastTop = 0;
   // Only the latest openGroup call may write the selection and memory.
   let groupSeq = 0;
-  // The channel a preview request is fetching right now (its getPlayable has not answered yet).
-  let requestedId: string | undefined;
 
   // Bounded (6 pages around the latest window, current + previous group) and expiring (see sliceCache.ts).
   const cache = new SliceCache<ChannelRow>((g, o, c) => api.getChannelSlice(g, o, c), 40, () => setVersion((v) => v + 1),
@@ -243,45 +244,62 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     markStartup();
   });
 
-  // ---- preview ----
+  // ---- preview: only Ok (or a click) plays; moving the focus never does ----
 
-  /** Plays `id` in the preview unless a newer request (schedule, watch, stop) has superseded this one. */
+  /** The user started a channel: in dev builds, auto-resume after a reload works again for this page. */
+  const userPlayed = () => {
+    devResume.release();
+    setPausedNote(false);
+  };
+
+  /** Plays `id` in the preview unless a newer request (Ok elsewhere, watch, stop) has superseded this one. */
   const playById = async (id: string) => {
+    userPlayed();
     const token = playback.begin();
-    requestedId = id;
+    setRequested(id);
     try {
       const ch = await api.getPlayable(id);
       if (alive && ch && playback.isLatest(token)) playback.playChannel(ch);
     } catch (err) {
       console.warn('Preview failed', err instanceof Error ? err.name : 'Error');
     } finally {
-      if (playback.isLatest(token)) requestedId = undefined;
+      if (playback.isLatest(token)) setRequested(undefined);
     }
   };
-  const preview = createDebounce<string>(PREVIEW_DELAY_MS, (id) => {
-    setStarting(false);
-    if (alive && focusedId() === id && area() === 'list' && !searching()) void playById(id);
-  });
-  /** (Re)starts the 700 ms preview timer; supersedes any preview request still in flight. */
-  const schedulePreview = (id: string) => {
-    playback.begin();
-    requestedId = undefined;
-    preview.schedule(id);
-    setStarting(true);
-  };
-  /** Cancels the timer only (a request already fetching the channel in question keeps going). */
-  const cancelTimer = () => {
-    preview.cancel();
-    setStarting(false);
-  };
-  /** Cancels the timer and any preview request in flight. */
-  const stopPreview = () => {
-    cancelTimer();
-    playback.begin();
-    requestedId = undefined;
+
+  /** Ok (or a click) on a channel that is not playing: it plays in the small video, and counts as watched in `g`. */
+  const playHere = (id: string, g: string) => {
+    void playById(id).then(() => {
+      if (alive && playback.current()?.id === id) void api.markWatched(id, g).catch(() => undefined);
+    });
   };
 
-  /** Moves the list focus and remembers it; a resting focus starts the preview after 700 ms. */
+  /**
+   * Startup: resumes the last channel in the preview. In dev builds a remote source is not resumed after a page load
+   * (devResume.ts): the preview box asks for Ok instead.
+   */
+  const resumeLast = async (id: string) => {
+    const token = playback.begin();
+    setRequested(id);
+    try {
+      const ch = await api.getPlayable(id);
+      if (!alive || !ch || !playback.isLatest(token)) return;
+      if (devResume.allows(ch.url)) playback.playChannel(ch);
+      else setPausedNote(true);
+    } catch (err) {
+      console.warn('Preview failed', err instanceof Error ? err.name : 'Error');
+    } finally {
+      if (playback.isLatest(token)) setRequested(undefined);
+    }
+  };
+
+  /** Cancels any preview request in flight. */
+  const stopPreview = () => {
+    playback.begin();
+    setRequested(undefined);
+  };
+
+  /** Moves the list focus and remembers it. Moving never changes the channel: only Ok plays. */
   const selectRow = (i: number) => {
     setFocus(i);
     const g = groupId();
@@ -290,19 +308,22 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const r = rowAt(i);
     if (r) memory.channelId = r.id;
   };
-  // Schedules the preview whenever the focused channel changes while the list has focus.
-  // No preview starts while the channel menu, the list picker or the keyboard is open.
+  // No Ok works on the list while the channel menu, the list picker or the keyboard is open.
   const modalOpen = () => menu() !== undefined || picker() !== undefined || edit() !== undefined;
-  createEffect(on([focusedId, area, ready, modalOpen, () => listMode(query())], ([id, a, isReady, modal, mode]) => {
-    // Search mode never previews: typing and moving through results do not start a stream.
-    if (id === undefined || a !== 'list' || !isReady || modal || !previewAllowed(mode)) {
-      cancelTimer(); // leaving the list drops a pending preview (and its "Starting…")
+
+  // A browse focus that rests for FOCUS_REST_MS tells the worker, which may look up that channel's now/next (short
+  // EPG, only for channels without a stored guide). It never plays anything. Search results do not count: while
+  // searching, the preview panel describes the playing channel.
+  const focusRest = createDebounce<string>(FOCUS_REST_MS, (id) => {
+    if (alive && focusedId() === id && area() === 'list' && !searching()) void api.focusChannel(id).catch(() => undefined);
+  });
+  createEffect(on([focusedId, area, ready, modalOpen, searching], ([id, a, isReady, modal, isSearching]) => {
+    if (id === undefined || a !== 'list' || !isReady || modal || isSearching) {
+      focusRest.cancel();
       return;
     }
     memory.channelId = id;
-    if (held) return;
-    if (playback.current()?.id === id || requestedId === id) cancelTimer();
-    else schedulePreview(id);
+    focusRest.schedule(id);
   }));
 
   // Preview panel: the playing channel's info, or the focused one while its preview is starting.
@@ -316,7 +337,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     return info?.row.id === c.id ? info.row : c;
   };
   // While searching the panel keeps describing what is playing, never the focused result.
-  const panel = () => (searching() ? { channel: playingRow(), starting: false } : panelChannel(focusedRow(), playingRow(), starting()));
+  const panel = () => (searching() ? { channel: playingRow(), starting: false }
+    : panelChannel(focusedRow(), playingRow(), requested() !== undefined && requested() === focusedId()));
 
   /** Re-reads the playing channel's now/next once its programme has ended since it was last read. */
   const refreshPlayingInfo = () => {
@@ -462,8 +484,6 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     setSFocus(0);
     setQueryText('');
     searcher.setQuery('');
-    // The video keeps playing: the restored row does not auto-preview until the user moves.
-    held = true;
     if (restore) {
       lastTop = restore.top;
       void openGroup(restore.groupId, [restore.channelId], true);
@@ -475,9 +495,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** Fullscreen on channel `id`: the playing channel keeps its stream (only the rect changes), then the Player opens. */
   const openFullscreen = (id: string, g: string, beforePush?: () => void) => {
-    cancelTimer();
+    userPlayed();
     const token = playback.begin();
-    requestedId = undefined;
+    setRequested(undefined);
     void (async () => {
       try {
         const ch = await api.getPlayable(id);
@@ -496,12 +516,17 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     })();
   };
 
+  /**
+   * Ok on a channel: one that is not playing plays in the small video, and Home stays. The playing one, or one whose
+   * request is still being fetched, goes fullscreen.
+   */
   const watch = () => {
     const r = focusedRow();
     const g = groupId();
-    if (!r || g === undefined) return true;
+    if (!r || g === undefined || modalOpen()) return true;
     memory.channelId = r.id;
-    openFullscreen(r.id, g);
+    if (okAction({ kind: 'channel', channel: r }, playback.current()?.id, requested()) === 'fullscreen') openFullscreen(r.id, g);
+    else playHere(r.id, g);
     return true;
   };
 
@@ -512,7 +537,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const openResult = () => {
     const r = sRowAt(sFocus());
     // A second Ok while this row's preview is still being fetched goes fullscreen too.
-    return runResult(r, okAction(r, playback.current()?.id, requestedId));
+    return runResult(r, okAction(r, playback.current()?.id, requested()));
   };
 
   /** Runs `action` on result row `r` (the focused one): Ok and pointer clicks share it. */
@@ -525,10 +550,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     const id = rowChannelId(r);
     if (id === undefined) return true;
     if (action === 'preview') {
-      cancelTimer();
-      void playById(id).then(() => {
-        if (alive && playback.current()?.id === id) void api.markWatched(id, GROUP_ALL).catch(() => undefined);
-      });
+      playHere(id, GROUP_ALL);
       return true;
     }
     if (action === 'fullscreen') {
@@ -750,11 +772,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const listKeys = {
     onMove: (d: number) => {
       if (d < 0 && focus() === 0) return nav('list', 'up', true); // Up from the first row: the search bar
-      held = false;
       selectRow(moveFocus(focus(), d, total()));
       return true;
     },
-    onPage: (dir: 1 | -1) => { held = false; selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
+    onPage: (dir: 1 | -1) => { selectRow(pageFocus(focus(), dir, LIST_ROWS, total())); return true; },
     onLeft: () => nav('list', 'left') || focusArea('groups'), // the open keyboard first: it hides the groups
     onOk: watch,
     onOptions: openMenu,
@@ -769,10 +790,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (searching()) {
       // Choosing a group ends search mode and opens that group.
       finishExit({ groupId: g.id, top: 0 }, 'groups');
-      held = false;
       return;
     }
-    held = false;
     void openGroup(g.id);
   };
 
@@ -789,14 +808,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
-  /** A click focuses the row like the D-pad, then plays at once (no 700 ms wait), or goes fullscreen. */
+  /** A click focuses the row like the D-pad, then the same rule as Ok: play in the small video, or fullscreen. */
   const clickChannel = (i: number, double: boolean) => {
     const r = rowAt(i);
     const g = groupId();
     if (!r || g === undefined || modalOpen()) return;
-    // Decided before the focus moves: a scheduled preview resets `requestedId`.
-    const action = rowPointerAction(double ? 'doubleClick' : 'click', { kind: 'channel', channel: r }, playback.current()?.id, requestedId);
-    held = false;
+    const action = rowPointerAction(double ? 'doubleClick' : 'click', { kind: 'channel', channel: r }, playback.current()?.id, requested());
     batch(() => {
       selectRow(i);
       focusArea('list');
@@ -805,15 +822,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       memory.channelId = r.id;
       openFullscreen(r.id, g);
     } else if (action === 'preview') {
-      cancelTimer();
-      void playById(r.id);
+      playHere(r.id, g);
     }
   };
 
   /** Right click or `⋯`: the channel options menu on that row (the same as Menu or Hold-OK). */
   const channelOptions = (i: number) => {
     if (modalOpen() || !rowAt(i)) return;
-    held = false;
     batch(() => {
       selectRow(i);
       focusArea('list');
@@ -825,7 +840,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const clickResult = (i: number, double: boolean) => {
     const r = sRowAt(i);
     if (!isSelectable(r) || modalOpen()) return;
-    const action = rowPointerAction(double ? 'doubleClick' : 'click', r, playback.current()?.id, requestedId);
+    const action = rowPointerAction(double ? 'doubleClick' : 'click', r, playback.current()?.id, requested());
     searchMemory = userNavigated(searchMemory);
     setSFocus(i);
     focusArea('list');
@@ -842,7 +857,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** A click on the video: fullscreen on the loading preview, else on the playing channel. */
   const clickVideo = () => {
-    const id = requestedId ?? playback.current()?.id;
+    const id = requested() ?? playback.current()?.id;
     if (id === undefined || modalOpen()) return;
     if (searching()) {
       const at = sFocus();
@@ -943,12 +958,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         const found = g === undefined || exited() ? undefined
           : await openGroup(g, [playingId, focusHint, memory.channelId, params.lastChannelId]);
         if (!alive) return;
-        // The preview resumes the last channel right away (no-op when it is already playing). A last channel
-        // that is gone or hidden is not resumed; the focused row previews after the usual delay instead.
-        // Started before `ready`, so the focus effect sees the request and does not schedule it again.
+        // The preview resumes the last channel right away (a no-op when it is already playing). A last channel that
+        // is gone or hidden is not resumed: nothing plays until Ok. Search mode never starts playback without Ok.
         const resume = playingId ?? found;
-        // Search mode never starts playback without Ok.
-        if (resume && !held && !searching()) void playById(resume);
+        if (resume && !held && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
         if (!searching() && !exited()) focusArea(total() > 0 ? 'list' : 'groups');
       } catch (err) {
@@ -960,7 +973,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   onCleanup(() => {
     alive = false;
-    preview.cancel();
+    focusRest.cancel();
+    void api.focusChannel(undefined).catch(() => undefined); // no focused row once Home is gone
     playback.begin(); // drops any preview request still in flight
     removeKeyboard?.();
     removePicker?.();
@@ -1064,7 +1078,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         )}</Show>
       </Show>
 
-      <PreviewPanel x={PREVIEW_X} y={BODY_Y} channel={panel().channel} starting={panel().starting}
+      <PreviewPanel x={PREVIEW_X} y={BODY_Y} channel={panel().channel} starting={panel().starting} idle={pausedNote() ? PAUSED_NOTE : undefined}
         status={playback.status()} playing={playback.current() !== undefined} now={now()}
         onVideoClick={pointerOn() ? clickVideo : undefined} />
 
