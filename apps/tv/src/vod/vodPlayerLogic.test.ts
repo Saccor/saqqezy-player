@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
+import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -188,5 +189,19 @@ describe('tracksDue', () => {
     expect(tracksDue(undefined, 1, true)).toBe(true);
     expect(tracksDue(1, 1, true)).toBe(false); // applied for this attempt: no loop
     expect(tracksDue(1, 2, true)).toBe(true); // a quick reopen without 'reconnecting'
+  });
+});
+
+describe('tracksKeyId', () => {
+  const base: VodPlayable = { kind: 'movie', itemId: 'm1', url: 'http://x.test/m1', title: 'Synthetic Film', resumeMs: 0, tracks: {} };
+  it('uses the item id for a movie', () => {
+    expect(tracksKeyId(base)).toBe('m1');
+  });
+  it('uses the series id for an episode (tracks are remembered per series)', () => {
+    const ep: VodPlayable = { ...base, kind: 'episode', itemId: 'e7', series: { id: 's3', season: 2, episode: 4 } };
+    expect(tracksKeyId(ep)).toBe('s3');
+  });
+  it('falls back to the item id for an episode without a series pointer', () => {
+    expect(tracksKeyId({ ...base, kind: 'episode', itemId: 'e8' })).toBe('e8');
   });
 });

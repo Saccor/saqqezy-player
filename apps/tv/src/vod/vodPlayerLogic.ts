@@ -1,4 +1,5 @@
 import type { TrackInfo } from '@iptv/player';
+import type { VodPlayable } from '@iptv/app-api';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 
 export const OVERLAY_HIDE_MS = 4000;
@@ -145,4 +146,9 @@ export function pauseOnHidden(s: { hidden: boolean; paused: boolean; problem: bo
  */
 export function tracksDue(appliedAt: number | undefined, startedAttempts: number, playing: boolean): boolean {
   return playing && startedAttempts > 0 && startedAttempts !== appliedAt;
+}
+
+/** The id the audio and subtitle choices are remembered under: the series for an episode, the item for a movie. */
+export function tracksKeyId(p: VodPlayable): string {
+  return p.kind === 'episode' && p.series ? p.series.id : p.itemId;
 }

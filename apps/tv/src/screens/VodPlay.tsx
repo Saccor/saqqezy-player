@@ -15,7 +15,7 @@ import { scrimTexture } from '../vod/scrim.ts';
 import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
 import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, remaining, trackKey, trackRows, tracksDue,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, remaining, trackKey, trackRows, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
@@ -81,7 +81,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let removePicker: (() => void) | undefined;
   let hold: HoldRun | undefined;
   let endedHandled = false;
-  let nextBusy = false;
+  /** One episode switch (next or previous) in flight at a time. */
+  let switchBusy = false;
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
@@ -235,7 +236,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
 
   const remember = (tracks: VodTracks) => {
-    api.setVodTracks(p.itemId, tracks).catch((err) => console.warn('Track save failed', errName(err)));
+    // Episodes remember their choices per series; movies per title.
+    api.setVodTracks(tracksKeyId(p), tracks).catch((err) => console.warn('Track save failed', errName(err)));
   };
 
   const pickTrack = (row: PickerRow) => {
@@ -281,19 +283,22 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     setCountdown(undefined);
   };
 
-  const playNext = async () => {
-    const next = p.next;
+  /**
+   * Replaces this player with another episode of the same series (the next or the previous one). It starts at its own
+   * `resumeMs` (0 when none). Callers save progress first.
+   */
+  const switchTo = async (target: { id: string } | undefined) => {
     const seriesId = p.series?.id;
-    if (!next || !seriesId || nextBusy || !alive) return;
-    nextBusy = true;
+    if (!target || !seriesId || switchBusy || !alive) return;
+    switchBusy = true;
     stopCountdown();
     let np: VodPlayable | undefined;
     try {
-      np = await api.getVodPlayable(next.id, seriesId);
+      np = await api.getVodPlayable(target.id, seriesId);
     } catch (err) {
-      console.warn('Next episode failed', errName(err));
+      console.warn('Episode switch failed', errName(err));
     }
-    nextBusy = false;
+    switchBusy = false;
     if (!alive) return;
     if (!np) {
       showToast(CANT_PLAY_NOW);
@@ -301,8 +306,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       return;
     }
     closePicker();
-    router.replace('vodPlay', { playable: np, fromStart: true });
+    router.replace('vodPlay', { playable: np });
   };
+  const playNext = () => switchTo(p.next);
 
   const startCountdown = () => {
     stopCountdown();
@@ -318,13 +324,17 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
   };
 
-  /** Ok/Channel up/the overlay's button: save where we are and go to the next episode. */
-  const nextNow = () => {
-    if (!p.next) return true;
+  /** Save where we are, then switch (ignored while another switch is in flight). */
+  const saveAndSwitch = (target: { id: string } | undefined) => {
+    if (!target || !p.series || switchBusy) return true;
     save();
-    void playNext();
+    void switchTo(target);
     return true;
   };
+  /** Ok/Channel up/the overlay's button: the next episode. */
+  const nextNow = () => saveAndSwitch(p.next);
+  /** Channel down: the previous episode. */
+  const prevNow = () => saveAndSwitch(p.prev);
 
   // ---- overlay actions ----
 
@@ -514,7 +524,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onLeft={() => seekKey('Left')} onRight={() => seekKey('Right')}
       onUp={focusBar} onDown={focusBar}
       onPlayPause={() => (failed() || ended() ? true : togglePause())}
-      onChannelUp={nextNow} onChannelDown={() => true}>
+      onChannelUp={nextNow} onChannelDown={prevNow}>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
       <Show when={cue()}>
