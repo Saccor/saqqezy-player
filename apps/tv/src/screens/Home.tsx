@@ -428,6 +428,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
    */
   const setBarText = (raw: string) => {
     const text = capQuery(raw); // one cap for every input path
+    if (text === query()) return; // typing at the cap does not re-run the same search
     const ch = applyQuery(searchMemory, text, browseNow(), initState()?.activeSourceId);
     if (ch.kind === 'none') return;
     if (ch.kind === 'exit') { finishExit(ch.restore, kbOpen() ? 'keyboard' : 'bar'); return; }
@@ -444,7 +445,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const finishExit = (restore: BrowsePosition | undefined, focusTo: Place) => {
-    searchExits++;
+    if (restore) searchExits++; // only an exit that restored a position stands in for init's group
     searchMemory = BROWSE;
     settledQuery = '';
     sLastTop = 0;
