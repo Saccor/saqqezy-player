@@ -27,6 +27,8 @@ export function ListPicker(props: {
   title: string;
   rows: readonly PickerRow[];
   onPick: (row: PickerRow) => void;
+  /** Footer hint; default "Ok adds or removes · Back closes". */
+  hint?: string;
   /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
   pointerEnabled?: boolean;
 }) {
@@ -44,6 +46,7 @@ export function ListPicker(props: {
     return top;
   });
   const visible = () => props.rows.slice(scrollTop(), scrollTop() + VIEW_ROWS).map((row, k) => ({ row, i: scrollTop() + k }));
+  const hint = () => props.hint ?? 'Ok adds or removes · Back closes';
   const move = (d: number) => { setSel(moveFocus(current(), d, props.rows.length)); return true; };
   const more = () => {
     const above = scrollTop() > 0 ? '▲' : '';
@@ -105,7 +108,7 @@ export function ListPicker(props: {
         }}</For>
         <Text x={PAD} y={PAD + HEAD + shown() * STEP} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width"
           maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {more() ? `${more()} · Ok adds or removes · Back closes` : 'Ok adds or removes · Back closes'}
+          {more() ? `${more()} · ${hint()}` : hint()}
         </Text>
       </View>
     </View>
