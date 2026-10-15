@@ -230,3 +230,21 @@ export function typingKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; 
 export function typedQuery(query: string, k: TextKey): string {
   return capQuery(applyKey({ value: query, shift: false }, k.kind === 'char' ? { kind: 'text', text: k.ch } : { kind: 'backspace' }).value);
 }
+
+/** Pointer-only buttons on Home: the bottom row (it replaces the hint line in pointer mode) and the bar's keyboard button. */
+export const HOME_POINTER_LABELS = { search: '⌕ Search', guide: '▦ Guide', settings: '⚙ Settings' } as const;
+export const KEYBOARD_BUTTON_LABEL = '⌨';
+
+export type RowPointerEvent = 'hover' | 'click' | 'doubleClick';
+
+/**
+ * The pointer on a Home row (a browse channel row is passed as a `channel` result). Hover only highlights: it never
+ * previews. A click acts like Ok (`okAction`): play in the small video, fullscreen for the playing channel (or one
+ * whose preview is still being fetched), the Guide for a coming-up row. A double click goes fullscreen on any channel row.
+ */
+export function rowPointerAction(ev: RowPointerEvent, row: SearchRow | undefined, playingId: string | undefined,
+  requestedId?: string): OkAction {
+  if (ev === 'hover') return 'none';
+  const a = okAction(row, playingId, requestedId);
+  return ev === 'doubleClick' && a === 'preview' ? 'fullscreen' : a;
+}

@@ -7,6 +7,7 @@ import {
   groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
+import { HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction } from './homeSearchLogic.ts';
 import { nextFocus, type SearchRow } from './searchLogic.ts';
 
 const ch = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
@@ -316,5 +317,37 @@ describe('results losing their rows', () => {
     expect(resultsFocusLost({ ...base, hasResults: true })).toBeUndefined();
     expect(resultsFocusLost({ ...base, area: 'bar' })).toBeUndefined();
     expect(resultsFocusLost({ ...base, searching: false })).toBeUndefined();
+  });
+});
+
+describe('pointer on Home rows', () => {
+  it('hover never acts: no preview, no fullscreen', () => {
+    expect(rowPointerAction('hover', channelRow(1), undefined)).toBe('none');
+    expect(rowPointerAction('hover', channelRow(1), 's:1')).toBe('none');
+    expect(rowPointerAction('hover', laterRow(1), undefined)).toBe('none');
+  });
+
+  it('a click plays a channel that is not playing in the small video, and the playing one fullscreen', () => {
+    expect(rowPointerAction('click', channelRow(1), 's:2')).toBe('preview');
+    expect(rowPointerAction('click', onNowRow(1), undefined)).toBe('preview');
+    expect(rowPointerAction('click', channelRow(1), 's:1')).toBe('fullscreen');
+    expect(rowPointerAction('click', channelRow(1), 's:2', 's:1')).toBe('fullscreen'); // its preview is still loading
+  });
+
+  it('a double click goes fullscreen on any channel row', () => {
+    expect(rowPointerAction('doubleClick', channelRow(1), 's:2')).toBe('fullscreen');
+    expect(rowPointerAction('doubleClick', onNowRow(3), undefined)).toBe('fullscreen');
+  });
+
+  it('a coming-up row opens the Guide; headers do nothing', () => {
+    expect(rowPointerAction('click', laterRow(1), 's:1')).toBe('guide');
+    expect(rowPointerAction('doubleClick', laterRow(1), undefined)).toBe('guide');
+    expect(rowPointerAction('click', { kind: 'header', label: 'Channels' }, undefined)).toBe('none');
+    expect(rowPointerAction('click', undefined, undefined)).toBe('none');
+  });
+
+  it('uses the spec copy', () => {
+    expect(HOME_POINTER_LABELS).toEqual({ search: '⌕ Search', guide: '▦ Guide', settings: '⚙ Settings' });
+    expect(KEYBOARD_BUTTON_LABEL).toBe('⌨');
   });
 });
