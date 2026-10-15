@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, minutesLeft, nextCardText, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -130,5 +130,16 @@ describe('cueText', () => {
     expect(cueText(null)).toBe('');
     expect(cueText('  One  line ')).toBe('One line');
     expect(cueText('First\r\n\n  Second   part')).toBe('First\nSecond part');
+  });
+});
+
+describe('titleLengthMs', () => {
+  it('prefers the length measured while playing over the catalogue runtime', () => {
+    expect(titleLengthMs(60_000, 0.1, 91)).toBe(600_000);
+  });
+  it('falls back to the runtime, then 0', () => {
+    expect(titleLengthMs(0, undefined, 91)).toBe(5_460_000);
+    expect(titleLengthMs(60_000, 0, 0)).toBe(0);
+    expect(titleLengthMs(0, undefined, undefined)).toBe(0);
   });
 });

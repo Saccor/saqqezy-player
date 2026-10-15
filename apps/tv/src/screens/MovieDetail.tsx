@@ -11,7 +11,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
-import { minutesLeft, resumeLabel } from '../vod/vodPlayerLogic.ts';
+import { minutesLeft, resumeLabel, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import { scrimTexture } from '../vod/scrim.ts';
@@ -116,13 +116,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   };
 
   const resumeMs = () => view()?.resumeMs ?? 0;
-  /** Total length: the detail's runtime, else derived from the saved fraction. */
-  const durationMs = () => {
-    const rt = detail()?.runtimeMin;
-    if (rt && rt > 0) return rt * 60_000;
-    const p = tile()?.progress;
-    return p && p > 0 ? resumeMs() / p : 0;
-  };
+  const durationMs = () => titleLengthMs(resumeMs(), tile()?.progress, detail()?.runtimeMin);
   const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : (tile()?.progress ?? 0));
   const actions = () => [
     ...(resumeMs() > 0

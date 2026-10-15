@@ -19,7 +19,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
 import { cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
-import { minutesLeft } from '../vod/vodPlayerLogic.ts';
+import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { metaLine } from '../vod/posterLogic.ts';
@@ -254,8 +254,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const playAction = createMemo(() => {
     const t = focusedTile();
     const h = hero()?.tile.id === t?.id ? hero() : undefined;
-    const rt = h?.detail?.runtimeMin;
-    const total = rt ? rt * 60_000 : t?.progress ? (h?.resumeMs ?? 0) / t.progress : 0;
+    const total = titleLengthMs(h?.resumeMs ?? 0, t?.progress, h?.detail?.runtimeMin);
     if (!t?.progress || !h || h.resumeMs <= 0 || total <= 0) return { id: 'play', label: 'Play', width: 200 };
     return { id: 'play', label: `Resume · ${minutesLeft(h.resumeMs, total)}`, width: 320 };
   });

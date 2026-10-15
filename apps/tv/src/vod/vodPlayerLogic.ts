@@ -42,6 +42,15 @@ export function minutesLeft(positionMs: number, durationMs: number): string {
 }
 
 /** A usable duration: the engine's when finite and > 0, else the playable's, else undefined (unknown). */
+/**
+ * A title's length for "N min left": the length measured while playing (the saved position over the saved fraction)
+ * wins over the catalogue runtime, which providers often get wrong. 0 when neither is known.
+ */
+export function titleLengthMs(resumeMs: number, progress: number | undefined, runtimeMin: number | undefined): number {
+  if (resumeMs > 0 && progress && progress > 0) return resumeMs / progress;
+  return runtimeMin && runtimeMin > 0 ? runtimeMin * 60_000 : 0;
+}
+
 export function knownDuration(engineMs: number | undefined, fallbackMs: number | undefined): number | undefined {
   const ok = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v) && v > 0;
   if (ok(engineMs)) return engineMs;
