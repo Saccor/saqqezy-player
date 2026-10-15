@@ -48,7 +48,7 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /**
  * The VOD player: fullscreen video with a bottom overlay (title, progress, times, actions), pause, a seek marker that
- * commits 500 ms after the last press, resume, progress saves, audio and subtitle choices remembered per title, drawn
+ * commits 500 ms after the last press, resume, progress saves, audio and subtitle choices remembered per title (per series for episodes), drawn
  * subtitles for engines that cannot draw them, the next-episode card, and the failure messages.
  */
 export function VodPlayScreen(props: { entry: ScreenEntry }) {
@@ -327,11 +327,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   /** Save where we are, then switch (ignored while another switch is in flight). */
   const saveAndSwitch = (target: { id: string } | undefined) => {
     if (!target || !p.series || switchBusy) return true;
-    save();
+    // The end card already saved the end position; the engine's playhead may now read short of it.
+    if (!ended()) save();
     void switchTo(target);
     return true;
   };
-  /** Ok/Channel up/the overlay's button: the next episode. */
+  /** Channel up and the overlay's Next episode button: the next episode. */
   const nextNow = () => saveAndSwitch(p.next);
   /** Channel down: the previous episode. */
   const prevNow = () => saveAndSwitch(p.prev);

@@ -5,6 +5,7 @@ import { api } from '../api.ts';
 import { ContextMenu } from '../components/ContextMenu.tsx';
 import { router } from '../shell/router.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { SAVE_FAILED } from './favToggle.ts';
 import { buildEpisodeMenu, buildPosterMenu, runEpisodeAction, runPosterAction, type PosterAction } from './posterMenuLogic.ts';
 
 const MENU_ID = 'posterMenu';
@@ -49,7 +50,7 @@ export function createPosterMenu(opts: { refocus: () => void; onChanged: () => v
       if ((await s.run(a)) && alive) opts.onChanged();
     } catch (err) {
       console.warn('Poster action failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't save that. Try again.");
+      showToast(SAVE_FAILED);
     }
   };
   onCleanup(() => { alive = false; remove?.(); });
