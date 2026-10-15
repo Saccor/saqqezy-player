@@ -60,10 +60,13 @@ type Down = Press & { scope: ScreenEntry | undefined; entry: Entry | undefined }
 const TICK_MS = 250;
 const NO_RECT: Rect = { x: 0, y: 0, w: 0, h: 0 };
 
-const [mode, setMode] = createSignal(POINTER_START);
+/** The full mode state changes on every move: it is a plain variable, never read reactively. */
+let mode = POINTER_START;
+/** Only the on/off part is a signal, so a pointermove re-runs nothing that reads `pointerMode()`. */
+const [modeOn, setModeOn] = createSignal(false);
 
 /** True while the mouse or pointer remote is in use. */
-export const pointerMode = (): boolean => mode().on;
+export const pointerMode = (): boolean => modeOn();
 
 let nextSeq = 0;
 let entries: Entry[] = [];
@@ -89,11 +92,12 @@ function setHovered(entry: Entry | undefined, local: Point | undefined): void {
 }
 
 function dispatch(e: PointerModeEvent): void {
-  const prev = mode();
+  const prev = mode;
   const next = pointerModeReducer(prev, e);
   if (next === prev) return;
-  setMode(next);
+  mode = next;
   if (prev.on !== next.on) {
+    setModeOn(next.on);
     applyCursor(next.on);
     if (!next.on) setHovered(undefined, undefined); // a remote key: no highlight stays behind
   }
@@ -135,7 +139,7 @@ function hitAt(p: Point): { entry: Entry; local: Point } | undefined {
 
 /** Re-reads the hover at the last position (after a click or a wheel step changed what is under it). */
 function rehover(): void {
-  if (!mode().on || !lastPoint) return;
+  if (!mode.on || !lastPoint) return;
   const h = hitAt(lastPoint);
   setHovered(h?.entry, h?.local);
 }
@@ -209,7 +213,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     canvas.style.cursor = c;
     win.document.body.style.cursor = c;
   };
-  applyCursor(mode().on);
+  applyCursor(mode.on);
 
   const design = (e: { clientX: number; clientY: number }): Point => {
     const r = canvas.getBoundingClientRect();
@@ -289,7 +293,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   const onContext = (e: MouseEvent) => {
     e.preventDefault();
     // The keyboard Menu key and Shift+F10 fire contextmenu too: only a real right-button press in pointer mode counts.
-    if (e.button !== 2 || (e as PointerEvent).pointerType === 'touch' || !mode().on) return;
+    if (e.button !== 2 || (e as PointerEvent).pointerType === 'touch' || !mode.on) return;
     // The snapshot from the press (null: nothing was under it); without one (no pointerdown seen), hit now.
     const snap = contextHit;
     contextHit = undefined;
@@ -329,7 +333,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
 
   const offKeys = onLogicalKey(() => dispatch({ type: 'key' }));
   const tick = setInterval(() => {
-    if (mode().on) dispatch({ type: 'tick', now: Date.now(), autoHide: autoHide?.() ?? false });
+    if (mode.on) dispatch({ type: 'tick', now: Date.now(), autoHide: autoHide?.() ?? false });
   }, TICK_MS);
   win.addEventListener('pointermove', onMove);
   win.addEventListener('pointerdown', onDown);
@@ -354,7 +358,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     win.document.removeEventListener('cursorStateChange', onCursor);
     setHovered(undefined, undefined);
     lastPoint = undefined;
-    setMode(POINTER_START);
+    mode = POINTER_START;
+    setModeOn(false);
     canvas.style.cursor = '';
     win.document.body.style.cursor = '';
     applyCursor = () => undefined;

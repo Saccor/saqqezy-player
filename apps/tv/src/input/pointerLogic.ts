@@ -142,6 +142,13 @@ export function cellAt<B extends { start: number; stop: number }>(
   return block ? { area: 'grid', row, block } : undefined;
 }
 
+/** The same guide cell: the same area and row and, in the grid, a block with the same start. */
+export function sameGridHit<B extends { start: number }>(a: GridHit<B> | undefined, b: GridHit<B> | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.area !== b.area || a.row !== b.row) return false;
+  return a.area === 'channels' || (b.area === 'grid' && a.block.start === b.block.start);
+}
+
 // ---- clicks ----
 
 export const CLICK_SLOP_PX = 8;

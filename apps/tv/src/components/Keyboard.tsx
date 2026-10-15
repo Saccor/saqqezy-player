@@ -49,7 +49,10 @@ export function Keyboard(props: {
   const L = props.layout ?? FULL_LAYOUT;
   const [cursor, setCursor] = createSignal<Cursor>(L.start);
   const [shift, setShift] = createSignal(false);
-  const [hoverKey, setHoverKey] = createSignal<Cursor | undefined>(undefined);
+  // Equal by row and col: a move within one key sets nothing.
+  const [hoverKey, setHoverKey] = createSignal<Cursor | undefined>(undefined, {
+    equals: (a, b) => a === b || (a !== undefined && b !== undefined && a.row === b.row && a.col === b.col),
+  });
   const focusFromPointer = usePointerFocus();
   let root: ElementNode | undefined;
 

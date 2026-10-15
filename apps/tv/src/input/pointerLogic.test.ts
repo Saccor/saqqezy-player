@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, sameGridHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -135,6 +135,20 @@ describe('cellAt', () => {
     expect(cellAt(288 + 1440, 50, G, 0, 20, V, of)).toBeUndefined();
     expect(cellAt(288 + 1000, 50, G, 0, 20, V, of)).toBeUndefined();
     expect(cellAt(10, 44 + 72 * 3, G, 0, 3, V, of)).toBeUndefined();
+  });
+});
+
+describe('sameGridHit (the guide hover only changes when the cell does)', () => {
+  const block = { start: 100, stop: 200 };
+  it('compares area, row and the block start', () => {
+    expect(sameGridHit(undefined, undefined)).toBe(true);
+    expect(sameGridHit({ area: 'channels', row: 2 }, { area: 'channels', row: 2 })).toBe(true);
+    expect(sameGridHit({ area: 'grid', row: 2, block }, { area: 'grid', row: 2, block: { ...block } })).toBe(true);
+    expect(sameGridHit({ area: 'channels', row: 2 }, { area: 'channels', row: 3 })).toBe(false);
+    expect(sameGridHit({ area: 'channels', row: 2 }, { area: 'grid', row: 2, block })).toBe(false);
+    expect(sameGridHit({ area: 'grid', row: 2, block }, { area: 'grid', row: 2, block: { start: 200, stop: 300 } })).toBe(false);
+    expect(sameGridHit({ area: 'channels', row: 2 }, undefined)).toBe(false);
+    expect(sameGridHit(undefined, { area: 'channels', row: 2 })).toBe(false);
   });
 });
 

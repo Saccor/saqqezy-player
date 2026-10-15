@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
-import { cellAt, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
+import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
@@ -104,7 +104,8 @@ export function EpgGrid(props: {
   onPointerWheel?: (dy: number, dx: number) => void;
 }) {
   const [focused, setFocused] = createSignal(false);
-  const [hover, setHover] = createSignal<GridHit<Block> | undefined>(undefined);
+  // Equal by cell: a move within one cell sets nothing.
+  const [hover, setHover] = createSignal<GridHit<Block> | undefined>(undefined, { equals: sameGridHit });
   let node: ElementNode | undefined;
   const height = RULER_H + EPG_VIEW_ROWS * EPG_ROW_H;
   const indices = createMemo(() => {
