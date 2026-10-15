@@ -763,6 +763,7 @@ describe('AppApi – background short EPG', () => {
     await api.idle().catch(() => undefined);
     const [a, b, c] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
     await api.focusChannel(a!); // runs (held)
+    await settle();
     await api.focusChannel(b!); // waits for the one slot
     await api.focusChannel(c!); // waits; b no longer has the focus
     await settle();
@@ -779,6 +780,7 @@ describe('AppApi – background short EPG', () => {
     await api.idle().catch(() => undefined);
     const [a, p, b] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
     await api.focusChannel(a!); // runs (held)
+    await settle();
     await api.getPlayable(p!); // waits; p is the playing channel
     await api.focusChannel(b!); // waits; the focus left a, which already ran
     h.g.open();
@@ -794,6 +796,7 @@ describe('AppApi – background short EPG', () => {
     await api.idle().catch(() => undefined);
     const [a, b] = (await api.getChannelSlice('all', 0, 2)).rows.map((r) => r.id);
     await api.focusChannel(a!); // runs (held)
+    await settle();
     await api.focusChannel(b!); // waits
     await settle();
     await api.saveSettings({ epgOffsetHours: 1 });
@@ -906,6 +909,7 @@ describe('AppApi – background short EPG', () => {
     streams.length = 0;
     g = gate();
     await api.focusChannel(x!); // runs (held)
+    await settle();
     await api.focusChannel(a!); // waits
     await api.focusChannel(y!); // waits; a lost the focus and stopped being the playing channel at the switch
     await settle();
