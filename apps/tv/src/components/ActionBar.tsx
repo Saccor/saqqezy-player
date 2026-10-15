@@ -1,7 +1,8 @@
 import { For, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createSignal } from 'solid-js';
+import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { selectedIndex } from './actionBarLogic.ts';
 import { BUTTON_H } from './Button.tsx';
 
 export interface Action { id: string; label: string; width: number }
@@ -20,7 +21,8 @@ export function ActionBar(props: {
   onFocusChanged?: (f: boolean) => void;
 }) {
   const [focused, setFocused] = createSignal(false);
-  const [sel, setSel] = createSignal(0);
+  /** The selected action's id: the selection follows it when the list changes (by index only when it is gone). */
+  const [selId, setSelId] = createSignal<string | undefined>(undefined);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
   const xs = () => {
@@ -32,7 +34,8 @@ export function ActionBar(props: {
     const i = xs().findIndex((x, k) => px >= x && px < x + props.actions[k]!.width);
     return i >= 0 ? i : undefined;
   };
-  const cur = () => Math.max(0, Math.min(sel(), props.actions.length - 1));
+  const cur = createMemo((prev: number) => selectedIndex(props.actions, selId(), prev), 0);
+  const select = (i: number) => setSelId(props.actions[i]?.id);
   usePointerTarget({
     node: () => node,
     onHover: (p) => setHover(p ? at(p.x) : undefined),
@@ -46,8 +49,8 @@ export function ActionBar(props: {
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x} y={props.y} width={Math.max(0, width())} height={BUTTON_H}
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
-      onLeft={() => { if (cur() === 0 && props.onLeft) return props.onLeft(); setSel(Math.max(0, cur() - 1)); return true; }}
-      onRight={() => { setSel(Math.min(props.actions.length - 1, cur() + 1)); return true; }}
+      onLeft={() => { if (cur() === 0 && props.onLeft) return props.onLeft(); select(Math.max(0, cur() - 1)); return true; }}
+      onRight={() => { select(Math.min(props.actions.length - 1, cur() + 1)); return true; }}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown?.() ?? true}
       onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}>
       <For each={props.actions}>{(a, i) => {
