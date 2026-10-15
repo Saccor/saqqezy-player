@@ -320,5 +320,15 @@ describe('playback controller', () => {
       pb.playVod(vod, 0);
       expect(pb.isLatest(t)).toBe(false);
     });
+
+    it('a blocked VOD that never opened ignores the previous title position', () => {
+      const f = fakes(); // positionMs defaults to 42_000: the previous title's leftover
+      let blocked = true;
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', undefined, { blocked: () => blocked, refused: () => undefined, answered: () => undefined });
+      pb.playVod(vod, 0);
+      blocked = false;
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenCalledWith(vod.url, undefined, { sourceKey: undefined, vod: true, startMs: 0 });
+    });
   });
 });

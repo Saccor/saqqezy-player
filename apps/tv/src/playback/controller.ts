@@ -115,19 +115,25 @@ export function createPlaybackController(
 
   /** The VOD request in flight (also while held by the cooldown): a held title resumes as VOD, never as live. */
   let pendingVod: { p: VodPlayable; startMs: number } | undefined;
+  /** True only once `startPlay` opened the pending VOD: only then is the supervisor's position this title's. */
+  let vodOpened = false;
+  /** Folds the playhead of the opened title into the pending request's start (never goes backwards). */
+  const updateVodStart = () => {
+    if (!pendingVod || !vodOpened) return;
+    const pos = supervisor.positionMs();
+    if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
+  };
   const startPlay = (url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }) => {
     held = false;
     const key = sourceKey();
     playKey = key;
     answeredReported = false;
+    vodOpened = opts.vod === true;
     supervisor.play(url, alt, { sourceKey: key, ...opts });
   };
 
   const hold = () => {
-    if (pendingVod) {
-      const pos = supervisor.positionMs();
-      if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
-    }
+    updateVodStart();
     held = true;
     playKey = undefined;
     supervisor.stop();
@@ -149,6 +155,7 @@ export function createPlaybackController(
         return false;
       }
       pendingVod = undefined;
+      vodOpened = false;
       setCurrent(ch);
       if (gate?.blocked()) {
         hold();
@@ -161,6 +168,7 @@ export function createPlaybackController(
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
       pendingVod = { p, startMs };
+      vodOpened = false;
       setCurrent(stand);
       if (gate?.blocked()) {
         hold();
@@ -187,9 +195,8 @@ export function createPlaybackController(
       if (!held) return;
       const v = pendingVod;
       if (v) {
-        const pos = supervisor.positionMs();
-        const start = pos !== undefined && pos > v.startMs ? pos : v.startMs;
-        this.playVod(v.p, start);
+        updateVodStart();
+        this.playVod(v.p, v.startMs);
         return;
       }
       const cur = current();
@@ -199,6 +206,7 @@ export function createPlaybackController(
       token++;
       held = false;
       pendingVod = undefined;
+      vodOpened = false;
       playKey = undefined;
       supervisor.stop();
       setCurrent(undefined);
