@@ -744,6 +744,60 @@ describe('PlaybackSupervisor: gentle on sources (single-connection accounts)', (
   });
 });
 
+describe('PlaybackSupervisor: one format per play', () => {
+  it('a stream that played keeps its format on every reconnect', () => {
+    const { player, sup } = setup();
+    sup.play(A, B);
+    player.emit('playing');
+    for (let i = 0; i < 3; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(8000); }
+    expect(player.opened).toEqual([A, A, A, A]);
+  });
+
+  it('a give-up retry reopens the format that played, never the first one again', () => {
+    const { player, sup } = setup();
+    sup.play(A, B);
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    player.emit('error'); vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A, B]);
+    player.emit('playing');
+    for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    vi.advanceTimersByTime(30_000);
+    expect(player.opened.length).toBeGreaterThan(3);
+    expect(player.opened.slice(2).every((u) => u === B)).toBe(true);
+  });
+
+  it('UNSUPPORTED after the stream played stops as unsupported without switching', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A, B);
+    player.emit('playing');
+    player.emit('error', { code: 'UNSUPPORTED' });
+    vi.advanceTimersByTime(5000);
+    expect(player.opened).toEqual([A]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unsupported' });
+  });
+
+  it('AUTH after the stream played retries the same URL once, then stops as refused without switching', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A, B);
+    player.emit('playing');
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A]);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(5000);
+    expect(player.opened).toEqual([A, A]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
+  });
+
+  it('a channel that never played still tries the other format once', () => {
+    const { player, sup } = setup();
+    sup.play(A, B);
+    player.emit('error', { code: 'UNSUPPORTED' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, B]);
+  });
+});
+
 describe('PlaybackSupervisor: journal', () => {
   function journaled(opts: SupervisorOptions = {}) {
     const log: JournalEvent[] = [];
