@@ -27,6 +27,8 @@ export interface SourceServiceDeps {
   storage: Storage;
   fetch: FetchFn;
   now?: () => number;
+  /** Minimum time between two short-EPG requests to one source (default `SHORT_EPG_GAP_MS`; tests pass 0). */
+  shortEpgGapMs?: number;
   newId?: () => string;
   /** Playlist/XMLTV body inactivity timeout (default `BODY_IDLE_MS`). */
   bodyIdleMs?: number;
@@ -36,9 +38,12 @@ const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
-const SHORT_EPG_CONCURRENCY = 6;
-/** Short-EPG lookups waiting for a slot; past this the oldest waiters are dropped (they resolve to nothing). */
-const SHORT_EPG_QUEUE_CAP = 24;
+/** Short-EPG requests in flight at once, across all sources (spec 2026-10-15-gentle-source §3.2). */
+const SHORT_EPG_CONCURRENCY = 1;
+/** Short-EPG lookups waiting for the slot; past this the oldest waiters are dropped (they resolve to nothing). */
+const SHORT_EPG_QUEUE_CAP = 4;
+/** At least this long between two short-EPG requests to the same source. */
+const SHORT_EPG_GAP_MS = 2000;
 /** Wraps an error of the guide body stream, so it can be told apart from a parse error. */
 class StreamFailure extends Error {
   constructor(readonly cause: unknown) {
@@ -79,11 +84,15 @@ export class SourceService {
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
   private readonly shortEpgWaiting: ((granted: boolean) => void)[] = [];
+  private readonly shortEpgGapMs: number;
+  /** Clock ms of the last short-EPG request per source (for the gap). */
+  private readonly shortEpgLastAt = new Map<string, number>();
 
   constructor(deps: SourceServiceDeps) {
     this.storage = deps.storage;
     this.fetchFn = deps.fetch;
     this.now = deps.now ?? Date.now;
+    this.shortEpgGapMs = deps.shortEpgGapMs ?? SHORT_EPG_GAP_MS;
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
   }
@@ -415,11 +424,12 @@ export class SourceService {
   }
 
   /**
-   * Xtream short EPG for channels without stored programmes. At most `SHORT_EPG_CONCURRENCY` requests run at
-   * once across all calls and at most `SHORT_EPG_QUEUE_CAP` wait (the oldest waiters are dropped). Right before
-   * each request the lookup is skipped when `isStale(channel)` says so, when a guide refresh of the source runs
-   * or when the source is gone; the client is built from the source config stored at that moment, so updated
-   * credentials are used. Only channels whose lookup succeeded are in the result.
+   * Xtream short EPG for channels without stored programmes. One request runs at a time across all calls, at least
+   * `shortEpgGapMs` after the previous one to the same source, and at most `SHORT_EPG_QUEUE_CAP` wait (the oldest
+   * waiters are dropped). Right before each request the lookup is skipped when `isStale(channel)` says so, when a
+   * guide refresh of the source runs or when the source is gone; the client is built from the source config stored
+   * at that moment, so updated credentials are used. A request that failed answers `{}` (nothing found), so callers
+   * can cache it; skipped and dropped lookups are not in the result.
    */
   async shortEpgFor(
     id: string,
@@ -436,12 +446,15 @@ export class SourceService {
       if (!(await this.shortEpgSlot())) return;
       try {
         if (skip(c)) return;
+        await this.shortEpgGap(id);
         const source = (await this.storage.listSources()).find((s) => s.id === id);
         if (source?.kind !== 'xtream' || skip(c)) return;
+        this.shortEpgLastAt.set(id, this.now());
         const list = await this.xtream(source).shortEpg(streamId, epgKey(c));
         out.set(c.id, nowNext(list, this.now()));
       } catch {
-        // No EPG is an acceptable outcome; the UI shows the channel without programme info.
+        // No EPG is an acceptable outcome (the UI shows the channel without programme info): answered as nothing found.
+        out.set(c.id, {});
       } finally {
         this.releaseShortEpgSlot();
       }
@@ -466,6 +479,13 @@ export class SourceService {
     const next = this.shortEpgWaiting.shift();
     if (next) next(true);
     else this.shortEpgActive--;
+  }
+
+  /** Waits until `shortEpgGapMs` has passed since the last short-EPG request to source `id`. */
+  private async shortEpgGap(id: string): Promise<void> {
+    const last = this.shortEpgLastAt.get(id);
+    const wait = last === undefined ? 0 : last + this.shortEpgGapMs - this.now();
+    if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
   private withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {

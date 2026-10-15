@@ -27,7 +27,7 @@ beforeEach(() => {
   routes = { '/p.m3u': () => new Response(m3u), '/epg.xml': () => new Response(xml) };
   storage = new MemoryStorage();
   let n = 0;
-  service = new SourceService({ storage, fetch: fetchFn, now: () => NOW, newId: () => `id${++n}` });
+  service = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => `id${++n}` });
 });
 
 const m3uInput = { kind: 'm3u' as const, name: 'Mine', playlistUrl: 'http://example.test/p.m3u', epgUrl: 'http://example.test/epg.xml' };
@@ -296,7 +296,7 @@ describe('SourceService – robustness', () => {
       override async replaceChannels(): Promise<void> { throw new Error('disk full'); }
     }
     const failing = new Failing();
-    const svc = new SourceService({ storage: failing, fetch: fetchFn, now: () => NOW, newId: () => 'bad1' });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage: failing, fetch: fetchFn, now: () => NOW, newId: () => 'bad1' });
     await expect(svc.addSource(m3uInput)).rejects.toThrow('disk full');
     expect(await failing.listSources()).toEqual([]);
     expect(await failing.getChannels('bad1')).toEqual([]);
@@ -311,7 +311,7 @@ describe('SourceService – timeouts', () => {
       seen.push([new URL(url).pathname, init?.timeoutMs]);
       return fetchFn(url, init);
     };
-    const svc = new SourceService({ storage, fetch: recording, now: () => NOW, newId: () => 't1' });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: recording, now: () => NOW, newId: () => 't1' });
     const { source } = await svc.addSource(m3uInput);
     await svc.refreshEpg(source.id);
     expect(seen).toEqual([['/p.m3u', 90_000], ['/epg.xml', 90_000]]);
@@ -325,7 +325,7 @@ describe('SourceService – timeouts', () => {
 
   test('a stalled playlist body fails with a neutral error and releases the source lock', async () => {
     const { source } = await service.addSource(m3uInput);
-    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
     routes['/p.m3u'] = () => new Response(new ReadableStream<Uint8Array>({
       start(c) { c.enqueue(new TextEncoder().encode('#EXTM3U\n')); },
       pull: () => new Promise<void>(() => {}),
@@ -337,7 +337,7 @@ describe('SourceService – timeouts', () => {
 
   test('a stalled guide body fails with a neutral error and releases the source lock', async () => {
     const { source } = await service.addSource(m3uInput);
-    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
     routes['/epg.xml'] = () => new Response(new ReadableStream<Uint8Array>({
       start(c) { c.enqueue(new TextEncoder().encode('<tv>')); },
       pull: () => new Promise<void>(() => {}),
@@ -388,7 +388,7 @@ describe('SourceService – xtream', () => {
     expect(calls).toBe(0);
   });
 
-  test('shortEpgFor caps concurrent requests across calls', async () => {
+  test('shortEpgFor sends one request at a time across calls', async () => {
     const { source, channels } = await addX(20);
     let active = 0;
     let peak = 0;
@@ -400,7 +400,7 @@ describe('SourceService – xtream', () => {
       return json({ epg_listings: [] });
     };
     await Promise.all([service.shortEpgFor(source.id, channels.slice(0, 10)), service.shortEpgFor(source.id, channels.slice(10))]);
-    expect(peak).toBe(6);
+    expect(peak).toBe(1);
   });
 
   /** Holds every short-EPG request until `open()`; records the requested stream ids and usernames. */
@@ -421,46 +421,45 @@ describe('SourceService – xtream', () => {
   };
 
   test('shortEpgFor drops the oldest waiters once the queue is past its cap', async () => {
-    const { source, channels } = await addX(32);
+    const { source, channels } = await addX(8);
     const h = holdShortEpg();
-    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
-    // 6 run, 24 may wait: the 31st and 32nd push out the two oldest waiters (streams 7 and 8).
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: shortRoute(h), now: () => NOW });
+    // 1 runs, 4 may wait: the 6th, 7th and 8th push out the three oldest waiters (streams 2, 3 and 4).
     const done = svc.shortEpgFor(source.id, channels);
     await new Promise((r) => setTimeout(r, 5));
-    expect(h.seen.map((s) => s.stream)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(h.seen.map((s) => s.stream)).toEqual([1]);
     h.open();
     const found = await done;
-    expect(h.seen.map((s) => s.stream).sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 32 }, (_, i) => i + 1).filter((n) => n !== 7 && n !== 8));
-    expect(found.size).toBe(30);
+    expect(h.seen.map((s) => s.stream).sort((a, b) => a - b)).toEqual([1, 5, 6, 7, 8]);
+    expect(found.size).toBe(5);
   });
 
   test('shortEpgFor sends no request for a lookup that is stale when its turn comes', async () => {
-    const { source, channels } = await addX(8);
+    const { source, channels } = await addX(3);
     const h = holdShortEpg();
-    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: shortRoute(h), now: () => NOW });
     let stale = false;
     const done = svc.shortEpgFor(source.id, channels, { isStale: () => stale });
     await new Promise((r) => setTimeout(r, 5));
-    expect(h.seen).toHaveLength(6);
+    expect(h.seen).toHaveLength(1);
     stale = true;
     h.open();
-    expect((await done).size).toBe(6);
-    expect(h.seen).toHaveLength(6);
+    expect((await done).size).toBe(1);
+    expect(h.seen).toHaveLength(1);
     expect((await svc.shortEpgFor(source.id, channels, { isStale: () => true })).size).toBe(0);
-    expect(h.seen).toHaveLength(6);
+    expect(h.seen).toHaveLength(1);
   });
 
   test('shortEpgFor uses the stored source config at request time', async () => {
-    const { source, channels } = await addX(7);
+    const { source, channels } = await addX(3);
     const h = holdShortEpg();
-    const svc = new SourceService({ storage, fetch: shortRoute(h), now: () => NOW });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: shortRoute(h), now: () => NOW });
     const done = svc.shortEpgFor(source.id, channels);
     await new Promise((r) => setTimeout(r, 5));
     await storage.putSource({ ...source, username: 'renamed' } as typeof source);
     h.open();
     await done;
-    expect(h.seen.map((s) => s.user)).toEqual(['u', 'u', 'u', 'u', 'u', 'u', 'renamed']);
+    expect(h.seen.map((s) => s.user)).toEqual(['u', 'renamed', 'renamed']);
   });
 
   test('shortEpgFor is skipped while a guide refresh of the source runs', async () => {
@@ -482,13 +481,30 @@ describe('SourceService – xtream', () => {
     expect(calls).toBe(2);
   });
 
+  test('shortEpgFor waits the gap between two requests to one source', async () => {
+    const { source, channels } = await addX(3);
+    const at: number[] = [];
+    routes['api:get_short_epg'] = () => { at.push(Date.now()); return json({ epg_listings: [] }); };
+    const svc = new SourceService({ shortEpgGapMs: 60, storage, fetch: fetchFn });
+    expect((await svc.shortEpgFor(source.id, channels)).size).toBe(3);
+    expect(at).toHaveLength(3);
+    expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(55);
+    expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(55);
+  });
+
+  test('a failed short-EPG request answers "nothing found", so callers can cache it', async () => {
+    const { source, channels } = await addX(1);
+    routes['api:get_short_epg'] = () => new Response('', { status: 500 });
+    expect((await service.shortEpgFor(source.id, channels)).get(channels[0]!.id)).toEqual({});
+  });
+
   const stalledJson = (head: string) => () => new Response(new ReadableStream<Uint8Array>({
     start(c) { c.enqueue(new TextEncoder().encode(head)); },
     pull: () => new Promise<void>(() => {}),
   }));
 
   test('a stalled get_live_streams body fails on add and refresh and releases the source lock', async () => {
-    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30, newId: () => 'sx' });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30, newId: () => 'sx' });
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([]);
     routes['api:get_live_streams'] = stalledJson('[');
@@ -505,9 +521,9 @@ describe('SourceService – xtream', () => {
 
   test('a stalled short EPG body releases its limiter slot', async () => {
     const { source, channels } = await addX(7);
-    const svc = new SourceService({ storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, bodyIdleMs: 30 });
     routes['api:get_short_epg'] = stalledJson('{"epg_listings":[');
-    expect((await svc.shortEpgFor(source.id, channels.slice(0, 6))).size).toBe(0);
+    expect((await svc.shortEpgFor(source.id, channels.slice(0, 6))).size).toBe(5);
     routes['api:get_short_epg'] = () => json({ epg_listings: [] });
     expect((await svc.shortEpgFor(source.id, channels.slice(6))).size).toBe(1);
   });
@@ -634,7 +650,7 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
       }
     }
     const st = new FailingProgrammes();
-    const svc = new SourceService({ storage: st, fetch: fetchFn, now: () => NOW, newId: () => 'q1' });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage: st, fetch: fetchFn, now: () => NOW, newId: () => 'q1' });
     const { source } = await svc.addSource(m3uInput);
     await svc.refreshEpg(source.id);
     st.fail = true;
@@ -763,7 +779,7 @@ describe('SourceService – title index', () => {
       }
     }
     const st = new FailingTitles();
-    const svc = new SourceService({ storage: st, fetch: fetchFn, now: () => NOW, newId: () => 't1' });
+    const svc = new SourceService({ shortEpgGapMs: 0, storage: st, fetch: fetchFn, now: () => NOW, newId: () => 't1' });
     const { source } = await svc.addSource(m3uInput);
     const genBefore = await st.getMeta(`epgGen:${source.id}`);
     const r = await svc.refreshEpg(source.id);
