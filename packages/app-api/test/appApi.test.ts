@@ -21,7 +21,7 @@ beforeEach(() => { storage = new MemoryStorage(); });
 
 const make = (st: MemoryStorage = storage, Svc: typeof SourceService = SourceService, fetchFn: FetchFn = (u, i) => fetch(u, i)) => {
   const events: AppEvent[] = [];
-  const service = new Svc({ storage: st, fetch: fetchFn, now: () => NOW });
+  const service = new Svc({ storage: st, fetch: fetchFn, now: () => NOW, shortEpgGapMs: 0 });
   const api = new AppApi({ service, storage: st, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3' });
   live.push(api);
   return { api, events };
@@ -94,7 +94,7 @@ describe('AppApi', () => {
     expect(await api.byNumber(9999)).toBeUndefined();
   });
 
-  test('rows and getPlayable never wait for the short EPG; its answers arrive as nowNextUpdated', async () => {
+  test('rows never start a short-EPG lookup; getPlayable starts one without waiting, answered as nowNextUpdated', async () => {
     const g = gate();
     let shortCalls = 0;
     const gated: FetchFn = async (u, i) => {
@@ -107,16 +107,20 @@ describe('AppApi', () => {
     await api.addSource(xt());
     await api.idle().catch(() => undefined);
     const slice = await api.getChannelSlice('all', 0, 3);
+    await settle();
+    expect(shortCalls).toBe(0);
     expect(slice.rows[0]!.now).toBeUndefined();
     const p = await api.getPlayable(slice.rows[0]!.id);
     expect(p?.now).toBeUndefined();
-    expect(shortCalls).toBeGreaterThan(0);
+    await settle();
+    expect(shortCalls).toBe(1);
     g.open();
     await api.idle();
     const updated = events.filter((e): e is Extract<AppEvent, { type: 'nowNextUpdated' }> => e.type === 'nowNextUpdated');
-    expect(updated.flatMap((e) => e.channelIds)).toEqual(expect.arrayContaining(slice.rows.map((r) => r.id)));
+    expect(updated.flatMap((e) => e.channelIds)).toEqual([slice.rows[0]!.id]);
     const again = await api.getChannelSlice('all', 0, 3);
     expect(again.rows[0]!.now?.title).toMatch(/^Programme /);
+    expect(again.rows[1]!.now).toBeUndefined();
     expect((await api.getPlayable(slice.rows[0]!.id))?.next).toBeDefined();
   });
 
@@ -714,7 +718,7 @@ describe('AppApi – background short EPG', () => {
   const streamOf = (id: string) => Number(/:x(\d+)$/.exec(id)?.[1]);
 
   test('a failing nowNextUpdated listener cannot reject the short-EPG job chain', async () => {
-    const service = new SourceService({ storage, fetch: (u, i) => (u.includes('/xmltv.php')
+    const service = new SourceService({ shortEpgGapMs: 0, storage, fetch: (u, i) => (u.includes('/xmltv.php')
       ? Promise.resolve(new Response('', { status: 500 }))
       : fetch(u, i)), now: () => NOW });
     const api = new AppApi({
@@ -723,7 +727,7 @@ describe('AppApi – background short EPG', () => {
     });
     await api.addSource(xt());
     await api.idle().catch(() => undefined);
-    await api.getChannelSlice('all', 0, 3);
+    await api.getPlayable((await api.getChannelSlice('all', 0, 1)).rows[0]!.id);
     await expect(api.idle()).resolves.toBeUndefined();
   });
 
@@ -739,37 +743,110 @@ describe('AppApi – background short EPG', () => {
     expect(h.streams).toEqual([]);
   });
 
-  test('queued lookups for a window that scrolled away send no request', async () => {
+  test('slices and search never start a short-EPG lookup', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);
     await api.addSource(xt());
     await api.idle().catch(() => undefined);
-    const a = await api.getChannelSlice('all', 0, 6); // takes all 6 slots
-    const b = await api.getChannelSlice('all', 10, 3); // waits
-    const c = await api.getChannelSlice('all', 20, 3); // waits
-    const d = await api.getChannelSlice('all', 30, 3); // waits; b is no longer one of the last 2 windows
-    await settle();
-    expect(h.streams).toEqual(a.rows.map((r) => streamOf(r.id)));
     h.g.open();
+    await api.getChannelSlice('all', 0, 9);
+    await api.getChannelSlice('all', 9, 9);
+    await api.search('Channel', 20);
     await api.idle();
-    const asked = new Set(h.streams);
-    for (const r of b.rows) expect(asked.has(streamOf(r.id))).toBe(false);
-    for (const r of [...c.rows, ...d.rows]) expect(asked.has(streamOf(r.id))).toBe(true);
+    expect(h.streams).toEqual([]);
   });
 
-  test('a settings change makes queued lookups stale', async () => {
+  test('focusChannel looks up the focused channel only; a queued one that lost the focus sends no request', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);
     await api.addSource(xt());
     await api.idle().catch(() => undefined);
-    await api.getChannelSlice('all', 0, 6);
-    const waiting = await api.getChannelSlice('all', 10, 3);
+    const [a, b, c] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
+    await api.focusChannel(a!); // runs (held)
+    await api.focusChannel(b!); // waits for the one slot
+    await api.focusChannel(c!); // waits; b no longer has the focus
+    await settle();
+    expect(h.streams).toEqual([streamOf(a!)]);
+    h.g.open();
+    await api.idle();
+    expect(h.streams).toEqual([streamOf(a!), streamOf(c!)]);
+  });
+
+  test('the playing channel keeps its lookup while the focus moves on', async () => {
+    const h = held();
+    const { api } = make(storage, SourceService, h.fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const [a, p, b] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
+    await api.focusChannel(a!); // runs (held)
+    await api.getPlayable(p!); // waits; p is the playing channel
+    await api.focusChannel(b!); // waits; the focus left a, which already ran
+    h.g.open();
+    await api.idle();
+    expect(h.streams).toHaveLength(3);
+    expect(new Set(h.streams)).toEqual(new Set([a!, p!, b!].map(streamOf)));
+  });
+
+  test('a settings change makes a queued lookup stale', async () => {
+    const h = held();
+    const { api } = make(storage, SourceService, h.fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const [a, b] = (await api.getChannelSlice('all', 0, 2)).rows.map((r) => r.id);
+    await api.focusChannel(a!); // runs (held)
+    await api.focusChannel(b!); // waits
     await settle();
     await api.saveSettings({ epgOffsetHours: 1 });
     h.g.open();
     await api.idle();
-    const asked = new Set(h.streams);
-    for (const r of waiting.rows) expect(asked.has(streamOf(r.id))).toBe(false);
+    expect(h.streams).toEqual([streamOf(a!)]);
+  });
+
+  test('an answer is kept until its programme ends; nothing found is kept for 15 minutes', async () => {
+    let t = NOW;
+    const asked: number[] = [];
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) {
+        const stream = Number(new URL(u).searchParams.get('stream_id'));
+        asked.push(stream);
+        // Odd streams: one programme until NOW + 30 min. Even streams: nothing.
+        const listings = stream % 2 === 1 ? [{
+          title: btoa('Synthetic Show'), start_timestamp: String((NOW - 60_000) / 1000), stop_timestamp: String((NOW + 30 * 60_000) / 1000),
+        }] : [];
+        return new Response(JSON.stringify({ epg_listings: listings }));
+      }
+      return fetch(u, i);
+    };
+    const service = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => t });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => t });
+    live.push(api);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const rows = (await api.getChannelSlice('all', 0, 2)).rows;
+    const odd = rows.find((r) => streamOf(r.id) % 2 === 1)!.id;
+    const even = rows.find((r) => streamOf(r.id) % 2 === 0)!.id;
+    const ask = async (id: string) => { await api.focusChannel(id); await api.idle(); };
+
+    await ask(odd);
+    await ask(odd);
+    expect(asked).toEqual([streamOf(odd)]);
+    expect((await api.getChannelSlice('all', 0, 2)).rows.find((r) => r.id === odd)?.now?.title).toBe('Synthetic Show');
+    t = NOW + 29 * 60_000;
+    await ask(odd);
+    expect(asked).toHaveLength(1);
+    t = NOW + 31 * 60_000; // the programme ended
+    await ask(odd);
+    expect(asked).toHaveLength(2);
+
+    await ask(even);
+    expect(asked).toHaveLength(3);
+    t += 14 * 60_000;
+    await ask(even);
+    expect(asked).toHaveLength(3);
+    t += 2 * 60_000;
+    await ask(even);
+    expect(asked).toHaveLength(4);
   });
 });
 

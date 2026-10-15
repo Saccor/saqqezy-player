@@ -5,6 +5,7 @@ import {
   type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage, type TitleIndexData,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
+import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
@@ -15,8 +16,6 @@ const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
 const NOW_NEXT_MARGIN_MS = 6 * HOUR;
-/** Requested row windows remembered per source; a queued short-EPG lookup outside all of them is dropped. */
-const VISIBLE_WINDOWS = 2;
 /** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
 const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
@@ -82,8 +81,11 @@ export class AppApi {
   private readonly shortPending = new Set<string>();
   /** Background short-EPG lookups in flight (awaited by the test-only `idle`). */
   private readonly shortJobs = new Set<Promise<void>>();
-  /** The last `VISIBLE_WINDOWS` requested row windows (channel ids) per source, newest last. */
-  private readonly windows = new Map<string, Set<string>[]>();
+  /** Short-EPG answers, kept until the programme found ends (15 min when nothing was found). */
+  private readonly shortCache = new ShortEpgCache();
+  /** The browse row the focus rests on (`focusChannel`) and the channel last asked to play: the only short-EPG targets. */
+  private focusedId: string | undefined;
+  private playingId: string | undefined;
   /** The active source's title index, loaded on the first search. */
   private titles: { sourceId: string; data: TitleIndexData } | undefined;
   private titlesTimer: ReturnType<typeof setTimeout> | undefined;
@@ -173,7 +175,7 @@ export class AppApi {
       // Queued behind any background task of this source, so nothing writes to it after the delete.
       await this.enqueue(id, () => this.service.deleteSource(id));
       this.companionStale();
-      this.windows.delete(id);
+      this.shortCache.dropSource(id);
       this.titleRebuilds.delete(id);
       for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`]) {
         await this.storage.setMeta(key, null);
@@ -241,12 +243,25 @@ export class AppApi {
     return this.run('byNumber', () => this.playable(this.index.byNumber(n)));
   }
 
+  /**
+   * The browse row the user's focus rests on (undefined: none). A channel without a stored guide gets one background
+   * short-EPG lookup (cached; see `startShortEpg`); its answer arrives as `nowNextUpdated`. Lookups still queued for an
+   * earlier focus are dropped unless that channel is playing.
+   */
+  focusChannel(channelId: string | undefined): Promise<void> {
+    return this.run('focusChannel', async () => {
+      this.focusedId = channelId;
+      const c = channelId === undefined ? undefined : this.index.get(channelId);
+      if (c) await this.wantShortEpg(c);
+    });
+  }
+
   getEpgRows(groupId: string, offset: number, count: number, from: number, to: number):
     Promise<{ total: number; rows: { channel: ChannelRow; programmes: ProgrammeLite[] }[] }> {
     return this.run('getEpgRows', async () => {
       const channels = this.index.slice(groupId, offset, count);
       // The guide grid shows stored programmes only: no background short-EPG lookups from here.
-      const rows = await this.toRows(channels, false);
+      const rows = await this.toRows(channels);
       const id = this.activeId;
       const settings = await this.currentSettings();
       const shifts = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
@@ -295,8 +310,7 @@ export class AppApi {
       const later = hits.later.slice(0, Math.max(0, limit - chans.length - onNow.length));
       const [channelRows, progRows] = await Promise.all([
         this.toRows(chans),
-        // Programme rows never start background short-EPG lookups.
-        this.toRows([...onNow.map((h) => h.c), ...later.map((h) => h.c)], false),
+        this.toRows([...onNow.map((h) => h.c), ...later.map((h) => h.c)]),
       ]);
       return {
         channels: channelRows,
@@ -919,21 +933,7 @@ export class AppApi {
     return this.channels.length;
   }
 
-  /** Remembers `channels` as the newest requested row window of the active source. */
-  private noteWindow(channels: Channel[]): void {
-    const id = this.activeId;
-    if (!id) return;
-    const list = this.windows.get(id) ?? [];
-    list.push(new Set(channels.map((c) => c.id)));
-    while (list.length > VISIBLE_WINDOWS) list.shift();
-    this.windows.set(id, list);
-  }
-
-  private inVisibleWindow(id: string, channelId: string): boolean {
-    return (this.windows.get(id) ?? []).some((w) => w.has(channelId));
-  }
-
-  private async nowNextCached(channels: Channel[], shortEpg: boolean): Promise<Map<string, NowNext>> {
+  private async nowNextCached(channels: Channel[]): Promise<Map<string, NowNext>> {
     const out = new Map<string, NowNext>();
     const id = this.activeId;
     if (!id || channels.length === 0) return out;
@@ -946,7 +946,7 @@ export class AppApi {
     }
     if (misses.length) {
       const gen = this.generation;
-      const fetched = await this.lookupNowNext(id, misses, t, shortEpg);
+      const fetched = await this.lookupNowNext(id, misses, t, false);
       for (const c of misses) {
         const nn = fetched.get(c.id) ?? {};
         out.set(c.id, nn);
@@ -961,8 +961,9 @@ export class AppApi {
   /**
    * Now/next on the displayed (shifted) timeline: "now" is the programme whose shifted interval contains `t`.
    * Stored programmes only, fetched over a window wide enough for every channel's shift, so this never waits on
-   * the network. Channels with nothing stored get an empty pair now and a background short-EPG lookup
-   * (`startShortEpg`), whose answers update the cache and are announced with `nowNextUpdated`.
+   * the network. A channel with nothing stored uses its cached short-EPG answer while that is good; without one it
+   * gets an empty pair now and, with `shortEpg`, a background lookup (`startShortEpg`) whose answer is announced
+   * with `nowNextUpdated`.
    */
   private async lookupNowNext(id: string, channels: Channel[], t: number, shortEpg: boolean): Promise<Map<string, NowNext>> {
     const settings = await this.currentSettings();
@@ -974,20 +975,30 @@ export class AppApi {
     const missing: { c: Channel; h: number }[] = [];
     channels.forEach((c, i) => {
       const h = hours[i]!;
-      const list = stored.get(c.id) ?? [];
-      if (list.length === 0) missing.push({ c, h });
+      let list = stored.get(c.id) ?? [];
+      if (list.length === 0) {
+        const cached = this.shortCache.get(id, c.id, t);
+        if (cached) list = cached;
+        else missing.push({ c, h });
+      }
       out.set(c.id, nowNext(list.map((p) => applyShift(p, h)), t));
     });
     if (missing.length && shortEpg) this.startShortEpg(id, missing);
     return out;
   }
 
+  /** The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached answer. */
+  private async wantShortEpg(c: Channel): Promise<void> {
+    const id = this.activeId;
+    if (id) await this.lookupNowNext(id, [c], this.now(), true);
+  }
+
   /**
-   * Fire-and-forget Xtream short-EPG lookup for channels without stored programmes (the service caps the
-   * concurrency, bounds the waiting queue and skips it while a guide refresh of the source runs). A lookup is
-   * stale, and sends no request, once the generation or the active source changed, the source was deleted, or
-   * the channel is in none of the last `VISIBLE_WINDOWS` requested row windows. Answers for a source or
-   * generation that is no longer current are dropped.
+   * Fire-and-forget Xtream short-EPG lookup for channels without stored programmes (the service runs one request at
+   * a time, spaces them per source, bounds the waiting queue and skips it while a guide refresh of the source runs).
+   * A lookup is stale, and sends no request, once the generation or the active source changed, the source was
+   * deleted, or the channel is neither the focused nor the playing one. Answers are cached per source while it is
+   * still active (`shortCache`); only answers of the current generation update the rows.
    */
   private startShortEpg(id: string, missing: { c: Channel; h: number }[]): void {
     if (this.service.isRefreshingEpg(id)) return;
@@ -996,16 +1007,19 @@ export class AppApi {
     for (const { c } of todo) this.shortPending.add(c.id);
     const gen = this.generation;
     const isStale = (c: Channel) =>
-      gen !== this.generation || this.activeId !== id || !this.inVisibleWindow(id, c.id);
+      gen !== this.generation || this.activeId !== id || (c.id !== this.focusedId && c.id !== this.playingId);
     const job = this.service.shortEpgFor(id, this.originals(todo.map((m) => m.c)), { isStale }).then((found) => {
-      if (gen !== this.generation || this.activeId !== id) return;
+      if (this.activeId !== id) return; // switched away or deleted meanwhile
       const t = this.now();
+      const current = gen === this.generation;
       const changed: string[] = [];
       for (const { c, h } of todo) {
         const pair = found.get(c.id);
-        if (!pair) continue;
-        const list = [pair.now, pair.next].filter((p): p is Programme => p !== undefined).map((p) => applyShift(p, h));
-        const nn = nowNext(list, t);
+        if (!pair) continue; // skipped or dropped: nothing was asked
+        const raw = [pair.now, pair.next].filter((p): p is Programme => p !== undefined);
+        const nn = nowNext(raw.map((p) => applyShift(p, h)), t);
+        this.shortCache.set(id, c.id, raw, shortEpgUntil(nn, t));
+        if (!current) continue;
         this.nnCache.set(c.id, { at: t, nn });
         if (nn.now || nn.next) changed.push(c.id);
       }
@@ -1017,11 +1031,10 @@ export class AppApi {
     this.shortJobs.add(job);
   }
 
-  /** `shortEpg`: whether channels without a stored guide get a background short-EPG lookup (a visible window). */
-  private async toRows(channels: Channel[], shortEpg = true): Promise<ChannelRow[]> {
+  /** Rows with now/next from the stored guide and cached short-EPG answers. Never starts a short-EPG lookup. */
+  private async toRows(channels: Channel[]): Promise<ChannelRow[]> {
     if (channels.length === 0) return [];
-    if (shortEpg) this.noteWindow(channels);
-    const nn = await this.nowNextCached(channels, shortEpg);
+    const nn = await this.nowNextCached(channels);
     const favs = this.favourites();
     return channels.map((c) => {
       const pair = nn.get(c.id);
@@ -1037,7 +1050,11 @@ export class AppApi {
 
   private async playable(channel: Channel | undefined): Promise<PlayableChannel | undefined> {
     if (!channel) return undefined;
+    // The channel about to play (or being re-read while it plays): the only row, with the focused one, that may
+    // ask the short EPG.
+    this.playingId = channel.id;
     const [row] = await this.toRows([channel]);
+    await this.wantShortEpg(channel);
     const settings = await this.currentSettings();
     let url = channel.url;
     let alternateUrl = alternateStreamUrl(url);
@@ -1084,7 +1101,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
-  'getSettings', 'saveSettings', 'clearCache', 'diagnostics',
+  'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];
 
