@@ -493,7 +493,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
         onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}
         onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome}
-        onWheel={pointerWheel} onContextMenu={pointerOptions} showBack={!infoOn()} />
+        onWheel={pointerWheel} onContextMenu={pointerOptions} />
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />
