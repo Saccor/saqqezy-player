@@ -7,6 +7,8 @@ import { InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
+import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/pointer.ts';
 import { withFailTest } from '../dev/failTest.ts';
 import { channelHistory } from '../playback/channelHistory.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
@@ -20,7 +22,8 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { settings } from '../state/appState.ts';
 import {
-  aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerStatusText, sleepLabel,
+  aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
+  playerStatusText, sleepLabel,
 } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -359,6 +362,38 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, unlessModal(() => { numbers.digit(d); return true; })]),
   );
 
+  // ---- pointer (mouse, pointer remote) ----
+
+  const [overButton, setOverButton] = createSignal(false);
+  const overlayShown = () => playerOverlayShown(pointerMode(), modal());
+  /** `⛶ Window` and double click: back to Home with the small video (past a Guide or Search below the Player). */
+  const toHome = () => {
+    leave();
+    while (router.depth() > 1 && router.current()?.screen !== 'home') router.back();
+  };
+  /** `▦ Guide`. The entry keeps the channel now playing, so Back from the Guide does not jump to the first one. */
+  const openGuide = () => {
+    const cur = playback.current();
+    if (cur) params.channelId = cur.id;
+    params.groupId = zapGroup;
+    router.push('guide', { groupId: zapGroup });
+  };
+  const toggleBanner = () => {
+    if (bannerOn()) hideBanner();
+    else showBanner();
+  };
+  // The whole screen, registered before the overlay's buttons (screen layer too, so they win where they are drawn
+  // without making the Player modal): wheel zaps (down = Ch+), right click opens Options, double click is `⛶ Window`.
+  usePointerTarget({
+    node: () => root,
+    onDoubleClick: () => { if (!modal()) toHome(); },
+    onContextMenu: () => { if (!modal()) openMenu(); },
+    onWheel: (dy) => {
+      if (dy !== 0 && !modal()) zap(dy > 0 ? 1 : -1);
+      return true;
+    },
+  });
+
   // ---- lifecycle ----
 
   onMount(() => {
@@ -385,6 +420,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       }).catch(() => undefined);
     });
     onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); clearInterval(pillTimer); offNowNext(); });
+    // Pointer mode ends after 3 s without movement here, unless the pointer is over an overlay button or a modal is open.
+    onCleanup(setPointerAutoHide(() => playerAutoHide({ overButton: overButton(), modalOpen: modal() })));
 
     const cur = playback.current();
     if (cur && cur.id === params.channelId) {
@@ -439,12 +476,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
-        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} />
+        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} />
       )}</Show>
 
       <Show when={digits() || flash()}>
         <NumberEntry text={digits()} message={digits() ? undefined : flash()} />
       </Show>
+
+      <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
+        onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}
+        onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome} />
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />

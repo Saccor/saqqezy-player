@@ -1,4 +1,6 @@
 import type { AspectMode, LiveInfo, SupervisorStatus } from '@iptv/player';
+import { POINTER_BAR_H } from '../input/pointerLogic.ts';
+import { LAYOUT } from '../shell/theme.ts';
 
 /** How the Player shows the supervisor status: a small toast, a centred message, or nothing. */
 export function playerStatusText(s: SupervisorStatus | undefined): { kind: 'toast' | 'centre'; text: string } | undefined {
@@ -82,4 +84,31 @@ export function createJumpGuard() {
     bump(): number { return ++token; },
     isCurrent(t: number): boolean { return t === token; },
   };
+}
+
+/** The pointer overlay's buttons (pointer mode only). */
+export const PLAYER_POINTER_LABELS = {
+  back: '← Back',
+  channelUp: '▲ Ch+',
+  channelDown: '▼ Ch−',
+  previous: '⟲ Previous',
+  info: 'ⓘ Info',
+  options: '☰ Options',
+  guide: '▦ Guide',
+  window: '⛶ Window',
+} as const;
+
+/** The overlay shows in pointer mode; a modal (options menu, "Still watching?") hides it, so they never overlap. */
+export function playerOverlayShown(pointerOn: boolean, modalOpen: boolean): boolean {
+  return pointerOn && !modalOpen;
+}
+
+/** Whether the 3 s idle timer may hide the overlay now: not while the pointer is over its buttons, nor while a modal is open. */
+export function playerAutoHide(c: { overButton: boolean; modalOpen: boolean }): boolean {
+  return !c.overButton && !c.modalOpen;
+}
+
+/** The info banner moves up by the bottom row's height (plus a gap) while the row is shown, so the two never overlap. */
+export function bannerLift(overlayShown: boolean): number {
+  return overlayShown ? POINTER_BAR_H + LAYOUT.gap : 0;
 }

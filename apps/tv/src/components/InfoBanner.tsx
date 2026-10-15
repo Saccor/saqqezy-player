@@ -41,10 +41,14 @@ function BannerLogo(props: { url: string | undefined }) {
  * Bottom info banner over the video: number, logo, name, now (time range + progress), next, and the clock, and the live pill.
  * Purely visual; the Player decides when it is shown.
  */
-export function InfoBanner(props: { channel: ChannelRow; now: number; showClock: boolean; live?: { text: string; hint?: string } }) {
+export function InfoBanner(props: {
+  channel: ChannelRow; now: number; showClock: boolean; live?: { text: string; hint?: string };
+  /** Moves the banner up by this many px (the Player's pointer row is showing below it). */
+  lift?: number;
+}) {
   const c = () => props.channel;
   return (
-    <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H} width={BANNER_W} height={BANNER_H}
+    <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H - (props.lift ?? 0)} width={BANNER_W} height={BANNER_H}
       color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={5}>
       <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.focus}>
         <Text y={(LOGO_H - FONT.title) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="center"

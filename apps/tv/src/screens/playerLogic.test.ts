@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ASPECT_MODES, aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerStatusText, sleepLabel,
 } from './playerLogic.ts';
+import { POINTER_BAR_H } from '../input/pointerLogic.ts';
+import { PLAYER_POINTER_LABELS, bannerLift, playerAutoHide, playerOverlayShown } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
   it('maps supervisor states to player copy', () => {
@@ -112,5 +114,31 @@ describe('livePill: final fixes', () => {
   it('2: the pill steers by the edge distance, not the stream clock', () => {
     const info = { behindLiveS: 7, source: 'edge' as const, streamClockBehindS: 40, targetS: 6, stalls: 0, reconnects: 0 };
     expect(livePill({ kind: 'playing' }, info)).toEqual({ text: 'LIVE' });
+  });
+});
+
+describe('pointer overlay', () => {
+  it('shows in pointer mode, except while the options menu or the sleep question is open', () => {
+    expect(playerOverlayShown(true, false)).toBe(true);
+    expect(playerOverlayShown(true, true)).toBe(false);
+    expect(playerOverlayShown(false, false)).toBe(false);
+  });
+
+  it('hides after 3 s idle only while the pointer is not over one of its buttons and no modal is open', () => {
+    expect(playerAutoHide({ overButton: false, modalOpen: false })).toBe(true);
+    expect(playerAutoHide({ overButton: true, modalOpen: false })).toBe(false);
+    expect(playerAutoHide({ overButton: false, modalOpen: true })).toBe(false);
+  });
+
+  it('lifts the info banner above the bottom row while the row is shown', () => {
+    expect(bannerLift(false)).toBe(0);
+    expect(bannerLift(true)).toBe(POINTER_BAR_H + 24);
+  });
+
+  it('uses the spec copy', () => {
+    expect(PLAYER_POINTER_LABELS).toEqual({
+      back: '← Back', channelUp: '▲ Ch+', channelDown: '▼ Ch−', previous: '⟲ Previous',
+      info: 'ⓘ Info', options: '☰ Options', guide: '▦ Guide', window: '⛶ Window',
+    });
   });
 });
