@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Rect, SupervisorStatus } from '@iptv/player';
+import type { VodPlayable } from '@iptv/app-api';
 import { createPlaybackController } from './controller.ts';
 
 function fakes() {
@@ -8,8 +9,21 @@ function fakes() {
     play: vi.fn((_url: string, _alt?: string, _opts?: { sourceKey?: string; channel?: string }) => undefined),
     stop: vi.fn(),
     onStatus: vi.fn((fn: (s: SupervisorStatus) => void) => { statusFn = fn; return () => { statusFn = undefined; }; }),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    seek: vi.fn((_ms: number) => undefined),
+    positionMs: vi.fn((): number | undefined => 42_000),
+    durationMs: vi.fn((): number | undefined => 600_000),
+    paused: vi.fn(() => true),
+    onSubtitle: vi.fn((_fn: (t: string | null) => void) => () => undefined),
   };
-  const player = { setRect: vi.fn((_r: Rect | 'fullscreen') => undefined) };
+  const player = {
+    setRect: vi.fn((_r: Rect | 'fullscreen') => undefined),
+    audioTracks: vi.fn(() => [{ id: 'a1', label: 'One', active: true }]),
+    selectAudioTrack: vi.fn((_id: string) => undefined),
+    textTracks: vi.fn(() => [{ id: 't1', label: 'Sub', active: false }]),
+    selectTextTrack: vi.fn((_id: string | null) => undefined),
+  };
   return { supervisor, player, emit: (s: SupervisorStatus) => statusFn?.(s) };
 }
 
@@ -209,6 +223,51 @@ describe('playback controller', () => {
       blocked.on = false;
       pb.resumeHeld();
       expect(f.supervisor.play).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('VOD', () => {
+    const vod = { kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/u/p/1.mp4', title: 'T', resumeMs: 0, tracks: {} } as VodPlayable;
+
+    it('playVod sets the stand-in channel and plays with vod options', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+      pb.playVod(vod, 12_000);
+      expect(pb.current()).toEqual({ id: 'vod:m1', number: 0, name: '', group: '', favourite: false, url: vod.url });
+      expect(f.supervisor.play).toHaveBeenCalledWith(vod.url, undefined, { sourceKey: 'src-1', vod: true, startMs: 12_000 });
+    });
+
+    it('delegates transport, position and subtitle cues to the supervisor', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor);
+      pb.pause(); pb.resume(); pb.seek(5000);
+      expect(f.supervisor.pause).toHaveBeenCalled();
+      expect(f.supervisor.resume).toHaveBeenCalled();
+      expect(f.supervisor.seek).toHaveBeenCalledWith(5000);
+      expect(pb.positionMs()).toBe(42_000);
+      expect(pb.durationMs()).toBe(600_000);
+      expect(pb.paused()).toBe(true);
+      const fn = () => undefined;
+      pb.onSubtitle(fn);
+      expect(f.supervisor.onSubtitle).toHaveBeenCalledWith(fn);
+    });
+
+    it('exposes audio and text tracks through the player', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor);
+      expect(pb.audioTracks()).toHaveLength(1);
+      pb.selectAudioTrack('a1');
+      expect(f.player.selectAudioTrack).toHaveBeenCalledWith('a1');
+      expect(pb.textTracks()).toHaveLength(1);
+      pb.selectTextTrack(null);
+      expect(f.player.selectTextTrack).toHaveBeenCalledWith(null);
+    });
+
+    it('playVod does not play while the source is cooling down (held)', () => {
+      const f = fakes();
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', undefined, { blocked: () => true, refused: () => undefined, answered: () => undefined });
+      pb.playVod(vod, 0);
+      expect(f.supervisor.play).not.toHaveBeenCalled();
     });
   });
 });

@@ -335,7 +335,9 @@ export class PlaybackSupervisor {
     if (!this.vod || !this.active) return;
     const now = this.now();
     this.selfActionAt = now;
-    this.lastPosMs = Math.max(0, ms);
+    const dur = this.player.duration?.();
+    const max = dur !== undefined && dur > 0 ? Math.max(0, dur - 1000) : Number.POSITIVE_INFINITY;
+    this.lastPosMs = Math.min(Math.max(0, ms), max);
     if (this.player.seek?.(this.lastPosMs) ?? false) {
       this.watch = newWatch(this.lastPosMs, now);
       this.startGrace(this.lastPosMs, now);

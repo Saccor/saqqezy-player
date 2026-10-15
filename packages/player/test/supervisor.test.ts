@@ -1297,4 +1297,20 @@ describe('PlaybackSupervisor: VOD mode', () => {
     player.pos = 2000;
     expect(sup.positionMs()).toBe(2000);
   });
+
+  it('seek clamps to [0, duration - 1 s] when the duration is known', () => {
+    const { player, sup } = setup();
+    player.duration = () => 100_000;
+    player.seek = vi.fn(() => true);
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    sup.seek(500_000);
+    expect(player.seek).toHaveBeenLastCalledWith(99_000);
+    expect(sup.positionMs()).toBeDefined();
+    sup.seek(-5);
+    expect(player.seek).toHaveBeenLastCalledWith(0);
+    player.duration = () => undefined;
+    sup.seek(500_000);
+    expect(player.seek).toHaveBeenLastCalledWith(500_000);
+  });
 });

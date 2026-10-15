@@ -1,6 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
-import type { PlayableChannel } from '@iptv/app-api';
-import type { Player, PlaybackSupervisor, Rect, SupervisorStatus } from '@iptv/player';
+import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
+import type { Player, PlaybackSupervisor, Rect, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
   /**
@@ -17,6 +17,25 @@ export interface PlaybackController {
   holdForCooldown(): void;
   /** The cooldown ended (a wait ran out, or Retry): opens the channel it held back, if any. */
   resumeHeld(): void;
+  /**
+   * VOD: plays a finite title from `startMs`. `current` becomes a stand-in channel (`vod:<itemId>`, empty name: no
+   * titles reach the playback journal). No live-delay logic; the open-rate cap and refusal cooldown still apply.
+   */
+  playVod(p: VodPlayable, startMs: number): void;
+  pause(): void;
+  resume(): void;
+  /** Absolute position in ms (clamped by the supervisor to [0, duration - 1 s]). */
+  seek(ms: number): void;
+  positionMs(): number | undefined;
+  durationMs(): number | undefined;
+  paused(): boolean;
+  /** Subtitle cues from engines that cannot draw them; returns the unsubscribe function. */
+  onSubtitle(fn: (text: string | null) => void): () => void;
+  audioTracks(): TrackInfo[];
+  selectAudioTrack(id: string): void;
+  textTracks(): TrackInfo[];
+  /** `null`: subtitles off. */
+  selectTextTrack(id: string | null): void;
   /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
   /**
@@ -61,8 +80,8 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
-  player: Pick<Player, 'setRect'>,
-  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus'>,
+  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack'>,
+  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'onSubtitle'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
@@ -127,6 +146,31 @@ export function createPlaybackController(
       supervisor.play(ch.url, ch.alternateUrl, { sourceKey: key, channel: ch.name });
       return true;
     },
+    playVod(p, startMs) {
+      token++;
+      const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
+      setCurrent(stand);
+      if (gate?.blocked()) {
+        hold();
+        return;
+      }
+      held = false;
+      const key = sourceKey();
+      playKey = key;
+      answeredReported = false;
+      supervisor.play(p.url, undefined, { sourceKey: key, vod: true, startMs });
+    },
+    pause: () => supervisor.pause(),
+    resume: () => supervisor.resume(),
+    seek: (ms) => supervisor.seek(ms),
+    positionMs: () => supervisor.positionMs(),
+    durationMs: () => supervisor.durationMs(),
+    paused: () => supervisor.paused(),
+    onSubtitle: (fn) => supervisor.onSubtitle(fn),
+    audioTracks: () => player.audioTracks(),
+    selectAudioTrack: (id) => player.selectAudioTrack(id),
+    textTracks: () => player.textTracks?.() ?? [],
+    selectTextTrack: (id) => player.selectTextTrack?.(id),
     holdForCooldown() {
       const kind = status()?.kind;
       if (current() !== undefined && !held && kind !== 'playing') hold();
