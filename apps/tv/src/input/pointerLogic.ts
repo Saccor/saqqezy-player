@@ -126,17 +126,23 @@ export const DOUBLE_CLICK_MS = 350;
 
 /** A left-button press or release (client px, ms). */
 export interface Press { x: number; y: number; at: number }
-/** The last click: when, and on which target (its sequence number). */
-export interface LastClick { at: number; target: number }
+/**
+ * The last click: when, and on which target (its sequence number). `sub` tells apart the parts of one target: lists
+ * register one target for their whole area, so they pass the row index (the guide passes the cell index) as `sub`.
+ */
+export interface LastClick { at: number; target: number; sub?: number }
 
 /** A release within `CLICK_SLOP_PX` and `CLICK_MAX_MS` of its press. */
 export function isClick(down: Press, up: Press): boolean {
   return Math.hypot(up.x - down.x, up.y - down.y) <= CLICK_SLOP_PX && up.at - down.at <= CLICK_MAX_MS;
 }
 
-/** A second click on the same target within `DOUBLE_CLICK_MS` of the first. */
-export function isDoubleClick(last: LastClick | undefined, at: number, target: number): boolean {
-  return last !== undefined && last.target === target && at - last.at <= DOUBLE_CLICK_MS;
+/**
+ * A second click on the same target within `DOUBLE_CLICK_MS` of the first. When either click has a `sub` (the row
+ * index for lists), both must have the same one.
+ */
+export function isDoubleClick(last: LastClick | undefined, at: number, target: number, sub?: number): boolean {
+  return last !== undefined && last.target === target && last.sub === sub && at - last.at <= DOUBLE_CLICK_MS;
 }
 
 // ---- wheel ----
@@ -161,7 +167,7 @@ export function wheelPixels(delta: number, deltaMode: number): number {
 }
 
 function axis(acc: number, last: number, d: number, at: number): { acc: number; last: number; step: WheelDir } {
-  if (d === 0) return { acc, last, step: 0 };
+  if (d === 0 || !Number.isFinite(d)) return { acc, last, step: 0 };
   // A change of direction drops what was accumulated the other way.
   const sum = Math.sign(d) !== Math.sign(acc) ? d : acc + d;
   const capped = Math.max(-WHEEL_STEP_PX, Math.min(WHEEL_STEP_PX, sum));

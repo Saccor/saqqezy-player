@@ -127,6 +127,13 @@ describe('clicks', () => {
     expect(isDoubleClick({ at: 0, target: 1 }, DOUBLE_CLICK_MS + 1, 1)).toBe(false);
     expect(isDoubleClick({ at: 0, target: 1 }, 100, 2)).toBe(false);
   });
+
+  it('on a list, the second click must be on the same row (sub)', () => {
+    expect(isDoubleClick({ at: 0, target: 1, sub: 3 }, 100, 1, 3)).toBe(true);
+    expect(isDoubleClick({ at: 0, target: 1, sub: 3 }, 100, 1, 4)).toBe(false);
+    expect(isDoubleClick({ at: 0, target: 1, sub: 3 }, 100, 1)).toBe(false);
+    expect(isDoubleClick({ at: 0, target: 1 }, 100, 1, 3)).toBe(false);
+  });
 });
 
 describe('wheel', () => {
@@ -164,6 +171,12 @@ describe('wheel', () => {
     expect(r.dy).toBe(0);
     r = wheelStep(r.state, -20, 0, 1020);
     expect(r.dy).toBe(-1);
+  });
+
+  it('ignores non-finite deltas', () => {
+    const r = wheelStep(WHEEL_START, Number.NaN, Number.POSITIVE_INFINITY, 1000);
+    expect(r).toEqual({ state: WHEEL_START, dy: 0, dx: 0 });
+    expect(wheelStep(r.state, 100, 0, 1000).dy).toBe(1);
   });
 
   it('throttles the two axes separately', () => {
