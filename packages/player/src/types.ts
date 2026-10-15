@@ -59,6 +59,13 @@ export type LivePreset = 'low' | 'balanced' | 'stable';
 export interface LiveProfile { preset: LivePreset; targetS: number; allowRate: boolean }
 export type RecoverAction = 'gapJump' | 'softReload';
 
+export interface OpenOptions {
+  /** False for a file/VOD: engines configure for a finite stream (mpegts.js isLive:false, no live sync). Default true. */
+  live?: boolean;
+  /** Start position for VOD (ms). Applied once the engine can seek (metadata known). */
+  startMs?: number;
+}
+
 /**
  * Contract: after `stop()` or a new `open()`, the player must not emit state events for the previous stream.
  * As a second line of defence, `open(url, attemptId)` receives an opaque id from the supervisor and the player
@@ -70,7 +77,7 @@ export type RecoverAction = 'gapJump' | 'softReload';
  * A non-live stream (file/VOD) that plays to its end reports `'idle'`: playback is over, nothing reconnects.
  */
 export interface Player {
-  open(url: string, attemptId?: number): Promise<void>; // resolves when loading starts; state events report the progress
+  open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void>; // resolves when loading starts; state events report the progress
   stop(): void;
   setRect(rect: Rect | 'fullscreen'): void;
   setAspect(mode: AspectMode): void;
@@ -96,4 +103,15 @@ export interface Player {
   /** Keeps the current frame visible until the next 'playing' (or `releaseLastFrame`). */
   holdLastFrame?(): void;
   releaseLastFrame?(): void;
+  /** VOD controls; engines implement what they can. */
+  pause?(): void;
+  play?(): void;
+  /** Absolute position in ms; clamped by the engine. False when impossible. */
+  seek?(ms: number): boolean;
+  /** Duration in ms of a finite stream; undefined while unknown or for live. */
+  duration?(): number | undefined;
+  paused?(): boolean;
+  textTracks?(): TrackInfo[];
+  /** `null`: subtitles off. */
+  selectTextTrack?(id: string | null): void;
 }

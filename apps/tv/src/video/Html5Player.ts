@@ -1,7 +1,8 @@
 import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } from 'hls.js';
 import mpegts from 'mpegts.js';
 import type {
-  AspectMode, EngineName, LiveProfile, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, EngineName, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo,
+  TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
@@ -19,6 +20,10 @@ interface Session {
   /** The URL as given to `open()` (before any dev-proxy wrapping). */
   url: string;
   attemptId: number | undefined;
+  /** False for a file/VOD (`open(…, { live: false })`): nothing live-only runs, and it never reports live. */
+  live: boolean;
+  /** VOD start position in ms; for the element engines, applied on the first `loadedmetadata`. */
+  startMs?: number;
   dead: boolean;
   engine: Engine | undefined;
   /** Engine to switch to if the element fails before metadata (extensionless URLs only). */
@@ -82,6 +87,13 @@ const HOLD_MAX_MS = 30_000;
 
 interface NativeAudioTrack { id: string; label: string; language: string; enabled: boolean }
 interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
+interface NativeTextTrack { kind: string; label: string; language: string; mode: string }
+interface NativeTextTrackList { length: number; [i: number]: NativeTextTrack }
+const isSubtitleKind = (t: NativeTextTrack | undefined): t is NativeTextTrack => t?.kind === 'subtitles' || t?.kind === 'captions';
+/** A VOD seek never lands closer than this to the end (that would end the film at once). */
+const SEEK_END_MARGIN_S = 1;
+/** hls.js options that only steer a live stream; a VOD session leaves them at the library defaults. */
+const HLS_LIVE_SYNC_KEYS = ['liveSyncMode', 'liveSyncDurationCount', 'liveMaxLatencyDurationCount', 'maxLiveSyncPlaybackRate'] as const;
 
 /** `navigator.userActivation` where the engine has it (Chromium 72+). */
 function userActivation(): { isActive: boolean; hasBeenActive: boolean } | undefined {
@@ -128,12 +140,13 @@ export class Html5Player implements Player {
     this.autoMute.releaseOnGesture(userActivation());
   }
 
-  open(url: string, attemptId?: number): Promise<void> {
+  open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
     this.stop();
     // Once the page has had a user gesture, playback with sound is allowed again.
     this.autoMute.releaseIfActivated(userActivation());
     const path = pathOf(url);
-    const s: Session = { url, attemptId, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [], mediaRecoveries: 0, lastNetRecoveryAt: Number.NEGATIVE_INFINITY };
+    const s: Session = { url, attemptId, live: opts.live !== false, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [], mediaRecoveries: 0, lastNetRecoveryAt: Number.NEGATIVE_INFINITY };
+    if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
     const v = this.video;
     v.playbackRate = 1;
@@ -149,6 +162,13 @@ export class Html5Player implements Player {
       this.emit(s, 'playing');
     });
     on('waiting', () => this.emit(s, 'buffering'));
+    // VOD resume on the element engines (hls.js takes its own `startPosition`): once, when seeking becomes possible.
+    on('loadedmetadata', () => {
+      const ms = s.startMs;
+      if (ms === undefined || s.engine?.kind === 'hls') return;
+      s.startMs = undefined;
+      this.seekTo(ms);
+    });
     // Observe liveness while the stream plays so the latch is set before the server can end it.
     on('durationchange', () => void this.liveOf(s));
     // A live stream that ends has been closed by the server: reconnect at once (the supervisor maps EOS).
@@ -187,7 +207,7 @@ export class Html5Player implements Player {
     if (choice.engine === 'native' && choice.fallback) s.fallback = choice.fallback;
     this.startEngine(s, choice.engine, src);
     if (choice.engine === 'mpegts') this.playAfterCushion(s);
-    else this.play(s);
+    else this.playSession(s);
     return Promise.resolve();
   }
 
@@ -198,7 +218,7 @@ export class Html5Player implements Player {
       s.engine = { kind: 'native' };
       v.src = src;
     } else if (kind === 'hls') {
-      const hls = new Hls(hlsConfig(this.profile.preset, this.isTv));
+      const hls = new Hls(s.live ? hlsConfig(this.profile.preset, this.isTv) : this.vodHlsConfig(s));
       s.engine = { kind: 'hls', hls };
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
         s.hlsLive = data.details.live;
@@ -227,7 +247,10 @@ export class Html5Player implements Player {
       hls.loadSource(src);
       hls.attachMedia(v);
     } else {
-      const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: src }, mpegtsConfig(this.profile.preset, this.isTv));
+      const config = mpegtsConfig(this.profile.preset, this.isTv);
+      // A file: no live sync or latency chasing, and lazy loading so a long film is not pulled into memory at once.
+      const vod = { isLive: false, liveSync: false, liveBufferLatencyChasing: false, lazyLoad: true };
+      const player = mpegts.createPlayer({ type: 'mpegts', isLive: s.live, url: src }, s.live ? config : { ...config, ...vod });
       s.engine = { kind: 'mpegts', player };
       const current = () => !s.dead && s.engine?.kind === 'mpegts' && s.engine.player === player;
       player.on(mpegts.Events.ERROR, (type: string, detail: string, info?: { code?: number; msg?: unknown }) => {
@@ -255,8 +278,9 @@ export class Html5Player implements Player {
       // A clean end of the HTTP body: the download is over, but playback may still have a long way to go (a file,
       // or a server that bursts then closes). Report EOS (reconnect) only once the buffer ahead has drained; the
       // element's own `ended` also covers the end.
+      // VOD: the download ending is not the end of the film; the element's `ended` reports that ('idle').
       player.on(mpegts.Events.LOADING_COMPLETE, () => {
-        if (current()) this.eosWhenDrained(s, current);
+        if (current() && s.live) this.eosWhenDrained(s, current);
       });
       player.on(mpegts.Events.STATISTICS_INFO, (stats: { speed?: number }) => {
         if (current() && (stats.speed ?? 0) > 0) s.lastByteAt = Date.now();
@@ -264,6 +288,14 @@ export class Html5Player implements Player {
       player.attachMediaElement(v);
       player.load();
     }
+  }
+
+  /** hls.js for a VOD session: the shared config without the live-sync tuning, plus the start position. */
+  private vodHlsConfig(s: Session): ReturnType<typeof hlsConfig> {
+    const config: ReturnType<typeof hlsConfig> = { ...hlsConfig(this.profile.preset, this.isTv), lowLatencyMode: false };
+    for (const k of HLS_LIVE_SYNC_KEYS) delete config[k];
+    if (s.startMs !== undefined) config.startPosition = s.startMs / 1000;
+    return config;
   }
 
   /** In-place recovery for a fatal hls.js error; keeps the element and its last frame. False: report the error. */
@@ -322,7 +354,8 @@ export class Html5Player implements Player {
     const v = this.video;
     const e = s?.engine;
     if (!s || !e) return false;
-    if (this.liveOf(s) === false) return true; // no live edge: seeking "to live" would jump to the end of a file
+    // No live edge: seeking "to live" would jump to the end of a file.
+    if (!s.live || this.liveOf(s) === false) return true;
     if (e.kind === 'hls') {
       const pos = e.hls.liveSyncPosition;
       if (pos === null || !Number.isFinite(pos)) return false;
@@ -336,6 +369,79 @@ export class Html5Player implements Player {
     const to = Math.max(r.start(r.length - 1), end - targetS); // never into a gap before the last range
     if (to > v.currentTime + 0.25) v.currentTime = to;
     return true;
+  }
+
+  pause(): void {
+    if (this.session) this.video.pause();
+  }
+
+  /** Resumes the element; an autoplay refusal is handled like at open (auto-mute), other rejections are ignored. */
+  play(): void {
+    const s = this.session;
+    if (s) this.playSession(s);
+  }
+
+  paused(): boolean {
+    return this.video.paused;
+  }
+
+  /** Duration in ms of a finite stream; undefined while unknown, and for live (Infinity). */
+  duration(): number | undefined {
+    const d = this.video.duration;
+    return this.session && Number.isFinite(d) && d > 0 ? d * 1000 : undefined;
+  }
+
+  seek(ms: number): boolean {
+    if (!this.session) return false;
+    return this.seekTo(ms);
+  }
+
+  /** Sets the playhead clamped to [0, duration − 1 s]; false while the duration is not finite. */
+  private seekTo(ms: number): boolean {
+    const d = this.video.duration;
+    if (!Number.isFinite(d) || d <= 0) return false;
+    this.video.currentTime = Math.min(Math.max(0, ms / 1000), Math.max(0, d - SEEK_END_MARGIN_S));
+    return true;
+  }
+
+  textTracks(): TrackInfo[] {
+    const e = this.session?.engine;
+    if (e?.kind === 'hls') {
+      const active = e.hls.subtitleTrack;
+      return e.hls.subtitleTracks.map((t, i) => {
+        const info: TrackInfo = { id: String(i), label: t.name || t.lang || `Subtitles ${i + 1}`, active: i === active };
+        if (t.lang) info.language = t.lang;
+        return info;
+      });
+    }
+    const list = (this.video as HTMLVideoElement & { textTracks?: NativeTextTrackList }).textTracks;
+    if (!list) return [];
+    const out: TrackInfo[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      if (!isSubtitleKind(t)) continue;
+      const info: TrackInfo = { id: String(i), label: t.label || t.language || `Subtitles ${out.length + 1}`, active: t.mode === 'showing' };
+      if (t.language) info.language = t.language;
+      out.push(info);
+    }
+    return out;
+  }
+
+  selectTextTrack(id: string | null): void {
+    const idx = id === null ? -1 : Number(id);
+    if (!Number.isInteger(idx) || idx < -1) return;
+    const e = this.session?.engine;
+    if (e?.kind === 'hls') {
+      if (idx < e.hls.subtitleTracks.length) e.hls.subtitleTrack = idx;
+      return;
+    }
+    const list = (this.video as HTMLVideoElement & { textTracks?: NativeTextTrackList }).textTracks;
+    if (!list || idx >= list.length) return;
+    if (idx >= 0 && !isSubtitleKind(list[idx])) return;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i];
+      if (isSubtitleKind(t)) t.mode = i === idx ? 'showing' : 'disabled';
+    }
   }
 
   holdLastFrame(): void {
@@ -381,7 +487,7 @@ export class Html5Player implements Player {
     v.removeAttribute('src');
     v.load();
     this.startEngine(s, next, hlsViaDevProxy(s.url));
-    this.play(s);
+    this.playSession(s);
     return true;
   }
 
@@ -407,7 +513,7 @@ export class Html5Player implements Player {
       v.removeAttribute('src');
       v.load();
       this.startEngine(s, next, hlsViaDevProxy(s.url));
-      this.play(s);
+      this.playSession(s);
     }, 0);
     return true;
   }
@@ -433,13 +539,13 @@ export class Html5Player implements Player {
     }
   }
 
-  private play(s: Session): void {
+  private playSession(s: Session): void {
     this.video.play().catch((err: unknown) => {
       if (s.dead) return;
       // Desktop autoplay policy: without a user gesture only muted playback may start.
       // The mute is remembered and dropped on the next key press (`unmuteIfAutoMuted`).
       if (err instanceof DOMException && err.name === 'NotAllowedError' && this.autoMute.mute()) {
-        this.play(s);
+        this.playSession(s);
       }
       // AbortError (superseded by stop/open) and the rest surface through the element/engine error events.
     });
@@ -563,21 +669,23 @@ export class Html5Player implements Player {
     if (e) h.engine = ENGINE_NAMES[e.kind];
     const live = s ? this.liveOf(s) : undefined;
     if (live !== undefined) h.isLive = live;
+    // A VOD session has no live edge: nothing that steers the live delay is reported.
+    const steer = live !== false && s?.live !== false;
     // behindLiveS is always the distance to the live edge (what we can steer); the stream clock is display only.
     if (s && e?.kind === 'mpegts') {
       h.tracksBytes = true;
       if (s.lastByteAt !== undefined) h.lastByteAt = s.lastByteAt;
-      h.behindLiveSource = 'buffer';
+      if (s.live) h.behindLiveSource = 'buffer';
     } else if (s && e?.kind === 'hls') {
       if (s.targetDurationS !== undefined) h.targetDurationS = s.targetDurationS;
       const date = e.hls.playingDate;
       const pdt = date ? (Date.now() - date.getTime()) / 1000 : Number.NaN;
       if (pdt > PDT_MIN_S && pdt < PDT_MAX_S) h.streamClockBehindS = Math.max(0, pdt);
-      if (live !== false && Number.isFinite(e.hls.latency) && e.hls.latency > 0) {
+      if (steer && Number.isFinite(e.hls.latency) && e.hls.latency > 0) {
         h.behindLiveS = e.hls.latency;
         h.behindLiveSource = 'edge';
       }
-    } else if (e?.kind === 'native' && live !== false) {
+    } else if (e?.kind === 'native' && steer) {
       const sk = v.seekable;
       const end = sk && sk.length > 0 ? sk.end(sk.length - 1) : Number.NaN;
       if (Number.isFinite(end)) {
@@ -590,10 +698,12 @@ export class Html5Player implements Player {
 
   /**
    * Whether the session's stream is live: hls.js from the playlist, the element from its duration (Infinity is live,
-   * a finite duration is a file, NaN is not known yet), mpegts.js always (it is opened as live).
+   * a finite duration is a file, NaN is not known yet), mpegts.js always (it is opened as live). A session opened as
+   * VOD is never live.
    */
   private liveOf(s: Session): boolean | undefined {
     const live = this.rawLiveOf(s);
+    if (!s.live) return live; // VOD: never latched live
     if (live === true) s.sawLive = true;
     return s.sawLive ? true : live;
   }
@@ -601,6 +711,8 @@ export class Html5Player implements Player {
   private rawLiveOf(s: Session): boolean | undefined {
     const e = s.engine;
     if (!e) return undefined;
+    // Opened as VOD: never live; a file once its duration is known.
+    if (!s.live) return Number.isFinite(this.video.duration) ? false : undefined;
     if (e.kind === 'mpegts') return true;
     if (e.kind === 'hls') return s.hlsLive;
     const d = this.video.duration;
@@ -642,7 +754,7 @@ export class Html5Player implements Player {
   private playAfterCushion(s: Session): void {
     const cushion = START_CUSHION_S[this.profile.preset];
     if (cushion <= 0) {
-      this.play(s);
+      this.playSession(s);
       return;
     }
     const startedAt = Date.now();
@@ -653,7 +765,7 @@ export class Html5Player implements Player {
       }
       if (this.bufferAhead() >= cushion || Date.now() - startedAt >= CUSHION_MAX_WAIT_MS) {
         clearInterval(timer);
-        this.play(s);
+        this.playSession(s);
       }
     }, 100);
     s.cleanups.push(() => clearInterval(timer));
