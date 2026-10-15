@@ -145,21 +145,30 @@ describe('titleLengthMs', () => {
 });
 
 describe('progressSaveArmed', () => {
+  const base = { armed: false, startMs: 600_000, playing: false, posMs: undefined as number | undefined };
   it('is armed at once for a start at 0 (Play from start or no resume point)', () => {
-    expect(progressSaveArmed(false, 0, undefined)).toBe(true);
-    expect(progressSaveArmed(false, 0, 0)).toBe(true);
+    expect(progressSaveArmed({ ...base, startMs: 0 })).toBe(true);
   });
-  it('waits until the playhead comes within 5 s of the start position', () => {
-    expect(progressSaveArmed(false, 600_000, undefined)).toBe(false);
-    expect(progressSaveArmed(false, 600_000, 0)).toBe(false); // the start seek did not land: plays from 0
-    expect(progressSaveArmed(false, 600_000, 30_000)).toBe(false);
-    expect(progressSaveArmed(false, 600_000, Number.NaN)).toBe(false);
-    expect(progressSaveArmed(false, 600_000, 594_999)).toBe(false);
-    expect(progressSaveArmed(false, 600_000, 595_000)).toBe(true);
-    expect(progressSaveArmed(false, 600_000, 610_000)).toBe(true);
+  it('stays disarmed while loading, even though the playhead reads the start position before any frame', () => {
+    expect(progressSaveArmed({ ...base, posMs: 600_000 })).toBe(false);
+    expect(progressSaveArmed({ ...base, posMs: 600_000, userPaused: true })).toBe(false); // a pause before 'playing'
   });
-  it('stays armed once armed (later saves follow the playhead anywhere)', () => {
-    expect(progressSaveArmed(true, 600_000, 0)).toBe(true);
+  it('arms once this attempt plays near the start position', () => {
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 600_000 })).toBe(true);
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 595_000 })).toBe(true);
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 594_999 })).toBe(false);
+    expect(progressSaveArmed({ ...base, playing: true, posMs: Number.NaN })).toBe(false);
+  });
+  it('stays disarmed while playing at 0 after a dropped start seek', () => {
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 0 })).toBe(false);
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 30_000 })).toBe(false);
+  });
+  it('a user seek arms unconditionally; a user pause arms once playing', () => {
+    expect(progressSaveArmed({ ...base, userSeeked: true })).toBe(true);
+    expect(progressSaveArmed({ ...base, playing: true, posMs: 0, userPaused: true })).toBe(true);
+  });
+  it('latches once armed', () => {
+    expect(progressSaveArmed({ ...base, armed: true, posMs: 0 })).toBe(true);
   });
 });
 

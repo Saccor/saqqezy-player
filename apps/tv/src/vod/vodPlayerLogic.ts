@@ -115,13 +115,23 @@ export function nextCardText(label: string, secondsLeft: number): string {
 export const START_LANDED_MS = 5000;
 
 /**
- * Progress saves are armed (latching) once the start seek landed: the playhead came within START_LANDED_MS of
- * `startMs`. A start at 0 arms at once. Until then a save would overwrite the saved resume point with a playhead that
- * plays from 0 (an engine that dropped the start seek). The screen also arms on a user seek or pause.
+ * Whether playhead progress saves are armed (latching). Until then a save could overwrite the saved resume point:
+ * before the first frame the playhead reads the start position, and an engine that dropped the start seek plays
+ * from 0. A start at 0 and a user seek arm at once. Otherwise only an attempt that plays (`playing`: status
+ * 'playing' for this attempt) can arm: its playhead within START_LANDED_MS of `startMs`, or a user pause.
  */
-export function progressSaveArmed(armed: boolean, startMs: number, posMs: number | undefined): boolean {
-  if (armed || startMs <= 0) return true;
-  return posMs !== undefined && Number.isFinite(posMs) && posMs >= startMs - START_LANDED_MS;
+export function progressSaveArmed(s: {
+  armed: boolean;
+  startMs: number;
+  playing: boolean;
+  posMs: number | undefined;
+  userSeeked?: boolean;
+  userPaused?: boolean;
+}): boolean {
+  if (s.armed || s.startMs <= 0 || s.userSeeked) return true;
+  if (!s.playing) return false;
+  if (s.userPaused) return true;
+  return s.posMs !== undefined && Number.isFinite(s.posMs) && s.posMs >= s.startMs - START_LANDED_MS;
 }
 
 /** The page hid: pause a title that plays (ended or failed: nothing to pause). Visible again never resumes by itself. */

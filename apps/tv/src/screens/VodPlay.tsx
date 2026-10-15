@@ -87,10 +87,14 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
   let tracksAppliedAt: number | undefined;
   /**
-   * Playhead saves wait until the start seek landed (or the user seeked or paused): an engine that dropped the start
-   * seek plays from 0, and saving that would overwrite the resume point. A start at 0 is armed at once.
+   * Playhead saves wait until this attempt played near the start position (or the user seeked, or paused while it
+   * played): see `progressSaveArmed`. A start at 0 is armed at once.
    */
-  let saveArmed = progressSaveArmed(false, startMs, undefined);
+  let saveArmed = progressSaveArmed({ armed: false, startMs, playing: false, posMs: undefined });
+  /** Re-evaluates the arming from what the stream shows now (plus a user action). */
+  const arm = (user: { userSeeked?: boolean; userPaused?: boolean } = {}) => {
+    saveArmed = progressSaveArmed({ armed: saveArmed, startMs, playing: status()?.kind === 'playing', posMs: trustedPos(), ...user });
+  };
 
   const status = () => playback.status();
   const failed = () => {
@@ -126,7 +130,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!alive) return;
     const d = knownDuration(trustedDur(), p.durationMs);
     if (atMs === undefined) {
-      saveArmed = progressSaveArmed(saveArmed, startMs, trustedPos());
+      arm();
       if (!saveArmed) return;
     }
     const at = atMs ?? trustedPos();
@@ -163,7 +167,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       playback.resume();
     } else {
       playback.pause();
-      saveArmed = true; // the user paused here: this is where they are
+      arm({ userPaused: true }); // paused while it played: this is where they are
       save();
     }
     setPaused(playback.paused());
@@ -181,7 +185,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const m = marker();
     setMarker(undefined);
     if (!m || !alive) return;
-    saveArmed = true; // the user chose this position
+    arm({ userSeeked: true }); // the user chose this position
     playback.seek(m.targetMs);
     setPos(m.targetMs);
     lastPos = m.targetMs;
@@ -357,7 +361,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const retry = () => {
     bump();
-    playback.playVod(p, lastPos ?? startMs);
+    // Until saves are armed the playhead is not the title's real position (it never played, or dropped the start seek).
+    playback.playVod(p, saveArmed ? (lastPos ?? startMs) : startMs);
     focusRoot();
   };
   const cardActions = (): Action[] => (failed()
@@ -446,7 +451,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), status()?.kind === 'playing')) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
-      if (!saveArmed) saveArmed = progressSaveArmed(false, startMs, trustedPos());
+      if (!saveArmed) arm();
     }, TICK_MS);
     const saver = setInterval(() => {
       if (status()?.kind === 'playing' && !playback.paused()) save();
