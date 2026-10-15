@@ -798,3 +798,50 @@ describe('SourceService – title index', () => {
     expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeUndefined();
   });
 });
+
+describe('SourceService – m3u VOD split', () => {
+  const vodM3u = [
+    '#EXTM3U',
+    '#EXTINF:-1 tvg-chno="1" group-title="News",Channel 001',
+    'http://example.test/live/u/p/1.ts',
+    '#EXTINF:-1 group-title="Drama" tvg-logo="http://img.test/11.jpg",Synthetic Film 001 (2021)',
+    'http://example.test/movie/u/p/11.mkv',
+    '#EXTINF:-1 group-title="Shows",Synthetic Show S01E01',
+    'http://example.test/series/u/p/101.mp4',
+    '#EXTINF:-1 group-title="Shows",Synthetic Show S01E02',
+    'http://example.test/series/u/p/102.mp4',
+    '#EXTINF:-1 group-title="News",Channel 002',
+    'http://example.test/live/u/p/2.ts',
+  ].join('\n');
+  const input = { kind: 'm3u' as const, name: 'Mine', playlistUrl: 'http://example.test/vod.m3u' };
+
+  test('VOD entries leave the channel list and are stored as catalogues', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    const { result } = await service.addSource(input);
+    expect(result).toEqual({ channelCount: 2, skipped: 0, movieCount: 1, seriesCount: 1 });
+    const idx = await service.loadIndex('id1');
+    expect(idx.slice('all', 0, 10).map((c) => [c.name, c.number])).toEqual([['Channel 001', 1], ['Channel 002', 2]]);
+    const movies = await storage.getVod('id1', 'movie');
+    expect(movies?.items.map((m) => m.title)).toEqual(['Synthetic Film 001']);
+    const series = await storage.getVod('id1', 'series');
+    expect(Object.values(series!.episodes!)[0]).toHaveLength(2);
+    expect(await storage.getMeta('vodAt:movie:id1')).toBe(NOW);
+    expect(await storage.getMeta('vodAt:series:id1')).toBe(NOW);
+  });
+
+  test('a refresh replaces the catalogues', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    await service.addSource(input);
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 001\nhttp://example.test/live/u/p/1.ts\n');
+    await service.refreshPlaylist('id1');
+    expect((await storage.getVod('id1', 'movie'))?.items).toEqual([]);
+  });
+
+  test('a VOD-only playlist is accepted; an empty one is still rejected', async () => {
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Synthetic Film 009\nhttp://example.test/movie/u/p/9.mp4\n');
+    const { result } = await service.addSource(input);
+    expect(result).toEqual({ channelCount: 0, skipped: 0, movieCount: 1 });
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n');
+    await expect(service.addSource(input)).rejects.toThrow('The playlist contains no channels.');
+  });
+});
