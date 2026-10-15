@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { SourceService, VodService, type FetchFn } from '@iptv/core';
+import { SourceService, VodCatalog, VodService, type FetchFn, type VodItem, type VodKind, type VodList } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
@@ -52,6 +52,18 @@ describe('VodController home', () => {
     expect(await c.home('movie')).toEqual({ status: 'loading', rows: [], truncated: false });
     await c.idle();
     expect((await c.home('movie')).status).toBe('ready');
+  });
+
+  test('a stored empty catalogue whose fetch failed reads as error, not empty', async () => {
+    const { c, sourceId } = await setup();
+    await storage.replaceVod(sourceId, 'movie', { items: [], categories: [] });
+    failVod = true;
+    expect((await c.home('movie')).status).toBe('loading');
+    await c.idle();
+    const h = await c.home('movie');
+    expect(h.status).toBe('error');
+    expect(h.rows).toEqual([]);
+    expect(h.error?.message).toBeTruthy();
   });
 
   test('Xtream, nothing stored: loading, then ready with recent and category rows', async () => {
@@ -137,7 +149,6 @@ describe('VodController residency and source changes', () => {
     await c.home('movie');
     c.reset(undefined);
     await c.idle();
-    await new Promise((r) => setTimeout(r, 50));
     expect(events.map((e) => e.type)).toEqual(['vodLoading']);
     expect(await storage.getVod(sourceId, 'movie')).toBeUndefined();
   });
@@ -171,5 +182,91 @@ describe('VodController categories and slices', () => {
     expect(recent.total).toBe(24);
     expect(recent.rows[0]!.title).toMatch(/^Synthetic Film 001\b/);
     expect(await c.slice('movie', VOD_ROW_CONTINUE, 'title', 0, 5)).toEqual({ total: 0, rows: [] });
+  });
+});
+
+describe('VodController user state on slices', () => {
+  test('a cold Recently added slice carries favourite state', async () => {
+    const { c, sourceId } = await setup();
+    await c.refresh('movie');
+    const newest = (await c.slice('movie', VOD_ROW_RECENT, 'title', 0, 1)).rows[0]!;
+    await storage.putVodUser(sourceId, newest.id, { position: 0, duration: 0, watched: false, favourite: true, updatedAt: 0 });
+    c.reset(sourceId);
+    const page = await c.slice('movie', VOD_ROW_RECENT, 'title', 0, 1);
+    expect(page.rows[0]).toMatchObject({ id: newest.id, favourite: true });
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+const item = (kind: VodKind, n: number): VodItem => ({ id: `s:${kind}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1' });
+const listOf = (kind: VodKind, ...ns: number[]): VodList => ({ items: ns.map((n) => item(kind, n)), categories: [{ id: '1', kind, name: 'Cat', count: ns.length }] });
+
+function fakeController() {
+  const calls = { stored: [] as VodKind[], refresh: 0 };
+  const fake = {
+    storedCatalog: async (_id: string, kind: VodKind): Promise<VodCatalog | undefined> => { calls.stored.push(kind); return undefined; },
+    needsRefresh: async (): Promise<boolean> => false,
+    refresh: async (_id: string, kind: VodKind) => { calls.refresh++; return { count: 0, truncated: false, list: listOf(kind) }; },
+    listUser: async () => [],
+  };
+  const events: AppEvent[] = [];
+  const c = new VodController({ vod: fake as unknown as VodService, emit: (e) => events.push(e), record: (_w, err) => (err instanceof Error ? err : new Error(String(err))) });
+  c.reset('src');
+  return { c, fake, calls, events };
+}
+
+describe('VodController races', () => {
+  test('a reset during needsRefresh starts no fetch for the old source', async () => {
+    const { c, fake, calls, events } = fakeController();
+    const gate = deferred<boolean>();
+    fake.needsRefresh = () => gate.promise;
+    const home = c.home('movie');
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset(undefined);
+    gate.resolve(true);
+    expect(await home).toEqual({ status: 'empty', rows: [], truncated: false });
+    await c.idle();
+    expect(events).toEqual([]);
+    expect(calls.refresh).toBe(0);
+  });
+
+  test('a finished fetch wins over an older stored read of the same kind', async () => {
+    const { c, fake } = fakeController();
+    const fetchGate = deferred<{ count: number; truncated: boolean; list: VodList }>();
+    const storedGate = deferred<VodCatalog | undefined>();
+    fake.refresh = () => fetchGate.promise;
+    fake.storedCatalog = () => storedGate.promise;
+    const fetching = c.refresh('movie');
+    const firstSlice = c.slice('movie', 'all', 'title', 0, 10);
+    await new Promise((r) => setTimeout(r, 0));
+    fetchGate.resolve({ count: 2, truncated: false, list: listOf('movie', 1, 2) });
+    await fetching;
+    storedGate.resolve(new VodCatalog('movie', listOf('movie', 1)));
+    await firstSlice;
+    const page = await c.slice('movie', 'all', 'title', 0, 10);
+    expect(page.rows.map((t) => t.id)).toEqual(['s:movie1', 's:movie2']);
+  });
+
+  test('a fetch does not become resident while a load of the other kind is in flight', async () => {
+    const { c, fake, calls } = fakeController();
+    const fetchGate = deferred<{ count: number; truncated: boolean; list: VodList }>();
+    const seriesGate = deferred<VodCatalog | undefined>();
+    fake.refresh = () => fetchGate.promise;
+    fake.storedCatalog = (_id: string, kind: VodKind) => { calls.stored.push(kind); return kind === 'series' ? seriesGate.promise : Promise.resolve(undefined); };
+    const fetching = c.refresh('movie');
+    const seriesHome = c.home('series');
+    await new Promise((r) => setTimeout(r, 0));
+    fetchGate.resolve({ count: 1, truncated: false, list: listOf('movie', 1) });
+    await fetching;
+    calls.stored.length = 0;
+    await c.home('movie');
+    expect(calls.stored).toContain('movie');
+    seriesGate.resolve(undefined);
+    await seriesHome;
   });
 });

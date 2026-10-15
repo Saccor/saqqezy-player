@@ -47,6 +47,8 @@ export class VodController {
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
   private readonly jobs = new Map<VodKind, Job>();
+  /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
+  private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
 
   constructor(deps: VodControllerDeps) {
@@ -70,23 +72,32 @@ export class VodController {
   async home(kind: VodKind): Promise<VodHome> {
     const id = this.sourceId;
     if (!id) return { status: 'empty', rows: [], truncated: false };
+    const epoch = this.epoch;
     const catalog = await this.catalog(kind);
+    if (this.epoch !== epoch) return this.home(kind);
     if (!catalog) {
       if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
       const failure = this.failures.get(kind);
       if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
-      if (await this.vod.needsRefresh(id, kind)) {
-        void this.startFetch(kind);
+      const needs = await this.vod.needsRefresh(id, kind);
+      if (this.epoch !== epoch) return this.home(kind);
+      if (needs) {
+        void this.startFetch(kind, id, epoch);
         return { status: 'loading', rows: [], truncated: false };
       }
       return { status: 'empty', rows: [], truncated: false };
     }
     // Stale-while-revalidate: show what is stored, refresh behind it (once; a failure stops it until refreshVod).
-    if (!this.jobs.has(kind) && !this.failures.has(kind) && await this.vod.needsRefresh(id, kind)) void this.startFetch(kind);
+    if (!this.jobs.has(kind) && !this.failures.has(kind)) {
+      const needs = await this.vod.needsRefresh(id, kind);
+      if (this.epoch !== epoch) return this.home(kind);
+      if (needs) void this.startFetch(kind, id, epoch);
+    }
     if (catalog.size === 0) {
-      return this.jobs.has(kind)
-        ? { status: 'loading', rows: [], truncated: false }
-        : { status: 'empty', rows: [], truncated: catalog.truncated };
+      if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
+      const failure = this.failures.get(kind);
+      if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
+      return { status: 'empty', rows: [], truncated: catalog.truncated };
     }
     return { status: 'ready', rows: await this.rows(kind, catalog), truncated: catalog.truncated };
   }
@@ -116,6 +127,7 @@ export class VodController {
       return { total: all.length, rows: all.slice(from, from + n) };
     }
     if (categoryId === VOD_ROW_RECENT) {
+      await this.userMap();
       const total = catalog.hasAddedDates ? Math.min(catalog.size, VOD_RECENT_MAX) : 0;
       const take = Math.max(0, Math.min(n, total - from));
       return { total, rows: take ? catalog.slice(VOD_ALL, 'added', from, take).rows.map((item) => this.tile(item)) : [] };
@@ -127,9 +139,10 @@ export class VodController {
 
   /** Explicit refresh (the Try again button): clears a recorded failure and waits for the fetch. */
   async refresh(kind: VodKind): Promise<void> {
-    if (!this.sourceId) return;
+    const id = this.sourceId;
+    if (!id) return;
     this.failures.delete(kind);
-    await this.startFetch(kind);
+    await this.startFetch(kind, id, this.epoch);
   }
 
   /** Idle-time warm-up: loads the stored catalogue only when nothing is resident. Never fetches. */
@@ -140,7 +153,9 @@ export class VodController {
   }
 
   async idle(): Promise<void> {
-    while (this.jobs.size) await Promise.allSettled([...this.jobs.values()].map((j) => j.done));
+    while (this.jobs.size || this.pending.size) {
+      await Promise.allSettled([...this.jobs.values()].map((j) => j.done).concat([...this.pending]));
+    }
   }
 
   // ---- internals shared with later tasks ----
@@ -196,11 +211,10 @@ export class VodController {
     // Overridden in Task 6.
   }
 
-  private startFetch(kind: VodKind): Promise<void> {
+  private startFetch(kind: VodKind, id: string, epoch: number): Promise<void> {
+    if (this.epoch !== epoch) return Promise.resolve();
     const existing = this.jobs.get(kind);
     if (existing) return existing.done;
-    const id = this.sourceId!;
-    const epoch = this.epoch;
     const ac = new AbortController();
     this.emit({ type: 'vodLoading', sourceId: id, kind });
     const done = (async () => {
@@ -208,8 +222,14 @@ export class VodController {
         const r = await this.vod.refresh(id, kind, { signal: ac.signal });
         if (this.epoch !== epoch) return;
         this.failures.delete(kind);
-        // Swap the fresh list in without reading it back, unless the other kind is resident now.
-        if (!this.resident || this.resident.kind === kind) this.resident = { kind, catalog: new VodCatalog(kind, r.list) };
+        // Swap the fresh list in without reading it back. It takes over from a stored read of the same kind (which
+        // would be older), and never installs next to the other kind: a load or resident of the other kind wins.
+        const otherLoading = this.loading !== undefined && this.loading.kind !== kind;
+        const otherResident = this.resident !== undefined && this.resident.kind !== kind;
+        if (!otherLoading && !otherResident) {
+          this.resident = { kind, catalog: new VodCatalog(kind, r.list) };
+          this.loading = undefined;
+        }
         this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: r.count, truncated: r.truncated });
       } catch (err) {
         if (err instanceof VodFetchCancelled || this.epoch !== epoch) return;
@@ -225,6 +245,9 @@ export class VodController {
     // Background callers ignore the result; the failure is already recorded and emitted.
     done.catch(() => { /* handled */ });
     this.jobs.set(kind, { ac, done });
+    this.pending.add(done);
+    const forget = () => { this.pending.delete(done); };
+    done.then(forget, forget);
     return done;
   }
 
