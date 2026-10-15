@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   COMPACT_LAYOUT, COMPACT_ROWS, FULL_LAYOUT, FULL_ROWS, MAX_LENGTH, applyKey, findKey, keyLabel, moveCursor, textEntryKey,
-  visibleTail, type KeyDef, type KeyRows,
+  visibleTail, keyAt, type KeyDef, type KeyRows,
 } from './keyboardLogic.ts';
-import { keyAt } from './keyboardLogic.ts';
 
 const labels = (row: number) => (FULL_ROWS[row] ?? []).map((c) => keyLabel(c.def, false));
 

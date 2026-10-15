@@ -121,12 +121,6 @@ export function EpgGrid(props: {
       const hit = hitAt(p);
       if (hit) props.onCellClick?.(hit);
     },
-    // The cell: a channel name is -1 - row, a programme block row * 10000 + its index in the row.
-    subAt: (p) => {
-      const hit = hitAt(p);
-      if (!hit) return undefined;
-      return hit.area === 'channels' ? -1 - hit.row : hit.row * 10000 + props.blocks(hit.row).indexOf(hit.block);
-    },
     onWheel: (dy, dx) => {
       props.onPointerWheel?.(dy, dx);
       return true;

@@ -21,8 +21,9 @@ const KEY_FILL = 0x1a1f2bff;
  * While it is mounted, physical keyboard typing goes into the field (`captureTextInput`), and remote digit
  * keys type digits.
  *
- * Pointer: a screen-layer target, so clicks outside it still reach the screen (inline keyboards sit beside lists). A click on a key moves the cursor there and presses it, after focusing the keyboard
- * through the owner (`usePointerFocus`); hover highlights the key. Clicks outside reach the screen (no backdrop, not modal).
+ * Pointer: a screen-layer target with no backdrop (not modal), so clicks outside it still reach the screen (inline
+ * keyboards sit beside lists). A click on a key moves the cursor there and presses it, after focusing the keyboard
+ * through the owner (`usePointerFocus`); hover highlights the key.
  */
 export function Keyboard(props: {
   ref?: (el: ElementNode) => void;

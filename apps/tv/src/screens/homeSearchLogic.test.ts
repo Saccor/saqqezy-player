@@ -5,9 +5,9 @@ import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
   BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
   groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
-  userNavigated, routeKey, typedQuery, typingKey, type BrowsePosition, type NavContext,
+  userNavigated, routeKey, typedQuery, typingKey, HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction,
+  type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
-import { HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction } from './homeSearchLogic.ts';
 import { nextFocus, type SearchRow } from './searchLogic.ts';
 
 const ch = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });

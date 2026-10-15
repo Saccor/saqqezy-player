@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   HALF_HOUR, HOUR, NO_INFO, dayLabel, relativeLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
-  timeToX, xToTime, type Block,
+  timeToX, xToTime, GUIDE_POINTER_LABELS, guideClick, pageTime, type Block,
 } from './guideLogic.ts';
-import { GUIDE_POINTER_LABELS, guideClick, pageTime } from './guideLogic.ts';
 
 const T0 = Date.UTC(2026, 0, 10, 12, 0); // a half-hour boundary
 const at = (h: number) => T0 + h * HOUR;
