@@ -11,6 +11,10 @@ const TITLES: Record<ScreenId, string> = {
   guide: 'TV guide',
   search: 'Search',
   settings: 'Settings',
+  vod: 'Movies',
+  vodGrid: 'Movies',
+  movieDetail: 'Movie',
+  vodPlay: 'Player',
 };
 
 /** Screens Home can open while they are placeholders (Tasks 6 to 11 replace them). */
