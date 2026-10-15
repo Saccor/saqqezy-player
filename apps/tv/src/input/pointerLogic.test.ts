@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_STEP_MS, barLayout, cellAt, inRect, isClick, isDoubleClick, localPoint, pickTarget, pointerModeReducer, rowAt, toDesign,
+  WHEEL_STEP_MS, barLayout, cellAt, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -134,6 +134,17 @@ describe('clicks', () => {
     expect(isDoubleClick({ at: 0, target: 1, sub: 3 }, 100, 1)).toBe(false);
     expect(isDoubleClick({ at: 0, target: 1 }, 100, 1, 3)).toBe(false);
   });
+
+  it('nextClick: a double click resets the last click, any other click becomes the new last click', () => {
+    const first = nextClick(undefined, 0, 1, 3);
+    expect(first).toEqual({ double: false, last: { at: 0, target: 1, sub: 3 } });
+    expect(nextClick(first.last, 100, 1, 3)).toEqual({ double: true, last: undefined });
+    // Another row of the same list: a fresh first click there.
+    expect(nextClick(first.last, 100, 1, 4)).toEqual({ double: false, last: { at: 100, target: 1, sub: 4 } });
+    // A third click after a double click starts over.
+    expect(nextClick(undefined, 200, 1, 3).double).toBe(false);
+    expect(nextClick({ at: 0, target: 1 }, 100, 1)).toEqual({ double: true, last: undefined });
+  });
 });
 
 describe('wheel', () => {
@@ -223,5 +234,31 @@ describe('pickTarget', () => {
     expect(pickTarget([cand({ seq: 1 }), cand({ seq: 2, visible: false })], P)).toBe(0);
     expect(pickTarget([cand({ seq: 1 }), cand({ seq: 2, overlay: true, inScope: false })], P)).toBe(0);
     expect(pickTarget([cand({ visible: false })], P)).toBeUndefined();
+  });
+
+  it('a shown overlay is modal: screen targets underneath, global ones included, are never hit', () => {
+    const screen = cand({ seq: 9, rect: { x: 0, y: 0, w: 1920, h: 1080 } });
+    const dialog = cand({ seq: 1, overlay: true, rect: { x: 500, y: 300, w: 100, h: 100 } });
+    expect(pickTarget([screen, dialog], P)).toBeUndefined();
+    expect(pickTarget([screen, dialog], { x: 550, y: 350 })).toBe(1);
+    // A global target (the shell Back) is a screen target that is always in scope.
+    const globalBack = cand({ seq: 10, rect: { x: 0, y: 0, w: 200, h: 72 } });
+    expect(pickTarget([globalBack, dialog], P)).toBeUndefined();
+  });
+
+  it('a disabled, invisible or out-of-scope overlay blocks nothing', () => {
+    const screen = cand({ seq: 9 });
+    const far = { x: 500, y: 300, w: 100, h: 100 };
+    expect(pickTarget([screen, cand({ seq: 1, overlay: true, rect: far, enabled: false })], P)).toBe(0);
+    expect(pickTarget([screen, cand({ seq: 1, overlay: true, rect: far, visible: false })], P)).toBe(0);
+    expect(pickTarget([screen, cand({ seq: 1, overlay: true, rect: far, inScope: false })], P)).toBe(0);
+  });
+
+  it("a click outside an overlay's targets resolves to its backdrop", () => {
+    const screen = cand({ seq: 1 });
+    const backdrop = cand({ seq: 2, overlay: true, rect: { x: 0, y: 0, w: 1920, h: 1080 } });
+    const button = cand({ seq: 3, overlay: true, rect: { x: 500, y: 300, w: 100, h: 100 } });
+    expect(pickTarget([screen, backdrop, button], P)).toBe(1);
+    expect(pickTarget([screen, backdrop, button], { x: 550, y: 350 })).toBe(2);
   });
 });

@@ -19,7 +19,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
 import { onLogicalKey, sendKey } from './keys.ts';
 import {
-  POINTER_START, WHEEL_START, isClick, isDoubleClick, localPoint, pickTarget, pointerModeReducer, toDesign, wheelPixels,
+  POINTER_START, WHEEL_START, isClick, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
   wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type Rect,
 } from './pointerLogic.ts';
 
@@ -127,10 +127,6 @@ function hitAt(p: Point): { entry: Entry; local: Point } | undefined {
       inScope: e.t.global === true || e.scope === cur,
     };
   });
-  // A shown overlay (a dialog, a menu) is modal: nothing underneath it is hit, even outside its targets.
-  if (cands.some((c) => c.overlay && c.visible && c.inScope)) {
-    for (const c of cands) if (!c.overlay) c.inScope = false;
-  }
   const i = pickTarget(cands, p);
   const entry = i === undefined ? undefined : entries[i];
   const rect = i === undefined ? undefined : rects[i];
@@ -144,7 +140,11 @@ function rehover(): void {
   setHovered(h?.entry, h?.local);
 }
 
-/** Registers a click target on mount and removes it on cleanup. The call order decides "latest wins". */
+/**
+ * Registers a click target on mount and removes it on cleanup. The call order decides "latest wins". A target is
+ * scoped to the screen on top when it mounts; shell-level overlays mounted outside any screen (such as the App-level
+ * `ConfirmDialog`) must pass `global: true`, or they stop being hit (and stop being modal) when the screen changes.
+ */
 export function usePointerTarget(t: PointerTarget): void {
   const entry: Entry = { seq: ++nextSeq, t, scope: undefined };
   onMount(() => {
@@ -254,8 +254,9 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     const t = h.entry.t;
     let sub: number | undefined;
     safely(() => { sub = t.subAt?.(h.local); });
-    const double = isDoubleClick(lastClick, at, h.entry.seq, sub);
-    lastClick = double ? undefined : { at, target: h.entry.seq, sub };
+    const c = nextClick(lastClick, at, h.entry.seq, sub);
+    lastClick = c.last;
+    const double = c.double;
     safely(() => {
       if (double && t.onDoubleClick) t.onDoubleClick(h.local);
       else t.onClick?.(h.local);
@@ -264,6 +265,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
   const onContext = (e: MouseEvent) => {
     e.preventDefault();
+    // The keyboard Menu key and Shift+F10 fire contextmenu too: only a real right-button press in pointer mode counts.
+    if (e.button !== 2 || (e as PointerEvent).pointerType === 'touch' || !mode().on) return;
     const h = hitAt(design(e));
     if (h) safely(() => h.entry.t.onContextMenu?.(h.local));
     queueMicrotask(rehover);
@@ -288,6 +291,10 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     lastPoint = undefined;
     setHovered(undefined, undefined);
   };
+  /** Mouse back and forward buttons: Chromium and WebView2 may navigate history on mouseup or auxclick. */
+  const onHistoryButton = (e: MouseEvent) => {
+    if (e.button === 3 || e.button === 4) e.preventDefault();
+  };
   const onCursor = (e: Event) => {
     const v = (e as CustomEvent<{ visibility?: boolean } | undefined>).detail?.visibility;
     if (v === true) dispatch({ type: 'cursorShown', at: Date.now() });
@@ -302,6 +309,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   win.addEventListener('pointerdown', onDown);
   win.addEventListener('pointerup', onUp);
   win.addEventListener('contextmenu', onContext);
+  win.addEventListener('mouseup', onHistoryButton);
+  win.addEventListener('auxclick', onHistoryButton);
   win.addEventListener('wheel', onWheel, { passive: false });
   win.document.addEventListener('mouseout', onLeave);
   win.document.addEventListener('cursorStateChange', onCursor);
@@ -312,9 +321,16 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     win.removeEventListener('pointerdown', onDown);
     win.removeEventListener('pointerup', onUp);
     win.removeEventListener('contextmenu', onContext);
+    win.removeEventListener('mouseup', onHistoryButton);
+    win.removeEventListener('auxclick', onHistoryButton);
     win.removeEventListener('wheel', onWheel);
     win.document.removeEventListener('mouseout', onLeave);
     win.document.removeEventListener('cursorStateChange', onCursor);
+    setHovered(undefined, undefined);
+    lastPoint = undefined;
+    setMode(POINTER_START);
+    canvas.style.cursor = '';
+    win.document.body.style.cursor = '';
     applyCursor = () => undefined;
   };
 }

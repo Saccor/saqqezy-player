@@ -145,6 +145,17 @@ export function isDoubleClick(last: LastClick | undefined, at: number, target: n
   return last !== undefined && last.target === target && last.sub === sub && at - last.at <= DOUBLE_CLICK_MS;
 }
 
+/**
+ * Classifies a click and gives the next "last click": a double click resets it (a third click starts over), any other
+ * click becomes it.
+ */
+export function nextClick(
+  last: LastClick | undefined, at: number, target: number, sub?: number,
+): { double: boolean; last: LastClick | undefined } {
+  const double = isDoubleClick(last, at, target, sub);
+  return { double, last: double ? undefined : { at, target, sub } };
+}
+
 // ---- wheel ----
 
 export const WHEEL_STEP_MS = 120;
@@ -211,11 +222,17 @@ export interface HitCandidate {
   inScope: boolean;
 }
 
-/** The target under `p`: overlays first, then the latest registration. Disabled, invisible and other screens' targets are skipped. */
+/**
+ * The target under `p`: overlays first, then the latest registration. Disabled, invisible and other screens' targets
+ * are skipped. An overlay that is enabled, visible and in scope is modal: while one exists, no screen target (global
+ * ones included) is hit anywhere, so a click outside the overlay's targets lands on its backdrop or on nothing.
+ */
 export function pickTarget(cands: readonly HitCandidate[], p: Point): number | undefined {
+  const live = (c: HitCandidate) => c.enabled && c.visible && c.inScope;
+  const modal = cands.some((c) => c.overlay && live(c));
   let best: number | undefined;
   cands.forEach((c, i) => {
-    if (!c.enabled || !c.visible || !c.inScope || !inRect(c.rect, p)) return;
+    if (!live(c) || (modal && !c.overlay) || !inRect(c.rect, p)) return;
     const b = best === undefined ? undefined : cands[best];
     if (!b || (c.overlay && !b.overlay) || (c.overlay === b.overlay && c.seq > b.seq)) best = i;
   });
