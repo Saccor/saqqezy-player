@@ -181,6 +181,8 @@ const SEEK_END_MARGIN_MS = 1_000;
 export class AvplayPlayer implements Player {
   private readonly listeners = new Set<(s: PlayerState, d?: StateDetail) => void>();
   private readonly subtitleListeners = new Set<(text: string | null) => void>();
+  /** Clears the cue on screen once its duration has passed. */
+  private cueTimer: ReturnType<typeof setTimeout> | undefined;
   private session: Session | undefined;
   private rect: Rect = FULL;
   private aspect: AspectMode = 'auto';
@@ -212,12 +214,13 @@ export class AvplayPlayer implements Player {
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
         oncurrentplaytime: (ms) => { if (!s.dead && typeof ms === 'number') this.lastPosition = ms; },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
+        // A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
+        onsubtitlechange: (duration, text) => {
+          if (s.dead || s !== this.session || s.textOff) return;
+          this.showCue(typeof text === 'string' && text !== '' ? text : null, Number(duration));
+        },
         // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
-        onsubtitlechange: (_duration, text) => {
-          if (s.dead || s !== this.session || s.textOff) return;
-          this.emitSubtitle(typeof text === 'string' && text !== '' ? text : null);
-        },
         onstreamcompleted: () => {
           if (s.dead || s !== this.session) return;
           if (!s.live || this.liveState().live === false) this.emit(s, 'idle');
@@ -281,7 +284,7 @@ export class AvplayPlayer implements Player {
     s.dead = true;
     clearTimeout(s.watchdog);
     clearTimeout(s.seekWatchdog);
-    this.emitSubtitle(null);
+    this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
@@ -454,7 +457,7 @@ export class AvplayPlayer implements Player {
     if (to === undefined) return false;
     try {
       this.avplay.seekTo(to, () => {}, () => {});
-      this.emitSubtitle(null);
+      this.clearCue();
       return true;
     } catch {
       return false;
@@ -499,7 +502,7 @@ export class AvplayPlayer implements Player {
           this.avplay.setSilentSubtitle(true);
           s.textOff = true;
         }
-        this.emitSubtitle(null);
+        this.clearCue();
         return;
       }
       const idx = Number(id);
@@ -508,7 +511,7 @@ export class AvplayPlayer implements Player {
       this.avplay.setSelectTrack('TEXT', idx);
       this.avplay.setSilentSubtitle?.(false);
       s.textOff = false;
-      this.emitSubtitle(null);
+      this.clearCue();
     } catch {
       // ignore: the current choice stays
     }
@@ -544,6 +547,26 @@ export class AvplayPlayer implements Player {
     this.stop();
     this.listeners.clear();
     this.subtitleListeners.clear();
+  }
+
+  /** Shows `text` (null: nothing) and, for a positive `durationMs`, clears it when that has passed. */
+  private showCue(text: string | null, durationMs: number): void {
+    clearTimeout(this.cueTimer);
+    this.cueTimer = undefined;
+    this.emitSubtitle(text);
+    if (text !== null && Number.isFinite(durationMs) && durationMs > 0) {
+      this.cueTimer = setTimeout(() => {
+        this.cueTimer = undefined;
+        this.emitSubtitle(null);
+      }, durationMs);
+    }
+  }
+
+  /** Clears the cue on screen and its pending expiry. */
+  private clearCue(): void {
+    clearTimeout(this.cueTimer);
+    this.cueTimer = undefined;
+    this.emitSubtitle(null);
   }
 
   private emitSubtitle(text: string | null): void {

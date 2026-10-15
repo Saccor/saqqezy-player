@@ -802,6 +802,69 @@ describe('AvplayPlayer: VOD controls', () => {
     expect(cues).toEqual([null, null]);
   });
 
+  test('a subtitle cue expires after its duration; a new cue, seek, select, stop or open cancels the expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = setup();
+      av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
+      av.durationMs = 100_000;
+      const cues: (string | null)[] = [];
+      p.onSubtitle((t) => cues.push(t));
+      await p.open(URL_B, 1, { live: false });
+      av.prepared[0]!.ok();
+      const l = av.listener!;
+      l.onsubtitlechange?.(2000, 'Hello', 0, 0);
+      vi.advanceTimersByTime(1999);
+      expect(cues).toEqual(['Hello']);
+      vi.advanceTimersByTime(1);
+      expect(cues).toEqual(['Hello', null]);
+
+      // A new cue replaces the old one and its expiry.
+      cues.length = 0;
+      l.onsubtitlechange?.(2000, 'One', 0, 0);
+      vi.advanceTimersByTime(1000);
+      l.onsubtitlechange?.(3000, 'Two', 0, 0);
+      vi.advanceTimersByTime(2999);
+      expect(cues).toEqual(['One', 'Two']);
+      vi.advanceTimersByTime(1);
+      expect(cues).toEqual(['One', 'Two', null]);
+
+      // Seek, select, Off and stop clear at once; no late expiry follows.
+      for (const clear of [() => p.seek(5_000), () => p.selectTextTrack('2'), () => p.selectTextTrack(null)]) {
+        p.selectTextTrack('2'); // subtitles on again for the next cue
+        cues.length = 0;
+        l.onsubtitlechange?.(2000, 'Cue', 0, 0);
+        clear();
+        vi.advanceTimersByTime(5000);
+        expect(cues).toEqual(['Cue', null]);
+      }
+      p.selectTextTrack('2');
+      cues.length = 0;
+      l.onsubtitlechange?.(2000, 'Last', 0, 0);
+      p.stop();
+      vi.advanceTimersByTime(5000);
+      expect(cues).toEqual(['Last', null]);
+
+      // A new open also cancels the expiry of the previous session's cue.
+      await p.open(URL_B, 2, { live: false });
+      av.prepared[1]!.ok();
+      av.listener!.onsubtitlechange?.(2000, 'New', 0, 0);
+      cues.length = 0;
+      await p.open(URL_B, 3, { live: false });
+      vi.advanceTimersByTime(5000);
+      expect(cues).toEqual([null]);
+
+      // No usable duration: the cue stays until the next one.
+      av.prepared[2]!.ok();
+      cues.length = 0;
+      av.listener!.onsubtitlechange?.('?', 'Stays', 0, 0);
+      vi.advanceTimersByTime(60_000);
+      expect(cues).toEqual(['Stays']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('textOff is set only when setSilentSubtitle exists', async () => {
     const { av, p } = setup();
     av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
