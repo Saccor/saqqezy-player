@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ASPECT_MODES, aspectLabel, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerStatusText, sleepLabel,
-} from './playerLogic.ts';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
-import { PLAYER_POINTER_LABELS, bannerLift, playerAutoHide, playerOverlayShown } from './playerLogic.ts';
+import {
+  ASPECT_MODES, PLAYER_POINTER_LABELS, aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill,
+  nextAspect, playerAutoHide, playerOverlayShown, playerStatusText, sleepLabel,
+} from './playerLogic.ts';
 
 describe('playerStatusText', () => {
   it('maps supervisor states to player copy', () => {
