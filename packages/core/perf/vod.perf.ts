@@ -35,6 +35,12 @@ test('vod catalogue: 60k movies in 80 categories: build, first sorts, slices, se
     sliceTimes.push(performance.now() - t);
   }
 
+  // What getVodHome does on a fresh catalogue: the first 30 of every category.
+  const fresh = new VodCatalog('movie', list);
+  const t2 = performance.now();
+  for (const c of fresh.categories()) fresh.slice(c.id, 'added', 0, 30);
+  const homeRowsMs = performance.now() - t2;
+
   const searchTimes: number[] = [];
   for (const q of ['s', 'film 1', 'part 3', 'synthetic film 59999', 'zzz']) {
     for (let r = 0; r < 5; r++) {
@@ -46,13 +52,14 @@ test('vod catalogue: 60k movies in 80 categories: build, first sorts, slices, se
 
   const storedBytes = JSON.stringify(list).length;
   console.log(JSON.stringify({
-    buildMs: Math.round(buildMs), firstSortsMs: Math.round(firstSortsMs),
+    buildMs: Math.round(buildMs), firstSortsMs: Math.round(firstSortsMs), homeRowsMs: Math.round(homeRowsMs),
     sliceMedianMs: median(sliceTimes).toFixed(2), searchMedianMs: median(searchTimes).toFixed(2),
     storedMB: (storedBytes / 1e6).toFixed(1),
   }));
 
   expect(buildMs).toBeLessThan(500);
   expect(firstSortsMs).toBeLessThan(2000);
+  expect(homeRowsMs).toBeLessThan(60);
   expect(median(sliceTimes)).toBeLessThan(20);
   expect(median(searchTimes)).toBeLessThan(30);
   expect(storedBytes).toBeLessThan(15e6);

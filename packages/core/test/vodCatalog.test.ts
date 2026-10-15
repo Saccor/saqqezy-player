@@ -51,4 +51,14 @@ describe('VodCatalog', () => {
   test('no added dates', () => {
     expect(new VodCatalog('movie', { items: [it(1, 'A')], categories: [] }).hasAddedDates).toBe(false);
   });
+
+  test('category slices keep list order within equal keys and do not leak other categories', () => {
+    const items: VodItem[] = [
+      it(1, 'Same', { categoryId: 'a' }), it(2, 'Same', { categoryId: 'b' }), it(3, 'Same', { categoryId: 'a' }),
+    ];
+    const cat = new VodCatalog('movie', { items, categories: [] });
+    expect(cat.slice('a', 'title', 0, 10).rows.map((r) => r.id)).toEqual(['s:m1', 's:m3']);
+    expect(cat.slice('b', 'added', 0, 10).rows.map((r) => r.id)).toEqual(['s:m2']);
+    expect(cat.slice('c', 'title', 0, 10)).toEqual({ total: 0, rows: [] });
+  });
 });

@@ -6,6 +6,8 @@ export class VodCatalog {
   private readonly ids: Map<string, VodItem>;
   private keys: string[] | undefined;
   private readonly orders = new Map<string, number[]>();
+  /** Item indexes per category, built in one pass on first use. */
+  private buckets: Map<string, number[]> | undefined;
 
   constructor(readonly kind: VodKind, private readonly list: VodList) {
     this.ids = new Map(list.items.map((i) => [i.id, i]));
@@ -70,17 +72,31 @@ export class VodCatalog {
     return ka < kb ? -1 : ka > kb ? 1 : a - b;
   }
 
+  private bucket(categoryId: string): number[] {
+    if (categoryId === VOD_ALL) return this.list.items.map((_, i) => i);
+    if (!this.buckets) {
+      const b = new Map<string, number[]>();
+      this.list.items.forEach((it, i) => {
+        const list = b.get(it.categoryId);
+        if (list) list.push(i);
+        else b.set(it.categoryId, [i]);
+      });
+      this.buckets = b;
+    }
+    // A copy: the caller sorts it.
+    return [...(this.buckets.get(categoryId) ?? [])];
+  }
+
   private order(categoryId: string, sort: VodSort): number[] {
     const cacheKey = `${categoryId}|${sort}`;
     const cached = this.orders.get(cacheKey);
     if (cached) return cached;
     const items = this.list.items;
-    const order: number[] = [];
-    for (let i = 0; i < items.length; i++) if (categoryId === VOD_ALL || items[i]!.categoryId === categoryId) order.push(i);
+    const order = this.bucket(categoryId);
     if (sort === 'title') order.sort((a, b) => this.byTitle(a, b));
     else if (sort === 'added') order.sort((a, b) => (items[b]!.added ?? -1) - (items[a]!.added ?? -1) || a - b);
     else order.sort((a, b) => (items[b]!.rating ?? -1) - (items[a]!.rating ?? -1) || this.byTitle(a, b));
-    this.orders.set(cacheKey, order);
+    if (order.length) this.orders.set(cacheKey, order);
     return order;
   }
 }
