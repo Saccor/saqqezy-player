@@ -18,7 +18,8 @@ import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
-  BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, showWordmark, WORDMARK_MAX_WAIT_MS,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
+  showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
@@ -118,7 +119,7 @@ export function App() {
         of the bottom row (the screen hides its hint line then and puts its own buttons after it).
       */}
       <Show when={shellBackShown(current()?.screen)}>
-        <PointerBar x={LAYOUT.safeX} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} zIndex={45} global
+        <PointerBar x={shellBackX(current()?.screen)} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} zIndex={45} global
           items={[{ id: 'shellBack', label: SHELL_BACK_LABEL, width: SHELL_BACK_W, onPress: shellBack }]} />
       </Show>
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}

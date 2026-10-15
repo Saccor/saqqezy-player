@@ -1,5 +1,6 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
+import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import type { ScreenId } from './router.ts';
 import { LAYOUT } from './theme.ts';
 
@@ -101,6 +102,13 @@ export const SHELL_BACK_W = 200;
  */
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
+/**
+ * The shell Back's x: the row start, except on Search, whose full keyboard reaches down to just above the row there.
+ * Search puts it at the start of its results column instead (keyboard x + width + two gaps), on the same row.
+ */
+export function shellBackX(route: ScreenId | undefined): number {
+  return route === 'search' ? LAYOUT.safeX + FULL_LAYOUT.width + LAYOUT.gap * 2 : LAYOUT.safeX;
+}
 /** Where a screen's own bottom-row buttons start: after the shell's Back, one bar gap apart. */
 export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
-  BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, toastOnShow,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastOnShow,
 } from './logic.ts';
 import { LAYOUT } from './theme.ts';
 import { exitApp } from './platformExit.ts';
@@ -182,6 +182,12 @@ describe('shell Back button (pointer mode)', () => {
   it("sits at the start of the bottom row, inside the safe area, with Home's button size", () => {
     expect([BOTTOM_ROW_Y, BOTTOM_ROW_H, SHELL_BACK_W]).toEqual([978, 48, 200]);
     expect(BOTTOM_ROW_Y + BOTTOM_ROW_H).toBe(LAYOUT.height - LAYOUT.safeY);
+  });
+
+  it("sits beside Search's keyboard (at its results column), not under it; at the row start elsewhere", () => {
+    expect(shellBackX('search')).toBe(936);
+    expect(shellBackX('search')).toBeGreaterThanOrEqual(LAYOUT.safeX + 792 + 12);
+    for (const r of ['settings', 'guide', 'addSource'] as const) expect(shellBackX(r)).toBe(LAYOUT.safeX);
   });
 
   it("leaves room for it: a screen's own bottom-row buttons start one gap after it", () => {
