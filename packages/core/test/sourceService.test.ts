@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceService } from '../src/service/sourceService.ts';
-import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
@@ -796,5 +796,61 @@ describe('SourceService – title index', () => {
     await service.deleteSource(source.id);
     await service.rebuildTitleIndex(source.id);
     expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeUndefined();
+  });
+});
+
+describe('SourceService – refusal cooldown', () => {
+  const xInput = { kind: 'xtream' as const, name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
+  let calls: string[];
+  const counting: FetchFn = async (url, init) => {
+    calls.push(new URL(url).searchParams.get('action') ?? new URL(url).pathname);
+    return fetchFn(url, init);
+  };
+  const addX = async (svc: SourceService) => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 7, name: 'Channel 007', category_id: '1', num: 7 }]);
+    const { source } = await svc.addSource(xInput);
+    return { source, channels: (await svc.loadIndex(source.id)).slice('all', 0, 1) };
+  };
+  beforeEach(() => {
+    calls = [];
+    service = new SourceService({ storage, fetch: counting, now: () => NOW, newId: () => 'id1' });
+  });
+
+  test('a refused request blocks the next one without sending it, across a restart', async () => {
+    const { source } = await addX(service);
+    routes['api:auth'] = () => new Response('', { status: 403 });
+    await expect(service.refreshPlaylist(source.id)).rejects.toBeInstanceOf(SourceAuthError);
+    expect(service.guard.isBlocked(source.id)).toBe(true);
+    calls = [];
+    await expect(service.refreshPlaylist(source.id)).rejects.toBeInstanceOf(SourceRefusedError);
+    await expect(service.refreshEpg(source.id)).rejects.toBeInstanceOf(SourceRefusedError);
+    const again = new SourceService({ storage, fetch: counting, now: () => NOW });
+    await expect(again.refreshPlaylist(source.id)).rejects.toBeInstanceOf(SourceRefusedError);
+    expect(calls).toEqual([]);
+  });
+
+  test('short EPG sends nothing while blocked', async () => {
+    const { source, channels } = await addX(service);
+    routes['api:get_short_epg'] = () => json({ epg_listings: [] });
+    await service.guard.report(source.id, 'refused');
+    calls = [];
+    expect((await service.shortEpgFor(source.id, channels)).size).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  test('a 429 on the guide download counts as a refusal', async () => {
+    const m = await service.addSource(m3uInput);
+    routes['/epg.xml'] = () => new Response('', { status: 429 });
+    await expect(service.refreshEpg(m.source.id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(service.guard.isBlocked(m.source.id)).toBe(true);
+  });
+
+  test('deleteSource forgets the record', async () => {
+    const { source } = await addX(service);
+    await service.guard.report(source.id, 'refused');
+    await service.deleteSource(source.id);
+    expect(await storage.getMeta(`refusal:${source.id}`)).toBeNull();
   });
 });

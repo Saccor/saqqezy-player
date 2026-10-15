@@ -135,4 +135,80 @@ describe('playback controller', () => {
     pb.setRect({ x: 0, y: 0, w: 1920, h: 1080 });
     expect(pb.rectIsFullscreen()).toBe(true);
   });
+
+  describe('refusal cooldown', () => {
+    const guarded = (blocked: { on: boolean }) => {
+      const f = fakes();
+      const calls: string[] = [];
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: () => blocked.on,
+        refused: (k) => calls.push(`refused:${k}`),
+        answered: (k) => calls.push(`answered:${k}`),
+      });
+      return { f, pb, calls };
+    };
+
+    it('opens nothing while the source is blocked, and plays the held channel once it is not', () => {
+      const blocked = { on: true };
+      const { f, pb } = guarded(blocked);
+      expect(pb.playChannel(ch('1'))).toBe(false);
+      expect(f.supervisor.play).not.toHaveBeenCalled();
+      expect(pb.current()?.id).toBe('1');
+      blocked.on = false;
+      expect(pb.playChannel(ch('1'))).toBe(true); // same channel, but it never opened
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the first frame once per play, and a refusal at any time', () => {
+      const { f, pb, calls } = guarded({ on: false });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'playing' });
+      f.emit({ kind: 'playing' });
+      f.emit({ kind: 'failed', reason: 'refused' }); // refused on a reconnect, after it played
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'refused' });
+      f.emit({ kind: 'failed', reason: 'unavailable' });
+      expect(calls).toEqual(['answered:src-1', 'refused:src-1', 'refused:src-1']);
+    });
+
+    it('resumeHeld opens the held channel once, and nothing when none is held', () => {
+      const blocked = { on: true };
+      const { f, pb } = guarded(blocked);
+      pb.resumeHeld();
+      pb.playChannel(ch('1'));
+      blocked.on = false;
+      pb.resumeHeld();
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('holdForCooldown stops a stream that is still loading or reconnecting, not one that plays', () => {
+      const blocked = { on: false };
+      const { f, pb } = guarded(blocked);
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'playing' });
+      blocked.on = true;
+      pb.holdForCooldown();
+      expect(f.supervisor.stop).not.toHaveBeenCalled();
+      f.emit({ kind: 'reconnecting', attempt: 1 } as SupervisorStatus);
+      pb.holdForCooldown();
+      expect(f.supervisor.stop).toHaveBeenCalledTimes(1);
+      expect(pb.current()?.id).toBe('1');
+      expect(pb.status()).toBeUndefined();
+      blocked.on = false;
+      expect(pb.playChannel(ch('1'))).toBe(true);
+    });
+
+    it('a stream the source refused is held, so the end of the cooldown reopens it', () => {
+      const blocked = { on: false };
+      const { f, pb } = guarded(blocked);
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'refused' });
+      blocked.on = true;
+      pb.holdForCooldown();
+      blocked.on = false;
+      pb.resumeHeld();
+      expect(f.supervisor.play).toHaveBeenCalledTimes(2);
+    });
+  });
 });

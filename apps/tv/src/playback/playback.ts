@@ -1,5 +1,6 @@
 import { PlaybackJournal, PlaybackSupervisor, type JournalEvent, type Player } from '@iptv/player';
-import { initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
+import { api } from '../api.ts';
+import { cooldown, initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -68,9 +69,17 @@ export const supervisor = new PlaybackSupervisor(player, {
   journal,
 });
 
+const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
+
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
 export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
+  // The worker owns the refusal cooldown: no stream opens while the active source is cooling down.
+  {
+    blocked: () => cooldown().state !== 'clear',
+    refused: (key) => { api.reportStreamRefused(key).catch(reportFailed); },
+    answered: (key) => { api.reportStreamAnswered(key).catch(reportFailed); },
+  },
 );
 
 // Hidden pages present no frames: the stall ladder pauses while hidden. Back from the background after a while,

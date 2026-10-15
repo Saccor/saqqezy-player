@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, initFailed, initState, wireEvents } from './appState.ts';
+import { INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, cooldown, initFailed, initState, wireEvents } from './appState.ts';
 
 const ready: InitState = {
   sources: [{ id: 's1', name: 'Mine', kind: 'xtream', active: true }],
@@ -94,6 +94,30 @@ describe('wireEvents', () => {
     fns.get('companion')?.({ type: 'companion', status: { state: 'expired' } });
     expect(companionStatus()).toEqual({ state: 'expired' });
     expect(toast).not.toHaveBeenCalled();
+    off();
+  });
+});
+
+describe('wireEvents – refusal cooldown', () => {
+  it("follows the active source's cooldown from InitState and events, without a toast", () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
+    const toast = vi.fn();
+    const off = wireEvents(on, toast);
+    applyInitState({ sources: [], activeSourceId: 's1', groups: [], settings: DEFAULT_SETTINGS, cooldown: { state: 'manual' } });
+    expect(cooldown()).toEqual({ state: 'manual' });
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'other', cooldown: { state: 'clear' } });
+    expect(cooldown()).toEqual({ state: 'manual' });
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's1', cooldown: { state: 'waiting', until: 5 } });
+    expect(cooldown()).toEqual({ state: 'waiting', until: 5 });
+    fns.get('refreshFailed')?.({ type: 'refreshFailed', what: 'playlist', sourceId: 's1', error: { name: 'SourceRefused', message: 'x' } });
+    expect(toast).not.toHaveBeenCalled();
+    applyInitState({ sources: [], groups: [], settings: DEFAULT_SETTINGS });
+    expect(cooldown()).toEqual({ state: 'clear' });
+    // An event that arrived before InitState still counts once its source is active.
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's9', cooldown: { state: 'manual' } });
+    applyInitState({ sources: [], activeSourceId: 's9', groups: [], settings: DEFAULT_SETTINGS, cooldown: { state: 'clear' } });
+    expect(cooldown()).toEqual({ state: 'manual' });
     off();
   });
 });

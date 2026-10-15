@@ -1,4 +1,4 @@
-import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { responseText } from '../net/textStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
@@ -64,7 +64,7 @@ export class XtreamClient {
     try {
       res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS });
     } catch (err) {
-      if (err instanceof SourceNetworkError) throw err;
+      if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();

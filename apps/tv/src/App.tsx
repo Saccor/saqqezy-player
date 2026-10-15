@@ -1,5 +1,5 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
-import { createSignal, onCleanup, onMount } from 'solid-js';
+import { createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
 import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
@@ -26,7 +26,7 @@ import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
-import { bootstrap, initFailed, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { bootstrap, cooldown, initFailed, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
@@ -88,6 +88,17 @@ export function App() {
     if (router.back() === 'root') openExit();
     return true;
   };
+
+  // The active source started cooling down (or a stream began reconnecting while it is): stop a stream that is not
+  // playing, so the supervisor's retries send nothing. A stream that plays keeps playing. When the cooldown ends
+  // (the wait ran out, or Retry), the channel it held back opens.
+  createEffect(on(() => cooldown().state, (state, prev) => {
+    if (state !== 'clear') playback.holdForCooldown();
+    else if (prev !== undefined && prev !== 'clear') playback.resumeHeld();
+  }));
+  createEffect(() => {
+    if (cooldown().state !== 'clear' && playback.status()) playback.holdForCooldown();
+  });
 
   onMount(() => {
     onCleanup(wireEvents(onEvent, showToast, {

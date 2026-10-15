@@ -15,6 +15,8 @@ export function toastFor(e: AppEvent): string | undefined {
   // Changes made on this device need no toast; a paired companion's do.
   if (e.type === 'layoutChanged' || e.type === 'sourcesChanged') return e.origin === 'remote' ? 'Updated from your phone' : undefined;
   if (e.type !== 'refreshFailed') return undefined;
+  // The source is cooling down: Home and the Player already say so.
+  if (e.error.name === 'SourceRefused') return undefined;
   return e.what === 'playlist' ? "Couldn't refresh channels. Showing saved list." : "Couldn't refresh the TV guide.";
 }
 

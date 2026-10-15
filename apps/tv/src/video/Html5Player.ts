@@ -54,7 +54,8 @@ const HLS_CODEC_ERRORS = new Set<string>([
   ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR,
 ]);
 
-const AUTH_STATUSES = new Set([401, 403, 410]);
+/** Refusals (see engineConfig's REFUSED_STATUSES): reported as AUTH, so the supervisor stops and the cooldown starts. */
+const AUTH_STATUSES = new Set([401, 403, 410, 429, 458, 503, 509]);
 /** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
 const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
 
