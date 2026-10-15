@@ -46,7 +46,7 @@ describe('gridLogic', () => {
   });
 
   describe('gridCellAt', () => {
-    const g = { pad: 16, cellW: 100, gap: 20, rowPitch: 200 };
+    const g = { pad: 16, cellW: 100, gap: 20, rowPitch: 200, hitH: 170 };
     test('maps a local point to a tile, honouring the scroll row', () => {
       expect(gridCellAt(16, 16, 0, g, 50)).toBe(0);
       expect(gridCellAt(16 + 120 * 2 + 50, 16 + 100, 0, g, 50)).toBe(2);
@@ -57,7 +57,7 @@ describe('gridLogic', () => {
       expect(gridCellAt(5, 20, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(16, 5, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(16 + 105, 20, 0, g, 50)).toBeUndefined();
-      expect(gridCellAt(20, 16 + 185, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(20, 16 + 175, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(16 + 120 * 6, 16 + 200, 0, g, 10)).toBeUndefined();
       expect(gridCellAt(16 + 120 * 7, 20, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(Number.NaN, 20, 0, g, 50)).toBeUndefined();

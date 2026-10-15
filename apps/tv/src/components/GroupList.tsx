@@ -24,6 +24,8 @@ export function GroupList(props: {
   onRight: () => boolean;
   /** Up on the first group (Home: move focus to the search bar). */
   onEdgeUp?: () => boolean;
+  /** Focus entered or left the column. */
+  onFocusChanged?: (focused: boolean) => void;
   /** Pointer click on group `index`. */
   onRowClick?: (index: number) => void;
   /** Pointer hit-test layer: 'overlay' inside a picker. Default 'screen'. */
@@ -70,7 +72,7 @@ export function GroupList(props: {
 
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping
-      onFocusChanged={setFocused} onUp={() => move(-1)} onDown={() => move(1)}
+      onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }} onUp={() => move(-1)} onDown={() => move(1)}
       onRight={() => props.onRight()} onEnter={() => props.onRight()}>
       <For each={indices()}>{(i) => {
         const g = () => props.groups[i];

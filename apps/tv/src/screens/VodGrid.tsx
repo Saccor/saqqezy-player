@@ -5,6 +5,7 @@ import { VOD_ROW_CONTINUE, VOD_ROW_RECENT } from '@iptv/app-api';
 import type { VodSort } from '@iptv/core';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
+import { Button } from '../components/Button.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { PosterTile } from '../components/PosterTile.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
@@ -12,6 +13,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { initState } from '../state/appState.ts';
 import {
   GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, SORT_LABELS, gridCellAt, gridMove, gridPage, loadSort, nextSort, pagesFor, saveSort, sortsFor,
   type GridGeometry,
@@ -36,9 +38,14 @@ const HEAD_Y = 158;
  * button. It reaches PAD past the tiles on the left and top so a focused tile's scale and ring are not clipped.
  */
 const PAD = 16;
-const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: ROW_PITCH };
+/** Tile, then the title line and the year line under it. */
+const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: ROW_PITCH, hitH: CELL_H + 44 + FONT.small };
 
-type Area = 'rail' | 'sort' | 'grid';
+type Area = 'rail' | 'sort' | 'grid' | 'retry';
+
+interface GridMemory { focus: number; top: number }
+/** Kept across visits so Back from the detail returns to the same poster. */
+const memories = new Map<string, GridMemory>();
 
 const store = () => {
   try {
@@ -69,6 +76,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let railNode: ElementNode | undefined;
   let sortNode: ElementNode | undefined;
   let gridNode: ElementNode | undefined;
+  let retryNode: ElementNode | undefined;
   let alive = true;
   let lastTopRow = 0;
   /** Bumped per category/sort change: answers for an older one are dropped. */
@@ -77,6 +85,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const inflight = new Set<string>();
 
   const cat = () => cats()[catIndex()];
+  const memKey = () => `${initState()?.activeSourceId ?? ''}:${kind}:${cat()?.id ?? ''}:${sort()}`;
+  const remember = () => { if (cat()) memories.set(memKey(), { focus: focus(), top: topRow() }); };
   const sorts = () => sortsFor(cats().some((c) => c.id === VOD_ROW_RECENT));
   const tileAt = (i: number) => pages().get(Math.floor(i / GRID_PAGE))?.[i % GRID_PAGE];
   const topRow = createMemo(() => {
@@ -125,8 +135,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   const focusArea = (a: Area) => {
     if (a === 'grid' && total() === 0) a = 'rail';
+    if (a === 'retry' && !retryNode) a = 'rail';
     setArea(a);
-    (a === 'rail' ? railNode : a === 'sort' ? sortNode : gridNode)?.setFocus();
+    (a === 'rail' ? railNode : a === 'sort' ? sortNode : a === 'retry' ? retryNode : gridNode)?.setFocus();
     return true;
   };
 
@@ -134,28 +145,83 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const reset = async () => {
     const myGen = ++gen;
     inflight.clear();
+    const mem = memories.get(memKey());
     lastTopRow = 0;
     batch(() => {
       setFocus(0);
       setPages(new Map());
       setTotal(0);
       setFailed(false);
+      setHover(undefined);
     });
     const id = cat()?.id;
     if (!id) return;
     try {
-      const first = await api.getVodSlice(kind, id, sort(), 0, GRID_PAGE);
+      // A remembered position: load the page it lives on first.
+      const want = mem ? Math.floor(mem.focus / GRID_PAGE) : 0;
+      const first = await api.getVodSlice(kind, id, sort(), want * GRID_PAGE, GRID_PAGE);
       if (!alive || myGen !== gen) return;
+      const restore = mem !== undefined && first.total > 0;
+      const idx = restore ? Math.min(mem.focus, first.total - 1) : 0;
+      // The total shrank so the clamped index left that page: start at the top instead.
+      const ok = restore && Math.floor(idx / GRID_PAGE) === want;
       batch(() => {
+        lastTopRow = ok ? mem.top : 0;
         setTotal(first.total);
-        setPages(new Map([[0, first.rows]]));
+        setPages(new Map([[want, first.rows]]));
+        setFocus(ok ? idx : 0);
       });
+      ensurePages();
     } catch (err) {
       if (!alive || myGen !== gen) return;
       console.warn('Movies load failed', errName(err));
       setFailed(true);
     }
     // The focused grid may have just become empty (a removed title, a failed load): never leave focus on nothing.
+    if (alive && myGen === gen && area() === 'grid' && total() === 0 && noOverlay()) focusArea('rail');
+  };
+
+  /**
+   * Re-reads the current category after a change made here (a poster-menu action): the grid stays as it is, with the
+   * same focused index (clamped to the new total) and the same scroll, until the fresh pages around it have arrived.
+   */
+  const reload = async () => {
+    const myGen = ++gen;
+    inflight.clear();
+    const id = cat()?.id;
+    if (!id) return;
+    const keep = focus();
+    const oldIx = indices();
+    try {
+      const probePage = Math.floor(keep / GRID_PAGE);
+      const probe = await api.getVodSlice(kind, id, sort(), probePage * GRID_PAGE, GRID_PAGE);
+      if (!alive || myGen !== gen) return;
+      const n = probe.total;
+      const fresh = new Map<number, VodTile[]>([[probePage, probe.rows]]);
+      const idx = n > 0 ? Math.min(keep, n - 1) : 0;
+      if (n > 0) {
+        const clamp = (v: number) => Math.max(0, Math.min(n - 1, v));
+        const want = new Set(pagesFor(clamp(oldIx[0] ?? idx), clamp(oldIx[oldIx.length - 1] ?? idx)));
+        want.add(Math.floor(idx / GRID_PAGE));
+        await Promise.all([...want].filter((p) => p * GRID_PAGE < n && p !== probePage).map(async (p) => {
+          const s = await api.getVodSlice(kind, id, sort(), p * GRID_PAGE, GRID_PAGE);
+          fresh.set(p, s.rows);
+        }));
+        if (!alive || myGen !== gen) return;
+      }
+      batch(() => {
+        if (n === 0) lastTopRow = 0;
+        setTotal(n);
+        setPages(n === 0 ? new Map() : fresh);
+        setFocus(idx);
+        setHover(undefined);
+      });
+      remember();
+      ensurePages();
+    } catch (err) {
+      if (!alive || myGen !== gen) return;
+      console.warn('Movies reload failed', errName(err));
+    }
     if (alive && myGen === gen && area() === 'grid' && total() === 0 && noOverlay()) focusArea('rail');
   };
 
@@ -166,14 +232,16 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   };
   const pickCat = createDebounce<number>(TAB_SWITCH_MS, (i) => { void commitCat(i); });
 
+  const rightTarget = (): Area => (total() > 0 ? 'grid' : failed() ? 'retry' : 'sort');
+
   /** Right from the rail: a category chosen a moment ago is applied first, so the grid never shows the old one. */
   const railRight = () => {
     if (pickCat.pending()) {
       pickCat.cancel();
-      void commitCat(railSel()).then(() => { if (alive && area() === 'rail' && noOverlay()) focusArea(total() > 0 ? 'grid' : 'sort'); });
+      void commitCat(railSel()).then(() => { if (alive && area() === 'rail' && noOverlay()) focusArea(rightTarget()); });
       return true;
     }
-    return focusArea(total() > 0 ? 'grid' : 'sort');
+    return focusArea(rightTarget());
   };
 
   const moveGrid = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -181,20 +249,25 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     if (r === 'rail') return focusArea('rail');
     if (r === 'header') return focusArea('sort');
     setFocus(r);
+    setHover(undefined);
+    remember();
     ensurePages();
     return true;
   };
   const page = (dir: 1 | -1) => {
     setFocus(gridPage(focus(), dir, total()));
+    setHover(undefined);
+    remember();
     ensurePages();
     return true;
   };
   const open = () => {
     const t = tileAt(focus());
+    remember();
     if (t) router.push('movieDetail', { id: t.id, tile: t });
     return true;
   };
-  const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void reset() });
+  const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void reload() });
   const openMenu = () => {
     const t = tileAt(focus());
     if (t) menu.open(t, cat()?.id === VOD_ROW_CONTINUE);
@@ -207,6 +280,12 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     void reset();
   };
 
+  /** Focus goes to the grid: a pending category pick is dropped and the rail shows the category the grid has. */
+  const settleRail = () => {
+    pickCat.cancel();
+    setRailSel(catIndex());
+  };
+
   // Pointer: a click opens the tile, a right click opens its menu, the wheel moves a row (never out of the grid).
   const cellAt = (p: Point) => gridCellAt(p.x, p.y, topRow(), GEO, total());
   usePointerTarget({
@@ -217,6 +296,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     onClick: (p) => {
       const i = cellAt(p);
       if (i === undefined || !tileAt(i)) return;
+      settleRail();
       setFocus(i);
       focusArea('grid');
       open();
@@ -224,6 +304,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     onContextMenu: (p) => {
       const i = cellAt(p);
       if (i === undefined || !tileAt(i)) return;
+      settleRail();
       setFocus(i);
       focusArea('grid');
       openMenu();
@@ -233,14 +314,16 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       const r = gridMove(focus(), dy > 0 ? 'down' : 'up', total());
       if (typeof r === 'number' && r !== focus()) {
         setFocus(r);
+        remember();
         ensurePages();
       }
+      setHover(undefined);
       return true;
     },
   });
 
-  onMount(() => {
-    void (async () => {
+  const start = async () => {
+      setFailed(false);
       let cs: VodCategoryView[];
       try {
         cs = await api.getVodCategories(kind);
@@ -248,7 +331,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         console.warn('Movie categories failed', errName(err));
         setFailed(true);
-        focusArea('rail');
+        if (noOverlay()) focusArea(area() === 'retry' ? 'retry' : 'rail');
         return;
       }
       if (!alive) return;
@@ -260,9 +343,16 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         setRailSel(i);
       });
       await reset();
-      if (alive && noOverlay()) focusArea(total() > 0 ? 'grid' : 'rail');
-    })();
-  });
+      if (alive && noOverlay()) focusArea(total() > 0 ? 'grid' : failed() ? 'retry' : 'rail');
+  };
+  onMount(() => { void start(); });
+  /** Try again: re-reads the categories when there are none, else the current category. */
+  const retry = () => {
+    focusArea('rail');
+    void (cats().length === 0 ? start() : reset()).then(() => {
+      if (alive && area() === 'rail' && total() > 0 && noOverlay()) focusArea('grid');
+    });
+  };
   onCleanup(() => {
     alive = false;
     gen++;
@@ -274,18 +364,19 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const y = (i: number) => PAD + (Math.floor(i / GRID_COLS) - topRow()) * ROW_PITCH;
 
   return (
-    <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }}>
+    <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }} onLeft={() => focusArea('rail')}>
       <GroupList ref={(el) => { railNode = el; }} x={RAIL_X} y={RAIL_Y} width={RAIL_W} height={RAIL_H}
         groups={cats()} selected={railSel()} onSelect={(i) => { setRailSel(i); pickCat.schedule(i); }}
         onRight={railRight}
-        onRowClick={(i) => { pickCat.cancel(); setRailSel(i); void commitCat(i); }} />
+        onFocusChanged={(f) => { if (f) setArea('rail'); }}
+        onRowClick={(i) => { pickCat.cancel(); setRailSel(i); focusArea('rail'); void commitCat(i); }} />
       <Text x={GRID_X} y={HEAD_Y} fontSize={FONT.heading} color={COLORS.text}>{cat()?.name ?? ''}</Text>
       <Text x={GRID_X} y={HEAD_Y + 44} fontSize={FONT.small} color={COLORS.muted}>{total() === 1 ? '1 title' : `${total()} titles`}</Text>
       <ActionBar ref={(el) => { sortNode = el; }} x={LAYOUT.width - LAYOUT.safeX - 300} y={HEAD_Y - 6}
         actions={[{ id: 'sort', label: `Sort: ${SORT_LABELS[sort()]}`, width: 300 }]} onAction={cycleSort}
         onLeft={() => focusArea('rail')} onDown={() => focusArea('grid')} onFocusChanged={(f) => { if (f) setArea('sort'); }} />
       <View ref={(el) => { gridNode = el; }} x={GRID_X - PAD} y={GRID_Y - PAD} width={GRID_W + PAD * 2} height={LAYOUT.height - (GRID_Y - PAD)} clipping
-        onFocusChanged={(f: boolean) => { if (f) setArea('grid'); }}
+        onFocusChanged={(f: boolean) => { if (f) { setArea('grid'); settleRail(); } }}
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)} onEnter={open} onMenu={openMenu} onLongOk={openMenu}>
         <For each={indices()}>{(i) => (
@@ -301,6 +392,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       </View>
       <Show when={failed()}>
         <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{'Movies could not be loaded.'}</Text>
+        <Button ref={(el) => { retryNode = el; }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+          onUp={() => focusArea('sort')} />
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>
         <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>

@@ -71,8 +71,10 @@ export interface GridGeometry {
   pad: number;
   cellW: number;
   gap: number;
-  /** Distance between two rows; the tile, its title and its year all belong to the row's cell. */
+  /** Distance between two rows. */
   rowPitch: number;
+  /** Rendered height of one cell: the tile plus its title and year lines (the rest of the pitch is gap). */
+  hitH: number;
 }
 
 /** The tile index under a grid-node-local point (design px), or undefined over padding, gaps or past the last tile. */
@@ -84,7 +86,7 @@ export function gridCellAt(px: number, py: number, topRow: number, g: GridGeomet
   const col = Math.floor(x / colPitch);
   if (col >= GRID_COLS || x - col * colPitch >= g.cellW) return undefined;
   const row = topRow + Math.floor(y / g.rowPitch);
-  if (y - (row - topRow) * g.rowPitch >= g.rowPitch - g.gap) return undefined;
+  if (y - (row - topRow) * g.rowPitch >= g.hitH) return undefined;
   const i = row * GRID_COLS + col;
   return i < total ? i : undefined;
 }
