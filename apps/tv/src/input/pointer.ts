@@ -166,8 +166,10 @@ export function shellBack(): void {
  * A full-screen click-outside target for an overlay. Call it before the overlay's own targets, so they win where they
  * overlap. A click or right click outside closes the overlay like Back; the wheel is swallowed.
  */
-export function usePointerBackdrop(node: () => ElementNode | undefined, onOutside: () => void = shellBack): void {
-  usePointerTarget({ node, layer: 'overlay', onClick: () => onOutside(), onContextMenu: () => onOutside(), onWheel: () => true });
+export function usePointerBackdrop(node: () => ElementNode | undefined, onOutside: () => void = shellBack, global = false): void {
+  usePointerTarget({
+    node, layer: 'overlay', global, onClick: () => onOutside(), onContextMenu: () => onOutside(), onWheel: () => true,
+  });
 }
 
 /** A screen opts into the 3 s auto-hide (the Player); `fn` says whether it may hide now. Returns the remover. */
@@ -227,9 +229,10 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
       e.preventDefault(); // never browser history navigation
       return;
     }
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 2) return;
     lastPoint = design(e);
     dispatch({ type: 'move', x: e.clientX, y: e.clientY, at: Date.now() });
+    if (e.button !== 0) return; // a right click only wakes pointer mode; its action runs on contextmenu
     down = { x: e.clientX, y: e.clientY, at: Date.now(), scope: router.current(), entry: hitAt(lastPoint)?.entry };
   };
   const onUp = (e: PointerEvent) => {

@@ -89,3 +89,11 @@ export function deferWordmark(s: {
   if (s.startupMarked || s.waitedOut || s.initFailed) return false;
   return s.route === undefined || s.route === 'home';
 }
+
+/** The shell's pointer-mode Back button (top left). */
+export const SHELL_BACK_LABEL = '← Back';
+
+/** Every screen except Home (Back there is the exit question) and the Player (its overlay has its own Back). */
+export function shellBackShown(route: ScreenId | undefined): boolean {
+  return route !== undefined && route !== 'home' && route !== 'player';
+}

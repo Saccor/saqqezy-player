@@ -3,6 +3,7 @@ import {
   createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
   toastOnShow,
 } from './logic.ts';
+import { SHELL_BACK_LABEL, shellBackShown } from './logic.ts';
 import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
@@ -160,5 +161,21 @@ describe('deferWordmark', () => {
 
   it('draws after the safety wait even if Home never shows rows', () => {
     expect(deferWordmark({ ...base, route: 'home', waitedOut: true })).toBe(false);
+  });
+});
+
+describe('shell Back button (pointer mode)', () => {
+  it('shows on every screen except Home (Back there is the exit question) and the Player (it has its own)', () => {
+    expect(shellBackShown('addSource')).toBe(true);
+    expect(shellBackShown('guide')).toBe(true);
+    expect(shellBackShown('search')).toBe(true);
+    expect(shellBackShown('settings')).toBe(true);
+    expect(shellBackShown('home')).toBe(false);
+    expect(shellBackShown('player')).toBe(false);
+    expect(shellBackShown(undefined)).toBe(false);
+  });
+
+  it('uses the spec copy', () => {
+    expect(SHELL_BACK_LABEL).toBe('← Back');
   });
 });
