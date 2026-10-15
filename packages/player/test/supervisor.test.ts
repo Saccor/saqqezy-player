@@ -1048,7 +1048,8 @@ describe('PlaybackSupervisor: VOD mode', () => {
   });
 
   it('resume plays, starts a fresh watch, and a waiting/playing pair right after it is not a stall', () => {
-    const { player, sup } = setup();
+    const log: JournalEvent[] = [];
+    const { player, sup } = setup({ journal: { add: (e) => { log.push(e); } } });
     player.health = vodHealth(player, { bufferAheadS: 0 });
     sup.play(V, undefined, { vod: true });
     player.emit('playing');
@@ -1060,7 +1061,7 @@ describe('PlaybackSupervisor: VOD mode', () => {
     expect(sup.paused()).toBe(false);
     player.emit('buffering');
     player.emit('playing');
-    expect(sup.liveInfo().stalls).toBe(0);
+    expect(log.filter((e) => e.k === 'stall')).toEqual([]);
     playFor(player, 5000);
     expect(player.opened).toHaveLength(1);
   });
@@ -1093,19 +1094,99 @@ describe('PlaybackSupervisor: VOD mode', () => {
     expect(player.openOpts[1]).toEqual({ live: false, startMs: 3000 });
   });
 
-  it('a gap the live ladder would jump (or seek to live) reopens instead', () => {
-    const { player, sup } = setup();
+  it('a buffered gap is never jumped, seeked to live or reopened early; the 8 s backstop reopens, with its cause journaled', () => {
+    const log: JournalEvent[] = [];
+    const { player, sup } = setup({ journal: { add: (e) => { log.push(e); } } });
     player.recover = vi.fn(() => true);
     player.seekToLive = vi.fn(() => true);
-    player.health = vodHealth(player, { bufferAheadS: 5, isLive: undefined });
+    player.health = vodHealth(player, { bufferAheadS: 5, rangeCount: 2, isLive: undefined });
     sup.play(V, undefined, { vod: true });
     player.emit('playing');
     playFor(player, 2000);
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(7500);
     expect(player.recover).not.toHaveBeenCalled();
     expect(player.seekToLive).not.toHaveBeenCalled();
+    expect(player.opened).toHaveLength(1);
+    vi.advanceTimersByTime(1500); // backstop at 8 s, reopen 1 s later
     expect(player.opened).toHaveLength(2);
     expect(player.openOpts[1]).toEqual({ live: false, startMs: 2000 });
+    expect(log).toContainEqual(expect.objectContaining({ k: 'ladder', action: 'reconnect', reason: 'backstop' }));
+    expect(log).toContainEqual(expect.objectContaining({ k: 'reconnect', cause: 'backstop' }));
+  });
+
+  it('after a seek or resume, a landing seek (two ranges, frozen playhead) never reopens', () => {
+    for (const act of ['seek', 'resume'] as const) {
+      const { player, sup } = setup();
+      player.seek = vi.fn(() => true);
+      player.health = vodHealth(player, { bufferAheadS: 5, rangeCount: 2 });
+      sup.play(V, undefined, { vod: true });
+      player.emit('playing');
+      playFor(player, 1000);
+      if (act === 'seek') sup.seek(30_000);
+      else { sup.pause(); vi.advanceTimersByTime(5000); sup.resume(); }
+      vi.advanceTimersByTime(3000);
+      expect(player.opened).toHaveLength(1);
+      sup.dispose();
+    }
+  });
+
+  it('the seek/resume grace holds the ladder until the playhead moves, or 10 s', () => {
+    const run = (act: 'seek' | 'resume') => {
+      const s = setup();
+      s.player.seek = vi.fn((ms: number) => { s.player.pos = ms; return true; });
+      s.player.health = vodHealth(s.player, { bufferAheadS: 0 });
+      s.sup.play(V, undefined, { vod: true });
+      s.player.emit('playing');
+      playFor(s.player, 1000);
+      if (act === 'seek') s.sup.seek(30_000);
+      else { s.sup.pause(); s.sup.resume(); }
+      return s;
+    };
+    for (const act of ['seek', 'resume'] as const) {
+      // Frozen with an empty buffer: without the grace the 4 s emptyBuffer rung would reopen at 5 s.
+      const a = run(act);
+      vi.advanceTimersByTime(9750);
+      expect(a.player.opened).toHaveLength(1);
+      vi.advanceTimersByTime(1500); // the grace is over: the ladder acts
+      expect(a.player.opened).toHaveLength(2);
+      a.sup.dispose();
+
+      // The playhead moved: the grace ends and a later freeze is a stall again.
+      const b = run(act);
+      playFor(b.player, 1000);
+      vi.advanceTimersByTime(5000);
+      expect(b.player.opened).toHaveLength(2);
+      b.sup.dispose();
+    }
+  });
+
+  it('a pause survives a reopen; pause needs an engine that can pause', () => {
+    const { player, sup } = setup();
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    sup.pause();
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toHaveLength(2);
+    expect(sup.paused()).toBe(true);
+    player.emit('playing');
+    expect(player.pause).toHaveBeenCalledTimes(2);
+    sup.resume();
+    expect(sup.paused()).toBe(false);
+
+    const n = setup();
+    Object.assign(n.player, { pause: undefined });
+    n.sup.play(V, undefined, { vod: true });
+    n.player.emit('playing');
+    n.sup.pause();
+    expect(n.sup.paused()).toBe(false);
+  });
+
+  it('VOD ignores alternate URLs', () => {
+    const { player, sup } = setup();
+    sup.play(V, B, { vod: true });
+    for (let i = 0; i < 3; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(8000); }
+    expect(player.opened).toEqual([V, V, V, V]);
   });
 
   it('byte silence is not a stall in VOD (lazy loading parks downloads far ahead)', () => {
@@ -1174,7 +1255,8 @@ describe('PlaybackSupervisor: VOD mode', () => {
   });
 
   it('seek calls the engine and marks a self action; an impossible seek reopens at the target', () => {
-    const { player, sup } = setup();
+    const log: JournalEvent[] = [];
+    const { player, sup } = setup({ journal: { add: (e) => { log.push(e); } } });
     player.health = vodHealth(player, { bufferAheadS: 0 });
     player.seek = vi.fn(() => true);
     sup.play(V, undefined, { vod: true });
@@ -1184,7 +1266,7 @@ describe('PlaybackSupervisor: VOD mode', () => {
     expect(player.seek).toHaveBeenCalledWith(30_000);
     player.emit('buffering');
     player.emit('playing');
-    expect(sup.liveInfo().stalls).toBe(0);
+    expect(log.filter((e) => e.k === 'stall')).toEqual([]);
     expect(player.opened).toHaveLength(1);
 
     player.seek = vi.fn(() => false);

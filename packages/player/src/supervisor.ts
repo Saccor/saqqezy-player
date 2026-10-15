@@ -72,6 +72,11 @@ const RESUME_GO_LIVE_MS = 30_000;
 const SELF_ACTION_GRACE_MS = 2_000;
 /** VOD: a stall or network error reopens at the last position at most this many times per play(). */
 const VOD_MAX_REOPENS = 3;
+/**
+ * VOD: after a seek or resume the ladder rests until the playhead first moves, or this long at most. Engines
+ * report odd buffers while a seek lands (two ranges, data ahead of a frozen playhead): not a stall.
+ */
+const VOD_SEEK_GRACE_MS = 10_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -148,6 +153,12 @@ export class PlaybackSupervisor {
   private lastPosMs = 0;
   /** VOD: reopens after a stall or a network/media error in this play(). */
   private vodReopens = 0;
+  /** VOD seek/resume grace: clock ms it ends at most, undefined when none. */
+  private graceUntil: number | undefined;
+  /** Grace: positions below this - 1 s mean the seek has not landed yet. */
+  private graceBaseMs = 0;
+  /** Grace: the first landed position; progress is measured from here. */
+  private graceAnchorMs: number | undefined;
   private giveUpSince = 0;
   private lastStatus: SupervisorStatus['kind'] | undefined;
   private noBytesTimer: Timer | undefined;
@@ -187,7 +198,10 @@ export class PlaybackSupervisor {
     this.gen++;
     this.active = true;
     this.givingUp = false;
-    this.urls = [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
+    // A VOD title has one URL: the "other format" alternates are a live-channel fallback, so VOD ignores them.
+    this.urls = opts.vod === true
+      ? [url]
+      : [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
     this.urlIndex = 0;
     this.fails = 0;
     this.authRetried = false;
@@ -203,6 +217,7 @@ export class PlaybackSupervisor {
     this.userPaused = false;
     this.lastPosMs = this.vod ? Math.max(0, opts.startMs ?? 0) : 0;
     this.vodReopens = 0;
+    this.graceUntil = undefined;
     const now = this.now();
     if (this.vod) {
       // A finite title has no live edge: nothing is learned, read or steered.
@@ -291,13 +306,16 @@ export class PlaybackSupervisor {
 
   // ---- VOD controls (no-ops for live) ----
 
-  /** VOD: pauses the title; the stall ladder rests until `resume()`. */
+  /**
+   * VOD: pauses the title; the stall ladder rests until `resume()`. The pause survives a reopen (the new attempt
+   * pauses on its first frame). Nothing happens when the engine cannot pause.
+   */
   pause(): void {
-    if (!this.vod || !this.active) return;
+    if (!this.vod || !this.active || !this.player.pause) return;
     this.userPaused = true;
     this.stalledWhilePlaying = false;
     this.stallStartedAt = undefined;
-    this.player.pause?.();
+    this.player.pause();
   }
 
   /** VOD: plays on; the watch starts afresh and the waiting/playing pair that may follow is our own doing. */
@@ -305,8 +323,10 @@ export class PlaybackSupervisor {
     if (!this.vod || !this.active || !this.userPaused) return;
     this.userPaused = false;
     const now = this.now();
+    const pos = this.player.health?.().positionMs ?? this.player.position();
     this.selfActionAt = now;
-    this.watch = newWatch(this.player.health?.().positionMs ?? this.player.position(), now);
+    this.watch = newWatch(pos, now);
+    this.startGrace(pos, now);
     this.player.play?.();
   }
 
@@ -318,11 +338,37 @@ export class PlaybackSupervisor {
     this.lastPosMs = Math.max(0, ms);
     if (this.player.seek?.(this.lastPosMs) ?? false) {
       this.watch = newWatch(this.lastPosMs, now);
+      this.startGrace(this.lastPosMs, now);
       // A title that had ended plays again from here: the ladder resumes.
       if (this.started && this.ticker === undefined) this.startTicker();
     } else {
       this.reopen(false, 'seek');
     }
+  }
+
+  private startGrace(baseMs: number, now: number): void {
+    this.graceUntil = now + VOD_SEEK_GRACE_MS;
+    this.graceBaseMs = baseMs;
+    this.graceAnchorMs = undefined;
+  }
+
+  /** True while the VOD seek/resume grace lasts: until the playhead first moves, or VOD_SEEK_GRACE_MS. */
+  private inGrace(posMs: number, now: number): boolean {
+    if (this.graceUntil === undefined) return false;
+    if (now >= this.graceUntil) {
+      this.graceUntil = undefined;
+      return false;
+    }
+    if (posMs < this.graceBaseMs - 1000) return true; // the seek has not landed yet
+    if (this.graceAnchorMs === undefined || posMs < this.graceAnchorMs) {
+      this.graceAnchorMs = posMs;
+      return true;
+    }
+    if (posMs - this.graceAnchorMs >= this.policy.minProgressS * 1000) {
+      this.graceUntil = undefined; // it plays: the ladder watches again
+      return false;
+    }
+    return true;
   }
 
   /** The playhead in ms: the engine's while an attempt plays; for VOD between attempts, the last known position. */
@@ -369,7 +415,6 @@ export class PlaybackSupervisor {
     this.stableSince = undefined;
     this.tickCount = 0;
     this.rate = 1;
-    this.userPaused = false; // a new attempt plays
     const p = this.policy;
     const pending = () => gen === this.gen && this.active && this.currentAttempt === id && !this.started;
     if (!this.vod) this.player.setLiveProfile?.({ preset: this.preset(), targetS: this.delay?.targetS() ?? 0, allowRate: this.allowRate });
@@ -421,6 +466,8 @@ export class PlaybackSupervisor {
         this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
         this.clearStartTimers();
+        // A reopen while the user had paused: the new attempt stays paused.
+        if (this.vod && this.userPaused) this.player.pause?.();
       }
       this.clearSpinner();
       if (!this.isPlaying) {
@@ -505,13 +552,10 @@ export class PlaybackSupervisor {
     if (this.playerState === 'playing' && this.stableSince !== undefined && now - this.stableSince >= p.stableMs) {
       this.fails = 0; // stable long enough: the next failure retries at once again
     }
+    if (this.vod && this.inGrace(h.positionMs, now)) return; // a seek or resume is still landing
+    // VOD (finite): no gap jump, live-edge seek or no-bytes rung; emptyBuffer, frozenVideo and backstop reopen at
+    // the last position.
     const d = decide(h, this.watch, p, now, this.vod);
-    if (this.vod && (d.do === 'gapJump' || d.do === 'seekLive')) {
-      // A finite title has no live edge and no gap to jump: reopen at the last position instead.
-      this.note({ k: 'ladder', action: 'reconnect', bufferAheadS: h.bufferAheadS });
-      this.fail('NETWORK', true);
-      return;
-    }
     if (d.do === 'gapJump') {
       this.watch.gapJumpsAt.push(now);
       this.watch.lastGapJumpAt = now;
