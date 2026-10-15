@@ -179,7 +179,7 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
   const results = c.hasResults ? focusTo('list') : STAY;
   switch (place) {
     case 'bar':
-      if (key === 'up') return c.searching ? STAY : focusTo('tabs');
+      if (key === 'up') return c.searching || c.keyboardOpen ? STAY : focusTo('tabs');
       if (key === 'down') return c.searching ? results : c.hasChannels ? focusTo('list') : STAY;
       if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
       if (key === 'back') return c.searching ? EXIT : PASS;

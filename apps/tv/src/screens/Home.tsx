@@ -14,19 +14,19 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
+import { TabBar } from '../components/TabBar.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback, previewHold } from '../playback/playback.ts';
-import { TabBar } from '../components/TabBar.tsx';
-import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
 import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { companionStatus, initState, markStartup } from '../state/appState.ts';
+import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, videoClickGroup } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
@@ -798,7 +798,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** Movies opens over Home; the live preview stops there and resumes when Home comes back. */
   const goTab = (t: TabId) => {
-    if (modalOpen()) return;
+    if (modalOpen() || kbOpen()) return;
     const nav = tabNavigation('live', t);
     if (nav.action === 'push') router.push('vod', { kind: nav.kind, focus: 'tabs' });
   };
@@ -870,7 +870,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
   const focusFromPointer = (node: ElementNode) => {
-    const place: Place | undefined = node === tabsNode ? 'tabs' : node === groupNode ? 'groups' : node === barNode ? 'bar' : node === searchKbNode ? 'keyboard'
+    const place: Place | undefined = node === tabsNode ? 'tabs' : node === groupNode ? 'groups' : node === barNode ? 'bar'
+      : node === searchKbNode ? 'keyboard'
       : node === listNode || node === resultsNode ? 'list' : undefined;
     if (place) focusArea(place);
     else node.setFocus();
@@ -894,7 +895,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       onEvent('refreshed', (e) => {
         setWaiting(false);
         void reload().then(() => {
-          if (alive && area() === 'groups' && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs');
+          if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs');
         }).catch(() => undefined);
         rerun(e);
       }),
@@ -970,8 +971,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // Search mode never starts playback without Ok.
         if (resume && !held && !searching()) void playById(resume);
         setReady(true);
-        const hasLive = (gs.find((x) => x.id === GROUP_ALL)?.count ?? 0) > 0;
-        if (!searching() && !exited()) focusArea(focusTabsHint || !hasLive ? 'tabs' : total() > 0 ? 'list' : 'groups');
+        if (!searching() && !exited()) focusArea(focusTabsHint ? 'tabs' : total() > 0 ? 'list' : 'groups');
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);
