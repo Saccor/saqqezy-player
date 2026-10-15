@@ -17,7 +17,7 @@ import { createContext, createSignal, onCleanup, onMount, useContext } from 'sol
 import type { PlatformId } from '@iptv/platform';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
-import { onLogicalKey, sendKey } from './keys.ts';
+import { notifyUserGesture, onLogicalKey, sendKey } from './keys.ts';
 import {
   POINTER_START, WHEEL_START, hitBeforeWake, isClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
   wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type PressHit, type Rect,
@@ -231,6 +231,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
   const onDown = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
+    notifyUserGesture(); // a mouse-only user gets the sound back after an autoplay mute, like a key press
     const p = design(e);
     lastPoint = p;
     // Any button wakes pointer mode, even without movement (after the Player's auto-hide or a remote key). The target
@@ -255,6 +256,7 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
+    notifyUserGesture();
     if (e.button === 3) {
       e.preventDefault();
       shellBack();

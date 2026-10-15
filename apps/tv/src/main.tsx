@@ -48,7 +48,7 @@ if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = {
 
 // Tizen only delivers colour, digit, channel, play/pause and info keys that the app registers.
 if (platformId === 'tizen') registerKeys();
-// Desktop autoplay may have started the stream muted: the first key press gives the sound back.
+// Desktop autoplay may have started the stream muted: the first key press or mouse click gives the sound back.
 onUserGesture(() => player.unmuteIfAutoMuted?.());
 installKeys();
 // Mouse and pointer remotes (desktop, the LG Magic Remote); a no-op on Tizen.
