@@ -7,6 +7,8 @@ export const COLORS = {
   muted: 0x7d8496ff,
   /** Semi-transparent background, for panels drawn over video. */
   panel: 0x0b0d12e6,
+  /** Lighter see-through background for the full-screen info banner, so the picture shows through. */
+  osd: 0x0b0d12a6,
   /** Dims whatever is underneath a dialog. */
   scrim: 0x0b0d12a0,
   /** Text on a focus-coloured fill. */

@@ -49,7 +49,7 @@ export function InfoBanner(props: {
   const c = () => props.channel;
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H - (props.lift ?? 0)} width={BANNER_W} height={BANNER_H}
-      color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={5}>
+      color={COLORS.osd} borderRadius={LAYOUT.radius * 2} zIndex={5}>
       <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.focus}>
         <Text y={(LOGO_H - FONT.title) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="center"
           fontSize={FONT.title} color={COLORS.onFocus}>{`${c().number}`}</Text>
