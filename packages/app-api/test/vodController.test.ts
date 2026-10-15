@@ -497,3 +497,117 @@ describe('VodController detail views vs reset', () => {
     expect(fake.movieDetail).not.toHaveBeenCalled();
   });
 });
+
+describe('VodController user state', () => {
+  test('progress and favourites show in home rows, rail counts and tiles', async () => {
+    const { c } = await setup();
+    await c.refresh('movie');
+    const [a, b] = (await c.slice('movie', '1', 'title', 0, 2)).rows;
+    await c.saveProgress(a!.id, 10 * 60_000, 60 * 60_000);
+    await c.setFavourite(b!.id, true);
+    const home = await c.home('movie');
+    expect(home.rows.slice(0, 2).map((r) => [r.id, r.total])).toEqual([[VOD_ROW_CONTINUE, 1], [VOD_ROW_FAVOURITES, 1]]);
+    // Seven rows: only the first VOD_HOME_ROWS_WITH_ITEMS carry items.
+    expect(home.rows).toHaveLength(7);
+    home.rows.forEach((r, i) => expect(r.items.length > 0).toBe(i < VOD_HOME_ROWS_WITH_ITEMS));
+    expect(home.rows[6]).toMatchObject({ id: '4', total: 6, items: [] });
+    expect(home.rows[0]!.items[0]!.progress).toBeCloseTo(1 / 6, 3);
+    expect(home.rows[1]!.items[0]).toMatchObject({ id: b!.id, favourite: true });
+    const cats = await c.categories('movie');
+    expect(cats.slice(0, 2).map((x) => x.count)).toEqual([1, 1]);
+    await c.clearProgress(a!.id);
+    expect((await c.home('movie')).rows[0]!.id).toBe(VOD_ROW_FAVOURITES);
+  });
+
+  test('watching an episode to the end puts the series in Continue watching with the next episode', async () => {
+    const { c } = await setup();
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const first = (await c.series(showId))!.seasons[0]!.episodes[0]!;
+    const p = (await c.playable(first.id, showId))!;
+    await c.saveProgress(first.id, 0.95 * 2_700_000, 2_700_000, p.series);
+    const home = await c.home('series');
+    expect(home.rows[0]).toMatchObject({ id: VOD_ROW_CONTINUE, total: 1 });
+    expect(home.rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E2' });
+    const view = (await c.series(showId))!;
+    expect(view.seasons[0]!.episodes[0]!.watched).toBe(true);
+    expect(view.primary).toMatchObject({ season: 1, episode: 2, mode: 'continue' });
+  });
+
+  test('marking an episode watched with its pointer counts for Continue watching', async () => {
+    const { c } = await setup();
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const first = (await c.series(showId))!.seasons[0]!.episodes[0]!;
+    const p = (await c.playable(first.id, showId))!;
+    await c.setWatched(first.id, true, p.series);
+    expect((await c.home('series')).rows[0]!.items[0]!.badge).toBe('S1 · E2');
+  });
+
+  test('tracks are remembered per title', async () => {
+    const { c } = await setup();
+    await c.refresh('movie');
+    const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
+    await c.setTracks(id, { audio: 'eng', subtitle: 'swe' });
+    expect((await c.movie(id))!.tracks).toEqual({ audio: 'eng', subtitle: 'swe' });
+    expect((await c.playable(id))!.tracks).toEqual({ audio: 'eng', subtitle: 'swe' });
+  });
+
+  test('writes without an active source are ignored', async () => {
+    const { c, vod } = await setup();
+    const spy = vi.spyOn(vod, 'saveProgress');
+    c.reset(undefined);
+    await expect(c.saveProgress('x', 1, 2)).resolves.toBeUndefined();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('every write is forwarded to the service for the active source with its arguments', async () => {
+    const { c, fake } = writeFake();
+    const pointer = { id: 'show', season: 1, episode: 2 };
+    await c.saveProgress('m', 5, 10, pointer);
+    await c.setFavourite('m', true);
+    await c.setWatched('m', true, pointer);
+    await c.clearProgress('m');
+    await c.setTracks('m', { audio: 'eng' });
+    expect(fake.saveProgress).toHaveBeenCalledWith('src', 'm', 5, 10, pointer);
+    expect(fake.setFavourite).toHaveBeenCalledWith('src', 'm', true);
+    expect(fake.setWatched).toHaveBeenCalledWith('src', 'm', true, pointer);
+    expect(fake.clearProgress).toHaveBeenCalledWith('src', 'm');
+    expect(fake.setTracks).toHaveBeenCalledWith('src', 'm', { audio: 'eng' });
+  });
+
+  test('a write that finishes after a source change does not touch state of the next source', async () => {
+    const { c, fake } = writeFake();
+    const gate = deferred<VodUserState>();
+    fake.setFavourite.mockImplementationOnce(() => gate.promise);
+    const write = c.setFavourite('s:movie2', true);
+    await new Promise((r) => setTimeout(r, 0));
+    c.reset('src2');
+    gate.resolve(userState({ favourite: true, updatedAt: 9 }));
+    await write;
+    expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(0);
+  });
+
+  test('a write the service reports as nothing leaves the in-memory state alone', async () => {
+    const { c, fake } = writeFake();
+    await c.setFavourite('s:movie1', true);
+    fake.setFavourite.mockResolvedValueOnce(undefined as unknown as VodUserState);
+    await c.setFavourite('s:movie1', false);
+    expect((await c.slice('movie', VOD_ROW_FAVOURITES, 'title', 0, 5)).total).toBe(1);
+  });
+});
+
+/** detailFake plus writes that keep their own records, like the real service. */
+function writeFake() {
+  const base = detailFake(2);
+  const store = new Map<string, VodUserState>();
+  const put = (id: string, next: VodUserState) => { store.set(id, next); return Promise.resolve(next); };
+  const fake = Object.assign(base.fake, {
+    saveProgress: vi.fn(async (_s: string, id: string, position: number, duration: number) => put(id, userState({ position, duration, updatedAt: 1 }))),
+    setFavourite: vi.fn(async (_s: string, id: string, on: boolean) => put(id, userState({ favourite: on, updatedAt: 1 }))),
+    setWatched: vi.fn(async (_s: string, id: string, on: boolean) => put(id, userState({ watched: on, updatedAt: 1 }))),
+    clearProgress: vi.fn(async (_s: string, id: string) => put(id, userState({ updatedAt: 1 }))),
+    setTracks: vi.fn(async (_s: string, id: string) => put(id, userState({ updatedAt: 1 }))),
+  });
+  return { c: base.c, fake, users: base.users };
+}

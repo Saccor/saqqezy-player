@@ -231,6 +231,26 @@ export class VodController {
     return out;
   }
 
+  saveProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {
+    return this.write(itemId, (src) => this.vod.saveProgress(src, itemId, positionMs, durationMs, series));
+  }
+
+  setFavourite(itemId: string, on: boolean): Promise<void> {
+    return this.write(itemId, (src) => this.vod.setFavourite(src, itemId, on));
+  }
+
+  setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
+    return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, series));
+  }
+
+  clearProgress(itemId: string): Promise<void> {
+    return this.write(itemId, (src) => this.vod.clearProgress(src, itemId));
+  }
+
+  setTracks(itemId: string, tracks: VodTracks): Promise<void> {
+    return this.write(itemId, (src) => this.vod.setTracks(src, itemId, tracks));
+  }
+
   async idle(): Promise<void> {
     while (this.jobs.size || this.pending.size) {
       await Promise.allSettled([...this.jobs.values()].map((j) => j.done).concat([...this.pending]));
@@ -257,6 +277,15 @@ export class VodController {
     });
     this.loading = { kind, p };
     return p;
+  }
+
+  /** Writes through VodService, then mirrors the new state into the user map if it is still this source's. */
+  private async write(itemId: string, op: (sourceId: string) => Promise<VodUserState | undefined>): Promise<void> {
+    const src = this.sourceId;
+    if (!src) return;
+    const epoch = this.epoch;
+    const next = await op(src);
+    if (next && this.epoch === epoch) (await this.userMap()).set(itemId, next);
   }
 
   /** The active source's user-state records (loaded once per source). */
