@@ -12,6 +12,7 @@ import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/poin
 import { withFailTest } from '../dev/failTest.ts';
 import { channelHistory } from '../playback/channelHistory.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
+import { devResume } from '../playback/devResume.ts';
 import { playback, player, previewHold, supervisor } from '../playback/playback.ts';
 import { createSleepTimer, nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
@@ -161,6 +162,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   };
 
   const jumpTo = async (load: () => Promise<PlayableChannel | undefined>, missText?: string) => {
+    devResume.release(); // the user started a channel (spec §3.1)
     const mine = jumps.bump();
     try {
       const ch = await lookup(load());

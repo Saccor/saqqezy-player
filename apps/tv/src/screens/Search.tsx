@@ -6,6 +6,7 @@ import { ROW_H } from '../components/ChannelList.tsx';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
+import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -89,6 +90,7 @@ export function SearchScreen() {
     const ch = r.kind === 'channel' ? r.channel : r.kind === 'onNow' ? r.hit.channel : undefined;
     if (!ch) return true;
     memory.leaveTo(focus());
+    devResume.release(); // the user started a channel (spec §3.1)
     const token = playback.begin();
     void (async () => {
       try {
