@@ -14,7 +14,7 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
-import { TabBar } from '../components/TabBar.tsx';
+import { TAB_BAR_X, TabBar } from '../components/TabBar.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
@@ -25,10 +25,10 @@ import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
+import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
-import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
+import { TABS_W, tabNavigation, type TabId } from '../vod/tabLogic.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
@@ -70,7 +70,7 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const SEARCH_KB_ID = 'searchKeyboard';
-const NO_LIVE_TEXT = 'This source has no live channels. Movies are in the tab above.';
+const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the tabs above.';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
 
@@ -97,18 +97,18 @@ let searchMemory: HomeSearchState = BROWSE;
 /** The first Home mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
 
-const PHONE_BADGE_W = 300;
+const PHONE_BADGE_W = 144;
 const PHONE_BADGE_H = 48;
-/** Left of the brand wordmark's zone (top centre); the offline badge and the clock sit to its right. */
-const PHONE_BADGE_X = WORDMARK_ZONE_X - LAYOUT.gap - PHONE_BADGE_W;
+/** Right of the tab bar, so it never overlaps the three tabs; the wordmark, offline badge and clock sit further right. */
+const PHONE_BADGE_X = TAB_BAR_X + TABS_W + LAYOUT.gap;
 
-/** "Phone connected": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
+/** "Phone": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
 function PhoneBadge() {
   return (
     <View x={PHONE_BADGE_X} y={LAYOUT.safeY - 4} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
       borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.focus }}>
       <Text y={(PHONE_BADGE_H - FONT.small) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
-        textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone connected'}</Text>
+        textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone'}</Text>
     </View>
   );
 }
@@ -846,7 +846,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
-  /** Movies opens over Home and stops the preview there; coming back follows the resume rules (nothing restarts by itself). */
+  /** Movies and Series open over Home and stop the preview there; coming back follows the resume rules (nothing restarts by itself). */
   const goTab = (t: TabId) => {
     if (modalOpen() || kbOpen()) return;
     const nav = tabNavigation('live', t);

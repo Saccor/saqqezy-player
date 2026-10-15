@@ -9,7 +9,7 @@ export const TAB_BAR_X = LAYOUT.safeX;
 export const TAB_BAR_Y = LAYOUT.safeY + 20;
 
 /**
- * Live TV · Movies. One focusable node: Left/Right move a cursor, and resting on another tab for TAB_SWITCH_MS
+ * Live TV · Movies · Series. One focusable node: Left/Right move a cursor, and resting on another tab for TAB_SWITCH_MS
  * switches to it (Ok switches at once). Unfocused, it shows the active tab. Pointer: a click switches.
  */
 export function TabBar(props: {

@@ -19,7 +19,8 @@ import {
   type GridGeometry,
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
-import { TAB_SWITCH_MS } from '../vod/tabLogic.ts';
+import { KIND_COPY } from '../vod/kindCopy.ts';
+import { TAB_SWITCH_MS, type VodKind } from '../vod/tabLogic.ts';
 
 const RAIL_X = LAYOUT.safeX;
 const RAIL_Y = 158;
@@ -59,8 +60,9 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /** Category grid: the rail of categories, a sort button and a 7-column poster grid with titles and years. */
 export function VodGridScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { kind?: 'movie'; categoryId?: string };
-  const kind = params.kind ?? 'movie';
+  const params = props.entry.params as { kind?: VodKind; categoryId?: string };
+  const kind: VodKind = params.kind ?? 'movie';
+  const copy = KIND_COPY[kind];
 
   const [cats, setCats] = createSignal<VodCategoryView[]>([]);
   const [catIndex, setCatIndex] = createSignal(0);
@@ -114,7 +116,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         setPages((cur) => new Map(cur).set(p, slice.rows));
       });
     } catch (err) {
-      console.warn('Movies page failed', errName(err));
+      console.warn('VOD page failed', errName(err));
     } finally {
       inflight.delete(key);
     }
@@ -174,7 +176,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       ensurePages();
     } catch (err) {
       if (!alive || myGen !== gen) return;
-      console.warn('Movies load failed', errName(err));
+      console.warn('VOD load failed', errName(err));
       setFailed(true);
     }
     // The focused grid may have just become empty (a removed title, a failed load): never leave focus on nothing.
@@ -228,7 +230,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       ensurePages();
     } catch (err) {
       if (!alive || myGen !== gen) return;
-      console.warn('Movies reload failed', errName(err));
+      console.warn('VOD reload failed', errName(err));
     }
     if (alive && myGen === gen && area() === 'grid' && total() === 0 && noOverlay()) focusArea('rail');
   };
@@ -272,7 +274,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const open = () => {
     const t = tileAt(focus());
     remember();
-    if (t) router.push('movieDetail', { id: t.id, tile: t });
+    if (t) router.push(copy.detailRoute, { id: t.id, tile: t });
     return true;
   };
   const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void reload() });
@@ -337,7 +339,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         cs = await api.getVodCategories(kind);
       } catch (err) {
         if (!alive) return;
-        console.warn('Movie categories failed', errName(err));
+        console.warn('VOD categories failed', errName(err));
         setFailed(true);
         if (noOverlay()) focusArea(area() === 'retry' ? 'retry' : 'rail');
         return;
@@ -399,7 +401,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         )}</For>
       </View>
       <Show when={failed()}>
-        <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{'Movies could not be loaded.'}</Text>
+        <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{copy.loadError}</Text>
         <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
           onUp={() => focusArea('sort')} />
       </Show>

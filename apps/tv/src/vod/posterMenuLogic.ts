@@ -18,6 +18,7 @@ export interface PosterApi {
   setVodFavourite(id: string, on: boolean): Promise<void>;
   setVodWatched(id: string, on: boolean): Promise<void>;
   clearVodProgress(id: string): Promise<void>;
+  clearSeriesContinue(seriesId: string): Promise<void>;
 }
 
 /** Runs the chosen action; true when something changed (the screen re-reads its rows). */
@@ -27,7 +28,11 @@ export async function runPosterAction(a: PosterAction, tile: VodTile, api: Poste
     case 'favRemove': await api.setVodFavourite(tile.id, false); return true;
     case 'watched': await api.setVodWatched(tile.id, true); return true;
     case 'unwatched': await api.setVodWatched(tile.id, false); return true;
-    case 'removeContinue': await api.clearVodProgress(tile.id); return true;
+    case 'removeContinue':
+      // A series leaves Continue watching as a whole; a movie drops its progress.
+      if (tile.kind === 'series') await api.clearSeriesContinue(tile.id);
+      else await api.clearVodProgress(tile.id);
+      return true;
     case 'cancel': return false;
   }
 }

@@ -1,9 +1,11 @@
-/** The top tab bar shared by Home (Live TV) and the Movies screens. Pure: no Solid, no Lightning. */
-export type TabId = 'live' | 'movies';
+/** The top tab bar shared by Home (Live TV) and the Movies and Series screens. Pure: no Solid, no Lightning. */
+import type { VodKind } from '@iptv/core';
 
-/** Series joins in Plan 5. */
-export const TABS: readonly TabId[] = ['live', 'movies'];
-export const TAB_LABELS: Record<TabId, string> = { live: 'Live TV', movies: 'Movies' };
+export type { VodKind };
+export type TabId = 'live' | 'movies' | 'series';
+
+export const TABS: readonly TabId[] = ['live', 'movies', 'series'];
+export const TAB_LABELS: Record<TabId, string> = { live: 'Live TV', movies: 'Movies', series: 'Series' };
 export const TAB_W = 132;
 export const TAB_H = 52;
 export const TAB_GAP = 8;
@@ -23,11 +25,23 @@ export function tabAt(x: number): TabId | undefined {
   return x - i * (TAB_W + TAB_GAP) < TAB_W ? TABS[i] : undefined;
 }
 
-export type TabNav = { action: 'none' } | { action: 'back' } | { action: 'push'; kind: 'movie' } | { action: 'replace'; kind: 'movie' };
+export type TabNav = { action: 'none' } | { action: 'back' } | { action: 'push'; kind: VodKind } | { action: 'replace'; kind: VodKind };
 
-/** Live TV is Home (the screen below); a VOD tab is the `vod` screen pushed over it. */
+export function tabOfKind(kind: VodKind): TabId {
+  return kind === 'series' ? 'series' : 'movies';
+}
+
+export function kindOfTab(tab: TabId): VodKind | undefined {
+  return tab === 'movies' ? 'movie' : tab === 'series' ? 'series' : undefined;
+}
+
+/**
+ * Live TV is Home (the screen below); a VOD tab is the `vod` screen pushed over it. Moving between VOD tabs replaces
+ * that screen, so the stack never grows.
+ */
 export function tabNavigation(from: TabId, to: TabId): TabNav {
   if (from === to) return { action: 'none' };
-  if (to === 'live') return { action: 'back' };
-  return from === 'live' ? { action: 'push', kind: 'movie' } : { action: 'replace', kind: 'movie' };
+  const kind = kindOfTab(to);
+  if (!kind) return { action: 'back' };
+  return from === 'live' ? { action: 'push', kind } : { action: 'replace', kind };
 }

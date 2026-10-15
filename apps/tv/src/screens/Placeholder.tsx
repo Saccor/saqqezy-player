@@ -14,6 +14,7 @@ const TITLES: Record<ScreenId, string> = {
   vod: 'Movies',
   vodGrid: 'Movies',
   movieDetail: 'Movie',
+  seriesDetail: 'Series',
   vodPlay: 'Player',
 };
 

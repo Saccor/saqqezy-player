@@ -1,7 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import type { MovieView, VodHome, VodTile } from '@iptv/app-api';
+import type { MovieView, SeriesView, VodHome, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
+import { episodeLabel } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
@@ -23,7 +24,8 @@ import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { metaLine } from '../vod/posterLogic.ts';
-import { tabNavigation, type TabId } from '../vod/tabLogic.ts';
+import { KIND_COPY } from '../vod/kindCopy.ts';
+import { tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
 const HERO_Y = 200;
@@ -54,10 +56,14 @@ const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
 const FAV_ADD_ACTION = { id: 'fav', label: 'Add to favourites', width: 300 };
 const FAV_ON_ACTION = { id: 'fav', label: 'In favourites', width: 300 };
 
-/** Movies browse: the tab bar, a hero for the focused title, and poster rows (Continue watching, Favourites, Recently added, categories). */
+/**
+ * Movies or Series browse (`params.kind`): the tab bar, a hero for the focused title, and poster rows (Continue watching,
+ * Favourites, Recently added, categories).
+ */
 export function VodBrowseScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { kind?: 'movie'; focus?: 'tabs' | 'content' };
-  const kind = params.kind ?? 'movie';
+  const params = props.entry.params as { kind?: VodKind; focus?: 'tabs' | 'content' };
+  const kind: VodKind = params.kind ?? 'movie';
+  const copy = KIND_COPY[kind];
   const startOnTabs = params.focus === 'tabs';
   delete params.focus;
 
@@ -68,7 +74,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   let memory = memoryFor(memKey());
   const [focus, setFocus] = createSignal<BrowseFocus>({ row: memory.focus.row, col: memory.focus.col });
   const [area, setArea] = createSignal<Area>(startOnTabs ? 'tabs' : 'rows');
-  const [hero, setHero] = createSignal<MovieView | undefined>(undefined);
+  const [hero, setHero] = createSignal<MovieView | SeriesView | undefined>(undefined);
   let tabsNode: ElementNode | undefined;
   let heroNode: ElementNode | undefined;
   let rowsNode: ElementNode | undefined;
@@ -145,9 +151,9 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       h = await api.getVodHome(kind);
     } catch (err) {
       if (!alive || g !== gen) return;
-      console.warn('Movies load failed', err instanceof Error ? err.name : 'Error');
+      console.warn('VOD load failed', err instanceof Error ? err.name : 'Error');
       batch(() => {
-        setHome({ status: 'error', rows: [], truncated: false, error: { name: 'Error', message: 'Movies could not be loaded.' } });
+        setHome({ status: 'error', rows: [], truncated: false, error: { name: 'Error', message: copy.loadError } });
         setRows([]);
       });
       restoreFocus(before);
@@ -195,9 +201,10 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     }
   };
 
-  // The hero detail (plot, runtime, backdrop) after focus rests; the tile's own fields show at once.
+  // The hero detail (plot, runtime or seasons, backdrop) after focus rests; the tile's own fields show at once.
   const heroLoad = createDebounce<string>(HERO_SETTLE_MS, (id) => {
-    void api.getMovie(id).then((v) => { if (alive && focusedTile()?.id === id) setHero(v); }).catch(() => undefined);
+    const view: Promise<MovieView | SeriesView | undefined> = kind === 'series' ? api.getSeries(id) : api.getMovie(id);
+    void view.then((v) => { if (alive && focusedTile()?.id === id) setHero(v); }).catch(() => undefined);
   });
   /** Drops a hero detail that belongs to another title and schedules the focused tile's. */
   const syncHero = () => {
@@ -218,21 +225,23 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     return true;
   };
   const goTab = (t: TabId) => {
-    const nav = tabNavigation('movies', t);
+    const nav = tabNavigation(tabOfKind(kind), t);
     if (nav.action === 'back') back();
+    // Movies and Series replace each other: the stack never grows.
+    else if (nav.action === 'replace') router.replace('vod', { kind: nav.kind, focus: 'tabs' });
   };
   const openCell = () => {
     const c = focusedCell();
     const r = rows()[focus().row];
     if (!c || !r) return true;
-    if (c.kind === 'tile') router.push('movieDetail', { id: c.tile.id, tile: c.tile });
+    if (c.kind === 'tile') router.push(copy.detailRoute, { id: c.tile.id, tile: c.tile });
     else if (c.kind === 'viewAll') router.push('vodGrid', { kind, categoryId: r.id });
     return true;
   };
   const launcher = createVodLauncher({
     alive: () => alive,
     topOverlay: () => router.topOverlay(),
-    getPlayable: (id) => api.getVodPlayable(id),
+    getPlayable: (id, seriesId) => api.getVodPlayable(id, seriesId),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
   });
@@ -250,10 +259,24 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const o = favOverride();
     return t ? (o?.id === t.id ? o.on : !!t.favourite) : false;
   });
-  /** "Resume · N min left" when the focused title has progress and its detail is loaded; else "Play". */
+  /** The focused series' view once loaded (its primary episode and seasons). */
+  const heroSeries = (): SeriesView | undefined => {
+    const h = hero();
+    return kind === 'series' && h && h.tile.id === focusedTile()?.id ? (h as SeriesView) : undefined;
+  };
+  /**
+   * Movies: "Resume · N min left" when the focused title has progress and its detail is loaded; else "Play".
+   * Series: "Continue S2 · E4" / "Play S1 · E1" from the view's primary episode; "Play" until it is loaded.
+   */
   const playAction = createMemo(() => {
     const t = focusedTile();
-    const h = hero()?.tile.id === t?.id ? hero() : undefined;
+    if (kind === 'series') {
+      // Task 3 replaces this with seriesDetailLogic.primaryLabel.
+      const p = heroSeries()?.primary;
+      const label = p ? (p.mode === 'continue' ? 'Continue ' : 'Play ') + episodeLabel(p.season, p.episode) : 'Play';
+      return { id: 'play', label, width: p ? 320 : 200 };
+    }
+    const h = hero()?.tile.id === t?.id ? (hero() as MovieView | undefined) : undefined;
     const total = titleLengthMs(h?.resumeMs ?? 0, t?.progress, h?.detail?.runtimeMin);
     if (!t?.progress || !h || h.resumeMs <= 0 || total <= 0) return { id: 'play', label: 'Play', width: 200 };
     return { id: 'play', label: `Resume · ${minutesLeft(h.resumeMs, total)}`, width: 320 };
@@ -280,8 +303,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const onHeroAction = (id: string) => {
     const t = focusedTile();
     if (!t || router.topOverlay() !== undefined || menu.isOpen()) return;
-    if (id === 'play') void launcher.play(t.id);
-    else if (id === 'details') router.push('movieDetail', { id: t.id, tile: t });
+    if (id === 'play') {
+      if (kind !== 'series') { void launcher.play(t.id); return; }
+      // A series plays its primary episode; without one (no episodes, or not loaded yet) the detail opens.
+      const p = heroSeries()?.primary;
+      if (p) void launcher.play(p.episodeId, { seriesId: t.id });
+      else router.push(copy.detailRoute, { id: t.id, tile: t });
+    } else if (id === 'details') router.push(copy.detailRoute, { id: t.id, tile: t });
     else if (id === 'fav') void toggleFav(t);
   };
 
@@ -315,7 +343,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   // ---- lifecycle ----
 
   onMount(() => {
-    // The live stream stops here: Movies is a full screen, and a 1 GB TV needs the decoder and memory.
+    // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
     playback.stop();
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };
@@ -356,15 +384,28 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const status = () => home()?.status;
   const message = () => {
     const s = status();
-    if (s === undefined || s === 'loading') return 'Loading movies from your source…';
-    if (s === 'empty') return 'This source has no movies.';
-    if (s === 'error') return home()?.error?.message ?? 'Movies could not be loaded.';
+    if (s === undefined || s === 'loading') return copy.loading;
+    if (s === 'empty') return copy.empty;
+    if (s === 'error') return home()?.error?.message ?? copy.loadError;
     return '';
   };
   const heroTile = () => focusedTile();
   /** The detail only shows while it belongs to the focused title. */
   const heroDetail = () => (hero()?.tile.id === heroTile()?.id ? hero()?.detail : undefined);
   const art = () => heroDetail()?.backdrop ?? undefined;
+  /** "2022 · 1 h 54 min · Drama · 12 · ★ 7.6"; a series shows "N seasons" in place of the runtime once its view is loaded. */
+  const heroMeta = () => {
+    const d = heroDetail();
+    const t = heroTile();
+    if (kind !== 'series') {
+      const runtimeMin = (d as MovieView['detail'] | undefined)?.runtimeMin;
+      return metaLine({ year: t?.year, runtimeMin, genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
+    }
+    const n = heroSeries()?.seasons.length ?? 0;
+    const seasons = n > 0 ? (n === 1 ? '1 season' : `${n} seasons`) : '';
+    return [metaLine({ year: t?.year }), seasons, metaLine({ genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating })]
+      .filter((p) => p !== '').join(' · ');
+  };
   /** The focused row, and the next one peeking in below; not in pointer mode, where it would sit under the shell's Back button. */
   const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => rows()[i] !== undefined);
   /** A pointer press on a poster: the column memory of the row left and of the row pressed are kept, as with the keys. */
@@ -400,10 +441,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{focusedRowTitle()}</Text>
         <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={HERO_Y + 116} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
-          {metaLine({
-            year: heroTile()?.year, runtimeMin: heroDetail()?.runtimeMin, genre: heroDetail()?.genre,
-            ageRating: heroDetail()?.ageRating, rating: heroTile()?.rating,
-          })}
+          {heroMeta()}
         </Text>
         <Text x={HERO_X} y={HERO_Y + 160} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} fontSize={FONT.body} color={COLORS.muted}>
           {heroDetail()?.plot ?? ''}
@@ -413,7 +451,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         </View>
       </Show>
 
-      <TabBar ref={(el) => { tabsNode = el; }} active="movies" onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
+      <TabBar ref={(el) => { tabsNode = el; }} active={tabOfKind(kind)} onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
         onFocusChanged={(f) => { if (f) choose('tabs'); }} />
       <Show when={home()?.truncated}>
         <Text zIndex={2} x={LAYOUT.safeX + 300} y={LAYOUT.safeY + 34} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>

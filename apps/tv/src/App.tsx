@@ -54,6 +54,7 @@ function OfflineBadge() {
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
   // Movies tab warm-up: once live playback is up, load the stored movie catalogue in idle time (no network).
+  // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
   const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
   createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
 
@@ -134,6 +135,7 @@ export function App() {
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />
+            : entry.screen === 'seriesDetail' ? <PlaceholderScreen entry={entry} />
             : entry.screen === 'vodPlay' ? <VodPlayScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
