@@ -1,5 +1,5 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import type { Rect } from '@iptv/player';
@@ -29,7 +29,7 @@ import {
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
 import {
-  BROWSE, HOME_GROUP_W, SEARCH_HINT, applyQuery, exitSearch, groupChoice, groupColumn, leaveTo, listMode, okAction,
+  BROWSE, HOME_GROUP_W, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn, leaveTo, listMode, okAction,
   previewAllowed, restoreOnMount, routeKey, rowChannelId, typedQuery, typingKey, userNavigated,
   type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type Place,
 } from './homeSearchLogic.ts';
@@ -182,20 +182,25 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let sLastTop = 0;
   /** The query of the last settled answer (see `nextFocus`). */
   let settledQuery = '';
+  /** Counts search exits: init must not override a browse position an exit restored while it was loading. */
+  let searchExits = 0;
 
   // Same debounce, worker search and stale-answer guard as the Search screen.
   const searcher = createSearcher<SearchRow>(async (q) => flattenResults(await api.search(q, SEARCH_LIMIT)), (s) => {
     if (!alive) return;
-    setSState(s);
     // While a query runs the previous results stay on screen untouched (focus included).
-    if (s.busy) return;
+    if (s.busy) { setSState(s); return; }
     const d = nextFocus({
       rows: s.results, returning: searchMemory.returning, memoryFocus: searchMemory.focus, prevFocus: sFocus(),
       query: s.query, settledQuery, viewRows: LIST_ROWS,
     });
     settledQuery = s.query;
-    setSFocus(d.focus);
-    if (d.top !== undefined) sLastTop = d.top;
+    // One update: new results never render with the old focus (which may sit on a header row there).
+    batch(() => {
+      if (d.top !== undefined) sLastTop = d.top;
+      setSState(s);
+      setSFocus(d.focus);
+    });
     if (d.consumeReturning) searchMemory = { ...searchMemory, returning: false };
     if (d.focusList) queueMicrotask(() => { if (alive && searching()) focusArea('list'); });
   });
@@ -421,7 +426,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
    * New bar text (hardware keys, remote digits or the compact keyboard). The first non-blank text enters search
    * mode, with no new stream. Blank text leaves it, and focus stays where the user is typing.
    */
-  const setBarText = (text: string) => {
+  const setBarText = (raw: string) => {
+    const text = capQuery(raw); // one cap for every input path
     const ch = applyQuery(searchMemory, text, browseNow(), initState()?.activeSourceId);
     if (ch.kind === 'none') return;
     if (ch.kind === 'exit') { finishExit(ch.restore, kbOpen() ? 'keyboard' : 'bar'); return; }
@@ -438,6 +444,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const finishExit = (restore: BrowsePosition | undefined, focusTo: Place) => {
+    searchExits++;
     searchMemory = BROWSE;
     settledQuery = '';
     sLastTop = 0;
@@ -450,12 +457,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       lastTop = restore.top;
       void openGroup(restore.groupId, [restore.channelId], true);
     }
-    // The channel list mounts again in this update; focus it once its node exists.
-    queueMicrotask(() => { if (alive) focusArea(focusTo); });
+    // The channel list mounts again in this update; focus it once its node exists. An empty group cannot take
+    // focus, so the groups do (focus must never stay on the unmounted results).
+    queueMicrotask(() => { if (alive) focusArea(exitFocusTarget(focusTo, listCount())); });
   };
 
   /** Fullscreen on channel `id`: the playing channel keeps its stream (only the rect changes), then the Player opens. */
-  const openFullscreen = (id: string, g: string) => {
+  const openFullscreen = (id: string, g: string, beforePush?: () => void) => {
     cancelTimer();
     const token = playback.begin();
     requestedId = undefined;
@@ -467,7 +475,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         playback.playChannel(ch);
         playback.setRect('fullscreen');
         await api.markWatched(id, g).catch(() => undefined);
-        if (alive && playback.isLatest(token)) router.push('player', { channelId: id, groupId: g });
+        if (alive && playback.isLatest(token)) {
+          beforePush?.();
+          router.push('player', { channelId: id, groupId: g });
+        }
       } catch (err) {
         console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
       }
@@ -505,8 +516,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       return true;
     }
     if (action === 'fullscreen') {
-      searchMemory = leaveTo(searchMemory, sFocus());
-      openFullscreen(id, GROUP_ALL);
+      // Set right before the push: a key pressed while the channel loads must not clear the restore.
+      const at = sFocus();
+      openFullscreen(id, GROUP_ALL, () => { searchMemory = leaveTo(searchMemory, at); });
     }
     return true;
   };
@@ -733,6 +745,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   const onGroupSelect = (i: number) => {
+    if (kbOpen()) return; // the compact keyboard covers the groups column
     const gi = groupChoice(i, searching());
     const g = gi === undefined ? undefined : groups()[gi];
     if (!g) return;
@@ -800,6 +813,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       searcher.setQuery(query());
     }
 
+    const exitsAtStart = searchExits;
     void (async () => {
       try {
         const gs = await api.getGroups();
@@ -815,16 +829,19 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         if (playingId !== undefined && g !== undefined && g !== GROUP_ALL && gs.some((x) => x.id === GROUP_ALL)
           && await api.indexOf(g, playingId).catch(() => -1) < 0) g = GROUP_ALL;
         if (!alive) return;
-        const found = g === undefined ? undefined
+        // Search mode was left while this loaded: that exit already restored the saved group, row and focus.
+        const exited = () => searchExits !== exitsAtStart;
+        const found = g === undefined || exited() ? undefined
           : await openGroup(g, [playingId, focusHint, memory.channelId, params.lastChannelId]);
         if (!alive) return;
         // The preview resumes the last channel right away (no-op when it is already playing). A last channel
         // that is gone or hidden is not resumed; the focused row previews after the usual delay instead.
         // Started before `ready`, so the focus effect sees the request and does not schedule it again.
         const resume = playingId ?? found;
-        if (resume && !held) void playById(resume);
+        // Search mode never starts playback without Ok.
+        if (resume && !held && !searching()) void playById(resume);
         setReady(true);
-        if (!searching()) focusArea(total() > 0 ? 'list' : 'groups');
+        if (!searching() && !exited()) focusArea(total() > 0 ? 'list' : 'groups');
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);

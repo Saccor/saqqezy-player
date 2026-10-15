@@ -15,6 +15,14 @@ export const SEARCH_GROUP_ID = 'search';
 export const SEARCH_GROUP_NAME = 'Search results';
 export const SEARCH_HINT = 'Ok play · Ok again: fullscreen · Back: end search';
 export const BAR_PLACEHOLDER = 'Search channels and programmes';
+/** The longest bar text, on every input path (hardware keys, remote digits, the compact keyboard). */
+export const SEARCH_MAX_LENGTH = 100;
+
+/** Cuts bar text to `SEARCH_MAX_LENGTH` characters. */
+export function capQuery(text: string): string {
+  const chars = [...text];
+  return chars.length <= SEARCH_MAX_LENGTH ? text : chars.slice(0, SEARCH_MAX_LENGTH).join('');
+}
 
 export type ListMode = 'browse' | 'search';
 
@@ -146,6 +154,11 @@ export type NavResult =
   | { kind: 'stay' }
   | { kind: 'pass' };
 
+/** Where focus goes after search mode ends: the list only when the restored group has channels, else the groups. */
+export function exitFocusTarget(focusTo: Place, listCount: number): Place {
+  return focusTo === 'list' && listCount === 0 ? 'groups' : focusTo;
+}
+
 const focusTo = (place: Place): NavResult => ({ kind: 'focus', place });
 const STAY: NavResult = { kind: 'stay' };
 const PASS: NavResult = { kind: 'pass' };
@@ -200,7 +213,7 @@ export function typingKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; 
   return c.barFocused || isLetter(k.ch) ? k : undefined;
 }
 
-/** The bar text after a typed key (characters are written as typed; the length cap is the keyboard's). */
+/** The bar text after a typed key (characters are written as typed), capped at `SEARCH_MAX_LENGTH`. */
 export function typedQuery(query: string, k: TextKey): string {
-  return applyKey({ value: query, shift: false }, k.kind === 'char' ? { kind: 'text', text: k.ch } : { kind: 'backspace' }).value;
+  return capQuery(applyKey({ value: query, shift: false }, k.kind === 'char' ? { kind: 'text', text: k.ch } : { kind: 'backspace' }).value);
 }

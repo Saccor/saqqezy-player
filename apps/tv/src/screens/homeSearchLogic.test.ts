@@ -3,7 +3,7 @@ import type { ChannelRow } from '@iptv/app-api';
 import { describe, expect, it } from 'vitest';
 import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
-  BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
+  BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
   groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
@@ -269,5 +269,26 @@ describe('typingKey (hardware keys on Home)', () => {
     expect(typedQuery('ab', { kind: 'char', ch: 'c' })).toBe('abc');
     expect(typedQuery('ab', { kind: 'backspace' })).toBe('a');
     expect(typedQuery('', { kind: 'backspace' })).toBe('');
+  });
+});
+
+describe('query length cap', () => {
+  it('every input path keeps the query within SEARCH_MAX_LENGTH', () => {
+    expect(SEARCH_MAX_LENGTH).toBe(100);
+    const full = 'a'.repeat(SEARCH_MAX_LENGTH);
+    expect(capQuery(full + 'bcd')).toBe(full);
+    expect(capQuery('abc')).toBe('abc');
+    expect(typedQuery(full, { kind: 'char', ch: 'z' })).toBe(full);
+    expect(typedQuery(full, { kind: 'backspace' })).toBe('a'.repeat(SEARCH_MAX_LENGTH - 1));
+  });
+});
+
+describe('focus after leaving search mode', () => {
+  it('the list takes focus only when the restored group has channels; otherwise the groups', () => {
+    expect(exitFocusTarget('list', 5)).toBe('list');
+    expect(exitFocusTarget('list', 0)).toBe('groups');
+    expect(exitFocusTarget('bar', 0)).toBe('bar');
+    expect(exitFocusTarget('groups', 0)).toBe('groups');
+    expect(exitFocusTarget('keyboard', 0)).toBe('keyboard');
   });
 });
