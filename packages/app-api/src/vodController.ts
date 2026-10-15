@@ -166,7 +166,7 @@ export class VodController {
       return { total, rows: take ? catalog.slice(VOD_ALL, 'added', from, take).rows.map((item) => this.tile(item)) : [] };
     }
     const page = catalog.slice(categoryId, sort, from, n);
-    await this.records();
+    await this.userMap();
     return { total: page.total, rows: page.rows.map((item) => this.tile(item)) };
   }
 
@@ -182,7 +182,7 @@ export class VodController {
   async preload(kind: VodKind): Promise<void> {
     if (!this.sourceId || this.resident || this.loading) return;
     await this.catalog(kind);
-    await this.records();
+    await this.userMap();
   }
 
   async movie(id: string): Promise<MovieView | undefined> {

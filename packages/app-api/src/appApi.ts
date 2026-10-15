@@ -944,7 +944,7 @@ export class AppApi {
 
   /**
    * An M3U playlist refresh re-stores its movie and series lists: the active source's resident catalogue is stale,
-   * so the controller drops it and the TV is told (once per kind that has a stored list).
+   * so the controller drops it and the TV is told (both kinds, with the ingest counts).
    */
   private async vodAfterPlaylist(id: string, result: IngestResult | undefined): Promise<void> {
     if (!this.vodc || !this.vod || this.activeId !== id) return;
@@ -955,8 +955,9 @@ export class AppApi {
       this.vodc.invalidate(id);
       // Counts come from the ingest (the M3U split has no cap); nothing is read back from storage here.
       const counts = { movie: result?.movieCount ?? 0, series: result?.seriesCount ?? 0 };
+      // Both kinds, always: a kind whose count dropped to 0 must clear an open tab too.
       for (const kind of ['movie', 'series'] as const) {
-        if (counts[kind] > 0) this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: counts[kind], truncated: false });
+        this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: counts[kind], truncated: false });
       }
       // Keep the idle preload's benefit: reload the kind that was resident (reads storage only if nothing is resident).
       if (resident) void this.vodc.preload(resident).catch((err) => { this.record('preloadVod', err); });

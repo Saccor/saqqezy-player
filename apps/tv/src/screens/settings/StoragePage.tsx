@@ -6,15 +6,15 @@ import { showToast } from '../../shell/Toast.tsx';
 import { applyInitState } from '../../state/appState.ts';
 import type { PageProps } from './shared.ts';
 
-/** Storage: clear the cached channels and guide (sources and favourites stay), then download them again. */
+/** Storage: clear the cached channels, guide, movies and series (sources, favourites and watch progress stay), then download them again. */
 export function StoragePage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
   const items = (): SettingItem[] => [
-    { id: 'clear', label: 'Clear cached channels and guide', help: 'Your sources and favourites are kept' },
+    { id: 'clear', label: 'Clear cached channels, guide, movies and series', help: 'Your sources, favourites and watch progress are kept' },
   ];
   const onOk = async (id: string) => {
     if (id !== 'clear') return;
-    if (!(await props.confirm('Clear cached channels and guide?', 'Clear'))) return;
+    if (!(await props.confirm('Clear cached channels, guide, movies and series?', 'Clear'))) return;
     const done = props.busy('Clearing…');
     playback.stop(); // the cached list the stream came from is gone
     try {

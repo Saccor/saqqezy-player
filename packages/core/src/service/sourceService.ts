@@ -170,6 +170,10 @@ export class SourceService {
       const source = await this.requireSource(id);
       const { channels, result, vod } = await this.fetchChannels(source, onProgress);
       if (!(await this.sourceExists(id))) return { channelCount: 0, skipped: 0 };
+      // An empty answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
+      if (channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
+        throw new SourceNetworkError('The account has no live channels.');
+      }
       await this.saveChannels(id, channels, result, vod);
       return result;
     });
@@ -202,6 +206,11 @@ export class SourceService {
       await this.storage.replaceChannels(id, []);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
+      // Movies and series are cached data too; progress, favourites and watched marks (VOD user state) are kept.
+      for (const kind of ['movie', 'series'] as const) {
+        await this.storage.replaceVod(id, kind, emptyVodList());
+        await this.storage.setMeta(`vodAt:${kind}:${id}`, 0);
+      }
     });
   }
 
@@ -545,7 +554,13 @@ export class SourceService {
       await client.authenticate();
       const [categories, streams] = await Promise.all([client.liveCategories(), client.liveStreams()]);
       const channels = xtreamToChannels(source.id, client, categories, streams, 'ts');
-      if (channels.length === 0) throw new SourceNetworkError('The account has no live channels.');
+      if (channels.length === 0) {
+        // An account may offer only movies and series: accept it when either catalogue has categories.
+        const [movieCats, seriesCats] = await Promise.all([client.vodCategories(), client.seriesCategories()]);
+        if (movieCats.length === 0 && seriesCats.length === 0) {
+          throw new SourceNetworkError('The account has no channels, movies or series.');
+        }
+      }
       onProgress?.({ phase: 'playlist', count: channels.length });
       return { channels, result: { channelCount: channels.length, skipped: 0 } };
     }

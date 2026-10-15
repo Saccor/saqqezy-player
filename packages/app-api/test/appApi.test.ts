@@ -1229,6 +1229,25 @@ describe('AppApi VOD', () => {
     expect(refreshed.find((e) => e.kind === 'series')).toMatchObject({ count: 1, truncated: false });
   });
 
+  test('an M3U refresh that drops all movies still announces both kinds (count 0)', async () => {
+    const events: AppEvent[] = [];
+    let served = 0;
+    const tiny = '#EXTM3U\n#EXTINF:-1,Channel 001\nhttp://example.test/live/u/p/1.ts\n';
+    const fetchFn = async (u: string, i?: RequestInit) => {
+      if (u.includes('/get.php') && served++ > 0) return new Response(tiny);
+      return fetch(u, i);
+    };
+    const deps = { storage, fetch: fetchFn, now: () => NOW };
+    const api = new AppApi({ service: new SourceService(deps), storage, vod: new VodService(deps), emit: (e) => events.push(e), now: () => NOW });
+    live.push(api);
+    await api.addSource({ kind: 'm3u', name: 'M', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    await api.idle();
+    events.length = 0;
+    await api.refresh('playlist');
+    const vod = events.filter((e) => e.type === 'vodRefreshed');
+    expect(vod.map((e) => [(e as { kind: string }).kind, (e as { count: number }).count])).toEqual([['movie', 0], ['series', 0]]);
+  });
+
   test('an invalid kind is rejected', async () => {
     const { api } = makeVod();
     await api.addSource(xt());
