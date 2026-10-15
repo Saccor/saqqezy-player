@@ -50,9 +50,10 @@ const GROUP_W = HOME_GROUP_W;
 const PREVIEW_X = LAYOUT.width - LAYOUT.safeX - PREVIEW_W;
 const LIST_X = GROUP_X + GROUP_W + LAYOUT.gap;
 const LIST_W = PREVIEW_X - LAYOUT.gap - LIST_X;
-/** The list header crosses the centre, so it starts below the brand wordmark. */
-const HEAD_Y = WORDMARK_BOTTOM + 6;
-const BODY_Y = HEAD_Y + 44;
+/** The list header crosses the centre, so it starts below the brand wordmark, with a clear gap under it. */
+const HEAD_Y = WORDMARK_BOTTOM + 12;
+/** The search bar (`SEARCH_BAR_H`) ends 4 px above the list. */
+const BODY_Y = WORDMARK_BOTTOM + 50;
 const LIST_ROWS = 9;
 const LIST_H = LIST_ROWS * ROW_H;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
