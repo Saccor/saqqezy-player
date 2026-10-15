@@ -164,11 +164,13 @@ export function shellBack(): void {
 
 /**
  * A full-screen click-outside target for an overlay. Call it before the overlay's own targets, so they win where they
- * overlap. A click or right click outside closes the overlay like Back; the wheel is swallowed.
+ * overlap. A click or right click outside closes the overlay like Back; the wheel is swallowed. `enabled` false turns it
+ * off (not modal) together with its overlay.
  */
-export function usePointerBackdrop(node: () => ElementNode | undefined, onOutside: () => void = shellBack, global = false): void {
+export function usePointerBackdrop(node: () => ElementNode | undefined, onOutside: () => void = shellBack, global = false,
+  enabled?: () => boolean): void {
   usePointerTarget({
-    node, layer: 'overlay', global, onClick: () => onOutside(), onContextMenu: () => onOutside(), onWheel: () => true,
+    node, layer: 'overlay', global, enabled, onClick: () => onOutside(), onContextMenu: () => onOutside(), onWheel: () => true,
   });
 }
 

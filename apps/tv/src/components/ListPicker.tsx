@@ -27,6 +27,8 @@ export function ListPicker(props: {
   title: string;
   rows: readonly PickerRow[];
   onPick: (row: PickerRow) => void;
+  /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [sel, setSel] = createSignal(0);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
@@ -54,10 +56,12 @@ export function ListPicker(props: {
     return k === undefined ? undefined : scrollTop() + k;
   };
   // Backdrop first, then the panel: the panel wins where they overlap.
-  usePointerBackdrop(() => scrim);
+  const enabled = () => props.pointerEnabled !== false;
+  usePointerBackdrop(() => scrim, undefined, false, enabled);
   usePointerTarget({
     node: () => panel,
     layer: 'overlay',
+    enabled,
     subAt: (p) => indexAt(p),
     onHover: (p) => setHover(p ? indexAt(p) : undefined),
     onClick: (p) => {

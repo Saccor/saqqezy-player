@@ -28,6 +28,8 @@ export function GroupList(props: {
   onRowClick?: (index: number) => void;
   /** Pointer hit-test layer: 'overlay' inside a picker. Default 'screen'. */
   pointerLayer?: 'screen' | 'overlay';
+  /** False: the pointer passes over the column (a keyboard is open above it). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [hoverRow, setHoverRow] = createSignal<number | undefined>(undefined);
@@ -53,6 +55,7 @@ export function GroupList(props: {
   usePointerTarget({
     node: () => node,
     layer: props.pointerLayer,
+    enabled: () => props.pointerEnabled !== false,
     onHover: (p) => setHoverRow(p ? indexAt(p) : undefined),
     onClick: (p) => {
       const i = indexAt(p);

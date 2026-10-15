@@ -5,6 +5,7 @@ import type { GroupInfo, LayoutOp } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { ChannelList, ROW_H } from '../components/ChannelList.tsx';
+import { PointerBar, type PointerBarItem } from '../components/PointerBar.tsx';
 import { ContextMenu } from '../components/ContextMenu.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
@@ -15,6 +16,7 @@ import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
+import { PointerFocusContext, pointerMode } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback, previewHold } from '../playback/playback.ts';
 import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
@@ -29,9 +31,9 @@ import {
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
 import {
-  BROWSE, HOME_GROUP_W, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn, leaveTo, listMode, okAction,
-  previewAllowed, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, typedQuery, typingKey, userNavigated,
-  type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type Place,
+  BROWSE, HOME_GROUP_W, HOME_POINTER_LABELS, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn,
+  leaveTo, listMode, okAction, previewAllowed, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, rowPointerAction, typedQuery,
+  typingKey, userNavigated, type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type OkAction, type Place,
 } from './homeSearchLogic.ts';
 import { showPhoneBadge } from './pairingLogic.ts';
 import {
@@ -509,7 +511,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const openResult = () => {
     const r = sRowAt(sFocus());
     // A second Ok while this row's preview is still being fetched goes fullscreen too.
-    const action = okAction(r, playback.current()?.id, requestedId);
+    return runResult(r, okAction(r, playback.current()?.id, requestedId));
+  };
+
+  /** Runs `action` on result row `r` (the focused one): Ok and pointer clicks share it. */
+  const runResult = (r: SearchRow | undefined, action: OkAction) => {
     if (action === 'guide' && r?.kind === 'later') {
       searchMemory = leaveTo(searchMemory, sFocus());
       router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
@@ -769,6 +775,100 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     void openGroup(g.id);
   };
 
+  // ---- pointer (mouse, pointer remote); hover never reaches Home, so it never previews ----
+
+  /**
+   * The rename / new-list keyboard is a screen-layer target with no backdrop: while it is open, Home's other targets
+   * (list, groups, bar, video, bottom buttons, and the menu or picker under it) are off, so clicks behind it do nothing.
+   */
+  const pointerOn = () => edit() === undefined;
+
+  /** Green and the bottom row's Guide button. */
+  const openGuide = () => {
+    router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
+  };
+
+  /** A click focuses the row like the D-pad, then plays at once (no 700 ms wait), or goes fullscreen. */
+  const clickChannel = (i: number, double: boolean) => {
+    const r = rowAt(i);
+    const g = groupId();
+    if (!r || g === undefined || modalOpen()) return;
+    // Decided before the focus moves: a scheduled preview resets `requestedId`.
+    const action = rowPointerAction(double ? 'doubleClick' : 'click', { kind: 'channel', channel: r }, playback.current()?.id, requestedId);
+    held = false;
+    batch(() => {
+      selectRow(i);
+      focusArea('list');
+    });
+    if (action === 'fullscreen') {
+      memory.channelId = r.id;
+      openFullscreen(r.id, g);
+    } else if (action === 'preview') {
+      cancelTimer();
+      void playById(r.id);
+    }
+  };
+
+  /** Right click or `⋯`: the channel options menu on that row (the same as Menu or Hold-OK). */
+  const channelOptions = (i: number) => {
+    if (modalOpen() || !rowAt(i)) return;
+    held = false;
+    batch(() => {
+      selectRow(i);
+      focusArea('list');
+    });
+    openMenu();
+  };
+
+  /** A click on a result: focus it, then the same rule as Ok (a double click goes fullscreen). */
+  const clickResult = (i: number, double: boolean) => {
+    const r = sRowAt(i);
+    if (!isSelectable(r) || modalOpen()) return;
+    const action = rowPointerAction(double ? 'doubleClick' : 'click', r, playback.current()?.id, requestedId);
+    searchMemory = userNavigated(searchMemory);
+    setSFocus(i);
+    focusArea('list');
+    runResult(r, action);
+  };
+
+  /** Clicking a group opens it, the same as focusing it and pressing Ok (the selected one just focuses the list). */
+  const clickGroup = (i: number) => {
+    if (kbOpen() || modalOpen()) return;
+    focusArea('groups');
+    if (i !== column().selected) onGroupSelect(i);
+    queueMicrotask(() => { if (alive) focusArea('list'); });
+  };
+
+  /** A click on the video: fullscreen on the loading preview, else on the playing channel. */
+  const clickVideo = () => {
+    const id = requestedId ?? playback.current()?.id;
+    if (id === undefined || modalOpen()) return;
+    if (searching()) {
+      const at = sFocus();
+      openFullscreen(id, GROUP_ALL, () => { searchMemory = leaveTo(searchMemory, at); });
+      return;
+    }
+    const g = groupId();
+    if (g === undefined) return;
+    memory.channelId = id;
+    openFullscreen(id, g);
+  };
+
+  /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
+  const focusFromPointer = (node: ElementNode) => {
+    const place: Place | undefined = node === groupNode ? 'groups' : node === barNode ? 'bar' : node === searchKbNode ? 'keyboard'
+      : node === listNode || node === resultsNode ? 'list' : undefined;
+    if (place) focusArea(place);
+    else node.setFocus();
+  };
+
+  /** Pointer mode: the bottom hint line becomes these buttons. */
+  const homeBar: PointerBarItem[] = [
+    { id: 'search', label: HOME_POINTER_LABELS.search, onPress: () => { focusArea('bar'); } },
+    { id: 'guide', label: HOME_POINTER_LABELS.guide, onPress: openGuide },
+    { id: 'settings', label: HOME_POINTER_LABELS.settings, onPress: () => router.push('settings') },
+  ];
+
   // ---- lifecycle ----
 
   onMount(() => {
@@ -890,10 +990,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   return (
+    <PointerFocusContext.Provider value={focusFromPointer}>
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}
       forwardFocus={() => { focusArea(area()); return true; }}
       onYellow={() => { router.push('search'); return true; }}
-      onGreen={() => { router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined); return true; }}
+      onGreen={() => { openGuide(); return true; }}
       onBlue={() => { router.push('settings'); return true; }}>
       {/* Opaque background everywhere except the preview box, which stays a hole onto the video. */}
       <View width={LAYOUT.width} height={PREVIEW_RECT.y} color={COLORS.background} />
@@ -909,19 +1010,23 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         count={searching() ? countText(sState()) : ''} editing={kbOpen()}
         onFocusChanged={(f) => { if (f) setArea('bar'); }}
         onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onLeft={() => nav('bar', 'left')}
-        onBack={onBack} onType={(t) => setBarText(query() + t)} />
+        onBack={onBack} onType={(t) => setBarText(query() + t)}
+        onClick={() => { focusArea('bar'); }}
+        onKeyboardButton={() => { focusArea('bar'); openSearchKeyboard(); }} pointerEnabled={pointerOn()} />
 
       {/* Hidden (not unmounted) under the compact keyboard: `groupNode` stays valid for focus after it closes. */}
       <View width={LAYOUT.width} height={LAYOUT.height} alpha={kbOpen() ? 0 : 1}>
         <GroupList ref={(el) => { groupNode = el; }} x={GROUP_X} y={BODY_Y} width={GROUP_W} height={LIST_H}
           groups={column().rows} selected={column().selected} onSelect={onGroupSelect} onRight={() => focusArea('list')}
-          onEdgeUp={() => nav('groups', 'up', true)} />
+          onEdgeUp={() => nav('groups', 'up', true)} onRowClick={clickGroup} pointerEnabled={pointerOn()} />
       </View>
 
       <Show when={!searching()}>
         <ChannelList ref={(el) => { listNode = el; }} x={LIST_X} y={BODY_Y} width={LIST_W} height={LIST_H}
           total={total()} top={top()} focus={focus()} row={rowAt} now={now()} playingId={playback.current()?.id}
-          onFocusChanged={(f) => { if (f) setArea('list'); }} {...listKeys} />
+          onFocusChanged={(f) => { if (f) setArea('list'); }} {...listKeys}
+          onRowClick={clickChannel} onRowOptions={channelOptions} pointerEnabled={pointerOn()}
+          onWheelStep={(d) => { if (d > 0 || focus() > 0) listKeys.onMove(d); }} />
       </Show>
       <Show when={!searching() && ready() && !reloading() && total() === 0}>
         <Text x={LIST_X + 24} y={BODY_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width"
@@ -944,7 +1049,15 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
             return true;
           }}
           onLeft={() => nav('list', 'left')}
-          onOk={() => { searchMemory = userNavigated(searchMemory); return openResult(); }} />
+          onOk={() => { searchMemory = userNavigated(searchMemory); return openResult(); }}
+          onRowClick={clickResult}
+          onWheelStep={(d) => {
+            // The wheel stays in the results: it never moves on to the bar.
+            const next = stepSelectable(sFocus(), d, sTotal(), (i) => isSelectable(sRowAt(i)));
+            if (next === sFocus()) return;
+            searchMemory = userNavigated(searchMemory);
+            setSFocus(next);
+          }} />
         <Show when={resultsMessage(sState())}>{(m) => (
           <Text x={LIST_X + 24} y={BODY_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
             fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
@@ -952,20 +1065,24 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <PreviewPanel x={PREVIEW_X} y={BODY_Y} channel={panel().channel} starting={panel().starting}
-        status={playback.status()} playing={playback.current() !== undefined} now={now()} />
+        status={playback.status()} playing={playback.current() !== undefined} now={now()}
+        onVideoClick={pointerOn() ? clickVideo : undefined} />
 
-      <Text x={GROUP_X} y={HINT_Y} width={SAFE_W} maxWidth={SAFE_W} contain="width" maxLines={1} fontSize={FONT.small}
-        color={COLORS.muted}>
-        {searching() ? SEARCH_HINT : BROWSE_HINT}
-      </Text>
+      <Show when={!pointerMode()}
+        fallback={<PointerBar x={GROUP_X} y={HINT_Y - 14} height={48} items={homeBar} enabled={pointerOn()} />}>
+        <Text x={GROUP_X} y={HINT_Y} width={SAFE_W} maxWidth={SAFE_W} contain="width" maxLines={1} fontSize={FONT.small}
+          color={COLORS.muted}>
+          {searching() ? SEARCH_HINT : BROWSE_HINT}
+        </Text>
+      </Show>
 
       <Show when={menu()}>{(m) => (
         <ContextMenu ref={(el) => { menuNode = el; }} title={m().row.name} items={m().items} cancel="cancel"
-          onChoose={(a) => void choose(a)} />
+          onChoose={(a) => void choose(a)} pointerEnabled={pointerOn()} />
       )}</Show>
       <Show when={picker()}>{(p) => (
         <ListPicker ref={(el) => { pickerNode = el; }} title={`Add "${p().row.name}" to`}
-          rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} />
+          rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} pointerEnabled={pointerOn()} />
       )}</Show>
       <Show when={edit()}>{(e) => (
         <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
@@ -983,5 +1100,6 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           onEdgeRight={() => fromKeyboard('right', true, false)} onEdgeUp={() => fromKeyboard('up', true, false)} />
       </Show>
     </View>
+    </PointerFocusContext.Provider>
   );
 }

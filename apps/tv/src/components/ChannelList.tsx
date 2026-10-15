@@ -120,6 +120,8 @@ export function ChannelList(props: {
   onRowOptions?: (index: number) => void;
   /** One wheel step (default: `onMove`). */
   onWheelStep?: (delta: 1 | -1) => void;
+  /** False: the pointer passes over the list (a keyboard is open above it). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [hoverRow, setHoverRow] = createSignal<number | undefined>(undefined);
@@ -144,6 +146,7 @@ export function ChannelList(props: {
   };
   usePointerTarget({
     node: () => node,
+    enabled: () => props.pointerEnabled !== false,
     onHover: (p) => {
       setHoverRow(p ? indexAt(p) : undefined);
       setHoverDots(p !== undefined && onDots(p));

@@ -26,6 +26,8 @@ export function ContextMenu<A extends string>(props: {
   items: readonly ContextMenuItem<A>[];
   cancel: A;
   onChoose: (action: A) => void;
+  /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [selRaw, setSelRaw] = createSignal(0);
   const [selAction, setSelAction] = createSignal<A | undefined>(undefined);
@@ -47,10 +49,12 @@ export function ContextMenu<A extends string>(props: {
   };
   const indexAt = (p: Point) => rowAt(p.y - PAD - HEAD, 0, ITEM_H + 12, props.items.length);
   // Backdrop first, then the panel: the panel wins where they overlap.
-  usePointerBackdrop(() => scrim);
+  const enabled = () => props.pointerEnabled !== false;
+  usePointerBackdrop(() => scrim, undefined, false, enabled);
   usePointerTarget({
     node: () => panel,
     layer: 'overlay',
+    enabled,
     subAt: (p) => indexAt(p),
     onHover: (p) => setHover(p ? indexAt(p) : undefined),
     onClick: (p) => {

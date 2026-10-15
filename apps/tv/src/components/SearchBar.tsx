@@ -44,6 +44,8 @@ export function SearchBar(props: {
   onClick?: () => void;
   /** Pointer click on the `⌨` button. */
   onKeyboardButton?: () => void;
+  /** False: the pointer passes over the bar (a keyboard is open above it). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [kbHot, setKbHot] = createSignal(false);
@@ -59,6 +61,7 @@ export function SearchBar(props: {
   );
   usePointerTarget({
     node: () => node,
+    enabled: () => props.pointerEnabled !== false,
     onHover: (p) => setKbHot(p !== undefined && onKbButton(p)),
     onClick: (p) => {
       if (onKbButton(p)) props.onKeyboardButton?.();
