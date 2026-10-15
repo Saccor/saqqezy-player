@@ -1,5 +1,5 @@
 import type {
-  AspectMode, LiveProfile, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
@@ -24,6 +24,13 @@ export interface AvplayLike {
   getStreamingProperty?(type: string): string;
   seekTo?(ms: number, success?: () => void, error?: (e: unknown) => void): void;
   setVideoStillMode?(mode: 'true' | 'false'): void;
+  pause?(): void;
+  /** 'NONE' | 'IDLE' | 'READY' | 'PLAYING' | 'PAUSED'. */
+  getState?(): string;
+  /** ms; 0 (or less) while unknown. */
+  getDuration?(): number;
+  /** true hides the subtitles. */
+  setSilentSubtitle?(silent: boolean): void;
 }
 
 export interface AvplayListener {
@@ -144,12 +151,20 @@ interface LiveState { live: boolean | undefined; window?: { start: number; end: 
 interface Session {
   url: string; attemptId: number | undefined; dead: boolean; started: boolean; sawLive?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
+  /** False when opened as a file/VOD (`open(…, { live: false })`): never live, no live window. */
+  live: boolean;
+  /** VOD start position (ms), sought once prepared, before `play()`. */
+  startMs?: number;
+  /** Subtitles turned off with `selectTextTrack(null)`. */
+  textOff?: boolean;
 }
 
 const MESSAGE = 'Playback error';
 const PREPARE_TIMEOUT_MS = 15_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
+/** A VOD seek never lands closer than this to the end (that would end the film at once). */
+const SEEK_END_MARGIN_MS = 1_000;
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -174,9 +189,10 @@ export class AvplayPlayer implements Player {
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
   }
 
-  open(url: string, attemptId?: number): Promise<void> {
+  open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
     this.stop();
-    const s: Session = { url, attemptId, dead: false, started: false };
+    const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
+    if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
     this.lastPosition = 0;
     this.windowCache = undefined;
@@ -193,7 +209,7 @@ export class AvplayPlayer implements Player {
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
         onstreamcompleted: () => {
           if (s.dead || s !== this.session) return;
-          if (this.liveState().live === false) this.emit(s, 'idle');
+          if (!s.live || this.liveState().live === false) this.emit(s, 'idle');
           else this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'streamCompleted' });
         },
       });
@@ -207,15 +223,19 @@ export class AvplayPlayer implements Player {
         () => {
           clearTimeout(s.watchdog);
           if (s.dead || s !== this.session) return;
-          try {
-            this.applyDisplay(); // the source aspect is known now (zoom)
-            av.play();
-            s.started = true;
-            this.releaseLastFrame();
-            this.emit(s, 'playing');
-          } catch (e) {
-            this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
+          this.applyDisplay(); // the source aspect is known now (zoom); guarded inside
+          // VOD resume: seek before the first play; a failed seek plays from the start.
+          if (s.startMs !== undefined && av.seekTo) {
+            const to = this.clampSeek(s.startMs) ?? s.startMs;
+            const go = () => { if (!s.dead && s === this.session && !s.started) this.startPlay(s); };
+            try {
+              av.seekTo(to, go, go);
+              return;
+            } catch {
+              // fall through: play from the start
+            }
           }
+          this.startPlay(s);
         },
         (e) => {
           clearTimeout(s.watchdog);
@@ -226,6 +246,17 @@ export class AvplayPlayer implements Player {
       this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
     }
     return Promise.resolve();
+  }
+
+  private startPlay(s: Session): void {
+    try {
+      this.avplay.play();
+      s.started = true;
+      this.releaseLastFrame();
+      this.emit(s, 'playing');
+    } catch (e) {
+      this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
+    }
   }
 
   stop(): void {
@@ -357,6 +388,103 @@ export class AvplayPlayer implements Player {
     }
   }
 
+  pause(): void {
+    if (!this.session) return;
+    try {
+      this.avplay.pause?.();
+    } catch {
+      // ignore: keeps playing
+    }
+  }
+
+  play(): void {
+    if (!this.session) return;
+    try {
+      this.avplay.play();
+    } catch {
+      // ignore: stays paused
+    }
+  }
+
+  paused(): boolean {
+    if (!this.session) return false;
+    try {
+      return this.avplay.getState?.() === 'PAUSED';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Duration in ms of a finite stream; undefined while unknown, and for live. */
+  duration(): number | undefined {
+    const s = this.session;
+    if (!s || !this.avplay.getDuration) return undefined;
+    if (s.live && this.liveState().live === true) return undefined;
+    try {
+      const d = this.avplay.getDuration();
+      return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Seeks to `ms` clamped to [0, duration − 1 s]; false while the duration is unknown or AVPlay cannot seek. */
+  seek(ms: number): boolean {
+    if (!this.session || !this.avplay.seekTo) return false;
+    const to = this.clampSeek(ms);
+    if (to === undefined) return false;
+    try {
+      this.avplay.seekTo(to, () => {}, () => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  textTracks(): TrackInfo[] {
+    const s = this.session;
+    if (!s) return [];
+    let all: AvplayTrack[];
+    try {
+      all = this.avplay.getTotalTrackInfo();
+    } catch {
+      return [];
+    }
+    const activeIndex = s.textOff ? undefined : this.currentTracks().find((t) => t.type === 'TEXT')?.index;
+    const out: TrackInfo[] = [];
+    let n = 0;
+    for (const t of all) {
+      if (t.type !== 'TEXT') continue;
+      n++;
+      const language = str(parseExtra(t).language);
+      const info: TrackInfo = { id: String(t.index), label: language ?? `Subtitles ${n}`, active: t.index === activeIndex };
+      if (language) info.language = language;
+      out.push(info);
+    }
+    return out;
+  }
+
+  /** Selects a TEXT track and shows subtitles; `null` hides them. */
+  selectTextTrack(id: string | null): void {
+    const s = this.session;
+    if (!s) return;
+    try {
+      if (id === null) {
+        this.avplay.setSilentSubtitle?.(true);
+        s.textOff = true;
+        return;
+      }
+      const idx = Number(id);
+      if (id === '' || !Number.isInteger(idx) || idx < 0) return;
+      if (!this.avplay.getTotalTrackInfo().some((t) => t.type === 'TEXT' && t.index === idx)) return;
+      this.avplay.setSelectTrack('TEXT', idx);
+      this.avplay.setSilentSubtitle?.(false);
+      s.textOff = false;
+    } catch {
+      // ignore: the current choice stays
+    }
+  }
+
   holdLastFrame(): void {
     if (!this.avplay.setVideoStillMode) return;
     try {
@@ -411,7 +539,10 @@ export class AvplayPlayer implements Player {
    * query fails.
    */
   private liveState(): LiveState {
-    if (!this.session || !this.avplay.getStreamingProperty) return { live: undefined };
+    if (!this.session) return { live: undefined };
+    // Opened as VOD: never live and no window; a file once started.
+    if (!this.session.live) return { live: this.session.started ? false : undefined };
+    if (!this.avplay.getStreamingProperty) return { live: undefined };
     const now = Date.now();
     if (this.windowCache && now - this.windowCache.at < LIVE_WINDOW_POLL_MS) return this.windowCache.value;
     let value: LiveState = { live: undefined };
@@ -435,6 +566,13 @@ export class AvplayPlayer implements Player {
     // Not cached before the stream starts: the window may appear right after `playing`.
     if (value.window !== undefined || this.session.started) this.windowCache = { at: now, value };
     return value;
+  }
+
+  /** `ms` clamped to [0, duration − 1 s]; undefined while the duration is unknown. */
+  private clampSeek(ms: number): number | undefined {
+    const d = this.duration();
+    if (d === undefined) return undefined;
+    return Math.min(Math.max(0, ms), Math.max(0, d - SEEK_END_MARGIN_MS));
   }
 
   private currentTracks(): AvplayTrack[] {
