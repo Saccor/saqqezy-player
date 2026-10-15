@@ -20,13 +20,13 @@ const RING = 4;
  * `label` draws a text-only tile (View all, Loading…).
  */
 export function PosterTile(props: { x: number; y: number; w: number; h: number; tile: VodTile | undefined; lit: boolean; hover?: boolean; label?: string }) {
-  const [failed, setFailed] = createSignal(false);
+  const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   const t = () => props.tile;
-  const url = () => (failed() ? undefined : t()?.poster);
+  const url = () => (t()?.poster && t()?.poster !== failedUrl() ? t()?.poster : undefined);
   return (
     <View x={props.x} y={props.y} width={props.w} height={props.h} scale={props.lit ? 1.08 : 1} zIndex={props.lit ? 2 : 1}
       borderRadius={LAYOUT.radius} color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : titleCardColour(t()?.title ?? '')}
-      border={props.lit ? { width: RING, color: COLORS.focus } : props.hover ? { width: 2, color: COLORS.muted } : undefined}>
+      border={props.lit ? { width: RING, color: COLORS.focus } : props.hover ? { width: 2, color: COLORS.muted } : { width: RING, color: 0x00000000 }}>
       <Show when={props.label !== undefined}>
         <Text x={12} y={props.h / 2 - FONT.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
           fontSize={FONT.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
@@ -40,7 +40,7 @@ export function PosterTile(props: { x: number; y: number; w: number; h: number; 
             posterCache.touch(u);
             return (
               <View width={props.w} height={props.h} borderRadius={LAYOUT.radius} src={rawViaDevProxy(u)}
-                onEvent={{ failed: () => { posterCache.markFailed(u); setFailed(true); } }} />
+                onEvent={{ failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
             );
           }}
         </Show>

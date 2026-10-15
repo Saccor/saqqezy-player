@@ -14,8 +14,12 @@ export function createPosterMenu(opts: { refocus: () => void; onChanged: () => v
   const [state, setState] = createSignal<{ tile: VodTile; items: { action: PosterAction; label: string }[] } | undefined>(undefined);
   let node: ElementNode | undefined;
   let remove: (() => void) | undefined;
+  let alive = true;
   const dismiss = () => {
     setState(undefined);
+    remove = undefined;
+    node = undefined;
+    if (!alive) return;
     queueMicrotask(() => opts.refocus());
   };
   const open = (tile: VodTile, inContinue: boolean) => {
@@ -31,12 +35,13 @@ export function createPosterMenu(opts: { refocus: () => void; onChanged: () => v
     dismiss();
     if (!s) return;
     try {
-      if (await runPosterAction(a, s.tile, api)) opts.onChanged();
-    } catch {
+      if ((await runPosterAction(a, s.tile, api)) && alive) opts.onChanged();
+    } catch (err) {
+      console.warn('Poster action failed', err instanceof Error ? err.name : 'Error');
       showToast("Couldn't save that. Try again.");
     }
   };
-  onCleanup(() => { remove?.(); router.removeOverlay(MENU_ID); });
+  onCleanup(() => { alive = false; remove?.(); });
   const View = () => (
     <Show when={state()} keyed>
       {(s) => <ContextMenu ref={(el) => { node = el; }} title={s.tile.title} items={s.items} cancel="cancel" onChoose={(a) => void choose(a)} />}

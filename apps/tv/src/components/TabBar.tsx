@@ -34,6 +34,14 @@ export function TabBar(props: {
     }
     return true;
   };
+  const onDown = () => {
+    if (debounce.pending()) {
+      debounce.cancel();
+      props.onSelect(cursor());
+      return true;
+    }
+    return props.onDown();
+  };
   usePointerTarget({
     node: () => node,
     enabled: () => props.pointerEnabled !== false,
@@ -44,7 +52,10 @@ export function TabBar(props: {
     },
     onClick: (p) => {
       const t = tabAt(p.x);
-      if (t && t !== props.active) props.onSelect(t);
+      if (!t) return;
+      debounce.cancel();
+      setCursor(t);
+      if (t !== props.active) props.onSelect(t);
     },
   });
   return (
@@ -55,7 +66,7 @@ export function TabBar(props: {
         else debounce.cancel();
         props.onFocusChanged?.(f);
       }}
-      onLeft={() => move(-1)} onRight={() => move(1)} onUp={() => true} onDown={() => props.onDown()}
+      onLeft={() => move(-1)} onRight={() => move(1)} onUp={() => true} onDown={onDown}
       onEnter={() => {
         debounce.cancel();
         if (cursor() !== props.active) props.onSelect(cursor());

@@ -30,6 +30,7 @@ export function PosterRow(props: {
   const cells = () => cellCount(props.row);
   const scroll = createMemo(() => {
     if (props.focusCol !== undefined) lastScroll = scrollTopFor(props.focusCol, lastScroll, ROW_VISIBLE_COLS, cells());
+    else lastScroll = Math.min(lastScroll, Math.max(0, cells() - ROW_VISIBLE_COLS));
     return lastScroll;
   });
   const cols = createMemo(() => {
