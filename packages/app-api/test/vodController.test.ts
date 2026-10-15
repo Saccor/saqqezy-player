@@ -27,8 +27,8 @@ const fetchFn: FetchFn = async (u, i) => {
   return fetch(u, i);
 };
 
-async function setup(kind: 'xtream' | 'm3u' = 'xtream') {
-  const deps = { storage, fetch: fetchFn, now: () => NOW };
+async function setup(kind: 'xtream' | 'm3u' = 'xtream', now: () => number = () => NOW) {
+  const deps = { storage, fetch: fetchFn, now };
   const sources = new SourceService(deps);
   const vod = new VodService(deps);
   const { source } = await sources.addSource(kind === 'xtream'
@@ -593,6 +593,38 @@ describe('VodController user state', () => {
     const p = (await c.playable(first.id, showId))!;
     await c.setWatched(first.id, true, p.series);
     expect((await c.home('series')).rows[0]!.items[0]!.badge).toBe('S1 · E2');
+  });
+
+  /** Synthetic Series 03 (third by title) has six episodes per season; a ticking clock orders the records. */
+  async function sixEpisodeShow() {
+    let t = NOW;
+    const { c } = await setup('xtream', () => ++t);
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 2, 1)).rows[0]!.id;
+    const eps = (await c.series(showId))!.seasons[0]!.episodes;
+    expect(eps.length).toBeGreaterThanOrEqual(6);
+    const bare = (k: number) => ({ id: showId, season: 1, episode: eps[k]!.episode });
+    return { c, showId, eps, bare };
+  }
+
+  test('marking a later episode watched from its menu (pointer without next) moves Continue to the one after it', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    expect((await c.home('series')).rows[0]!.items[0]!.badge).toBe('S1 · E4');
+    await c.setWatched(eps[4]!.id, true, bare(4));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
+    expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[5]!.id, season: 1, episode: 6, mode: 'continue' });
+  });
+
+  test('marking an episode unwatched leaves the series Continue state alone', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    await c.setWatched(eps[1]!.id, false, bare(1));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E4' });
+    expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[3]!.id, resumeMs: 5 * 60_000, mode: 'continue' });
   });
 
   test('tracks are remembered per title', async () => {

@@ -276,8 +276,30 @@ export class VodController {
     return this.write(itemId, (src) => this.vod.setFavourite(src, itemId, on));
   }
 
-  setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
-    return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, series));
+  /**
+   * An episode marked watched carries its next episode, so Continue watching moves on to it. The next one comes
+   * from the series' detail when it is cached or loading (never a new fetch); else the caller's pointer is kept.
+   */
+  async setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
+    let pointer = series;
+    if (on && series) {
+      const next = await this.knownNextEpisode(series.id, itemId);
+      if (next) pointer = { ...series, next: { id: next.id, season: next.season, episode: next.episode } };
+    }
+    return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer));
+  }
+
+  /** The episode after `episodeId`, from the series' cached or in-flight detail only (no fetch). */
+  private async knownNextEpisode(seriesId: string, episodeId: string): Promise<Episode | undefined> {
+    let detail = this.details.get(seriesId);
+    if (!detail) {
+      const entry = this.detailLoads.get(seriesId);
+      if (entry && entry.epoch === this.epoch) {
+        const r = await entry.p;
+        if (r.ok) detail = r.d;
+      }
+    }
+    return detail && 'seasons' in detail ? nextEpisode(detail.seasons, episodeId) : undefined;
   }
 
   clearProgress(itemId: string): Promise<void> {
