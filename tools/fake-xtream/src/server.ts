@@ -1,12 +1,17 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { channels, GROUPS, m3u, slots, TEST_STREAM, xmltv } from './data.ts';
+import {
+  channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
+} from './data.ts';
 
 export interface FakeXtreamOptions {
   port?: number;
   channels?: number;
   /** Only the first N channels get guide data in the XMLTV (default: all). */
   epgChannels?: number;
+  /** Synthetic movies (default 120) and series (default 12). */
+  movies?: number;
+  series?: number;
   now?: () => number;
 }
 
@@ -16,6 +21,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const chs = channels(opts.channels ?? 200);
   const now = opts.now ?? Date.now;
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
+  const mvs = movies(opts.movies ?? 120, now());
+  const srs = seriesList(opts.series ?? 12);
   let base = '';
 
   const send = (res: ServerResponse, status: number, body: string, type = 'application/json') => {
@@ -35,17 +42,20 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     const url = new URL(req.url ?? '/', base);
     const user = url.searchParams.get('username') ?? '';
     const pass = url.searchParams.get('password') ?? '';
-    const live = /^\/live\/([^/]+)\/([^/]+)\/(\d+)\.(ts|m3u8)$/.exec(url.pathname);
-    const effectiveUser = live ? decodeURIComponent(live[1]!) : user;
+    const stream = /^\/(live|movie|series)\/([^/]+)\/([^/]+)\/(\d+)\.([a-z0-9]+)$/.exec(url.pathname);
+    const effectiveUser = stream ? decodeURIComponent(stream[2]!) : user;
     if (effectiveUser === 'slow') await new Promise((r) => setTimeout(r, 3000));
     if (effectiveUser === 'error500') return send(res, 500, '{}');
 
-    if (live) {
+    if (stream) {
       res.writeHead(302, { location: TEST_STREAM });
       return res.end();
     }
 
-    const valid = (user === 'test' || user === 'slow' || user === 'expired') && pass === 'test';
+    const poster = /^\/poster\/([a-z]\d+)\.svg$/.exec(url.pathname);
+    if (poster) return send(res, 200, posterSvg(`Synthetic ${poster[1]}`), 'image/svg+xml');
+
+    const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall') && pass === 'test';
 
     if (url.pathname === '/player_api.php') {
       const action = url.searchParams.get('action');
@@ -77,6 +87,55 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
           })) : [],
         }));
       }
+      const catFilter = user === 'vodall' ? null : url.searchParams.get('category_id');
+      if (action === 'get_vod_categories') {
+        return send(res, 200, JSON.stringify(MOVIE_GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
+      }
+      if (action === 'get_vod_streams') {
+        return send(res, 200, JSON.stringify(mvs.filter((m) => !catFilter || m.categoryId === catFilter).map((m) => ({
+          num: m.n, name: m.name, stream_type: 'movie', stream_id: m.n, stream_icon: `${base}/poster/m${m.n}.svg`,
+          rating: m.rating, added: String(m.added), category_id: m.categoryId, container_extension: VOD_EXT,
+        }))));
+      }
+      if (action === 'get_vod_info') {
+        const m = mvs.find((x) => x.n === Number(url.searchParams.get('vod_id')));
+        if (!m) return send(res, 200, '[]');
+        return send(res, 200, JSON.stringify({
+          info: {
+            plot: `Synthetic plot for ${m.name}.`, duration_secs: String(5400 + m.n * 60), genre: MOVIE_GROUPS[Number(m.categoryId) - 1],
+            director: 'Synthetic Director', cast: 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
+            backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`,
+          },
+          movie_data: { stream_id: m.n, name: m.name, container_extension: VOD_EXT },
+        }));
+      }
+      if (action === 'get_series_categories') {
+        return send(res, 200, JSON.stringify(SERIES_GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
+      }
+      if (action === 'get_series') {
+        return send(res, 200, JSON.stringify(srs.filter((s) => !catFilter || s.categoryId === catFilter).map((s) => ({
+          num: s.n, name: s.name, series_id: s.n, cover: `${base}/poster/s${s.n}.svg`, rating: '7.5',
+          last_modified: String(Math.floor(now() / 1000) - s.n * 7200), category_id: s.categoryId, releaseDate: '2021-01-01',
+        }))));
+      }
+      if (action === 'get_series_info') {
+        const s = srs.find((x) => x.n === Number(url.searchParams.get('series_id')));
+        if (!s) return send(res, 200, '[]');
+        const episodes: Record<string, unknown[]> = {};
+        for (let season = 1; season <= s.seasons; season++) {
+          episodes[String(season)] = Array.from({ length: s.perSeason }, (_, i) => ({
+            id: String(episodeId(s.n, season, i + 1)), episode_num: i + 1, season,
+            title: `${s.name} - S${String(season).padStart(2, '0')}E${String(i + 1).padStart(2, '0')} - Episode ${i + 1}`,
+            container_extension: VOD_EXT,
+            info: { duration_secs: 2700 + i * 60, plot: `Synthetic episode ${i + 1}.`, movie_image: `${base}/poster/e${episodeId(s.n, season, i + 1)}.svg` },
+          }));
+        }
+        return send(res, 200, JSON.stringify({
+          seasons: Array.from({ length: s.seasons }, (_, i) => ({ season_number: i + 1, name: `Season ${i + 1}` })),
+          info: { name: s.name, plot: `Synthetic plot for ${s.name}.`, genre: SERIES_GROUPS[Number(s.categoryId) - 1], backdrop_path: [`${base}/poster/b${s.n}.svg`] },
+          episodes,
+        }));
+      }
       return send(res, 200, '[]');
     }
 
@@ -89,7 +148,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
 
     if (url.pathname === '/get.php') {
       if (!valid) return send(res, 401, '');
-      return send(res, 200, m3u(chs, base, user, pass), 'audio/x-mpegurl');
+      return send(res, 200, m3u(chs, base, user, pass, { movies: mvs }), 'audio/x-mpegurl');
     }
 
     return send(res, 404, 'not found', 'text/plain');

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { SourceService, SourceAuthError } from '@iptv/core';
+import { SourceService, SourceAuthError, VodService } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '../src/server.ts';
 
@@ -77,5 +77,50 @@ describe('fake xtream options', () => {
     } finally {
       await partial.close();
     }
+  });
+});
+
+describe('fake xtream VOD end to end', () => {
+  const both = () => {
+    const storage = new MemoryStorage();
+    const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+    return { storage, sources: new SourceService(deps), vod: new VodService(deps) };
+  };
+
+  test('movies and series via Xtream, per category', async () => {
+    const { sources, vod } = both();
+    const { source } = await sources.addSource(x('test'));
+    expect(await vod.refresh(source.id, 'movie')).toEqual({ count: 120, truncated: false });
+    const movies = await vod.loadCatalog(source.id, 'movie');
+    expect(movies.categories().map((c) => [c.name, c.count])).toEqual([['Drama', 30], ['Comedy', 30], ['Documentary', 30], ['Family', 30]]);
+    const first = movies.slice('all', 'added', 0, 1).rows[0]!;
+    expect(first.poster).toMatch(/\/poster\/m\d+\.svg$/);
+    expect((await vod.movieDetail(source.id, first)).plot).toMatch(/^Synthetic plot/);
+    const url = await vod.streamUrl(source.id, first);
+    expect((await fetch(url, { redirect: 'manual' })).status).toBe(302);
+    expect((await fetch(first.poster!)).headers.get('content-type')).toBe('image/svg+xml');
+
+    expect((await vod.refresh(source.id, 'series')).count).toBe(12);
+    const show = (await vod.loadCatalog(source.id, 'series')).slice('all', 'title', 0, 1).rows[0]!;
+    const detail = await vod.seriesDetail(source.id, show);
+    expect(detail.seasons.length).toBeGreaterThan(0);
+    const ep = detail.seasons[0]!.episodes[0]!;
+    expect((await fetch(await vod.streamUrl(source.id, ep), { redirect: 'manual' })).status).toBe(302);
+  });
+
+  test('a server that ignores category_id gives the same catalogue', async () => {
+    const { sources, vod } = both();
+    const { source } = await sources.addSource(x('vodall'));
+    expect(await vod.refresh(source.id, 'movie')).toEqual({ count: 120, truncated: false });
+  });
+
+  test('M3U: movie and series entries are split out of the channel list', async () => {
+    const { sources, vod } = both();
+    const { source, result } = await sources.addSource({
+      kind: 'm3u', name: 'Fake M3U', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus`,
+    });
+    expect(result).toEqual({ channelCount: 40, skipped: 0, movieCount: 6, seriesCount: 1 });
+    const show = (await vod.loadCatalog(source.id, 'series')).slice('all', 'title', 0, 1).rows[0]!;
+    expect((await vod.seriesDetail(source.id, show)).seasons.map((s) => s.episodes.length)).toEqual([3, 3]);
   });
 });
