@@ -57,3 +57,35 @@ test('vod catalogue: 60k movies in 80 categories: build, first sorts, slices, se
   expect(median(searchTimes)).toBeLessThan(30);
   expect(storedBytes).toBeLessThan(15e6);
 });
+
+declare const gc: (() => void) | undefined;
+const gcFn = typeof gc === 'function' ? gc : undefined;
+
+test('vod catalogue: resident heap at 60k movies with realistic ids and poster URLs', () => {
+  if (!gcFn) throw new Error('Run with --expose-gc (pnpm test:perf does).');
+  const n = 60_000;
+  // 14 characters, like SourceService's default ids.
+  const sourceId = 'mgq3x7k2a9f1zp';
+  gcFn();
+  const before = process.memoryUsage().heapUsed;
+  const categories: VodCategory[] = Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), kind: 'movie', name: `Synthetic Category ${i + 1}`, count: 0 }));
+  const items: VodItem[] = Array.from({ length: n }, (_, i) => ({
+    id: `${sourceId}:m${100_000 + i}`, kind: 'movie', title: `Synthetic Film Title Number ${i} Part ${i % 7}`,
+    categoryId: String((i % 80) + 1), xid: 100_000 + i,
+    // 86 characters, typical of provider poster URLs.
+    poster: `https://img.example.test/t/p/w600_and_h900_bestv2/${i.toString(16).padStart(32, '0')}.jpg`,
+    year: 1950 + (i % 75), rating: (i % 100) / 10, added: 1_760_000_000 - i * 60, ext: 'mkv',
+  }));
+  const list = buildVodList('movie', items, categories);
+  const catalog = new VodCatalog('movie', list);
+  // What a browse session builds: one sort and the search keys.
+  catalog.slice('all', 'title', 0, 30);
+  catalog.search('a', 20);
+  gcFn();
+  const heapMB = (process.memoryUsage().heapUsed - before) / 1e6;
+  const jsonMB = JSON.stringify(list).length / 1e6;
+  console.log(JSON.stringify({ heapMB: heapMB.toFixed(1), jsonMB: jsonMB.toFixed(1), posterChars: items[0]!.poster!.length }));
+  expect(items[0]!.poster!.length).toBe(86);
+  expect(catalog.size).toBe(n);
+  expect(heapMB).toBeLessThan(40);
+});
