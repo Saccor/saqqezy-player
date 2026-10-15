@@ -175,3 +175,18 @@ export function visibleTail(s: string, max: number): string {
   const cs = Array.from(s);
   return cs.length <= max ? s : `…${cs.slice(cs.length - (max - 1)).join('')}`;
 }
+
+/** The key under a point inside the keyboard panel (design px relative to the panel), or undefined for gaps and margins. */
+export function keyAt(x: number, y: number, layout: KeyboardLayout): Cursor | undefined {
+  for (let row = 0; row < layout.rows.length; row++) {
+    const top = layout.keysY + row * layout.rowStep;
+    if (y < top || y >= top + layout.keyH) continue;
+    const cells = layout.rows[row] ?? [];
+    for (let col = 0; col < cells.length; col++) {
+      const cell = cells[col]!;
+      const left = layout.pad + cell.x * layout.unit;
+      if (x >= left && x < left + cell.w * layout.unit - layout.keyGap) return { row, col };
+    }
+  }
+  return undefined;
+}

@@ -1,10 +1,11 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { captureTextInput } from '../input/keys.ts';
+import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { fieldDisplay } from './TextField.tsx';
 import {
-  FULL_LAYOUT, applyKey, keyLabel, moveCursor, textEntryKey, type Cursor, type Direction, type KeyDef, type KeyboardLayout,
+  FULL_LAYOUT, applyKey, keyAt, keyLabel, moveCursor, textEntryKey, type Cursor, type Direction, type KeyDef, type KeyboardLayout,
 } from './keyboardLogic.ts';
 
 export const KEYBOARD_W = FULL_LAYOUT.width;
@@ -19,6 +20,9 @@ const KEY_FILL = 0x1a1f2bff;
  *
  * While it is mounted, physical keyboard typing goes into the field (`captureTextInput`), and remote digit
  * keys type digits.
+ *
+ * Pointer: a screen-layer target, so clicks outside it still reach the screen (inline keyboards sit beside lists). A click on a key moves the cursor there and presses it, after focusing the keyboard
+ * through the owner (`usePointerFocus`); hover highlights the key. Clicks outside reach the screen (no backdrop, not modal).
  */
 export function Keyboard(props: {
   ref?: (el: ElementNode) => void;
@@ -45,6 +49,9 @@ export function Keyboard(props: {
   const L = props.layout ?? FULL_LAYOUT;
   const [cursor, setCursor] = createSignal<Cursor>(L.start);
   const [shift, setShift] = createSignal(false);
+  const [hoverKey, setHoverKey] = createSignal<Cursor | undefined>(undefined);
+  const focusFromPointer = usePointerFocus();
+  let root: ElementNode | undefined;
 
   const press = (def: KeyDef) => {
     const next = applyKey({ value: props.value, shift: shift() }, def);
@@ -61,6 +68,20 @@ export function Keyboard(props: {
     return move(dir);
   };
   const typeChar = (ch: string) => press({ kind: 'char', ch });
+
+  usePointerTarget({
+    node: () => root,
+    onHover: (p) => setHoverKey(p ? keyAt(p.x, p.y, L) : undefined),
+    subAt: (p) => { const k = keyAt(p.x, p.y, L); return k ? k.row * 1000 + k.col : undefined; },
+    onClick: (p) => {
+      const c = keyAt(p.x, p.y, L);
+      const cell = c ? L.rows[c.row]?.[c.col] : undefined;
+      if (!c || !cell) return;
+      focusFromPointer(root);
+      setCursor(c);
+      press(cell.def);
+    },
+  });
 
   onMount(() => {
     const release = captureTextInput((e) => {
@@ -84,7 +105,7 @@ export function Keyboard(props: {
     : 'Back closes and keeps the text');
 
   return (
-    <View ref={props.ref} x={props.x} y={props.y} width={L.width} height={L.height} zIndex={30}
+    <View ref={(el) => { root = el; props.ref?.(el); }} x={props.x} y={props.y} width={L.width} height={L.height} zIndex={30}
       color={COLORS.surface} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.muted }}
       onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => move('left')}
       onRight={() => moveOrEdge('right', props.onEdgeRight)}
@@ -106,11 +127,12 @@ export function Keyboard(props: {
       <For each={L.rows}>{(row, r) => (
         <For each={row}>{(cell, c) => {
           const focused = () => cursor().row === r() && cursor().col === c();
+          const hovered = () => pointerMode() && hoverKey()?.row === r() && hoverKey()?.col === c();
           const w = cell.w * L.unit - L.keyGap;
           const isShift = cell.def.kind === 'shift';
           return (
             <View x={L.pad + cell.x * L.unit} y={L.keysY + r() * L.rowStep} width={w} height={L.keyH} borderRadius={8}
-              color={focused() ? COLORS.focus : KEY_FILL}
+              color={focused() ? COLORS.focus : hovered() ? COLORS.hover : KEY_FILL}
               border={{ width: 2, color: isShift && shift() ? COLORS.focus : 0x00000000 }}>
               <Text y={(L.keyH - FONT.body) / 2 - 3} width={w} maxWidth={w} contain="width" textAlign="center"
                 fontSize={FONT.body} color={focused() ? COLORS.onFocus : COLORS.text}>{keyLabel(cell.def, shift())}</Text>

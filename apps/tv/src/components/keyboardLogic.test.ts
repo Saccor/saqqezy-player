@@ -3,6 +3,7 @@ import {
   COMPACT_LAYOUT, COMPACT_ROWS, FULL_LAYOUT, FULL_ROWS, MAX_LENGTH, applyKey, findKey, keyLabel, moveCursor, textEntryKey,
   visibleTail, type KeyDef, type KeyRows,
 } from './keyboardLogic.ts';
+import { keyAt } from './keyboardLogic.ts';
 
 const labels = (row: number) => (FULL_ROWS[row] ?? []).map((c) => keyLabel(c.def, false));
 
@@ -209,5 +210,41 @@ describe('compact layout', () => {
     s = applyKey(s, at(7, 1));
     expect(s.value).toBe('ab ');
     expect(applyKey(s, at(7, 2))).toEqual({ value: 'ab ', shift: false, done: true });
+  });
+});
+
+describe('keyAt (pointer)', () => {
+  it('finds compact keys and skips the gaps between them', () => {
+    // pad 10, keysY 10, unit 60, keyGap 6, keyH 56, rowStep 64
+    expect(keyAt(10, 10, COMPACT_LAYOUT)).toEqual({ row: 0, col: 0 });
+    expect(keyAt(63.9, 65.9, COMPACT_LAYOUT)).toEqual({ row: 0, col: 0 });
+    expect(keyAt(64, 20, COMPACT_LAYOUT)).toBeUndefined();
+    expect(keyAt(70, 20, COMPACT_LAYOUT)).toEqual({ row: 0, col: 1 });
+    expect(keyAt(20, 66, COMPACT_LAYOUT)).toBeUndefined();
+    expect(keyAt(20, 74, COMPACT_LAYOUT)).toEqual({ row: 1, col: 0 });
+  });
+
+  it('honours key offsets and widths (the digit row and Space, ⌫, Done)', () => {
+    const digitsY = 10 + 6 * 64 + 5;
+    expect(keyAt(20, digitsY, COMPACT_LAYOUT)).toBeUndefined();
+    expect(keyAt(75, digitsY, COMPACT_LAYOUT)).toEqual({ row: 6, col: 0 });
+    const actionsY = 10 + 7 * 64 + 2;
+    expect(keyAt(100, actionsY, COMPACT_LAYOUT)).toEqual({ row: 7, col: 0 });
+    expect(keyAt(130, actionsY, COMPACT_LAYOUT)).toEqual({ row: 7, col: 1 });
+  });
+
+  it('is undefined in the margins and outside the panel', () => {
+    expect(keyAt(5, 5, COMPACT_LAYOUT)).toBeUndefined();
+    expect(keyAt(400, 20, COMPACT_LAYOUT)).toBeUndefined();
+    expect(keyAt(20, 600, COMPACT_LAYOUT)).toBeUndefined();
+  });
+
+  it('works on the full layout below its label and value field', () => {
+    // pad 36, keysY 176, unit 72, keyGap 8: the first shortcut key spans x 36..172
+    expect(keyAt(36, 176, FULL_LAYOUT)).toEqual({ row: 0, col: 0 });
+    expect(keyAt(171, 180, FULL_LAYOUT)).toEqual({ row: 0, col: 0 });
+    expect(keyAt(172, 180, FULL_LAYOUT)).toBeUndefined();
+    expect(keyAt(180, 180, FULL_LAYOUT)).toEqual({ row: 0, col: 1 });
+    expect(keyAt(100, 100, FULL_LAYOUT)).toBeUndefined();
   });
 });
