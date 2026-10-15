@@ -70,7 +70,7 @@ const PERSIST_EVERY_MS = 60_000;
 const RESUME_GO_LIVE_MS = 30_000;
 /** After a seek or recovery we issued, a waiting/playing pair is our own doing, not a stall. */
 const SELF_ACTION_GRACE_MS = 2_000;
-/** VOD: a stall or network error reopens at the last position at most this many times per play(). */
+/** VOD: a stall or network error reopens at the last position at most this many times in a row (stable playback resets it). */
 const VOD_MAX_REOPENS = 3;
 /**
  * VOD: after a seek or resume the ladder rests until the playhead first moves, or this long at most. Engines
@@ -151,8 +151,10 @@ export class PlaybackSupervisor {
   private userPaused = false;
   /** VOD: the last known position (ms); reopens start here. */
   private lastPosMs = 0;
-  /** VOD: reopens after a stall or a network/media error in this play(). */
+  /** VOD: reopens after a stall or a network/media error since the last stable stretch. */
   private vodReopens = 0;
+  /** Attempts that reached their first frame (never reset): a change means a new engine attempt is playing. */
+  private startedCount = 0;
   /** VOD seek/resume grace: clock ms it ends at most, undefined when none. */
   private graceUntil: number | undefined;
   /** Grace: positions below this - 1 s mean the seek has not landed yet. */
@@ -243,6 +245,7 @@ export class PlaybackSupervisor {
     this.gen++;
     this.active = false;
     this.givingUp = false;
+    this.userPaused = false;
     this.endAttempt();
     if (!this.disposed) {
       this.player.releaseLastFrame?.();
@@ -308,14 +311,16 @@ export class PlaybackSupervisor {
 
   /**
    * VOD: pauses the title; the stall ladder rests until `resume()`. The pause survives a reopen (the new attempt
-   * pauses on its first frame). Nothing happens when the engine cannot pause.
+   * pauses on its first frame). Before the first frame it is only recorded: pausing an engine whose initial play is
+   * still pending would withhold that frame and let the start timeout burn a reopen. Nothing happens when the engine
+   * cannot pause.
    */
   pause(): void {
     if (!this.vod || !this.active || !this.player.pause) return;
     this.userPaused = true;
     this.stalledWhilePlaying = false;
     this.stallStartedAt = undefined;
-    this.player.pause();
+    if (this.started && this.currentAttempt !== undefined) this.player.pause();
   }
 
   /** VOD: plays on; the watch starts afresh and the waiting/playing pair that may follow is our own doing. */
@@ -385,6 +390,11 @@ export class PlaybackSupervisor {
 
   paused(): boolean {
     return this.vod && this.userPaused;
+  }
+
+  /** How many attempts reached their first frame so far (never reset): a new value means a new engine attempt plays. */
+  startedAttempts(): number {
+    return this.startedCount;
   }
 
   /** Subtitle cues from engines that cannot draw them; a no-op unsubscribe when the engine has none. */
@@ -467,8 +477,9 @@ export class PlaybackSupervisor {
       if (!this.started) {
         this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
+        this.startedCount++;
         this.clearStartTimers();
-        // A reopen while the user had paused: the new attempt stays paused.
+        // Paused by the user before this attempt's first frame (the first attempt or a reopen): it stays paused.
         if (this.vod && this.userPaused) this.player.pause?.();
       }
       this.clearSpinner();
@@ -553,6 +564,7 @@ export class PlaybackSupervisor {
     observe(this.watch, h, p, now);
     if (this.playerState === 'playing' && this.stableSince !== undefined && now - this.stableSince >= p.stableMs) {
       this.fails = 0; // stable long enough: the next failure retries at once again
+      this.vodReopens = 0; // and a VOD title gets its full reopen allowance back
     }
     if (this.vod && this.inGrace(h.positionMs, now)) return; // a seek or resume is still landing
     // VOD (finite): no gap jump, live-edge seek or no-bytes rung; emptyBuffer, frozenVideo and backstop reopen at
@@ -664,7 +676,7 @@ export class PlaybackSupervisor {
       return;
     }
     if (this.vod) {
-      // A stall or a network/media error: reopen at the last position, at most VOD_MAX_REOPENS times per play().
+      // A stall or a network/media error: reopen at the last position, at most VOD_MAX_REOPENS times in a row.
       if (++this.vodReopens > VOD_MAX_REOPENS) {
         this.terminal('unavailable');
         return;

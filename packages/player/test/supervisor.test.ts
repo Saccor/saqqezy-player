@@ -1298,6 +1298,57 @@ describe('PlaybackSupervisor: VOD mode', () => {
     expect(sup.positionMs()).toBe(2000);
   });
 
+  it('the 3-reopen cap resets after stable playback, like the live failure count', () => {
+    const { player, sup, statuses } = setup();
+    player.health = vodHealth(player, { bufferAheadS: 10 });
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    for (let i = 0; i < 4; i++) {
+      playFor(player, 31_000); // stable for longer than stableMs
+      player.emit('error', { code: 'NETWORK' });
+      vi.advanceTimersByTime(8000);
+      player.emit('playing');
+    }
+    expect(player.opened).toHaveLength(5);
+    expect(statuses.map((s) => s.kind)).not.toContain('failed');
+  });
+
+  it('pause before the first frame only records it; the first frame then pauses (no start timeout burns a reopen)', () => {
+    const { player, sup } = setup();
+    sup.play(V, undefined, { vod: true });
+    sup.pause();
+    expect(sup.paused()).toBe(true);
+    expect(player.pause).not.toHaveBeenCalled();
+    player.emit('playing');
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(20_000);
+    expect(player.opened).toHaveLength(1);
+  });
+
+  it('startedAttempts counts attempts that reached their first frame', () => {
+    const { player, sup } = setup();
+    expect(sup.startedAttempts()).toBe(0);
+    sup.play(V, undefined, { vod: true });
+    expect(sup.startedAttempts()).toBe(0);
+    player.emit('playing');
+    player.emit('playing');
+    expect(sup.startedAttempts()).toBe(1);
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    player.emit('playing');
+    expect(sup.startedAttempts()).toBe(2);
+  });
+
+  it('stop clears the paused flag', () => {
+    const { player, sup } = setup();
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    sup.pause();
+    expect(sup.paused()).toBe(true);
+    sup.stop();
+    expect(sup.paused()).toBe(false);
+  });
+
   it('seek clamps to [0, duration - 1 s] when the duration is known', () => {
     const { player, sup } = setup();
     player.duration = () => 100_000;
