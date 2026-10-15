@@ -227,13 +227,13 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
   const onDown = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
+    lastPoint = design(e);
+    // Any button wakes pointer mode, even without movement (after the Player's auto-hide or a remote key).
+    dispatch({ type: 'press', x: e.clientX, y: e.clientY, at: Date.now() });
     if (e.button === 3 || e.button === 4) {
       e.preventDefault(); // never browser history navigation
       return;
     }
-    if (e.button !== 0 && e.button !== 2) return;
-    lastPoint = design(e);
-    dispatch({ type: 'move', x: e.clientX, y: e.clientY, at: Date.now() });
     if (e.button !== 0) return; // a right click only wakes pointer mode; its action runs on contextmenu
     down = { x: e.clientX, y: e.clientY, at: Date.now(), scope: router.current(), entry: hitAt(lastPoint)?.entry };
   };

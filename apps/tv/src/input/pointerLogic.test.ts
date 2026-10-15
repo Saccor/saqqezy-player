@@ -26,6 +26,15 @@ describe('pointer mode', () => {
     expect(pointerModeReducer(off, { type: 'move', x: 104, y: 100, at: 9 })).toEqual({ on: true, lastMoveAt: 9, lastX: 104, lastY: 100 });
   });
 
+  it('a press turns it on without the jitter check and restarts the auto-hide timer', () => {
+    const off = pointerModeReducer(moved(100, 100, 5), { type: 'key' });
+    const pressed = pointerModeReducer(off, { type: 'press', x: 100, y: 100, at: 50 });
+    expect(pressed).toEqual({ on: true, lastMoveAt: 50, lastX: 100, lastY: 100 });
+    expect(pointerModeReducer(pressed, { type: 'tick', now: 50 + AUTO_HIDE_MS - 1, autoHide: true }).on).toBe(true);
+    const on = moved(100, 100, 5);
+    expect(pointerModeReducer(on, { type: 'press', x: 101, y: 100, at: 60 })).toEqual({ on: true, lastMoveAt: 60, lastX: 101, lastY: 100 });
+  });
+
   it('follows the webOS cursor', () => {
     const shown = pointerModeReducer(POINTER_START, { type: 'cursorShown', at: 7 });
     expect(shown.on).toBe(true);

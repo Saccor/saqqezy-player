@@ -33,21 +33,25 @@ export const POINTER_START: PointerModeState = { on: false, lastMoveAt: 0, lastX
 
 export type PointerModeEvent =
   | { type: 'move'; x: number; y: number; at: number }
+  /** A mouse button press: always wakes pointer mode (no jitter check), so a click or right click without movement counts. */
+  | { type: 'press'; x: number; y: number; at: number }
   | { type: 'key' }
   | { type: 'cursorHidden' }
   | { type: 'cursorShown'; at: number }
   | { type: 'tick'; now: number; autoHide: boolean };
 
 /**
- * Pointer mode: a move turns it on, any logical remote key and a hidden webOS cursor turn it off, and a tick turns it
- * off after `AUTO_HIDE_MS` without movement where the screen opted in. Clicks are not events here: they never turn
- * it off. Returns the same object when nothing changed.
+ * Pointer mode: a move (past the jitter) or any button press turns it on, any logical remote key and a hidden webOS
+ * cursor turn it off, and a tick turns it off after `AUTO_HIDE_MS` without movement or press where the screen opted
+ * in. A press never turns it off. Returns the same object when nothing changed.
  */
 export function pointerModeReducer(s: PointerModeState, e: PointerModeEvent): PointerModeState {
   switch (e.type) {
     case 'move':
       // NaN (no move yet) never counts as jitter.
       if (Math.hypot(e.x - s.lastX, e.y - s.lastY) <= JITTER_PX) return s;
+      return { on: true, lastMoveAt: e.at, lastX: e.x, lastY: e.y };
+    case 'press':
       return { on: true, lastMoveAt: e.at, lastX: e.x, lastY: e.y };
     case 'key':
     case 'cursorHidden':
