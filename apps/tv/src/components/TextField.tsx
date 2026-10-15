@@ -36,6 +36,8 @@ export function TextField(props: {
   editing?: boolean;
   /** Small right-aligned hint shown while focused (e.g. "Yellow: show"). */
   hint?: string;
+  /** Px kept free at the right end for a control drawn over the field (Add source's pointer `Show password`). */
+  endInset?: number;
   onEnter: () => void;
   onUp?: () => boolean | void;
   onDown?: () => boolean | void;
@@ -45,7 +47,9 @@ export function TextField(props: {
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onEnter() });
-  const max = () => Math.floor((props.width - 48) * CHARS_PER_PX);
+  /** The value's width: the newest characters and the caret stay clear of an end control. */
+  const textW = () => props.width - 48 - (props.endInset ?? 0);
+  const max = () => Math.floor(textW() * CHARS_PER_PX);
   const empty = () => props.value === '';
   const text = () => (empty() && !props.editing
     ? (props.placeholder ?? '—')
@@ -61,7 +65,7 @@ export function TextField(props: {
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}
       onYellow={() => props.onYellow?.() ?? false}>
       <Text x={24} y={14} fontSize={FONT.small} color={COLORS.muted}>{props.label}</Text>
-      <Text x={24} y={50} width={props.width - 48} maxWidth={props.width - 48} contain="width" maxLines={1}
+      <Text x={24} y={50} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={30} color={empty() && !props.editing ? COLORS.muted : COLORS.text}>{text()}</Text>
       {props.hint && focused()
         ? <Text x={props.width - 324} y={14} width={300} maxWidth={300} contain="width" textAlign="right"

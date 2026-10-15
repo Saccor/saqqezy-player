@@ -52,6 +52,8 @@ const TILE_FOCUS_FILL = 0x1b2436ff;
 const ERROR_COLOR = 0xff8a80ff;
 /** Pointer mode: the `Show password` / `Hide password` button inside the password field's right end. */
 const REVEAL_W = 240;
+/** The reveal button's inset from the field's right edge. */
+const REVEAL_INSET = 14;
 
 function TypeTile(props: {
   ref: (el: ElementNode) => void; x: number; title: string; body: string; badge?: string;
@@ -172,6 +174,12 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
 
   const submit = async () => {
     if (busy()) return;
+    // A click on the button while the keyboard is open (the remote cannot): close it first, so typing never goes on
+    // into a field after a validation error moves focus.
+    if (editing() !== undefined) {
+      removeKeyboard?.();
+      closeKeyboard();
+    }
     const v = kind() === 'xtream' ? validateXtream(xtream()) : validateM3u(m3u());
     if (!v.ok) {
       setError(v.message);
@@ -317,6 +325,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
             label={f.label} placeholder={f.placeholder} value={values()[f.key] ?? ''} secret={f.secret}
             revealed={f.secret ? revealed() : undefined} editing={editing() === f.key}
             hint={f.secret && !pointerMode() ? `Yellow: ${revealed() ? 'hide' : 'show'}` : undefined}
+            endInset={f.secret && pointerMode() ? REVEAL_W + REVEAL_INSET : undefined}
             onEnter={() => { lastItem = i(); openKeyboard(f.key); }}
             onUp={() => focusItem(i() - 1)} onDown={() => focusItem(i() + 1)}
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
@@ -326,7 +335,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           onUp={() => focusItem(fields().length - 1)} onDown={() => true} />
         {/* Pointer mode: the Yellow key's action as a button inside the password field's right end. */}
         <Show when={pointerMode() && fields().some((f) => f.secret === true)}>
-          <Button x={X + FORM_W - REVEAL_W - 14} y={FORM_Y + fields().findIndex((f) => f.secret === true) * FIELD_STEP + (FIELD_H - BUTTON_H) / 2}
+          <Button x={X + FORM_W - REVEAL_W - REVEAL_INSET} y={FORM_Y + fields().findIndex((f) => f.secret === true) * FIELD_STEP + (FIELD_H - BUTTON_H) / 2}
             width={REVEAL_W} label={revealLabel(revealed())} onPress={() => setRevealed((r) => !r)} />
         </Show>
         <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - FONT.body) / 2 - 4}
