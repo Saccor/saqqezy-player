@@ -17,6 +17,11 @@ export interface SupervisorOptions {
   allowRate?: boolean;
   liveTargets?: LiveTargetStore;
   journal?: JournalSink;
+  /**
+   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). An open that does not fit waits for
+   * room; only opens with a `sourceKey` count.
+   */
+  openRate?: { waitMs(sourceKey: string): number; take(sourceKey: string): void };
   random?: () => number;
   clock?: {
     setTimeout: typeof setTimeout;
@@ -85,6 +90,7 @@ export class PlaybackSupervisor {
   private readonly allowRate: boolean;
   private readonly store: LiveTargetStore | undefined;
   private readonly journal: JournalSink | undefined;
+  private readonly openRate: SupervisorOptions['openRate'];
   private readonly budget: ReconnectBudget;
   private readonly listeners = new Set<(s: SupervisorStatus) => void>();
   private readonly unsubscribe: () => void;
@@ -150,6 +156,7 @@ export class PlaybackSupervisor {
     this.allowRate = opts.allowRate ?? false;
     this.store = opts.liveTargets;
     this.journal = opts.journal;
+    this.openRate = opts.openRate;
     this.budget = new ReconnectBudget(opts.budget ?? DEFAULT_BUDGET, () => this.now());
     this.unsubscribe = player.onState((s, d) => this.onPlayerState(s, d));
   }
@@ -260,6 +267,19 @@ export class PlaybackSupervisor {
   // ---- attempts ----
 
   private openCurrent(): void {
+    if (this.openRate && this.sourceKey !== undefined) {
+      const wait = this.openRate.waitMs(this.sourceKey);
+      if (wait > 0) {
+        this.note({ k: 'rateWait', delayMs: wait });
+        const gen = this.gen;
+        this.retryTimer = this.clock.setTimeout(() => {
+          this.retryTimer = undefined;
+          if (gen === this.gen && this.active) this.openCurrent();
+        }, wait);
+        return;
+      }
+      this.openRate.take(this.sourceKey);
+    }
     this.lastOpenAt = this.now();
     const gen = this.gen;
     const id = ++this.attemptCounter;

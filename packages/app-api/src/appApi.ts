@@ -2,7 +2,7 @@ import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
   epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
   type AppSettings, type Channel, type GroupInfo, type Layout, type LayoutOp, type NewSource, type Programme,
-  type ProviderGroupInfo, type SourceConfig, type SourceService, type Storage, type TitleIndexData,
+  type CooldownCause, type ProviderGroupInfo, type SourceConfig, type SourceCooldown, type SourceService, type Storage, type TitleIndexData,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
@@ -126,6 +126,7 @@ export class AppApi {
       if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
       deps.emit({ type: 'companion', status });
     });
+    this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
   }
 
   // ---- lifecycle & sources ----
@@ -164,6 +165,8 @@ export class AppApi {
 
   updateSource(source: SourceConfig, origin: LayoutOrigin = 'local'): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
+      // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source.
+      await this.service.guard.retry(source.id);
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
       if (this.activeId === source.id) {
@@ -217,6 +220,26 @@ export class AppApi {
         if (what !== 'playlist') await this.refreshEpgFor(id);
       });
     });
+  }
+
+  /** Manual Retry: lets one probe reach the active source now (the cooldown step is kept). */
+  retrySource(): Promise<SourceCooldown> {
+    return this.run('retrySource', async () => {
+      const id = this.activeId;
+      if (!id) return { state: 'clear' };
+      await this.service.guard.retry(id);
+      return this.service.guard.status(id);
+    });
+  }
+
+  /** The player gave up on a stream of `sourceId` because the source refused it. */
+  reportStreamRefused(sourceId: string): Promise<void> {
+    return this.run('reportStreamRefused', () => this.service.guard.report(sourceId, 'refused'));
+  }
+
+  /** A stream of `sourceId` played: the source answers us. */
+  reportStreamAnswered(sourceId: string): Promise<void> {
+    return this.run('reportStreamAnswered', () => this.service.guard.report(sourceId, 'answered'));
   }
 
   // ---- browsing ----
@@ -600,6 +623,7 @@ export class AppApi {
       const lastGroup = await this.storage.getMeta<string>(`lastGroup:${id}`);
       if (lastChannel) state.lastChannelId = lastChannel;
       if (lastGroup) state.lastGroupId = lastGroup;
+      state.cooldown = await this.service.guard.status(id);
     }
     return state;
   }
@@ -881,6 +905,17 @@ export class AppApi {
     this.emit({ type: 'offline', value });
   }
 
+  /**
+   * Tells the UI. When a wait ends, the background pass of the active source runs again (a stale list or guide is the
+   * probe); when a probe got through, the refreshes skipped meanwhile run. A manual retry starts nothing here: the
+   * user's own attempt (a stream, a saved source) is the probe.
+   */
+  private cooldownChanged(sourceId: string, cooldown: SourceCooldown, cause: CooldownCause): void {
+    this.emit({ type: 'cooldown', sourceId, cooldown });
+    if (sourceId !== this.activeId) return;
+    if (cause === 'expired' || (cause === 'answered' && !this.background.has(sourceId))) this.startBackground(sourceId);
+  }
+
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
@@ -943,6 +978,9 @@ export class AppApi {
   }
 
   private async backgroundRefresh(id: string): Promise<void> {
+    // A cooling source gets nothing, and no "couldn't refresh" toast: the cooldown copy says it all. The end of the
+    // wait (or a retry) starts this pass again.
+    if ((await this.service.guard.status(id)).state !== 'clear') return;
     let playlist: boolean;
     try {
       playlist = (this.activeId === id && this.totalChannels() === 0) || await this.service.needsPlaylistRefresh(id);
@@ -1040,7 +1078,7 @@ export class AppApi {
    * still active (`shortCache`); only answers of the current generation update the rows.
    */
   private startShortEpg(id: string, missing: { c: Channel; h: number }[]): void {
-    if (this.service.isRefreshingEpg(id)) return;
+    if (this.service.isRefreshingEpg(id) || this.service.guard.isBlocked(id)) return;
     const todo = missing.filter(({ c }) => !this.shortPending.has(c.id));
     if (todo.length === 0) return;
     for (const { c } of todo) this.shortPending.add(c.id);
@@ -1154,6 +1192,7 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
+  'retrySource', 'reportStreamRefused', 'reportStreamAnswered',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',

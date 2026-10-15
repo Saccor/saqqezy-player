@@ -1,5 +1,5 @@
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
-import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
 import { ChannelIndex } from '../index/channelIndex.ts';
 import { isUserFlags, layoutFromFlags } from '../layout/migrate.ts';
@@ -8,6 +8,7 @@ import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
+import { RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
@@ -32,6 +33,8 @@ export interface SourceServiceDeps {
   newId?: () => string;
   /** Playlist/XMLTV body inactivity timeout (default `BODY_IDLE_MS`). */
   bodyIdleMs?: number;
+  /** Refusal cooldown shared by every request to a source (default: one built on `storage`). */
+  guard?: RefusalGuard;
 }
 
 const PROGRESS_EVERY = 2000;
@@ -80,6 +83,8 @@ export class SourceService {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly bodyIdleMs: number;
+  /** Every request to a source goes through it: nothing is sent while the source is in its refusal cooldown. */
+  readonly guard: RefusalGuard;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
@@ -95,6 +100,7 @@ export class SourceService {
     this.shortEpgGapMs = deps.shortEpgGapMs ?? SHORT_EPG_GAP_MS;
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
+    this.guard = deps.guard ?? new RefusalGuard({ storage: this.storage, now: this.now });
   }
 
   listSources(): Promise<SourceConfig[]> {
@@ -144,6 +150,7 @@ export class SourceService {
       const staging = await this.stagingGen(id);
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.deleteSource(id);
+      await this.guard.forget(id);
       // Lock order is always `id` then `layout:<id>`. Taking the layout lock waits out a layout write that had
       // already seen the source, then removes whatever it left behind; later writes see no source and no-op.
       await this.withLock(`layout:${id}`, async () => {
@@ -288,7 +295,7 @@ export class SourceService {
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
-    const res = await this.get(url);
+    const res = await this.get(id, url);
     if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
     const channels = await this.storage.getChannels(id);
 
@@ -437,8 +444,9 @@ export class SourceService {
     opts: { isStale?: (channel: Channel) => boolean } = {},
   ): Promise<Map<string, { now?: Programme; next?: Programme }>> {
     const out = new Map<string, { now?: Programme; next?: Programme }>();
-    const skip = (c: Channel) => this.isRefreshingEpg(id) || (opts.isStale?.(c) ?? false);
-    if (this.isRefreshingEpg(id)) return out;
+    const skip = (c: Channel) => this.isRefreshingEpg(id) || this.guard.isBlocked(id) || (opts.isStale?.(c) ?? false);
+    // Loads the persisted cooldown first, so a lookup right after a reload is skipped instead of queued.
+    if (this.isRefreshingEpg(id) || (await this.guard.status(id)).state !== 'clear') return out;
     if ((await this.storage.listSources()).find((s) => s.id === id)?.kind !== 'xtream') return out;
     await Promise.all(channels.map(async (c) => {
       const streamId = Number(/:x(\d+)$/.exec(c.id)?.[1]);
@@ -525,16 +533,16 @@ export class SourceService {
   }
 
   private xtream(s: XtreamSourceConfig): XtreamClient {
-    return new XtreamClient(s, this.fetchFn, { idleMs: this.bodyIdleMs });
+    return new XtreamClient(s, this.guard.wrap(s.id, this.fetchFn), { idleMs: this.bodyIdleMs });
   }
 
-  private async get(url: string): Promise<Response> {
+  private async get(sourceId: string, url: string): Promise<Response> {
     let res: Response;
     try {
-      res = await this.fetchFn(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
+      res = await this.guard.wrap(sourceId, this.fetchFn)(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
     } catch (err) {
-      // A header timeout keeps its own message; anything else means the provider could not be reached.
-      if (err instanceof SourceNetworkError) throw err;
+      // A header timeout or the refusal cooldown keeps its own message; anything else means the provider could not be reached.
+      if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
@@ -552,7 +560,7 @@ export class SourceService {
       onProgress?.({ phase: 'playlist', count: channels.length });
       return { channels, result: { channelCount: channels.length, skipped: 0 } };
     }
-    const res = await this.get(source.playlistUrl);
+    const res = await this.get(source.id, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
     const entries: M3uEntry[] = [];
     for await (const e of parseM3u(splitLines(responseText(res, source.playlistUrl, { idleMs: this.bodyIdleMs })), stats)) {

@@ -18,13 +18,15 @@ import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepS
 import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
+import { cooling, retrySource } from '../playback/cooldown.ts';
 import { playback, previewHold } from '../playback/playback.ts';
 import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
-import { companionStatus, initState, markStartup } from '../state/appState.ts';
+import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
+import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
@@ -529,13 +531,30 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   };
 
   /**
+   * Manual Retry while the source cools down: one probe, then `id` (or the held channel) previews here. The user
+   * stays on Home, where the result shows.
+   */
+  const retryHere = async (id?: string) => {
+    userPlayed();
+    const token = playback.begin();
+    setRequested(undefined);
+    const ch = id === undefined ? undefined : await api.getPlayable(id).catch(() => undefined);
+    if (!alive || !playback.isLatest(token)) return;
+    await retrySource(ch);
+  };
+
+  /**
    * Ok on a channel: one that is not playing plays in the small video, and Home stays. The playing one, or one whose
-   * request is still being fetched, goes fullscreen.
+   * request is still being fetched, goes fullscreen. While the source cools down, Ok is Retry (the preview box says so).
    */
   const watch = () => {
     const r = focusedRow();
     const g = groupId();
     if (!r || g === undefined || modalOpen()) return true;
+    if (cooling()) {
+      void retryHere(r.id);
+      return true;
+    }
     memory.channelId = r.id;
     if (okAction({ kind: 'channel', channel: r }, playback.current()?.id, requested()) === 'fullscreen') openFullscreen(r.id, g);
     else playHere(r.id, g);
@@ -1094,7 +1113,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
       <PreviewPanel x={PREVIEW_X} y={BODY_Y} channel={panel().channel} starting={panel().starting} idle={pausedNote() ? PAUSED_NOTE : undefined}
         status={playback.status()} playing={playback.current() !== undefined} now={now()}
-        onVideoClick={pointerOn() ? clickVideo : undefined} />
+        onVideoClick={pointerOn() ? clickVideo : undefined}
+        cooldown={cooldownCopy(cooldown(), freshNow(now()), pointerMode())}
+        onRetry={() => { void retryHere(playback.current() ? undefined : focusedRow()?.id); }} />
 
       <Show when={!pointerMode()}
         fallback={<PointerBar x={GROUP_X} y={HINT_Y - 14} height={48} items={homeBar} enabled={pointerOn()} />}>

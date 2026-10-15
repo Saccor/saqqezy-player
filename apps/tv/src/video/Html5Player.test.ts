@@ -219,6 +219,17 @@ describe('Html5Player – live delay and recovery signals', () => {
     player.destroy();
   });
 
+  test('limit statuses (429/503) are refusals too, so the supervisor stops and the cooldown starts', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    created.mpegts.at(-1)!.error!('NetworkError', 'HttpStatusCodeInvalid', { code: 429 });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'AUTH', httpStatus: 429 })]);
+    await player.open('http://example.test/a.m3u8');
+    created.hls.at(-1)!.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'x', response: { code: 503 } });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'AUTH', httpStatus: 503 })]);
+    player.destroy();
+  });
+
   test('health(): buffer, ranges, frames and bytes for mpegts.js', async () => {
     const { player, video } = makePlayer();
     await player.open('http://example.test/a.ts');

@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
+import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
@@ -11,6 +12,7 @@ import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/pointer.ts';
 import { withFailTest } from '../dev/failTest.ts';
 import { channelHistory } from '../playback/channelHistory.ts';
+import { cooling, retrySource } from '../playback/cooldown.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
 import { playback, player, previewHold, supervisor } from '../playback/playback.ts';
@@ -21,7 +23,8 @@ import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { settings } from '../state/appState.ts';
+import { cooldown, settings } from '../state/appState.ts';
+import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
   playerStatusText, sleepLabel, wheelZapAllowed,
@@ -343,6 +346,11 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const unlessModal = (fn: () => boolean) => () => (modal() ? true : fn());
   const onEnter = () => {
     if (numbers.submit()) return true;
+    // While the source cools down, OK is Retry (the centre message says so).
+    if (cooling()) {
+      void retrySource();
+      return true;
+    }
     // Behind live with the banner up: OK jumps to live (the pill says so) and keeps the banner.
     if (bannerOn()) setPillTick((v) => v + 1); // act on a fresh pill, not one up to 1 s old
     if (bannerOn() && pill()?.hint) {
@@ -455,7 +463,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     player.setAspect('auto');
   });
 
-  const status = createMemo(() => playerStatusText(playback.status()));
+  const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now()), pointerMode()));
+  // The cooldown message replaces the stream status: nothing is open while it shows.
+  const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status())));
   const showClock = () => settings()?.showClock === true;
   const TOAST_W = 460;
 
@@ -482,6 +492,11 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
                 fontSize={FONT.heading} color={COLORS.text}>{s.text}</Text>
             </View>
           )
+      )}</Show>
+
+      <Show when={coolCopy()}>{(c) => (
+        <CooldownNotice x={(LAYOUT.width - 1100) / 2} y={(LAYOUT.height - 240) / 2} width={1100} height={240}
+          text={c().text} hint={c().hint} fontSize={FONT.heading} onRetry={() => { void retrySource(); }} />
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (

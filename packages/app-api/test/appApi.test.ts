@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, RefusalGuard, SourceService, SourceAuthError, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -1327,5 +1327,113 @@ describe('APP_API_METHODS', () => {
     for (const m of APP_API_METHODS) expect(typeof (AppApi.prototype as unknown as Record<string, unknown>)[m]).toBe('function');
     for (const m of ['idle', 'run', 'record', 'activate', 'constructor']) expect(APP_API_METHODS).not.toContain(m);
     expect(new Set(APP_API_METHODS).size).toBe(APP_API_METHODS.length);
+  });
+});
+
+describe('AppApi – refusal cooldown', () => {
+  /** Answers 403 to every source request while `refusing.on`, counting what was actually sent. */
+  const refusingFetch = () => {
+    const state = { on: false, sent: [] as string[] };
+    const f: FetchFn = async (u, i) => {
+      state.sent.push(new URL(u).searchParams.get('action') ?? new URL(u).pathname);
+      return state.on ? new Response('', { status: 403 }) : fetch(u, i);
+    };
+    return { state, f };
+  };
+  const cooldownEvents = (events: AppEvent[]) =>
+    events.filter((e): e is Extract<AppEvent, { type: 'cooldown' }> => e.type === 'cooldown');
+
+  test('a refusal reaches InitState and a cooldown event; a reload sends nothing in the background', async () => {
+    const r = refusingFetch();
+    const { api, events } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: { state: 'waiting', until: NOW + 120_000 } });
+    // Reload: a stale playlist and guide would refresh, and every row would look up its short EPG.
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    const second = make(storage, SourceService, r.f);
+    const s = await second.api.init();
+    expect(s.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    await second.api.getChannelSlice('all', 0, 40);
+    await second.api.idle();
+    expect(r.state.sent).toEqual([]);
+    expect(second.events.some((e) => e.type === 'refreshFailed')).toBe(false);
+  });
+
+  test('explicit refresh while blocked fails with the neutral copy and sends nothing', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId);
+    r.state.sent = [];
+    await expect(api.refresh('both')).rejects.toMatchObject({
+      name: 'SourceRefused', message: "Your source is refusing connections. The app is waiting so you don't get blocked.",
+    });
+    expect(r.state.sent).toEqual([]);
+  });
+
+  test('stream reports: refused blocks; an answer during the block is ignored', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId);
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    await api.reportStreamAnswered(sourceId); // a stream that was already playing
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+  });
+
+  test('retry sends nothing by itself; the probe getting through runs the skipped refreshes', async () => {
+    const r = refusingFetch();
+    const { api, events } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    expect(await api.retrySource()).toEqual({ state: 'clear' });
+    await api.idle();
+    expect(r.state.sent).toEqual([]); // the user's stream is the probe
+    expect(cooldownEvents(events).at(-1)?.cooldown).toEqual({ state: 'clear' });
+    await api.reportStreamAnswered(sourceId);
+    await api.idle();
+    expect(r.state.sent).toContain('/xmltv.php');
+  });
+
+  test('the end of a wait restarts the background pass (the probe)', async () => {
+    const r = refusingFetch();
+    let fire: (() => void) | undefined;
+    let t = NOW;
+    const events: AppEvent[] = [];
+    const guard = new RefusalGuard({ storage, now: () => t, timer: { set: (fn) => { fire = fn; return 1; }, clear: () => { fire = undefined; } } });
+    const service = new SourceService({ storage, fetch: r.f, now: () => NOW, guard });
+    const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW });
+    live.push(api);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    t = NOW + 120_000;
+    fire?.();
+    await api.idle();
+    expect(r.state.sent).toEqual(['/xmltv.php']);
+    expect(cooldownEvents(events).at(-1)?.cooldown).toEqual({ state: 'clear' });
+  });
+
+  test('updateSource is a manual retry', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId);
+    const src = (await api.getSource(sourceId))!;
+    await expect(api.updateSource({ ...src, name: 'Renamed' })).resolves.toMatchObject({ channelCount: 40 });
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
   });
 });

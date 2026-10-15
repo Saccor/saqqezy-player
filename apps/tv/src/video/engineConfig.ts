@@ -16,8 +16,11 @@ const MB = 1_000_000;
 const SYNC_COUNT: Record<LivePreset, number> = { low: 1.5, balanced: 2, stable: 3 };
 const MAX_LATENCY_COUNT: Record<LivePreset, number> = { low: 4, balanced: 5, stable: 8 };
 
-/** HTTP statuses that mean "the source refuses us": retrying only hammers it (and can extend a block). */
-const REFUSED_STATUSES = new Set([401, 403, 410]);
+/**
+ * HTTP statuses that mean "the source refuses us": retrying only hammers it (and can extend a block). The same set
+ * as core's REFUSAL_STATUSES (refusal cooldown), plus 410 (an expired stream).
+ */
+const REFUSED_STATUSES = new Set([401, 403, 410, 429, 458, 503, 509]);
 
 const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
