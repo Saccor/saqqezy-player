@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, rowHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -320,6 +320,28 @@ describe('pickTarget', () => {
     const other = cand({ seq: 2, rect: { x: 200, y: 200, w: 50, h: 50 } });
     expect(pickTarget([other, back], { x: 210, y: 210 })).toBe(0);
     expect(pickTarget([other, back], { x: 5, y: 5 })).toBe(1);
+  });
+});
+
+describe('isRevealedPress (a press on something the previous press revealed)', () => {
+  const first = { x: 100, y: 100, at: 0, target: 1 };
+
+  it('a quick second press on the same spot that now hits another target is ignored', () => {
+    // The first press woke the Player overlay (or opened a screen); the second lands on a button that was not there.
+    expect(isRevealedPress(first, { x: 102, y: 101, at: 200, target: 2 })).toBe(true);
+    expect(isRevealedPress({ ...first, target: undefined }, { x: 100, y: 100, at: 200, target: 2 })).toBe(true);
+    expect(isRevealedPress(first, { x: 100, y: 100, at: DOUBLE_CLICK_MS, target: 2 })).toBe(true);
+  });
+
+  it('a real double click on the same, already-visible target is kept', () => {
+    expect(isRevealedPress(first, { x: 100, y: 100, at: 200, target: 1 })).toBe(false);
+  });
+
+  it('a later press, a press elsewhere, a press on nothing and the very first press are kept', () => {
+    expect(isRevealedPress(first, { x: 100, y: 100, at: DOUBLE_CLICK_MS + 1, target: 2 })).toBe(false);
+    expect(isRevealedPress(first, { x: 100 + CLICK_SLOP_PX + 1, y: 100, at: 100, target: 2 })).toBe(false);
+    expect(isRevealedPress(first, { x: 100, y: 100, at: 100, target: undefined })).toBe(false);
+    expect(isRevealedPress(undefined, { x: 100, y: 100, at: 100, target: 2 })).toBe(false);
   });
 });
 

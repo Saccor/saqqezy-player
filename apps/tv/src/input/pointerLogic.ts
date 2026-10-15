@@ -156,6 +156,20 @@ export interface Press { x: number; y: number; at: number }
  */
 export interface LastClick { at: number; target: number; sub?: number }
 
+/** A left or right press (client px, ms) and the target under it, read before the press woke pointer mode. */
+export interface PressHit extends Press { target: number | undefined }
+
+/**
+ * True when a press must be ignored because the previous press revealed what it hits: a quick second press on the
+ * same spot (a double click) that now hits a different target than the first did. The first press woke the Player
+ * overlay, opened fullscreen or opened the Player, and the second would land on a button the user never saw (Ch+,
+ * Previous). A double click on the same, already-visible target is kept.
+ */
+export function isRevealedPress(prev: PressHit | undefined, now: PressHit): boolean {
+  return prev !== undefined && now.target !== undefined && now.target !== prev.target
+    && now.at - prev.at <= DOUBLE_CLICK_MS && Math.hypot(now.x - prev.x, now.y - prev.y) <= CLICK_SLOP_PX;
+}
+
 /** A release within `CLICK_SLOP_PX` and `CLICK_MAX_MS` of its press. */
 export function isClick(down: Press, up: Press): boolean {
   return Math.hypot(up.x - down.x, up.y - down.y) <= CLICK_SLOP_PX && up.at - down.at <= CLICK_MAX_MS;

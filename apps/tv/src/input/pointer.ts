@@ -19,8 +19,8 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
 import { onLogicalKey, sendKey } from './keys.ts';
 import {
-  POINTER_START, WHEEL_START, hitBeforeWake, isClick, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
-  wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type Rect,
+  POINTER_START, WHEEL_START, hitBeforeWake, isClick, isRevealedPress, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
+  wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type PressHit, type Rect,
 } from './pointerLogic.ts';
 
 export type { Point } from './pointerLogic.ts';
@@ -219,6 +219,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   /** The right button's target, read at pointerdown before the wake; undefined when no press was seen. */
   let contextHit: { entry: Entry; local: Point } | null | undefined;
   let lastClick: LastClick | undefined;
+  /** The last left or right press, for `isRevealedPress`. */
+  let lastPress: PressHit | undefined;
   let wheel = WHEEL_START;
 
   const onMove = (e: PointerEvent) => {
@@ -238,12 +240,18 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
       e.preventDefault(); // never browser history navigation
       return;
     }
+    if (e.button !== 0 && e.button !== 2) return;
+    // The second press of a double click never acts on what the first one revealed (the Player's buttons after a
+    // wake, the Player itself after a click opened it).
+    const press: PressHit = { x: e.clientX, y: e.clientY, at: Date.now(), target: target?.entry.seq };
+    const revealed = isRevealedPress(lastPress, press);
+    lastPress = press;
     if (e.button === 2) {
-      contextHit = target ?? null; // its action runs on contextmenu, on what was under it before the wake
+      // Its action runs on contextmenu, on what was under it before the wake.
+      contextHit = revealed ? null : target ?? null;
       return;
     }
-    if (e.button !== 0) return;
-    down = { x: e.clientX, y: e.clientY, at: Date.now(), scope: router.current(), entry: target?.entry };
+    down = revealed ? undefined : { ...press, scope: router.current(), entry: target?.entry };
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
