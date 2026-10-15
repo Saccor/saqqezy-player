@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextPress, REVEAL_MS, REVEAL_SLOP_PX, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
+  WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, rowTextEnd, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextPress, REVEAL_MS, REVEAL_SLOP_PX, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -289,6 +289,17 @@ describe('barLayout', () => {
 
   it('uses the spec sizes and symbol', () => {
     expect([POINTER_BAR_H, POINTER_BTN_W, ROW_OPTIONS_LABEL]).toEqual([56, 200, '⋯']);
+  });
+});
+
+describe('rowTextEnd', () => {
+  it('ends 20 px before the row edge without the options pill', () => {
+    expect(rowTextEnd(712, false)).toBe(692);
+  });
+
+  it('ends 8 px before the options pill while it shows', () => {
+    // The pill is 64 px wide, 8 px in from the row's right edge.
+    expect(rowTextEnd(712, true)).toBe(712 - 8 - 64 - 8);
   });
 });
 

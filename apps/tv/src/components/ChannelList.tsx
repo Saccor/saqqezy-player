@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
-import { ROW_OPTIONS_LABEL, rowAt } from '../input/pointerLogic.ts';
+import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -20,9 +20,9 @@ export const BAR_H = 4;
 export const ROW_FOCUS_FILL = COLORS.focus;
 export const TRACK = 0x2a3140ff;
 /** The `⋯` options button at the right end of the hovered row (pointer mode). */
-const DOTS_W = 64;
-const DOTS_H = 48;
-const DOTS_PAD = 8;
+const DOTS_W = ROW_OPTIONS_W;
+const DOTS_H = ROW_OPTIONS_H;
+const DOTS_PAD = ROW_OPTIONS_PAD;
 
 export function Logo(props: { x: number; y: number; url: string | undefined; number: number; focused: boolean }) {
   // Re-evaluated when the row's channel changes; a failed load flips the row to the number tile.
@@ -53,13 +53,15 @@ export function ChannelRowView(props: {
   now: number; playingId: string | undefined; showNext?: boolean;
   /** The pointer is over the row (pointer mode): a subtle fill, never focus. */
   hover?: boolean;
+  /** The `⋯` pill shows on this row: the text and progress bar end before it. */
+  optionsShown?: boolean;
 }) {
   const r = () => props.row;
   const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
   const textSub = () => (props.lit ? 0xffffffcc : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
-  const textW = props.width - textX - 20;
+  const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
   const nowLine = () => {
     const n = r()?.now;
     const nx = props.showNext ? r()?.next : undefined;
@@ -73,15 +75,15 @@ export function ChannelRowView(props: {
       <Show when={r()} keyed>
         {(row) => <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={row.logo} number={row.number} focused={props.lit} />}
       </Show>
-      <Text x={textX} y={8} width={textW} maxWidth={textW} contain="width" maxLines={1}
+      <Text x={textX} y={8} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={FONT.body} color={textMain()}>
         {`${r()?.name ?? 'Loading…'}${r()?.id === props.playingId && r() ? ' ▶' : ''}`}
       </Text>
-      <Text x={textX} y={42} width={textW} maxWidth={textW} contain="width" maxLines={1}
+      <Text x={textX} y={42} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={FONT.small} color={textSub()}>{nowLine()}</Text>
       <Show when={r()?.now}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
-          <View width={Math.round(textW * progressOf(r()?.now, props.now))} height={BAR_H}
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
+          <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
             color={props.lit ? COLORS.onFocus : COLORS.focus} />
         </View>
       </Show>
@@ -184,7 +186,7 @@ export function ChannelList(props: {
       <For each={indices()}>{(i) => (
         <ChannelRowView y={(i - props.top) * ROW_H} width={props.width} row={props.row(i)}
           lit={i === props.focus && focused()} isFocus={i === props.focus} now={props.now}
-          playingId={props.playingId} showNext={props.showNext} hover={hovered(i)} />
+          playingId={props.playingId} showNext={props.showNext} hover={hovered(i)} optionsShown={dotsRow() === i} />
       )}</For>
       <Show when={dotsRow() !== undefined}>
         <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (ROW_H - 6 - DOTS_H) / 2}
