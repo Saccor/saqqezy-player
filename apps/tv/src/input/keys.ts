@@ -78,6 +78,17 @@ export function captureTextInput(fn: (e: KeyboardEvent) => boolean): () => void 
   return () => { if (textCapture === fn) textCapture = undefined; };
 }
 
+let inject: ((key: UiKey) => void) | undefined;
+
+/**
+ * Sends a logical key through Lightning's focus path exactly as the remote would (keydown, then keyup). It does not
+ * notify `onLogicalKey` subscribers, so the pointer layer that sends it (the mouse Back) stays in pointer mode. A no-op
+ * until `installKeys` runs.
+ */
+export function sendKey(key: UiKey): void {
+  inject?.(key);
+}
+
 /**
  * Installs the one global key listener: maps device keys through `@iptv/platform`, forwards them to
  * Lightning's focus system as logical keys and notifies `onLogicalKey` subscribers.
@@ -113,6 +124,12 @@ export function installKeys(
     forward('keydown', key, e);
     notify(key, e);
   };
+  const injectKey = (key: UiKey) => {
+    const src = new KeyboardEvent('keydown', { key });
+    forward('keydown', key, src);
+    forward('keyup', key, src);
+  };
+  inject = injectKey;
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (forwarded.has(e)) return;
@@ -198,6 +215,7 @@ export function installKeys(
   target.addEventListener('blur', onBlur);
   return () => {
     onBlur();
+    if (inject === injectKey) inject = undefined;
     target.removeEventListener('keydown', onKeyDown, true);
     target.removeEventListener('keyup', onKeyUp, true);
     target.removeEventListener('blur', onBlur);

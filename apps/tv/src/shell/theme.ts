@@ -13,6 +13,8 @@ export const COLORS = {
   onFocus: 0xffffffff,
   /** Validation messages (e.g. under the on-screen keyboard). */
   error: 0xff8a80ff,
+  /** Pointer hover highlight (pointer mode only): a lighter surface, more subtle than focus. */
+  hover: 0x232b3cff,
 } as const;
 
 export const FONT = { title: 48, heading: 32, body: 26, small: 22 } as const;
