@@ -163,6 +163,22 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(await s.getVodUser('s2', 'a')).toEqual(user(2));
     });
 
+    test('deleteSource does not touch sources whose id only shares a prefix (s1 vs s10)', async () => {
+      const s = await make();
+      await s.putSource(src);
+      await s.putSource({ kind: 'm3u', id: 's10', name: 'Ten', playlistUrl: 'http://example.test/t.m3u' });
+      await s.replaceVod('s1', 'movie', vodList(1));
+      await s.replaceVod('s10', 'movie', vodList(3));
+      await s.putVodUser('s1', 'a', user(1));
+      await s.putVodUser('s10', 'a', user(3));
+      await s.deleteSource('s1');
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      expect(await s.listVodUser('s1')).toEqual([]);
+      expect(await s.getVod('s10', 'movie')).toEqual(vodList(3));
+      expect(await s.getVodUser('s10', 'a')).toEqual(user(3));
+      expect(await s.listVodUser('s10')).toEqual([{ itemId: 'a', state: user(3) }]);
+    });
+
     test('clearAll wipes everything', async () => {
       const s = await make();
       await s.putSource(src);
