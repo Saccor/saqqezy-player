@@ -1,5 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
+import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
+import { rowAt } from '../input/pointerLogic.ts';
 import { dayLabel } from '../screens/guideLogic.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
 import type { SearchRow } from '../screens/searchLogic.ts';
@@ -10,8 +12,9 @@ import { renderRange } from './virtualWindow.ts';
 /** A programme row: title on top, "when · channel" below, progress while on air. */
 function ProgrammeRowView(props: {
   y: number; width: number; row: Extract<SearchRow, { kind: 'onNow' | 'later' }>; lit: boolean; isFocus: boolean; now: number;
+  hover?: boolean;
 }) {
-  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : 0x00000000);
+  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
   const textSub = () => (props.lit ? 0xffffffcc : COLORS.muted);
   const textX = NUM_W_PX + LOGO_W_PX + 20;
@@ -43,6 +46,9 @@ function ProgrammeRowView(props: {
 /**
  * Virtualised search results: section headers, channel rows, programme rows and a trailing note. One focusable
  * node handles the keys; the caller keeps focus on selectable rows.
+ *
+ * Pointer: one target for the list. Hover highlights a channel or programme row (never focus); clicks report the
+ * row (the caller ignores headers and notes); a wheel step is `onWheelStep` (default `onMove`).
  */
 export function SearchResultList(props: {
   ref: (el: ElementNode) => void;
@@ -56,15 +62,42 @@ export function SearchResultList(props: {
   onPage: (dir: 1 | -1) => boolean;
   onLeft: () => boolean;
   onOk: () => boolean;
+  /** Pointer click on row `index` (`double`: the second click of a double click on the same row). */
+  onRowClick?: (index: number, double: boolean) => void;
+  /** One wheel step (default: `onMove`). */
+  onWheelStep?: (delta: 1 | -1) => void;
 }) {
   const [focused, setFocused] = createSignal(false);
+  const [hoverRow, setHoverRow] = createSignal<number | undefined>(undefined);
+  let node: ElementNode | undefined;
   const viewRows = () => Math.max(1, Math.floor(props.height / ROW_H));
   const indices = createMemo(() => {
     const r = renderRange(props.top, viewRows(), props.rows.length);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
+  const indexAt = (p: Point) => rowAt(p.y, props.top, ROW_H, props.rows.length);
+  const click = (p: Point, double: boolean) => {
+    const i = indexAt(p);
+    if (i === undefined) return;
+    props.onRowClick?.(i, double);
+  };
+  usePointerTarget({
+    node: () => node,
+    onHover: (p) => setHoverRow(p ? indexAt(p) : undefined),
+    onClick: (p) => click(p, false),
+    onDoubleClick: (p) => click(p, true),
+    subAt: indexAt, // a double click needs both clicks on the same row
+    onWheel: (dy) => {
+      if (dy !== 0) {
+        const d = dy > 0 ? 1 : -1;
+        if (props.onWheelStep) props.onWheelStep(d);
+        else props.onMove(d);
+      }
+      return true;
+    },
+  });
   return (
-    <View ref={props.ref} x={props.x} y={props.y} width={props.width} height={props.height} clipping
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping
       onFocusChanged={(f: boolean) => setFocused(f)}
       onUp={() => props.onMove(-1)} onDown={() => props.onMove(1)}
       onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}
@@ -75,6 +108,7 @@ export function SearchResultList(props: {
         const y = () => (i - props.top) * ROW_H;
         const lit = () => i === props.focus && focused();
         const isFocus = () => i === props.focus;
+        const hover = () => pointerMode() && hoverRow() === i;
         return (
           <Show when={r()} keyed>{(row) => {
             if (row.kind === 'header' || row.kind === 'note') {
@@ -85,9 +119,10 @@ export function SearchResultList(props: {
             }
             if (row.kind === 'channel') {
               return <ChannelRowView y={y()} width={props.width} row={row.channel} lit={lit()} isFocus={isFocus()}
-                now={props.now} playingId={props.playingId} showNext />;
+                now={props.now} playingId={props.playingId} showNext hover={hover()} />;
             }
-            return <ProgrammeRowView y={y()} width={props.width} row={row} lit={lit()} isFocus={isFocus()} now={props.now} />;
+            return <ProgrammeRowView y={y()} width={props.width} row={row} lit={lit()} isFocus={isFocus()} now={props.now}
+              hover={hover()} />;
           }}</Show>
         );
       }}</For>

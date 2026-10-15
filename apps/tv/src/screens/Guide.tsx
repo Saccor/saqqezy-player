@@ -4,17 +4,20 @@ import type { ChannelRow, ProgrammeLite } from '@iptv/app-api';
 import type { GroupInfo } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { CHANNEL_W, EPG_GRID_W, EPG_ROW_H, EPG_TIMELINE_X, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
+import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
+import type { GridHit } from '../input/pointerLogic.ts';
 import { playback } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
-  HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideOpenTarget, guideWindow, isOnAir, prefetchRange,
-  relativeLabel, stepLeft, stepRight, type Block, type HStep,
+  GUIDE_POINTER_LABELS, HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideClick, guideOpenTarget, guideWindow, isOnAir, pageTime,
+  prefetchRange, relativeLabel, stepLeft, stepRight, type Block, type HStep,
 } from './guideLogic.ts';
 import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
 
@@ -36,6 +39,8 @@ const PICKER_ID = 'guideGroups';
 const PICKER_W = 460;
 const GROUP_ALL = 'all';
 const ROW_BUFFER = 2;
+/** `‹ Earlier` / `Later ›` (pointer mode, in the ruler). */
+const PAGE_BTN_W = 150;
 
 /** The group the guide showed last (kept across visits). */
 const memory: { groupId?: string } = {};
@@ -227,6 +232,40 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
     },
   };
 
+  // ---- pointer (mouse, pointer remote) ----
+
+  /** A click: an unfocused cell takes focus like moving there; the focused cell, or a channel name, acts like Ok. */
+  const onCellClick = (hit: GridHit<Block>) => {
+    gridNode?.setFocus();
+    if (hit.area === 'channels') {
+      setFocusRow(hit.row);
+      setArea('channels');
+      keys.onOk();
+      return;
+    }
+    const kind = guideClick({ area: 'grid', row: hit.row, start: hit.block.start },
+      { row: row(), area: area(), focusStart: focusBlock()?.start });
+    if (kind === 'ok') {
+      keys.onOk();
+      return;
+    }
+    setFocusRow(hit.row);
+    setArea('grid');
+    setAnchor(Math.max(hit.block.start, viewStart()));
+  };
+
+  /** The wheel moves rows like Up/Down; the horizontal (or Shift) wheel steps time like Left/Right, never out of the grid. */
+  const onGridWheel = (dy: number, dx: number) => {
+    if (dy !== 0) setFocusRow(moveFocus(row(), dy, total()));
+    if (dx === 0 || area() !== 'grid') return;
+    const view = { viewStart: viewStart(), anchor: anchor() };
+    const s = dx > 0 ? stepRight(rowBlocks(), focusIndex(), view, win) : stepLeft(rowBlocks(), focusIndex(), view, win);
+    if (s.kind !== 'edge') applyStep(s);
+  };
+
+  /** `‹ Earlier` / `Later ›`: three hours at a time. */
+  const pageBy = (dir: 1 | -1) => applyStep(pageTime({ viewStart: viewStart(), anchor: anchor() }, dir, win));
+
   // ---- lifecycle ----
 
   onMount(() => {
@@ -341,7 +380,15 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       <EpgGrid ref={(el) => { gridNode = el; }} x={LAYOUT.safeX} y={GRID_Y} total={total()} top={top()} focusRow={row()}
         focusStart={focusBlock()?.start} area={area()} viewStart={viewStart()} now={now()}
         playingId={playback.current()?.id} dayLabel={dayLabel(viewStart(), now())}
-        channel={channelAt} blocks={blocksAt} {...keys} />
+        channel={channelAt} blocks={blocksAt} {...keys} onCellClick={onCellClick} onPointerWheel={onGridWheel} />
+
+      {/* Pointer mode only, in the ruler: Groups over the day label, Earlier and Later at the timeline's ends. */}
+      <PointerBar x={LAYOUT.safeX} y={GRID_Y + 2} height={RULER_H - 4}
+        items={[{ id: 'groups', label: GUIDE_POINTER_LABELS.groups, width: CHANNEL_W - 10, onPress: () => { openPicker(); } }]} />
+      <PointerBar x={LAYOUT.safeX + EPG_TIMELINE_X} y={GRID_Y + 2} height={RULER_H - 4}
+        items={[{ id: 'earlier', label: GUIDE_POINTER_LABELS.earlier, width: PAGE_BTN_W, onPress: () => pageBy(-1) }]} />
+      <PointerBar x={LAYOUT.safeX + EPG_GRID_W - PAGE_BTN_W} y={GRID_Y + 2} height={RULER_H - 4}
+        items={[{ id: 'later', label: GUIDE_POINTER_LABELS.later, width: PAGE_BTN_W, onPress: () => pageBy(1) }]} />
 
       <Text x={LAYOUT.safeX} y={HINT_Y} width={EPG_GRID_W} maxWidth={EPG_GRID_W} contain="width" maxLines={1}
         fontSize={FONT.small} color={COLORS.muted}>
@@ -350,15 +397,25 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
           : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
       </Text>
 
-      <Show when={picking() !== undefined}>
-        <View x={LAYOUT.safeX} y={GRID_Y} width={PICKER_W} height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H}
-          color={COLORS.surface} borderRadius={LAYOUT.radius} zIndex={20}>
-          <Text x={24} y={16} fontSize={FONT.heading} color={COLORS.text}>{'Groups'}</Text>
-          <GroupList ref={(el) => { pickerNode = el; }} x={16} y={68} width={PICKER_W - 32}
-            height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H - 84} groups={groups()} selected={picking() ?? 0}
-            onSelect={(i) => setPicking(i)} onRight={choosePicked} />
-        </View>
-      </Show>
+      <Show when={picking() !== undefined}>{(_open) => {
+        let backdrop: ElementNode | undefined;
+        let panel: ElementNode | undefined;
+        // Backdrop (outside the panel: Back), then the panel (swallows), then the list (created below) wins.
+        usePointerBackdrop(() => backdrop);
+        usePointerTarget({ node: () => panel, layer: 'overlay' });
+        return (
+          <View ref={(el) => { panel = el; }} x={LAYOUT.safeX} y={GRID_Y} width={PICKER_W} height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H}
+            color={COLORS.surface} borderRadius={LAYOUT.radius} zIndex={20}>
+            {/* The click-outside area: the whole screen. No colour: it draws nothing. */}
+            <View ref={(el) => { backdrop = el; }} x={-LAYOUT.safeX} y={-GRID_Y} width={LAYOUT.width} height={LAYOUT.height} />
+            <Text x={24} y={16} fontSize={FONT.heading} color={COLORS.text}>{'Groups'}</Text>
+            <GroupList ref={(el) => { pickerNode = el; }} x={16} y={68} width={PICKER_W - 32}
+              height={RULER_H + EPG_VIEW_ROWS * EPG_ROW_H - 84} groups={groups()} selected={picking() ?? 0}
+              onSelect={(i) => setPicking(i)} onRight={choosePicked} pointerLayer="overlay"
+              onRowClick={(i) => { setPicking(i); choosePicked(); }} />
+          </View>
+        );
+      }}</Show>
     </View>
   );
 }

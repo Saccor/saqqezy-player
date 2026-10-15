@@ -129,3 +129,8 @@ export function formFromSource(src: SourceConfig): SourceForm {
 export function toUpdatedSource(id: string, input: NewSource): SourceConfig {
   return { ...input, id } as SourceConfig;
 }
+
+/** The pointer-mode button next to the password field (the Yellow key's action). */
+export function revealLabel(revealed: boolean): string {
+  return revealed ? 'Hide password' : 'Show password';
+}

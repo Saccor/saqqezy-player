@@ -1,6 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { Match, Switch, createSignal, onCleanup, onMount } from 'solid-js';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
+import { rowAt } from '../input/pointerLogic.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -33,24 +35,43 @@ const BUSY_H = 160;
 /** Which page was open (and whether it had focus), across visits: Edit/Add source return here. */
 const memory = { page: 0, area: 'menu' as 'menu' | 'page' };
 
-function Menu(props: { ref: (el: ElementNode) => void; selected: number; onSelect: (i: number) => void; onEnter: () => boolean }) {
+function Menu(props: {
+  ref: (el: ElementNode) => void; selected: number; onSelect: (i: number) => void; onEnter: () => boolean;
+  /** Pointer click on page `i`: open it, the same as Ok. */
+  onClickRow: (i: number) => void;
+}) {
   const [focused, setFocused] = createSignal(false);
+  const [hover, setHover] = createSignal<number | undefined>(undefined);
+  let node: ElementNode | undefined;
   const move = (d: number) => {
     const next = Math.max(0, Math.min(SETTINGS_PAGES.length - 1, props.selected + d));
     if (next !== props.selected) props.onSelect(next);
     return true;
   };
+  usePointerTarget({
+    node: () => node,
+    onHover: (p) => setHover(p ? rowAt(p.y, 0, MENU_ROW_H, SETTINGS_PAGES.length) : undefined),
+    onClick: (p) => {
+      const i = rowAt(p.y, 0, MENU_ROW_H, SETTINGS_PAGES.length);
+      if (i !== undefined) props.onClickRow(i);
+    },
+    onWheel: (dy) => {
+      if (dy !== 0) move(dy);
+      return true;
+    },
+  });
   return (
-    <View ref={props.ref} x={MENU_X} y={MENU_Y} width={MENU_W} height={SETTINGS_PAGES.length * MENU_ROW_H}
+    <View ref={(el) => { node = el; props.ref(el); }} x={MENU_X} y={MENU_Y} width={MENU_W} height={SETTINGS_PAGES.length * MENU_ROW_H}
       onFocusChanged={setFocused} onUp={() => move(-1)} onDown={() => move(1)}
       onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => true}>
       <For each={SETTINGS_PAGES}>{(p, i) => {
         const isSel = () => i() === props.selected;
+        const hovered = () => pointerMode() && hover() === i();
         return (
           <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_H - 8} borderRadius={LAYOUT.radius}
-            color={isSel() ? (focused() ? COLORS.focus : COLORS.surface) : 0x00000000}>
+            color={isSel() ? (focused() ? COLORS.focus : COLORS.surface) : hovered() ? COLORS.hover : 0x00000000}>
             <Text x={24} y={(MENU_ROW_H - 8 - FONT.body) / 2 - 3} fontSize={FONT.body}
-              color={isSel() && focused() ? COLORS.onFocus : isSel() ? COLORS.text : COLORS.muted}>{p.title}</Text>
+              color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
           </View>
         );
       }}</For>
@@ -103,6 +124,23 @@ export function SettingsScreen() {
     pageNode = undefined;
     memory.page = i;
     setPage(i);
+  };
+
+  /** A click on a menu entry opens its page, the same as Ok; a page with nothing to focus (About) leaves focus on the menu. */
+  const clickMenu = (i: number) => {
+    if (busyText() !== undefined) return;
+    if (i !== page()) selectPage(i);
+    // The new page registers its node while it renders: focus it after this update.
+    queueMicrotask(() => {
+      if (!alive) return;
+      if (pageNode) focusPage();
+      else focusMenu();
+    });
+  };
+  /** A click that focuses the page's list (or Manage on phone's actions) goes through `focusPage`, so Back returns to the menu. */
+  const focusFromPointer = (node: ElementNode) => {
+    if (node === pageNode) focusPage();
+    else node.setFocus();
   };
 
   const pageProps = (): PageProps => ({
@@ -174,8 +212,9 @@ export function SettingsScreen() {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Text x={LAYOUT.safeX} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Settings'}</Text>
-      <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} />
+      <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onClickRow={clickMenu} />
       <Text x={PAGE_X + 28} y={MENU_Y + 8} fontSize={FONT.heading} color={COLORS.text}>{title()}</Text>
+      <PointerFocusContext.Provider value={focusFromPointer}>
       <Switch>
         <Match when={id() === 'sources'}><SourcesPage {...pageProps()} /></Match>
         <Match when={id() === 'phone'}><ManageOnPhonePage {...pageProps()} /></Match>
@@ -187,6 +226,7 @@ export function SettingsScreen() {
         <Match when={id() === 'diagnostics'}><DiagnosticsPage {...pageProps()} /></Match>
         <Match when={id() === 'about'}><AboutPage {...pageProps()} /></Match>
       </Switch>
+      </PointerFocusContext.Provider>
       <Text x={LAYOUT.safeX} y={HINT_Y} fontSize={FONT.small} color={COLORS.muted}>
         {area() === 'page' ? 'Ok select · Left/Right change · Back menu' : 'Up/Down choose · Ok or Right open · Back leave'}
       </Text>
@@ -197,17 +237,22 @@ export function SettingsScreen() {
       <Show when={dialog()}>{(d) => (
         <ConfirmDialog message={d().message} yes={d().yes} no="Cancel" onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
       )}</Show>
-      <Show when={busyText()}>{(t) => (
-        <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
-          <View ref={(el) => { busyNode = el; }} x={(LAYOUT.width - BUSY_W) / 2} y={(LAYOUT.height - BUSY_H) / 2}
-            width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
-            onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
-            onBack={() => true}>
-            <Text y={(BUSY_H - FONT.heading) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
-              fontSize={FONT.heading} color={COLORS.text}>{t()}</Text>
+      <Show when={busyText()}>{(t) => {
+        let scrim: ElementNode | undefined;
+        // Busy ignores Back, so its backdrop swallows clicks and does nothing.
+        usePointerBackdrop(() => scrim, () => undefined);
+        return (
+          <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
+            <View ref={(el) => { busyNode = el; }} x={(LAYOUT.width - BUSY_W) / 2} y={(LAYOUT.height - BUSY_H) / 2}
+              width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+              onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
+              onBack={() => true}>
+              <Text y={(BUSY_H - FONT.heading) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
+                fontSize={FONT.heading} color={COLORS.text}>{t()}</Text>
+            </View>
           </View>
-        </View>
-      )}</Show>
+        );
+      }}</Show>
     </View>
   );
 }

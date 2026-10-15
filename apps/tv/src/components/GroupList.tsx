@@ -1,6 +1,8 @@
 import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { GroupInfo } from '@iptv/core';
+import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
+import { rowAt } from '../input/pointerLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { moveFocus, renderRange, scrollTopFor } from './virtualWindow.ts';
 
@@ -9,6 +11,9 @@ export const GROUP_ROW_H = 72;
 /**
  * Groups column: one focusable node (the rows only draw), Up/Down moves the selection, Right/Ok hands focus
  * to the channel list. Rendered virtually like the channel list, so long group lists stay cheap.
+ *
+ * Pointer: hover highlights a group, a click reports it (`onRowClick`), a wheel step moves the selection like
+ * Up/Down (without leaving the column at the top).
  */
 export function GroupList(props: {
   ref: (el: ElementNode) => void;
@@ -17,8 +22,18 @@ export function GroupList(props: {
   selected: number;
   onSelect: (index: number) => void;
   onRight: () => boolean;
+  /** Up on the first group (Home: move focus to the search bar). */
+  onEdgeUp?: () => boolean;
+  /** Pointer click on group `index`. */
+  onRowClick?: (index: number) => void;
+  /** Pointer hit-test layer: 'overlay' inside a picker. Default 'screen'. */
+  pointerLayer?: 'screen' | 'overlay';
+  /** False: the pointer passes over the column (a keyboard is open above it). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
+  const [hoverRow, setHoverRow] = createSignal<number | undefined>(undefined);
+  let node: ElementNode | undefined;
   let lastTop = 0;
   const viewRows = () => Math.max(1, Math.floor(props.height / GROUP_ROW_H));
   const total = () => props.groups.length;
@@ -33,18 +48,36 @@ export function GroupList(props: {
   const move = (delta: number) => {
     const next = moveFocus(props.selected, delta, total());
     if (next !== props.selected) props.onSelect(next);
+    else if (delta < 0 && props.onEdgeUp) return props.onEdgeUp();
     return true;
   };
+  const indexAt = (p: Point) => rowAt(p.y, topNow(), GROUP_ROW_H, total());
+  usePointerTarget({
+    node: () => node,
+    layer: props.pointerLayer,
+    enabled: () => props.pointerEnabled !== false,
+    onHover: (p) => setHoverRow(p ? indexAt(p) : undefined),
+    onClick: (p) => {
+      const i = indexAt(p);
+      if (i !== undefined) props.onRowClick?.(i);
+    },
+    onWheel: (dy) => {
+      const next = moveFocus(props.selected, dy, total());
+      if (dy !== 0 && next !== props.selected) props.onSelect(next);
+      return true;
+    },
+  });
 
   return (
-    <View ref={props.ref} x={props.x} y={props.y} width={props.width} height={props.height} clipping
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping
       onFocusChanged={setFocused} onUp={() => move(-1)} onDown={() => move(1)}
       onRight={() => props.onRight()} onEnter={() => props.onRight()}>
       <For each={indices()}>{(i) => {
         const g = () => props.groups[i];
         const isSel = () => i === props.selected;
-        const fill = () => (isSel() ? (focused() ? COLORS.focus : COLORS.surface) : 0x00000000);
-        const textColor = () => (isSel() && focused() ? COLORS.onFocus : isSel() ? COLORS.text : COLORS.muted);
+        const hover = () => pointerMode() && hoverRow() === i;
+        const fill = () => (isSel() ? (focused() ? COLORS.focus : COLORS.surface) : hover() ? COLORS.hover : 0x00000000);
+        const textColor = () => (isSel() && focused() ? COLORS.onFocus : isSel() || hover() ? COLORS.text : COLORS.muted);
         return (
           <View x={0} y={(i - topNow()) * GROUP_ROW_H} width={props.width} height={GROUP_ROW_H - 8}
             color={fill()} borderRadius={LAYOUT.radius}>

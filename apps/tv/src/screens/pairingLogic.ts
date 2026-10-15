@@ -154,3 +154,8 @@ export function qrMatrix(text: string): QrMatrix {
 
 /** Quiet zone around the symbol, in modules (the QR spec asks for 4). */
 export const QR_QUIET_MODULES = 4;
+
+/** The pointer-mode button that replaces the Yellow hint under the QR code or the code. */
+export function toggleButtonLabel(mode: PairingMode): string {
+  return mode === 'qr' ? 'Use a code instead' : 'Show the QR code';
+}

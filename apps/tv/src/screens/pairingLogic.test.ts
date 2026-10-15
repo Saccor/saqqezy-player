@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PEER_LABEL_MAX, cleanPeerLabel, countdownLine, formatCountdown, isPairingActive, pairingActions, qrMatrix,
-  shouldForgetPairing, shouldReuseSession, showPhoneBadge, START_GRACE_MS, statusCopy,
+  shouldForgetPairing, shouldReuseSession, showPhoneBadge, START_GRACE_MS, statusCopy, toggleButtonLabel,
 } from './pairingLogic.ts';
 
 describe('shouldForgetPairing', () => {
@@ -157,5 +157,12 @@ describe('qrMatrix', () => {
   it('uses level M: the same short text needs a larger symbol than level L would', () => {
     // 15 bytes fit version 1 at L (17 bytes) but not at M (14 bytes).
     expect(qrMatrix('x'.repeat(15)).size).toBe(25);
+  });
+});
+
+describe('toggleButtonLabel (pointer button for the Yellow key)', () => {
+  it('uses the spec copy', () => {
+    expect(toggleButtonLabel('qr')).toBe('Use a code instead');
+    expect(toggleButtonLabel('code')).toBe('Show the QR code');
   });
 });

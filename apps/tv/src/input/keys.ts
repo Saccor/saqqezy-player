@@ -55,13 +55,24 @@ export function onUnmappedKey(fn: (e: KeyboardEvent) => void): () => void {
 const gestureListeners = new Set<() => void>();
 
 /**
- * Observer for every real keydown (mapped or not, typed or not), called while the browser still counts it as a
- * user gesture. The player uses it to give the sound back after an autoplay-policy mute (only when the key
- * really activated the page; see `AutoMute.releaseOnGesture`).
+ * Observer for every real keydown (mapped or not, typed or not) and every mouse press and release, called while the
+ * browser still counts it as a user gesture. The player uses it to give the sound back after an autoplay-policy mute
+ * (only when the input really activated the page; see `AutoMute.releaseOnGesture`).
  */
 export function onUserGesture(fn: () => void): () => void {
   gestureListeners.add(fn);
   return () => { gestureListeners.delete(fn); };
+}
+
+/** Tells the `onUserGesture` observers about a user gesture: a real keydown, or a pointer press or release. */
+export function notifyUserGesture(): void {
+  for (const fn of [...gestureListeners]) {
+    try {
+      fn();
+    } catch (err) {
+      console.error('Gesture handler failed', errName(err));
+    }
+  }
 }
 
 let textCapture: ((e: KeyboardEvent) => boolean) | undefined;
@@ -76,6 +87,17 @@ let textCapture: ((e: KeyboardEvent) => boolean) | undefined;
 export function captureTextInput(fn: (e: KeyboardEvent) => boolean): () => void {
   textCapture = fn;
   return () => { if (textCapture === fn) textCapture = undefined; };
+}
+
+let inject: ((key: UiKey) => void) | undefined;
+
+/**
+ * Sends a logical key through Lightning's focus path exactly as the remote would (keydown, then keyup). It does not
+ * notify `onLogicalKey` subscribers, so the pointer layer that sends it (the mouse Back) stays in pointer mode. A no-op
+ * until `installKeys` runs.
+ */
+export function sendKey(key: UiKey): void {
+  inject?.(key);
 }
 
 /**
@@ -113,16 +135,16 @@ export function installKeys(
     forward('keydown', key, e);
     notify(key, e);
   };
+  const injectKey = (key: UiKey) => {
+    const src = new KeyboardEvent('keydown', { key });
+    forward('keydown', key, src);
+    forward('keyup', key, src);
+  };
+  inject = injectKey;
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (forwarded.has(e)) return;
-    for (const fn of [...gestureListeners]) {
-      try {
-        fn();
-      } catch (err) {
-        console.error('Gesture handler failed', errName(err));
-      }
-    }
+    notifyUserGesture();
     if (isTextEntry(e.target)) return;
     e.stopImmediatePropagation();
     let consumed = false;
@@ -198,6 +220,7 @@ export function installKeys(
   target.addEventListener('blur', onBlur);
   return () => {
     onBlur();
+    if (inject === injectKey) inject = undefined;
     target.removeEventListener('keydown', onKeyDown, true);
     target.removeEventListener('keyup', onKeyUp, true);
     target.removeEventListener('blur', onBlur);

@@ -1,6 +1,7 @@
-import { Show, Text, View } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import type { ChannelRow } from '@iptv/app-api';
 import type { SupervisorStatus } from '@iptv/player';
+import { usePointerTarget } from '../input/pointer.ts';
 import { formatRange, previewMessage, progressOf } from '../screens/homeLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
@@ -12,7 +13,8 @@ const STARTING_W = 140;
  * Right column. The 16:9 area at the top draws nothing while playing: it is a hole through the transparent
  * canvas onto the `<video>` (Home sets the video rect to the same box). Below: name, now (time + progress)
  * and "Up next" for `channel` (Home passes the playing channel, or the focused one while its preview is
- * `starting`, which adds a subtle "Starting…" next to the name).
+ * `starting`, which adds a subtle "Starting…" next to the name). A pointer click on the video box calls
+ * `onVideoClick`; hover shows nothing.
  */
 export function PreviewPanel(props: {
   x: number; y: number;
@@ -21,13 +23,18 @@ export function PreviewPanel(props: {
   status: SupervisorStatus | undefined;
   playing: boolean;
   now: number;
+  onVideoClick?: () => void;
 }) {
+  let video: ElementNode | undefined;
+  usePointerTarget({ node: () => video, enabled: () => props.onVideoClick !== undefined, onClick: () => props.onVideoClick?.() });
   const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing);
   const failed = () => props.playing && props.status?.kind === 'failed';
   const infoY = PREVIEW_H + LAYOUT.gap;
   const titleW = () => (props.starting ? PREVIEW_W - STARTING_W - LAYOUT.gap : PREVIEW_W);
   return (
     <View x={props.x} y={props.y} width={PREVIEW_W} height={PREVIEW_H + 360}>
+      {/* The video box's click area. No colour: it draws nothing. */}
+      <View ref={(el) => { video = el; }} width={PREVIEW_W} height={PREVIEW_H} />
       <Show when={msg()}>{(m) => (
         <View width={PREVIEW_W} height={PREVIEW_H} borderRadius={LAYOUT.radius}
           color={failed() || !props.playing ? COLORS.surface : COLORS.panel}>
