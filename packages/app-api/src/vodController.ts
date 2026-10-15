@@ -58,6 +58,11 @@ export class VodController {
   private userLoad: { epoch: number; p: Promise<Map<string, VodUserState>> } | undefined;
   private readonly jobs = new Map<VodKind, Job>();
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
+  /**
+   * Detail fetches in flight, per item id: a concurrent request for the same item (the hero resting, then a quick
+   * Play) joins it instead of fetching again. A failure is recorded once, by the fetch itself.
+   */
+  private readonly detailLoads = new Map<string, { epoch: number; p: Promise<{ ok: true; d: MovieDetail | SeriesDetail } | { ok: false; err: Error }> }>();
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
@@ -370,6 +375,7 @@ export class VodController {
 
   protected resetDetails(): void {
     this.details.clear();
+    this.detailLoads.clear();
   }
 
   /** Cached detail (most recently used first out); a failure is recorded and not cached: returns null, or with `rethrow` throws the recorded Error. */
@@ -381,18 +387,31 @@ export class VodController {
       return hit as T;
     }
     const epoch = this.epoch;
-    try {
-      const d = await load();
-      if (this.epoch === epoch) {
-        this.details.set(item.id, d);
-        if (this.details.size > VOD_DETAIL_CACHE) this.details.delete(this.details.keys().next().value!);
-      }
-      return d;
-    } catch (err) {
-      const out = this.record(where, err);
-      if (rethrow) throw out;
-      return null;
+    let entry = this.detailLoads.get(item.id);
+    if (!entry || entry.epoch !== epoch) {
+      // In the map before `load` runs, so the cleanup below finds it even when `load` throws at once.
+      const mine = { epoch } as NonNullable<typeof entry>;
+      entry = mine;
+      this.detailLoads.set(item.id, mine);
+      mine.p = (async () => {
+        try {
+          const d = await load();
+          if (this.epoch === epoch) {
+            this.details.set(item.id, d);
+            if (this.details.size > VOD_DETAIL_CACHE) this.details.delete(this.details.keys().next().value!);
+          }
+          return { ok: true as const, d };
+        } catch (err) {
+          return { ok: false as const, err: this.record(where, err) };
+        } finally {
+          if (this.detailLoads.get(item.id) === mine) this.detailLoads.delete(item.id);
+        }
+      })();
     }
+    const r = await entry.p;
+    if (r.ok) return r.d as T;
+    if (rethrow) throw r.err;
+    return null;
   }
 
   private startFetch(kind: VodKind, id: string, epoch: number): Promise<void> {

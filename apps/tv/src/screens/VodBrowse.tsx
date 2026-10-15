@@ -8,7 +8,7 @@ import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { TabBar } from '../components/TabBar.tsx';
+import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback } from '../playback/playback.ts';
@@ -23,9 +23,10 @@ import { createVodLauncher } from '../vod/launch.ts';
 import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
+import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { KIND_COPY } from '../vod/kindCopy.ts';
-import { tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
+import { TAB_H, tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
 const HERO_Y = 200;
@@ -269,13 +270,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
    * Series: "Continue S2 · E4" / "Play S1 · E1" from the view's primary episode; "Play" until it is loaded.
    */
   const playAction = createMemo(() => {
-    const t = focusedTile();
     if (kind === 'series') {
       // Task 3 replaces this with seriesDetailLogic.primaryLabel.
       const p = heroSeries()?.primary;
       const label = p ? (p.mode === 'continue' ? 'Continue ' : 'Play ') + episodeLabel(p.season, p.episode) : 'Play';
       return { id: 'play', label, width: p ? 320 : 200 };
     }
+    const t = focusedTile();
     const h = hero()?.tile.id === t?.id ? (hero() as MovieView | undefined) : undefined;
     const total = titleLengthMs(h?.resumeMs ?? 0, t?.progress, h?.detail?.runtimeMin);
     if (!t?.progress || !h || h.resumeMs <= 0 || total <= 0) return { id: 'play', label: 'Play', width: 200 };
@@ -401,10 +402,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       const runtimeMin = (d as MovieView['detail'] | undefined)?.runtimeMin;
       return metaLine({ year: t?.year, runtimeMin, genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
     }
-    const n = heroSeries()?.seasons.length ?? 0;
-    const seasons = n > 0 ? (n === 1 ? '1 season' : `${n} seasons`) : '';
-    return [metaLine({ year: t?.year }), seasons, metaLine({ genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating })]
-      .filter((p) => p !== '').join(' · ');
+    return seriesMetaLine({ year: t?.year, seasons: heroSeries()?.seasons.length ?? 0, genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
   };
   /** The focused row, and the next one peeking in below; not in pointer mode, where it would sit under the shell's Back button. */
   const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => rows()[i] !== undefined);
@@ -454,7 +452,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <TabBar ref={(el) => { tabsNode = el; }} active={tabOfKind(kind)} onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
         onFocusChanged={(f) => { if (f) choose('tabs'); }} />
       <Show when={home()?.truncated}>
-        <Text zIndex={2} x={LAYOUT.safeX + 300} y={LAYOUT.safeY + 34} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
+        {/* Under the tab bar: right of it the line would run into the wordmark zone (x 700). */}
+        <Text zIndex={2} x={TAB_BAR_X} y={TAB_BAR_Y + TAB_H + 12} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
       </Show>
 
       <Show when={status() === 'ready'} fallback={

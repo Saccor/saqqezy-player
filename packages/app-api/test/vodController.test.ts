@@ -408,6 +408,57 @@ describe('VodController detail cache', () => {
   });
 });
 
+describe('VodController concurrent detail requests', () => {
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  };
+
+  test('a hero view and a quick play of the same series share one detail fetch', async () => {
+    const { c, fake } = detailFake(0, 2);
+    const d = deferred<{ plot: string; seasons: Season[] }>();
+    fake.seriesDetail.mockImplementationOnce(() => d.promise);
+    const view = c.series(showId(1));
+    const play = c.playable(epId(showId(1), 1), showId(1));
+    await vi.waitFor(() => expect(fake.seriesDetail).toHaveBeenCalledTimes(1));
+    d.resolve({ plot: 'Plot', seasons: seasonsOf(showId(1)) });
+    expect((await view)?.seasons.length).toBe(2);
+    expect((await play)?.kind).toBe('episode');
+    expect(fake.seriesDetail).toHaveBeenCalledTimes(1);
+  });
+
+  test('a shared failed fetch is recorded once; the view gets null, the playable rejects; the next request fetches again', async () => {
+    const { c, fake, recorded } = detailFake(0, 2);
+    const d = deferred<{ plot: string; seasons: Season[] }>();
+    fake.seriesDetail.mockImplementationOnce(() => d.promise);
+    const view = c.series(showId(1));
+    const play = c.playable(epId(showId(1), 1), showId(1));
+    await vi.waitFor(() => expect(fake.seriesDetail).toHaveBeenCalledTimes(1));
+    d.reject(new Error('detail failed'));
+    expect((await view)?.detail).toBeNull();
+    await expect(play).rejects.toThrow('detail failed');
+    expect(recorded).toHaveLength(1);
+    expect((await c.series(showId(1)))?.detail).not.toBeNull();
+    expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
+  });
+
+  test('a source switch while a detail loads: the next request does not join the old fetch', async () => {
+    const { c, fake } = detailFake(2);
+    const d = deferred<{ plot: string }>();
+    fake.movieDetail.mockImplementationOnce(() => d.promise);
+    const old = c.movie(movieId(1));
+    await vi.waitFor(() => expect(fake.movieDetail).toHaveBeenCalledTimes(1));
+    c.reset('src');
+    const fresh = await c.movie(movieId(1));
+    expect(fake.movieDetail).toHaveBeenCalledTimes(2);
+    expect(fresh?.detail?.plot).toBe(`Plot ${movieId(1)}`);
+    d.resolve({ plot: 'stale' });
+    expect(await old).toBeUndefined();
+  });
+});
+
 describe('VodController detail failures', () => {
   test('a series whose detail fails: detail null, no seasons, no primary, recorded once, not cached', async () => {
     const { c, fake, recorded } = detailFake(0, 2);
