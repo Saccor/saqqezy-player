@@ -72,6 +72,10 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const loading = new Set<string>();
   /** Bumped by every load and source change; results from an older generation are dropped. */
   let gen = 0;
+  /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). */
+  let preferredArea: Area = startOnTabs ? 'tabs' : 'rows';
+  let restoring = false;
+  const choose = (a: Area) => { setArea(a); if (!restoring) preferredArea = a; };
 
   const focusedCell = () => {
     const r = rows()[focus().row];
@@ -84,6 +88,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const focusedRowTitle = () => rows()[focus().row]?.title ?? '';
 
   const focusArea = (a: Area) => {
+    if (!restoring) preferredArea = a;
     if (a === 'hero' && !focusedTile()) a = 'rows';
     if (a !== 'tabs' && rows().length === 0) {
       // No rows: the Try again button (error) is the content; otherwise the tab bar.
@@ -101,20 +106,23 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   // ---- data ----
 
+  /** After a load: put focus back on what the user chose, only when this load may have unmounted the focused view. */
+  const restoreFocus = (before: { status: string | undefined; hasRows: boolean; hasTile: boolean }) => {
+    queueMicrotask(() => {
+      if (!alive || router.topOverlay() !== undefined || menu.isOpen()) return;
+      const changed = before.status !== status() || before.hasRows !== (rows().length > 0) || before.hasTile !== !!focusedTile();
+      if (!changed) return;
+      restoring = true;
+      try { focusArea(preferredArea); } finally { restoring = false; }
+    });
+  };
+
   const load = async () => {
     const g = ++gen;
+    const before = { status: status(), hasRows: rows().length > 0, hasTile: !!focusedTile() };
+    let h: VodHome | undefined;
     try {
-      const h = await api.getVodHome(kind);
-      if (!alive || g !== gen) return;
-      const models = mergeRows(rows(), toRowModels(h));
-      batch(() => {
-        setHome(h);
-        setRows(models);
-        setFocus(clampFocus(models, focus()));
-      });
-      memory.focus = focus();
-      syncHero();
-      void loadNear();
+      h = await api.getVodHome(kind);
     } catch (err) {
       if (!alive || g !== gen) return;
       console.warn('Movies load failed', err instanceof Error ? err.name : 'Error');
@@ -122,9 +130,20 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         setHome({ status: 'error', rows: [], truncated: false, error: { name: 'Error', message: 'Movies could not be loaded.' } });
         setRows([]);
       });
+      restoreFocus(before);
+      return;
     }
-    // The rows view may have been swapped for the error view (or back): focus never gets lost.
-    queueMicrotask(() => { if (alive) focusArea(area()); });
+    if (!alive || g !== gen) return;
+    const models = mergeRows(rows(), toRowModels(h));
+    batch(() => {
+      setHome(h);
+      setRows(models);
+      setFocus(clampFocus(models, focus()));
+    });
+    memory.focus = focus();
+    syncHero();
+    void loadNear();
+    restoreFocus(before);
   };
 
   const loadNear = async () => {
@@ -132,16 +151,18 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const rs = rows();
     for (const i of rowsToLoad(rs, focus().row)) {
       const r = rs[i]!;
-      if (loading.has(r.id)) continue;
-      loading.add(r.id);
+      const key = `${g}:${r.id}`;
+      if (loading.has(key)) continue;
+      loading.add(key);
       try {
         const page = await api.getVodSlice(kind, r.id, rowSort(rs), 0, VOD_ROW_ITEMS);
-        if (!alive || g !== gen) return;
-        setRows((cur) => cur.map((x) => (x.id === r.id ? { ...x, items: page.rows, total: page.total, loaded: true } : x)));
+        if (!alive) return;
+        if (g !== gen) { void loadNear(); return; }
+        setRows((cur) => cur.map((x) => (x.id === r.id ? { ...x, items: page.rows, total: page.total, loaded: true, stale: false } : x)));
       } catch {
         // Stays a loading cell; a later focus move tries again.
       } finally {
-        loading.delete(r.id);
+        loading.delete(key);
       }
     }
   };
@@ -154,7 +175,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const syncHero = () => {
     const t = focusedTile();
     if (hero()?.tile.id !== t?.id) setHero(undefined);
-    if (t) heroLoad.schedule(t.id);
+    if (t && hero()?.tile.id !== t.id) heroLoad.schedule(t.id);
   };
   const onFocusMoved = () => {
     memory.focus = focus();
@@ -210,7 +231,10 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const r = moveBrowse(rows(), focus(), key, memory.cols);
     if ('edge' in r) return focusArea(focusedTile() ? 'hero' : 'tabs');
     const cur = focus();
-    if (r.focus.row === cur.row && r.focus.col === cur.col) return true;
+    if (r.focus.row === cur.row && r.focus.col === cur.col) {
+      if (focusedCell()?.kind === 'loading') void loadNear();
+      return true;
+    }
     setFocus(r.focus);
     onFocusMoved();
     return true;
@@ -232,6 +256,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       // Another source became active (a phone companion, Settings): drop everything and re-read.
       onEvent('sourcesChanged', (e) => {
         const ev = e as { type: 'sourcesChanged'; activeSourceId?: string };
+        if (ev.activeSourceId === sourceId()) { void load(); return; }
         gen++;
         loading.clear();
         setSourceId(ev.activeSourceId);
@@ -242,6 +267,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           setHero(undefined);
           setFocus(memory.focus);
         });
+        restoring = true;
+        try { focusArea('tabs'); } finally { restoring = false; }
         void load();
       }),
     ];
@@ -295,11 +322,11 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           {heroDetail()?.plot ?? ''}
         </Text>
         <ActionBar ref={(el) => { heroNode = el; }} x={HERO_X} y={HERO_Y + 290} actions={heroActions()} onAction={onHeroAction}
-          onUp={() => focusArea('tabs')} onDown={() => focusArea('rows')} onFocusChanged={(f) => { if (f) setArea('hero'); }} />
+          onUp={() => focusArea('tabs')} onDown={() => focusArea('rows')} onFocusChanged={(f) => { if (f) choose('hero'); }} />
       </Show>
 
       <TabBar ref={(el) => { tabsNode = el; }} active="movies" onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
-        onFocusChanged={(f) => { if (f) setArea('tabs'); }} />
+        onFocusChanged={(f) => { if (f) choose('tabs'); }} />
       <Show when={home()?.truncated}>
         <Text x={LAYOUT.safeX + 300} y={LAYOUT.safeY + 34} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
       </Show>
@@ -315,7 +342,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       }>
         {/* Rows: the focused row sits in the fixed slot, the next one peeks in below. One focusable node owns the keys. */}
         <View ref={(el) => { rowsNode = el; }} y={0} width={LAYOUT.width} height={LAYOUT.height}
-          onFocusChanged={(f: boolean) => { if (f) setArea('rows'); }}
+          onFocusChanged={(f: boolean) => { if (f) choose('rows'); }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
           <For each={visibleRows()}>{(i) => {

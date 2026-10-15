@@ -97,4 +97,17 @@ describe('browseLogic', () => {
     const next = [row('a', 3, 3)];
     expect(mergeRows([row('a', 9, 9)], next)[0]!.items).toHaveLength(3);
   });
+  test('mergeRows: a carried row is marked stale; a carried row is trimmed to the new total', () => {
+    const out = mergeRows([row('b', 40, 12)], [row('b', 5, 0, false)]);
+    expect(out[0]!.stale).toBe(true);
+    expect(out[0]!.items).toHaveLength(5);
+    expect(out[0]!.total).toBe(5);
+    expect(mergeRows([row('a', 3, 3)], [row('a', 3, 3)])[0]!.stale).toBeUndefined();
+  });
+
+  test('rows to load: stale rows near focus reload too', () => {
+    const stale = { ...row('b', 40, 12), stale: true };
+    expect(rowsToLoad([row('a', 3, 3), stale, row('c', 40, 12)], 0)).toEqual([1]);
+    expect(rowsToLoad([row('a', 3, 3), stale, row('c', 40, 12)], 2)).toEqual([]);
+  });
 });

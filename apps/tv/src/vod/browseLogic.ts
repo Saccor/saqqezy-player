@@ -3,7 +3,7 @@ import type { VodSort } from '@iptv/core';
 
 /** The Movies browse rows and focus. Pure: no Solid, no Lightning. */
 
-export interface RowModel { id: string; title: string; total: number; items: VodTile[]; loaded: boolean }
+export interface RowModel { id: string; title: string; total: number; items: VodTile[]; loaded: boolean; stale?: boolean }
 export type Cell = { kind: 'tile'; tile: VodTile } | { kind: 'viewAll'; total: number } | { kind: 'loading' };
 export interface BrowseFocus { row: number; col: number }
 /** Posters fully visible in a row (a ninth peeks in). */
@@ -20,7 +20,7 @@ export function mergeRows(prev: RowModel[], next: RowModel[]): RowModel[] {
   return next.map((r) => {
     if (r.loaded) return r;
     const old = byId.get(r.id);
-    return old?.loaded ? { ...r, items: old.items, loaded: true } : r;
+    return old?.loaded ? { ...r, items: old.items.slice(0, r.total), loaded: true, stale: true } : r;
   });
 }
 
@@ -61,9 +61,9 @@ export function clampFocus(rows: RowModel[], f: BrowseFocus): BrowseFocus {
   return { row, col: clampCol(rows[row], f.col) };
 }
 
-/** The focused row and the one below, when not loaded yet and not empty. */
+/** The focused row and the one below, when not loaded yet (or carried over and stale) and not empty. */
 export function rowsToLoad(rows: RowModel[], focusRow: number): number[] {
-  return [focusRow, focusRow + 1].filter((i) => rows[i] !== undefined && !rows[i]!.loaded && rows[i]!.total > 0);
+  return [focusRow, focusRow + 1].filter((i) => rows[i] !== undefined && (!rows[i]!.loaded || rows[i]!.stale) && rows[i]!.total > 0);
 }
 
 /** Category rows are sorted like the worker's home rows: by date when the source has dates. */
