@@ -1,7 +1,7 @@
 import type { EngineName, ErrorCode, LivePreset } from './types.ts';
 
 export type ReconnectReason = 'noBytes' | 'emptyBuffer' | 'frozenVideo' | 'backstop';
-export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'drift' | 'goLive' | 'edgeSeekFailed';
+export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'drift' | 'goLive' | 'edgeSeekFailed' | 'seek';
 
 /** One thing the player did. Never a URL or credentials (CLAUDE.md rules 6-7); `t` is clock ms (Date.now). */
 export type JournalEvent =

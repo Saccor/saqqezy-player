@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PlaybackSupervisor,
-  type AspectMode, type JournalEvent, type LiveProfile, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
+  type AspectMode, type JournalEvent, type LiveProfile, type OpenOptions, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
 
@@ -10,6 +10,7 @@ type Listener = (s: PlayerState, d?: StateDetail) => void;
 class FakePlayer implements Player {
   opened: string[] = [];
   ids: Array<number | undefined> = [];
+  openOpts: Array<OpenOptions | undefined> = [];
   calls: string[] = [];
   pos = 0;
   throwOnOpen: unknown;
@@ -20,9 +21,14 @@ class FakePlayer implements Player {
   setLiveProfile = vi.fn((_p: LiveProfile) => undefined);
   holdLastFrame = vi.fn(() => undefined);
   releaseLastFrame = vi.fn(() => undefined);
+  pause = vi.fn(() => undefined);
+  play = vi.fn(() => undefined);
+  seek?: (ms: number) => boolean;
+  duration?: () => number | undefined;
+  onSubtitle?: (fn: (text: string | null) => void) => () => void;
   private listeners = new Set<Listener>();
-  open(url: string, attemptId?: number): Promise<void> {
-    this.opened.push(url); this.ids.push(attemptId); this.calls.push(`open:${url}`);
+  open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void> {
+    this.opened.push(url); this.ids.push(attemptId); this.openOpts.push(opts); this.calls.push(`open:${url}`);
     if (this.throwOnOpen !== undefined) { const e = this.throwOnOpen; this.throwOnOpen = undefined; throw e; }
     return Promise.resolve();
   }
@@ -990,5 +996,223 @@ describe('PlaybackSupervisor – per-source open rate', () => {
     const { player, sup } = setup({ openRate: { waitMs: () => 1000, take: () => undefined } });
     sup.play(A);
     expect(player.opened).toEqual([A]);
+  });
+});
+
+describe('PlaybackSupervisor: VOD mode', () => {
+  const V = 'http://a.example.test/movie/1';
+  /** A finite stream's health: position from the fake, plus the given fields. */
+  const vodHealth = (player: FakePlayer, extra: Partial<PlaybackHealth> = {}) =>
+    () => ({ positionMs: player.pos, isLive: false, ...extra });
+
+  it('opens with live:false and the start position; live opens stay as they were', () => {
+    const { player, sup } = setup();
+    sup.play(V, undefined, { vod: true, startMs: 5000 });
+    expect(player.openOpts[0]).toEqual({ live: false, startMs: 5000 });
+    sup.play(A);
+    expect(player.openOpts[1]).toBeUndefined();
+  });
+
+  it('never reads or writes the learned live raise', () => {
+    const store = { get: vi.fn((_k: string) => 2), set: vi.fn((_k: string, _v: number) => undefined) };
+    const { player, sup } = setup({ liveTargets: store });
+    sup.play(V, undefined, { vod: true, sourceKey: 's1' });
+    player.emit('playing');
+    playFor(player, 70_000);
+    sup.stop();
+    expect(store.get).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+  });
+
+  it('pause suspends the stall ladder; live pause and seek do nothing', () => {
+    const { player, sup } = setup();
+    player.health = vodHealth(player, { bufferAheadS: 0 });
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    playFor(player, 1000);
+    sup.pause();
+    expect(player.pause).toHaveBeenCalled();
+    expect(sup.paused()).toBe(true);
+    vi.advanceTimersByTime(30_000); // the position stands still while paused
+    expect(player.opened).toHaveLength(1);
+
+    const live = setup();
+    live.player.seek = vi.fn(() => true);
+    live.sup.play(A);
+    live.player.emit('playing');
+    live.sup.pause();
+    live.sup.seek(10_000);
+    expect(live.player.pause).not.toHaveBeenCalled();
+    expect(live.player.seek).not.toHaveBeenCalled();
+    expect(live.sup.paused()).toBe(false);
+  });
+
+  it('resume plays, starts a fresh watch, and a waiting/playing pair right after it is not a stall', () => {
+    const { player, sup } = setup();
+    player.health = vodHealth(player, { bufferAheadS: 0 });
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    playFor(player, 1000);
+    sup.pause();
+    vi.advanceTimersByTime(60_000);
+    sup.resume();
+    expect(player.play).toHaveBeenCalled();
+    expect(sup.paused()).toBe(false);
+    player.emit('buffering');
+    player.emit('playing');
+    expect(sup.liveInfo().stalls).toBe(0);
+    playFor(player, 5000);
+    expect(player.opened).toHaveLength(1);
+  });
+
+  it('the last known position follows the tick; a NETWORK error reopens there', () => {
+    const { player, sup } = setup();
+    player.health = vodHealth(player);
+    player.pos = 60_000;
+    sup.play(V, undefined, { vod: true, startMs: 60_000 });
+    player.emit('playing');
+    playFor(player, 2000);
+    expect(sup.positionMs()).toBe(62_000);
+    player.emit('error', { code: 'NETWORK' });
+    player.pos = 0; // the engine forgets its position while it reopens
+    expect(sup.positionMs()).toBe(62_000);
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toHaveLength(2);
+    expect(player.openOpts[1]).toEqual({ live: false, startMs: 62_000 });
+  });
+
+  it('a stall reconnect also reopens at the last position', () => {
+    const { player, sup } = setup();
+    player.health = vodHealth(player, { bufferAheadS: 0 });
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    playFor(player, 3000);
+    vi.advanceTimersByTime(4000); // empty buffer, no progress for 4 s
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toHaveLength(2);
+    expect(player.openOpts[1]).toEqual({ live: false, startMs: 3000 });
+  });
+
+  it('a gap the live ladder would jump (or seek to live) reopens instead', () => {
+    const { player, sup } = setup();
+    player.recover = vi.fn(() => true);
+    player.seekToLive = vi.fn(() => true);
+    player.health = vodHealth(player, { bufferAheadS: 5, isLive: undefined });
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    playFor(player, 2000);
+    vi.advanceTimersByTime(3000);
+    expect(player.recover).not.toHaveBeenCalled();
+    expect(player.seekToLive).not.toHaveBeenCalled();
+    expect(player.opened).toHaveLength(2);
+    expect(player.openOpts[1]).toEqual({ live: false, startMs: 2000 });
+  });
+
+  it('byte silence is not a stall in VOD (lazy loading parks downloads far ahead)', () => {
+    const health = (player: FakePlayer) => () => ({ positionMs: player.pos, bufferAheadS: 0.3, tracksBytes: true, lastByteAt: 0 });
+    const live = setup();
+    live.player.health = health(live.player);
+    live.sup.play(A);
+    live.player.emit('playing');
+    vi.advanceTimersByTime(3000);
+    expect(live.player.opened).toHaveLength(2); // live: no bytes for 2.5 s reconnects
+    live.sup.dispose();
+
+    const { player, sup } = setup();
+    player.health = health(player);
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    vi.advanceTimersByTime(7000);
+    expect(player.opened).toHaveLength(1); // only the 8 s backstop applies
+    vi.advanceTimersByTime(2000);
+    expect(player.opened).toHaveLength(2);
+  });
+
+  it('after 3 reopens the 4th failure ends as unavailable, with no background retries', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    for (let i = 0; i < 3; i++) {
+      player.emit('error', { code: i === 1 ? 'MEDIA' : 'NETWORK' });
+      vi.advanceTimersByTime(8000);
+      player.emit('playing');
+    }
+    expect(player.opened).toHaveLength(4);
+    player.emit('error', { code: 'NETWORK' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+    vi.advanceTimersByTime(300_000);
+    expect(player.opened).toHaveLength(4);
+  });
+
+  it('UNSUPPORTED and DECODE fail as unsupported at once, without reopening', () => {
+    for (const code of ['UNSUPPORTED', 'DECODE'] as const) {
+      const { player, sup, statuses } = setup();
+      sup.play(V, B, { vod: true });
+      player.emit('playing');
+      player.emit('error', { code });
+      expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unsupported' });
+      vi.advanceTimersByTime(60_000);
+      expect(player.opened).toEqual([V]);
+      sup.dispose();
+    }
+  });
+
+  it("the stream reaching its end reports 'ended'; live never does", () => {
+    const { player, sup, statuses } = setup();
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    player.emit('idle');
+    expect(statuses.at(-1)).toEqual({ kind: 'ended' });
+    vi.advanceTimersByTime(30_000);
+    expect(player.opened).toHaveLength(1);
+
+    const live = setup();
+    live.sup.play(A);
+    live.player.emit('playing');
+    live.player.emit('idle');
+    expect(live.statuses.map((s) => s.kind)).not.toContain('ended');
+  });
+
+  it('seek calls the engine and marks a self action; an impossible seek reopens at the target', () => {
+    const { player, sup } = setup();
+    player.health = vodHealth(player, { bufferAheadS: 0 });
+    player.seek = vi.fn(() => true);
+    sup.play(V, undefined, { vod: true });
+    player.emit('playing');
+    playFor(player, 1000);
+    sup.seek(30_000);
+    expect(player.seek).toHaveBeenCalledWith(30_000);
+    player.emit('buffering');
+    player.emit('playing');
+    expect(sup.liveInfo().stalls).toBe(0);
+    expect(player.opened).toHaveLength(1);
+
+    player.seek = vi.fn(() => false);
+    sup.seek(90_000);
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toHaveLength(2);
+    expect(player.openOpts[1]).toEqual({ live: false, startMs: 90_000 });
+  });
+
+  it('positionMs, durationMs and onSubtitle come from the engine', () => {
+    const { player, sup } = setup();
+    expect(sup.onSubtitle(() => undefined)).toBeTypeOf('function'); // no engine support: a no-op unsubscribe
+    player.duration = () => 5_400_000;
+    const off = vi.fn();
+    let cue: ((t: string | null) => void) | undefined;
+    player.onSubtitle = vi.fn((fn: (t: string | null) => void) => { cue = fn; return off; });
+    const seen: Array<string | null> = [];
+    const unsub = sup.onSubtitle((t) => seen.push(t));
+    cue?.('Hello');
+    cue?.(null);
+    expect(seen).toEqual(['Hello', null]);
+    unsub();
+    expect(off).toHaveBeenCalled();
+    sup.play(V, undefined, { vod: true, startMs: 1234 });
+    expect(sup.durationMs()).toBe(5_400_000);
+    expect(sup.positionMs()).toBe(1234);
+    player.emit('playing');
+    player.pos = 2000;
+    expect(sup.positionMs()).toBe(2000);
   });
 });

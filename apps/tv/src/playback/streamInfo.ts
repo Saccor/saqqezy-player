@@ -35,6 +35,7 @@ function statusLabel(s: SupervisorStatus | undefined): string {
     case 'playing': return 'Playing';
     case 'reconnecting': return 'Reconnecting';
     case 'failed': return `Failed (${s.reason})`;
+    case 'ended': return 'Ended';
   }
 }
 
