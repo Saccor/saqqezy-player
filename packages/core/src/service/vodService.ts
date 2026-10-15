@@ -10,7 +10,7 @@ import {
   applyProgress, clearProgress, setFavourite, setTracks, setWatched,
 } from '../vod/progress.ts';
 import type {
-  Episode, MovieDetail, SeriesDetail, SeriesPointer, VodItem, VodKind, VodUserRecord, VodUserState,
+  Episode, MovieDetail, SeriesDetail, SeriesPointer, VodItem, VodKind, VodList, VodUserRecord, VodUserState,
 } from '../vod/types.ts';
 import { XtreamClient } from '../xtream/client.ts';
 
@@ -43,6 +43,12 @@ export class VodService {
     return new VodCatalog(kind, (await this.storage.getVod(sourceId, kind)) ?? emptyVodList());
   }
 
+  /** The stored catalogue, or undefined when nothing was ever stored for this source and kind. */
+  async storedCatalog(sourceId: string, kind: VodKind): Promise<VodCatalog | undefined> {
+    const list = await this.storage.getVod(sourceId, kind);
+    return list ? new VodCatalog(kind, list) : undefined;
+  }
+
   async fetchedAt(sourceId: string, kind: VodKind): Promise<number> {
     return (await this.storage.getMeta<number>(vodAtKey(kind, sourceId))) ?? 0;
   }
@@ -65,24 +71,25 @@ export class VodService {
    */
   refresh(
     sourceId: string, kind: VodKind, opts: { signal?: AbortSignal; onProgress?: (n: number) => void } = {},
-  ): Promise<{ count: number; truncated: boolean }> {
+  ): Promise<{ count: number; truncated: boolean; list: VodList }> {
     return this.withLock(`vod:${kind}:${sourceId}`, async () => {
       const source = await this.source(sourceId);
       if (!source) throw new Error(`Unknown source ${sourceId}`);
       if (source.kind !== 'xtream') {
-        const list = await this.storage.getVod(sourceId, kind);
-        return { count: list?.items.length ?? 0, truncated: list?.truncated === true };
+        const list = (await this.storage.getVod(sourceId, kind)) ?? emptyVodList();
+        return { count: list.items.length, truncated: list.truncated === true, list };
       }
       const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, opts);
-      if (opts.signal?.aborted) throw new VodFetchCancelled();
-      if (!(await this.source(sourceId))) return { count: 0, truncated: false };
+      if (!(await this.source(sourceId))) return { count: 0, truncated: false, list: emptyVodList() };
       // A 200 with an error body parses to an empty list: keep a good cached catalogue rather than wipe it.
       if (list.items.length === 0 && ((await this.storage.getVod(sourceId, kind))?.items.length ?? 0) > 0) {
         throw new SourceNetworkError('Unexpected response from the provider.');
       }
+      // Checked right before the write: an abort during the awaits above must store nothing.
+      if (opts.signal?.aborted) throw new VodFetchCancelled();
       await this.storage.replaceVod(sourceId, kind, list);
       await this.storage.setMeta(vodAtKey(kind, sourceId), this.now());
-      return { count: list.items.length, truncated: list.truncated === true };
+      return { count: list.items.length, truncated: list.truncated === true, list };
     });
   }
 
@@ -122,20 +129,20 @@ export class VodService {
     return this.updateUser(sourceId, itemId, (prev) => applyProgress(prev, positionMs, durationMs, this.now(), series));
   }
 
-  async setFavourite(sourceId: string, itemId: string, on: boolean): Promise<void> {
-    await this.updateUser(sourceId, itemId, (prev) => setFavourite(prev, on));
+  setFavourite(sourceId: string, itemId: string, on: boolean): Promise<VodUserState | undefined> {
+    return this.updateUser(sourceId, itemId, (prev) => setFavourite(prev, on));
   }
 
-  async setWatched(sourceId: string, itemId: string, on: boolean): Promise<void> {
-    await this.updateUser(sourceId, itemId, (prev) => setWatched(prev, on, this.now()));
+  setWatched(sourceId: string, itemId: string, on: boolean, series?: SeriesPointer): Promise<VodUserState | undefined> {
+    return this.updateUser(sourceId, itemId, (prev) => setWatched(prev, on, this.now(), series));
   }
 
-  async clearProgress(sourceId: string, itemId: string): Promise<void> {
-    await this.updateUser(sourceId, itemId, (prev) => clearProgress(prev));
+  clearProgress(sourceId: string, itemId: string): Promise<VodUserState | undefined> {
+    return this.updateUser(sourceId, itemId, (prev) => clearProgress(prev));
   }
 
-  async setTracks(sourceId: string, itemId: string, tracks: { audio?: string; subtitle?: string }): Promise<void> {
-    await this.updateUser(sourceId, itemId, (prev) => setTracks(prev, tracks));
+  setTracks(sourceId: string, itemId: string, tracks: { audio?: string; subtitle?: string }): Promise<VodUserState | undefined> {
+    return this.updateUser(sourceId, itemId, (prev) => setTracks(prev, tracks));
   }
 
   /** Read-modify-write under a per-source lock; a removed source drops the write. */

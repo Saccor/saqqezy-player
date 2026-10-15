@@ -35,8 +35,10 @@ export function applyProgress(
   return s;
 }
 
-export function setWatched(prev: VodUserState | undefined, on: boolean, now: number): VodUserState {
-  return { ...(prev ?? emptyUserState()), watched: on, position: 0, updatedAt: now };
+export function setWatched(prev: VodUserState | undefined, on: boolean, now: number, series?: SeriesPointer): VodUserState {
+  const s: VodUserState = { ...(prev ?? emptyUserState()), watched: on, position: 0, updatedAt: now };
+  if (series) s.series = series;
+  return s;
 }
 
 /** "Remove from Continue watching": drops the position and the next-episode pointer, keeps watched. */
@@ -90,10 +92,18 @@ export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): Se
     .map(({ at: _at, ...rest }) => rest);
 }
 
+/** The episode after `episodeId` in season order. A regular season's finale is the end: Specials (season 0) never follow it. */
 export function nextEpisode(seasons: Season[], episodeId: string): Episode | undefined {
-  const flat = seasons.flatMap((s) => s.episodes);
-  const i = flat.findIndex((e) => e.id === episodeId);
-  return i >= 0 ? flat[i + 1] : undefined;
+  for (let s = 0; s < seasons.length; s++) {
+    const season = seasons[s]!;
+    const i = season.episodes.findIndex((e) => e.id === episodeId);
+    if (i < 0) continue;
+    if (i + 1 < season.episodes.length) return season.episodes[i + 1];
+    const after = seasons[s + 1];
+    if (!after || (after.number === 0 && season.number !== 0)) return undefined;
+    return after.episodes[0];
+  }
+  return undefined;
 }
 
 export const episodeLabel = (season: number, episode: number): string => `S${season} · E${episode}`;

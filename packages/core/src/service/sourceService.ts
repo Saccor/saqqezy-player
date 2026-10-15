@@ -13,12 +13,13 @@ import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
 import { splitLines } from '../text/lines.ts';
+import { emptyVodList } from '../vod/list.ts';
 import type { VodKind, VodList } from '../vod/types.ts';
 import type {
   Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, XtreamSourceConfig,
 } from '../types.ts';
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
-import { XtreamClient } from '../xtream/client.ts';
+import { XtreamClient, normalizeServer } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
@@ -124,14 +125,21 @@ export class SourceService {
 
   updateSource(source: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(source.id, async () => {
+      const prev = (await this.storage.listSources()).find((s) => s.id === source.id);
       const { channels, result, vod } = await this.fetchChannels(source, onProgress);
       await this.storage.putSource(source);
       await this.saveChannels(source.id, channels, result, vod);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
       if (source.kind === 'xtream') {
+        // Another server or account: its stream ids mean nothing here, so the old catalogues must go.
+        const moved = prev?.kind !== 'xtream'
+          || normalizeServer(prev.server) !== normalizeServer(source.server)
+          || prev.username !== source.username;
         // M3U catalogues are re-stored by saveChannels; Xtream ones are fetched lazily, so make them stale.
-        await this.storage.setMeta(`vodAt:movie:${source.id}`, 0);
-        await this.storage.setMeta(`vodAt:series:${source.id}`, 0);
+        for (const kind of ['movie', 'series'] as const) {
+          if (moved) await this.storage.replaceVod(source.id, kind, emptyVodList());
+          await this.storage.setMeta(`vodAt:${kind}:${source.id}`, 0);
+        }
       }
       return result;
     });

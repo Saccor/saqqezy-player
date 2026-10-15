@@ -384,6 +384,21 @@ describe('SourceService – xtream', () => {
     expect(await storage.getMeta(`vodAt:series:${source.id}`)).toBe(0);
   });
 
+  test('updateSource clears an Xtream source\'s VOD lists when the server or username changes', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+    const { source } = await service.addSource(xInput);
+    const list = { items: [{ id: `${source.id}:m1`, kind: 'movie' as const, title: 'Synthetic Film 001', categoryId: '1' }], categories: [] };
+    await storage.replaceVod(source.id, 'movie', list);
+    await service.updateSource({ ...source, name: 'Renamed' });
+    expect((await storage.getVod(source.id, 'movie'))?.items).toHaveLength(1);
+    if (source.kind !== 'xtream') throw new Error('expected an Xtream source');
+    await service.updateSource({ ...source, username: 'other' });
+    expect((await storage.getVod(source.id, 'movie'))?.items).toEqual([]);
+    expect((await storage.getVod(source.id, 'series'))?.items).toEqual([]);
+  });
+
   const addX = async (streams: number) => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);

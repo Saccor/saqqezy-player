@@ -40,6 +40,10 @@ describe('applyProgress', () => {
 });
 
 describe('setWatched, clearProgress, setFavourite', () => {
+  test('setWatched stores a series pointer when given', () => {
+    const p = { id: 's', season: 1, episode: 3 };
+    expect(setWatched(undefined, true, 5, p)).toMatchObject({ watched: true, updatedAt: 5, series: p });
+  });
   test('setWatched bumps updatedAt and clears position', () => {
     expect(setWatched({ ...emptyUserState(), position: 5 * MIN }, false, 7)).toMatchObject({ watched: false, position: 0, updatedAt: 7 });
   });
@@ -93,7 +97,13 @@ describe('episodes', () => {
     expect(nextEpisode(seasons, 'c')).toBeUndefined();
     expect(nextEpisode(seasons, 'zz')).toBeUndefined();
     const withSpecials: Season[] = [...seasons, { number: 0, name: 'Specials', episodes: [{ id: 's', season: 0, episode: 1, title: 'S' }] }];
-    expect(nextEpisode(withSpecials, 'c')?.id).toBe('s');
+    // The finale is the end: never roll from a regular season into Specials.
+    expect(nextEpisode(withSpecials, 'c')).toBeUndefined();
+    // Inside Specials, the next special still follows.
+    const twoSpecials: Season[] = [...seasons, { number: 0, name: 'Specials', episodes: [
+      { id: 's1', season: 0, episode: 1, title: 'S1' }, { id: 's2', season: 0, episode: 2, title: 'S2' },
+    ] }];
+    expect(nextEpisode(twoSpecials, 's1')?.id).toBe('s2');
   });
   test('episodeLabel', () => {
     expect(episodeLabel(2, 4)).toBe('S2 · E4');

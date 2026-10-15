@@ -45,7 +45,7 @@ beforeEach(async () => {
 describe('VodService catalogues', () => {
   test('refresh fetches per category, stores, stamps; loadCatalog reads it', async () => {
     expect(await svc.needsRefresh('x', 'movie')).toBe(true);
-    expect(await svc.refresh('x', 'movie')).toEqual({ count: 2, truncated: false });
+    expect(await svc.refresh('x', 'movie')).toMatchObject({ count: 2, truncated: false });
     expect(calls).toEqual(['get_vod_categories', 'get_vod_streams:1', 'get_vod_streams:2']);
     expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
     expect(await svc.needsRefresh('x', 'movie')).toBe(false);
@@ -66,7 +66,7 @@ describe('VodService catalogues', () => {
   test('M3U sources never need a VOD refresh; refresh reports the stored count', async () => {
     await storage.replaceVod('m', 'movie', { items: [{ id: 'm:v1', kind: 'movie', title: 'A', categoryId: 'g:G', url: 'http://example.test/movie/u/p/1.mp4' }], categories: [] });
     expect(await svc.needsRefresh('m', 'movie')).toBe(false);
-    expect(await svc.refresh('m', 'movie')).toEqual({ count: 1, truncated: false });
+    expect(await svc.refresh('m', 'movie')).toMatchObject({ count: 1, truncated: false });
     expect(calls).toEqual([]);
   });
 
@@ -99,7 +99,7 @@ describe('VodService catalogues', () => {
   test('an empty answer with nothing stored is stored (a source with no movies)', async () => {
     api.get_vod_categories = () => [];
     api.get_vod_streams = () => [];
-    expect(await svc.refresh('x', 'movie')).toEqual({ count: 0, truncated: false });
+    expect(await svc.refresh('x', 'movie')).toMatchObject({ count: 0, truncated: false });
     expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
   });
 
@@ -120,7 +120,7 @@ describe('VodService catalogues', () => {
       void storage.deleteSource('x');
       return [{ stream_id: 1, name: 'A', category_id: q.get('category_id') }];
     };
-    expect(await svc.refresh('x', 'movie')).toEqual({ count: 0, truncated: false });
+    expect(await svc.refresh('x', 'movie')).toMatchObject({ count: 0, truncated: false });
     expect(await storage.getVod('x', 'movie')).toBeUndefined();
   });
 });
@@ -187,5 +187,27 @@ describe('VodService user state', () => {
       svc.setTracks('x', 'x:m10', { subtitle: 'swe' }),
     ]);
     expect(await svc.getUser('x', 'x:m10')).toMatchObject({ position: 600_000, favourite: true, subtitle: 'swe' });
+  });
+});
+
+describe('VodService for the worker', () => {
+  test('storedCatalog: undefined when nothing is stored, a catalogue once stored', async () => {
+    expect(await svc.storedCatalog('x', 'movie')).toBeUndefined();
+    await svc.refresh('x', 'movie');
+    expect((await svc.storedCatalog('x', 'movie'))?.size).toBe(2);
+  });
+
+  test('refresh returns the stored list so callers need not read it back', async () => {
+    const r = await svc.refresh('x', 'movie');
+    expect(r.list.items.map((i) => i.id)).toEqual(['x:m10', 'x:m20']);
+    expect(r.list).toEqual(await storage.getVod('x', 'movie'));
+  });
+
+  test('setters return the new state', async () => {
+    expect(await svc.setFavourite('x', 'x:m10', true)).toMatchObject({ favourite: true });
+    expect(await svc.setTracks('x', 'x:m10', { audio: 'eng' })).toMatchObject({ audio: 'eng', favourite: true });
+    expect(await svc.clearProgress('x', 'x:m10')).toMatchObject({ position: 0 });
+    const pointer = { id: 'x:s5', season: 1, episode: 1, next: { id: 'x:e2', season: 1, episode: 2 } };
+    expect(await svc.setWatched('x', 'x:e1', true, pointer)).toMatchObject({ watched: true, series: pointer });
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { classifyEntry, splitM3uVod } from '../src/m3u/vodSplit.ts';
 import { m3uEntriesToChannels } from '../src/m3u/toChannels.ts';
 import type { M3uEntry } from '../src/m3u/parse.ts';
+import { VOD_UNCATEGORIZED } from '../src/vod/types.ts';
 
 const e = (name: string, url: string, extra: Partial<M3uEntry> = {}): M3uEntry => ({ name, url, ...extra });
 
@@ -39,7 +40,7 @@ describe('splitM3uVod', () => {
   test('movies: de-duplicated by URL, year split, logo as poster, categories by group', () => {
     expect(r.movies.items.map((m) => ({ title: m.title, year: m.year, poster: m.poster, categoryId: m.categoryId, url: m.url }))).toEqual([
       { title: 'Synthetic Film 001', year: 2021, poster: 'http://img.test/11.jpg', categoryId: 'g:Drama', url: 'http://h.test/movie/u/p/11.mkv' },
-      { title: 'Synthetic Film 002', year: undefined, poster: undefined, categoryId: 'g:Uncategorized', url: 'http://h.test/movie/u/p/12.mp4' },
+      { title: 'Synthetic Film 002', year: undefined, poster: undefined, categoryId: VOD_UNCATEGORIZED, url: 'http://h.test/movie/u/p/12.mp4' },
     ]);
     expect(r.movies.categories.map((c) => [c.name, c.count])).toEqual([['Drama', 1], ['Uncategorized', 1]]);
     expect(r.movies.items[0]!.id).toMatch(/^src:v[0-9a-f]{8}$/);

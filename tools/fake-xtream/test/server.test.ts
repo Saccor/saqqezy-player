@@ -90,7 +90,7 @@ describe('fake xtream VOD end to end', () => {
   test('movies and series via Xtream, per category', async () => {
     const { sources, vod } = both();
     const { source } = await sources.addSource(x('test'));
-    expect(await vod.refresh(source.id, 'movie')).toEqual({ count: 120, truncated: false });
+    expect(await vod.refresh(source.id, 'movie')).toMatchObject({ count: 120, truncated: false });
     const movies = await vod.loadCatalog(source.id, 'movie');
     expect(movies.categories().map((c) => [c.name, c.count])).toEqual([['Drama', 30], ['Comedy', 30], ['Documentary', 30], ['Family', 30]]);
     const first = movies.slice('all', 'added', 0, 1).rows[0]!;
@@ -111,7 +111,7 @@ describe('fake xtream VOD end to end', () => {
   test('a server that ignores category_id gives the same catalogue', async () => {
     const { sources, vod } = both();
     const { source } = await sources.addSource(x('vodall'));
-    expect(await vod.refresh(source.id, 'movie')).toEqual({ count: 120, truncated: false });
+    expect(await vod.refresh(source.id, 'movie')).toMatchObject({ count: 120, truncated: false });
   });
 
   test('M3U: movie and series entries are split out of the channel list', async () => {

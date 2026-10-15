@@ -1,9 +1,8 @@
-import { UNCATEGORIZED } from '../constants.ts';
 import { fnv1a } from '../hash.ts';
 import { searchKey } from '../text/searchKey.ts';
 import { buildVodList } from '../vod/list.ts';
 import { parseEpisodeMarker, splitYear } from '../vod/title.ts';
-import type { Episode, VodCategory, VodItem, VodKind, VodList } from '../vod/types.ts';
+import { VOD_UNCATEGORIZED, type Episode, type VodCategory, type VodItem, type VodKind, type VodList } from '../vod/types.ts';
 import type { M3uEntry } from './parse.ts';
 import { uniqueId } from './toChannels.ts';
 
@@ -63,11 +62,11 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
     }
     if (seenUrls.has(e.url)) continue;
     seenUrls.add(e.url);
-    const group = e.groupTitle ?? UNCATEGORIZED;
+    const group = e.groupTitle;
 
     if (kind === 'movie') {
       const { title, year } = splitYear(e.name);
-      const item: VodItem = { id: uniqueId(`${sourceId}:v${fnv1a(e.url)}`, usedIds), kind: 'movie', title, categoryId: movieCats.note(group), url: e.url };
+      const item: VodItem = { id: uniqueId(`${sourceId}:v${fnv1a(e.url)}`, usedIds), kind: 'movie', title, categoryId: group ? movieCats.note(group) : VOD_UNCATEGORIZED, url: e.url };
       if (year) item.year = year;
       if (e.tvgLogo) item.poster = e.tvgLogo;
       movies.push(item);
@@ -79,7 +78,7 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
     const key = searchKey(showTitle);
     let show = shows.get(key);
     if (!show) {
-      const item: VodItem = { id: uniqueId(`${sourceId}:s${fnv1a(key)}`, usedIds), kind: 'series', title: showTitle, categoryId: seriesCats.note(group) };
+      const item: VodItem = { id: uniqueId(`${sourceId}:s${fnv1a(key)}`, usedIds), kind: 'series', title: showTitle, categoryId: group ? seriesCats.note(group) : VOD_UNCATEGORIZED };
       if (year) item.year = year;
       show = { item, eps: [] };
       shows.set(key, show);
