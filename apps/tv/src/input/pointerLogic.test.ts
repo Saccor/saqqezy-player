@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
-  WHEEL_STEP_MS, barLayout, cellAt, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, toDesign,
+  WHEEL_STEP_MS, barLayout, cellAt, hitBeforeWake, inRect, isClick, isDoubleClick, localPoint, nextClick, pickTarget, pointerModeReducer, rowAt, toDesign,
   wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
 } from './pointerLogic.ts';
 
@@ -276,5 +276,14 @@ describe('pickTarget', () => {
     const other = cand({ seq: 2, rect: { x: 200, y: 200, w: 50, h: 50 } });
     expect(pickTarget([other, back], { x: 210, y: 210 })).toBe(0);
     expect(pickTarget([other, back], { x: 5, y: 5 })).toBe(1);
+  });
+});
+
+describe('hitBeforeWake', () => {
+  it('reads the target before waking, so a button the wake reveals is never the pressed one', () => {
+    let revealed = false;
+    const target = hitBeforeWake(() => (revealed ? 'button' : 'video'), () => { revealed = true; });
+    expect(target).toBe('video');
+    expect(revealed).toBe(true);
   });
 });

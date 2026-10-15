@@ -19,7 +19,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
 import { onLogicalKey, sendKey } from './keys.ts';
 import {
-  POINTER_START, WHEEL_START, isClick, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
+  POINTER_START, WHEEL_START, hitBeforeWake, isClick, localPoint, nextClick, pickTarget, pointerModeReducer, toDesign, wheelPixels,
   wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type Rect,
 } from './pointerLogic.ts';
 
@@ -216,6 +216,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     return toDesign(e.clientX, e.clientY, r, r.width > 0 ? r.width / DESIGN_WIDTH : 1);
   };
   let down: Down | undefined;
+  /** The right button's target, read at pointerdown before the wake; undefined when no press was seen. */
+  let contextHit: { entry: Entry; local: Point } | null | undefined;
   let lastClick: LastClick | undefined;
   let wheel = WHEEL_START;
 
@@ -227,15 +229,21 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
   const onDown = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
-    lastPoint = design(e);
-    // Any button wakes pointer mode, even without movement (after the Player's auto-hide or a remote key).
-    dispatch({ type: 'press', x: e.clientX, y: e.clientY, at: Date.now() });
+    const p = design(e);
+    lastPoint = p;
+    // Any button wakes pointer mode, even without movement (after the Player's auto-hide or a remote key). The target
+    // is read first: a press that reveals buttons only wakes, it never presses one of them.
+    const target = hitBeforeWake(() => hitAt(p), () => dispatch({ type: 'press', x: e.clientX, y: e.clientY, at: Date.now() }));
     if (e.button === 3 || e.button === 4) {
       e.preventDefault(); // never browser history navigation
       return;
     }
-    if (e.button !== 0) return; // a right click only wakes pointer mode; its action runs on contextmenu
-    down = { x: e.clientX, y: e.clientY, at: Date.now(), scope: router.current(), entry: hitAt(lastPoint)?.entry };
+    if (e.button === 2) {
+      contextHit = target ?? null; // its action runs on contextmenu, on what was under it before the wake
+      return;
+    }
+    if (e.button !== 0) return;
+    down = { x: e.clientX, y: e.clientY, at: Date.now(), scope: router.current(), entry: target?.entry };
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
@@ -272,8 +280,11 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     e.preventDefault();
     // The keyboard Menu key and Shift+F10 fire contextmenu too: only a real right-button press in pointer mode counts.
     if (e.button !== 2 || (e as PointerEvent).pointerType === 'touch' || !mode().on) return;
-    const h = hitAt(design(e));
-    if (h) safely(() => h.entry.t.onContextMenu?.(h.local));
+    // The snapshot from the press (null: nothing was under it); without one (no pointerdown seen), hit now.
+    const snap = contextHit;
+    contextHit = undefined;
+    const h = snap === undefined ? hitAt(design(e)) : snap;
+    if (h && entries.includes(h.entry)) safely(() => h.entry.t.onContextMenu?.(h.local));
     queueMicrotask(rehover);
   };
   const onWheel = (e: WheelEvent) => {

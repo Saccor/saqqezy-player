@@ -63,6 +63,16 @@ export function pointerModeReducer(s: PointerModeState, e: PointerModeEvent): Po
   }
 }
 
+/**
+ * A press reads what it acts on BEFORE it wakes pointer mode. Waking mounts pointer-only buttons synchronously; read
+ * after, the press would land on a button the user could not see yet (one click on the Player's video would zap).
+ */
+export function hitBeforeWake<T>(hit: () => T, wake: () => void): T {
+  const target = hit();
+  wake();
+  return target;
+}
+
 // ---- coordinates ----
 
 /** Client px (a DOM pointer event) to design px: relative to the canvas, divided by the canvas scale. */
