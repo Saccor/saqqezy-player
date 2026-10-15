@@ -61,27 +61,35 @@ export async function fetchXtreamCatalog(
     const firstId = categories[0]!.id;
     const first = await api.list(firstId);
     check();
-    if (first.some((it) => it.categoryId !== firstId)) {
+    const others = new Set(categories.slice(1).map((c) => c.id));
+    others.delete(firstId);
+    if (first.some((it) => others.has(it.categoryId))) {
       add(first);
     } else {
       const results: VodItem[][] = new Array<VodItem[]>(categories.length);
       results[0] = first;
-      let fetched = first.length;
+      const unique = new Set(first.map((it) => it.id));
       let next = 1;
-      opts.onProgress?.(fetched);
+      let stop = false;
+      opts.onProgress?.(unique.size);
       const worker = async () => {
-        while (next < categories.length && fetched < cap) {
+        while (!stop && next < categories.length && unique.size < cap) {
           const i = next++;
-          const list = await api.list(categories[i]!.id);
-          check();
-          results[i] = list;
-          fetched += list.length;
-          opts.onProgress?.(Math.min(fetched, cap));
+          try {
+            const list = await api.list(categories[i]!.id);
+            check();
+            results[i] = list;
+            for (const it of list) unique.add(it.id);
+          } catch (e) {
+            stop = true;
+            throw e;
+          }
+          opts.onProgress?.(Math.min(unique.size, cap));
         }
       };
       await Promise.all(Array.from({ length: Math.min(concurrency, categories.length - 1) }, worker));
       for (const r of results) if (r) add(r);
-      if (next < categories.length) truncated = true;
+      if (next < categories.length && unique.size >= cap) truncated = true;
     }
   }
   opts.onProgress?.(items.length);

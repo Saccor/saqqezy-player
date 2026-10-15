@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { fetchXtreamCatalog, VodFetchCancelled, type XtreamVodApi } from '../src/vod/fetchXtream.ts';
-import type { VodCategory, VodItem } from '../src/vod/types.ts';
+import { VOD_UNCATEGORIZED, type VodCategory, type VodItem } from '../src/vod/types.ts';
 
 const cats = (n: number): VodCategory[] => Array.from({ length: n }, (_, i) => ({ id: String(i + 1), kind: 'movie', name: `Cat ${i + 1}`, count: 0 }));
 const items = (cat: string, n: number, from = 0): VodItem[] =>
@@ -77,5 +77,32 @@ describe('fetchXtreamCatalog', () => {
     const seen: number[] = [];
     await fetchXtreamCatalog(fakeApi(cats(3), (id) => items(id!, 2)), 'movie', { onProgress: (n) => seen.push(n) });
     expect(seen.at(-1)).toBe(6);
+  });
+  test('an uncategorised item in the first answer does not make it the full list', async () => {
+    const log: (string | undefined)[] = [];
+    const api = fakeApi(cats(3), (id) => (id === '1' ? [...items('1', 1), { ...items('1', 1, 5)[0]!, categoryId: VOD_UNCATEGORIZED }] : items(id!, 1)), log);
+    const list = await fetchXtreamCatalog(api, 'movie');
+    expect(log.sort()).toEqual(['1', '2', '3']);
+    expect(list.items).toHaveLength(4);
+  });
+
+  test('fail-fast: after one request rejects, other workers stop taking categories', async () => {
+    const log: (string | undefined)[] = [];
+    const api = fakeApi(cats(10), (id) => {
+      if (id === '3') throw new Error('boom');
+      return items(id!, 1);
+    }, log);
+    await expect(fetchXtreamCatalog(api, 'movie', { concurrency: 2 })).rejects.toThrow('boom');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(log.length).toBeLessThanOrEqual(5);
+  });
+
+  test('cap counts unique ids: duplicates across categories do not truncate', async () => {
+    const log: (string | undefined)[] = [];
+    const api = fakeApi(cats(5), (id) => items('1', 2).map((it) => ({ ...it, categoryId: id! })), log);
+    const list = await fetchXtreamCatalog(api, 'movie', { cap: 3, concurrency: 1 });
+    expect(log).toHaveLength(5);
+    expect(list.items).toHaveLength(2);
+    expect(list.truncated).toBeFalsy();
   });
 });
