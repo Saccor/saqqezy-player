@@ -216,6 +216,25 @@ export function stepLeft(blocks: readonly Block[], index: number, view: HView, w
   return scrollBy(view, -HOUR, win, cur) ?? { kind: 'edge' };
 }
 
+/** `‹ Earlier` / `Later ›` (pointer): the view moves by its whole span (3 h) and the anchor stays inside it. */
+export function pageTime(view: HView, dir: 1 | -1, win: TimeRange): HStep {
+  return scrollBy(view, dir * VIEW_SPAN, win) ?? { kind: 'none' };
+}
+
+export type GuideClick = 'focus' | 'ok';
+
+/**
+ * A pointer click in the grid. A channel name acts like Ok in the channel column (watch). A programme cell that is
+ * not the focused one takes focus; a click on the focused cell acts like Ok (watch if on air, else toggle details).
+ */
+export function guideClick(
+  hit: { area: 'channels' } | { area: 'grid'; row: number; start: number },
+  focus: { row: number; area: 'grid' | 'channels'; focusStart: number | undefined },
+): GuideClick {
+  if (hit.area === 'channels') return 'ok';
+  return focus.area === 'grid' && hit.row === focus.row && hit.start === focus.focusStart ? 'ok' : 'focus';
+}
+
 /** Time range to have loaded for a view: the visible span plus `PREFETCH` either side, inside the window. */
 export function prefetchRange(viewStart: number, win: TimeRange, span = VIEW_SPAN): TimeRange {
   return { start: Math.max(win.start, viewStart - PREFETCH), end: Math.min(win.end, viewStart + span + PREFETCH) };
@@ -264,3 +283,6 @@ export function relativeLabel(b: { start: number; stop: number }, now: number): 
   if (h === 0) return `Starts in ${m} min`;
   return m === 0 ? `Starts in ${h} h` : `Starts in ${h} h ${m} min`;
 }
+
+/** Pointer-only buttons by the grid. */
+export const GUIDE_POINTER_LABELS = { groups: 'Groups', earlier: '‹ Earlier', later: 'Later ›' } as const;

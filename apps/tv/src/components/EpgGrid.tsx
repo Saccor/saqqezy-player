@@ -1,8 +1,10 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
+import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
+import { cellAt, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
+import { PX_PER_HOUR, VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
@@ -16,6 +18,17 @@ export const CHANNEL_W = 260;
 export const TIMELINE_W = 1440;
 export const EPG_GRID_W = LAYOUT.width - LAYOUT.safeX * 2;
 const TL_X = EPG_GRID_W - TIMELINE_W;
+/** Where the timeline starts inside the grid (the Guide puts `‹ Earlier` there). */
+export const EPG_TIMELINE_X = TL_X;
+/**
+ * The grid's layout for pointer hit-testing (`cellAt`), in px relative to the grid node: the channel tiles start at
+ * x 0 and are `CHANNEL_W` wide (no margin); the timeline starts at `TL_X`. A row is `EPG_ROW_H` tall including the
+ * 6 px gap under its tiles, so a point in that gap counts as the row above.
+ */
+export const EPG_GEOMETRY: GridGeometry = {
+  rulerH: RULER_H, rowH: EPG_ROW_H, viewRows: EPG_VIEW_ROWS, channelW: CHANNEL_W, timelineX: TL_X, timelineW: TIMELINE_W,
+  pxPerHour: PX_PER_HOUR,
+};
 /** Rows drawn beyond each edge of the viewport. */
 const ROW_BUFFER = 2;
 const CELL_H = EPG_ROW_H - 6;
@@ -60,6 +73,9 @@ function reuse(prev: readonly Block[] | undefined, next: Block[]): Block[] {
  * The guide grid: a ruler with 30-minute ticks, a channel column and a 3-hour timeline (480 px/h) with a now
  * line. One focusable node takes the keys (handlers come from the Guide). Virtualised in both directions: only
  * the visible rows plus 2 either side are drawn, and only the blocks overlapping the visible time span.
+ *
+ * Pointer: one target for the grid. `cellAt` maps the pointer to a channel name or a programme block; hover outlines
+ * it, a click reports it (`onCellClick`), the wheel goes to `onPointerWheel`.
  */
 export function EpgGrid(props: {
   ref: (el: ElementNode) => void;
@@ -82,17 +98,50 @@ export function EpgGrid(props: {
   onRight: () => boolean;
   onOk: () => boolean;
   onPage: (dir: 1 | -1) => boolean;
+  /** Pointer click on a channel name or a programme block. */
+  onCellClick?: (hit: GridHit<Block>) => void;
+  /** One wheel step per axis (-1, 0 or 1). */
+  onPointerWheel?: (dy: number, dx: number) => void;
 }) {
   const [focused, setFocused] = createSignal(false);
+  const [hover, setHover] = createSignal<GridHit<Block> | undefined>(undefined);
+  let node: ElementNode | undefined;
   const height = RULER_H + EPG_VIEW_ROWS * EPG_ROW_H;
   const indices = createMemo(() => {
     const r = renderRange(props.top, EPG_VIEW_ROWS, props.total, ROW_BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
   const nowX = () => timeToX(props.now, props.viewStart);
+  const hitAt = (p: Point) => cellAt(p.x, p.y, EPG_GEOMETRY, props.top, props.total, props.viewStart, props.blocks);
+  usePointerTarget({
+    node: () => node,
+    onHover: (p) => setHover(p ? hitAt(p) : undefined),
+    onClick: (p) => {
+      const hit = hitAt(p);
+      if (hit) props.onCellClick?.(hit);
+    },
+    // The cell: a channel name is -1 - row, a programme block row * 10000 + its index in the row.
+    subAt: (p) => {
+      const hit = hitAt(p);
+      if (!hit) return undefined;
+      return hit.area === 'channels' ? -1 - hit.row : hit.row * 10000 + props.blocks(hit.row).indexOf(hit.block);
+    },
+    onWheel: (dy, dx) => {
+      props.onPointerWheel?.(dy, dx);
+      return true;
+    },
+  });
+  const hoverChannel = (i: number) => {
+    const h = hover();
+    return pointerMode() && h?.area === 'channels' && h.row === i;
+  };
+  const hoverBlock = (i: number, b: Block) => {
+    const h = hover();
+    return pointerMode() && h?.area === 'grid' && h.row === i && h.block.start === b.start;
+  };
 
   return (
-    <View ref={props.ref} x={props.x} y={props.y} width={EPG_GRID_W} height={height} clipping
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={EPG_GRID_W} height={height} clipping
       onFocusChanged={setFocused}
       onUp={() => props.onUp()} onDown={() => props.onDown()}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onOk()}
@@ -124,7 +173,7 @@ export function EpgGrid(props: {
           return (
             <View y={(i - props.top) * EPG_ROW_H} width={EPG_GRID_W} height={CELL_H}>
               <View width={CHANNEL_W} height={CELL_H} borderRadius={LAYOUT.radius}
-                color={chLit() ? COLORS.focus : isRow() ? COLORS.surface : ROW_BG}>
+                color={chLit() ? COLORS.focus : isRow() ? COLORS.surface : hoverChannel(i) ? COLORS.hover : ROW_BG}>
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
                 <Logo url={ch()?.logo} />
                 <Text x={86} y={8} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}
@@ -142,10 +191,11 @@ export function EpgGrid(props: {
                   const sel = () => isRow() && b.start === props.focusStart;
                   const fill = () => (lit() ? COLORS.focus
                     : sel() ? COLORS.surface : b.filler ? FILLER : isOnAir(b, props.now) ? ON_AIR : COLORS.surface);
+                  const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.focus }
+                    : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
                   const textW = () => Math.max(0, w() - 24);
                   return (
-                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={8}
-                      border={sel() && !lit() ? { width: 2, color: COLORS.focus } : undefined}>
+                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={8} border={ring()}>
                       <Show when={w() > 48}>
                         <Text x={12} y={(CELL_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width"
                           maxLines={1} fontSize={FONT.body}

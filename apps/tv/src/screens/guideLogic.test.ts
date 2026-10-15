@@ -4,6 +4,7 @@ import {
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
   timeToX, xToTime, type Block,
 } from './guideLogic.ts';
+import { GUIDE_POINTER_LABELS, guideClick, pageTime } from './guideLogic.ts';
 
 const T0 = Date.UTC(2026, 0, 10, 12, 0); // a half-hour boundary
 const at = (h: number) => T0 + h * HOUR;
@@ -239,5 +240,34 @@ describe('guideOpenTarget', () => {
 
   it('ignores a non-numeric `at` and a non-string channel', () => {
     expect(guideOpenTarget({ channelId: 7, at: 'soon' }, now, gw)).toEqual({ viewStart: initialViewStart(now, gw), anchor: now, rememberGroup: true });
+  });
+});
+
+describe('pointer: paging and clicks', () => {
+  it('Later and Earlier move the view by 3 h and keep the anchor inside it', () => {
+    expect(pageTime({ viewStart: at(0), anchor: at(1) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(3), anchor: at(3) });
+    expect(pageTime({ viewStart: at(0), anchor: at(1) }, -1, win)).toEqual({ kind: 'scroll', viewStart: at(-3), anchor: at(0) - 1 });
+  });
+
+  it('stops at the ends of the guide window', () => {
+    expect(pageTime({ viewStart: at(-6), anchor: at(-5) }, -1, win)).toEqual({ kind: 'none' });
+    expect(pageTime({ viewStart: at(44), anchor: at(45) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(45), anchor: at(45) });
+    expect(pageTime({ viewStart: at(45), anchor: at(46) }, 1, win)).toEqual({ kind: 'none' });
+  });
+
+  it('a click on an unfocused cell focuses it; on the focused cell it is Ok', () => {
+    const focus = { row: 3, area: 'grid' as const, focusStart: at(1) };
+    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, focus)).toBe('ok');
+    expect(guideClick({ area: 'grid', row: 3, start: at(2) }, focus)).toBe('focus');
+    expect(guideClick({ area: 'grid', row: 4, start: at(1) }, focus)).toBe('focus');
+    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, { ...focus, area: 'channels' })).toBe('focus');
+  });
+
+  it('a click on a channel name is Ok (watch)', () => {
+    expect(guideClick({ area: 'channels' }, { row: 0, area: 'grid', focusStart: undefined })).toBe('ok');
+  });
+
+  it('uses the spec copy', () => {
+    expect(GUIDE_POINTER_LABELS).toEqual({ groups: 'Groups', earlier: '‹ Earlier', later: 'Later ›' });
   });
 });
