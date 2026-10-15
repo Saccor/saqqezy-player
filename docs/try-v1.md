@@ -116,8 +116,9 @@ Good to know when you try your own source **in a browser**:
   is sent anywhere else. On a TV the app connects directly and this helper is not used.
 - **Start the app with `pnpm dev:stable` instead of `pnpm dev`.** It never reloads the page by itself when code
   changes (press F5 to load changes). Every reload opens new connections to your service, and some services block
-  devices that connect too often. With `pnpm dev`, the app also does not resume your last channel after a reload: the
-  preview says "Paused after reload: press OK to play".
+  devices that connect too often.
+- **In the browser (`pnpm dev` or `pnpm dev:stable`), the app does not resume a channel from your own source after a
+  page reload:** the preview says "Paused after reload: press OK to play". The local fake source still resumes.
 - **If your service offers an Xtream login, prefer it in the browser.** It loads faster than a big playlist
   link, finds the TV guide by itself, and lets the app try each channel in its other stream format.
 - **Most desktop Chrome/Edge setups can't decode AC3/E-AC3 (Dolby) audio.** Those channels may fail to start or
