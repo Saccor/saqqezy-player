@@ -17,6 +17,8 @@ export function GroupList(props: {
   selected: number;
   onSelect: (index: number) => void;
   onRight: () => boolean;
+  /** Up on the first group (Home: move focus to the search bar). */
+  onEdgeUp?: () => boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   let lastTop = 0;
@@ -33,6 +35,7 @@ export function GroupList(props: {
   const move = (delta: number) => {
     const next = moveFocus(props.selected, delta, total());
     if (next !== props.selected) props.onSelect(next);
+    else if (delta < 0 && props.onEdgeUp) return props.onEdgeUp();
     return true;
   };
 
