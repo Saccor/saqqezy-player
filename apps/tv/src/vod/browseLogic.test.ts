@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
-import { cellAt, cellCount, clampFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
+import { cellAt, cellCount, clampFocus, locateFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
 
 const tile = (n: number): VodTile => ({ id: `s:m${n}`, kind: 'movie', title: `Synthetic Film ${n}`, categoryId: '1', watched: false, favourite: false });
 const row = (id: string, total: number, items: number, loaded = true): RowModel =>
@@ -109,5 +109,40 @@ describe('browseLogic', () => {
     const stale = { ...row('b', 40, 12), stale: true };
     expect(rowsToLoad([row('a', 3, 3), stale, row('c', 40, 12)], 0)).toEqual([1]);
     expect(rowsToLoad([row('a', 3, 3), stale, row('c', 40, 12)], 2)).toEqual([]);
+  });
+
+  describe('locateFocus', () => {
+    const tiles = (id: string, ns: number[]): RowModel => ({ id, title: id, total: ns.length, items: ns.map(tile), loaded: true });
+
+    test('a row inserted above the focus: the same row and poster stay focused', () => {
+      const mem = { row: 0, col: 2, rowId: 'vod:recent', tileId: 's:m3' };
+      const rows = [tiles('vod:continue', [9]), tiles('vod:recent', [1, 2, 3, 4])];
+      expect(locateFocus(rows, mem)).toEqual({ row: 1, col: 2 });
+    });
+
+    test('the tile moved within its row: focus follows it', () => {
+      const mem = { row: 0, col: 0, rowId: 'vod:continue', tileId: 's:m5' };
+      expect(locateFocus([tiles('vod:continue', [7, 6, 5])], mem)).toEqual({ row: 0, col: 2 });
+    });
+
+    test('the tile is gone from its row: the column is clamped in that row', () => {
+      const mem = { row: 3, col: 6, rowId: 'b', tileId: 's:m99' };
+      expect(locateFocus([tiles('a', [1]), tiles('b', [1, 2, 3])], mem)).toEqual({ row: 1, col: 2 });
+    });
+
+    test('the row was removed: clamped indexes', () => {
+      const mem = { row: 2, col: 4, rowId: 'vod:favourites', tileId: 's:m1' };
+      expect(locateFocus([tiles('a', [1, 2, 3]), tiles('b', [1, 2])], mem)).toEqual({ row: 1, col: 1 });
+      expect(locateFocus([], mem)).toEqual({ row: 0, col: 0 });
+    });
+
+    test('no identity yet (first visit): the indexes, clamped', () => {
+      expect(locateFocus([tiles('a', [1, 2])], { row: 0, col: 5 })).toEqual({ row: 0, col: 1 });
+    });
+
+    test('the row has not loaded its items yet: the row by id, on its loading cell', () => {
+      const mem = { row: 0, col: 4, rowId: 'b', tileId: 's:m4' };
+      expect(locateFocus([tiles('a', [1]), row('b', 40, 0, false)], mem)).toEqual({ row: 1, col: 0 });
+    });
   });
 });

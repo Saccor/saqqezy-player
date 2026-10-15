@@ -6,12 +6,14 @@ import type { VodSort } from '@iptv/core';
 export interface RowModel { id: string; title: string; total: number; items: VodTile[]; loaded: boolean; stale?: boolean }
 export type Cell = { kind: 'tile'; tile: VodTile } | { kind: 'viewAll'; total: number } | { kind: 'loading' };
 export interface BrowseFocus { row: number; col: number }
+/** The focus by identity (row id, tile id), with the indexes as the fallback when either is gone. */
+export interface FocusMemory extends BrowseFocus { rowId?: string; tileId?: string }
 /** Posters fully visible in a row (a ninth peeks in). */
 export const ROW_VISIBLE_COLS = 8;
 
 /** Rows past the first few arrive without items (`getVodHome`); they load as focus comes near. */
 export function toRowModels(home: VodHome): RowModel[] {
-  return home.rows.filter((r) => r.total > 0).map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 || r.total === 0 }));
+  return home.rows.filter((r) => r.total > 0).map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 }));
 }
 
 /** After a reload: a lazy row that was already loaded keeps its items (with the new title and total); rows that vanished are dropped. */
@@ -59,6 +61,19 @@ export function clampFocus(rows: RowModel[], f: BrowseFocus): BrowseFocus {
   if (rows.length === 0) return { row: 0, col: 0 };
   const row = Math.max(0, Math.min(f.row, rows.length - 1));
   return { row, col: clampCol(rows[row], f.col) };
+}
+
+/**
+ * Where a remembered focus is now. Rows above it come and go (Continue watching after a first play, Favourites) and
+ * tiles move within a row, so the row is found by id and the column by tile id; the indexes, clamped, only stand in
+ * when the row or the tile is gone. A row that has not loaded its items yet keeps the row, on its loading cell.
+ */
+export function locateFocus(rows: RowModel[], mem: FocusMemory): BrowseFocus {
+  const row = mem.rowId === undefined ? -1 : rows.findIndex((r) => r.id === mem.rowId);
+  if (row < 0) return clampFocus(rows, mem);
+  const r = rows[row]!;
+  const col = mem.tileId === undefined ? -1 : r.items.findIndex((t) => t.id === mem.tileId);
+  return { row, col: col >= 0 ? col : clampCol(r, mem.col) };
 }
 
 /** The focused row and the one below, when not loaded yet (or carried over and stale) and not empty. */

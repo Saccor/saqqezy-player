@@ -14,8 +14,10 @@ import { playback } from '../playback/playback.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { pointerMode } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
-import { cellAt, clampFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type RowModel } from '../vod/browseLogic.ts';
+import { cellAt, locateFocus, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
+import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { metaLine } from '../vod/posterLogic.ts';
@@ -36,7 +38,8 @@ const BG_RGB = Math.floor(COLORS.background / 0x100);
 
 type Area = 'tabs' | 'hero' | 'rows';
 
-interface BrowseMemory { focus: BrowseFocus; cols: Map<string, number> }
+/** The focus by identity (row id, tile id) and the last column per row id. */
+interface BrowseMemory { focus: FocusMemory; cols: Map<string, number> }
 /** Kept across visits (per source and kind) so Back from the detail returns to the same poster. */
 const memories = new Map<string, BrowseMemory>();
 const memoryFor = (key: string): BrowseMemory => {
@@ -62,7 +65,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const [sourceId, setSourceId] = createSignal<string | undefined>(initState()?.activeSourceId);
   const memKey = () => `${sourceId() ?? ''}:${kind}`;
   let memory = memoryFor(memKey());
-  const [focus, setFocus] = createSignal<BrowseFocus>(memory.focus);
+  const [focus, setFocus] = createSignal<BrowseFocus>({ row: memory.focus.row, col: memory.focus.col });
   const [area, setArea] = createSignal<Area>(startOnTabs ? 'tabs' : 'rows');
   const [hero, setHero] = createSignal<MovieView | undefined>(undefined);
   let tabsNode: ElementNode | undefined;
@@ -87,6 +90,20 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     return c?.kind === 'tile' ? c.tile : undefined;
   };
   const focusedRowTitle = () => rows()[focus().row]?.title ?? '';
+  /**
+   * Stores the focus by identity. A row that is still loading keeps the poster remembered for it (found again once
+   * its items arrive); a row entered while loading remembers its last column.
+   */
+  const remember = () => {
+    const f = focus();
+    const r = rows()[f.row];
+    if (r && !r.loaded) {
+      memory.focus = r.id === memory.focus.rowId ? { ...memory.focus, row: f.row } : { row: f.row, col: memory.cols.get(r.id) ?? f.col, rowId: r.id };
+      return;
+    }
+    const t = focusedTile();
+    memory.focus = { row: f.row, col: f.col, ...(r ? { rowId: r.id } : {}), ...(t ? { tileId: t.id } : {}) };
+  };
 
   const focusArea = (a: Area) => {
     if (!restoring) preferredArea = a;
@@ -136,12 +153,14 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     }
     if (!alive || g !== gen) return;
     const models = mergeRows(rows(), toRowModels(h));
+    // Rows above the focus come and go (Continue watching, Favourites): find the remembered row and poster again.
     batch(() => {
       setHome(h);
       setRows(models);
-      setFocus(clampFocus(models, focus()));
+      setFocus(locateFocus(models, memory.focus));
+      setFavOverride(undefined);
     });
-    memory.focus = focus();
+    remember();
     syncHero();
     void loadNear();
     restoreFocus(before);
@@ -160,6 +179,12 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         if (g !== gen) { void loadNear(); return; }
         setRows((cur) => cur.map((x) => (x.id === r.id ? { ...x, items: page.rows, total: page.total, loaded: true, stale: false } : x)));
+        if (r.id === memory.focus.rowId) {
+          // The focused row's items arrived: put focus back on the remembered poster.
+          setFocus(locateFocus(rows(), memory.focus));
+          remember();
+          syncHero();
+        }
       } catch {
         // Stays a loading cell; a later focus move tries again.
       } finally {
@@ -179,7 +204,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     if (t && hero()?.tile.id !== t.id) heroLoad.schedule(t.id);
   };
   const onFocusMoved = () => {
-    memory.focus = focus();
+    remember();
     void loadNear();
     syncHero();
   };
@@ -202,30 +227,52 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     else if (c.kind === 'viewAll') router.push('vodGrid', { kind, categoryId: r.id });
     return true;
   };
-  const play = async (t: VodTile) => {
-    try {
-      const p = await api.getVodPlayable(t.id);
-      if (!alive) return;
-      if (p) router.push('vodPlay', { playable: p });
-      else showToast("This video can't play on this device.");
-    } catch {
-      if (alive) showToast("This video can't play on this device.");
-    }
-  };
+  const launcher = createVodLauncher({
+    alive: () => alive,
+    topOverlay: () => router.topOverlay(),
+    getPlayable: (id) => api.getVodPlayable(id),
+    push: (playable) => router.push('vodPlay', { playable }),
+    toast: showToast,
+  });
   const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void load() });
   const openMenu = () => {
     const t = focusedTile();
     if (t) menu.open(t, rows()[focus().row]?.id === VOD_ROW_CONTINUE);
     return true;
   };
-  const isFav = createMemo(() => !!focusedTile()?.favourite);
+  /** Set after a successful toggle so the hero shows the new state at once; cleared when a reload lands. */
+  const [favOverride, setFavOverride] = createSignal<{ id: string; on: boolean } | undefined>(undefined);
+  let favBusy = false;
+  const isFav = createMemo(() => {
+    const t = focusedTile();
+    const o = favOverride();
+    return t ? (o?.id === t.id ? o.on : !!t.favourite) : false;
+  });
   const heroActions = createMemo(() => [PLAY_ACTION, DETAILS_ACTION, isFav() ? FAV_ON_ACTION : FAV_ADD_ACTION]);
+  const toggleFav = async (t: VodTile) => {
+    if (favBusy) return;
+    favBusy = true;
+    const on = !isFav();
+    try {
+      try {
+        await api.setVodFavourite(t.id, on);
+      } catch {
+        if (alive) showToast("Couldn't save that. Try again.");
+        return;
+      }
+      if (!alive) return;
+      setFavOverride({ id: t.id, on });
+      await load();
+    } finally {
+      favBusy = false;
+    }
+  };
   const onHeroAction = (id: string) => {
     const t = focusedTile();
-    if (!t) return;
-    if (id === 'play') void play(t);
+    if (!t || router.topOverlay() !== undefined || menu.isOpen()) return;
+    if (id === 'play') void launcher.play(t.id);
     else if (id === 'details') router.push('movieDetail', { id: t.id, tile: t });
-    else if (id === 'fav') void api.setVodFavourite(t.id, !t.favourite).then(() => load(), () => showToast("Couldn't save that. Try again."));
+    else if (id === 'fav') void toggleFav(t);
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -260,13 +307,14 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         if (ev.activeSourceId === sourceId()) { void load(); return; }
         gen++;
         loading.clear();
+        launcher.cancel();
         setSourceId(ev.activeSourceId);
         memory = memoryFor(memKey());
         batch(() => {
           setRows([]);
           setHome(undefined);
           setHero(undefined);
-          setFocus(memory.focus);
+          setFocus({ row: memory.focus.row, col: memory.focus.col });
         });
         restoring = true;
         try { focusArea('tabs'); } finally { restoring = false; }
@@ -293,7 +341,17 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** The detail only shows while it belongs to the focused title. */
   const heroDetail = () => (hero()?.tile.id === heroTile()?.id ? hero()?.detail : undefined);
   const art = () => heroDetail()?.backdrop ?? undefined;
-  const visibleRows = () => [focus().row, focus().row + 1].filter((i) => rows()[i] !== undefined);
+  /** The focused row, and the next one peeking in below; not in pointer mode, where it would sit under the shell's Back button. */
+  const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => rows()[i] !== undefined);
+  /** A pointer press on a poster: the column memory of the row left and of the row pressed are kept, as with the keys. */
+  const pointTo = (row: number, col: number) => {
+    const from = rows()[focus().row];
+    if (from) memory.cols.set(from.id, focus().col);
+    const to = rows()[row];
+    if (to) memory.cols.set(to.id, col);
+    setFocus({ row, col });
+    onFocusMoved();
+  };
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={back}
@@ -334,7 +392,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <TabBar ref={(el) => { tabsNode = el; }} active="movies" onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
         onFocusChanged={(f) => { if (f) choose('tabs'); }} />
       <Show when={home()?.truncated}>
-        <Text x={LAYOUT.safeX + 300} y={LAYOUT.safeY + 34} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
+        <Text zIndex={2} x={LAYOUT.safeX + 300} y={LAYOUT.safeY + 34} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
       </Show>
 
       <Show when={status() === 'ready'} fallback={
@@ -359,8 +417,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
                 <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
                 <PosterRow x={LAYOUT.safeX} y={44} width={LAYOUT.width - LAYOUT.safeX} row={r()}
                   focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
-                  onCellClick={(c) => { setFocus({ row: i, col: c }); onFocusMoved(); focusArea('rows'); openCell(); }}
-                  onCellOptions={(c) => { setFocus({ row: i, col: c }); onFocusMoved(); openMenu(); }} />
+                  onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
+                  onCellOptions={(c) => { pointTo(i, c); openMenu(); }} />
               </View>
             );
           }}</For>

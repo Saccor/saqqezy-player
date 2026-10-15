@@ -1,6 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import type { MovieView, VodPlayable, VodTile } from '@iptv/app-api';
+import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { POSTER_H, PosterTile, posterCache } from '../components/PosterTile.tsx';
@@ -10,6 +10,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
+import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import { scrimTexture } from '../vod/scrim.ts';
@@ -24,7 +25,6 @@ const BIG_H = 480;
 const INFO_X = POSTER_X + BIG_W + 56;
 const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X;
 const MORE_LABEL_Y = 740;
-const CANT_PLAY = "This video can't play on this device.";
 
 type Area = 'actions' | 'more';
 
@@ -44,9 +44,14 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   let alive = true;
   /** Bumped by every load; an answer from an older load never writes state. */
   let gen = 0;
-  /** Bumped by every Play press; a late playable for an older press is dropped. */
-  let playGen = 0;
   let busy = false;
+  const launcher = createVodLauncher({
+    alive: () => alive,
+    topOverlay: () => router.topOverlay(),
+    getPlayable: (id) => api.getVodPlayable(id),
+    push: (playable) => router.push('vodPlay', { playable }),
+    toast: showToast,
+  });
   const cols = new Map<string, number>();
 
   /** Set after a successful toggle; a failed reload then still shows the right state. Cleared when a reload lands. */
@@ -119,18 +124,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     busy = true;
     try {
       if (id === 'play') {
-        const mine = ++playGen;
-        let p: VodPlayable | undefined;
-        try {
-          p = await api.getVodPlayable(t.id);
-        } catch (err) {
-          console.warn('Play failed', errName(err));
-          if (alive && mine === playGen) showToast(CANT_PLAY);
-          return;
-        }
-        if (!alive || mine !== playGen || router.topOverlay() !== undefined) return;
-        if (p) router.push('vodPlay', { playable: p });
-        else showToast(CANT_PLAY);
+        await launcher.play(t.id);
       } else if (id === 'fav') {
         try {
           await api.setVodFavourite(t.id, !t.favourite);
