@@ -943,6 +943,45 @@ describe('AppApi – background short EPG', () => {
   });
 });
 
+describe('AppApi – stream format memory', () => {
+  test('the format that played last on a source is tried first, also after a restart', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
+    await api.notePlayed(id, true); // the .m3u8 alternate played
+    const p = (await api.getPlayable(id))!;
+    expect(p.url).toMatch(/\.m3u8$/);
+    expect(p.alternateUrl).toMatch(/\.ts$/);
+    const { api: again } = make();
+    await again.init();
+    expect((await again.getPlayable(id))!.url).toMatch(/\.m3u8$/);
+  });
+
+  test('changing the preferred format wins over the memo', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.notePlayed(id, true); // m3u8 played while TS was preferred
+    await api.saveSettings({ preferredFormat: 'm3u8' });
+    expect((await api.getPlayable(id))!.url).toMatch(/\.m3u8$/);
+    await api.notePlayed(id, true); // now the .ts alternate played
+    expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
+    await api.saveSettings({ preferredFormat: 'ts' });
+    expect((await api.getPlayable(id))!.url).toMatch(/\.ts$/);
+  });
+
+  test('the memo holds a format name only and goes with its source', async () => {
+    const { api } = make();
+    const { sourceId } = await api.addSource(xt());
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.notePlayed(id, true);
+    expect(await storage.getMeta(`streamFormat:${sourceId}`)).toEqual({ format: 'm3u8', pref: 'ts' });
+    await api.deleteSource(sourceId);
+    expect(await storage.getMeta(`streamFormat:${sourceId}`)).toBeNull();
+  });
+});
+
 describe('AppApi – layout', () => {
   type Changed = Extract<AppEvent, { type: 'layoutChanged' }>;
   const changes = (events: AppEvent[]) => events.filter((e): e is Changed => e.type === 'layoutChanged');

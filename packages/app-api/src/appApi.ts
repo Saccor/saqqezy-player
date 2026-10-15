@@ -6,6 +6,7 @@ import {
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
+import { firstFormat, formatMemoKey, formatOf, isFormatMemo, type FormatMemo } from './streamFormat.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
@@ -86,6 +87,8 @@ export class AppApi {
   /** The browse row the focus rests on (`focusChannel`) and the channel last asked to play: the only short-EPG targets. */
   private focusedId: string | undefined;
   private playingId: string | undefined;
+  /** Per source: the stream format that played last (`notePlayed`), read from storage once; null when none. */
+  private readonly formats = new Map<string, FormatMemo | null>();
   /** The active source's title index, loaded on the first search. */
   private titles: { sourceId: string; data: TitleIndexData } | undefined;
   private titlesTimer: ReturnType<typeof setTimeout> | undefined;
@@ -176,8 +179,9 @@ export class AppApi {
       await this.enqueue(id, () => this.service.deleteSource(id));
       this.companionStale();
       this.shortCache.dropSource(id);
+      this.formats.delete(id);
       this.titleRebuilds.delete(id);
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`]) {
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, formatMemoKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -253,6 +257,29 @@ export class AppApi {
       this.focusedId = channelId;
       const c = channelId === undefined ? undefined : this.index.get(channelId);
       if (c) await this.wantShortEpg(c);
+    });
+  }
+
+  /**
+   * A stream of `channelId` showed its first frame, from its alternate URL (`alternate`) or its first one. The format
+   * that played is remembered for the active source (this device only: a format name, no URL or credentials) and tried
+   * first from then on (spec 2026-10-15-gentle-source §3.4).
+   */
+  notePlayed(channelId: string, alternate: boolean): Promise<void> {
+    return this.run('notePlayed', async () => {
+      const id = this.activeId;
+      const c = this.index.get(channelId);
+      if (!id || !c) return;
+      const urls = await this.streamUrls(c);
+      if (urls.alternateUrl === undefined) return;
+      const memo: FormatMemo = {
+        format: formatOf(alternate ? urls.alternateUrl : urls.url),
+        pref: (await this.currentSettings()).preferredFormat,
+      };
+      const old = await this.lastFormat(id);
+      if (old?.format === memo.format && old.pref === memo.pref) return;
+      this.formats.set(id, memo);
+      await this.storage.setMeta(formatMemoKey(id), memo);
     });
   }
 
@@ -1069,16 +1096,32 @@ export class AppApi {
     const [row] = await this.toRows([channel]);
     // Never on the zap path's clock: the lookup's local guide read runs in the background.
     if (!row!.now && !row!.next) this.backgroundShortEpg(channel);
-    const settings = await this.currentSettings();
-    let url = channel.url;
-    let alternateUrl = alternateStreamUrl(url);
-    if (alternateUrl) {
-      const isHls = /\.m3u8(?:[?#]|$)/.test(url);
-      if (isHls !== (settings.preferredFormat === 'm3u8')) [url, alternateUrl] = [alternateUrl, url];
-    }
+    const { url, alternateUrl } = await this.streamUrls(channel);
     const out: PlayableChannel = { ...row!, url };
     if (alternateUrl) out.alternateUrl = alternateUrl;
     return out;
+  }
+
+  /**
+   * The channel's URL in the format to try first and, for Xtream live URLs, the other format: the format that played
+   * last on the active source, unless the preferred-format setting changed since; else the setting.
+   */
+  private async streamUrls(channel: Channel): Promise<{ url: string; alternateUrl?: string }> {
+    const other = alternateStreamUrl(channel.url);
+    if (!other) return { url: channel.url };
+    const id = this.activeId;
+    const memo = id === undefined ? undefined : await this.lastFormat(id);
+    const first = firstFormat((await this.currentSettings()).preferredFormat, memo);
+    return formatOf(channel.url) === first ? { url: channel.url, alternateUrl: other } : { url: other, alternateUrl: channel.url };
+  }
+
+  /** Source `id`'s format memo, read from storage on first use. */
+  private async lastFormat(id: string): Promise<FormatMemo | undefined> {
+    if (!this.formats.has(id)) {
+      const v = await this.storage.getMeta<unknown>(formatMemoKey(id)).catch(() => undefined);
+      this.formats.set(id, isFormatMemo(v) ? v : null);
+    }
+    return this.formats.get(id) ?? undefined;
   }
 }
 
@@ -1115,7 +1158,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
-  'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel',
+  'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];
 
