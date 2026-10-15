@@ -1,5 +1,5 @@
 import {
-  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress, nextEpisode, resumeMs,
+  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress, nextEpisode, prevEpisode, resumeMs,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
@@ -250,12 +250,16 @@ export class VodController {
     const next = nextEpisode(detail.seasons, itemId);
     const series: SeriesPointer = { id: seriesId, season: ep.season, episode: ep.episode };
     if (next) series.next = { id: next.id, season: next.season, episode: next.episode };
+    const fromSeries = tracksOf(user.get(seriesId));
+    const seriesTracks = fromSeries.audio || fromSeries.subtitle ? fromSeries : tracksOf(s);
     const out: VodPlayable = {
       kind: 'episode', itemId, url, title: show.title, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
-      resumeMs: resumeMs(s), tracks: tracksOf(s), series,
+      resumeMs: resumeMs(s), tracks: seriesTracks, series,
     };
     if (ep.runtimeMin) out.durationMs = ep.runtimeMin * 60_000;
     if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
+    const prev = prevEpisode(detail.seasons, itemId);
+    if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };
     return out;
   }
 
@@ -273,6 +277,15 @@ export class VodController {
 
   clearProgress(itemId: string): Promise<void> {
     return this.write(itemId, (src) => this.vod.clearProgress(src, itemId));
+  }
+
+  /** "Remove from Continue watching" on a series tile: clears the latest-updated episode record, the one `continueSeries` picks. */
+  async clearSeriesContinue(seriesId: string): Promise<void> {
+    let latest: { itemId: string; updatedAt: number } | undefined;
+    for (const [itemId, state] of await this.userMap()) {
+      if (state.series?.id === seriesId && (!latest || state.updatedAt > latest.updatedAt)) latest = { itemId, updatedAt: state.updatedAt };
+    }
+    if (latest) await this.clearProgress(latest.itemId);
   }
 
   setTracks(itemId: string, tracks: VodTracks): Promise<void> {

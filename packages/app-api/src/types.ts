@@ -207,4 +207,6 @@ export interface VodPlayable {
   series?: SeriesPointer;
   /** Episodes: what the next-episode card offers. */
   next?: { id: string; label: string };
+  /** Episodes: the previous episode (Channel down). */
+  prev?: { id: string; label: string };
 }

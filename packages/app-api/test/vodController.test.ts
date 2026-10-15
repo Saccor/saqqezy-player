@@ -626,6 +626,73 @@ function writeFake() {
   return { c: base.c, fake, users: base.users };
 }
 
+describe('VodController episode playables and series continue', () => {
+  const show = showId(1);
+  const at = (k: number) => ({ season: k === 3 ? 2 : 1, episode: k === 3 ? 1 : k });
+  const pointer = (k: number, next?: number) => ({
+    id: show, ...at(k), ...(next === undefined ? {} : { next: { id: epId(show, next), ...at(next) } }),
+  });
+  const seriesFake = () => {
+    const base = detailFake(0, 1);
+    const store = new Map<string, VodUserState>();
+    const fake = Object.assign(base.fake, {
+      clearProgress: vi.fn(async (_s: string, id: string) => {
+        const rec = base.users.find((r) => r.itemId === id)!;
+        const { next: _n, ...rest } = rec.state.series!;
+        rec.state = { ...rec.state, position: 0, series: rest };
+        store.set(id, rec.state);
+        return rec.state;
+      }),
+    });
+    return { ...base, fake };
+  };
+
+  test('playable: prev is the previous episode, absent for the first', async () => {
+    const { c } = detailFake(0, 1);
+    expect((await c.playable(epId(show, 1), show))!.prev).toBeUndefined();
+    expect((await c.playable(epId(show, 2), show))!.prev).toEqual({ id: epId(show, 1), label: 'S1 · E1 · Part 1' });
+    expect((await c.playable(epId(show, 3), show))!.prev).toEqual({ id: epId(show, 2), label: 'S1 · E2 · Part 2' });
+  });
+
+  test('playable: episode tracks come from the series record, else the episode record', async () => {
+    const { c, users } = detailFake(0, 1);
+    users.push({ itemId: show, state: userState({ audio: 'eng', subtitle: 'swe' }) });
+    c.reset('src');
+    expect((await c.playable(epId(show, 2), show))!.tracks).toEqual({ audio: 'eng', subtitle: 'swe' });
+    users.length = 0;
+    users.push({ itemId: epId(show, 2), state: userState({ audio: 'fra' }) });
+    c.reset('src');
+    expect((await c.playable(epId(show, 2), show))!.tracks).toEqual({ audio: 'fra' });
+  });
+
+  test('clearSeriesContinue: an episode in progress leaves Continue watching', async () => {
+    const { c, users } = seriesFake();
+    users.push({ itemId: epId(show, 1), state: userState({ position: 120_000, duration: 1_800_000, updatedAt: 1, series: pointer(1) }) });
+    users.push({ itemId: epId(show, 2), state: userState({ position: 600_000, duration: 1_800_000, updatedAt: 5, series: pointer(2) }) });
+    c.reset('src');
+    expect((await c.home('series')).rows[0]).toMatchObject({ id: VOD_ROW_CONTINUE, total: 1 });
+    await c.clearSeriesContinue(show);
+    expect((await c.home('series')).rows.map((r) => r.id)).not.toContain(VOD_ROW_CONTINUE);
+  });
+
+  test('clearSeriesContinue: a watched episode with a next pointer leaves Continue watching and stays watched', async () => {
+    const { c, users, fake } = seriesFake();
+    users.push({ itemId: epId(show, 2), state: userState({ watched: true, duration: 1_800_000, updatedAt: 5, series: pointer(2, 3) }) });
+    c.reset('src');
+    expect((await c.home('series')).rows[0]).toMatchObject({ id: VOD_ROW_CONTINUE, total: 1 });
+    await c.clearSeriesContinue(show);
+    expect(fake.clearProgress).toHaveBeenCalledWith('src', epId(show, 2));
+    expect((await c.home('series')).rows.map((r) => r.id)).not.toContain(VOD_ROW_CONTINUE);
+    expect((await c.series(show))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+  });
+
+  test('clearSeriesContinue: no record is a no-op', async () => {
+    const { c, fake } = seriesFake();
+    await expect(c.clearSeriesContinue(show)).resolves.toBeUndefined();
+    expect(fake.clearProgress).not.toHaveBeenCalled();
+  });
+});
+
 describe('VodController invalidate', () => {
   test('drops the resident catalogue and details, keeps the user map, aborts jobs', async () => {
     const { c, fake, users } = detailFake(2);

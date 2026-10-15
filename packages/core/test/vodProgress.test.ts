@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress,
-  nextEpisode, resumeMs, setFavourite, setTracks, setWatched,
+  nextEpisode, prevEpisode, resumeMs, setFavourite, setTracks, setWatched,
 } from '../src/vod/progress.ts';
 import type { Season, VodUserRecord, VodUserState } from '../src/vod/types.ts';
 
@@ -104,6 +104,19 @@ describe('episodes', () => {
       { id: 's1', season: 0, episode: 1, title: 'S1' }, { id: 's2', season: 0, episode: 2, title: 'S2' },
     ] }];
     expect(nextEpisode(twoSpecials, 's1')?.id).toBe('s2');
+  });
+  test('prevEpisode steps back within and across seasons, never into or out of Specials', () => {
+    expect(prevEpisode(seasons, 'b')?.id).toBe('a');
+    expect(prevEpisode(seasons, 'c')?.id).toBe('b');
+    expect(prevEpisode(seasons, 'a')).toBeUndefined();
+    expect(prevEpisode(seasons, 'zz')).toBeUndefined();
+    const specials = { number: 0, name: 'Specials', episodes: [{ id: 's1', season: 0, episode: 1, title: 'S1' }, { id: 's2', season: 0, episode: 2, title: 'S2' }] };
+    // Specials after the regular seasons: the first special has no previous, a season's first never reaches into them.
+    expect(prevEpisode([...seasons, specials], 's1')).toBeUndefined();
+    expect(prevEpisode([...seasons, specials], 's2')?.id).toBe('s1');
+    // Specials listed first: the first regular episode never steps back into them.
+    expect(prevEpisode([specials, ...seasons], 'a')).toBeUndefined();
+    expect(prevEpisode([specials, ...seasons], 's1')).toBeUndefined();
   });
   test('episodeLabel', () => {
     expect(episodeLabel(2, 4)).toBe('S2 · E4');

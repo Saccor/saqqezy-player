@@ -106,4 +106,18 @@ export function nextEpisode(seasons: Season[], episodeId: string): Episode | und
   return undefined;
 }
 
+/** The episode before `episodeId`: the previous one in its season, else the last of the previous season (never between Specials and a regular season). */
+export function prevEpisode(seasons: Season[], episodeId: string): Episode | undefined {
+  for (let s = 0; s < seasons.length; s++) {
+    const season = seasons[s]!;
+    const i = season.episodes.findIndex((e) => e.id === episodeId);
+    if (i < 0) continue;
+    if (i > 0) return season.episodes[i - 1];
+    const before = seasons[s - 1];
+    if (!before || (before.number === 0) !== (season.number === 0)) return undefined;
+    return before.episodes[before.episodes.length - 1];
+  }
+  return undefined;
+}
+
 export const episodeLabel = (season: number, episode: number): string => `S${season} · E${episode}`;

@@ -572,6 +572,11 @@ export class AppApi {
     return this.run('clearVodProgress', () => this.vodOrThrow().clearProgress(itemId));
   }
 
+  /** "Remove from Continue watching" on a series tile. */
+  clearSeriesContinue(seriesId: string): Promise<void> {
+    return this.run('clearSeriesContinue', () => this.vodOrThrow().clearSeriesContinue(seriesId));
+  }
+
   setVodTracks(itemId: string, tracks: VodTracks): Promise<void> {
     return this.run('setVodTracks', () => this.vodOrThrow().setTracks(itemId, tracks));
   }
@@ -1338,7 +1343,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'setVodTracks', 'refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

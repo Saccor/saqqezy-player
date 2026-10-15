@@ -19,7 +19,7 @@ export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi 
 export {
   CONTINUE_MAX, MIN_RESUME_MS, WATCHED_RATIO,
   applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress,
-  nextEpisode, resumeMs, setFavourite, setTracks, setWatched, type SeriesContinue,
+  nextEpisode, prevEpisode, resumeMs, setFavourite, setTracks, setWatched, type SeriesContinue,
 } from './vod/progress.ts';
 export { classifyEntry, splitM3uVod, type EntryKind } from './m3u/vodSplit.ts';
 export { VodService, type VodServiceDeps } from './service/vodService.ts';
