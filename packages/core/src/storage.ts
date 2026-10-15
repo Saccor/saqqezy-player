@@ -1,4 +1,5 @@
 import type { Channel, Programme, SourceConfig } from './types.ts';
+import type { VodKind, VodList, VodUserRecord, VodUserState } from './vod/types.ts';
 
 export interface Storage {
   listSources(): Promise<SourceConfig[]>;
@@ -13,6 +14,11 @@ export interface Storage {
   getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]>;
   /** Calls `fn` (synchronously) for every stored programme of `sourceId`, in no particular order. */
   forEachProgramme(sourceId: string, fn: (p: Programme) => void): Promise<void>;
+  getVod(sourceId: string, kind: VodKind): Promise<VodList | undefined>;
+  replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void>;
+  getVodUser(sourceId: string, itemId: string): Promise<VodUserState | undefined>;
+  putVodUser(sourceId: string, itemId: string, state: VodUserState): Promise<void>;
+  listVodUser(sourceId: string): Promise<VodUserRecord[]>;
   clearAll(): Promise<void>;
 }
 

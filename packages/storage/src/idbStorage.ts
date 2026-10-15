@@ -1,6 +1,10 @@
-import { MAX_PROGRAMME_MS, type Channel, type Programme, type SourceConfig, type Storage } from '@iptv/core';
+import {
+  MAX_PROGRAMME_MS,
+  type Channel, type Programme, type SourceConfig, type Storage, type VodKind, type VodList, type VodUserRecord, type VodUserState,
+} from '@iptv/core';
 
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser'];
 type ProgRecord = Programme & { sourceId: string };
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
@@ -44,6 +48,10 @@ export class IdbStorage implements Storage {
             const progs = db.createObjectStore('programmes', { autoIncrement: true });
             progs.createIndex('byChannel', ['sourceId', 'epgId', 'start']);
           }
+          if (e.oldVersion < 2) {
+            db.createObjectStore('vod', { keyPath: ['sourceId', 'kind'] });
+            db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
+          }
         };
         // Another tab holds an older version open and does not let go: fail now instead of waiting forever.
         open.onblocked = () => {
@@ -82,7 +90,7 @@ export class IdbStorage implements Storage {
 
   async deleteSource(id: string): Promise<void> {
     const db = await this.db();
-    const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
+    const tx = db.transaction(ALL_STORES, 'readwrite');
     tx.objectStore('sources').delete(id);
     tx.objectStore('channels').delete(id);
     // Cursor (not await) so the transaction never goes inactive on older TV engines. A key cursor: the values
@@ -95,6 +103,9 @@ export class IdbStorage implements Storage {
       if (String(cursor.key).endsWith(`:${id}`)) meta.delete(cursor.primaryKey);
       cursor.continue();
     };
+    const sourceRange = IDBKeyRange.bound([id], [id, []]);
+    tx.objectStore('vod').delete(sourceRange);
+    tx.objectStore('vodUser').delete(sourceRange);
     this.deleteProgrammesIn(tx, id);
     await done(tx);
   }
@@ -179,10 +190,40 @@ export class IdbStorage implements Storage {
     await done(tx);
   }
 
+  async getVod(sourceId: string, kind: VodKind): Promise<VodList | undefined> {
+    const db = await this.db();
+    const rec = await req(db.transaction('vod').objectStore('vod').get([sourceId, kind]));
+    return (rec as { list: VodList } | undefined)?.list;
+  }
+
+  async replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void> {
+    const tx = (await this.db()).transaction('vod', 'readwrite');
+    tx.objectStore('vod').put({ sourceId, kind, list });
+    await done(tx);
+  }
+
+  async getVodUser(sourceId: string, itemId: string): Promise<VodUserState | undefined> {
+    const db = await this.db();
+    const rec = await req(db.transaction('vodUser').objectStore('vodUser').get([sourceId, itemId]));
+    return (rec as { state: VodUserState } | undefined)?.state;
+  }
+
+  async putVodUser(sourceId: string, itemId: string, state: VodUserState): Promise<void> {
+    const tx = (await this.db()).transaction('vodUser', 'readwrite');
+    tx.objectStore('vodUser').put({ sourceId, itemId, state });
+    await done(tx);
+  }
+
+  async listVodUser(sourceId: string): Promise<VodUserRecord[]> {
+    const db = await this.db();
+    const recs = await req(db.transaction('vodUser').objectStore('vodUser').getAll(IDBKeyRange.bound([sourceId], [sourceId, []])));
+    return (recs as { itemId: string; state: VodUserState }[]).map(({ itemId, state }) => ({ itemId, state }));
+  }
+
   async clearAll(): Promise<void> {
     const db = await this.db();
-    const tx = db.transaction(['sources', 'channels', 'meta', 'programmes'], 'readwrite');
-    for (const name of ['sources', 'channels', 'meta', 'programmes']) tx.objectStore(name).clear();
+    const tx = db.transaction(ALL_STORES, 'readwrite');
+    for (const name of ALL_STORES) tx.objectStore(name).clear();
     await done(tx);
   }
 }

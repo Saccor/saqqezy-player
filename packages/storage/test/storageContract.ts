@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { Channel, Programme, SourceConfig, Storage } from '@iptv/core';
+import type { Channel, Programme, SourceConfig, Storage, VodList, VodUserState } from '@iptv/core';
 
 const src: SourceConfig = { kind: 'm3u', id: 's1', name: 'Test', playlistUrl: 'http://example.test/p.m3u' };
 const other: SourceConfig = { kind: 'm3u', id: 's2', name: 'Other', playlistUrl: 'http://example.test/o.m3u' };
@@ -9,6 +9,12 @@ const chan = (n: number, sourceId = 's1'): Channel => ({
 const prog = (epgId: string, startH: number, stopH: number): Programme => ({
   epgId, start: startH * 3600_000, stop: stopH * 3600_000, title: `${epgId}@${startH}`,
 });
+
+const vodList = (n: number): VodList => ({
+  items: [{ id: `s1:m${n}`, kind: 'movie', title: `Synthetic Film ${n}`, categoryId: '1' }],
+  categories: [{ id: '1', kind: 'movie', name: 'Drama', count: 1 }],
+});
+const user = (position: number): VodUserState => ({ position, duration: 3600_000, watched: false, favourite: false, updatedAt: position });
 
 export function storageContract(name: string, make: () => Promise<Storage> | Storage) {
   describe(`${name} storage contract`, () => {
@@ -115,15 +121,61 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(got.map((p) => p.title)).toEqual(['a@1', 'a@2']);
     });
 
+    test('vod: replace and get per source and kind, undefined by default', async () => {
+      const s = await make();
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      await s.replaceVod('s1', 'movie', vodList(1));
+      await s.replaceVod('s1', 'movie', vodList(2));
+      await s.replaceVod('s1', 'series', vodList(3));
+      await s.replaceVod('s2', 'movie', vodList(4));
+      expect(await s.getVod('s1', 'movie')).toEqual(vodList(2));
+      expect(await s.getVod('s1', 'series')).toEqual(vodList(3));
+      expect(await s.getVod('s2', 'movie')).toEqual(vodList(4));
+    });
+
+    test('vodUser: put, overwrite, get and list per source', async () => {
+      const s = await make();
+      expect(await s.getVodUser('s1', 'a')).toBeUndefined();
+      await s.putVodUser('s1', 'a', user(1));
+      await s.putVodUser('s1', 'a', user(2));
+      await s.putVodUser('s1', 'b', user(3));
+      await s.putVodUser('s2', 'a', user(4));
+      expect(await s.getVodUser('s1', 'a')).toEqual(user(2));
+      expect((await s.listVodUser('s1')).sort((x, y) => x.itemId.localeCompare(y.itemId)))
+        .toEqual([{ itemId: 'a', state: user(2) }, { itemId: 'b', state: user(3) }]);
+      expect(await s.listVodUser('missing')).toEqual([]);
+    });
+
+    test("deleteSource removes that source's vod and vodUser records only", async () => {
+      const s = await make();
+      await s.putSource(src);
+      await s.putSource(other);
+      await s.replaceVod('s1', 'movie', vodList(1));
+      await s.replaceVod('s2', 'movie', vodList(2));
+      await s.putVodUser('s1', 'a', user(1));
+      await s.putVodUser('s2', 'a', user(2));
+      await s.setMeta('vodAt:movie:s1', 5);
+      await s.deleteSource('s1');
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      expect(await s.listVodUser('s1')).toEqual([]);
+      expect(await s.getMeta('vodAt:movie:s1')).toBeUndefined();
+      expect(await s.getVod('s2', 'movie')).toEqual(vodList(2));
+      expect(await s.getVodUser('s2', 'a')).toEqual(user(2));
+    });
+
     test('clearAll wipes everything', async () => {
       const s = await make();
       await s.putSource(src);
       await s.replaceChannels('s1', [chan(1)]);
       await s.setMeta('activeSource', 's1');
+      await s.replaceVod('s1', 'movie', vodList(1));
+      await s.putVodUser('s1', 'a', user(1));
       await s.clearAll();
       expect(await s.listSources()).toEqual([]);
       expect(await s.getChannels('s1')).toEqual([]);
       expect(await s.getMeta('activeSource')).toBeUndefined();
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      expect(await s.listVodUser('s1')).toEqual([]);
     });
   });
 }
