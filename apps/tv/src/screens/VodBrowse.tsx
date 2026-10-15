@@ -2,7 +2,6 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, SeriesView, VodHome, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
-import { episodeLabel } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
@@ -24,6 +23,7 @@ import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { seriesMetaLine } from '../vod/heroLogic.ts';
+import { primaryLabel } from '../vod/seriesDetailLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { KIND_COPY } from '../vod/kindCopy.ts';
 import { TAB_H, tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
@@ -271,10 +271,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
    */
   const playAction = createMemo(() => {
     if (kind === 'series') {
-      // Task 3 replaces this with seriesDetailLogic.primaryLabel.
       const p = heroSeries()?.primary;
-      const label = p ? (p.mode === 'continue' ? 'Continue ' : 'Play ') + episodeLabel(p.season, p.episode) : 'Play';
-      return { id: 'play', label, width: p ? 320 : 200 };
+      return { id: 'play', label: primaryLabel(p), width: p ? 320 : 200 };
     }
     const t = focusedTile();
     const h = hero()?.tile.id === t?.id ? (hero() as MovieView | undefined) : undefined;

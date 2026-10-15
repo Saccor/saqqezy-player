@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EpisodeView, SeasonView, SeriesView } from '@iptv/app-api';
-import { episodeMeta, initialFocus, primaryLabel, refocus, seasonLabel, seriesMeta } from './seriesDetailLogic.ts';
+import {
+  cardAt, episodeMeta, initialFocus, primaryLabel, refocus, regularSeasonCount, seasonLabel, seasonTabWidth, seriesMeta, stripAt, stripOffset, stripStarts,
+} from './seriesDetailLogic.ts';
 
 const ep = (season: number, episode: number, extra: Partial<EpisodeView> = {}): EpisodeView => ({
   id: `e${season}-${episode}`, season, episode, title: `Episode ${episode}`, watched: false, ...extra,
@@ -65,6 +67,8 @@ describe('seriesMeta', () => {
     expect(seriesMeta(view({ seasons: [season(1, 1)] }))).toBe('1 season');
     expect(seriesMeta(view({ seasons: [] }))).toBe('');
     expect(seriesMeta(view({ detail: { genre: 'Drama' } }))).toContain('Drama');
+    expect(seriesMeta(view({ seasons: [season(0, 2), season(1, 1), season(2, 1)] }))).toBe('2 seasons');
+    expect(seriesMeta(view({ seasons: [season(0, 2)] }))).toBe('');
     expect(seriesMeta(view())).not.toContain('undefined');
   });
 });
@@ -84,5 +88,55 @@ describe('refocus', () => {
   it('uses initialFocus without a previous focus', () => {
     const v = view({ primary: { episodeId: 'e2-2', season: 2, episode: 2, resumeMs: 0, mode: 'start' } });
     expect(refocus(undefined, v)).toEqual({ season: 1, episode: 1 });
+  });
+});
+
+describe('regularSeasonCount', () => {
+  it('counts only seasons numbered above 0', () => {
+    expect(regularSeasonCount([season(0, 1), season(1, 1), season(2, 1)])).toBe(2);
+    expect(regularSeasonCount([])).toBe(0);
+  });
+});
+
+describe('season tab strip', () => {
+  it('sizes a tab from its label within bounds', () => {
+    expect(seasonTabWidth('Season 1')).toBeGreaterThanOrEqual(140);
+    expect(seasonTabWidth('A')).toBe(140);
+    expect(seasonTabWidth('x'.repeat(200))).toBe(360);
+    expect(seasonTabWidth('Season 10')).toBeGreaterThan(seasonTabWidth('Season 1'));
+  });
+  it('lays tabs out left to right with a gap', () => {
+    expect(stripStarts([100, 150, 120], 10)).toEqual([0, 110, 270]);
+    expect(stripStarts([], 10)).toEqual([]);
+  });
+  it('finds the tab under x, none in a gap or outside', () => {
+    const starts = [0, 110, 270];
+    const widths = [100, 150, 120];
+    expect(stripAt(starts, widths, 50)).toBe(0);
+    expect(stripAt(starts, widths, 105)).toBeUndefined();
+    expect(stripAt(starts, widths, 300)).toBe(2);
+    expect(stripAt(starts, widths, 400)).toBeUndefined();
+    expect(stripAt(starts, widths, -1)).toBeUndefined();
+  });
+  it('scrolls as little as possible to keep the focused tab in view', () => {
+    const widths = [200, 200, 200, 200, 200];
+    const starts = stripStarts(widths, 0);
+    expect(stripOffset(starts, widths, 0, 500, 0)).toBe(0);
+    expect(stripOffset(starts, widths, 2, 500, 0)).toBe(100);
+    expect(stripOffset(starts, widths, 4, 500, 100)).toBe(500);
+    expect(stripOffset(starts, widths, 1, 500, 500)).toBe(200);
+    expect(stripOffset(starts, widths, 3, 500, 500)).toBe(500);
+    expect(stripOffset([], [], 0, 500, 40)).toBe(0);
+  });
+});
+
+describe('cardAt', () => {
+  it('maps a row-local x to the card under it (pitch 424, card 400), none in a gap or past the end', () => {
+    expect(cardAt(10, 0, 424, 400, 10)).toBe(0);
+    expect(cardAt(410, 0, 424, 400, 10)).toBeUndefined();
+    expect(cardAt(430, 0, 424, 400, 10)).toBe(1);
+    expect(cardAt(10, 3, 424, 400, 10)).toBe(3);
+    expect(cardAt(430, 9, 424, 400, 10)).toBeUndefined();
+    expect(cardAt(-5, 0, 424, 400, 10)).toBeUndefined();
   });
 });

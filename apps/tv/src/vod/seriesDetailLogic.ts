@@ -37,12 +37,17 @@ export function seasonLabel(s: SeasonView): string {
   return name;
 }
 
+/** Regular seasons only: Specials (number 0) do not count as a season. */
+export function regularSeasonCount(seasons: readonly SeasonView[]): number {
+  return seasons.filter((s) => s.number > 0).length;
+}
+
 /** Hero meta: "2021 · 3 seasons · Drama · 12 · ★ 7.9" from the parts that exist. */
 export function seriesMeta(view: SeriesView): string {
   const d = view.detail;
   return seriesMetaLine({
     year: view.tile.year,
-    seasons: view.seasons.length,
+    seasons: regularSeasonCount(view.seasons),
     genre: d?.genre,
     ageRating: d?.ageRating,
     rating: view.tile.rating,
@@ -61,4 +66,40 @@ export function refocus(
   }
   const sIdx = view.seasons.findIndex((s) => s.number === prev.seasonNumber);
   return { season: Math.max(0, sIdx), episode: 0 };
+}
+
+/** A season tab's width from its label: roughly the text plus padding, kept between 140 and 360. */
+export function seasonTabWidth(label: string): number {
+  return Math.max(140, Math.min(360, Math.round(label.length * 13) + 56));
+}
+
+/** Left edges of tabs laid out left to right with `gap` between them. */
+export function stripStarts(widths: readonly number[], gap: number): number[] {
+  let x = 0;
+  return widths.map((w) => { const at = x; x += w + gap; return at; });
+}
+
+/** The tab under a strip-local x (scroll already added), undefined in a gap or outside. */
+export function stripAt(starts: readonly number[], widths: readonly number[], x: number): number | undefined {
+  const i = starts.findIndex((s, k) => x >= s && x < s + widths[k]!);
+  return i >= 0 ? i : undefined;
+}
+
+/** The strip's scroll offset keeping the focused tab fully in a `view`-wide window, moving as little as possible. */
+export function stripOffset(starts: readonly number[], widths: readonly number[], focus: number, view: number, prev: number): number {
+  const n = starts.length;
+  if (n === 0) return 0;
+  const total = starts[n - 1]! + widths[n - 1]!;
+  const i = Math.max(0, Math.min(focus, n - 1));
+  let next = prev;
+  if (starts[i]! < next) next = starts[i]!;
+  else if (starts[i]! + widths[i]! > next + view) next = starts[i]! + widths[i]! - view;
+  return Math.max(0, Math.min(next, Math.max(0, total - view)));
+}
+
+/** The card under a row-local x for a row scrolled to `scroll` cards, undefined in a gap or past the last card. */
+export function cardAt(px: number, scroll: number, pitch: number, cardW: number, total: number): number | undefined {
+  if (px < 0) return undefined;
+  const c = scroll + Math.floor(px / pitch);
+  return px % pitch < cardW && c < total ? c : undefined;
 }

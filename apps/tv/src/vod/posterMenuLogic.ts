@@ -1,4 +1,5 @@
-import type { VodTile } from '@iptv/app-api';
+import type { EpisodeView, VodTile } from '@iptv/app-api';
+import type { SeriesPointer } from '@iptv/core';
 
 /** The poster options menu. Pure: no Solid, no Lightning. */
 export type PosterAction = 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
@@ -14,9 +15,19 @@ export function buildPosterMenu(tile: VodTile, inContinue: boolean): { action: P
   return items;
 }
 
+/** An episode card's menu: watched or unwatched, and Remove from Continue watching when it has progress. */
+export function buildEpisodeMenu(ep: EpisodeView): { action: PosterAction; label: string }[] {
+  const items: { action: PosterAction; label: string }[] = [
+    ep.watched ? { action: 'unwatched', label: 'Mark as unwatched' } : { action: 'watched', label: 'Mark as watched' },
+  ];
+  if (ep.progress !== undefined) items.push({ action: 'removeContinue', label: 'Remove from Continue watching' });
+  items.push({ action: 'cancel', label: 'Cancel' });
+  return items;
+}
+
 export interface PosterApi {
   setVodFavourite(id: string, on: boolean): Promise<void>;
-  setVodWatched(id: string, on: boolean): Promise<void>;
+  setVodWatched(id: string, on: boolean, series?: SeriesPointer): Promise<void>;
   clearVodProgress(id: string): Promise<void>;
   clearSeriesContinue(seriesId: string): Promise<void>;
 }
@@ -34,5 +45,16 @@ export async function runPosterAction(a: PosterAction, tile: VodTile, api: Poste
       else await api.clearVodProgress(tile.id);
       return true;
     case 'cancel': return false;
+  }
+}
+
+/** Runs an episode card's action (watched state carries the series pointer); true when something changed. */
+export async function runEpisodeAction(a: PosterAction, ep: EpisodeView, seriesId: string, api: PosterApi): Promise<boolean> {
+  const pointer: SeriesPointer = { id: seriesId, season: ep.season, episode: ep.episode };
+  switch (a) {
+    case 'watched': await api.setVodWatched(ep.id, true, pointer); return true;
+    case 'unwatched': await api.setVodWatched(ep.id, false, pointer); return true;
+    case 'removeContinue': await api.clearVodProgress(ep.id); return true;
+    default: return false;
   }
 }

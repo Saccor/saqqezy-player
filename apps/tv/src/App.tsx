@@ -11,6 +11,7 @@ import { GuideScreen } from './screens/Guide.tsx';
 import { HomeScreen } from './screens/Home.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
+import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
 import { SettingsScreen } from './screens/Settings.tsx';
@@ -135,7 +136,7 @@ export function App() {
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />
-            : entry.screen === 'seriesDetail' ? <PlaceholderScreen entry={entry} />
+            : entry.screen === 'seriesDetail' ? <SeriesDetailScreen entry={entry} />
             : entry.screen === 'vodPlay' ? <VodPlayScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>

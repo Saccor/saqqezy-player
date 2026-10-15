@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import type { VodTile } from '@iptv/app-api';
-import { buildPosterMenu, runPosterAction, type PosterApi } from './posterMenuLogic.ts';
+import type { EpisodeView, VodTile } from '@iptv/app-api';
+import { buildEpisodeMenu, buildPosterMenu, runEpisodeAction, runPosterAction, type PosterApi } from './posterMenuLogic.ts';
 
 const movie = (over: Partial<VodTile> = {}): VodTile => ({ id: 's:m1', kind: 'movie', title: 'Synthetic Film 1', categoryId: '1', watched: false, favourite: false, ...over });
 
@@ -47,5 +47,30 @@ describe('posterMenuLogic', () => {
     expect(await runPosterAction('removeContinue', movie({ id: 's:s1', kind: 'series' }), api)).toBe(true);
     expect(api.clearSeriesContinue).toHaveBeenCalledWith('s:s1');
     expect(api.clearVodProgress).not.toHaveBeenCalled();
+  });
+  test('episode cards: watched or unwatched, and Remove from Continue watching only with progress', () => {
+    const ep: EpisodeView = { id: 's:e2-4', season: 2, episode: 4, title: 'Synthetic Episode 4', watched: false };
+    expect(buildEpisodeMenu(ep)).toEqual([
+      { action: 'watched', label: 'Mark as watched' },
+      { action: 'cancel', label: 'Cancel' },
+    ]);
+    expect(buildEpisodeMenu({ ...ep, watched: true, progress: 0.4 }).map((i) => i.action)).toEqual(['unwatched', 'removeContinue', 'cancel']);
+  });
+  test('episode actions pass the series pointer and clear the episode progress', async () => {
+    const api: PosterApi = {
+      setVodFavourite: vi.fn(async () => undefined), setVodWatched: vi.fn(async () => undefined),
+      clearVodProgress: vi.fn(async () => undefined), clearSeriesContinue: vi.fn(async () => undefined),
+    };
+    const ep: EpisodeView = { id: 's:e2-4', season: 2, episode: 4, title: 'Synthetic Episode 4', watched: false, progress: 0.4 };
+    expect(await runEpisodeAction('watched', ep, 's:s1', api)).toBe(true);
+    expect(api.setVodWatched).toHaveBeenCalledWith('s:e2-4', true, { id: 's:s1', season: 2, episode: 4 });
+    expect(await runEpisodeAction('unwatched', ep, 's:s1', api)).toBe(true);
+    expect(api.setVodWatched).toHaveBeenLastCalledWith('s:e2-4', false, { id: 's:s1', season: 2, episode: 4 });
+    expect(await runEpisodeAction('removeContinue', ep, 's:s1', api)).toBe(true);
+    expect(api.clearVodProgress).toHaveBeenCalledWith('s:e2-4');
+    expect(api.clearSeriesContinue).not.toHaveBeenCalled();
+    expect(await runEpisodeAction('cancel', ep, 's:s1', api)).toBe(false);
+    expect(await runEpisodeAction('favAdd', ep, 's:s1', api)).toBe(false);
+    expect(api.setVodFavourite).not.toHaveBeenCalled();
   });
 });
