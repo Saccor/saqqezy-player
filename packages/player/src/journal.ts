@@ -15,6 +15,8 @@ export type JournalEvent =
   | { k: 'error'; t: number; code: ErrorCode | 'UNKNOWN'; httpStatus?: number; detail?: string; engine?: EngineName }
   | { k: 'reconnect'; t: number; delayMs: number; cause: ReconnectCause }
   | { k: 'alternate'; t: number; urlIndex: number }
+  /** The source had no room for another open (per-source open rate): the open waits `delayMs`. */
+  | { k: 'rateWait'; t: number; delayMs: number }
   | { k: 'drift'; t: number; action: 'seek' | 'reopen' | 'rate'; behindS?: number; targetS: number; rate?: number }
   | { k: 'failed'; t: number; reason: 'unavailable' | 'unsupported' | 'refused' }
   | { k: 'giveUpRetry'; t: number }

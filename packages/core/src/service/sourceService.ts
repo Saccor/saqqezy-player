@@ -1,5 +1,5 @@
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
-import { SourceAuthError, SourceNetworkError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
 import { ChannelIndex } from '../index/channelIndex.ts';
 import { isUserFlags, layoutFromFlags } from '../layout/migrate.ts';
@@ -8,6 +8,7 @@ import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
+import { RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
@@ -27,18 +28,25 @@ export interface SourceServiceDeps {
   storage: Storage;
   fetch: FetchFn;
   now?: () => number;
+  /** Minimum time between two short-EPG requests to one source (default `SHORT_EPG_GAP_MS`; tests pass 0). */
+  shortEpgGapMs?: number;
   newId?: () => string;
   /** Playlist/XMLTV body inactivity timeout (default `BODY_IDLE_MS`). */
   bodyIdleMs?: number;
+  /** Refusal cooldown shared by every request to a source (default: one built on `storage`). */
+  guard?: RefusalGuard;
 }
 
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
-const SHORT_EPG_CONCURRENCY = 6;
-/** Short-EPG lookups waiting for a slot; past this the oldest waiters are dropped (they resolve to nothing). */
-const SHORT_EPG_QUEUE_CAP = 24;
+/** Short-EPG requests in flight at once, across all sources (spec 2026-10-15-gentle-source §3.2). */
+const SHORT_EPG_CONCURRENCY = 1;
+/** Short-EPG lookups waiting for the slot; past this the oldest waiters are dropped (they resolve to nothing). */
+const SHORT_EPG_QUEUE_CAP = 4;
+/** At least this long between two short-EPG requests to the same source. */
+const SHORT_EPG_GAP_MS = 2000;
 /** Wraps an error of the guide body stream, so it can be told apart from a parse error. */
 class StreamFailure extends Error {
   constructor(readonly cause: unknown) {
@@ -75,17 +83,24 @@ export class SourceService {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly bodyIdleMs: number;
+  /** Every request to a source goes through it: nothing is sent while the source is in its refusal cooldown. */
+  readonly guard: RefusalGuard;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
   private readonly shortEpgWaiting: ((granted: boolean) => void)[] = [];
+  private readonly shortEpgGapMs: number;
+  /** Clock ms of the last short-EPG request per source (for the gap). */
+  private readonly shortEpgLastAt = new Map<string, number>();
 
   constructor(deps: SourceServiceDeps) {
     this.storage = deps.storage;
     this.fetchFn = deps.fetch;
     this.now = deps.now ?? Date.now;
+    this.shortEpgGapMs = deps.shortEpgGapMs ?? SHORT_EPG_GAP_MS;
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
+    this.guard = deps.guard ?? new RefusalGuard({ storage: this.storage, now: this.now });
   }
 
   listSources(): Promise<SourceConfig[]> {
@@ -135,6 +150,7 @@ export class SourceService {
       const staging = await this.stagingGen(id);
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.deleteSource(id);
+      await this.guard.forget(id);
       // Lock order is always `id` then `layout:<id>`. Taking the layout lock waits out a layout write that had
       // already seen the source, then removes whatever it left behind; later writes see no source and no-op.
       await this.withLock(`layout:${id}`, async () => {
@@ -279,7 +295,7 @@ export class SourceService {
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
-    const res = await this.get(url);
+    const res = await this.get(id, url);
     if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
     const channels = await this.storage.getChannels(id);
 
@@ -415,11 +431,12 @@ export class SourceService {
   }
 
   /**
-   * Xtream short EPG for channels without stored programmes. At most `SHORT_EPG_CONCURRENCY` requests run at
-   * once across all calls and at most `SHORT_EPG_QUEUE_CAP` wait (the oldest waiters are dropped). Right before
-   * each request the lookup is skipped when `isStale(channel)` says so, when a guide refresh of the source runs
-   * or when the source is gone; the client is built from the source config stored at that moment, so updated
-   * credentials are used. Only channels whose lookup succeeded are in the result.
+   * Xtream short EPG for channels without stored programmes. One request runs at a time across all calls, at least
+   * `shortEpgGapMs` after the previous one to the same source, and at most `SHORT_EPG_QUEUE_CAP` wait (the oldest
+   * waiters are dropped). Right before each request the lookup is skipped when `isStale(channel)` says so, when a
+   * guide refresh of the source runs or when the source is gone; the client is built from the source config stored
+   * at that moment, so updated credentials are used. A request that failed answers `{}` (nothing found), so callers
+   * can cache it; skipped and dropped lookups, and ones the refusal guard stopped before sending, are not in the result.
    */
   async shortEpgFor(
     id: string,
@@ -427,8 +444,9 @@ export class SourceService {
     opts: { isStale?: (channel: Channel) => boolean } = {},
   ): Promise<Map<string, { now?: Programme; next?: Programme }>> {
     const out = new Map<string, { now?: Programme; next?: Programme }>();
-    const skip = (c: Channel) => this.isRefreshingEpg(id) || (opts.isStale?.(c) ?? false);
-    if (this.isRefreshingEpg(id)) return out;
+    const skip = (c: Channel) => this.isRefreshingEpg(id) || this.guard.isBlocked(id) || (opts.isStale?.(c) ?? false);
+    // Loads the persisted cooldown first, so a lookup right after a reload is skipped instead of queued.
+    if (this.isRefreshingEpg(id) || (await this.guard.status(id)).state !== 'clear') return out;
     if ((await this.storage.listSources()).find((s) => s.id === id)?.kind !== 'xtream') return out;
     await Promise.all(channels.map(async (c) => {
       const streamId = Number(/:x(\d+)$/.exec(c.id)?.[1]);
@@ -436,12 +454,17 @@ export class SourceService {
       if (!(await this.shortEpgSlot())) return;
       try {
         if (skip(c)) return;
+        await this.shortEpgGap(id);
         const source = (await this.storage.listSources()).find((s) => s.id === id);
         if (source?.kind !== 'xtream' || skip(c)) return;
+        this.shortEpgLastAt.set(id, this.now());
         const list = await this.xtream(source).shortEpg(streamId, epgKey(c));
         out.set(c.id, nowNext(list, this.now()));
-      } catch {
-        // No EPG is an acceptable outcome; the UI shows the channel without programme info.
+      } catch (err) {
+        // Refused by our own guard (blocked or probing): nothing was sent, so it counts as skipped, not cached.
+        if (err instanceof SourceRefusedError) return;
+        // No EPG is an acceptable outcome (the UI shows the channel without programme info): answered as nothing found.
+        out.set(c.id, {});
       } finally {
         this.releaseShortEpgSlot();
       }
@@ -466,6 +489,14 @@ export class SourceService {
     const next = this.shortEpgWaiting.shift();
     if (next) next(true);
     else this.shortEpgActive--;
+  }
+
+  /** Waits until `shortEpgGapMs` has passed since the last short-EPG request to source `id`. */
+  private async shortEpgGap(id: string): Promise<void> {
+    const last = this.shortEpgLastAt.get(id);
+    // Capped at the gap: a clock that jumped back (NTP after boot) must not sleep for hours holding the only slot.
+    const wait = last === undefined ? 0 : Math.min(this.shortEpgGapMs, last + this.shortEpgGapMs - this.now());
+    if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
   private withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -504,16 +535,16 @@ export class SourceService {
   }
 
   private xtream(s: XtreamSourceConfig): XtreamClient {
-    return new XtreamClient(s, this.fetchFn, { idleMs: this.bodyIdleMs });
+    return new XtreamClient(s, this.guard.wrap(s.id, this.fetchFn), { idleMs: this.bodyIdleMs });
   }
 
-  private async get(url: string): Promise<Response> {
+  private async get(sourceId: string, url: string): Promise<Response> {
     let res: Response;
     try {
-      res = await this.fetchFn(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
+      res = await this.guard.wrap(sourceId, this.fetchFn)(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
     } catch (err) {
-      // A header timeout keeps its own message; anything else means the provider could not be reached.
-      if (err instanceof SourceNetworkError) throw err;
+      // A header timeout or the refusal cooldown keeps its own message; anything else means the provider could not be reached.
+      if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
@@ -531,7 +562,7 @@ export class SourceService {
       onProgress?.({ phase: 'playlist', count: channels.length });
       return { channels, result: { channelCount: channels.length, skipped: 0 } };
     }
-    const res = await this.get(source.playlistUrl);
+    const res = await this.get(source.id, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
     const entries: M3uEntry[] = [];
     for await (const e of parseM3u(splitLines(responseText(res, source.playlistUrl, { idleMs: this.bodyIdleMs })), stats)) {

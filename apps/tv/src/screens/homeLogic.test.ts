@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
-  videoClickGroup,
+  resumeTarget, videoClickGroup,
 } from './homeLogic.ts';
 
 const groups = [
@@ -44,6 +44,10 @@ describe('home logic', () => {
     expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now");
     expect(previewMessage({ kind: 'failed', reason: 'unsupported' }, true)).toContain("isn't supported");
     expect(previewMessage({ kind: 'failed', reason: 'refused' }, true)).toBe('Your source refused this stream');
+    // Home's paused note replaces "Preview" while nothing plays; a channel without a status yet still says "Preview".
+    expect(previewMessage(undefined, false, 'Paused after reload: press OK to play')).toBe('Paused after reload: press OK to play');
+    expect(previewMessage(undefined, true, 'Paused after reload: press OK to play')).toBe('Preview');
+    expect(previewMessage(undefined, false, undefined)).toBe('Preview');
   });
 
   it('resolves the focus from the first candidate found in the group, in order', async () => {
@@ -90,5 +94,35 @@ describe('videoClickGroup (fullscreen from a click on the small video)', () => {
     expect(videoClickGroup('ch-1', 'ch-2', 'g:News')).toEqual({ groupId: 'all', remember: false });
     expect(videoClickGroup('ch-1', undefined, 'g:News')).toEqual({ groupId: 'all', remember: false });
     expect(videoClickGroup('ch-1', 'ch-1', undefined)).toEqual({ groupId: 'all', remember: false });
+  });
+});
+
+describe('resumeTarget', () => {
+  const base = { playingId: undefined, lastChannelId: undefined, found: undefined, startupDone: false, held: false };
+
+  it('resumes nothing on a first start with no last channel', () => {
+    expect(resumeTarget(base)).toBeUndefined();
+  });
+
+  it('never resumes a remembered browse row (Settings or Guide and back)', () => {
+    // The row the user browsed to is what openGroup found, but it was never played.
+    expect(resumeTarget({ ...base, found: 'ch-5', startupDone: true })).toBeUndefined();
+    expect(resumeTarget({ ...base, found: 'ch-5', lastChannelId: 'ch-1', startupDone: true })).toBeUndefined();
+  });
+
+  it('resumes nothing on the return after a sleep-timer stop', () => {
+    expect(resumeTarget({ ...base, found: 'ch-3', lastChannelId: 'ch-3', startupDone: true, held: true })).toBeUndefined();
+    expect(resumeTarget({ ...base, found: 'ch-3', lastChannelId: 'ch-3', held: true })).toBeUndefined();
+  });
+
+  it('re-plays the playing channel on the return from the Player', () => {
+    expect(resumeTarget({ ...base, playingId: 'ch-7', found: 'ch-7', lastChannelId: 'ch-1', startupDone: true })).toBe('ch-7');
+  });
+
+  it('resumes the last channel on the first startup only, and only when it was found', () => {
+    expect(resumeTarget({ ...base, lastChannelId: 'ch-1', found: 'ch-1' })).toBe('ch-1');
+    expect(resumeTarget({ ...base, lastChannelId: 'ch-1', found: 'ch-1', startupDone: true })).toBeUndefined();
+    // Gone or hidden: openGroup focused another row instead.
+    expect(resumeTarget({ ...base, lastChannelId: 'ch-1', found: 'ch-2' })).toBeUndefined();
   });
 });

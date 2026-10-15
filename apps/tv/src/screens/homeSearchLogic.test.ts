@@ -3,8 +3,8 @@ import type { ChannelRow } from '@iptv/app-api';
 import { describe, expect, it } from 'vitest';
 import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
 import {
-  BAR_PLACEHOLDER, BROWSE, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
-  groupChoice, groupColumn, isSearching, leaveTo, listMode, okAction, previewAllowed, restoreOnMount, rowChannelId,
+  BAR_PLACEHOLDER, BROWSE, BROWSE_HINT, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
+  groupChoice, groupColumn, isSearching, leaveTo, okAction, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction,
   type BrowsePosition, type NavContext,
 } from './homeSearchLogic.ts';
@@ -28,6 +28,8 @@ describe('layout and copy', () => {
     expect(BAR_PLACEHOLDER).toBe('Search channels and programmes');
     expect(SEARCH_GROUP_NAME).toBe('Search results');
     expect(SEARCH_HINT).toBe('Ok play · Ok again: fullscreen · Back: end search');
+    expect(BROWSE_HINT).toBe('Ok play · Ok again: fullscreen · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings');
+    expect(BROWSE_HINT.length).toBeLessThanOrEqual(110); // one line at FONT.small across the 1728 px safe width
   });
 });
 
@@ -91,13 +93,6 @@ describe('search mode', () => {
     expect(d).toMatchObject({ focus: 4, focusList: true, consumeReturning: true });
     expect(exitSearch(back).restore).toEqual(pos);
   });
-
-  it('previews run only while browsing', () => {
-    expect(listMode('')).toBe('browse');
-    expect(listMode('a')).toBe('search');
-    expect(previewAllowed('browse')).toBe(true);
-    expect(previewAllowed('search')).toBe(false);
-  });
 });
 
 describe('okAction', () => {
@@ -109,6 +104,13 @@ describe('okAction', () => {
     expect(okAction(channelRow(3), 's:2', 's:3')).toBe('fullscreen');
     expect(okAction(onNowRow(3), undefined, 's:3')).toBe('fullscreen');
     expect(okAction(channelRow(1), 's:2', 's:3')).toBe('preview');
+  });
+
+  it('Ok on a browse row: play in the small video; Ok again (playing, or still loading) goes fullscreen', () => {
+    const browse = (n: number): SearchRow => ({ kind: 'channel', channel: ch(n) });
+    expect(okAction(browse(5), undefined)).toBe('preview');
+    expect(okAction(browse(5), 's:5')).toBe('fullscreen');
+    expect(okAction(browse(5), 's:1', 's:5')).toBe('fullscreen');
   });
 
   it('on-now rows behave like channel rows', () => {

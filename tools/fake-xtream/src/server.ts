@@ -17,6 +17,9 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const now = opts.now ?? Date.now;
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
   let base = '';
+  /** Refusal mode (`/__control/refuse?on=1`): every source request answers 403, as a refusing panel does. */
+  let refusing = false;
+  let refusedCount = 0;
 
   const send = (res: ServerResponse, status: number, body: string, type = 'application/json') => {
     res.writeHead(status, { 'content-type': type });
@@ -33,6 +36,18 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     }
 
     const url = new URL(req.url ?? '/', base);
+    if (url.pathname === '/__control/refuse') {
+      const on = url.searchParams.get('on');
+      if (on !== null) {
+        refusing = on === '1';
+        refusedCount = 0;
+      }
+      return send(res, 200, JSON.stringify({ refusing, refused: refusedCount }));
+    }
+    if (refusing) {
+      refusedCount++;
+      return send(res, 403, '');
+    }
     const user = url.searchParams.get('username') ?? '';
     const pass = url.searchParams.get('password') ?? '';
     const live = /^\/live\/([^/]+)\/([^/]+)\/(\d+)\.(ts|m3u8)$/.exec(url.pathname);

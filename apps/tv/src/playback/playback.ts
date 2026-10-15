@@ -1,5 +1,6 @@
-import { PlaybackJournal, PlaybackSupervisor, type JournalEvent, type Player } from '@iptv/player';
-import { initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
+import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
+import { api } from '../api.ts';
+import { cooldown, initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -60,17 +61,38 @@ const liveTargets = createLiveTargetStore(localStore);
 export const journal = new PlaybackJournal({ persist: createJournalPersist(localStore) });
 journal.add(pageLoadEvent(Date.now(), globalThis.performance));
 
+/**
+ * Stream opens per source across zaps, reconnects and reloads (6 a minute, 30 in ten minutes), on this device. Keys
+ * are source ids; nothing else is stored.
+ */
+const OPEN_RATE_KEY = 'iptv.openRate';
+const openRate = new SourceOpenRate({
+  store: {
+    load: () => localStore()?.getItem(OPEN_RATE_KEY),
+    save: (data) => localStore()?.setItem(OPEN_RATE_KEY, data),
+  },
+});
+
 export const supervisor = new PlaybackSupervisor(player, {
   preset: () => settings()?.liveDelay ?? 'balanced',
   // TVs mute or ignore playbackRate changes: they correct drift by seeking only.
   allowRate: !isTv,
   liveTargets,
   journal,
+  openRate,
 });
+
+const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
 
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
 export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
+  // The worker owns the refusal cooldown: no stream opens while the active source is cooling down.
+  {
+    blocked: () => cooldown().state !== 'clear',
+    refused: (key) => { api.reportStreamRefused(key).catch(reportFailed); },
+    answered: (key) => { api.reportStreamAnswered(key).catch(reportFailed); },
+  },
 );
 
 // Hidden pages present no frames: the stall ladder pauses while hidden. Back from the background after a while,

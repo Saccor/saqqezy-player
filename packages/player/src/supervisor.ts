@@ -17,6 +17,11 @@ export interface SupervisorOptions {
   allowRate?: boolean;
   liveTargets?: LiveTargetStore;
   journal?: JournalSink;
+  /**
+   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). An open that does not fit waits for
+   * room; only opens with a `sourceKey` count.
+   */
+  openRate?: { waitMs(sourceKey: string): number; take(sourceKey: string): void };
   random?: () => number;
   clock?: {
     setTimeout: typeof setTimeout;
@@ -72,7 +77,8 @@ function codeOf(e: unknown): ErrorCode | undefined {
  * - start timers (no bytes 4 s, first frame 15 s);
  * - a 250 ms tick running the stall ladder (`decide`) and, every ~2 s, the live delay controller;
  * - reconnects (first one immediate, then 0.5/1/2/4/5 s with jitter) within a rolling budget, holding the last frame;
- * - alternates, AUTH and UNSUPPORTED handling, and a slow give-up retry.
+ * - alternates (only before anything played in this play(): a stream that played keeps its format), AUTH and
+ *   UNSUPPORTED handling, and a slow give-up retry.
  * Every timer and event is tied to the play generation and the attempt id.
  */
 export class PlaybackSupervisor {
@@ -84,6 +90,7 @@ export class PlaybackSupervisor {
   private readonly allowRate: boolean;
   private readonly store: LiveTargetStore | undefined;
   private readonly journal: JournalSink | undefined;
+  private readonly openRate: SupervisorOptions['openRate'];
   private readonly budget: ReconnectBudget;
   private readonly listeners = new Set<(s: SupervisorStatus) => void>();
   private readonly unsubscribe: () => void;
@@ -149,6 +156,7 @@ export class PlaybackSupervisor {
     this.allowRate = opts.allowRate ?? false;
     this.store = opts.liveTargets;
     this.journal = opts.journal;
+    this.openRate = opts.openRate;
     this.budget = new ReconnectBudget(opts.budget ?? DEFAULT_BUDGET, () => this.now());
     this.unsubscribe = player.onState((s, d) => this.onPlayerState(s, d));
   }
@@ -259,6 +267,19 @@ export class PlaybackSupervisor {
   // ---- attempts ----
 
   private openCurrent(): void {
+    if (this.openRate && this.sourceKey !== undefined) {
+      const wait = this.openRate.waitMs(this.sourceKey);
+      if (wait > 0) {
+        this.note({ k: 'rateWait', delayMs: wait });
+        const gen = this.gen;
+        this.retryTimer = this.clock.setTimeout(() => {
+          this.retryTimer = undefined;
+          if (gen === this.gen && this.active) this.openCurrent();
+        }, wait);
+        return;
+      }
+      this.openRate.take(this.sourceKey);
+    }
     this.lastOpenAt = this.now();
     const gen = this.gen;
     const id = ++this.attemptCounter;
@@ -476,7 +497,8 @@ export class PlaybackSupervisor {
       return;
     }
     if (code === 'UNSUPPORTED') {
-      if (!this.nextUrl(inline)) this.terminal('unsupported');
+      // The other format only for a channel that never played in this play(): a stream that played keeps its format.
+      if (this.playedThisPlay || !this.nextUrl(inline)) this.terminal('unsupported');
       return;
     }
     // Once the source has refused this channel, a later failure before anything played is the same refusal in
@@ -491,7 +513,7 @@ export class PlaybackSupervisor {
       if (!this.authRetried) {
         this.authRetried = true;
         this.scheduleReconnect(0, inline, why);
-      } else if (!this.nextUrl(inline)) {
+      } else if (this.playedThisPlay || !this.nextUrl(inline)) {
         this.terminal('refused');
       }
       return;
@@ -501,13 +523,11 @@ export class PlaybackSupervisor {
       return;
     }
     this.fails++;
-    if (this.fails >= this.policy.failuresBeforeAlternate) {
-      if (this.nextUrl(inline)) return;
-      // Never started on any format: stop quietly instead of knocking on the source again and again.
-      if (!this.playedThisPlay) {
-        this.terminal('unavailable');
-        return;
-      }
+    // A channel that never played: two tries, then the other format once, then it stops quietly instead of knocking
+    // on the source again and again. A stream that played keeps its format on every reconnect (no alternating).
+    if (this.fails >= this.policy.failuresBeforeAlternate && !this.playedThisPlay) {
+      if (!this.nextUrl(inline)) this.terminal('unavailable');
+      return;
     }
     const delays = this.policy.reconnectDelaysMs;
     this.scheduleReconnect(delays[Math.min(this.fails - 1, delays.length - 1)] ?? 0, inline, why);
@@ -605,7 +625,7 @@ export class PlaybackSupervisor {
       this.giveUpTimer = undefined;
       if (gen !== this.gen || !this.active) return;
       this.note({ k: 'giveUpRetry' });
-      this.urlIndex = 0;
+      // The format that played is kept: background retries never switch formats.
       this.fails = 0;
       this.authRetried = false;
       this.budget.reset();

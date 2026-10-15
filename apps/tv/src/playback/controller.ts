@@ -9,6 +9,14 @@ export interface PlaybackController {
    * preview to fullscreen never reconnects; only `current`'s info (name, now/next) is refreshed from `ch`.
    */
   playChannel(ch: PlayableChannel): boolean;
+  /**
+   * The source just entered its refusal cooldown: a stream that is not playing (loading, reconnecting, or refused) is
+   * stopped, so no retry reaches the source, while one that plays keeps playing. The channel stays current and is
+   * held: `resumeHeld` (or the next `playChannel`) opens it once the cooldown allows it.
+   */
+  holdForCooldown(): void;
+  /** The cooldown ended (a wait ran out, or Retry): opens the channel it held back, if any. */
+  resumeHeld(): void;
   /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
   /**
@@ -30,6 +38,16 @@ export interface PlaybackController {
 
 export type PlayerKind = 'AVPlay' | 'HTML5';
 
+/** The active source's refusal cooldown, as the controller sees it (the worker owns the state). */
+export interface CooldownGate {
+  /** True while nothing may be sent to the active source. */
+  blocked(): boolean;
+  /** The supervisor gave up because the source refused the stream. */
+  refused(sourceKey: string): void;
+  /** A stream played: the source answers us. */
+  answered(sourceKey: string): void;
+}
+
 const DESIGN_W = 1920;
 const DESIGN_H = 1080;
 
@@ -39,7 +57,8 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
 
 /**
  * Testable core of the `playback` singleton: one player, one supervisor, two signals. `sourceKey` returns the
- * active source id (opaque, never a URL); it keys the learned live delay.
+ * active source id (opaque, never a URL); it keys the learned live delay and the cooldown reports. `gate` keeps
+ * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
   player: Pick<Player, 'setRect'>,
@@ -47,6 +66,7 @@ export function createPlaybackController(
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
+  gate?: CooldownGate,
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -55,13 +75,36 @@ export function createPlaybackController(
     setStatus(s);
     onStatusChange(s);
   };
-  supervisor.onStatus((s) => report(s));
+  /** The current channel was not opened (cooldown): the same channel must still open later. */
+  let held = false;
+  /** Source of the stream opened by the last play (its first frame and a refusal at any time are reported). */
+  let playKey: string | undefined;
+  let answeredReported = false;
+  supervisor.onStatus((s) => {
+    report(s);
+    const key = playKey;
+    if (key === undefined || !gate) return;
+    if (s.kind === 'playing' && !answeredReported) {
+      answeredReported = true;
+      gate.answered(key);
+    } else if (s.kind === 'failed') {
+      playKey = undefined;
+      if (s.reason === 'refused') gate.refused(key);
+    }
+  });
   let token = 0;
+
+  const hold = () => {
+    held = true;
+    playKey = undefined;
+    supervisor.stop();
+    report(undefined);
+  };
 
   return {
     playChannel(ch) {
       const cur = current();
-      if (cur?.id === ch.id && status()?.kind !== 'failed') {
+      if (cur?.id === ch.id && !held && status()?.kind !== 'failed') {
         // Same stream: keep it running, but take the fresh info (a rename, now/next). The urls stay those of
         // the open stream.
         if (cur !== ch) {
@@ -73,11 +116,29 @@ export function createPlaybackController(
         return false;
       }
       setCurrent(ch);
-      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: sourceKey(), channel: ch.name });
+      if (gate?.blocked()) {
+        hold();
+        return false;
+      }
+      held = false;
+      const key = sourceKey();
+      playKey = key;
+      answeredReported = false;
+      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: key, channel: ch.name });
       return true;
+    },
+    holdForCooldown() {
+      const kind = status()?.kind;
+      if (current() !== undefined && !held && kind !== 'playing') hold();
+    },
+    resumeHeld() {
+      const cur = current();
+      if (held && cur) this.playChannel(cur);
     },
     stop() {
       token++;
+      held = false;
+      playKey = undefined;
       supervisor.stop();
       setCurrent(undefined);
       report(undefined);

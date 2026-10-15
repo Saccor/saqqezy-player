@@ -14,6 +14,8 @@ export const HOME_GROUP_W = Math.round((LAYOUT.width - LAYOUT.safeX * 2) * 0.22)
 export const SEARCH_GROUP_ID = 'search';
 export const SEARCH_GROUP_NAME = 'Search results';
 export const SEARCH_HINT = 'Ok play · Ok again: fullscreen · Back: end search';
+/** Hint line while browsing: moving never plays; Ok plays in the small video, Ok again goes fullscreen. */
+export const BROWSE_HINT = 'Ok play · Ok again: fullscreen · Hold Ok or Menu: options · Yellow search · Green guide · Blue settings';
 export const BAR_PLACEHOLDER = 'Search channels and programmes';
 /** The longest bar text, on every input path (hardware keys, remote digits, the compact keyboard). */
 export const SEARCH_MAX_LENGTH = 100;
@@ -23,8 +25,6 @@ export function capQuery(text: string): string {
   const chars = [...text];
   return chars.length <= SEARCH_MAX_LENGTH ? text : chars.slice(0, SEARCH_MAX_LENGTH).join('');
 }
-
-export type ListMode = 'browse' | 'search';
 
 /** Where browsing was when search started: the group, its focused channel and the list scroll. */
 export interface BrowsePosition { groupId: string; channelId?: string; top: number }
@@ -46,15 +46,6 @@ export const BROWSE: HomeSearchState = { query: '', focus: 0, returning: false }
 
 export function isSearching(s: HomeSearchState): boolean {
   return s.query !== '';
-}
-
-export function listMode(query: string): ListMode {
-  return query === '' ? 'browse' : 'search';
-}
-
-/** Home's 700 ms focus preview runs only while browsing: typing and moving through results never start a stream. */
-export function previewAllowed(mode: ListMode): boolean {
-  return mode === 'browse';
 }
 
 export type QueryChange =
@@ -105,9 +96,9 @@ export function rowChannelId(row: SearchRow | undefined): string | undefined {
 }
 
 /**
- * Ok on a result: a channel or on-now row plays in the small video unless that channel is already playing (or its
- * preview is still being fetched, `requestedId`), which goes fullscreen. A coming-up row opens the Guide at that
- * time. Headers and notes do nothing.
+ * Ok on a result, or on a browse row passed as a `channel` row (moving the focus never plays): a channel or on-now
+ * row plays in the small video unless that channel is already playing (or its request is still being fetched,
+ * `requestedId`), which goes fullscreen. A coming-up row opens the Guide at that time. Headers and notes do nothing.
  */
 export function okAction(row: SearchRow | undefined, playingId: string | undefined, requestedId?: string): OkAction {
   if (row?.kind === 'later') return 'guide';

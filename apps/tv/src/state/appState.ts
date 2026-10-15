@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import type { AppEvent, CompanionStatus, InitState } from '@iptv/app-api';
+import type { AppEvent, CompanionStatus, InitState, SourceCooldown } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle (it lives in the worker chunk).
 import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
@@ -33,6 +33,23 @@ export const platformId: PlatformId = detectPlatform(
  * Guide get offset/format changes through the worker, which applies them to every answer.
  */
 export const settings = (): AppSettings | undefined => initState()?.settings;
+
+const CLEAR: SourceCooldown = { state: 'clear' };
+/**
+ * The latest `cooldown` event per source. The worker announces every change, so an event is never older than an
+ * `InitState` answer (which only reads the state); events that arrive before the first `InitState` are kept too.
+ */
+const [cooldownEvents, setCooldownEvents] = createSignal<ReadonlyMap<string, SourceCooldown>>(new Map());
+
+/**
+ * The active source's refusal cooldown: the latest event, else `InitState`'s. While it is not `clear`, no stream
+ * opens and Home and the Player show the cooldown copy with Retry.
+ */
+export const cooldown = (): SourceCooldown => {
+  const s = initState();
+  const id = s?.activeSourceId;
+  return (id !== undefined ? cooldownEvents().get(id) : undefined) ?? s?.cooldown ?? CLEAR;
+};
 
 /** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 export function patchSettings(next: AppSettings): void {
@@ -146,12 +163,16 @@ export function wireEvents(
       setCompanionStatus(e.status);
       return;
     }
+    if (e.type === 'cooldown') {
+      setCooldownEvents((m) => new Map(m).set(e.sourceId, e.cooldown));
+      return;
+    }
     if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);
     setOffline((prev) => offlineAfter(prev, e));
     const text = toastFor(e);
     if (text) toast(text, toastPriority(e));
   };
   // `layoutChanged` / `sourcesChanged` from a companion show "Updated from your phone" on any screen; Home also re-reads its list.
-  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion'] as const).map((t) => on(t, handle));
+  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion', 'cooldown'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };
 }

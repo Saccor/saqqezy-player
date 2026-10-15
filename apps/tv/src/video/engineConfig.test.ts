@@ -27,13 +27,13 @@ describe('engineConfig', () => {
     expect(hlsConfig('stable', false)).toMatchObject({ liveSyncDurationCount: 3, liveMaxLatencyDurationCount: 8, maxLiveSyncPlaybackRate: 1.05 });
   });
 
-  it('hls.js never retries a request the source refused (401/403/410)', () => {
+  it('hls.js never retries a request the source refused (401/403/410, and the limit statuses)', () => {
     const cfg = hlsConfig('balanced', false);
     for (const policy of [cfg.fragLoadPolicy, cfg.playlistLoadPolicy]) {
       const retry = policy!.default.errorRetry!;
       const should = (code: number | undefined, wouldRetry = true) =>
         retry.shouldRetry!(retry, 0, false, code === undefined ? undefined : { url: '', code }, wouldRetry);
-      expect([401, 403, 410].map((c) => should(c))).toEqual([false, false, false]);
+      expect([401, 403, 410, 429, 458, 503, 509].map((c) => should(c))).toEqual(Array(7).fill(false));
       expect([404, 500, undefined].map((c) => should(c))).toEqual([true, true, true]);
       expect(should(500, false)).toBe(false); // hls.js's own decision still applies
     }
