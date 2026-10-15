@@ -44,8 +44,12 @@ describe('setWatched, clearProgress, setFavourite', () => {
     const p = { id: 's', season: 1, episode: 3 };
     expect(setWatched(undefined, true, 5, p)).toMatchObject({ watched: true, updatedAt: 5, series: p });
   });
-  test('setWatched bumps updatedAt and clears position', () => {
-    expect(setWatched({ ...emptyUserState(), position: 5 * MIN }, false, 7)).toMatchObject({ watched: false, position: 0, updatedAt: 7 });
+  test('setWatched (watched) bumps updatedAt and clears position', () => {
+    expect(setWatched({ ...emptyUserState(), position: 5 * MIN, updatedAt: 3 }, true, 7)).toMatchObject({ watched: true, position: 0, updatedAt: 7 });
+  });
+  test('setWatched (unwatched) clears position and keeps updatedAt, so it never becomes the latest record', () => {
+    expect(setWatched({ ...emptyUserState(), position: 5 * MIN, watched: true, updatedAt: 3 }, false, 7)).toMatchObject({ watched: false, position: 0, updatedAt: 3 });
+    expect(setWatched(undefined, false, 7).updatedAt).toBe(0);
   });
   test('clearProgress keeps watched, drops position and next pointer', () => {
     const s: VodUserState = { ...emptyUserState(), position: 5 * MIN, watched: false, updatedAt: 4, series: { id: 's', season: 1, episode: 1, next: { id: 'n', season: 1, episode: 2 } } };

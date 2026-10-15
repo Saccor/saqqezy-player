@@ -35,8 +35,15 @@ export function applyProgress(
   return s;
 }
 
+/**
+ * Mark as watched or unwatched; both clear the position. Watched bumps `updatedAt` (an episode marked watched
+ * becomes its series' latest record, so Continue watching moves to `series.next`). Unwatched keeps `updatedAt`:
+ * it never becomes the latest record, so a series' Continue state is untouched (an unwatched movie has no
+ * position, so it is not in Continue watching either way).
+ */
 export function setWatched(prev: VodUserState | undefined, on: boolean, now: number, series?: SeriesPointer): VodUserState {
-  const s: VodUserState = { ...(prev ?? emptyUserState()), watched: on, position: 0, updatedAt: now };
+  const base = prev ?? emptyUserState();
+  const s: VodUserState = { ...base, watched: on, position: 0, updatedAt: on ? now : base.updatedAt };
   if (series) s.series = series;
   return s;
 }
