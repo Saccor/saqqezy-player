@@ -57,8 +57,10 @@ export type SupervisorStatus =
   /**
    * `gone`: the source answered 404/410 (the stream is not there anymore). `httpStatus` when known (from the engine
    * or the status probe); `retryAfterMs` when a refusal came with a `Retry-After` (probe only), for the cooldown.
+   * `urlIndex` (refused only): which URL of the play the source refused (0 the primary, 1+ the alternates), so the
+   * cooldown lands on that URL's host. An index, never a URL.
    */
-  | { kind: 'failed'; reason: FailReason; httpStatus?: number; retryAfterMs?: number }
+  | { kind: 'failed'; reason: FailReason; httpStatus?: number; retryAfterMs?: number; urlIndex?: number }
   /** A VOD title played to its end (live never emits it). */
   | { kind: 'ended' };
 
@@ -153,6 +155,8 @@ export class PlaybackSupervisor {
   private authRetried = false;
   /** The source refused (AUTH) during this play() before anything played. */
   private refusedBeforePlay = false;
+  /** The URL index of the latest attempt the source refused in this play() (AUTH, or a probe's refusal status). */
+  private refusedIndex: number | undefined;
   /** Something played during this play(). */
   private playedThisPlay = false;
   /** Clock ms of the last `player.open()`, for the minimum gap between connection attempts. */
@@ -261,6 +265,7 @@ export class PlaybackSupervisor {
     this.fails = 0;
     this.authRetried = false;
     this.refusedBeforePlay = false;
+    this.refusedIndex = undefined;
     this.playedThisPlay = false;
     this.sourceKey = opts.sourceKey;
     this.headers = opts.headers;
@@ -737,6 +742,9 @@ export class PlaybackSupervisor {
   /** The probe may run: injected, not yet used in this play(), the source not blocked, and room in the open rate. */
   private mayProbe(): boolean {
     if (!this.probe || this.probedThisPlay || this.urls[this.urlIndex] === undefined) return false;
+    // The probe runs in the browser and cannot send a custom User-Agent or Referer: against a header-gated source it
+    // could falsely read a 403. Such plays keep the NETWORK path (spec §5).
+    if (this.headers?.userAgent || this.headers?.referrer) return false;
     try {
       if (this.blocked?.(this.sourceKey, this.urls[this.urlIndex]!)) return false;
     } catch {
@@ -802,6 +810,7 @@ export class PlaybackSupervisor {
     if (this.refusalStatuses.has(status)) {
       const retryAfterMs = typeof r.retryAfterMs === 'number' && Number.isFinite(r.retryAfterMs) ? r.retryAfterMs : undefined;
       this.failInfo = retryAfterMs === undefined ? { httpStatus: status } : { httpStatus: status, retryAfterMs };
+      this.refusedIndex = this.urlIndex;
       if (this.givingUp) {
         // A refusal during the background retries: stop them instead of knocking again.
         this.givingUp = false;
@@ -841,6 +850,8 @@ export class PlaybackSupervisor {
     // Once the source has refused this channel, a later failure before anything played is the same refusal in
     // disguise (a cross-origin 403 reaches the page as a plain network error): stop instead of retrying a source
     // that is refusing us, which can keep a temporary block alive.
+    // The source refused this URL's attempt: the cooldown lands on its host.
+    if (code === 'AUTH') this.refusedIndex = this.urlIndex;
     if (this.refusedBeforePlay && !this.playedThisPlay) {
       if (!this.nextUrl(inline)) this.terminal('refused');
       return;
@@ -1022,6 +1033,7 @@ export class PlaybackSupervisor {
       kind: 'failed', reason,
       ...(carries && httpStatus !== undefined ? { httpStatus } : {}),
       ...(reason === 'refused' && retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      ...(reason === 'refused' ? { urlIndex: this.refusedIndex ?? this.urlIndex } : {}),
     });
     // Background retries only bring back a live stream that was playing; a channel that never started stays
     // stopped, and a VOD title waits for the user's "Try again".

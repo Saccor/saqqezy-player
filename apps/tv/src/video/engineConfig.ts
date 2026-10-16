@@ -50,6 +50,9 @@ export function hlsConfig(preset: LivePreset, isTv: boolean): Partial<HlsConfig>
     liveMaxUnchangedPlaylistRefresh: 5,
     fragLoadPolicy: loadPolicy(6000, 20000, 4),
     playlistLoadPolicy: loadPolicy(4000, 8000, 3),
+    // hls.js's own manifest defaults (no first-byte cap, 20 s, one error retry), with the spaced timeout retry and the
+    // refusal guard of the other loaders.
+    manifestLoadPolicy: loadPolicy(Infinity, 20000, 1),
   };
 }
 

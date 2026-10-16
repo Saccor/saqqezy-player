@@ -1,6 +1,6 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, streamCooldownKey, streamKeySource,
+  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
@@ -84,6 +84,8 @@ export class AppApi {
   /** Bumped whenever cached now/next may be stale, so in-flight lookups do not repopulate the cache. */
   private generation = 0;
   private offline = false;
+  /** `{sourceId}\u0000{what}` of the refreshes that failed while the device was offline (cleared when online again). */
+  private offlineFails = new Set<string>();
   /** Per-source serial queue: background refreshes, explicit refreshes and deletes run one at a time. */
   private readonly queues = new Map<string, Promise<void>>();
   /** Background task per source; `rerun` asks a running task to loop once more when it finishes. */
@@ -277,11 +279,27 @@ export class AppApi {
     return this.run('networkOnline', async () => {
       const id = this.activeId;
       if (!id) return;
+      let restart = false;
+      // The refresh backoff (15 min, 1 h, 6 h) is for a source that fails us. A refresh whose last failure happened
+      // while we were offline said nothing about the source, so its backoff record goes. Failures from before the
+      // outage keep theirs, and a manual refresh always runs anyway. (VOD catalogue refreshes don't set offline,
+      // so their backoff stays as recorded.)
+      for (const what of ['playlist', 'epg'] as const) {
+        if (!this.offlineFails.delete(`${id}\u0000${what}`)) continue;
+        try {
+          await this.storage.setMeta(refreshFailKey(id, what), null);
+          restart = true;
+        } catch (err) {
+          this.record('networkOnline', err);
+        }
+      }
       const guard = this.service.guard;
       const status = await guard.status(id);
-      if (status.state !== 'waiting' || status.reason !== 'unreachable') return;
-      await guard.retry(id);
-      if (id === this.activeId) this.startBackground(id);
+      if (status.state === 'waiting' && status.reason === 'unreachable') {
+        await guard.retry(id);
+        restart = true;
+      }
+      if (restart && id === this.activeId) this.startBackground(id);
     });
   }
 
@@ -1062,6 +1080,8 @@ export class AppApi {
   }
 
   private setOffline(value: boolean): void {
+    // A refresh got through: what failed during the outage is not "failed while offline" anymore.
+    if (!value) this.offlineFails.clear();
     if (this.offline === value) return;
     this.offline = value;
     this.emit({ type: 'offline', value });
@@ -1088,7 +1108,10 @@ export class AppApi {
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
-    if (error.name === 'SourceNetworkError' && error.status === undefined) this.setOffline(true);
+    if (error.name === 'SourceNetworkError' && error.status === undefined) {
+      this.setOffline(true);
+      this.offlineFails.add(`${sourceId}\u0000${what}`);
+    }
     this.emit({ type: 'refreshFailed', what, sourceId, error });
     throw out;
   }

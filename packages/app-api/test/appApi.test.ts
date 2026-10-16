@@ -1730,6 +1730,32 @@ describe('AppApi – refusal cooldown', () => {
     expect(r.state.sent).toContain('/xmltv.php');
   });
 
+  test('back online: a refresh that failed while offline skips its backoff; an older failure keeps it', async () => {
+    const r = refusingFetch();
+    let offline = false;
+    const f: FetchFn = async (u, i) => {
+      if (offline) throw new TypeError('Failed to fetch');
+      return r.f(u, i);
+    };
+    const { api, events } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 60_000 }); // failed before, online
+    offline = true;
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    await api.init(); // the automatic guide refresh fails offline: its backoff is recorded
+    await api.idle();
+    expect(events.some((e) => e.type === 'offline' && e.value)).toBe(true);
+    expect(await storage.getMeta(`refreshFail:${sourceId}:epg`)).toBeTruthy();
+    offline = false;
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect(r.state.sent).toContain('/xmltv.php');
+    expect(await storage.getMeta(`refreshFail:${sourceId}:epg`)).toBeFalsy();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toEqual({ count: 1, at: NOW - 60_000 });
+  });
+
   test('back online leaves a refusal wait alone and sends nothing', async () => {
     const r = refusingFetch();
     const { api } = make(storage, SourceService, r.f);

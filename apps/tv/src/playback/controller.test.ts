@@ -293,6 +293,17 @@ describe('playback controller', () => {
       expect(seen).toEqual([['src-1', ch('1').url, 90_000], ['src-1', ch('2').url, undefined]]);
     });
 
+    it('a refusal lands on the host of the URL the source refused: the alternate when the status names it', () => {
+      const { f, pb, calls } = guarded({ on: false });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 1 });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 0 });
+      pb.playChannel(ch('3'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 4 }); // unknown index: the primary
+      expect(calls).toEqual([`refused:src-1:${ch('1').alternateUrl}`, `refused:src-1:${ch('2').url}`, `refused:src-1:${ch('3').url}`]);
+    });
+
     it('a stream that failed unavailable or gone reports nothing (streams never count toward the unreachable breaker)', () => {
       const { f, pb, calls } = guarded({ on: false });
       pb.playChannel(ch('1'));

@@ -204,7 +204,27 @@ describe('PlaybackSupervisor: starting and failing', () => {
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, B]);
     player.emit('error', { code: 'AUTH' });
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', urlIndex: 1 });
+  });
+
+  it('the refused status names the URL whose attempt the source refused (no URL in it)', () => {
+    const first = setup();
+    first.sup.play(A, B);
+    first.player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    first.player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    first.player.emit('error', { code: 'NETWORK' }); // the alternate fails in disguise: the refusal was the primary's
+    expect(first.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', urlIndex: 0 });
+    first.sup.dispose();
+    const alt = setup();
+    alt.sup.play(A, B);
+    alt.player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    alt.player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    alt.player.emit('error', { code: 'AUTH' }); // the alternate was refused itself
+    expect(alt.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', urlIndex: 1 });
   });
 
   it('once the source refused, a network error before any playback ends as refused with no more retries', () => {
@@ -217,7 +237,7 @@ describe('PlaybackSupervisor: starting and failing', () => {
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, B]);
     player.emit('error', { code: 'NETWORK' });
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', urlIndex: 0 });
     vi.advanceTimersByTime(10 * 60_000);
     expect(player.opened).toEqual([A, A, B]);
   });
@@ -801,7 +821,7 @@ describe('PlaybackSupervisor: one format per play', () => {
     player.emit('error', { code: 'AUTH' });
     vi.advanceTimersByTime(5000);
     expect(player.opened).toEqual([A, A]);
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused' });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', urlIndex: 0 });
   });
 
   it('a channel that never played still tries the other format once', () => {
@@ -1433,7 +1453,7 @@ describe('PlaybackSupervisor: status probe', () => {
     expect(calls.map((c) => c.url)).toEqual([A]);
     vi.advanceTimersByTime(60_000);
     expect(player.opened).toEqual([A]); // a confirmed refusal is not tried again
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000, urlIndex: 0 });
   });
 
   it('a confirmed refusal tries the other format once (after the gap), then ends as refused', async () => {
@@ -1450,7 +1470,41 @@ describe('PlaybackSupervisor: status probe', () => {
     vi.advanceTimersByTime(60_000);
     expect(calls).toHaveLength(1);
     expect(player.opened).toEqual([A, B]);
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000, urlIndex: 0 });
+  });
+
+  it('a play with custom headers never probes (the browser cannot send them): it keeps the NETWORK path', async () => {
+    for (const headers of [{ userAgent: 'SyntheticAgent/1.0' }, { referrer: 'http://ref.test/' }]) {
+      const { player, sup, statuses, probe } = probed({ status: 403 });
+      sup.play(A, undefined, { headers });
+      player.emit('error', { code: 'NETWORK' });
+      await settle();
+      expect(probe).not.toHaveBeenCalled();
+      expect(statuses.some((st) => st.kind === 'failed')).toBe(false);
+      vi.advanceTimersByTime(2000);
+      expect(player.opened).toEqual([A, A]); // the normal NETWORK reconnect
+      sup.dispose();
+    }
+    // Empty header values are no custom headers: the probe runs.
+    const plain = probed({ status: 403 });
+    plain.sup.play(A, undefined, { headers: { userAgent: '' } });
+    plain.player.emit('error', { code: 'NETWORK' });
+    await settle();
+    expect(plain.probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refusal confirmed by the probe on the alternate names the alternate (urlIndex 1)', async () => {
+    const { player, sup, statuses, calls } = probed({ status: 403 });
+    sup.play(A, B);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A, B]);
+    player.emit('error', { code: 'NETWORK' });
+    await settle();
+    expect(calls.map((c) => c.url)).toEqual([B]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 1 });
   });
 
   it('404 or 410 ends as gone: no retry, no alternate', async () => {
@@ -1660,7 +1714,7 @@ describe('PlaybackSupervisor: status probe', () => {
     await settle();
     vi.advanceTimersByTime(10 * 60_000);
     expect(player.opened).toHaveLength(n + 1);
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
   });
 
   it('an engine-reported status rides on the failure', () => {
@@ -1670,7 +1724,7 @@ describe('PlaybackSupervisor: status probe', () => {
     player.emit('error', { code: 'AUTH', httpStatus: 401 });
     vi.advanceTimersByTime(1000);
     player.emit('error', { code: 'AUTH', httpStatus: 403 });
-    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
   });
 });
 

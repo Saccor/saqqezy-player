@@ -113,6 +113,8 @@ export function createPlaybackController(
   let playKey: string | undefined;
   /** That stream's URL: reports name its host (the worker derives the key; never logged). */
   let playUrl = '';
+  /** The play's URLs in the supervisor's order (primary, then the alternate): a refusal names one by index. */
+  let playUrls: string[] = [];
   let answeredReported = false;
   supervisor.onStatus((s) => {
     report(s);
@@ -124,7 +126,8 @@ export function createPlaybackController(
     } else if (s.kind === 'failed') {
       playKey = undefined;
       // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
-      if (s.reason === 'refused') gate.refused(key, playUrl, s.retryAfterMs);
+      // The cooldown lands on the host of the URL the source refused (the alternate may live on another host).
+      if (s.reason === 'refused') gate.refused(key, playUrls[s.urlIndex ?? 0] ?? playUrl, s.retryAfterMs);
     }
   });
   /**
@@ -155,6 +158,7 @@ export function createPlaybackController(
     const key = sourceKey();
     playKey = key;
     playUrl = url;
+    playUrls = alt === undefined ? [url] : [url, alt];
     answeredReported = false;
     vodOpened = opts.vod === true;
     // Headers only when the stream has some: the engines apply what they can (AVPlay: the User-Agent). Never logged.
