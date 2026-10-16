@@ -283,7 +283,10 @@ export class VodController {
   async setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
     let pointer = series;
     if (on && series) {
+      const epoch = this.sourceEpoch;
       const next = await this.knownNextEpisode(series.id, itemId);
+      // A source switch while the detail loaded: this episode belongs to the old source.
+      if (this.sourceEpoch !== epoch) return;
       if (next) pointer = { ...series, next: { id: next.id, season: next.season, episode: next.episode } };
     }
     return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer));
