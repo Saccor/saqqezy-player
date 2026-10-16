@@ -134,10 +134,12 @@ export class XtreamClient {
     return out;
   }
 
+  private mediaUrl(kind: 'live' | 'movie' | 'series', xid: number, ext: string): string {
+    return `${this.base}/${kind}/${encodeURIComponent(this.cfg.username)}/${encodeURIComponent(this.cfg.password)}/${xid}.${ext}`;
+  }
+
   streamUrl(streamId: number, ext: 'ts' | 'm3u8'): string {
-    const u = encodeURIComponent(this.cfg.username);
-    const p = encodeURIComponent(this.cfg.password);
-    return `${this.base}/live/${u}/${p}/${streamId}.${ext}`;
+    return this.mediaUrl('live', streamId, ext);
   }
 
   async vodCategories(signal?: AbortSignal): Promise<VodCategory[]> {
@@ -165,11 +167,11 @@ export class XtreamClient {
   }
 
   movieUrl(xid: number, ext: string): string {
-    return `${this.base}/movie/${encodeURIComponent(this.cfg.username)}/${encodeURIComponent(this.cfg.password)}/${xid}.${ext}`;
+    return this.mediaUrl('movie', xid, ext);
   }
 
   episodeUrl(xid: number, ext: string): string {
-    return `${this.base}/series/${encodeURIComponent(this.cfg.username)}/${encodeURIComponent(this.cfg.password)}/${xid}.${ext}`;
+    return this.mediaUrl('series', xid, ext);
   }
 
   xmltvUrl(): string {

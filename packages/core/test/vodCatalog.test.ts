@@ -48,6 +48,22 @@ describe('VodCatalog', () => {
     expect(c.search('a', 2)).toHaveLength(2);
   });
 
+  test('search: a negative or zero cap returns nothing; top-k matches the full ranking', () => {
+    expect(c.search('a', -1)).toEqual([]);
+    expect(c.search('a', 0)).toEqual([]);
+    const items = Array.from({ length: 300 }, (_, n) => it(n, `${n % 7 === 0 ? 'x' : ''}Film ${(n * 37) % 300} a`));
+    const big = new VodCatalog('movie', { items, categories: [] });
+    const all = big.search('film', 1000);
+    expect(all).toHaveLength(300);
+    expect(big.search('film', 25).map((r) => r.id)).toEqual(all.slice(0, 25).map((r) => r.id));
+  });
+
+  test('categories() returns a copy', () => {
+    const cats = c.categories();
+    cats.pop();
+    expect(c.categories()).toHaveLength(2);
+  });
+
   test('no added dates', () => {
     expect(new VodCatalog('movie', { items: [it(1, 'A')], categories: [] }).hasAddedDates).toBe(false);
   });

@@ -13,6 +13,31 @@ describe('splitYear', () => {
   });
 });
 
+describe('splitYear bounds', () => {
+  test('1899 and 2101 keep the name; 1900 and 2100 are years', () => {
+    expect(splitYear('Film (1899)')).toEqual({ title: 'Film (1899)' });
+    expect(splitYear('Film (1900)')).toEqual({ title: 'Film', year: 1900 });
+    expect(splitYear('Film (2100)')).toEqual({ title: 'Film', year: 2100 });
+    expect(splitYear('Film (2101)')).toEqual({ title: 'Film (2101)' });
+  });
+});
+
+describe('parseEpisodeMarker edges', () => {
+  test('a bare marker has no show; three-digit episodes parse', () => {
+    expect(parseEpisodeMarker('S01E01')).toBeUndefined();
+    expect(parseEpisodeMarker('Show S01E100')).toMatchObject({ show: 'Show', season: 1, episode: 100 });
+  });
+  test('a trailing dot that ends an abbreviation survives; other trailing dots go', () => {
+    expect(parseEpisodeMarker('Show S01E01 - Dr.')?.title).toBe('Dr.');
+    expect(parseEpisodeMarker('Show S01E01 - Mr. ')?.title).toBe('Mr.');
+    expect(parseEpisodeMarker('Dr. S01E01')?.show).toBe('Dr.');
+    expect(parseEpisodeMarker('Show Vol. - S01E01')?.show).toBe('Show Vol.');
+    expect(parseEpisodeMarker('Show S01E01 - Pilot.')?.title).toBe('Pilot');
+    expect(parseEpisodeMarker('Show S01E01 - St.')?.title).toBe('St.');
+    expect(parseEpisodeMarker('Show S01E01 - Bust.')?.title).toBe('Bust');
+  });
+});
+
 describe('parseEpisodeMarker', () => {
   test('SxxEyy, Sxx Eyy and NxNN', () => {
     expect(parseEpisodeMarker('Synthetic Show S02E04')).toEqual({ show: 'Synthetic Show', season: 2, episode: 4, title: 'Synthetic Show S02E04' });

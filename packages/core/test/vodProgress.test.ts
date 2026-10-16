@@ -90,6 +90,24 @@ describe('continue watching', () => {
   });
 });
 
+describe('deterministic ties', () => {
+  const rec = (itemId: string, s: Partial<VodUserState>): VodUserRecord => ({ itemId, state: { ...emptyUserState(), duration: H, ...s } });
+  test('continueMovies breaks updatedAt ties by itemId', () => {
+    const records = [rec('m2', { position: 5 * MIN, updatedAt: 3 }), rec('m1', { position: 5 * MIN, updatedAt: 3 })];
+    expect(continueMovies(records)).toEqual(['m1', 'm2']);
+    expect(continueMovies([...records].reverse())).toEqual(['m1', 'm2']);
+  });
+  test('continueSeries ties pick the same episode and order regardless of record order', () => {
+    const a = rec('e1', { position: 5 * MIN, updatedAt: 4, series: { id: 'A', season: 1, episode: 1 } });
+    const b = rec('e2', { position: 6 * MIN, updatedAt: 4, series: { id: 'A', season: 1, episode: 2 } });
+    const c2 = rec('c1', { position: 7 * MIN, updatedAt: 4, series: { id: 'B', season: 1, episode: 1 } });
+    const one = continueSeries([a, b, c2]);
+    expect(continueSeries([c2, b, a])).toEqual(one);
+    expect(one.map((x) => x.seriesId)).toEqual(['A', 'B']);
+    expect(one[0]!.episodeId).toBe('e1');
+  });
+});
+
 describe('episodes', () => {
   const seasons: Season[] = [
     { number: 1, name: 'Season 1', episodes: [{ id: 'a', season: 1, episode: 1, title: 'A' }, { id: 'b', season: 1, episode: 2, title: 'B' }] },

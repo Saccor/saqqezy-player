@@ -6,6 +6,8 @@ export const CONTINUE_MAX = 20;
 
 export interface SeriesContinue { seriesId: string; episodeId: string; season: number; episode: number; resumeMs: number }
 
+const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 export const emptyUserState = (): VodUserState => ({ position: 0, duration: 0, watched: false, favourite: false, updatedAt: 0 });
 
 export const isInProgress = (s: VodUserState): boolean => !s.watched && s.position >= MIN_RESUME_MS;
@@ -70,7 +72,7 @@ export function setTracks(prev: VodUserState | undefined, tracks: { audio?: stri
 export function continueMovies(records: VodUserRecord[], max = CONTINUE_MAX): string[] {
   return records
     .filter((r) => !r.state.series && isInProgress(r.state))
-    .sort((a, b) => b.state.updatedAt - a.state.updatedAt)
+    .sort((a, b) => b.state.updatedAt - a.state.updatedAt || byId(a.itemId, b.itemId))
     .slice(0, max)
     .map((r) => r.itemId);
 }
@@ -82,7 +84,7 @@ export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): Se
     const p = r.state.series;
     if (!p) continue;
     const cur = latest.get(p.id);
-    if (!cur || r.state.updatedAt > cur.state.updatedAt) latest.set(p.id, r);
+    if (!cur || r.state.updatedAt > cur.state.updatedAt || (r.state.updatedAt === cur.state.updatedAt && byId(r.itemId, cur.itemId) < 0)) latest.set(p.id, r);
   }
   const out: (SeriesContinue & { at: number })[] = [];
   for (const r of latest.values()) {
@@ -94,7 +96,7 @@ export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): Se
     }
   }
   return out
-    .sort((a, b) => b.at - a.at)
+    .sort((a, b) => b.at - a.at || byId(a.seriesId, b.seriesId))
     .slice(0, max)
     .map(({ at: _at, ...rest }) => rest);
 }

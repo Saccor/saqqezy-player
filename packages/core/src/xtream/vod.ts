@@ -21,7 +21,7 @@ function rating(v: unknown): number | undefined {
 /** The first value that starts with a plausible 4-digit year. */
 function yearOf(...vals: unknown[]): number | undefined {
   for (const v of vals) {
-    const m = /^(\d{4})/.exec(String(v ?? '').trim());
+    const m = /^(\d{4})(?!\d)/.exec(String(v ?? '').trim());
     if (!m) continue;
     const y = Number(m[1]);
     if (y >= 1900 && y <= 2100) return y;

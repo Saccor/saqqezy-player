@@ -19,7 +19,9 @@ export function buildVodList(
     if (!known.has(it.categoryId)) it.categoryId = VOD_UNCATEGORIZED;
     counts.set(it.categoryId, (counts.get(it.categoryId) ?? 0) + 1);
   }
+  const firstOfId = new Set<string>();
   const cats: VodCategory[] = categories
+    .filter((c) => !firstOfId.has(c.id) && firstOfId.add(c.id))
     .map((c) => ({ id: c.id, kind, name: c.name, count: counts.get(c.id) ?? 0 }))
     .filter((c) => c.count > 0);
   const unc = counts.get(VOD_UNCATEGORIZED);
