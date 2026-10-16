@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { parseM3u, type M3uEntry, type ParseStats } from '../src/m3u/parse.ts';
 import { m3uEntriesToChannels, uniqueId } from '../src/m3u/toChannels.ts';
 import { splitLines } from '../src/text/lines.ts';
+import { fnv1a } from '../src/hash.ts';
 
 async function* once(s: string) { yield s; }
 async function parse(text: string) {
@@ -170,6 +171,34 @@ describe('parseM3u – per-channel headers', () => {
     ].join('\n'));
     expect(out[0]?.headers).toEqual({ userAgent: 'FromPipe', referrer: 'RefX-Injected: 1' });
     expect(out[1]?.headers?.userAgent).toHaveLength(512);
+  });
+
+  test('a skipped #EXTINF drops its header tags', async () => {
+    const { out, stats } = await parse([
+      '#EXTINF:-1,Lost entry',
+      '#EXTVLCOPT:http-user-agent=SyntheticAgent/1.0',
+      '#EXTINF:-1,Channel 002',
+      'http://example.test/live/2.ts',
+    ].join('\n'));
+    expect(stats.skipped).toBe(1);
+    expect(out[0]?.headers).toBeUndefined();
+  });
+
+  test('a piped entry keeps the line as its id key; ids and duplicates are what they were before', async () => {
+    const piped = 'http://example.test/live/1.ts|User-Agent=SyntheticAgent';
+    const { out } = await parse(['#EXTINF:-1,A', piped, '#EXTINF:-1,B', 'http://example.test/live/2.ts'].join('\n'));
+    expect(out[0]).toMatchObject({ url: 'http://example.test/live/1.ts', idKey: piped });
+    expect(out[1] && 'idKey' in out[1]).toBe(false);
+    const [a, b] = m3uEntriesToChannels('s', out);
+    expect(a?.id).toBe(`s:${fnv1a(piped)}`);
+    expect(a?.url).toBe('http://example.test/live/1.ts');
+    expect(b?.id).toBe(`s:${fnv1a('http://example.test/live/2.ts')}`);
+    // The same stream with two different pipes stayed two channels before; it still is.
+    const twice = m3uEntriesToChannels('s', [
+      { name: 'A', url: 'http://example.test/a.ts', idKey: 'http://example.test/a.ts|User-Agent=One' },
+      { name: 'A', url: 'http://example.test/a.ts', idKey: 'http://example.test/a.ts|User-Agent=Two' },
+    ]);
+    expect(twice).toHaveLength(2);
   });
 
   test('m3uEntriesToChannels keeps the headers on the channel', () => {

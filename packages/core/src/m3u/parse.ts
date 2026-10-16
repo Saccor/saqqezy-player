@@ -13,7 +13,15 @@ export interface M3uEntry {
   tvgShift?: number;
   /** Request headers from `#EXTVLCOPT:http-user-agent|http-referrer`, `#EXTHTTP:{…}` and the URL pipe. */
   headers?: StreamHeaders;
+  /**
+   * Set when the line had a URL pipe: the line as written. Channel, movie and episode ids are hashed from it (not from
+   * the clean `url`), so they stay what they were before the pipe was stripped.
+   */
+  idKey?: string;
 }
+
+/** What an entry's id is hashed from (and de-duplicated by): the line as written. */
+export const entryIdKey = (e: M3uEntry): string => e.idKey ?? e.url;
 
 export interface ParseStats {
   entries: number;
@@ -92,6 +100,7 @@ function readExtHttp(body: string, into: StreamHeaders): void {
 
 /** Kodi's `url|User-Agent=…&Referer=…`: the headers go into `into`, and the URL is returned without the pipe. */
 function readUrlPipe(line: string, into: StreamHeaders): string {
+  // The first `|` starts the options (Kodi's rule): a stream URL has no literal `|`; one in a query is `%7C`.
   const bar = line.indexOf('|');
   if (bar === -1) return line;
   for (const pair of line.slice(bar + 1).split('&')) {
@@ -120,7 +129,11 @@ export async function* parseM3u(
     const line = raw.trim();
     if (!line) continue;
     if (line.startsWith('#EXTINF:')) {
-      if (pending) stats.skipped++;
+      if (pending) {
+        stats.skipped++;
+        // The skipped entry's header tags must not reach the next one.
+        tagHeaders = {};
+      }
       pending = { info: parseExtinf(line) };
       pendingGroup = undefined;
       continue;
@@ -143,6 +156,7 @@ export async function* parseM3u(
     const url = readUrlPipe(line, headers);
     const info = pending?.info ?? { name: '' };
     const entry: M3uEntry = { ...info, url };
+    if (url !== line) entry.idKey = line;
     if (headers.userAgent || headers.referrer) {
       entry.headers = headers;
       tagHeaders = {};

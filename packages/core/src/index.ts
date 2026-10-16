@@ -47,7 +47,7 @@ export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from './epg/window.ts';
 export {
   SourceService,
-  type EpgResult, type IngestResult, type NewSource, type Progress, type SourceServiceDeps,
+  type EpgResult, type IngestResult, type NewSource, type Progress, type RefreshOptions, type SourceServiceDeps,
 } from './service/sourceService.ts';
 export * from './layout/index.ts';
 export {

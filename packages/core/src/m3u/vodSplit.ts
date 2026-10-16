@@ -3,7 +3,7 @@ import { searchKey } from '../text/searchKey.ts';
 import { buildVodList } from '../vod/list.ts';
 import { parseEpisodeMarker, splitYear } from '../vod/title.ts';
 import { VOD_UNCATEGORIZED, type Episode, type VodCategory, type VodItem, type VodKind, type VodList } from '../vod/types.ts';
-import type { M3uEntry } from './parse.ts';
+import { entryIdKey, type M3uEntry } from './parse.ts';
 import { uniqueId } from './toChannels.ts';
 
 export type EntryKind = 'live' | 'movie' | 'episode';
@@ -60,14 +60,17 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
       live.push(e);
       continue;
     }
-    if (seenUrls.has(e.url)) continue;
-    seenUrls.add(e.url);
+    // The line as written (with any URL pipe) keys duplicates and ids, so they stay what they were before pipes were read.
+    const idKey = entryIdKey(e);
+    if (seenUrls.has(idKey)) continue;
+    seenUrls.add(idKey);
     const group = e.groupTitle;
 
     if (kind === 'movie') {
       const { title, year } = splitYear(e.name);
-      const item: VodItem = { id: uniqueId(`${sourceId}:v${fnv1a(e.url)}`, usedIds), kind: 'movie', title, categoryId: group ? movieCats.note(group) : VOD_UNCATEGORIZED, url: e.url };
+      const item: VodItem = { id: uniqueId(`${sourceId}:v${fnv1a(idKey)}`, usedIds), kind: 'movie', title, categoryId: group ? movieCats.note(group) : VOD_UNCATEGORIZED, url: e.url };
       if (year) item.year = year;
+      if (e.headers) item.headers = { ...e.headers };
       if (e.tvgLogo) item.poster = e.tvgLogo;
       movies.push(item);
       continue;
@@ -84,12 +87,13 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
       shows.set(key, show);
     }
     const ep: Episode = {
-      id: uniqueId(`${sourceId}:e${fnv1a(e.url)}`, usedIds),
+      id: uniqueId(`${sourceId}:e${fnv1a(idKey)}`, usedIds),
       season: marker?.season ?? 1,
       episode: marker?.episode ?? 0,
       title: marker?.title ?? e.name,
       url: e.url,
     };
+    if (e.headers) ep.headers = { ...e.headers };
     if (e.tvgLogo) {
       ep.still = e.tvgLogo;
       show.item.poster ??= e.tvgLogo;

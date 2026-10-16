@@ -1735,6 +1735,7 @@ describe('AppApi – refusal cooldown', () => {
 });
 
 describe('AppApi source headers and refresh backoff', () => {
+  const HOUR_MS = 3_600_000;
   const playlist = [
     '#EXTM3U',
     '#EXTINF:-1 tvg-chno="1",Channel A',
@@ -1745,7 +1746,7 @@ describe('AppApi source headers and refresh backoff', () => {
     '#EXTINF:-1 tvg-chno="3",Channel C',
     'http://example.test/live/c.ts',
     '#EXTINF:-1 group-title="Drama",Synthetic Film A (2020)',
-    'http://example.test/movie/u/p/1.mp4',
+    'http://example.test/movie/u/p/1.mp4|User-Agent=FilmAgent/1.0',
   ].join('\n');
   let gets = 0;
   const fetchFn: FetchFn = async (u, i) => {
@@ -1755,22 +1756,27 @@ describe('AppApi source headers and refresh backoff', () => {
   const input = { kind: 'm3u' as const, name: 'Headers', playlistUrl: 'http://example.test/p.m3u' };
   beforeEach(() => { gets = 0; });
 
-  test('getPlayable merges the channel headers over the source settings', async () => {
+  test('getPlayable merges the channel headers over the source settings; VOD playables too', async () => {
     const { api } = makeVod(storage, fetchFn);
     const { sourceId } = await api.addSource(input);
     await api.idle();
     const headersOf = async (n: number) => (await api.byNumber(n))!.headers;
     expect(await headersOf(1)).toEqual({ userAgent: 'ChannelAgent/1.0' });
     expect(await headersOf(2)).toEqual({ referrer: 'http://example.test/channel' });
-    expect((await api.byNumber(3)) && 'headers' in (await api.byNumber(3))!).toBe(false);
+    expect(await headersOf(3)).toBeUndefined();
+    const home = await api.getVodHome('movie');
+    const film = home.rows.find((r) => r.items.length)!.items[0]!;
+    const filmPlayable = (await api.getVodPlayable(film.id))!;
+    expect(filmPlayable.url).toBe('http://example.test/movie/u/p/1.mp4');
+    expect(filmPlayable.headers).toEqual({ userAgent: 'FilmAgent/1.0' });
     await api.updateSource({ ...(await api.getSource(sourceId))!, userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
     await api.idle();
     expect(await headersOf(1)).toEqual({ userAgent: 'ChannelAgent/1.0', referrer: 'http://example.test/source' });
     expect(await headersOf(2)).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/channel' });
     expect(await headersOf(3)).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
-    const home = await api.getVodHome('movie');
-    const film = home.rows.find((r) => r.items.length)!.items[0]!;
-    expect((await api.getVodPlayable(film.id))?.headers).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
+    // The entry's own User-Agent wins over the source's; the source's Referer fills in.
+    const film2 = (await api.getVodHome('movie')).rows.find((r) => r.items.length)!.items[0]!;
+    expect((await api.getVodPlayable(film2.id))?.headers).toEqual({ userAgent: 'FilmAgent/1.0', referrer: 'http://example.test/source' });
   });
 
   test('the background refresh skips a backed-off playlist; a manual refresh runs', async () => {
@@ -1790,5 +1796,50 @@ describe('AppApi source headers and refresh backoff', () => {
     expect(gets).toBe(before + 1);
     expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toBeFalsy();
   });
+
+  test('an empty channel cache is not refilled while the playlist is backed off', async () => {
+    const seed = make(storage, SourceService, fetchFn).api;
+    const { sourceId } = await seed.addSource(input);
+    await seed.idle();
+    await storage.replaceChannels(sourceId, []);
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 5 * 60_000 });
+    const before = gets;
+    const { api } = make(storage, SourceService, fetchFn);
+    await api.init();
+    await api.idle();
+    expect(gets).toBe(before);
+    // Once the wait is over, the same start refills it.
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 15 * 60_000 });
+    const later = make(storage, SourceService, fetchFn).api;
+    await later.init();
+    await later.idle();
+    expect(gets).toBe(before + 1);
+  });
+
+  test('a failed background playlist refresh records the backoff; a failed manual one does not', async () => {
+    let down = false;
+    const flaky: FetchFn = async (u, i) => (down && u === 'http://example.test/p.m3u' ? new Response('down', { status: 500 }) : fetchFn(u, i));
+    const seed = make(storage, SourceService, flaky).api;
+    const { sourceId } = await seed.addSource(input);
+    await seed.idle();
+    down = true;
+    await expect(seed.refresh('playlist')).rejects.toThrow();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toBeFalsy();
+    await storage.setMeta(`playlistAt:${sourceId}`, NOW - 13 * HOUR_MS);
+    const { api } = make(storage, SourceService, flaky);
+    await api.init();
+    await api.idle();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toEqual({ count: 1, at: NOW });
+  });
+
+  test('the first Movies load is not held off by a failed background refresh', async () => {
+    const { api } = makeVod();
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await storage.setMeta(`refreshFail:${sourceId}:vod:movie`, { count: 1, at: NOW });
+    expect((await api.getVodHome('movie')).status).not.toBe('empty');
+    await api.idle();
+    expect((await api.getVodHome('movie')).status).toBe('ready');
+    expect(await storage.getMeta(`refreshFail:${sourceId}:vod:movie`)).toBeFalsy();
+  });
 });
-const HOUR_MS = 3_600_000;

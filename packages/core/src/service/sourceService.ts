@@ -30,6 +30,8 @@ import {
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
+/** `automatic`: a background refresh (its failure records the refresh backoff); a manual one records nothing. */
+export interface RefreshOptions { automatic?: boolean }
 export interface IngestResult {
   channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
   /** Xtream: the account has no live streams, and its movie or series categories were found (the titles load lazily). */
@@ -199,11 +201,11 @@ export class SourceService {
   }
 
   /**
-   * Fetches and stores the playlist. Always runs (a manual refresh is never held off); a failure that is not a
-   * refusal records the refresh backoff that `needsPlaylistRefresh` applies, and a success clears it.
+   * Fetches and stores the playlist. Always runs (the backoff only gates `needsPlaylistRefresh`). An automatic
+   * refresh that fails with a non-refusal error records the backoff; any success clears it.
    */
-  refreshPlaylist(id: string, onProgress?: Progress): Promise<IngestResult> {
-    return this.withLock(id, () => this.withBackoff(id, 'playlist', async () => {
+  refreshPlaylist(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<IngestResult> {
+    return this.withLock(id, () => this.withBackoff(id, 'playlist', opts, async () => {
       const source = await this.requireSource(id);
       const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
       const stored = (await this.storage.listSources()).find((s) => s.id === id);
@@ -335,11 +337,12 @@ export class SourceService {
     return new Set(keys.filter((k): k is string => typeof k === 'string'));
   }
 
-  refreshEpg(id: string, onProgress?: Progress): Promise<EpgResult> {
+  /** As `refreshPlaylist`, for the guide. */
+  refreshEpg(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<EpgResult> {
     return this.withLock(id, async () => {
       this.epgRefreshing.add(id);
       try {
-        return await this.withBackoff(id, 'epg', () => this.refreshEpgLocked(id, onProgress));
+        return await this.withBackoff(id, 'epg', opts, () => this.refreshEpgLocked(id, onProgress));
       } finally {
         this.epgRefreshing.delete(id);
       }
@@ -566,18 +569,18 @@ export class SourceService {
     if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
-  /** Runs a refresh of `what`: a success clears its backoff record, a failure that counts records one more. */
-  private async withBackoff<T>(id: string, what: RefreshWhat, fn: () => Promise<T>): Promise<T> {
+  /** Runs a refresh of `what`: a success clears its backoff record; an automatic one's counting failure adds one. */
+  private async withBackoff<T>(id: string, what: RefreshWhat, opts: RefreshOptions, fn: () => Promise<T>): Promise<T> {
     let out: T;
     try {
       out = await fn();
     } catch (err) {
-      if (countsAsRefreshFailure(err) && (await this.sourceExists(id).catch(() => false))) {
+      if (opts.automatic && countsAsRefreshFailure(err) && (await this.sourceExists(id).catch(() => false))) {
         await recordRefreshFailure(this.storage, id, what, this.now());
       }
       throw err;
     }
-    if (await this.sourceExists(id)) await clearRefreshFailure(this.storage, id, what);
+    if (await this.sourceExists(id).catch(() => false)) await clearRefreshFailure(this.storage, id, what);
     return out;
   }
 

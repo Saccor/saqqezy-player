@@ -1214,6 +1214,7 @@ describe('SourceService – source HTTP settings and account limit', () => {
 
 describe('SourceService – refresh backoff', () => {
   const MIN = 60_000;
+  const auto = { automatic: true };
   let t: number;
   let svc: SourceService;
   beforeEach(() => {
@@ -1233,7 +1234,7 @@ describe('SourceService – refresh backoff', () => {
     routes['/p.m3u'] = () => new Response('down', { status: 500 });
     const steps = [15 * MIN, 60 * MIN, 360 * MIN, 360 * MIN];
     for (const [i, wait] of steps.entries()) {
-      await expect(svc.refreshPlaylist(id)).rejects.toBeInstanceOf(SourceNetworkError);
+      await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toBeInstanceOf(SourceNetworkError);
       expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toEqual({ count: i + 1, at: t });
       expect(await svc.needsPlaylistRefresh(id)).toBe(false);
       t += wait - 1;
@@ -1248,7 +1249,7 @@ describe('SourceService – refresh backoff', () => {
   test('a success clears the record', async () => {
     const id = await staleSource();
     routes['/p.m3u'] = () => new Response('down', { status: 500 });
-    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toThrow();
     routes['/p.m3u'] = () => new Response(m3u);
     await svc.refreshPlaylist(id);
     expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
@@ -1257,7 +1258,7 @@ describe('SourceService – refresh backoff', () => {
   test('a manual refresh always runs, even while backed off', async () => {
     const id = await staleSource();
     routes['/p.m3u'] = () => new Response('down', { status: 500 });
-    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toThrow();
     routes['/p.m3u'] = () => new Response(m3u);
     await expect(svc.refreshPlaylist(id)).resolves.toMatchObject({ channelCount: 4 });
   });
@@ -1266,17 +1267,51 @@ describe('SourceService – refresh backoff', () => {
     const id = await staleSource();
     for (const status of [403, 429, 503]) {
       routes['/p.m3u'] = () => new Response('no', { status });
-      await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+      await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toThrow();
       await svc.guard.forget(id);
     }
     expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
     expect(await svc.needsPlaylistRefresh(id)).toBe(true);
   });
 
+  test('a login refused (SourceAuthError) or a request the guard blocked records nothing', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('no', { status: 401 });
+    await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toBeInstanceOf(SourceAuthError);
+    await svc.guard.forget(id);
+    await svc.guard.report(id, 'refused');
+    await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toBeInstanceOf(SourceRefusedError);
+    await expect(svc.refreshEpg(id, undefined, auto)).rejects.toBeInstanceOf(SourceRefusedError);
+    expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
+    expect(await storage.getMeta(`refreshFail:${id}:epg`)).toBeFalsy();
+  });
+
+  test('a failed manual refresh records nothing', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('down', { status: 500 });
+    routes['/epg.xml'] = () => new Response('down', { status: 500 });
+    await expect(svc.refreshPlaylist(id)).rejects.toBeInstanceOf(SourceNetworkError);
+    await expect(svc.refreshEpg(id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
+    expect(await storage.getMeta(`refreshFail:${id}:epg`)).toBeFalsy();
+  });
+
+  test('updateSource clears every record of the source', async () => {
+    const id = await staleSource();
+    for (const what of ['playlist', 'epg', 'vod:movie', 'vod:series']) {
+      await storage.setMeta(`refreshFail:${id}:${what}`, { count: 2, at: t });
+    }
+    const source = (await svc.listSources()).find((s) => s.id === id)!;
+    await svc.updateSource({ ...source, name: 'Renamed' });
+    for (const what of ['playlist', 'epg', 'vod:movie', 'vod:series']) {
+      expect(await storage.getMeta(`refreshFail:${id}:${what}`)).toBeFalsy();
+    }
+  });
+
   test('a failed guide refresh is backed off on its own', async () => {
     const id = await staleSource();
     routes['/epg.xml'] = () => new Response('down', { status: 502 });
-    await expect(svc.refreshEpg(id)).rejects.toBeInstanceOf(SourceNetworkError);
+    await expect(svc.refreshEpg(id, undefined, auto)).rejects.toBeInstanceOf(SourceNetworkError);
     expect(await storage.getMeta(`refreshFail:${id}:epg`)).toEqual({ count: 1, at: t });
     expect(await svc.needsEpgRefresh(id)).toBe(false);
     expect(await svc.needsPlaylistRefresh(id)).toBe(true);
@@ -1290,7 +1325,7 @@ describe('SourceService – refresh backoff', () => {
   test('deleting the source removes its records', async () => {
     const id = await staleSource();
     routes['/p.m3u'] = () => new Response('down', { status: 500 });
-    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    await expect(svc.refreshPlaylist(id, undefined, auto)).rejects.toThrow();
     await storage.setMeta(`refreshFail:${id}:vod:movie`, { count: 1, at: t });
     await svc.deleteSource(id);
     for (const what of ['playlist', 'epg', 'vod:movie', 'vod:series']) {

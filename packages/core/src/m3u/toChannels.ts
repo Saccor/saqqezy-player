@@ -1,7 +1,7 @@
 import { UNCATEGORIZED } from '../constants.ts';
 import { fnv1a } from '../hash.ts';
 import type { Channel } from '../types.ts';
-import type { M3uEntry } from './parse.ts';
+import { entryIdKey, type M3uEntry } from './parse.ts';
 
 /**
  * Returns `base` if it is unused, otherwise `base-2`, `base-3`, ... (first free one).
@@ -19,8 +19,10 @@ export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[]): Cha
   const unique: M3uEntry[] = [];
   let maxChno = 0;
   for (const e of entries) {
-    if (seen.has(e.url)) continue;
-    seen.add(e.url);
+    // By the line as written (the URL with any pipe), as before pipes were read: ids and duplicates stay the same.
+    const key = entryIdKey(e);
+    if (seen.has(key)) continue;
+    seen.add(key);
     unique.push(e);
     if (e.tvgChno && e.tvgChno > maxChno) maxChno = e.tvgChno;
   }
@@ -28,7 +30,7 @@ export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[]): Cha
   let next = maxChno + 1;
   return unique.map((e) => {
     const ch: Channel = {
-      id: uniqueId(`${sourceId}:${fnv1a(e.url)}`, usedIds),
+      id: uniqueId(`${sourceId}:${fnv1a(entryIdKey(e))}`, usedIds),
       sourceId,
       name: e.name,
       url: e.url,

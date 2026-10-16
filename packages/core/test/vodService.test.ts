@@ -269,15 +269,19 @@ describe('VodService for the worker', () => {
 describe('VodService refresh backoff', () => {
   const MIN = 60_000;
 
+  const auto = { automatic: true };
+
   test('a failed catalogue fetch waits 15 min, then 1 h, before the next automatic one; a success clears it', async () => {
     delete api.get_vod_categories;
-    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceNetworkError);
+    await expect(svc.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceNetworkError);
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 1, at: NOW });
     expect(await svc.needsRefresh('x', 'movie')).toBe(false);
     expect(await svc.needsRefresh('x', 'series')).toBe(true);
+    // A screen with nothing to show (foreground) is not held off.
+    expect(await svc.needsRefresh('x', 'movie', { foreground: true })).toBe(true);
     now = NOW + 15 * MIN;
     expect(await svc.needsRefresh('x', 'movie')).toBe(true);
-    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceNetworkError);
+    await expect(svc.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceNetworkError);
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 2, at: now });
     now += 60 * MIN - 1;
     expect(await svc.needsRefresh('x', 'movie')).toBe(false);
@@ -290,11 +294,14 @@ describe('VodService refresh backoff', () => {
   test('a cancelled fetch or a refusal records nothing', async () => {
     const ac = new AbortController();
     ac.abort();
-    await expect(svc.refresh('x', 'series', { signal: ac.signal })).rejects.toBeInstanceOf(VodFetchCancelled);
+    await expect(svc.refresh('x', 'series', { signal: ac.signal, automatic: true })).rejects.toBeInstanceOf(VodFetchCancelled);
     const guard = new RefusalGuard({ storage, now: () => now });
     const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
     await guard.report('x', 'refused');
-    await expect(guarded.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceRefusedError);
+    await expect(guarded.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceRefusedError);
+    // A manual fetch (Try again) that fails records nothing either.
+    delete api.get_series_categories;
+    await expect(svc.refresh('x', 'series')).rejects.toBeInstanceOf(SourceNetworkError);
     expect(await storage.getMeta('refreshFail:x:vod:series')).toBeFalsy();
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
   });

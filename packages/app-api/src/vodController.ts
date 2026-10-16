@@ -168,10 +168,11 @@ export class VodController {
       if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
       const failure = this.failures.get(kind);
       if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
-      const needs = await this.vod.needsRefresh(id, kind);
+      // Nothing stored: the screen waits for this fetch, so a failed background refresh does not hold it off.
+      const needs = await this.vod.needsRefresh(id, kind, { foreground: true });
       if (this.epoch !== epoch) return this.home(kind);
       if (needs) {
-        void this.startFetch(kind, id, epoch);
+        void this.startFetch(kind, id, epoch, true);
         return { status: 'loading', rows: [], truncated: false };
       }
       return { status: 'empty', rows: [], truncated: false };
@@ -180,7 +181,7 @@ export class VodController {
     if (!this.jobs.has(kind) && !this.failures.has(kind)) {
       const needs = await this.vod.needsRefresh(id, kind);
       if (this.epoch !== epoch) return this.home(kind);
-      if (needs) void this.startFetch(kind, id, epoch);
+      if (needs) void this.startFetch(kind, id, epoch, true);
     }
     if (catalog.size === 0) {
       if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
@@ -292,7 +293,10 @@ export class VodController {
       if (!item || this.epoch !== epoch) return undefined;
       const url = await this.vod.streamUrl(src, item);
       if (this.epoch !== epoch) return undefined;
-      return { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
+      const movie: VodPlayable = { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
+      // M3U: the playlist entry's own headers (AppApi merges them over the source's settings).
+      if (item.headers) movie.headers = { ...item.headers };
+      return movie;
     }
     const show = (await this.catalog('series'))?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
@@ -313,6 +317,7 @@ export class VodController {
       resumeMs: resumeMs(s), tracks: seriesTracks, series,
     };
     if (ep.runtimeMin) out.durationMs = ep.runtimeMin * 60_000;
+    if (ep.headers) out.headers = { ...ep.headers };
     if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
     const prev = prevEpisode(detail.seasons, itemId);
     if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };
@@ -548,7 +553,8 @@ export class VodController {
     return null;
   }
 
-  private startFetch(kind: VodKind, id: string, epoch: number): Promise<void> {
+  /** `automatic`: started by `home` (a failure records the refresh backoff), not by the Try again button. */
+  private startFetch(kind: VodKind, id: string, epoch: number, automatic = false): Promise<void> {
     if (this.epoch !== epoch) return Promise.resolve();
     const existing = this.jobs.get(kind);
     if (existing) return existing.done;
@@ -556,7 +562,7 @@ export class VodController {
     this.emit({ type: 'vodLoading', sourceId: id, kind });
     const done = (async () => {
       try {
-        const r = await this.vod.refresh(id, kind, { signal: ac.signal });
+        const r = await this.vod.refresh(id, kind, { signal: ac.signal, automatic });
         if (this.epoch !== epoch) return;
         this.failures.delete(kind);
         // Swap the fresh list in without reading it back. It takes over from a stored read of the same kind (which

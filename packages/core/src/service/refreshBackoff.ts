@@ -39,10 +39,14 @@ export async function recordRefreshFailure(storage: Storage, sourceId: string, w
   }
 }
 
-/** A successful refresh of `what` clears its record. */
+/** A successful refresh of `what` clears its record (best effort: a storage error never fails the refresh). */
 export async function clearRefreshFailure(storage: Storage, sourceId: string, what: RefreshWhat): Promise<void> {
   const key = refreshFailKey(sourceId, what);
-  if ((await storage.getMeta<unknown>(key)) != null) await storage.setMeta(key, null);
+  try {
+    if ((await storage.getMeta<unknown>(key)) != null) await storage.setMeta(key, null);
+  } catch {
+    // Best effort: a leftover record only delays the next automatic refresh.
+  }
 }
 
 /**

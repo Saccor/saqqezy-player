@@ -68,13 +68,14 @@ export class VodService {
   }
 
   /**
-   * Whether an automatic fetch should run: Xtream only (M3U catalogues come with the playlist refresh), never fetched
-   * or stale, and not held off after a failed fetch (15 min, 1 h, then 6 h). `refresh` itself is never held off.
+   * Whether a fetch should run: Xtream only (M3U catalogues come with the playlist refresh), never fetched or stale.
+   * A background refresh (stale-while-revalidate) is also held off after a failed one (15 min, 1 h, then 6 h);
+   * `foreground` (the screen has nothing to show yet) skips that wait. `refresh` itself is never held off.
    */
-  async needsRefresh(sourceId: string, kind: VodKind): Promise<boolean> {
+  async needsRefresh(sourceId: string, kind: VodKind, opts: { foreground?: boolean } = {}): Promise<boolean> {
     const source = await this.source(sourceId);
     if (!source || source.kind !== 'xtream') return false;
-    if (await refreshBackedOff(this.storage, sourceId, `vod:${kind}`, this.now())) return false;
+    if (!opts.foreground && await refreshBackedOff(this.storage, sourceId, `vod:${kind}`, this.now())) return false;
     const at = await this.fetchedAt(sourceId, kind);
     if (!at) return true;
     const hours = sanitizeSettings(await this.storage.getMeta<unknown>('settings')).autoRefreshHours;
@@ -88,9 +89,10 @@ export class VodService {
    * An empty answer never replaces a non-empty stored catalogue (it rejects with `SourceNetworkError`). One refresh per source and kind at a time.
    */
   refresh(
-    sourceId: string, kind: VodKind, opts: { signal?: AbortSignal; onProgress?: (n: number) => void } = {},
+    sourceId: string, kind: VodKind,
+    opts: { signal?: AbortSignal; onProgress?: (n: number) => void; automatic?: boolean } = {},
   ): Promise<{ count: number; truncated: boolean; list: VodList }> {
-    return this.withLock(`vod:${kind}:${sourceId}`, () => this.withBackoff(sourceId, kind, async () => {
+    return this.withLock(`vod:${kind}:${sourceId}`, () => this.withBackoff(sourceId, kind, opts.automatic === true, async () => {
       const source = await this.source(sourceId);
       if (!source) throw new Error(`Unknown source ${sourceId}`);
       if (source.kind !== 'xtream') {
@@ -116,18 +118,18 @@ export class VodService {
     }));
   }
 
-  /** A fetch that failed (not a refusal or a cancel) records the backoff; a success clears it. */
-  private async withBackoff<T>(sourceId: string, kind: VodKind, fn: () => Promise<T>): Promise<T> {
+  /** An automatic fetch that failed (not a refusal or a cancel) records the backoff; any success clears it. */
+  private async withBackoff<T>(sourceId: string, kind: VodKind, automatic: boolean, fn: () => Promise<T>): Promise<T> {
     let out: T;
     try {
       out = await fn();
     } catch (err) {
-      if (countsAsRefreshFailure(err) && (await this.source(sourceId).catch(() => undefined))) {
+      if (automatic && countsAsRefreshFailure(err) && (await this.source(sourceId).catch(() => undefined))) {
         await recordRefreshFailure(this.storage, sourceId, `vod:${kind}`, this.now());
       }
       throw err;
     }
-    if (await this.source(sourceId)) await clearRefreshFailure(this.storage, sourceId, `vod:${kind}`);
+    if (await this.source(sourceId).catch(() => undefined)) await clearRefreshFailure(this.storage, sourceId, `vod:${kind}`);
     return out;
   }
 

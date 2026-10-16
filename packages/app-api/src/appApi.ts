@@ -583,7 +583,11 @@ export class AppApi {
   getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
     return this.run('getVodPlayable', async () => {
       const out = await this.vodOrThrow().playable(itemId, seriesId);
-      if (out && this.sourceHeaders) out.headers = { ...this.sourceHeaders };
+      if (!out) return out;
+      // The playlist entry's own headers win over the source's settings, field by field.
+      const headers = mergeHeaders(this.sourceHeaders, out.headers);
+      if (headers) out.headers = headers;
+      else delete out.headers;
       return out;
     });
   }
@@ -1052,10 +1056,11 @@ export class AppApi {
     throw out;
   }
 
-  private async refreshPlaylistFor(id: string): Promise<void> {
+  /** `automatic`: a background refresh, whose failure records the refresh backoff. */
+  private async refreshPlaylistFor(id: string, automatic = false): Promise<void> {
     let result: IngestResult | undefined;
     try {
-      result = await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }));
+      result = await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
     } catch (err) {
       this.failed('playlist', id, 'refreshPlaylist', err);
     }
@@ -1089,9 +1094,9 @@ export class AppApi {
     }
   }
 
-  private async refreshEpgFor(id: string): Promise<void> {
+  private async refreshEpgFor(id: string, automatic = false): Promise<void> {
     try {
-      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }));
+      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
     } catch (err) {
       this.failed('epg', id, 'refreshEpg', err);
     }
@@ -1147,14 +1152,14 @@ export class AppApi {
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
     }
-    if (playlist) await this.refreshPlaylistFor(id);
+    if (playlist) await this.refreshPlaylistFor(id, true);
     let epg: boolean;
     try {
       epg = await this.service.needsEpgRefresh(id);
     } catch (err) {
       this.failed('epg', id, 'backgroundRefresh', err);
     }
-    if (epg) await this.refreshEpgFor(id);
+    if (epg) await this.refreshEpgFor(id, true);
   }
 
   /**

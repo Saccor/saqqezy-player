@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { classifyEntry, splitM3uVod } from '../src/m3u/vodSplit.ts';
+import { fnv1a } from '../src/hash.ts';
 import { m3uEntriesToChannels } from '../src/m3u/toChannels.ts';
 import type { M3uEntry } from '../src/m3u/parse.ts';
 import { VOD_UNCATEGORIZED } from '../src/vod/types.ts';
@@ -67,5 +68,21 @@ describe('splitM3uVod', () => {
     ]);
     const special = r.series.episodes![r.series.items[1]!.id]!;
     expect(special.map((x) => [x.season, x.episode, x.title])).toEqual([[1, 1, 'Unmarked Special']]);
+  });
+});
+
+describe('splitM3uVod – piped entries', () => {
+  test('movie and episode ids hash the line as written; the URL is clean and the headers are kept', () => {
+    const moviePipe = 'http://example.test/movie/u/p/1.mp4|User-Agent=SyntheticAgent';
+    const epPipe = 'http://example.test/series/u/p/2.mp4|Referer=http://example.test/';
+    const { movies, series } = splitM3uVod('s', [
+      { name: 'Synthetic Film (2020)', url: 'http://example.test/movie/u/p/1.mp4', idKey: moviePipe, headers: { userAgent: 'SyntheticAgent' } },
+      { name: 'Synthetic Show S01E01', url: 'http://example.test/series/u/p/2.mp4', idKey: epPipe, headers: { referrer: 'http://example.test/' } },
+    ]);
+    const [movie] = movies.items;
+    expect(movie).toMatchObject({ id: `s:v${fnv1a(moviePipe)}`, url: 'http://example.test/movie/u/p/1.mp4', headers: { userAgent: 'SyntheticAgent' } });
+    const [show] = series.items;
+    const [ep] = series.episodes![show!.id]!;
+    expect(ep).toMatchObject({ id: `s:e${fnv1a(epPipe)}`, url: 'http://example.test/series/u/p/2.mp4', headers: { referrer: 'http://example.test/' } });
   });
 });
