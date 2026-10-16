@@ -325,7 +325,7 @@ describe('PlaybackSupervisor: stall ladder while playing', () => {
     expect(player.opened).toHaveLength(3); // 1 s again, not the 2 s of a second failure
   });
 
-  it('runs out of budget after 6 reconnects in a minute, then retries every 30 s and recovers', () => {
+  it('runs out of budget after 6 reconnects in a minute, then retries in the background once the budget has room, and recovers', () => {
     const { player, sup, statuses } = setup();
     sup.play(A);
     player.emit('playing'); // background retries are only for a stream that played
@@ -333,7 +333,8 @@ describe('PlaybackSupervisor: stall ladder while playing', () => {
     expect(player.opened).toHaveLength(7);
     player.emit('error', { code: 'EOS' });
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
-    vi.advanceTimersByTime(29_999);
+    // The 30 s step finds the budget still spent and is skipped; the 60 s step after it opens.
+    vi.advanceTimersByTime(89_999);
     expect(player.opened).toHaveLength(7);
     vi.advanceTimersByTime(1);
     expect(player.opened).toHaveLength(8);
@@ -543,6 +544,7 @@ describe('PlaybackSupervisor: final fixes', () => {
     sup.goLive();
     expect(player.seekToLive).toHaveBeenCalled();
     sup.play(B);
+    vi.advanceTimersByTime(1000); // the gap after the last open
     player.emit('playing');
     playFor(player, 250);
     expect(sup.liveInfo()).toMatchObject({ isLive: false });
@@ -738,8 +740,8 @@ describe('PlaybackSupervisor: gentle on sources (single-connection accounts)', (
     expect(player.opened).toEqual([A, A, B, B]);
   });
 
-  it('a stream that played and then dropped is retried in the background every 30 s for 3 minutes', () => {
-    const { player, sup, statuses } = setup();
+  it('a stream that played and then dropped is retried in the background a few times, then left alone', () => {
+    const { player, sup, statuses } = setup({ budget: [{ max: 6, windowMs: 20_000 }] });
     sup.play(A);
     player.emit('playing');
     for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
@@ -751,7 +753,7 @@ describe('PlaybackSupervisor: gentle on sources (single-connection accounts)', (
     expect(player.opened).toHaveLength(n + 1);
     for (let i = 0; i < 10; i++) { player.emit('error'); vi.advanceTimersByTime(30_000); }
     const m = player.opened.length;
-    expect(m).toBeLessThanOrEqual(n + 6); // 3 minutes at one try per 30 s
+    expect(m).toBeLessThanOrEqual(n + 3); // 30 s, 60 s, 120 s
     vi.advanceTimersByTime(10 * 60_000);
     expect(player.opened).toHaveLength(m);
   });
@@ -951,7 +953,7 @@ describe('PlaybackSupervisor: journal', () => {
     retry.sup.play(A);
     retry.player.emit('playing');
     for (let i = 0; i < 7; i++) { retry.player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
-    vi.advanceTimersByTime(30_000);
+    vi.advanceTimersByTime(90_000); // the 30 s step is skipped while the budget is spent
     expect(retry.kinds()).toContain('giveUpRetry');
     retry.sup.stop();
     expect(retry.log.at(-1)).toMatchObject({ k: 'stop' });
@@ -976,9 +978,13 @@ describe('PlaybackSupervisor – per-source open rate', () => {
       openRate: { waitMs: () => 60_000, take: (k) => { taken.push(k); } },
       journal: { add: (e: unknown) => { journal.push(e as JournalEvent); } } as never,
     });
+    // Paced only by the gap (1 s here), never by the cap.
     sup.play(A, undefined, { sourceKey: 'src' });
+    vi.advanceTimersByTime(1000);
     sup.play(B, undefined, { sourceKey: 'src' });
+    vi.advanceTimersByTime(1000);
     sup.play(A, undefined, { sourceKey: 'src' });
+    vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, B, A]);
     expect(taken).toEqual([]);
     expect(journal.some((e) => e.k === 'rateWait')).toBe(false);
@@ -1049,6 +1055,8 @@ describe('PlaybackSupervisor: VOD mode', () => {
     sup.play(V, undefined, { vod: true, startMs: 5000 });
     expect(player.openOpts[0]).toEqual({ live: false, startMs: 5000 });
     sup.play(A);
+    vi.advanceTimersByTime(1000); // the gap after the last open
+    expect(player.opened).toHaveLength(2);
     expect(player.openOpts[1]).toBeUndefined();
   });
 
@@ -1412,22 +1420,36 @@ describe('PlaybackSupervisor: status probe', () => {
     const probe = vi.fn((url: string, signal: AbortSignal) => { calls.push({ url, signal }); return Promise.resolve(result); });
     return { ...setup({ probe, ...opts }), probe, calls };
   }
+  /** Runs the 0 ms deferral of a failure from an engine event, then lets resolved promises run. */
+  async function settle() { vi.advanceTimersByTime(0); await flush(); }
 
-  it('a native NETWORK failure before the first frame probes once; a refusal becomes refused with status and Retry-After', async () => {
+  it('a native NETWORK failure before the first frame probes once, outside the engine callback; a refusal ends at once as refused', async () => {
     const { player, sup, statuses, calls } = probed({ status: 403, retryAfterMs: 90_000 });
     sup.play(A);
     player.emit('error', { code: 'NETWORK' });
+    expect(player.calls).toEqual(['stop', `open:${A}`]); // nothing torn down inside the engine's callback
+    await settle();
     expect(player.calls).toEqual(['stop', `open:${A}`, 'stop']); // the attempt is stopped before the probe
-    await flush();
     expect(calls.map((c) => c.url)).toEqual([A]);
-    // The AUTH path: one retry after the gap, and the next failure ends as refused (no second probe).
-    vi.advanceTimersByTime(1000);
-    expect(player.opened).toEqual([A, A]);
+    vi.advanceTimersByTime(60_000);
+    expect(player.opened).toEqual([A]); // a confirmed refusal is not tried again
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000 });
+  });
+
+  it('a confirmed refusal tries the other format once (after the gap), then ends as refused', async () => {
+    const { player, sup, statuses, calls } = probed({ status: 403, retryAfterMs: 90_000 });
+    sup.play(A, B);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toEqual([A]); // the probe counts as an open: the gap runs from it
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, B]);
+    player.emit('error', { code: 'NETWORK' });
+    await settle();
     vi.advanceTimersByTime(60_000);
     expect(calls).toHaveLength(1);
-    expect(player.opened).toEqual([A, A]);
+    expect(player.opened).toEqual([A, B]);
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000 });
   });
 
@@ -1436,7 +1458,7 @@ describe('PlaybackSupervisor: status probe', () => {
       const { player, sup, statuses } = probed({ status });
       sup.play(A, B);
       player.emit('error', { code: 'NETWORK' });
-      await flush();
+      await settle();
       vi.advanceTimersByTime(10 * 60_000);
       expect(player.opened).toEqual([A]);
       expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: status });
@@ -1445,20 +1467,25 @@ describe('PlaybackSupervisor: status probe', () => {
   });
 
   it('any other answer keeps the normal NETWORK path, and a play() probes at most once', async () => {
-    const { player, sup, statuses, calls } = probed({ status: 200 });
+    const { player, sup, statuses, calls } = probed({ status: 500 });
     sup.play(A, B);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     vi.advanceTimersByTime(999);
     expect(player.opened).toEqual([A]);
     vi.advanceTimersByTime(1);
     expect(player.opened).toEqual([A, A]);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A, B]); // two tries, then the other format, as before
     expect(calls).toHaveLength(1);
-    expect(statuses.some((s) => s.kind === 'failed')).toBe(false);
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    // Unavailable carries no status (the probe's 500 belonged to an earlier attempt).
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
   });
 
   it('an unknown answer (a rejected probe) is NETWORK as well', async () => {
@@ -1466,7 +1493,7 @@ describe('PlaybackSupervisor: status probe', () => {
     const { player, sup } = setup({ probe });
     sup.play(A);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     vi.advanceTimersByTime(1000);
     expect(probe).toHaveBeenCalledTimes(1);
     expect(player.opened).toEqual([A, A]);
@@ -1476,10 +1503,11 @@ describe('PlaybackSupervisor: status probe', () => {
     const { player, sup, calls } = probed({});
     sup.play(A);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     sup.play(B);
+    vi.advanceTimersByTime(1000); // the gap after the probe
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(calls.map((c) => c.url)).toEqual([A, B]);
   });
 
@@ -1488,7 +1516,7 @@ describe('PlaybackSupervisor: status probe', () => {
     (aware.player as FakePlayer & { supportsStatus?: () => boolean }).supportsStatus = () => true;
     aware.sup.play(A);
     aware.player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(aware.probe).not.toHaveBeenCalled();
     aware.sup.dispose();
 
@@ -1496,23 +1524,23 @@ describe('PlaybackSupervisor: status probe', () => {
     played.sup.play(A);
     played.player.emit('playing');
     played.player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(played.probe).not.toHaveBeenCalled();
     played.sup.dispose();
 
     const media = probed({ status: 403 });
     media.sup.play(A);
     media.player.emit('error', { code: 'MEDIA' });
-    await flush();
+    await settle();
     expect(media.probe).not.toHaveBeenCalled();
   });
 
-  it('a start timeout (no first frame) probes too', async () => {
+  it('a start timeout (no first frame) probes at once, from the supervisor\'s own timer', async () => {
     const { player, sup, probe, statuses } = probed({ status: 404 });
     sup.play(A);
     vi.advanceTimersByTime(15_000);
-    await flush();
     expect(probe).toHaveBeenCalledTimes(1);
+    await flush();
     expect(player.opened).toEqual([A]);
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: 404 });
   });
@@ -1522,7 +1550,7 @@ describe('PlaybackSupervisor: status probe', () => {
     const { player, sup, probe } = probed({ status: 403 }, { blocked });
     sup.play(A, undefined, { sourceKey: 'src' });
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(probe).not.toHaveBeenCalled();
     expect(blocked).toHaveBeenCalledWith('src', A);
     vi.advanceTimersByTime(1000);
@@ -1536,7 +1564,7 @@ describe('PlaybackSupervisor: status probe', () => {
     const roomy = probed({}, { openRate });
     roomy.sup.play(A, undefined, { sourceKey: 'src' });
     roomy.player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(roomy.probe).toHaveBeenCalledTimes(1);
     expect(taken).toEqual(['src']); // the probe only: the user's open does not count
     roomy.sup.dispose();
@@ -1545,7 +1573,7 @@ describe('PlaybackSupervisor: status probe', () => {
     full.sup.play(A, undefined, { sourceKey: 'src' });
     wait = 5000;
     full.player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(full.probe).not.toHaveBeenCalled();
   });
 
@@ -1555,7 +1583,7 @@ describe('PlaybackSupervisor: status probe', () => {
     let close!: () => void;
     (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { close = r; });
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     expect(probe).not.toHaveBeenCalled();
     close();
     await flush();
@@ -1578,7 +1606,7 @@ describe('PlaybackSupervisor: status probe', () => {
     const { player, sup, statuses } = setup({ probe });
     sup.play(A);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     sup.stop();
     expect(signals[0]!.aborted).toBe(true);
     answer({ status: 404 });
@@ -1588,12 +1616,30 @@ describe('PlaybackSupervisor: status probe', () => {
     expect(statuses.some((s) => s.kind === 'failed')).toBe(false);
   });
 
+  it('a stale probe answering during a newer play\'s probe never disarms the newer one\'s 5 s cap', async () => {
+    const answers: Array<(r: ProbeResult) => void> = [];
+    const probe = vi.fn((_u: string, _s: AbortSignal) => new Promise<ProbeResult>((r) => { answers.push(r); }));
+    const { player, sup } = setup({ probe });
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    await settle(); // probe 1 (A) in flight
+    sup.play(B);
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'NETWORK' });
+    await settle(); // probe 2 (B) in flight, never answers
+    answers[0]!({ status: 404 }); // the old probe answers late
+    await flush();
+    vi.advanceTimersByTime(5000); // the new probe's cap still fires: unknown, the normal path
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, B, B]);
+  });
+
   it('gives up waiting on the probe after 5 s and treats it as unknown', async () => {
     const probe = vi.fn((_u: string, _s: AbortSignal) => new Promise<{ status?: number }>(() => undefined));
     const { player, sup } = setup({ probe });
     sup.play(A);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     vi.advanceTimersByTime(4999);
     expect(player.opened).toEqual([A]);
     vi.advanceTimersByTime(1);
@@ -1603,7 +1649,7 @@ describe('PlaybackSupervisor: status probe', () => {
   });
 
   it('a probe refusal during the background retries stops them as refused', async () => {
-    const { player, sup, statuses } = probed({ status: 403 });
+    const { player, sup, statuses } = probed({ status: 403 }, { budget: [{ max: 6, windowMs: 20_000 }] });
     sup.play(A);
     player.emit('playing');
     for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
@@ -1611,7 +1657,7 @@ describe('PlaybackSupervisor: status probe', () => {
     vi.advanceTimersByTime(30_000);
     expect(player.opened).toHaveLength(n + 1);
     player.emit('error', { code: 'NETWORK' });
-    await flush();
+    await settle();
     vi.advanceTimersByTime(10 * 60_000);
     expect(player.opened).toHaveLength(n + 1);
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403 });
@@ -1629,6 +1675,8 @@ describe('PlaybackSupervisor: status probe', () => {
 });
 
 describe('PlaybackSupervisor: spaced give-up retries', () => {
+  /** Room again after 20 s, so every background step has budget unless a test says otherwise. */
+  const roomy = { budget: [{ max: 6, windowMs: 20_000 }] };
   /** Plays, then drops until the reconnect budget runs out: the background retries begin. */
   function exhaust(s: ReturnType<typeof setup>) {
     s.sup.play(A);
@@ -1639,7 +1687,7 @@ describe('PlaybackSupervisor: spaced give-up retries', () => {
   }
 
   it('retries after 30 s, 60 s and 120 s, then stops', () => {
-    const s = setup();
+    const s = setup(roomy);
     const n = exhaust(s);
     const opensAt = (ms: number) => {
       vi.advanceTimersByTime(ms - 1);
@@ -1658,7 +1706,7 @@ describe('PlaybackSupervisor: spaced give-up retries', () => {
   });
 
   it('the waits get ±20 % jitter', () => {
-    const s = setup({ random: () => 1 });
+    const s = setup({ ...roomy, random: () => 1 });
     const n = exhaust(s);
     vi.advanceTimersByTime(36_000 - 1000 - 1);
     expect(s.player.opened).toHaveLength(n);
@@ -1671,11 +1719,20 @@ describe('PlaybackSupervisor: spaced give-up retries', () => {
     expect(s.player.opened).toHaveLength(n + 2);
   });
 
-  it('keeps the reconnect budget: a retry that plays and drops at once gets no fresh reconnects', () => {
-    const s = setup();
+  it('a step with no room in the reconnect budget is skipped', () => {
+    const s = setup(); // 6 a minute: the 30 s step still finds the budget spent
     const n = exhaust(s);
     vi.advanceTimersByTime(29_000);
+    expect(s.player.opened).toHaveLength(n);
+    vi.advanceTimersByTime(60_000);
     expect(s.player.opened).toHaveLength(n + 1);
+  });
+
+  it('keeps the reconnect budget: a retry that plays and drops at once gets no fresh reconnects', () => {
+    const s = setup({ budget: [{ max: 6, windowMs: 20_000 }, { max: 7, windowMs: 600_000 }] });
+    const n = exhaust(s);
+    vi.advanceTimersByTime(29_000);
+    expect(s.player.opened).toHaveLength(n + 1); // the 7th take of ten minutes
     s.player.emit('playing');
     expect(s.statuses.at(-1)).toEqual({ kind: 'playing' });
     s.player.emit('error', { code: 'EOS' });
@@ -1693,6 +1750,8 @@ describe('PlaybackSupervisor: spaced give-up retries', () => {
 });
 
 describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', () => {
+  type Closable = FakePlayer & { closed?: () => Promise<void> };
+
   it('the gap between opens is 1000–1300 ms, drawn per open', () => {
     for (const [r, gap] of [[0, 1000], [0.5, 1150], [1, 1300]] as const) {
       const { player, sup } = setup({ random: () => r, policy: { openGapSpreadMs: 300 } });
@@ -1707,10 +1766,21 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
     }
   });
 
+  it('a user play() keeps the gap after the last open too', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    vi.advanceTimersByTime(400);
+    sup.play(B);
+    vi.advanceTimersByTime(599);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, B]);
+  });
+
   it('an open waits for the previous attempt to close', async () => {
     const { player, sup } = setup();
     let close!: () => void;
-    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { close = r; });
+    (player as Closable).closed = () => new Promise<void>((r) => { close = r; });
     sup.play(A);
     expect(player.opened).toEqual([]);
     vi.advanceTimersByTime(1000);
@@ -1722,7 +1792,7 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
 
   it('a hung teardown delays the open by at most 1.5 s, after the gap', () => {
     const { player, sup } = setup();
-    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>(() => undefined);
+    (player as Closable).closed = () => new Promise<void>(() => undefined);
     sup.play(A);
     vi.advanceTimersByTime(1499);
     expect(player.opened).toEqual([]);
@@ -1739,12 +1809,39 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
   it('a new play() while waiting for the close drops the old open', async () => {
     const { player, sup } = setup();
     const closers: Array<() => void> = [];
-    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { closers.push(r); });
+    (player as Closable).closed = () => new Promise<void>((r) => { closers.push(r); });
     sup.play(A);
     sup.play(B);
     closers.forEach((c) => c());
     await flush();
     expect(player.opened).toEqual([B]);
+  });
+
+  it('an older play\'s close resolving late never cancels the newer play\'s 1.5 s cap', async () => {
+    const { player, sup } = setup();
+    const closers: Array<() => void> = [];
+    let hang = false;
+    (player as Closable).closed = () => new Promise<void>((r) => { if (!hang) closers.push(r); });
+    sup.play(A);
+    hang = true; // the next teardown never reports
+    sup.play(B);
+    closers[0]!(); // the first play's close resolves late
+    await flush();
+    expect(player.opened).toEqual([]);
+    vi.advanceTimersByTime(1500); // B's own cap still fires
+    expect(player.opened).toEqual([B]);
+  });
+
+  it('stop() during the close wait never opens', async () => {
+    const { player, sup } = setup();
+    let close!: () => void;
+    (player as Closable).closed = () => new Promise<void>((r) => { close = r; });
+    sup.play(A);
+    sup.stop();
+    close();
+    await flush();
+    vi.advanceTimersByTime(10_000);
+    expect(player.opened).toEqual([]);
   });
 
   it('an open held by the open-rate cap wakes 0–500 ms after the slot frees', () => {
@@ -1775,6 +1872,7 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
     sup.play(A, undefined, { headers });
     expect(player.openOpts[0]).toEqual({ headers });
     sup.play(A, undefined, { vod: true, startMs: 5000, headers });
+    vi.advanceTimersByTime(1000);
     expect(player.openOpts[1]).toEqual({ live: false, startMs: 5000, headers });
   });
 });
