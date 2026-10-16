@@ -1,4 +1,4 @@
-import type { VodPlayable } from '@iptv/app-api';
+import type { SeriesView, VodPlayable } from '@iptv/app-api';
 
 /** Movies play launcher, shared by the browse hero and the movie detail. No Solid, no Lightning: the screen wires it. */
 
@@ -51,4 +51,34 @@ export function createVodLauncher(deps: LaunchDeps): VodLauncher {
       else deps.toast(CANT_PLAY);
     },
   };
+}
+
+export interface SeriesPlayDeps {
+  seriesId: string;
+  /** The series view when it has already loaded. */
+  view: () => SeriesView | undefined;
+  /** Loads the view (or joins the load in flight). */
+  load: () => Promise<SeriesView | undefined>;
+  /** False once the press no longer applies after the wait (screen gone, focus moved, an overlay opened). */
+  still: () => boolean;
+  launcher: VodLauncher;
+  /** No primary episode after loading (no episodes, or the load failed). */
+  noPrimary: () => void;
+}
+
+/** Plays a series' primary episode, loading the view on demand when the press comes before it has loaded. */
+export async function playSeriesPrimary(d: SeriesPlayDeps): Promise<void> {
+  if (d.launcher.busy()) return;
+  let v = d.view();
+  if (!v) {
+    try {
+      v = await d.load();
+    } catch {
+      v = undefined;
+    }
+    if (!d.still() || d.launcher.busy()) return;
+  }
+  const p = v?.primary;
+  if (p) await d.launcher.play(p.episodeId, { seriesId: d.seriesId });
+  else d.noPrimary();
 }

@@ -11,7 +11,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
 import { createFavToggle } from '../vod/favToggle.ts';
-import { createVodLauncher } from '../vod/launch.ts';
+import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import {
@@ -135,7 +135,15 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   /** True until a load lands: a first load superseded by another (a Favourite toggle) hands its role on. */
   let firstPending = true;
-  const load = async () => {
+  /** The latest load; a superseded one returns early, after the next one has replaced this. */
+  let inFlight: Promise<void> = Promise.resolve();
+  const load = (): Promise<void> => (inFlight = loadOnce());
+  /** Waits until a load has landed (a superseded one hands on to the next), then the view (undefined if it failed). */
+  const loadedView = async (): Promise<SeriesView | undefined> => {
+    while (alive && !loaded()) await inFlight;
+    return view();
+  };
+  const loadOnce = async () => {
     const g = ++gen;
     let v: SeriesView | undefined;
     let failed = false;
@@ -171,15 +179,22 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   const actions = () => seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true });
   const onAction = async (id: string) => {
-    const t = tile();
-    if (!t || busy || !free()) return;
+    if (busy || !free()) return;
     busy = true;
     try {
       if (id === 'play') {
-        const p = view()?.primary;
-        if (p) await launcher.play(p.episodeId, { seriesId: params.id });
+        // A press before the view has loaded waits for it, then plays the primary.
+        await playSeriesPrimary({
+          seriesId: params.id,
+          view: () => (loaded() ? view() : undefined),
+          load: loadedView,
+          still: () => alive && free(),
+          launcher,
+          noPrimary: () => undefined,
+        });
       } else if (id === 'fav') {
-        await fav.toggle(t);
+        const t = tile();
+        if (t) await fav.toggle(t);
       }
     } finally {
       busy = false;

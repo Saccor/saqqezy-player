@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import type { VodPlayable } from '@iptv/app-api';
-import { CANT_PLAY, createVodLauncher } from './launch.ts';
+import type { SeriesView, VodPlayable } from '@iptv/app-api';
+import { CANT_PLAY, createVodLauncher, playSeriesPrimary, type VodLauncher } from './launch.ts';
 
 const playable = { url: 'http://example.test/movie/u/p/1.mp4' } as VodPlayable;
 
@@ -96,5 +96,64 @@ describe('createVodLauncher', () => {
     await run;
     expect(s.toasts).toEqual([]);
     expect(s.pushed).toEqual([]);
+  });
+});
+
+describe('playSeriesPrimary', () => {
+  const primary = { episodeId: 'e5', season: 1, episode: 5, resumeMs: 0, mode: 'continue' as const };
+  const seriesView = (withPrimary: boolean) => ({ ...(withPrimary ? { primary } : {}) }) as SeriesView;
+  const fakeLauncher = (busy = false) => {
+    const plays: Array<[string, string | undefined]> = [];
+    const launcher: VodLauncher = { busy: () => busy, cancel: () => undefined, play: async (id, o) => { plays.push([id, o?.seriesId]); } };
+    return { launcher, plays };
+  };
+  const run = (o: { view?: SeriesView; load?: () => Promise<SeriesView | undefined>; still?: () => boolean; busy?: boolean }) => {
+    const { launcher, plays } = fakeLauncher(o.busy);
+    let loads = 0;
+    let none = 0;
+    const done = playSeriesPrimary({
+      seriesId: 'show', launcher, view: () => o.view,
+      load: () => { loads++; return (o.load ?? (async () => undefined))(); },
+      still: o.still ?? (() => true),
+      noPrimary: () => { none++; },
+    });
+    return { done, plays, counts: () => ({ loads, none }) };
+  };
+
+  test('a loaded view plays its primary at once, without loading', async () => {
+    const r = run({ view: seriesView(true) });
+    await r.done;
+    expect(r.plays).toEqual([['e5', 'show']]);
+    expect(r.counts()).toEqual({ loads: 0, none: 0 });
+  });
+
+  test('before the view loads it waits for the load, then plays the primary', async () => {
+    const r = run({ load: async () => seriesView(true) });
+    await r.done;
+    expect(r.plays).toEqual([['e5', 'show']]);
+    expect(r.counts()).toEqual({ loads: 1, none: 0 });
+  });
+
+  test('no primary after loading (or a failed load) calls noPrimary', async () => {
+    const a = run({ load: async () => seriesView(false) });
+    await a.done;
+    const b = run({ load: async () => { throw new Error('x'); } });
+    await b.done;
+    expect([a.plays, b.plays]).toEqual([[], []]);
+    expect([a.counts().none, b.counts().none]).toEqual([1, 1]);
+  });
+
+  test('a press that no longer applies after the load (screen gone, focus moved) does nothing', async () => {
+    const r = run({ load: async () => seriesView(true), still: () => false });
+    await r.done;
+    expect(r.plays).toEqual([]);
+    expect(r.counts().none).toBe(0);
+  });
+
+  test('ignored while the launcher is busy', async () => {
+    const r = run({ view: seriesView(true), busy: true });
+    await r.done;
+    expect(r.plays).toEqual([]);
+    expect(r.counts()).toEqual({ loads: 0, none: 0 });
   });
 });

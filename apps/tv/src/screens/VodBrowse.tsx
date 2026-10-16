@@ -18,7 +18,7 @@ import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
 import { cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
-import { createVodLauncher } from '../vod/launch.ts';
+import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
 import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
@@ -299,15 +299,36 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       favBusy = false;
     }
   };
+  /** A series Play press waiting for the view to load (a second press meanwhile is ignored). */
+  let seriesPlayPending = false;
+  const playSeries = async (t: VodTile) => {
+    if (seriesPlayPending) return;
+    seriesPlayPending = true;
+    try {
+      await playSeriesPrimary({
+        seriesId: t.id,
+        view: heroSeries,
+        load: async () => {
+          const v = await api.getSeries(t.id);
+          if (alive && v && focusedTile()?.id === t.id) setHero(v);
+          return v;
+        },
+        still: () => alive && focusedTile()?.id === t.id && router.topOverlay() === undefined && !menu.isOpen(),
+        launcher,
+        // No episodes (or the load failed): the detail opens instead.
+        noPrimary: () => router.push(copy.detailRoute, { id: t.id, tile: t }),
+      });
+    } finally {
+      seriesPlayPending = false;
+    }
+  };
   const onHeroAction = (id: string) => {
     const t = focusedTile();
     if (!t || router.topOverlay() !== undefined || menu.isOpen()) return;
     if (id === 'play') {
       if (kind !== 'series') { void launcher.play(t.id); return; }
-      // A series plays its primary episode; without one (no episodes, or not loaded yet) the detail opens.
-      const p = heroSeries()?.primary;
-      if (p) void launcher.play(p.episodeId, { seriesId: t.id });
-      else router.push(copy.detailRoute, { id: t.id, tile: t });
+      // A series plays its primary episode, loading the view first when the press comes before it.
+      void playSeries(t);
     } else if (id === 'details') router.push(copy.detailRoute, { id: t.id, tile: t });
     else if (id === 'fav') void toggleFav(t);
   };
