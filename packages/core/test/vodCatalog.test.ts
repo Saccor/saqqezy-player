@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { searchKey } from '../src/text/searchKey.ts';
 import { VodCatalog } from '../src/vod/catalog.ts';
 import { VOD_ALL, type VodItem, type VodList } from '../src/vod/types.ts';
 
@@ -51,11 +52,25 @@ describe('VodCatalog', () => {
   test('search: a negative or zero cap returns nothing; top-k matches the full ranking', () => {
     expect(c.search('a', -1)).toEqual([]);
     expect(c.search('a', 0)).toEqual([]);
-    const items = Array.from({ length: 300 }, (_, n) => it(n, `${n % 7 === 0 ? 'x' : ''}Film ${(n * 37) % 300} a`));
+    const names = ['Film', 'film', 'FILM', 'Fílm', 'Film A', 'Zed Film', 'Xfilm', 'Élan Film', 'Elan Film', 'Other'];
+    const items = Array.from({ length: 120 }, (_, n) => it(n, names[(n * 7) % names.length]!));
     const big = new VodCatalog('movie', { items, categories: [] });
-    const all = big.search('film', 1000);
-    expect(all).toHaveLength(300);
-    expect(big.search('film', 25).map((r) => r.id)).toEqual(all.slice(0, 25).map((r) => r.id));
+    // Independent reference: every hit, the documented comparator (position, title key, list index), one full sort.
+    const reference = (q: string) => {
+      const hits = items.flatMap((x, i) => {
+        const key = searchKey(x.title);
+        const pos = key.indexOf(searchKey(q));
+        return pos >= 0 ? [{ i, pos, key }] : [];
+      });
+      return [...hits].sort((a, b) => a.pos - b.pos || (a.key < b.key ? -1 : a.key > b.key ? 1 : a.i - b.i));
+    };
+    for (const q of ['film', 'FILM', 'lm', 'e']) {
+      const ref = reference(q);
+      expect(ref.length).toBeGreaterThan(30);
+      for (const k of [1, 2, 3, 7, 11, 12, 13, 29, ref.length, ref.length + 5]) {
+        expect(big.search(q, k).map((r) => r.id)).toEqual(ref.slice(0, k).map((h) => items[h.i]!.id));
+      }
+    }
   });
 
   test('categories() returns a copy', () => {

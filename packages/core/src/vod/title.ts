@@ -3,7 +3,7 @@ const MARKERS = [/\bS(\d{1,2})\s*E(\d{1,3})\b/i, /\b(\d{1,2})x(\d{2,3})\b/i];
 const LEADING_SEPARATORS = /^[\s\-–—|:.]+/;
 const TRAILING_SEPARATORS = /[\s\-–—|:.]+$/;
 /** Words whose trailing `.` is part of the word (`Dr.`, `Vol.`), so edge stripping keeps it. */
-const ABBREVIATION = /(?:^|[^\p{L}])(?:dr|mr|mrs|ms|st|vol|jr|sr|vs|mt|no|prof)$/iu;
+const ABBREVIATION = /(?:^|[^\p{L}])(?:dr|mr|mrs|ms|st|vol|jr|sr|mt|prof)$/iu;
 
 function clean(s: string): string {
   const lead = s.replace(LEADING_SEPARATORS, '');
