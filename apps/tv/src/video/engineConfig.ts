@@ -26,7 +26,8 @@ const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb,
     maxLoadTimeMs: load,
-    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    // A timed-out load waits 1 s, then 4 s (exponential), before giving up: never a burst of instant retries.
+    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000, backoff: 'exponential' as const },
     errorRetry: {
       maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000,
       shouldRetry: (_cfg: unknown, _count: number, _timeout: boolean, res: { code?: number } | undefined, retry: boolean) =>

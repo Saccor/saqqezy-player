@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { PlayerState, StateDetail } from '@iptv/player';
+import type { Player, PlayerState, StateDetail } from '@iptv/player';
 import {
   AvplayPlayer, avplayDisplay, avplayErrorName, mapAvplayError,
   type AvplayLike, type AvplayListener, type AvplayTrack,
@@ -882,5 +882,47 @@ describe('AvplayPlayer: VOD controls', () => {
     p.selectTextTrack('2'); // a track again: cues show
     av.listener!.onsubtitlechange?.(2000, 'Shown', 0, 0);
     expect(cues).toContain('Shown');
+  });
+});
+
+describe('AvplayPlayer: User-Agent, close before open, status awareness', () => {
+  test('headers.userAgent is set as USER_AGENT after open() and before prepareAsync', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A, 1, { headers: { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.test/' } });
+    expect(av.props).toContainEqual(['USER_AGENT', 'SyntheticAgent/1.0']);
+    expect(av.props.at(-1)).toEqual(['USER_AGENT', 'SyntheticAgent/1.0']);
+    const uaCall = av.calls.lastIndexOf('setStreamingProperty');
+    expect(av.calls.indexOf('open')).toBeLessThan(uaCall);
+    expect(uaCall).toBeLessThan(av.calls.indexOf('prepareAsync'));
+    // The referrer has no AVPlay property: nothing else is set from the headers.
+    expect(av.props.filter(([t]) => t !== 'ADAPTIVE_INFO')).toEqual([['USER_AGENT', 'SyntheticAgent/1.0']]);
+  });
+
+  test('no User-Agent without headers (or with an empty one)', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    await p.open(URL_A, 2, { headers: { userAgent: '' } });
+    expect(av.props.some(([t]) => t === 'USER_AGENT')).toBe(false);
+  });
+
+  test('a throwing USER_AGENT call is ignored: the stream still prepares', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av);
+    const orig = av.setStreamingProperty.bind(av);
+    av.setStreamingProperty = (t: string, v: string) => {
+      if (t === 'USER_AGENT') throw Object.assign(new Error('boom'), { name: 'InvalidValuesError' });
+      orig(t, v);
+    };
+    await p.open(URL_A, 1, { headers: { userAgent: 'SyntheticAgent/1.0' } });
+    expect(av.calls).toContain('prepareAsync');
+  });
+
+  test('closed() resolves after close(); AVPlay never reports statuses', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    p.stop();
+    await p.closed();
+    expect(av.calls).toContain('close');
+    expect((p as Player).supportsStatus?.() ?? false).toBe(false);
   });
 });

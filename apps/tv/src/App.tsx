@@ -31,6 +31,7 @@ import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
+import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
@@ -113,6 +114,10 @@ export function App() {
   onMount(() => {
     onCleanup(wireEvents(onEvent, showToast, {
       api, router, playing: () => playback.current() !== undefined, stopPlayback: () => playback.stop(),
+    }));
+    // Back online: an unreachable wait of the active source was our own outage, so it ends (the worker decides).
+    onCleanup(onBackOnline(globalThis.window, () => {
+      api.networkOnline().catch((err: unknown) => console.warn('Back-online retry failed', err instanceof Error ? err.name : 'Error'));
     }));
     void bootstrap(api, router);
   });

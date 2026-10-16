@@ -4,7 +4,7 @@ import { START_CUSHION_S, avplayBuffering, hlsConfig, isTvPlatform, mpegtsConfig
 const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb, maxLoadTimeMs: load,
-    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000, backoff: 'exponential' },
     errorRetry: { maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000, shouldRetry: expect.any(Function) },
   },
 });

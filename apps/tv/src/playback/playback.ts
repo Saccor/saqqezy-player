@@ -9,6 +9,7 @@ import { createVideoLayer } from '../video/videoLayer.ts';
 import { createPlaybackController } from './controller.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
+import { retryDeps } from './retryDeps.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -80,6 +81,7 @@ export const supervisor = new PlaybackSupervisor(player, {
   liveTargets,
   journal,
   openRate,
+  ...retryDeps,
 });
 
 const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
@@ -90,7 +92,7 @@ export const playback = createPlaybackController(
   // The worker owns the refusal cooldown: no stream opens while its host or the active source is cooling down.
   {
     blocked: (s) => cooldownOf(s.cooldownKey).state !== 'clear',
-    refused: (key, url) => { api.reportStreamRefused(key, url).catch(reportFailed); },
+    refused: (key, url, retryAfterMs) => { api.reportStreamRefused(key, url, retryAfterMs).catch(reportFailed); },
     answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
     current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
   },

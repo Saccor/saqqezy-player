@@ -48,6 +48,19 @@ describe('playback controller', () => {
     expect(pb.current()?.id).toBe('1');
   });
 
+  it("passes the stream's headers to the supervisor, live and VOD; none when the playable has none", () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    const headers = { userAgent: 'SyntheticAgent/1.0' };
+    pb.playChannel({ ...ch('1'), headers });
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('1').url, ch('1').alternateUrl, { sourceKey: 'src-1', channel: 'Channel', headers });
+    const vod: VodPlayable = { kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/u/p/1.mp4', title: 'T', resumeMs: 0, tracks: {}, headers: { referrer: 'http://ref.test/' } };
+    pb.playVod(vod, 5000);
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(vod.url, undefined, { sourceKey: 'src-1', vod: true, startMs: 5000, headers: { referrer: 'http://ref.test/' } });
+    pb.playChannel(ch('2'));
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('2').url, ch('2').alternateUrl, { sourceKey: 'src-1', channel: 'Channel' });
+  });
+
   it('passes the active source id as the live-delay key', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
@@ -205,6 +218,30 @@ describe('playback controller', () => {
       f.emit({ kind: 'failed', reason: 'unavailable' });
       const url = (id: string) => `http://example.test/live/u/p/${id}.ts`;
       expect(calls).toEqual([`answered:src-1:${url('1')}`, `refused:src-1:${url('1')}`, `refused:src-1:${url('2')}`]);
+    });
+
+    it("a refusal passes the probe's Retry-After to the gate", () => {
+      const f = fakes();
+      const seen: Array<[string, string, number | undefined]> = [];
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: () => false,
+        refused: (k, url, retryAfterMs) => { seen.push([k, url, retryAfterMs]); },
+        answered: () => undefined,
+      });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'refused', httpStatus: 429, retryAfterMs: 90_000 });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+      expect(seen).toEqual([['src-1', ch('1').url, 90_000], ['src-1', ch('2').url, undefined]]);
+    });
+
+    it('a stream that failed unavailable or gone reports nothing (streams never count toward the unreachable breaker)', () => {
+      const { f, pb, calls } = guarded({ on: false });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'unavailable' });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'gone', httpStatus: 404 });
+      expect(calls).toEqual([]);
     });
 
     it('resumeHeld opens the held channel once, and nothing when none is held', () => {

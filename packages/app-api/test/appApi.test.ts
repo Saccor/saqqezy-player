@@ -1701,6 +1701,48 @@ describe('AppApi – refusal cooldown', () => {
     expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
   });
 
+  test("a stream refusal's Retry-After replaces the host's wait", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url, 90_000);
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 90_000, reason: 'refused' });
+  });
+
+  test('back online: an unreachable wait of the active source ends and the background pass runs', async () => {
+    const r = refusingFetch();
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
+    expect((await api.init()).cooldown).toMatchObject({ reason: 'unreachable' });
+    down = false;
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    expect(r.state.sent).toContain('/xmltv.php');
+  });
+
+  test('back online leaves a refusal wait alone and sends nothing', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    await api.addSource(xt());
+    await api.idle();
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+    expect(r.state.sent).toEqual([]);
+  });
+
   test('a stream never counts toward the unreachable breaker: the API has no such report', () => {
     expect(APP_API_METHODS).not.toContain('reportStreamUnreachable' as never);
   });

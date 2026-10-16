@@ -827,3 +827,71 @@ describe('Html5Player – VOD', () => {
     player.destroy();
   });
 });
+
+describe('Html5Player – close before open and status awareness', () => {
+  test('closed() resolves on the next tick after stop() tore hls.js down', async () => {
+    vi.useFakeTimers();
+    try {
+      const { player } = makePlayer();
+      await player.open('http://example.test/live/u/p/1.m3u8');
+      const hls = created.hls.at(-1)!;
+      player.stop();
+      expect(hls.calls).toContain('destroy');
+      let done = false;
+      void player.closed().then(() => { done = true; });
+      await Promise.resolve();
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('closed() after stop() on mpegts.js: unload, detach and destroy already ran', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/live/u/p/1.ts');
+    const ts = created.mpegts.at(-1)!;
+    player.stop();
+    await player.closed();
+    expect(ts.calls).toEqual(expect.arrayContaining(['unload', 'detach', 'destroy']));
+    expect(ts.calls.indexOf('unload')).toBeLessThan(ts.calls.indexOf('destroy'));
+  });
+
+  test('closed() after stop() on the native element: src removed and load() called', async () => {
+    const { video, player } = makePlayer();
+    const calls: string[] = [];
+    video.canPlayType = ((t: string) => (t === 'application/vnd.apple.mpegurl' ? 'maybe' : '')) as typeof video.canPlayType;
+    video.removeAttribute = ((a: string) => { calls.push(`remove:${a}`); }) as typeof video.removeAttribute;
+    video.load = () => { calls.push('load'); };
+    await player.open('http://example.test/live/u/p/1.m3u8');
+    calls.length = 0;
+    player.stop();
+    await player.closed();
+    expect(calls).toEqual(['remove:src', 'load']);
+  });
+
+  test('closed() also waits for a deferred mpegts.js teardown (switch to HLS) that a stop() overtook', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/live/u/p/1');
+    const ts = created.mpegts.at(-1)!;
+    ts.error!('MediaError', 'FormatError');
+    player.stop();
+    await player.closed();
+    expect(ts.calls).toContain('destroy');
+  });
+
+  test('supportsStatus(): true on hls.js and mpegts.js, false on the native element and without a session', async () => {
+    const { video, player } = makePlayer();
+    expect(player.supportsStatus()).toBe(false);
+    await player.open('http://example.test/live/u/p/1.m3u8');
+    expect(player.supportsStatus()).toBe(true);
+    await player.open('http://example.test/live/u/p/1.ts');
+    expect(player.supportsStatus()).toBe(true);
+    video.canPlayType = ((t: string) => (t === 'application/vnd.apple.mpegurl' ? 'maybe' : '')) as typeof video.canPlayType;
+    await player.open('http://example.test/live/u/p/2.m3u8');
+    expect(player.supportsStatus()).toBe(false);
+    player.stop();
+    expect(player.supportsStatus()).toBe(false);
+  });
+});

@@ -258,10 +258,29 @@ export class AppApi {
 
   /**
    * The player gave up on the stream at `url` of `sourceId` because the source refused it: only the streams on that
-   * host pause (spec 2026-10-16-source-retry §5). The URL is used for its host only; never logged.
+   * host pause (spec 2026-10-16-source-retry §5). The URL is used for its host only; never logged. `retryAfterMs` (the
+   * status probe's `Retry-After`) replaces this step's wait, clamped by the guard.
    */
-  reportStreamRefused(sourceId: string, url: string): Promise<void> {
-    return this.run('reportStreamRefused', () => this.service.guard.report(streamCooldownKey(sourceId, url), 'refused'));
+  reportStreamRefused(sourceId: string, url: string, retryAfterMs?: number): Promise<void> {
+    return this.run('reportStreamRefused', () => this.service.guard.report(
+      streamCooldownKey(sourceId, url), 'refused', retryAfterMs === undefined ? undefined : { retryAfterMs },
+    ));
+  }
+
+  /**
+   * The device is back online: an unreachable wait of the active source was (likely) our own outage, so it ends now
+   * and the background pass runs again (its first request is the probe). A refusal wait is left alone.
+   */
+  networkOnline(): Promise<void> {
+    return this.run('networkOnline', async () => {
+      const id = this.activeId;
+      if (!id) return;
+      const guard = this.service.guard;
+      const status = await guard.status(id);
+      if (status.state !== 'waiting' || status.reason !== 'unreachable') return;
+      await guard.retry(id);
+      if (id === this.activeId) this.startBackground(id);
+    });
   }
 
   /** The stream at `url` of `sourceId` played: its host answers us, and so does the source. */
@@ -1422,7 +1441,7 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
-  'retrySource', 'reportStreamRefused', 'reportStreamAnswered',
+  'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',

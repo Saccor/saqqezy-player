@@ -1,6 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
-import type { Player, PlaybackSupervisor, Rect, SupervisorStatus, TrackInfo } from '@iptv/player';
+import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
   /**
@@ -69,8 +69,11 @@ export type CooldownStream = Pick<PlayableChannel, 'url' | 'cooldownKey' | 'cool
 export interface CooldownGate {
   /** True while nothing may be sent for this stream: its host or the active source is cooling down. */
   blocked(stream: CooldownStream): boolean;
-  /** The supervisor gave up because the source refused the stream at `url` (only its host pauses). */
-  refused(sourceKey: string, url: string): void;
+  /**
+   * The supervisor gave up because the source refused the stream at `url` (only its host pauses). `retryAfterMs`: the
+   * status probe's `Retry-After`, which replaces the wait.
+   */
+  refused(sourceKey: string, url: string, retryAfterMs?: number): void;
   /** The stream at `url` played: its host and the source answer us. */
   answered(sourceKey: string, url: string): void;
   /** The current stream changed (undefined: none): the cooldown copy and the hold follow its host. */
@@ -120,7 +123,8 @@ export function createPlaybackController(
       gate.answered(key, playUrl);
     } else if (s.kind === 'failed') {
       playKey = undefined;
-      if (s.reason === 'refused') gate.refused(key, playUrl);
+      // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
+      if (s.reason === 'refused') gate.refused(key, playUrl, s.retryAfterMs);
     }
   });
   const setCurrentStream = (ch: PlayableChannel | undefined) => {
@@ -139,14 +143,17 @@ export function createPlaybackController(
     const pos = supervisor.positionMs();
     if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
   };
-  const startPlay = (url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }) => {
+  const startPlay = (
+    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }, headers?: StreamHeaders,
+  ) => {
     held = false;
     const key = sourceKey();
     playKey = key;
     playUrl = url;
     answeredReported = false;
     vodOpened = opts.vod === true;
-    supervisor.play(url, alt, { sourceKey: key, ...opts });
+    // Headers only when the stream has some: the engines apply what they can (AVPlay: the User-Agent). Never logged.
+    supervisor.play(url, alt, headers ? { sourceKey: key, ...opts, headers } : { sourceKey: key, ...opts });
   };
 
   const hold = () => {
@@ -178,7 +185,7 @@ export function createPlaybackController(
         hold();
         return false;
       }
-      startPlay(ch.url, ch.alternateUrl, { channel: ch.name });
+      startPlay(ch.url, ch.alternateUrl, { channel: ch.name }, ch.headers);
       return true;
     },
     playVod(p, startMs) {
@@ -193,7 +200,7 @@ export function createPlaybackController(
         hold();
         return;
       }
-      startPlay(p.url, undefined, { vod: true, startMs });
+      startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
     },
     pause: () => supervisor.pause(),
     resume: () => supervisor.resume(),
