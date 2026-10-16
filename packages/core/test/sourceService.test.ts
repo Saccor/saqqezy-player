@@ -1166,3 +1166,135 @@ describe('SourceService – refusal cooldown', () => {
     expect(await storage.getMeta(`refusal:${source.id}`)).toBeNull();
   });
 });
+
+describe('SourceService – source HTTP settings and account limit', () => {
+  const xInput = { kind: 'xtream' as const, name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
+  const xRoutes = (info: Record<string, unknown>) => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active', ...info } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+  };
+
+  test('an Xtream login and refresh store max_connections and active_cons with the source', async () => {
+    xRoutes({ max_connections: '2', active_cons: '0' });
+    const { source } = await service.addSource(xInput);
+    expect(source).toMatchObject({ maxConnections: 2, activeConnections: 0 });
+    expect((await service.listSources())[0]).toMatchObject({ maxConnections: 2, activeConnections: 0 });
+    xRoutes({ max_connections: '3', active_cons: '1' });
+    await service.refreshPlaylist(source.id);
+    expect((await service.listSources())[0]).toMatchObject({ maxConnections: 3, activeConnections: 1 });
+    xRoutes({});
+    await service.updateSource({ ...source, name: 'Renamed' });
+    const [stored] = await service.listSources();
+    expect(stored).toMatchObject({ name: 'Renamed' });
+    expect(stored && 'maxConnections' in stored).toBe(false);
+    expect(stored && 'activeConnections' in stored).toBe(false);
+  });
+
+  test('add and update keep userAgent and referrer trimmed, at most 512 chars, and drop empty ones', async () => {
+    const { source } = await service.addSource({ ...m3uInput, userAgent: '  SyntheticAgent/1.0  ', referrer: '   ' });
+    expect(source).toEqual({ ...m3uInput, id: 'id1', userAgent: 'SyntheticAgent/1.0' });
+    expect((await service.listSources())[0]).toEqual({ ...m3uInput, id: 'id1', userAgent: 'SyntheticAgent/1.0' });
+    await service.updateSource({ ...source, userAgent: 'a'.repeat(600), referrer: ' http://example.test/ ' });
+    const [stored] = await service.listSources();
+    expect(stored?.userAgent).toHaveLength(512);
+    expect(stored?.referrer).toBe('http://example.test/');
+    await service.updateSource({ ...source, userAgent: '', referrer: 7 as unknown as string });
+    const [cleared] = await service.listSources();
+    expect(cleared && ('userAgent' in cleared || 'referrer' in cleared)).toBe(false);
+  });
+
+  test('a playlist header is stored on the channel', async () => {
+    routes['/p.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 1\n#EXTVLCOPT:http-user-agent=SyntheticAgent/1.0\nhttp://example.test/live/1.ts|Referer=http://example.test/\n');
+    const { source } = await service.addSource(m3uInput);
+    const [c] = await storage.getChannels(source.id);
+    expect(c).toMatchObject({ url: 'http://example.test/live/1.ts', headers: { userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' } });
+  });
+});
+
+describe('SourceService – refresh backoff', () => {
+  const MIN = 60_000;
+  let t: number;
+  let svc: SourceService;
+  beforeEach(() => {
+    t = NOW;
+    svc = new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => t, newId: () => 'b1' });
+  });
+  /** Adds the M3U source with its guide, then moves the clock past the 12 h auto refresh so both are stale. */
+  const staleSource = async () => {
+    const { source } = await svc.addSource(m3uInput);
+    await svc.refreshEpg(source.id);
+    t += 13 * 3600_000;
+    return source.id;
+  };
+
+  test('a failed playlist refresh waits 15 min, 1 h, then 6 h (capped) before the next automatic one', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('down', { status: 500 });
+    const steps = [15 * MIN, 60 * MIN, 360 * MIN, 360 * MIN];
+    for (const [i, wait] of steps.entries()) {
+      await expect(svc.refreshPlaylist(id)).rejects.toBeInstanceOf(SourceNetworkError);
+      expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toEqual({ count: i + 1, at: t });
+      expect(await svc.needsPlaylistRefresh(id)).toBe(false);
+      t += wait - 1;
+      expect(await svc.needsPlaylistRefresh(id)).toBe(false);
+      t += 1;
+      expect(await svc.needsPlaylistRefresh(id)).toBe(true);
+    }
+    // The guide has its own record.
+    expect(await svc.needsEpgRefresh(id)).toBe(true);
+  });
+
+  test('a success clears the record', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('down', { status: 500 });
+    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    routes['/p.m3u'] = () => new Response(m3u);
+    await svc.refreshPlaylist(id);
+    expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
+  });
+
+  test('a manual refresh always runs, even while backed off', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('down', { status: 500 });
+    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    routes['/p.m3u'] = () => new Response(m3u);
+    await expect(svc.refreshPlaylist(id)).resolves.toMatchObject({ channelCount: 4 });
+  });
+
+  test('a refusal is left to the refusal guard: no backoff record', async () => {
+    const id = await staleSource();
+    for (const status of [403, 429, 503]) {
+      routes['/p.m3u'] = () => new Response('no', { status });
+      await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+      await svc.guard.forget(id);
+    }
+    expect(await storage.getMeta(`refreshFail:${id}:playlist`)).toBeFalsy();
+    expect(await svc.needsPlaylistRefresh(id)).toBe(true);
+  });
+
+  test('a failed guide refresh is backed off on its own', async () => {
+    const id = await staleSource();
+    routes['/epg.xml'] = () => new Response('down', { status: 502 });
+    await expect(svc.refreshEpg(id)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta(`refreshFail:${id}:epg`)).toEqual({ count: 1, at: t });
+    expect(await svc.needsEpgRefresh(id)).toBe(false);
+    expect(await svc.needsPlaylistRefresh(id)).toBe(true);
+    t += 15 * MIN;
+    expect(await svc.needsEpgRefresh(id)).toBe(true);
+    routes['/epg.xml'] = () => new Response(xml);
+    await svc.refreshEpg(id);
+    expect(await storage.getMeta(`refreshFail:${id}:epg`)).toBeFalsy();
+  });
+
+  test('deleting the source removes its records', async () => {
+    const id = await staleSource();
+    routes['/p.m3u'] = () => new Response('down', { status: 500 });
+    await expect(svc.refreshPlaylist(id)).rejects.toThrow();
+    await storage.setMeta(`refreshFail:${id}:vod:movie`, { count: 1, at: t });
+    await svc.deleteSource(id);
+    for (const what of ['playlist', 'epg', 'vod:movie', 'vod:series']) {
+      expect(await storage.getMeta(`refreshFail:${id}:${what}`)).toBeFalsy();
+    }
+  });
+});

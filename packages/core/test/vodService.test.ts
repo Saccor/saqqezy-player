@@ -255,3 +255,37 @@ describe('VodService for the worker', () => {
     expect(await svc.setWatched('x', 'x:e1', true, pointer)).toMatchObject({ watched: true, series: pointer });
   });
 });
+
+describe('VodService refresh backoff', () => {
+  const MIN = 60_000;
+
+  test('a failed catalogue fetch waits 15 min, then 1 h, before the next automatic one; a success clears it', async () => {
+    delete api.get_vod_categories;
+    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 1, at: NOW });
+    expect(await svc.needsRefresh('x', 'movie')).toBe(false);
+    expect(await svc.needsRefresh('x', 'series')).toBe(true);
+    now = NOW + 15 * MIN;
+    expect(await svc.needsRefresh('x', 'movie')).toBe(true);
+    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 2, at: now });
+    now += 60 * MIN - 1;
+    expect(await svc.needsRefresh('x', 'movie')).toBe(false);
+    // A manual refresh (Try again) is never gated.
+    api.get_vod_categories = () => [{ category_id: '1', category_name: 'Drama' }];
+    await expect(svc.refresh('x', 'movie')).resolves.toMatchObject({ count: 1 });
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
+  });
+
+  test('a cancelled fetch or a refusal records nothing', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await expect(svc.refresh('x', 'series', { signal: ac.signal })).rejects.toBeInstanceOf(VodFetchCancelled);
+    const guard = new RefusalGuard({ storage, now: () => now });
+    const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
+    await guard.report('x', 'refused');
+    await expect(guarded.refresh('x', 'movie')).rejects.toBeInstanceOf(SourceRefusedError);
+    expect(await storage.getMeta('refreshFail:x:vod:series')).toBeFalsy();
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
+  });
+});

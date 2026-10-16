@@ -95,3 +95,89 @@ describe('tvg-shift and bare-url names', () => {
     expect(out[1]?.name).not.toContain('secret');
   });
 });
+
+describe('parseM3u – per-channel headers', () => {
+  test('reads #EXTVLCOPT user agent and referrer', async () => {
+    const { out } = await parse([
+      '#EXTM3U',
+      '#EXTINF:-1,Channel 001',
+      '#EXTVLCOPT:http-user-agent=SyntheticAgent/1.0',
+      '#EXTVLCOPT:http-referrer=http://example.test/page',
+      'http://example.test/live/1.ts',
+    ].join('\n'));
+    expect(out[0]?.headers).toEqual({ userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/page' });
+    expect(out[0]?.url).toBe('http://example.test/live/1.ts');
+  });
+
+  test('reads #EXTHTTP JSON; malformed JSON and non-string values are ignored', async () => {
+    const { out } = await parse([
+      '#EXTINF:-1,Channel 001',
+      '#EXTHTTP:{"User-Agent":"SyntheticAgent/2.0","Referer":"http://example.test/r","Cookie":"x"}',
+      'http://example.test/live/1.ts',
+      '#EXTINF:-1,Channel 002',
+      '#EXTHTTP:{"User-Agent":',
+      'http://example.test/live/2.ts',
+      '#EXTINF:-1,Channel 003',
+      '#EXTHTTP:{"User-Agent":42,"Referer":["x"]}',
+      'http://example.test/live/3.ts',
+    ].join('\n'));
+    expect(out[0]?.headers).toEqual({ userAgent: 'SyntheticAgent/2.0', referrer: 'http://example.test/r' });
+    expect(out[1]?.headers).toBeUndefined();
+    expect(out[2]?.headers).toBeUndefined();
+    expect(out.map((e) => e.name)).toEqual(['Channel 001', 'Channel 002', 'Channel 003']);
+  });
+
+  test('reads the URL pipe and strips it from the URL', async () => {
+    const { out } = await parse([
+      '#EXTINF:-1,Channel 001',
+      'http://example.test/live/1.ts|User-Agent=Synthetic%20Agent%2F3&Referer=http%3A%2F%2Fexample.test%2F',
+      '#EXTINF:-1,Channel 002',
+      'http://example.test/live/2.ts|X-Other=1',
+    ].join('\n'));
+    expect(out[0]).toMatchObject({ url: 'http://example.test/live/1.ts', headers: { userAgent: 'Synthetic Agent/3', referrer: 'http://example.test/' } });
+    expect(out[1]?.url).toBe('http://example.test/live/2.ts');
+    expect(out[1]?.headers).toBeUndefined();
+  });
+
+  test('an empty value is ignored, and headers never carry over to the next entry', async () => {
+    const { out } = await parse([
+      '#EXTINF:-1,Channel 001',
+      '#EXTVLCOPT:http-user-agent=',
+      '#EXTVLCOPT:http-referrer=  ',
+      'http://example.test/live/1.ts|User-Agent=',
+      '#EXTINF:-1,Channel 002',
+      '#EXTVLCOPT:http-user-agent=SyntheticAgent/1.0',
+      'http://example.test/live/2.ts',
+      '#EXTINF:-1,Channel 003',
+      'http://example.test/live/3.ts',
+    ].join('\n'));
+    expect(out[0]?.headers).toBeUndefined();
+    expect(out[0]?.url).toBe('http://example.test/live/1.ts');
+    expect(out[1]?.headers).toEqual({ userAgent: 'SyntheticAgent/1.0' });
+    expect(out[2]?.headers).toBeUndefined();
+  });
+
+  test('the URL pipe wins over the tags; control characters are dropped and values capped at 512', async () => {
+    const long = 'a'.repeat(600);
+    const { out } = await parse([
+      '#EXTINF:-1,Channel 001',
+      '#EXTVLCOPT:http-user-agent=FromTag',
+      '#EXTHTTP:{"Referer":"Ref\\r\\nX-Injected: 1"}',
+      'http://example.test/live/1.ts|User-Agent=FromPipe',
+      '#EXTINF:-1,Channel 002',
+      `#EXTVLCOPT:http-user-agent=${long}`,
+      'http://example.test/live/2.ts',
+    ].join('\n'));
+    expect(out[0]?.headers).toEqual({ userAgent: 'FromPipe', referrer: 'RefX-Injected: 1' });
+    expect(out[1]?.headers?.userAgent).toHaveLength(512);
+  });
+
+  test('m3uEntriesToChannels keeps the headers on the channel', () => {
+    const [a, b] = m3uEntriesToChannels('s', [
+      { name: 'A', url: 'http://example.test/a.ts', headers: { userAgent: 'SyntheticAgent/1.0' } },
+      { name: 'B', url: 'http://example.test/b.ts' },
+    ]);
+    expect(a?.headers).toEqual({ userAgent: 'SyntheticAgent/1.0' });
+    expect(b && 'headers' in b).toBe(false);
+  });
+});

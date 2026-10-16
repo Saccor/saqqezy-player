@@ -36,6 +36,10 @@ export {
   UNREACHABLE_WINDOW_MS, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
 } from './net/refusalGuard.ts';
 export { parseRetryAfter } from './net/retryAfter.ts';
+export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings } from './net/headers.ts';
+export {
+  REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
+} from './service/refreshBackoff.ts';
 export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';

@@ -9,6 +9,7 @@ import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
+import { withCleanHttpSettings } from '../net/headers.ts';
 import { REFUSAL_STATUSES, RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
@@ -20,8 +21,12 @@ import type {
   Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, XtreamSourceConfig,
 } from '../types.ts';
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
-import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer } from '../xtream/client.ts';
+import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type XtreamAccount } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
+import {
+  REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
+  type RefreshWhat,
+} from './refreshBackoff.ts';
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
@@ -124,8 +129,9 @@ export class SourceService {
   }
 
   async addSource(input: NewSource, onProgress?: Progress) {
-    const source = { ...input, id: this.newId() } as SourceConfig;
-    const { channels, result, vod } = await this.fetchChannels(source, onProgress);
+    let source = withCleanHttpSettings({ ...input, id: this.newId() } as SourceConfig);
+    const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+    source = withAccount(source, account);
     try {
       await this.saveChannels(source.id, channels, result, vod);
       await this.storage.putSource(source);
@@ -142,11 +148,16 @@ export class SourceService {
     return { source, result };
   }
 
-  updateSource(source: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
-    return this.withLock(source.id, async () => {
+  /** `userAgent` and `referrer` are stored trimmed and capped (absent when empty); the account limit comes from the login. */
+  updateSource(input: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
+    return this.withLock(input.id, async () => {
+      let source = withCleanHttpSettings(input);
       const prev = (await this.storage.listSources()).find((s) => s.id === source.id);
-      const { channels, result, vod } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+      source = withAccount(source, account);
       await this.storage.putSource(source);
+      // Another configuration: earlier failures say nothing about it, so automatic refreshes start afresh.
+      for (const what of REFRESH_WHATS) await clearRefreshFailure(this.storage, source.id, what);
       await this.saveChannels(source.id, channels, result, vod);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
       if (source.kind === 'xtream') {
@@ -171,6 +182,8 @@ export class SourceService {
       if (staging !== undefined) await this.storage.clearProgrammes(`${id}@${staging}`);
       await this.storage.deleteSource(id);
       await this.guard.forget(id);
+      // These keys do not end in the source id, so storage's per-source cleanup misses them.
+      for (const what of REFRESH_WHATS) await this.storage.setMeta(refreshFailKey(id, what), null);
       // Lock order is always `id` then `layout:<id>`. Taking the layout lock waits out a layout write that had
       // already seen the source, then removes whatever it left behind; later writes see no source and no-op.
       await this.withLock(`layout:${id}`, async () => {
@@ -185,19 +198,31 @@ export class SourceService {
     });
   }
 
+  /**
+   * Fetches and stores the playlist. Always runs (a manual refresh is never held off); a failure that is not a
+   * refusal records the refresh backoff that `needsPlaylistRefresh` applies, and a success clears it.
+   */
   refreshPlaylist(id: string, onProgress?: Progress): Promise<IngestResult> {
-    return this.withLock(id, async () => {
+    return this.withLock(id, () => this.withBackoff(id, 'playlist', async () => {
       const source = await this.requireSource(id);
-      const { channels, result, vod } = await this.fetchChannels(source, onProgress);
-      if (!(await this.sourceExists(id))) return { channelCount: 0, skipped: 0 };
+      const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+      const stored = (await this.storage.listSources()).find((s) => s.id === id);
+      if (!stored) return { channelCount: 0, skipped: 0 };
       // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
       // An M3U answer needs no guard: fetchChannels rejects one with nothing, and one with only movies or series is valid.
       if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
         throw new SourceNetworkError('The account has no live channels.');
       }
       await this.saveChannels(id, channels, result, vod);
+      if (stored.kind === 'xtream') {
+        const next = withAccount(stored, account);
+        if (next.kind === 'xtream'
+          && (next.maxConnections !== stored.maxConnections || next.activeConnections !== stored.activeConnections)) {
+          await this.storage.putSource(next);
+        }
+      }
       return result;
-    });
+    }));
   }
 
   async getSettings(): Promise<AppSettings> {
@@ -235,7 +260,12 @@ export class SourceService {
     });
   }
 
+  /**
+   * Whether an automatic refresh should fetch the playlist: never fetched, or stale by `autoRefreshHours`, and not
+   * held off after a failed refresh (`refreshBackedOff`). Manual refreshes do not ask.
+   */
   async needsPlaylistRefresh(id: string): Promise<boolean> {
+    if (await this.refreshBackedOff(id, 'playlist')) return false;
     const at = (await this.storage.getMeta<number>(`playlistAt:${id}`)) ?? 0;
     if (!at) return true;
     const hours = (await this.getSettings()).autoRefreshHours;
@@ -243,12 +273,19 @@ export class SourceService {
     return this.now() - at > hours * 3600_000;
   }
 
+  /** As `needsPlaylistRefresh`, for the guide. */
   async needsEpgRefresh(id: string): Promise<boolean> {
+    if (await this.refreshBackedOff(id, 'epg')) return false;
     const at = (await this.storage.getMeta<number>(`epgAt:${id}`)) ?? 0;
     if (!at) return true;
     const hours = (await this.getSettings()).autoRefreshHours;
     if (hours === 0) return false;
     return this.now() - at > hours * 3600_000;
+  }
+
+  /** Whether the next automatic refresh of `what` must still wait after a failed one (15 min, 1 h, then 6 h). */
+  refreshBackedOff(id: string, what: RefreshWhat): Promise<boolean> {
+    return refreshBackedOff(this.storage, id, what, this.now());
   }
 
   async loadIndex(id: string): Promise<ChannelIndex> {
@@ -302,7 +339,7 @@ export class SourceService {
     return this.withLock(id, async () => {
       this.epgRefreshing.add(id);
       try {
-        return await this.refreshEpgLocked(id, onProgress);
+        return await this.withBackoff(id, 'epg', () => this.refreshEpgLocked(id, onProgress));
       } finally {
         this.epgRefreshing.delete(id);
       }
@@ -529,6 +566,21 @@ export class SourceService {
     if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
+  /** Runs a refresh of `what`: a success clears its backoff record, a failure that counts records one more. */
+  private async withBackoff<T>(id: string, what: RefreshWhat, fn: () => Promise<T>): Promise<T> {
+    let out: T;
+    try {
+      out = await fn();
+    } catch (err) {
+      if (countsAsRefreshFailure(err) && (await this.sourceExists(id).catch(() => false))) {
+        await recordRefreshFailure(this.storage, id, what, this.now());
+      }
+      throw err;
+    }
+    if (await this.sourceExists(id)) await clearRefreshFailure(this.storage, id, what);
+    return out;
+  }
+
   private withLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.locks.get(id) ?? Promise.resolve();
     const run = prev.then(fn);
@@ -584,10 +636,10 @@ export class SourceService {
 
   private async fetchChannels(
     source: SourceConfig, onProgress?: Progress,
-  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod }> {
+  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount }> {
     if (source.kind === 'xtream') {
       const client = this.xtream(source);
-      await client.authenticate();
+      const account = await client.authenticate();
       const [categories, streams] = await Promise.all([client.liveCategories(), client.liveStreams()]);
       const channels = xtreamToChannels(source.id, client, categories, streams, 'ts');
       if (channels.length === 0) {
@@ -602,7 +654,7 @@ export class SourceService {
       onProgress?.({ phase: 'playlist', count: channels.length });
       const result: IngestResult = { channelCount: channels.length, skipped: 0 };
       if (channels.length === 0) result.vodCatalogue = true;
-      return { channels, result };
+      return { channels, result, account };
     }
     const res = await this.get(source.id, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
@@ -636,6 +688,19 @@ export class SourceService {
     await this.storage.setMeta(`playlistAt:${id}`, this.now());
     await this.storage.setMeta(`parseStats:${id}`, result);
   }
+}
+
+/**
+ * `source` with the connection limit and count of the login's `account` (Xtream); fields the answer lacks are dropped,
+ * so a stale limit never stays. An M3U source is returned unchanged.
+ */
+function withAccount(source: SourceConfig, account: XtreamAccount | undefined): SourceConfig {
+  if (source.kind !== 'xtream') return source;
+  const { maxConnections: _max, activeConnections: _active, ...rest } = source;
+  const out: XtreamSourceConfig = rest;
+  if (account?.maxConnections !== undefined) out.maxConnections = account.maxConnections;
+  if (account?.activeConnections !== undefined) out.activeConnections = account.activeConnections;
+  return out;
 }
 
 /**

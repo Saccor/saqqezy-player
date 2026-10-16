@@ -1,9 +1,9 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
+  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
-  type TitleIndexData, type VodKind, type VodService, type VodSort,
+  type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
@@ -68,6 +68,8 @@ export class AppApi {
   private readonly appVersion: string;
 
   private activeId: string | undefined;
+  /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
+  private sourceHeaders: StreamHeaders | undefined;
   private index = new ChannelIndex([]);
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
@@ -579,7 +581,11 @@ export class AppApi {
   }
 
   getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
-    return this.run('getVodPlayable', () => this.vodOrThrow().playable(itemId, seriesId));
+    return this.run('getVodPlayable', async () => {
+      const out = await this.vodOrThrow().playable(itemId, seriesId);
+      if (out && this.sourceHeaders) out.headers = { ...this.sourceHeaders };
+      return out;
+    });
   }
 
   saveVodProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {
@@ -758,15 +764,19 @@ export class AppApi {
   /** Makes `id` the in-memory active source and loads its cached index; both are swapped in together. */
   private activate(id: string | undefined): Promise<void> {
     return this.withIndex(async () => {
-      const [channels, layout, coverage] = id
-        ? await Promise.all([this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id)])
-        : [[], emptyLayout(), undefined];
+      const [channels, layout, coverage, sources] = id
+        ? await Promise.all([
+          this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id), this.service.listSources(),
+        ])
+        : [[], emptyLayout(), undefined, []];
+      const source = sources.find((s) => s.id === id);
       if (id !== this.activeId) {
         // Another source: its channels are neither focused nor playing yet.
         this.focusedId = undefined;
         this.playingId = undefined;
       }
       this.activeId = id;
+      this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
@@ -1129,7 +1139,10 @@ export class AppApi {
     try {
       // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
       // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
-      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id))
+      // A failed automatic refresh holds the next one off (15 min, 1 h, 6 h) even with an empty cache; a manual
+      // refresh (`refresh`) is never held off.
+      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id)
+        && !(await this.service.refreshBackedOff(id, 'playlist')))
         || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
@@ -1308,6 +1321,9 @@ export class AppApi {
     const { url, alternateUrl } = await this.streamUrls(channel);
     const out: PlayableChannel = { ...row!, url };
     if (alternateUrl) out.alternateUrl = alternateUrl;
+    // The channel's own headers (from the playlist) win over the source's settings, field by field.
+    const headers = mergeHeaders(this.sourceHeaders, channel.headers);
+    if (headers) out.headers = headers;
     return out;
   }
 

@@ -1,6 +1,6 @@
-import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, VodKind } from '@iptv/core';
+import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
-export type { SourceCooldown };
+export type { SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
@@ -11,7 +11,12 @@ export interface ChannelRow {
   favourite: boolean; now?: ProgrammeLite; next?: ProgrammeLite;
 }
 
-export interface PlayableChannel extends ChannelRow { url: string; alternateUrl?: string }
+export interface PlayableChannel extends ChannelRow {
+  url: string;
+  alternateUrl?: string;
+  /** Request headers for the stream: the channel's own (from the playlist) win over the source's settings. Never log. */
+  headers?: StreamHeaders;
+}
 
 export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u'; active: boolean }
 
@@ -214,4 +219,6 @@ export interface VodPlayable {
   next?: { id: string; label: string };
   /** Episodes: the previous episode (Channel down). */
   prev?: { id: string; label: string };
+  /** The source's User-Agent and Referer settings, when set. Never log. */
+  headers?: StreamHeaders;
 }

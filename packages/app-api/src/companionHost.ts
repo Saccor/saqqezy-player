@@ -447,8 +447,10 @@ export class CompanionHost implements CompanionControl {
         await this.answerState(s, msgId, msg.haveVersion);
         return;
       case 'getSource': {
-        const source = await api.getSource(msg.id);
-        if (!source) throw Object.assign(new Error('Source not found.'), { name: 'NotFoundError' });
+        const found = await api.getSource(msg.id);
+        if (!found) throw Object.assign(new Error('Source not found.'), { name: 'NotFoundError' });
+        // The User-Agent and Referer settings stay on the TV (the phone form has no such fields).
+        const { userAgent: _ua, referrer: _ref, ...source } = found;
         await this.send(s, { t: 'source', source });
         return;
       }
@@ -473,7 +475,12 @@ export class CompanionHost implements CompanionControl {
         return;
       case 'updateSource': {
         const { id, ...input } = msg.source;
-        await api.updateSource({ ...checked(input as NewSource), id }, 'remote');
+        // The phone never sees the User-Agent and Referer settings, so its edit keeps the stored ones.
+        const stored = await api.getSource(id);
+        const keep: { userAgent?: string; referrer?: string } = {};
+        if (stored?.userAgent) keep.userAgent = stored.userAgent;
+        if (stored?.referrer) keep.referrer = stored.referrer;
+        await api.updateSource({ ...checked(input as NewSource), ...keep, id }, 'remote');
         await this.result(s, msgId);
         return;
       }

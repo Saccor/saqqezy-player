@@ -34,6 +34,16 @@ describe('XtreamClient', () => {
     expect(seen[0]).toBe('http://example.test:8080/player_api.php?username=user+1&password=p%26ss');
   });
 
+  test('authenticate keeps max_connections and active_cons when they are valid numbers', async () => {
+    const auth = (info: Record<string, unknown>) => fakeFetch({ auth: () => json({ user_info: { auth: 1, status: 'Active', ...info } }) });
+    expect(await new XtreamClient(cfg, auth({ max_connections: '3', active_cons: '0' })).authenticate())
+      .toEqual({ maxConnections: 3, activeConnections: 0 });
+    expect(await new XtreamClient(cfg, auth({ max_connections: 1, active_cons: 1 })).authenticate())
+      .toEqual({ maxConnections: 1, activeConnections: 1 });
+    expect(await new XtreamClient(cfg, auth({ max_connections: '0', active_cons: '-1' })).authenticate()).toEqual({});
+    expect(await new XtreamClient(cfg, auth({ max_connections: 'x', active_cons: null })).authenticate()).toEqual({});
+  });
+
   test('authenticate rejects auth=0, expired and 401', async () => {
     await expect(new XtreamClient(cfg, fakeFetch({ auth: () => json({ user_info: { auth: 0 } }) })).authenticate())
       .rejects.toBeInstanceOf(SourceAuthError);
