@@ -1,5 +1,6 @@
 /** Pure helpers for the Home screen (unit-tested). */
 import type { SupervisorStatus } from '@iptv/player';
+import { failureText } from '../playback/failureText.ts';
 import { formatClock } from '../shell/logic.ts';
 
 export interface GroupLite { id: string; name: string; count: number }
@@ -119,9 +120,11 @@ export function progressOf(p: { start: number; stop: number } | undefined, now: 
 
 /**
  * Copy shown in the preview's video hole, or undefined while the picture is playing. `idle` replaces "Preview" while
- * nothing plays (Home: paused after a reload).
+ * nothing plays (Home: paused after a reload). `maxConnections` is the active Xtream account's limit, when known.
  */
-export function previewMessage(status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview'): string | undefined {
+export function previewMessage(
+  status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview', maxConnections?: number,
+): string | undefined {
   if (!hasChannel) return idle;
   if (!status) return 'Preview';
   switch (status.kind) {
@@ -129,11 +132,7 @@ export function previewMessage(status: SupervisorStatus | undefined, hasChannel:
     case 'loading': return 'Loading…';
     case 'reconnecting': return 'Reconnecting…';
     case 'failed':
-      return status.reason === 'unsupported'
-        ? "This channel's format isn't supported on this device"
-        : status.reason === 'refused'
-          ? 'Your source refused this stream'
-          : "This channel isn't available right now";
+      return failureText({ reason: status.reason, httpStatus: status.httpStatus, maxConnections }, 'channel');
   }
 }
 

@@ -227,7 +227,7 @@ export class AvplayPlayer implements Player {
           else this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'streamCompleted' });
         },
       });
-      this.applyBuffering();
+      this.applyBuffering(opts.headers?.userAgent);
       this.applyDisplay();
       s.watchdog = setTimeout(() => {
         // Some live HLS streams never call either prepareAsync callback: report it so the supervisor retries.
@@ -290,6 +290,11 @@ export class AvplayPlayer implements Player {
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
     try { this.avplay.close(); } catch { /* ignore */ }
+  }
+
+  /** `stop()` closes AVPlay synchronously: the previous stream is closed once `close()` has returned. */
+  closed(): Promise<void> {
+    return Promise.resolve();
   }
 
   setRect(rect: Rect | 'fullscreen'): void {
@@ -578,8 +583,11 @@ export class AvplayPlayer implements Player {
     }
   }
 
-  /** IDLE only: the preset's buffer sizes and timeout. A failed call leaves the platform default. */
-  private applyBuffering(): void {
+  /**
+   * IDLE only (after `open()`, before `prepareAsync`): the preset's buffer sizes and timeout, and the stream's
+   * User-Agent when it asks for one (the only request header AVPlay can set). A failed call leaves the platform default.
+   */
+  private applyBuffering(userAgent?: string): void {
     const b = avplayBuffering(this.profile.preset);
     const av = this.avplay;
     const attempt = (fn: () => void) => {
@@ -593,6 +601,7 @@ export class AvplayPlayer implements Player {
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.resume));
     attempt(() => av.setTimeoutForBuffering?.(b.timeout));
     attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', 'STARTBITRATE=LOWEST'));
+    if (userAgent) attempt(() => av.setStreamingProperty?.('USER_AGENT', userAgent));
   }
 
   /**

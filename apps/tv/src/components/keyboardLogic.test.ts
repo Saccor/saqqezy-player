@@ -7,14 +7,16 @@ import {
 const labels = (row: number) => (FULL_ROWS[row] ?? []).map((c) => keyLabel(c.def, false));
 
 describe('keyboard layout', () => {
-  it('has the shortcut row, digits, QWERTY letters, symbols and the action row', () => {
+  it('has the shortcut row, digits, QWERTY letters, two symbol rows and the action row', () => {
     expect(labels(0)).toEqual(['http://', 'https://', '.com', ':8080', '/']);
     expect(labels(1)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']);
     expect(labels(2).join('')).toBe('qwertyuiop');
     expect(labels(3).join('')).toBe('asdfghjkl');
     expect(labels(4).join('')).toBe('zxcvbnm');
     expect(labels(5)).toEqual(['.', ':', '/', '-', '_', '@', '?', '=', '&']);
-    expect(labels(6)).toEqual(['Shift', 'Space', '⌫', 'Done']);
+    // User-Agent strings need brackets, semicolons and commas.
+    expect(labels(6)).toEqual(['(', ')', ';', ',', '+', '!', '*', '~', '%', '#']);
+    expect(labels(7)).toEqual(['Shift', 'Space', '⌫', 'Done']);
   });
 
   it('every row fits the same 10-unit width and keys do not overlap', () => {
@@ -55,13 +57,15 @@ describe('moveCursor', () => {
     expect(moveCursor({ row: 1, col: 0 }, 'up')).toEqual({ row: 0, col: 0 });
     // '0' (centre 9.5) up to '/' (x 8..10)
     expect(moveCursor({ row: 1, col: 9 }, 'up')).toEqual({ row: 0, col: 4 });
-    // symbols '&' (centre 9.0) down to Done (x 8..10)
-    expect(moveCursor({ row: 5, col: 8 }, 'down')).toEqual({ row: 6, col: 3 });
+    // symbols '&' (centre 9.0) down to '%' (the nearer-left of two equally near keys)
+    expect(moveCursor({ row: 5, col: 8 }, 'down')).toEqual({ row: 6, col: 8 });
+    // '#' (centre 9.5) down to Done (x 8..10)
+    expect(moveCursor({ row: 6, col: 9 }, 'down')).toEqual({ row: 7, col: 3 });
   });
 
   it('stops at the top and bottom rows', () => {
     expect(moveCursor({ row: 0, col: 2 }, 'up')).toEqual({ row: 0, col: 2 });
-    expect(moveCursor({ row: 6, col: 1 }, 'down')).toEqual({ row: 6, col: 1 });
+    expect(moveCursor({ row: 7, col: 1 }, 'down')).toEqual({ row: 7, col: 1 });
   });
 });
 

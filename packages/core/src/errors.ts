@@ -40,10 +40,19 @@ export function redactUrl(raw: string): string {
 /** What the app says while a source is in its refusal cooldown (neutral: no provider, no "ban"). */
 export const SOURCE_REFUSING_MESSAGE = "Your source is refusing connections. The app is waiting so you don't get blocked.";
 
-/** Thrown instead of sending a request while the source is in its refusal cooldown. Nothing reached the source. */
+/** What the app says while a source is blocked because it stopped answering (the unreachable breaker). */
+export const SOURCE_UNREACHABLE_MESSAGE = "Your source isn't answering. The app is waiting so it doesn't flood it.";
+
+/** Which cooldown blocks a source: it refused us, or it did not answer at all. */
+export type SourceBlockReason = 'refused' | 'unreachable';
+
+/**
+ * Thrown instead of sending a request while the source is in a cooldown. Nothing reached the source. The name is the
+ * same for both reasons (callers and the UI treat both as "blocked"); the message says which.
+ */
 export class SourceRefusedError extends Error {
-  constructor(message = SOURCE_REFUSING_MESSAGE) {
-    super(message);
+  constructor(readonly reason: SourceBlockReason = 'refused') {
+    super(reason === 'unreachable' ? SOURCE_UNREACHABLE_MESSAGE : SOURCE_REFUSING_MESSAGE);
     this.name = 'SourceRefused';
   }
 }

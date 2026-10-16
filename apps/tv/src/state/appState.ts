@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import type { AppEvent, CompanionStatus, InitState, SourceCooldown } from '@iptv/app-api';
+import { worseCooldown, type AppEvent, type CompanionStatus, type InitState, type SourceCooldown } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle (it lives in the worker chunk).
 import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
@@ -36,20 +36,46 @@ export const settings = (): AppSettings | undefined => initState()?.settings;
 
 const CLEAR: SourceCooldown = { state: 'clear' };
 /**
- * The latest `cooldown` event per source. The worker announces every change, so an event is never older than an
- * `InitState` answer (which only reads the state); events that arrive before the first `InitState` are kept too.
+ * The latest `cooldown` event per key: a source id, or a stream host's key (`streamKey`). The worker announces every
+ * change, so an event is never older than an `InitState` answer or a playable (which only read the state); events
+ * that arrive before the first `InitState` are kept too.
  */
 const [cooldownEvents, setCooldownEvents] = createSignal<ReadonlyMap<string, SourceCooldown>>(new Map());
+/** The host key of the stream on screen (or held), set by the playback controller. */
+const [streamKey, setStreamKey] = createSignal<string | undefined>(undefined);
 
-/**
- * The active source's refusal cooldown: the latest event, else `InitState`'s. While it is not `clear`, no stream
- * opens and Home and the Player show the cooldown copy with Retry.
- */
-export const cooldown = (): SourceCooldown => {
+/** The active source's own cooldown (API, playlist, EPG, and every stream): the latest event, else `InitState`'s. */
+const sourceCooldown = (): SourceCooldown => {
   const s = initState();
   const id = s?.activeSourceId;
   return (id !== undefined ? cooldownEvents().get(id) : undefined) ?? s?.cooldown ?? CLEAR;
 };
+
+/**
+ * A stream's cooldown: its host's (`PlayableChannel.cooldownKey`) or the active source's, whichever blocks longer
+ * (spec 2026-10-16-source-retry §5). A host refusal pauses only the streams on that host.
+ */
+export function cooldownOf(key: string | undefined, seed?: SourceCooldown): SourceCooldown {
+  const host = key !== undefined ? cooldownEvents().get(key) ?? seed ?? CLEAR : CLEAR;
+  return worseCooldown(sourceCooldown(), host);
+}
+
+/**
+ * The current stream changed: the cooldown copy and the hold follow its host. `seed` is the playable's cooldown (a
+ * wait read from storage after a reload); it counts only until the worker announces that key.
+ */
+export function setStreamCooldown(key: string | undefined, seed?: SourceCooldown): void {
+  if (key !== undefined && seed && seed.state !== 'clear' && !cooldownEvents().has(key)) {
+    setCooldownEvents((m) => new Map(m).set(key, seed));
+  }
+  setStreamKey(key);
+}
+
+/**
+ * The current stream's cooldown (its host's or the active source's). While it is not `clear`, the stream does not
+ * open and Home and the Player show the cooldown copy with Retry.
+ */
+export const cooldown = (): SourceCooldown => cooldownOf(streamKey());
 
 /** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 export function patchSettings(next: AppSettings): void {
@@ -164,7 +190,7 @@ export function wireEvents(
       return;
     }
     if (e.type === 'cooldown') {
-      setCooldownEvents((m) => new Map(m).set(e.sourceId, e.cooldown));
+      setCooldownEvents((m) => new Map(m).set(e.streamKey ?? e.sourceId, e.cooldown));
       return;
     }
     if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);

@@ -17,6 +17,18 @@ export interface FakeXtreamOptions {
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
+/**
+ * Synthetic users for the source-retry preview. Each logs in like `test`/`test`, except as named:
+ * `refuse403` streams answer 403, `limit429` streams answer 429 with `Retry-After: 90`, `gone404` streams answer 404,
+ * and `down500`'s `player_api.php` answers 500.
+ */
+const STREAM_STATUS: Record<string, { status: number; headers?: Record<string, string> }> = {
+  refuse403: { status: 403 },
+  limit429: { status: 429, headers: { 'retry-after': '90' } },
+  gone404: { status: 404 },
+};
+const RETRY_USERS = ['refuse403', 'limit429', 'gone404', 'down500'];
+
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const chs = channels(opts.channels ?? 200);
   const now = opts.now ?? Date.now;
@@ -37,6 +49,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     // CORS: the browser dev UI runs on another origin. Set before any writeHead so it
     // applies to every response (redirects, errors, 404s).
     res.setHeader('access-control-allow-origin', '*');
+    // The player's status probe reads Retry-After cross-origin.
+    res.setHeader('access-control-expose-headers', 'Retry-After');
     if (req.method === 'OPTIONS') {
       res.writeHead(204, { 'access-control-allow-methods': 'GET, OPTIONS', 'access-control-allow-headers': '*' });
       return res.end();
@@ -63,6 +77,11 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     if (effectiveUser === 'error500') return send(res, 500, '{}');
 
     if (stream) {
+      const answer = STREAM_STATUS[effectiveUser];
+      if (answer) {
+        res.writeHead(answer.status, { 'content-type': 'text/plain', ...answer.headers });
+        return res.end();
+      }
       res.writeHead(302, { location: TEST_STREAM });
       return res.end();
     }
@@ -70,9 +89,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     const poster = /^\/poster\/([a-z]\d+)\.svg$/.exec(url.pathname);
     if (poster) return send(res, 200, posterSvg(`Synthetic ${poster[1]}`), 'image/svg+xml');
 
-    const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall') && pass === 'test';
+    const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall' || RETRY_USERS.includes(user)) && pass === 'test';
 
     if (url.pathname === '/player_api.php') {
+      if (user === 'down500') return send(res, 500, '{}');
       const action = url.searchParams.get('action');
       if (!action) {
         if (!valid) return send(res, 200, JSON.stringify({ user_info: { auth: 0 } }));

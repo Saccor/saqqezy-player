@@ -1,10 +1,11 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
+  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
-  type TitleIndexData, type VodKind, type VodService, type VodSort,
+  type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
 } from '@iptv/core';
+import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
@@ -68,6 +69,8 @@ export class AppApi {
   private readonly appVersion: string;
 
   private activeId: string | undefined;
+  /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
+  private sourceHeaders: StreamHeaders | undefined;
   private index = new ChannelIndex([]);
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
@@ -81,6 +84,8 @@ export class AppApi {
   /** Bumped whenever cached now/next may be stale, so in-flight lookups do not repopulate the cache. */
   private generation = 0;
   private offline = false;
+  /** `{sourceId}\u0000{what}` of the refreshes that failed while the device was offline (cleared when online again). */
+  private offlineFails = new Set<string>();
   /** Per-source serial queue: background refreshes, explicit refreshes and deletes run one at a time. */
   private readonly queues = new Map<string, Promise<void>>();
   /** Background task per source; `rerun` asks a running task to loop once more when it finishes. */
@@ -180,8 +185,9 @@ export class AppApi {
     return this.run('updateSource', async () => {
       // The account may change under a running VOD fetch: cancel it before anything is rewritten.
       if (this.activeId === source.id) this.vodc?.invalidate(source.id);
-      // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source.
-      await this.service.guard.retry(source.id);
+      // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source,
+      // and each of its stream hosts.
+      await this.service.guard.retryAll(source.id);
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
       if (this.activeId === source.id) {
@@ -237,24 +243,72 @@ export class AppApi {
     });
   }
 
-  /** Manual Retry: lets one probe reach the active source now (the cooldown step is kept). */
-  retrySource(): Promise<SourceCooldown> {
+  /**
+   * Manual Retry: lets one probe reach the active source now (the cooldown step is kept), and the host of `url` (the
+   * stream on screen) when given. Answers the worse of the two cooldowns.
+   */
+  retrySource(url?: string): Promise<SourceCooldown> {
     return this.run('retrySource', async () => {
       const id = this.activeId;
       if (!id) return { state: 'clear' };
-      await this.service.guard.retry(id);
-      return this.service.guard.status(id);
+      const guard = this.service.guard;
+      await guard.retry(id);
+      const host = url === undefined ? undefined : streamCooldownKey(id, url);
+      if (host === undefined) return guard.status(id);
+      await guard.retry(host);
+      return worseCooldown(await guard.status(id), await guard.status(host));
     });
   }
 
-  /** The player gave up on a stream of `sourceId` because the source refused it. */
-  reportStreamRefused(sourceId: string): Promise<void> {
-    return this.run('reportStreamRefused', () => this.service.guard.report(sourceId, 'refused'));
+  /**
+   * The player gave up on the stream at `url` of `sourceId` because the source refused it: only the streams on that
+   * host pause (spec 2026-10-16-source-retry §5). The URL is used for its host only; never logged. `retryAfterMs` (the
+   * status probe's `Retry-After`) replaces this step's wait, clamped by the guard.
+   */
+  reportStreamRefused(sourceId: string, url: string, retryAfterMs?: number): Promise<void> {
+    return this.run('reportStreamRefused', () => this.service.guard.report(
+      streamCooldownKey(sourceId, url), 'refused', retryAfterMs === undefined ? undefined : { retryAfterMs },
+    ));
   }
 
-  /** A stream of `sourceId` played: the source answers us. */
-  reportStreamAnswered(sourceId: string): Promise<void> {
-    return this.run('reportStreamAnswered', () => this.service.guard.report(sourceId, 'answered'));
+  /**
+   * The device is back online: an unreachable wait of the active source was (likely) our own outage, so it ends now
+   * and the background pass runs again (its first request is the probe). A refusal wait is left alone.
+   */
+  networkOnline(): Promise<void> {
+    return this.run('networkOnline', async () => {
+      const id = this.activeId;
+      if (!id) return;
+      let restart = false;
+      // The refresh backoff (15 min, 1 h, 6 h) is for a source that fails us. A refresh whose last failure happened
+      // while we were offline said nothing about the source, so its backoff record goes. Failures from before the
+      // outage keep theirs, and a manual refresh always runs anyway. (VOD catalogue refreshes don't set offline,
+      // so their backoff stays as recorded.)
+      for (const what of ['playlist', 'epg'] as const) {
+        if (!this.offlineFails.delete(`${id}\u0000${what}`)) continue;
+        try {
+          await this.storage.setMeta(refreshFailKey(id, what), null);
+          restart = true;
+        } catch (err) {
+          this.record('networkOnline', err);
+        }
+      }
+      const guard = this.service.guard;
+      const status = await guard.status(id);
+      if (status.state === 'waiting' && status.reason === 'unreachable') {
+        await guard.retry(id);
+        restart = true;
+      }
+      if (restart && id === this.activeId) this.startBackground(id);
+    });
+  }
+
+  /** The stream at `url` of `sourceId` played: its host answers us, and so does the source. */
+  reportStreamAnswered(sourceId: string, url: string): Promise<void> {
+    return this.run('reportStreamAnswered', async () => {
+      await this.service.guard.report(streamCooldownKey(sourceId, url), 'answered');
+      await this.service.guard.report(sourceId, 'answered');
+    });
   }
 
   // ---- browsing ----
@@ -574,7 +628,16 @@ export class AppApi {
   }
 
   getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
-    return this.run('getVodPlayable', () => this.vodOrThrow().playable(itemId, seriesId));
+    return this.run('getVodPlayable', async () => {
+      const out = await this.vodOrThrow().playable(itemId, seriesId);
+      if (!out) return out;
+      // The playlist entry's own headers win over the source's settings, field by field.
+      const headers = mergeHeaders(this.sourceHeaders, out.headers);
+      if (headers) out.headers = headers;
+      else delete out.headers;
+      await this.addStreamCooldown(out);
+      return out;
+    });
   }
 
   saveVodProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {
@@ -753,15 +816,19 @@ export class AppApi {
   /** Makes `id` the in-memory active source and loads its cached index; both are swapped in together. */
   private activate(id: string | undefined): Promise<void> {
     return this.withIndex(async () => {
-      const [channels, layout, coverage] = id
-        ? await Promise.all([this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id)])
-        : [[], emptyLayout(), undefined];
+      const [channels, layout, coverage, sources] = id
+        ? await Promise.all([
+          this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id), this.service.listSources(),
+        ])
+        : [[], emptyLayout(), undefined, []];
+      const source = sources.find((s) => s.id === id);
       if (id !== this.activeId) {
         // Another source: its channels are neither focused nor playing yet.
         this.focusedId = undefined;
         this.playingId = undefined;
       }
       this.activeId = id;
+      this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
@@ -1013,6 +1080,8 @@ export class AppApi {
   }
 
   private setOffline(value: boolean): void {
+    // A refresh got through: what failed during the outage is not "failed while offline" anymore.
+    if (!value) this.offlineFails.clear();
     if (this.offline === value) return;
     this.offline = value;
     this.emit({ type: 'offline', value });
@@ -1023,7 +1092,14 @@ export class AppApi {
    * probe); when a probe got through, the refreshes skipped meanwhile run. A manual retry starts nothing here: the
    * user's own attempt (a stream, a saved source) is the probe.
    */
-  private cooldownChanged(sourceId: string, cooldown: SourceCooldown, cause: CooldownCause): void {
+  private cooldownChanged(key: string, cooldown: SourceCooldown, cause: CooldownCause): void {
+    const owner = streamKeySource(key);
+    if (owner !== undefined) {
+      // Only the streams on one host: the source's own requests are not affected.
+      this.emit({ type: 'cooldown', sourceId: owner, streamKey: key, cooldown });
+      return;
+    }
+    const sourceId = key;
     this.emit({ type: 'cooldown', sourceId, cooldown });
     if (sourceId !== this.activeId) return;
     if (cause === 'expired' || (cause === 'answered' && !this.background.has(sourceId))) this.startBackground(sourceId);
@@ -1032,15 +1108,19 @@ export class AppApi {
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
-    if (error.name === 'SourceNetworkError' && error.status === undefined) this.setOffline(true);
+    if (error.name === 'SourceNetworkError' && error.status === undefined) {
+      this.setOffline(true);
+      this.offlineFails.add(`${sourceId}\u0000${what}`);
+    }
     this.emit({ type: 'refreshFailed', what, sourceId, error });
     throw out;
   }
 
-  private async refreshPlaylistFor(id: string): Promise<void> {
+  /** `automatic`: a background refresh, whose failure records the refresh backoff. */
+  private async refreshPlaylistFor(id: string, automatic = false): Promise<void> {
     let result: IngestResult | undefined;
     try {
-      result = await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }));
+      result = await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
     } catch (err) {
       this.failed('playlist', id, 'refreshPlaylist', err);
     }
@@ -1074,9 +1154,9 @@ export class AppApi {
     }
   }
 
-  private async refreshEpgFor(id: string): Promise<void> {
+  private async refreshEpgFor(id: string, automatic = false): Promise<void> {
     try {
-      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }));
+      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
     } catch (err) {
       this.failed('epg', id, 'refreshEpg', err);
     }
@@ -1124,19 +1204,22 @@ export class AppApi {
     try {
       // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
       // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
-      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id))
+      // A failed automatic refresh holds the next one off (15 min, 1 h, 6 h) even with an empty cache; a manual
+      // refresh (`refresh`) is never held off.
+      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id)
+        && !(await this.service.refreshBackedOff(id, 'playlist')))
         || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
     }
-    if (playlist) await this.refreshPlaylistFor(id);
+    if (playlist) await this.refreshPlaylistFor(id, true);
     let epg: boolean;
     try {
       epg = await this.service.needsEpgRefresh(id);
     } catch (err) {
       this.failed('epg', id, 'backgroundRefresh', err);
     }
-    if (epg) await this.refreshEpgFor(id);
+    if (epg) await this.refreshEpgFor(id, true);
   }
 
   /**
@@ -1297,13 +1380,44 @@ export class AppApi {
     // The channel about to play (or being re-read while it plays): the only row, with the focused one, that may
     // ask the short EPG.
     this.playingId = channel.id;
+    // The host's cooldown read starts now, beside the row (an alternate format keeps the host).
+    const early = this.streamCooldown(channel.url);
     const [row] = await this.toRows([channel]);
     // Never on the zap path's clock: the lookup's local guide read runs in the background.
     if (!row!.now && !row!.next) this.backgroundShortEpg(channel);
     const { url, alternateUrl } = await this.streamUrls(channel);
     const out: PlayableChannel = { ...row!, url };
     if (alternateUrl) out.alternateUrl = alternateUrl;
+    // The channel's own headers (from the playlist) win over the source's settings, field by field.
+    const headers = mergeHeaders(this.sourceHeaders, channel.headers);
+    if (headers) out.headers = headers;
+    await this.addStreamCooldown(out, early);
     return out;
+  }
+
+  /** Starts reading the cooldown of `url`'s host (loaded from storage if needed). */
+  private streamCooldown(url: string): { key: string; status: Promise<SourceCooldown> } | undefined {
+    const id = this.activeId;
+    if (!id) return undefined;
+    const key = streamCooldownKey(id, url);
+    return { key, status: this.service.guard.status(key) };
+  }
+
+  /**
+   * The stream's host cooldown key, and its cooldown when not clear. `early`: a read already started for that host
+   * (reused when the final URL kept it).
+   */
+  private async addStreamCooldown(
+    out: { url: string; cooldownKey?: string; cooldown?: SourceCooldown },
+    early?: { key: string; status: Promise<SourceCooldown> },
+  ): Promise<void> {
+    const read = early && this.activeId !== undefined && early.key === streamCooldownKey(this.activeId, out.url)
+      ? early
+      : this.streamCooldown(out.url);
+    if (!read) return;
+    out.cooldownKey = read.key;
+    const c = await read.status;
+    if (c.state !== 'clear') out.cooldown = c;
   }
 
   /**
@@ -1359,7 +1473,7 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
-  'retrySource', 'reportStreamRefused', 'reportStreamAnswered',
+  'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',

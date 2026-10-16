@@ -1,6 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
-import type { Player, PlaybackSupervisor, Rect, SupervisorStatus, TrackInfo } from '@iptv/player';
+import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
   /**
@@ -62,14 +62,22 @@ export interface PlaybackController {
 
 export type PlayerKind = 'AVPlay' | 'HTML5';
 
-/** The active source's refusal cooldown, as the controller sees it (the worker owns the state). */
+/** What the gate needs of a stream: its URL and its host's cooldown key and seed (from the worker). */
+export type CooldownStream = Pick<PlayableChannel, 'url' | 'cooldownKey' | 'cooldown'>;
+
+/** The refusal cooldown, as the controller sees it (the worker owns the state). */
 export interface CooldownGate {
-  /** True while nothing may be sent to the active source. */
-  blocked(): boolean;
-  /** The supervisor gave up because the source refused the stream. */
-  refused(sourceKey: string): void;
-  /** A stream played: the source answers us. */
-  answered(sourceKey: string): void;
+  /** True while nothing may be sent for this stream: its host or the active source is cooling down. */
+  blocked(stream: CooldownStream): boolean;
+  /**
+   * The supervisor gave up because the source refused the stream at `url` (only its host pauses). `retryAfterMs`: the
+   * status probe's `Retry-After`, which replaces the wait.
+   */
+  refused(sourceKey: string, url: string, retryAfterMs?: number): void;
+  /** The stream at `url` played: its host and the source answer us. */
+  answered(sourceKey: string, url: string): void;
+  /** The current stream changed (undefined: none): the cooldown copy and the hold follow its host. */
+  current?(stream: CooldownStream | undefined): void;
 }
 
 const DESIGN_W = 1920;
@@ -103,6 +111,10 @@ export function createPlaybackController(
   let held = false;
   /** Source of the stream opened by the last play (its first frame and a refusal at any time are reported). */
   let playKey: string | undefined;
+  /** That stream's URL: reports name its host (the worker derives the key; never logged). */
+  let playUrl = '';
+  /** The play's URLs in the supervisor's order (primary, then the alternate): a refusal names one by index. */
+  let playUrls: string[] = [];
   let answeredReported = false;
   supervisor.onStatus((s) => {
     report(s);
@@ -110,12 +122,23 @@ export function createPlaybackController(
     if (key === undefined || !gate) return;
     if (s.kind === 'playing' && !answeredReported) {
       answeredReported = true;
-      gate.answered(key);
+      gate.answered(key, playUrl);
     } else if (s.kind === 'failed') {
       playKey = undefined;
-      if (s.reason === 'refused') gate.refused(key);
+      // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
+      // The cooldown lands on the host of the URL the source refused (the alternate may live on another host).
+      if (s.reason === 'refused') gate.refused(key, playUrls[s.urlIndex ?? 0] ?? playUrl, s.retryAfterMs);
     }
   });
+  /**
+   * Sets the current channel and publishes its stream to the gate. Callers publish only after they decided between
+   * hold and open and updated `held`: publishing can run the shell's cooldown effect synchronously (resumeHeld), which
+   * must find this call's decision already made, or the channel would open twice.
+   */
+  const setCurrentStream = (ch: PlayableChannel | undefined) => {
+    setCurrent(ch);
+    gate?.current?.(ch);
+  };
   let token = 0;
 
   /** The VOD request in flight (also while held by the cooldown): a held title resumes as VOD, never as live. */
@@ -128,13 +151,18 @@ export function createPlaybackController(
     const pos = supervisor.positionMs();
     if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
   };
-  const startPlay = (url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }) => {
+  const startPlay = (
+    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }, headers?: StreamHeaders,
+  ) => {
     held = false;
     const key = sourceKey();
     playKey = key;
+    playUrl = url;
+    playUrls = alt === undefined ? [url] : [url, alt];
     answeredReported = false;
     vodOpened = opts.vod === true;
-    supervisor.play(url, alt, { sourceKey: key, ...opts });
+    // Headers only when the stream has some: the engines apply what they can (AVPlay: the User-Agent). Never logged.
+    supervisor.play(url, alt, headers ? { sourceKey: key, ...opts, headers } : { sourceKey: key, ...opts });
   };
 
   const hold = () => {
@@ -155,31 +183,39 @@ export function createPlaybackController(
           const next: PlayableChannel = { ...ch, url: cur.url };
           if (cur.alternateUrl !== undefined) next.alternateUrl = cur.alternateUrl;
           else delete next.alternateUrl;
-          setCurrent(next);
+          setCurrentStream(next);
         }
         return false;
       }
       pendingVod = undefined;
       vodOpened = false;
       setCurrent(ch);
-      if (gate?.blocked()) {
+      // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
+      if (gate?.blocked(ch)) {
         hold();
+        gate.current?.(ch);
         return false;
       }
-      startPlay(ch.url, ch.alternateUrl, { channel: ch.name });
+      startPlay(ch.url, ch.alternateUrl, { channel: ch.name }, ch.headers);
+      gate?.current?.(ch);
       return true;
     },
     playVod(p, startMs) {
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
+      if (p.cooldownKey !== undefined) stand.cooldownKey = p.cooldownKey;
+      if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
       pendingVod = { p, startMs };
       vodOpened = false;
       setCurrent(stand);
-      if (gate?.blocked()) {
+      // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
+      if (gate?.blocked(stand)) {
         hold();
+        gate.current?.(stand);
         return;
       }
-      startPlay(p.url, undefined, { vod: true, startMs });
+      startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
+      gate?.current?.(stand);
     },
     pause: () => supervisor.pause(),
     resume: () => supervisor.resume(),
@@ -217,7 +253,7 @@ export function createPlaybackController(
       vodOpened = false;
       playKey = undefined;
       supervisor.stop();
-      setCurrent(undefined);
+      setCurrentStream(undefined);
       report(undefined);
     },
     begin: () => ++token,

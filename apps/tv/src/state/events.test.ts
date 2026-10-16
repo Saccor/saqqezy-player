@@ -36,6 +36,13 @@ describe('toastFor', () => {
       .toBe("Couldn't refresh the TV guide.");
   });
 
+  it('a blocked source shows no toast, refused or unreachable', () => {
+    for (const message of ["Your source is refusing connections. The app is waiting so you don't get blocked.", "Your source isn't answering. The app is waiting so it doesn't flood it."]) {
+      expect(toastFor({ type: 'refreshFailed', what: 'playlist', sourceId: 's', error: { name: 'SourceRefused', message } }))
+        .toBeUndefined();
+    }
+  });
+
   it('a remote layout change says it came from the phone; a local one shows nothing', () => {
     expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'remote' })).toBe('Updated from your phone');
     expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'local' })).toBeUndefined();

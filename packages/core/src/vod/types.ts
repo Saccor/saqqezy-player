@@ -1,3 +1,5 @@
+import type { StreamHeaders } from '../types.ts';
+
 export type VodKind = 'movie' | 'series';
 export type VodSort = 'added' | 'title' | 'rating';
 
@@ -27,6 +29,8 @@ export interface VodItem {
   ext?: string;
   /** M3U movies: the entry URL. */
   url?: string;
+  /** M3U movies: request headers from the playlist entry. */
+  headers?: StreamHeaders;
 }
 
 export interface VodCategory { id: string; kind: VodKind; name: string; count: number }
@@ -43,6 +47,8 @@ export interface Episode {
   still?: string;
   ext?: string;
   url?: string;
+  /** M3U episodes: request headers from the playlist entry. */
+  headers?: StreamHeaders;
 }
 
 export interface Season { number: number; name: string; episodes: Episode[] }

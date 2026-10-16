@@ -1,6 +1,6 @@
-import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, VodKind } from '@iptv/core';
+import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
-export type { SourceCooldown };
+export type { SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
@@ -11,7 +11,16 @@ export interface ChannelRow {
   favourite: boolean; now?: ProgrammeLite; next?: ProgrammeLite;
 }
 
-export interface PlayableChannel extends ChannelRow { url: string; alternateUrl?: string }
+export interface PlayableChannel extends ChannelRow {
+  url: string;
+  alternateUrl?: string;
+  /** Request headers for the stream: the channel's own (from the playlist) win over the source's settings. Never log. */
+  headers?: StreamHeaders;
+  /** The key of this stream's refusal cooldown (source and host): matches a `cooldown` event's `streamKey`. */
+  cooldownKey?: string;
+  /** This stream's host cooldown when the answer was made, if it was not clear (the source's is in `InitState`). */
+  cooldown?: SourceCooldown;
+}
 
 export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u'; active: boolean }
 
@@ -24,7 +33,7 @@ export type _SourceSummaryInSync = Assert<
 export interface InitState {
   sources: SourceSummary[]; activeSourceId?: string; groups: GroupInfo[];
   lastChannelId?: string; lastGroupId?: string; settings: AppSettings;
-  /** The active source's refusal cooldown (with an active source only). */
+  /** The active source's cooldown, refused or unreachable (with an active source only). */
   cooldown?: SourceCooldown;
   /** The active source has movies or series (from its last ingest or a fetched catalogue); false without one. */
   hasVod: boolean;
@@ -52,8 +61,12 @@ export type AppEvent =
   | { type: 'refreshed'; what: 'playlist' | 'epg'; sourceId: string }
   | { type: 'refreshFailed'; what: 'playlist' | 'epg'; sourceId: string; error: RpcError }
   | { type: 'offline'; value: boolean }
-  /** A source's refusal cooldown changed (a refusal, an answer, a retry, or the end of a wait). */
-  | { type: 'cooldown'; sourceId: string; cooldown: SourceCooldown }
+  /**
+   * A cooldown changed (a refusal, the unreachable breaker, an answer, a retry, or the end of a wait). Without
+   * `streamKey` it is the source's own (API, playlist, EPG, and every stream); with it, only the streams on one host
+   * (`PlayableChannel.cooldownKey`).
+   */
+  | { type: 'cooldown'; sourceId: string; streamKey?: string; cooldown: SourceCooldown }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
   /** A search index of `sourceId` (guide titles, or movie and series titles) became ready: re-run an open search. */
@@ -214,4 +227,10 @@ export interface VodPlayable {
   next?: { id: string; label: string };
   /** Episodes: the previous episode (Channel down). */
   prev?: { id: string; label: string };
+  /** The source's User-Agent and Referer settings, when set. Never log. */
+  headers?: StreamHeaders;
+  /** As `PlayableChannel.cooldownKey`. */
+  cooldownKey?: string;
+  /** As `PlayableChannel.cooldown`. */
+  cooldown?: SourceCooldown;
 }

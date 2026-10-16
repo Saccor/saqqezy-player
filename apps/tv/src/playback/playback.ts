@@ -1,6 +1,6 @@
 import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
 import { api } from '../api.ts';
-import { cooldown, initState, platformId, setSupervisorStatus, settings } from '../state/appState.ts';
+import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -9,6 +9,7 @@ import { createVideoLayer } from '../video/videoLayer.ts';
 import { createPlaybackController } from './controller.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
+import { retryDeps } from './retryDeps.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -80,6 +81,7 @@ export const supervisor = new PlaybackSupervisor(player, {
   liveTargets,
   journal,
   openRate,
+  ...retryDeps,
 });
 
 const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
@@ -87,11 +89,13 @@ const reportFailed = (err: unknown) => console.warn('Cooldown report failed', er
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
 export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
-  // The worker owns the refusal cooldown: no stream opens while the active source is cooling down.
+  // The worker owns the refusal cooldown: no stream opens while its host or the active source is cooling down.
   {
-    blocked: () => cooldown().state !== 'clear',
-    refused: (key) => { api.reportStreamRefused(key).catch(reportFailed); },
-    answered: (key) => { api.reportStreamAnswered(key).catch(reportFailed); },
+    // The playable's seed counts until the worker announces that host (it is published only after this decision).
+    blocked: (s) => cooldownOf(s.cooldownKey, s.cooldown).state !== 'clear',
+    refused: (key, url, retryAfterMs) => { api.reportStreamRefused(key, url, retryAfterMs).catch(reportFailed); },
+    answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
+    current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
   },
 );
 

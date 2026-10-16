@@ -69,6 +69,16 @@ describe('VodService catalogues', () => {
     expect(calls).toEqual([]);
   });
 
+  test('with the guard, an unreachable source is not asked either, and the error says why', async () => {
+    const guard = new RefusalGuard({ storage, now: () => now });
+    const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
+    for (let i = 0; i < 3; i++) await guard.report('x', 'failed');
+    await expect(guarded.refresh('x', 'movie')).rejects.toMatchObject({
+      name: 'SourceRefused', reason: 'unreachable', message: "Your source isn't answering. The app is waiting so it doesn't flood it.",
+    });
+    expect(calls).toEqual([]);
+  });
+
   test('autoRefreshHours 0 means never stale once fetched', async () => {
     await storage.setMeta('settings', { autoRefreshHours: 0 });
     await svc.refresh('x', 'movie');
@@ -253,5 +263,46 @@ describe('VodService for the worker', () => {
     expect(await svc.clearProgress('x', 'x:m10')).toMatchObject({ position: 0 });
     const pointer = { id: 'x:s5', season: 1, episode: 1, next: { id: 'x:e2', season: 1, episode: 2 } };
     expect(await svc.setWatched('x', 'x:e1', true, pointer)).toMatchObject({ watched: true, series: pointer });
+  });
+});
+
+describe('VodService refresh backoff', () => {
+  const MIN = 60_000;
+
+  const auto = { automatic: true };
+
+  test('a failed catalogue fetch waits 15 min, then 1 h, before the next automatic one; a success clears it', async () => {
+    delete api.get_vod_categories;
+    await expect(svc.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 1, at: NOW });
+    expect(await svc.needsRefresh('x', 'movie')).toBe(false);
+    expect(await svc.needsRefresh('x', 'series')).toBe(true);
+    // A screen with nothing to show (foreground) is not held off.
+    expect(await svc.needsRefresh('x', 'movie', { foreground: true })).toBe(true);
+    now = NOW + 15 * MIN;
+    expect(await svc.needsRefresh('x', 'movie')).toBe(true);
+    await expect(svc.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toEqual({ count: 2, at: now });
+    now += 60 * MIN - 1;
+    expect(await svc.needsRefresh('x', 'movie')).toBe(false);
+    // A manual refresh (Try again) is never gated.
+    api.get_vod_categories = () => [{ category_id: '1', category_name: 'Drama' }];
+    await expect(svc.refresh('x', 'movie')).resolves.toMatchObject({ count: 1 });
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
+  });
+
+  test('a cancelled fetch or a refusal records nothing', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    await expect(svc.refresh('x', 'series', { signal: ac.signal, automatic: true })).rejects.toBeInstanceOf(VodFetchCancelled);
+    const guard = new RefusalGuard({ storage, now: () => now });
+    const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
+    await guard.report('x', 'refused');
+    await expect(guarded.refresh('x', 'movie', auto)).rejects.toBeInstanceOf(SourceRefusedError);
+    // A manual fetch (Try again) that fails records nothing either.
+    delete api.get_series_categories;
+    await expect(svc.refresh('x', 'series')).rejects.toBeInstanceOf(SourceNetworkError);
+    expect(await storage.getMeta('refreshFail:x:vod:series')).toBeFalsy();
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
   });
 });

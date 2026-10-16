@@ -24,6 +24,8 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { cooldown, settings } from '../state/appState.ts';
+import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
@@ -465,9 +467,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now()), pointerMode()));
   // The cooldown message replaces the stream status: nothing is open while it shows.
-  const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status())));
+  const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
   const showClock = () => settings()?.showClock === true;
   const TOAST_W = 460;
+  const CENTRE_W = 1100;
+  const CENTRE_BOX = MESSAGE_BOXES.player;
+  const centreH = (text: string) => Math.max(160, messageLines(text, CENTRE_BOX) * CENTRE_BOX.lineH + 80);
 
   return (
     <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
@@ -486,9 +491,11 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
             </View>
           )
           : (
-            <View x={(LAYOUT.width - 1000) / 2} y={(LAYOUT.height - 160) / 2} width={1000} height={160}
+            // A refusal that names the account's limit runs to three lines: the box grows for it.
+            <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
               color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={4}>
-              <Text y={(160 - FONT.heading) / 2 - 4} width={1000} maxWidth={1000} contain="width" textAlign="center"
+              <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
+                maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
                 fontSize={FONT.heading} color={COLORS.text}>{s.text}</Text>
             </View>
           )

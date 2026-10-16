@@ -8,6 +8,7 @@ export {
   VOD_ROW_FAVOURITES, VOD_ROW_ITEMS, VOD_ROW_RECENT, type VodControllerDeps,
 } from './vodController.ts';
 export { formatOf, type StreamFormat } from './streamFormat.ts';
+export { worseCooldown } from './cooldown.ts';
 export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } from './rpc.ts';
 export type {
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,

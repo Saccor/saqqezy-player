@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Rect, SupervisorStatus } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
-import { createPlaybackController } from './controller.ts';
+import { createPlaybackController, type CooldownStream, type PlaybackController } from './controller.ts';
 
 function fakes() {
   let statusFn: ((s: SupervisorStatus) => void) | undefined;
@@ -46,6 +46,19 @@ describe('playback controller', () => {
     expect(pb.playChannel(ch('1'))).toBe(true);
     expect(f.supervisor.play).toHaveBeenCalledWith('http://example.test/live/u/p/1.ts', 'http://example.test/live/u/p/1.m3u8', { sourceKey: undefined, channel: 'Channel' });
     expect(pb.current()?.id).toBe('1');
+  });
+
+  it("passes the stream's headers to the supervisor, live and VOD; none when the playable has none", () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    const headers = { userAgent: 'SyntheticAgent/1.0' };
+    pb.playChannel({ ...ch('1'), headers });
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('1').url, ch('1').alternateUrl, { sourceKey: 'src-1', channel: 'Channel', headers });
+    const vod: VodPlayable = { kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/u/p/1.mp4', title: 'T', resumeMs: 0, tracks: {}, headers: { referrer: 'http://ref.test/' } };
+    pb.playVod(vod, 5000);
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(vod.url, undefined, { sourceKey: 'src-1', vod: true, startMs: 5000, headers: { referrer: 'http://ref.test/' } });
+    pb.playChannel(ch('2'));
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('2').url, ch('2').alternateUrl, { sourceKey: 'src-1', channel: 'Channel' });
   });
 
   it('passes the active source id as the live-delay key', () => {
@@ -157,11 +170,89 @@ describe('playback controller', () => {
       const calls: string[] = [];
       const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
         blocked: () => blocked.on,
-        refused: (k) => calls.push(`refused:${k}`),
-        answered: (k) => calls.push(`answered:${k}`),
+        refused: (k, url) => calls.push(`refused:${k}:${url}`),
+        answered: (k, url) => calls.push(`answered:${k}:${url}`),
       });
       return { f, pb, calls };
     };
+
+    /**
+     * A gate whose `current` runs App's cooldown effect synchronously, as Solid does when the stream key signal
+     * changes: hold when the shown cooldown turns blocked, resumeHeld when it turns clear.
+     */
+    const appLike = (blockedKeys: ReadonlySet<string>) => {
+      const f = fakes();
+      let shown: 'clear' | 'waiting' | undefined;
+      const isBlocked = (s: CooldownStream) => s.cooldownKey !== undefined && blockedKeys.has(s.cooldownKey);
+      const ref: { pb?: PlaybackController } = {};
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: isBlocked,
+        refused: () => undefined,
+        answered: () => undefined,
+        current: (s) => {
+          const prev = shown;
+          shown = s && isBlocked(s) ? 'waiting' : 'clear';
+          if (shown !== 'clear') ref.pb?.holdForCooldown();
+          else if (prev !== undefined && prev !== 'clear') ref.pb?.resumeHeld();
+        },
+      });
+      ref.pb = pb;
+      return { f, pb };
+    };
+    const movie = (id: string, cooldownKey: string): VodPlayable =>
+      ({ kind: 'movie', itemId: id, url: `http://example.test/movie/u/p/${id}.mp4`, title: 'T', resumeMs: 0, tracks: {}, cooldownKey });
+
+    it('switching from a blocked host to a clear one opens exactly once (live)', () => {
+      const { f, pb } = appLike(new Set(['src-1@a.test']));
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' })).toBe(false);
+      expect(pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' })).toBe(true);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(f.supervisor.play.mock.calls[0]![0]).toBe('http://example.test/live/u/p/2.ts');
+      expect(pb.current()?.id).toBe('2');
+    });
+
+    it('switching from a blocked host to a clear one opens exactly once (VOD, and live to VOD)', () => {
+      const vod = appLike(new Set(['src-1@a.test']));
+      vod.pb.playVod(movie('m1', 'src-1@a.test'), 0);
+      vod.pb.playVod(movie('m2', 'src-1@b.test'), 5_000);
+      expect(vod.f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(vod.f.supervisor.play.mock.calls[0]![0]).toBe('http://example.test/movie/u/p/m2.mp4');
+
+      const mixed = appLike(new Set(['src-1@a.test']));
+      mixed.pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' });
+      mixed.pb.playVod(movie('m2', 'src-1@b.test'), 0);
+      expect(mixed.f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(mixed.f.supervisor.play.mock.calls[0]![2]).toMatchObject({ vod: true });
+    });
+
+    it('switching from a clear host to a blocked one holds without opening', () => {
+      const { f, pb } = appLike(new Set(['src-1@a.test']));
+      pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' });
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' })).toBe(false);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(f.supervisor.stop).toHaveBeenCalled();
+      expect(pb.current()?.id).toBe('1');
+    });
+
+    it("asks the gate about the stream's own host, and tells it which stream is current", () => {
+      const f = fakes();
+      const asked: Array<string | undefined> = [];
+      const current: Array<string | undefined> = [];
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: (s) => { asked.push(s.cooldownKey); return s.cooldownKey === 'src-1@a.test'; },
+        refused: () => undefined,
+        answered: () => undefined,
+        current: (s) => current.push(s?.cooldownKey),
+      });
+      const seed = { state: 'waiting', until: 9, reason: 'refused' } as const;
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test', cooldown: seed })).toBe(false);
+      expect(pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' })).toBe(true);
+      pb.playVod({ kind: 'movie', itemId: 'm1', url: 'http://a.test/m.mp4', title: 'T', resumeMs: 0, tracks: {}, cooldownKey: 'src-1@a.test' }, 0);
+      pb.stop();
+      expect(asked).toEqual(['src-1@a.test', 'src-1@b.test', 'src-1@a.test']);
+      expect(current).toEqual(['src-1@a.test', 'src-1@b.test', 'src-1@a.test', undefined]);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    });
 
     it('opens nothing while the source is blocked, and plays the held channel once it is not', () => {
       const blocked = { on: true };
@@ -183,7 +274,43 @@ describe('playback controller', () => {
       pb.playChannel(ch('2'));
       f.emit({ kind: 'failed', reason: 'refused' });
       f.emit({ kind: 'failed', reason: 'unavailable' });
-      expect(calls).toEqual(['answered:src-1', 'refused:src-1', 'refused:src-1']);
+      const url = (id: string) => `http://example.test/live/u/p/${id}.ts`;
+      expect(calls).toEqual([`answered:src-1:${url('1')}`, `refused:src-1:${url('1')}`, `refused:src-1:${url('2')}`]);
+    });
+
+    it("a refusal passes the probe's Retry-After to the gate", () => {
+      const f = fakes();
+      const seen: Array<[string, string, number | undefined]> = [];
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: () => false,
+        refused: (k, url, retryAfterMs) => { seen.push([k, url, retryAfterMs]); },
+        answered: () => undefined,
+      });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'refused', httpStatus: 429, retryAfterMs: 90_000 });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+      expect(seen).toEqual([['src-1', ch('1').url, 90_000], ['src-1', ch('2').url, undefined]]);
+    });
+
+    it('a refusal lands on the host of the URL the source refused: the alternate when the status names it', () => {
+      const { f, pb, calls } = guarded({ on: false });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 1 });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 0 });
+      pb.playChannel(ch('3'));
+      f.emit({ kind: 'failed', reason: 'refused', urlIndex: 4 }); // unknown index: the primary
+      expect(calls).toEqual([`refused:src-1:${ch('1').alternateUrl}`, `refused:src-1:${ch('2').url}`, `refused:src-1:${ch('3').url}`]);
+    });
+
+    it('a stream that failed unavailable or gone reports nothing (streams never count toward the unreachable breaker)', () => {
+      const { f, pb, calls } = guarded({ on: false });
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'failed', reason: 'unavailable' });
+      pb.playChannel(ch('2'));
+      f.emit({ kind: 'failed', reason: 'gone', httpStatus: 404 });
+      expect(calls).toEqual([]);
     });
 
     it('resumeHeld opens the held channel once, and nothing when none is held', () => {

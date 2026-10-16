@@ -59,11 +59,19 @@ export type LivePreset = 'low' | 'balanced' | 'stable';
 export interface LiveProfile { preset: LivePreset; targetS: number; allowRate: boolean }
 export type RecoverAction = 'gapJump' | 'softReload';
 
+/** HTTP headers a stream asks for (from the playlist or the source settings). Engines apply what they can. */
+export interface StreamHeaders {
+  userAgent?: string;
+  referrer?: string;
+}
+
 export interface OpenOptions {
   /** False for a file/VOD: engines configure for a finite stream (mpegts.js isLive:false, no live sync). Default true. */
   live?: boolean;
   /** Start position for VOD (ms). Applied once the engine can seek (metadata known). */
   startMs?: number;
+  /** Request headers for this stream; left out when there are none. */
+  headers?: StreamHeaders;
 }
 
 /**
@@ -79,6 +87,20 @@ export interface OpenOptions {
 export interface Player {
   open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void>; // resolves when loading starts; state events report the progress
   stop(): void;
+  /**
+   * Resolves once the network work of the session ended by the last `stop()` is torn down (hls.js destroy and loader
+   * abort, mpegts.js unload/destroy, native `src` removal plus `load()`, AVPlay `close()`); at once when nothing is
+   * closing. The supervisor awaits it, at most 1.5 s, before the next open or status probe, so the source never sees
+   * the old connection and the new one at the same time. `stop()` itself stays synchronous.
+   */
+  closed?(): Promise<void>;
+  /**
+   * Whether the engine running the current (or just failed) attempt maps HTTP statuses itself: true for the hls.js
+   * and mpegts.js paths, whose refusals arrive as `AUTH` with `httpStatus`. False or absent (native `<video>`,
+   * AVPlay): a NETWORK failure before the first frame may be a refusal in disguise, so the supervisor asks its
+   * `probe` for the status. Read right after the attempt failed, before the next `open()`.
+   */
+  supportsStatus?(): boolean;
   setRect(rect: Rect | 'fullscreen'): void;
   setAspect(mode: AspectMode): void;
   audioTracks(): TrackInfo[];

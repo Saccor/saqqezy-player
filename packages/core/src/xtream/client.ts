@@ -3,7 +3,7 @@ import { responseText } from '../net/textStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
 import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
-import { isObj, posInt, str } from './json.ts';
+import { isObj, nonNegInt, posInt, str } from './json.ts';
 import {
   parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
 } from './vod.ts';
@@ -20,7 +20,7 @@ export interface XtreamStream {
   categoryId?: string;
   num?: number;
 }
-export interface XtreamAccount { expiresAt?: number; maxConnections?: number }
+export interface XtreamAccount { expiresAt?: number; maxConnections?: number; activeConnections?: number }
 
 export function normalizeServer(server: string): string {
   let s = server.trim();
@@ -99,6 +99,8 @@ export class XtreamClient {
     if (exp) account.expiresAt = exp * 1000;
     const max = posInt(info.max_connections);
     if (max) account.maxConnections = max;
+    const active = nonNegInt(info.active_cons);
+    if (active !== undefined) account.activeConnections = active;
     return account;
   }
 

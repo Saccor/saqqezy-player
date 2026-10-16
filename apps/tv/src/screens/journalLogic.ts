@@ -24,6 +24,7 @@ const CAUSE: Record<string, string> = {
 const PRESET = { low: 'Low', balanced: 'Balanced', stable: 'Stable' } as const;
 const FAILED = {
   unavailable: 'Gave up: stream unavailable', unsupported: 'Gave up: format not supported', refused: 'Gave up: source refused',
+  gone: 'Gave up: not on the source',
 } as const;
 const WINDOW_MS = 30 * 60_000;
 

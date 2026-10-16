@@ -25,7 +25,10 @@ export const SHORTCUTS = ['http://', 'https://', '.com', ':8080', '/'] as const;
 
 export type KeyRows = readonly (readonly KeyCell[])[];
 
-/** Full layout (URLs, names): shortcuts, digits, QWERTY letters, URL symbols, then Shift/Space/⌫/Done. */
+/**
+ * Full layout (URLs, names, User-Agent strings): shortcuts, digits, QWERTY letters, URL symbols, more symbols, then
+ * Shift/Space/⌫/Done.
+ */
 export const FULL_ROWS: KeyRows = [
   SHORTCUTS.map((text, i) => ({ def: { kind: 'text', text }, x: i * 2, w: 2 })),
   chars('1234567890', 0),
@@ -33,6 +36,7 @@ export const FULL_ROWS: KeyRows = [
   chars('asdfghjkl', 0.5),
   chars('zxcvbnm', 1.5),
   chars('.:/-_@?=&', 0.5),
+  chars('();,+!*~%#', 0),
   [
     { def: { kind: 'shift' }, x: 0, w: 2 },
     { def: { kind: 'space' }, x: 2, w: 4 },
@@ -82,7 +86,8 @@ export interface KeyboardLayout {
 
 export const FULL_LAYOUT: KeyboardLayout = {
   rows: FULL_ROWS, start: { row: 2, col: 0 }, width: 792, height: 820,
-  pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 64, rowStep: 76, chrome: true,
+  // Eight rows in the same panel: 62 px keys every 72 px (still large remote targets, 10 px apart).
+  pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 62, rowStep: 72, chrome: true,
 };
 
 /** 6 units of 60 px plus 10 px margins: 380 px, the width of Home's groups column. Keys are 54 x 56 px. */

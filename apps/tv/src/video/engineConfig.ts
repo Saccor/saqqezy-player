@@ -26,7 +26,8 @@ const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb,
     maxLoadTimeMs: load,
-    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    // A timed-out load waits 1 s, then 4 s (exponential), before giving up: never a burst of instant retries.
+    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000, backoff: 'exponential' as const },
     errorRetry: {
       maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000,
       shouldRetry: (_cfg: unknown, _count: number, _timeout: boolean, res: { code?: number } | undefined, retry: boolean) =>
@@ -49,6 +50,9 @@ export function hlsConfig(preset: LivePreset, isTv: boolean): Partial<HlsConfig>
     liveMaxUnchangedPlaylistRefresh: 5,
     fragLoadPolicy: loadPolicy(6000, 20000, 4),
     playlistLoadPolicy: loadPolicy(4000, 8000, 3),
+    // hls.js's own manifest defaults (no first-byte cap, 20 s, one error retry), with the spaced timeout retry and the
+    // refusal guard of the other loaders.
+    manifestLoadPolicy: loadPolicy(Infinity, 20000, 1),
   };
 }
 

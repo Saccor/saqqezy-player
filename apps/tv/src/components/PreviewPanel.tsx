@@ -4,6 +4,8 @@ import type { SupervisorStatus } from '@iptv/player';
 import { usePointerTarget } from '../input/pointer.ts';
 import { CooldownNotice } from './CooldownNotice.tsx';
 import { formatRange, previewMessage, progressOf } from '../screens/homeLogic.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
+import { MESSAGE_BOXES, messageTop } from './messageFit.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
 export const PREVIEW_W = 588;
@@ -33,7 +35,7 @@ export function PreviewPanel(props: {
 }) {
   let video: ElementNode | undefined;
   usePointerTarget({ node: () => video, enabled: () => props.onVideoClick !== undefined, onClick: () => props.onVideoClick?.() });
-  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing, props.idle);
+  const msg = () => previewMessage(props.playing ? props.status : undefined, props.playing, props.idle, activeMaxConnections());
   const failed = () => props.playing && props.status?.kind === 'failed';
   const infoY = PREVIEW_H + LAYOUT.gap;
   const titleW = () => (props.starting ? PREVIEW_W - STARTING_W - LAYOUT.gap : PREVIEW_W);
@@ -48,8 +50,8 @@ export function PreviewPanel(props: {
       <Show when={props.cooldown ? undefined : msg()}>{(m) => (
         <View width={PREVIEW_W} height={PREVIEW_H} borderRadius={LAYOUT.radius}
           color={failed() || !props.playing ? COLORS.surface : COLORS.panel}>
-          <Text x={24} y={PREVIEW_H / 2 - FONT.body} width={PREVIEW_W - 48} maxWidth={PREVIEW_W - 48} contain="width"
-            maxLines={2} textAlign="center" fontSize={FONT.body} color={failed() ? COLORS.text : COLORS.muted}>{m()}</Text>
+          <Text x={24} y={messageTop(m(), MESSAGE_BOXES.preview, PREVIEW_H)} width={PREVIEW_W - 48} maxWidth={PREVIEW_W - 48}
+            contain="width" maxLines={MESSAGE_BOXES.preview.maxLines} lineHeight={MESSAGE_BOXES.preview.lineH} textAlign="center" fontSize={FONT.body} color={failed() ? COLORS.text : COLORS.muted}>{m()}</Text>
         </View>
       )}</Show>
       <Show when={props.channel}>{(c) => (

@@ -573,6 +573,25 @@ export class Html5Player implements Player {
     v.load();
   }
 
+  /**
+   * Resolves once the last `stop()`'s teardown has run (hls.js `destroy()`; mpegts.js `unload()`,
+   * `detachMediaElement()`, `destroy()`; the element's `removeAttribute('src')` + `load()`, all synchronous in
+   * `stop()`), plus one macrotask so the browser drops the request (and a deferred mpegts.js teardown, queued earlier,
+   * has run). The supervisor awaits it before the next open or the status probe.
+   */
+  closed(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  /**
+   * True when the current attempt's engine reports HTTP statuses itself (hls.js, mpegts.js: a refusal arrives as
+   * AUTH with `httpStatus`). The native element cannot see them, so the supervisor may ask with its status probe.
+   */
+  supportsStatus(): boolean {
+    const kind = this.session?.engine?.kind;
+    return kind === 'hls' || kind === 'mpegts';
+  }
+
   setRect(rect: Rect | 'fullscreen'): void {
     this.layer.setRect(rect);
   }

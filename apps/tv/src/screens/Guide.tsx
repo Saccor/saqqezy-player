@@ -7,6 +7,7 @@ import { api, onEvent } from '../api.ts';
 import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
 import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
+import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import type { GridHit } from '../input/pointerLogic.ts';
@@ -15,6 +16,7 @@ import { playback } from '../playback/playback.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
@@ -334,7 +336,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
   const groupName = () => groups().find((g) => g.id === groupId())?.name ?? '';
   const miniMessage = () => {
     const playing = playback.current() !== undefined;
-    return playing ? previewMessage(playback.status(), true) : 'Nothing playing';
+    return playing ? previewMessage(playback.status(), true, undefined, activeMaxConnections()) : 'Nothing playing';
   };
   const whenLine = () => {
     const b = focusBlock();
@@ -359,8 +361,8 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       <Show when={miniMessage()}>{(m) => (
         <View x={MINI.x} y={MINI.y} width={MINI.w} height={MINI.h} borderRadius={LAYOUT.radius}
           color={playback.current() ? COLORS.panel : COLORS.surface}>
-          <Text x={24} y={MINI.h / 2 - FONT.body} width={MINI.w - 48} maxWidth={MINI.w - 48} contain="width" maxLines={2}
-            textAlign="center" fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
+          <Text x={24} y={messageTop(m(), MESSAGE_BOXES.guide, MINI.h)} width={MINI.w - 48} maxWidth={MINI.w - 48} contain="width"
+            maxLines={MESSAGE_BOXES.guide.maxLines} lineHeight={MESSAGE_BOXES.guide.lineH} textAlign="center" fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
         </View>
       )}</Show>
 

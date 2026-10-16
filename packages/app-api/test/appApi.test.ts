@@ -5,6 +5,7 @@ import {
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import { APP_API_METHODS, AppApi, scrub } from '../src/appApi.ts';
+import { worseCooldown } from '../src/index.ts';
 import type { AppEvent } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 13, 18, 10);
@@ -1426,6 +1427,18 @@ describe('AppApi VOD', () => {
     expect((await api.getVodPlayable(first.id))?.url).toContain('/movie/');
   });
 
+  test("a VOD playable carries its host's cooldown key and, once refused, the cooldown", async () => {
+    const { api } = makeVod();
+    const { sourceId } = await api.addSource(xt());
+    await api.getVodHome('movie');
+    await api.idle();
+    const first = (await api.getVodHome('movie')).rows.find((r) => r.items.length)!.items[0]!;
+    const p = (await api.getVodPlayable(first.id))!;
+    expect(p.cooldownKey).toBe(`${sourceId}@${new URL(server.url).host}`);
+    await api.reportStreamRefused(sourceId, p.url);
+    expect((await api.getVodPlayable(first.id))?.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
   test('switching source resets VOD state', async () => {
     const { api, vod } = makeVod();
     const { sourceId: a } = await api.addSource(xt());
@@ -1619,26 +1632,31 @@ describe('AppApi – refusal cooldown', () => {
     await api.idle();
     r.state.on = true;
     await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
-    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: { state: 'waiting', until: NOW + 120_000 } });
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: { state: 'waiting', until: NOW + 120_000, reason: 'refused' } });
     // Reload: a stale playlist and guide would refresh, and every row would look up its short EPG.
     await storage.setMeta(`playlistAt:${sourceId}`, 0);
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
     const second = make(storage, SourceService, r.f);
     const s = await second.api.init();
-    expect(s.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    expect(s.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
     await second.api.getChannelSlice('all', 0, 40);
     await second.api.idle();
     expect(r.state.sent).toEqual([]);
     expect(second.events.some((e) => e.type === 'refreshFailed')).toBe(false);
   });
 
+  /** The first channel's playable (its stream URL is on the fake server's host). */
+  const firstPlayable = async (api: AppApi) => (await api.getPlayable((await api.getChannelSlice('all', 0, 1)).rows[0]!.id))!;
+  const hostKey = (sourceId: string) => `${sourceId}@${new URL(server.url).host}`;
+
   test('explicit refresh while blocked fails with the neutral copy and sends nothing', async () => {
     const r = refusingFetch();
     const { api } = make(storage, SourceService, r.f);
-    const { sourceId } = await api.addSource(xt());
+    await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
     r.state.sent = [];
     await expect(api.refresh('both')).rejects.toMatchObject({
       name: 'SourceRefused', message: "Your source is refusing connections. The app is waiting so you don't get blocked.",
@@ -1646,15 +1664,144 @@ describe('AppApi – refusal cooldown', () => {
     expect(r.state.sent).toEqual([]);
   });
 
-  test('stream reports: refused blocks; an answer during the block is ignored', async () => {
+  test('a stream refusal pauses only its host: the source API stays clear and the playable carries the cooldown', async () => {
     const r = refusingFetch();
-    const { api } = make(storage, SourceService, r.f);
+    const { api, events } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
-    await api.reportStreamAnswered(sourceId); // a stream that was already playing
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    const p = await firstPlayable(api);
+    expect(p.cooldownKey).toBe(hostKey(sourceId));
+    expect(p.cooldown).toBeUndefined();
+    await api.reportStreamRefused(sourceId, p.url);
+    const waiting = { state: 'waiting', until: NOW + 120_000, reason: 'refused' };
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, streamKey: hostKey(sourceId), cooldown: waiting });
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    r.state.sent = [];
+    await api.refresh('playlist'); // the API is not paused
+    expect(r.state.sent).not.toEqual([]);
+    expect((await firstPlayable(api)).cooldown).toEqual(waiting);
+  });
+
+  test('a persisted host cooldown reaches the playable after a reload', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    const second = make(storage, SourceService);
+    await second.api.init();
+    expect((await firstPlayable(second.api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test('stream reports: an answer during the host block is ignored', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url);
+    await api.reportStreamAnswered(sourceId, p.url); // a stream that was already playing
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test("a stream refusal's Retry-After replaces the host's wait", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url, 90_000);
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 90_000, reason: 'refused' });
+  });
+
+  test('back online: an unreachable wait of the active source ends and the background pass runs', async () => {
+    const r = refusingFetch();
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
+    expect((await api.init()).cooldown).toMatchObject({ reason: 'unreachable' });
+    down = false;
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    expect(r.state.sent).toContain('/xmltv.php');
+  });
+
+  test('back online: a refresh that failed while offline skips its backoff; an older failure keeps it', async () => {
+    const r = refusingFetch();
+    let offline = false;
+    const f: FetchFn = async (u, i) => {
+      if (offline) throw new TypeError('Failed to fetch');
+      return r.f(u, i);
+    };
+    const { api, events } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 60_000 }); // failed before, online
+    offline = true;
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    await api.init(); // the automatic guide refresh fails offline: its backoff is recorded
+    await api.idle();
+    expect(events.some((e) => e.type === 'offline' && e.value)).toBe(true);
+    expect(await storage.getMeta(`refreshFail:${sourceId}:epg`)).toBeTruthy();
+    offline = false;
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect(r.state.sent).toContain('/xmltv.php');
+    expect(await storage.getMeta(`refreshFail:${sourceId}:epg`)).toBeFalsy();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toEqual({ count: 1, at: NOW - 60_000 });
+  });
+
+  test('back online leaves a refusal wait alone and sends nothing', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    await api.addSource(xt());
+    await api.idle();
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.sent = [];
+    await api.networkOnline();
+    await api.idle();
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+    expect(r.state.sent).toEqual([]);
+  });
+
+  test('a stream never counts toward the unreachable breaker: the API has no such report', () => {
+    expect(APP_API_METHODS).not.toContain('reportStreamUnreachable' as never);
+  });
+
+  test('three failed source requests through wrap trip the breaker', async () => {
+    const r = refusingFetch();
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api, events } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
+    const unreachable = { state: 'waiting', until: NOW + 60_000, reason: 'unreachable' };
+    expect((await api.init()).cooldown).toEqual(unreachable);
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: unreachable });
+  });
+
+  test('explicit refresh while unreachable fails with the unreachable copy and sends nothing', async () => {
+    const r = refusingFetch();
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api } = make(storage, SourceService, f);
+    await api.addSource(xt());
+    await api.idle();
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
+    r.state.sent = [];
+    await expect(api.refresh('both')).rejects.toMatchObject({
+      name: 'SourceRefused', message: "Your source isn't answering. The app is waiting so it doesn't flood it.",
+    });
+    expect(r.state.sent).toEqual([]);
   });
 
   test('retry sends nothing by itself; the probe getting through runs the skipped refreshes', async () => {
@@ -1662,16 +1809,52 @@ describe('AppApi – refusal cooldown', () => {
     const { api, events } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    const p = await firstPlayable(api);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
-    expect(await api.retrySource()).toEqual({ state: 'clear' });
+    expect(await api.retrySource(p.url)).toEqual({ state: 'clear' });
     await api.idle();
     expect(r.state.sent).toEqual([]); // the user's stream is the probe
     expect(cooldownEvents(events).at(-1)?.cooldown).toEqual({ state: 'clear' });
-    await api.reportStreamAnswered(sourceId);
+    await api.reportStreamAnswered(sourceId, p.url);
     await api.idle();
     expect(r.state.sent).toContain('/xmltv.php');
+  });
+
+  test("retry with the stream's URL lets one probe through on its host too; the answer is the worse of both", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url);
+    expect(await api.retrySource()).toEqual({ state: 'clear' }); // the source itself was never paused
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+    expect(await api.retrySource(p.url)).toEqual({ state: 'clear' });
+    expect((await firstPlayable(api)).cooldown).toBeUndefined();
+    await api.reportStreamRefused(sourceId, p.url); // the probe was refused: one step up
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 600_000, reason: 'refused' });
+  });
+
+  test('a host cooldown ending does not restart the background pass', async () => {
+    const r = refusingFetch();
+    let fire: (() => void) | undefined;
+    let t = NOW;
+    const guard = new RefusalGuard({ storage, now: () => t, timer: { set: (fn) => { fire = fn; return 1; }, clear: () => { fire = undefined; } } });
+    const service = new SourceService({ storage, fetch: r.f, now: () => NOW, guard });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW });
+    live.push(api);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    t = NOW + 120_000;
+    fire?.();
+    await api.idle();
+    expect(r.state.sent).toEqual([]);
   });
 
   test('the end of a wait restarts the background pass (the probe)', async () => {
@@ -1685,7 +1868,9 @@ describe('AppApi – refusal cooldown', () => {
     live.push(api);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
     t = NOW + 120_000;
@@ -1700,9 +1885,161 @@ describe('AppApi – refusal cooldown', () => {
     const { api } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     const src = (await api.getSource(sourceId))!;
     await expect(api.updateSource({ ...src, name: 'Renamed' })).resolves.toMatchObject({ channelCount: 40 });
     expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+  });
+
+  test("updateSource also lets one probe through on each of the source's stream hosts", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    expect((await firstPlayable(api)).cooldown).toMatchObject({ state: 'waiting' });
+    const src = (await api.getSource(sourceId))!;
+    await api.updateSource({ ...src, name: 'Renamed' });
+    expect((await firstPlayable(api)).cooldown).toBeUndefined();
+  });
+
+  test("deleting a source drops its stream hosts' cooldowns and their list", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    expect(await storage.getMeta(`refusal:${hostKey(sourceId)}`)).toMatchObject({ step: 1 });
+    await api.deleteSource(sourceId);
+    expect(await storage.getMeta(`refusal:${hostKey(sourceId)}`)).toBeNull();
+    expect(await storage.getMeta(`streamKeys:${sourceId}`)).toBeNull();
+  });
+
+  test('a stream URL without a host pauses its own key, never the source', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, 'not a url');
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    expect(await storage.getMeta(`refusal:${sourceId}@stream`)).toMatchObject({ step: 1 });
+  });
+
+  test('worseCooldown answers the cooldown that blocks longer', () => {
+    const a = { state: 'waiting', until: 5, reason: 'refused' } as const;
+    const b = { state: 'waiting', until: 9, reason: 'unreachable' } as const;
+    expect(worseCooldown({ state: 'clear' }, a)).toBe(a);
+    expect(worseCooldown(a, { state: 'clear' })).toBe(a);
+    expect(worseCooldown(a, b)).toBe(b);
+    expect(worseCooldown(b, a)).toBe(b);
+  });
+});
+
+describe('AppApi source headers and refresh backoff', () => {
+  const HOUR_MS = 3_600_000;
+  const playlist = [
+    '#EXTM3U',
+    '#EXTINF:-1 tvg-chno="1",Channel A',
+    '#EXTVLCOPT:http-user-agent=ChannelAgent/1.0',
+    'http://example.test/live/a.ts',
+    '#EXTINF:-1 tvg-chno="2",Channel B',
+    'http://example.test/live/b.ts|Referer=http://example.test/channel',
+    '#EXTINF:-1 tvg-chno="3",Channel C',
+    'http://example.test/live/c.ts',
+    '#EXTINF:-1 group-title="Drama",Synthetic Film A (2020)',
+    'http://example.test/movie/u/p/1.mp4|User-Agent=FilmAgent/1.0',
+  ].join('\n');
+  let gets = 0;
+  const fetchFn: FetchFn = async (u, i) => {
+    if (u === 'http://example.test/p.m3u') { gets++; return new Response(playlist); }
+    return fetch(u, i);
+  };
+  const input = { kind: 'm3u' as const, name: 'Headers', playlistUrl: 'http://example.test/p.m3u' };
+  beforeEach(() => { gets = 0; });
+
+  test('getPlayable merges the channel headers over the source settings; VOD playables too', async () => {
+    const { api } = makeVod(storage, fetchFn);
+    const { sourceId } = await api.addSource(input);
+    await api.idle();
+    const headersOf = async (n: number) => (await api.byNumber(n))!.headers;
+    expect(await headersOf(1)).toEqual({ userAgent: 'ChannelAgent/1.0' });
+    expect(await headersOf(2)).toEqual({ referrer: 'http://example.test/channel' });
+    expect(await headersOf(3)).toBeUndefined();
+    const home = await api.getVodHome('movie');
+    const film = home.rows.find((r) => r.items.length)!.items[0]!;
+    const filmPlayable = (await api.getVodPlayable(film.id))!;
+    expect(filmPlayable.url).toBe('http://example.test/movie/u/p/1.mp4');
+    expect(filmPlayable.headers).toEqual({ userAgent: 'FilmAgent/1.0' });
+    await api.updateSource({ ...(await api.getSource(sourceId))!, userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
+    await api.idle();
+    expect(await headersOf(1)).toEqual({ userAgent: 'ChannelAgent/1.0', referrer: 'http://example.test/source' });
+    expect(await headersOf(2)).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/channel' });
+    expect(await headersOf(3)).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
+    // The entry's own User-Agent wins over the source's; the source's Referer fills in.
+    const film2 = (await api.getVodHome('movie')).rows.find((r) => r.items.length)!.items[0]!;
+    expect((await api.getVodPlayable(film2.id))?.headers).toEqual({ userAgent: 'FilmAgent/1.0', referrer: 'http://example.test/source' });
+  });
+
+  test('the background refresh skips a backed-off playlist; a manual refresh runs', async () => {
+    const seed = make(storage, SourceService, fetchFn).api;
+    const { sourceId } = await seed.addSource(input);
+    await seed.idle();
+    // Stale by autoRefreshHours, but the last automatic attempt failed 5 min ago.
+    await storage.setMeta(`playlistAt:${sourceId}`, NOW - 13 * HOUR_MS);
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 5 * 60_000 });
+    const before = gets;
+    const { api, events } = make(storage, SourceService, fetchFn);
+    await api.init();
+    await api.idle();
+    expect(gets).toBe(before);
+    expect(events.some((e) => e.type === 'refreshFailed')).toBe(false);
+    await api.refresh('playlist');
+    expect(gets).toBe(before + 1);
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toBeFalsy();
+  });
+
+  test('an empty channel cache is not refilled while the playlist is backed off', async () => {
+    const seed = make(storage, SourceService, fetchFn).api;
+    const { sourceId } = await seed.addSource(input);
+    await seed.idle();
+    await storage.replaceChannels(sourceId, []);
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 5 * 60_000 });
+    const before = gets;
+    const { api } = make(storage, SourceService, fetchFn);
+    await api.init();
+    await api.idle();
+    expect(gets).toBe(before);
+    // Once the wait is over, the same start refills it.
+    await storage.setMeta(`refreshFail:${sourceId}:playlist`, { count: 1, at: NOW - 15 * 60_000 });
+    const later = make(storage, SourceService, fetchFn).api;
+    await later.init();
+    await later.idle();
+    expect(gets).toBe(before + 1);
+  });
+
+  test('a failed background playlist refresh records the backoff; a failed manual one does not', async () => {
+    let down = false;
+    const flaky: FetchFn = async (u, i) => (down && u === 'http://example.test/p.m3u' ? new Response('down', { status: 500 }) : fetchFn(u, i));
+    const seed = make(storage, SourceService, flaky).api;
+    const { sourceId } = await seed.addSource(input);
+    await seed.idle();
+    down = true;
+    await expect(seed.refresh('playlist')).rejects.toThrow();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toBeFalsy();
+    await storage.setMeta(`playlistAt:${sourceId}`, NOW - 13 * HOUR_MS);
+    const { api } = make(storage, SourceService, flaky);
+    await api.init();
+    await api.idle();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:playlist`)).toEqual({ count: 1, at: NOW });
+  });
+
+  test('the first Movies load is not held off by a failed background refresh', async () => {
+    const { api } = makeVod();
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await storage.setMeta(`refreshFail:${sourceId}:vod:movie`, { count: 1, at: NOW });
+    expect((await api.getVodHome('movie')).status).not.toBe('empty');
+    await api.idle();
+    expect((await api.getVodHome('movie')).status).toBe('ready');
+    expect(await storage.getMeta(`refreshFail:${sourceId}:vod:movie`)).toBeFalsy();
   });
 });

@@ -4,7 +4,7 @@ import { START_CUSHION_S, avplayBuffering, hlsConfig, isTvPlatform, mpegtsConfig
 const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {
     maxTimeToFirstByteMs: ttfb, maxLoadTimeMs: load,
-    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000, backoff: 'exponential' },
     errorRetry: { maxNumRetry: errRetries, retryDelayMs: 500, maxRetryDelayMs: 4000, shouldRetry: expect.any(Function) },
   },
 });
@@ -19,6 +19,7 @@ describe('engineConfig', () => {
       lowLatencyMode: true, liveSyncMode: 'buffered', liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5,
       maxLiveSyncPlaybackRate: 1, backBufferLength: 10, maxBufferSize: 30_000_000, maxBufferHole: 0.5,
       liveMaxUnchangedPlaylistRefresh: 5, fragLoadPolicy: loadPolicy(6000, 20000, 4), playlistLoadPolicy: loadPolicy(4000, 8000, 3),
+      manifestLoadPolicy: loadPolicy(Infinity, 20000, 1),
     });
     expect(hlsConfig('low', false)).toMatchObject({
       liveSyncDurationCount: 1.5, liveMaxLatencyDurationCount: 4, maxLiveSyncPlaybackRate: 1.1, backBufferLength: 30,
@@ -29,7 +30,7 @@ describe('engineConfig', () => {
 
   it('hls.js never retries a request the source refused (401/403/410, and the limit statuses)', () => {
     const cfg = hlsConfig('balanced', false);
-    for (const policy of [cfg.fragLoadPolicy, cfg.playlistLoadPolicy]) {
+    for (const policy of [cfg.fragLoadPolicy, cfg.playlistLoadPolicy, cfg.manifestLoadPolicy]) {
       const retry = policy!.default.errorRetry!;
       const should = (code: number | undefined, wouldRetry = true) =>
         retry.shouldRetry!(retry, 0, false, code === undefined ? undefined : { url: '', code }, wouldRetry);

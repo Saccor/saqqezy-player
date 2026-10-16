@@ -308,6 +308,21 @@ describe('CompanionHost', () => {
     expect(missing.ok).toBe(false);
   });
 
+  test('a source User-Agent and Referer never reach the phone, and a phone edit keeps them', async () => {
+    const s = setup();
+    const { sourceId } = await s.api.addSource(xt());
+    await s.api.updateSource({ ...(await s.api.getSource(sourceId))!, userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
+    const { p } = await pairQr(s);
+    await hello(p);
+    await p.ch.send({ t: 'getSource', id: sourceId });
+    const text = JSON.stringify(await p.next('source'));
+    expect(text).not.toContain('SyntheticAgent');
+    expect(text).not.toContain('referrer');
+    const res = await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, name: 'Renamed' } });
+    expect(res).toMatchObject({ ok: true });
+    expect(await s.api.getSource(sourceId)).toMatchObject({ name: 'Renamed', userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
+  });
+
   test('addSource through the companion forwards progress and adds the source', async () => {
     const s = setup();
     const { p } = await pairQr(s);

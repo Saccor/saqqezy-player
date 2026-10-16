@@ -90,6 +90,38 @@ describe('fake xtream options', () => {
   });
 });
 
+describe('fake xtream source-retry test users', () => {
+  const stream = (user: string, kind = 'live', ext = 'ts') => fetch(`${server.url}/${kind}/${user}/test/1.${ext}`, { redirect: 'manual' });
+
+  test('refuse403: streams answer 403, the login works like test', async () => {
+    expect((await stream('refuse403')).status).toBe(403);
+    expect((await stream('refuse403', 'movie', 'mp4')).status).toBe(403);
+    const { result } = await svc().addSource(x('refuse403'));
+    expect(result.channelCount).toBe(40);
+  });
+
+  test('limit429: streams answer 429 with a readable Retry-After of 90 s', async () => {
+    const res = await stream('limit429');
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('90');
+    expect(res.headers.get('access-control-expose-headers')).toMatch(/retry-after/i);
+    expect((await svc().addSource(x('limit429'))).result.channelCount).toBe(40);
+  });
+
+  test('gone404: streams answer 404, the login works like test', async () => {
+    expect((await stream('gone404')).status).toBe(404);
+    expect((await stream('gone404', 'series', 'mp4')).status).toBe(404);
+    expect((await svc().addSource(x('gone404'))).result.channelCount).toBe(40);
+  });
+
+  test('down500: player_api answers 500, its streams still redirect', async () => {
+    expect((await fetch(`${server.url}/player_api.php?username=down500&password=test`)).status).toBe(500);
+    await expect(svc().addSource(x('down500'))).rejects.toMatchObject({ status: 500 });
+    expect((await stream('down500')).status).toBe(302);
+    expect((await fetch(`${server.url}/get.php?username=down500&password=test`)).status).toBe(200);
+  });
+});
+
 describe('fake xtream VOD end to end', () => {
   const both = () => {
     const storage = new MemoryStorage();

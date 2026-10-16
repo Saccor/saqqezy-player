@@ -2,7 +2,9 @@ import type { JournalEvent, JournalInput, JournalSink, ReconnectCause } from './
 import { LiveDelayController } from './liveDelay.ts';
 import { DEFAULT_BUDGET, ReconnectBudget, type BudgetRule } from './reconnectBudget.ts';
 import { DEFAULT_POLICY, decide, newWatch, observe, type RecoveryPolicy, type WatchState } from './recovery.ts';
-import type { ErrorCode, LatencySource, LivePreset, PlaybackHealth, Player, PlayerState, StateDetail } from './types.ts';
+import type {
+  ErrorCode, LatencySource, LivePreset, PlaybackHealth, Player, PlayerState, StateDetail, StreamHeaders,
+} from './types.ts';
 
 /** Learned raise above the preset target, per source (opaque id; never a URL). */
 export interface LiveTargetStore {
@@ -18,10 +20,26 @@ export interface SupervisorOptions {
   liveTargets?: LiveTargetStore;
   journal?: JournalSink;
   /**
-   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). An open that does not fit waits for
-   * room; only opens with a `sourceKey` count.
+   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). Only automatic opens count: reconnects,
+   * alternates, give-up retries and status probes. An automatic open that does not fit waits for room. A user's
+   * play() is paced only by close-before-open (and the gap for what follows); only opens with a `sourceKey` count.
    */
   openRate?: { waitMs(sourceKey: string): number; take(sourceKey: string): void };
+  /**
+   * Asks the source for a stream's HTTP status (one `GET` with `Range: bytes=0-0`, aborted once the headers arrive).
+   * Used when an engine that cannot see statuses (`Player.supportsStatus` false or absent) fails before its first
+   * frame with a NETWORK error: at most once per `play()`, only after the failed attempt has closed, counted against
+   * `openRate`, and never while `blocked`. Resolves `{}` when the status is unknown; never logs the URL.
+   */
+  probe?: (url: string, signal: AbortSignal) => Promise<{ status?: number; retryAfterMs?: number }>;
+  /**
+   * True while the stream may not be sent anything (its host's refusal cooldown, or the source's): no probe goes out.
+   * `url` is the stream about to be probed (never log it).
+   */
+  blocked?: (sourceKey: string | undefined, url: string) => boolean;
+  /** Statuses that mean "the source refuses us" (core's `REFUSAL_STATUSES`); defaults to the same set. */
+  refusalStatuses?: ReadonlySet<number>;
+  /** Every random draw (jitter, gap); injectable for tests. */
   random?: () => number;
   clock?: {
     setTimeout: typeof setTimeout;
@@ -36,9 +54,17 @@ export type SupervisorStatus =
   | { kind: 'loading' }
   | { kind: 'playing' }
   | { kind: 'reconnecting'; attempt: number }
-  | { kind: 'failed'; reason: 'unavailable' | 'unsupported' | 'refused' }
+  /**
+   * `gone`: the source answered 404/410 (the stream is not there anymore). `httpStatus` when known (from the engine
+   * or the status probe); `retryAfterMs` when a refusal came with a `Retry-After` (probe only), for the cooldown.
+   * `urlIndex` (refused only): which URL of the play the source refused (0 the primary, 1+ the alternates), so the
+   * cooldown lands on that URL's host. An index, never a URL.
+   */
+  | { kind: 'failed'; reason: FailReason; httpStatus?: number; retryAfterMs?: number; urlIndex?: number }
   /** A VOD title played to its end (live never emits it). */
   | { kind: 'ended' };
+
+export type FailReason = 'unavailable' | 'unsupported' | 'refused' | 'gone';
 
 export interface LiveInfo {
   /** Seconds behind the live edge: the value the controller steers by (and the pill shows). */
@@ -62,7 +88,16 @@ export interface PlayOptions {
   vod?: boolean;
   /** VOD start position in ms. */
   startMs?: number;
+  /** Request headers for this stream, passed to every open. */
+  headers?: StreamHeaders;
 }
+
+/** Same values as `REFUSAL_STATUSES` in @iptv/core (this package does not depend on core). */
+const DEFAULT_REFUSAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 458, 503, 509]);
+/** The longest wait for an engine's teardown before the next open or probe: a hung teardown never blocks zapping. */
+const CLOSE_WAIT_MAX_MS = 1500;
+/** The supervisor's own cap on a status probe; past it the status is unknown. */
+const PROBE_TIMEOUT_MS = 5000;
 
 const ERROR_CODES = new Set<string>(['NETWORK', 'MEDIA', 'DECODE', 'UNSUPPORTED', 'EOS', 'AUTH']);
 const LIVE_EVERY_TICKS = 8; // the delay controller runs every ~2 s
@@ -104,6 +139,9 @@ export class PlaybackSupervisor {
   private readonly store: LiveTargetStore | undefined;
   private readonly journal: JournalSink | undefined;
   private readonly openRate: SupervisorOptions['openRate'];
+  private readonly probe: SupervisorOptions['probe'];
+  private readonly blocked: SupervisorOptions['blocked'];
+  private readonly refusalStatuses: ReadonlySet<number>;
   private readonly budget: ReconnectBudget;
   private readonly listeners = new Set<(s: SupervisorStatus) => void>();
   private readonly unsubscribe: () => void;
@@ -117,10 +155,26 @@ export class PlaybackSupervisor {
   private authRetried = false;
   /** The source refused (AUTH) during this play() before anything played. */
   private refusedBeforePlay = false;
+  /** The URL index of the latest attempt the source refused in this play() (AUTH, or a probe's refusal status). */
+  private refusedIndex: number | undefined;
   /** Something played during this play(). */
   private playedThisPlay = false;
   /** Clock ms of the last `player.open()`, for the minimum gap between connection attempts. */
   private lastOpenAt = Number.NEGATIVE_INFINITY;
+  /** The gap the next open keeps after the last one (drawn per open). */
+  private openGapMs = 0;
+  private headers: StreamHeaders | undefined;
+  /** The status probe ran (or started) in this play(). */
+  private probedThisPlay = false;
+  /** What the failure status carries: the last known HTTP status and a refusal's Retry-After. */
+  private failInfo: { httpStatus?: number; retryAfterMs?: number } = {};
+  /** Waiting for a teardown or a probe: no other failure, reopen or tick acts meanwhile. */
+  private waiting = false;
+  private closeTimer: Timer | undefined;
+  private probeTimer: Timer | undefined;
+  private probeAbort: AbortController | undefined;
+  /** Index of the next background retry wait. */
+  private giveUpStep = 0;
   private sourceKey: string | undefined;
   private attemptCounter = 0;
   private currentAttempt: number | undefined;
@@ -161,7 +215,6 @@ export class PlaybackSupervisor {
   private graceBaseMs = 0;
   /** Grace: the first landed position; progress is measured from here. */
   private graceAnchorMs: number | undefined;
-  private giveUpSince = 0;
   private lastStatus: SupervisorStatus['kind'] | undefined;
   private noBytesTimer: Timer | undefined;
   private firstFrameTimer: Timer | undefined;
@@ -186,6 +239,10 @@ export class PlaybackSupervisor {
     this.store = opts.liveTargets;
     this.journal = opts.journal;
     this.openRate = opts.openRate;
+    this.probe = opts.probe;
+    this.blocked = opts.blocked;
+    this.refusalStatuses = opts.refusalStatuses ?? DEFAULT_REFUSAL_STATUSES;
+    this.openGapMs = this.policy.minOpenGapMs;
     this.budget = new ReconnectBudget(opts.budget ?? DEFAULT_BUDGET, () => this.now());
     this.unsubscribe = player.onState((s, d) => this.onPlayerState(s, d));
   }
@@ -208,8 +265,13 @@ export class PlaybackSupervisor {
     this.fails = 0;
     this.authRetried = false;
     this.refusedBeforePlay = false;
+    this.refusedIndex = undefined;
     this.playedThisPlay = false;
     this.sourceKey = opts.sourceKey;
+    this.headers = opts.headers;
+    this.probedThisPlay = false;
+    this.failInfo = {};
+    this.giveUpStep = 0;
     this.budget.reset();
     this.stalls = 0;
     this.reconnects = 0;
@@ -235,7 +297,9 @@ export class PlaybackSupervisor {
     this.player.stop();
     this.note({ k: 'play', channel: opts.channel, preset: this.preset(), urls: this.urls.length });
     this.emit({ kind: 'loading' });
-    this.openCurrent();
+    // A new play() never overlaps the old stream's teardown and keeps the minimum gap after the last open. It is the
+    // user's open: the open-rate cap neither holds nor counts it.
+    this.afterClosed(() => this.openAfterGap(false));
   }
 
   stop(): void {
@@ -404,21 +468,27 @@ export class PlaybackSupervisor {
 
   // ---- attempts ----
 
-  private openCurrent(): void {
-    if (this.openRate && this.sourceKey !== undefined) {
-      const wait = this.openRate.waitMs(this.sourceKey);
-      if (wait > 0) {
+  /** `automatic`: a reconnect, alternate or give-up retry, which the open-rate cap holds and counts. */
+  private openCurrent(automatic: boolean): void {
+    if (automatic && this.openRate && this.sourceKey !== undefined) {
+      const room = this.openRate.waitMs(this.sourceKey);
+      if (room > 0) {
+        // Wake a little after the slot frees, so many waiting TVs do not all knock at the same moment.
+        const wait = room + Math.round(this.policy.openRateWakeJitterMs * this.random());
         this.note({ k: 'rateWait', delayMs: wait });
         const gen = this.gen;
         this.retryTimer = this.clock.setTimeout(() => {
           this.retryTimer = undefined;
-          if (gen === this.gen && this.active) this.openCurrent();
+          if (gen === this.gen && this.active) this.openCurrent(true);
         }, wait);
         return;
       }
       this.openRate.take(this.sourceKey);
     }
-    this.lastOpenAt = this.now();
+    this.markOpen();
+    // A status belongs to the attempt that reported it; only a refusal before anything played still governs this play.
+    if (!this.refusedBeforePlay) this.failInfo = {};
+    const p = this.policy;
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
@@ -427,7 +497,6 @@ export class PlaybackSupervisor {
     this.stableSince = undefined;
     this.tickCount = 0;
     this.rate = 1;
-    const p = this.policy;
     const pending = () => gen === this.gen && this.active && this.currentAttempt === id && !this.started;
     if (!this.vod) this.player.setLiveProfile?.({ preset: this.preset(), targetS: this.delay?.targetS() ?? 0, allowRate: this.allowRate });
     this.noBytesTimer = this.clock.setTimeout(() => {
@@ -450,9 +519,14 @@ export class PlaybackSupervisor {
     let opened: Promise<void>;
     try {
       const url = this.urls[this.urlIndex] ?? '';
-      opened = this.vod
-        ? this.player.open(url, id, this.lastPosMs > 0 ? { live: false, startMs: this.lastPosMs } : { live: false })
-        : this.player.open(url, id);
+      const headers = this.headers ? { headers: this.headers } : undefined;
+      if (this.vod) {
+        const at = this.lastPosMs > 0 ? { live: false, startMs: this.lastPosMs } : { live: false };
+        opened = this.player.open(url, id, { ...at, ...headers });
+      } else {
+        // A live open without headers passes no options, as before.
+        opened = headers ? this.player.open(url, id, headers) : this.player.open(url, id);
+      }
     } catch (e) {
       this.note({ k: 'error', code: codeOf(e) ?? 'UNKNOWN', detail: 'openThrew' });
       this.fail(codeOf(e));
@@ -511,6 +585,7 @@ export class PlaybackSupervisor {
       this.stableSince = undefined;
     } else if (s === 'error') {
       this.note({ k: 'error', code: d?.code ?? 'UNKNOWN', httpStatus: d?.httpStatus, detail: d?.detail, engine: this.player.health?.().engine });
+      if (d?.httpStatus !== undefined) this.failInfo = { httpStatus: d.httpStatus };
       this.fail(d?.code);
     } else if (s === 'idle' && this.started) {
       // A non-live stream played to its end: nothing to recover, so the ladder stops (no reconnect).
@@ -553,7 +628,7 @@ export class PlaybackSupervisor {
   }
 
   private tick(): void {
-    if (!this.started || this.currentAttempt === undefined || this.retryTimer !== undefined) return;
+    if (!this.started || this.currentAttempt === undefined || this.busy()) return;
     const p = this.policy;
     const now = this.now();
     const h: PlaybackHealth = this.player.health?.() ?? { positionMs: this.player.position() };
@@ -639,12 +714,126 @@ export class PlaybackSupervisor {
    * runs inside an engine callback.
    */
   private fail(code?: ErrorCode, inline = false, cause?: ReconnectCause): void {
-    if (!this.active || this.retryTimer !== undefined) return; // a reconnect is already pending
+    if (!this.active || this.busy()) return; // a reconnect (or a probe) is already pending
     const why: ReconnectCause = cause ?? code ?? 'NETWORK';
     const wasPlaying = this.isPlaying;
+    const beforeFirstFrame = !this.started;
+    // Read before anything else touches the engine: it describes the attempt that just failed.
+    const statusAware = this.player.supportsStatus?.() === true;
     this.endAttempt();
     // The source ending (EOS) or refusing (AUTH) the stream is not a playback stall.
     if (wasPlaying && code !== 'EOS' && code !== 'AUTH') this.countStall(this.now());
+    if (code === 'NETWORK' && beforeFirstFrame && !statusAware && this.mayProbe()) {
+      if (inline) {
+        this.runProbe(why);
+        return;
+      }
+      // Not from our own timer: the teardown for the probe waits one macrotask, never inside an engine callback.
+      const gen = this.gen;
+      this.retryTimer = this.clock.setTimeout(() => {
+        this.retryTimer = undefined;
+        if (gen === this.gen && this.active) this.runProbe(why);
+      }, 0);
+      return;
+    }
+    this.afterFail(code, inline, why);
+  }
+
+  /** The probe may run: injected, not yet used in this play(), the source not blocked, and room in the open rate. */
+  private mayProbe(): boolean {
+    if (!this.probe || this.probedThisPlay || this.urls[this.urlIndex] === undefined) return false;
+    // The probe runs in the browser and cannot send a custom User-Agent or Referer: against a header-gated source it
+    // could falsely read a 403. Such plays keep the NETWORK path (spec §5).
+    if (this.headers?.userAgent || this.headers?.referrer) return false;
+    try {
+      if (this.blocked?.(this.sourceKey, this.urls[this.urlIndex]!)) return false;
+    } catch {
+      return false;
+    }
+    return !(this.openRate && this.sourceKey !== undefined && this.openRate.waitMs(this.sourceKey) > 0);
+  }
+
+  /**
+   * The engine cannot tell the status: stop the failed attempt, wait for its teardown, then ask the source once.
+   * The answer decides the path (spec 2026-10-16-source-retry §2.1).
+   */
+  private runProbe(why: ReconnectCause): void {
+    const probe = this.probe!;
+    const url = this.urls[this.urlIndex]!;
+    this.probedThisPlay = true;
+    if (this.openRate && this.sourceKey !== undefined) this.openRate.take(this.sourceKey);
+    this.player.holdLastFrame?.();
+    this.startSpinner();
+    this.player.stop();
+    const gen = this.gen;
+    this.afterClosed(() => {
+      this.waiting = true;
+      this.markOpen(); // the probe is a connection too: the next open keeps the gap after it
+      const ctl = new AbortController();
+      this.probeAbort = ctl;
+      let settled = false;
+      let timer: Timer | undefined;
+      const finish = (r: { status?: number; retryAfterMs?: number }) => {
+        if (settled) return;
+        settled = true;
+        // Only this probe's own timer and controller: a stale probe must never disarm a newer play's.
+        if (timer !== undefined) this.clock.clearTimeout(timer);
+        if (this.probeTimer === timer) this.probeTimer = undefined;
+        if (this.probeAbort === ctl) this.probeAbort = undefined;
+        if (gen !== this.gen || !this.active) return;
+        this.waiting = false;
+        this.onProbe(r, why);
+      };
+      timer = this.clock.setTimeout(() => {
+        ctl.abort();
+        finish({});
+      }, PROBE_TIMEOUT_MS);
+      this.probeTimer = timer;
+      let answer: Promise<{ status?: number; retryAfterMs?: number }>;
+      try {
+        answer = probe(url, ctl.signal);
+      } catch {
+        answer = Promise.resolve({});
+      }
+      answer.then((r) => finish(r ?? {}), () => finish({}));
+    });
+  }
+
+  /** Maps the probe's answer: a refusal takes the AUTH path, 404/410 ends as gone, anything else stays NETWORK. */
+  private onProbe(r: { status?: number; retryAfterMs?: number }, why: ReconnectCause): void {
+    const status = typeof r.status === 'number' && Number.isFinite(r.status) ? r.status : undefined;
+    if (status === undefined) {
+      this.afterFail('NETWORK', false, why);
+      return;
+    }
+    this.note({ k: 'error', code: 'NETWORK', httpStatus: status, detail: 'probe' });
+    if (this.refusalStatuses.has(status)) {
+      const retryAfterMs = typeof r.retryAfterMs === 'number' && Number.isFinite(r.retryAfterMs) ? r.retryAfterMs : undefined;
+      this.failInfo = retryAfterMs === undefined ? { httpStatus: status } : { httpStatus: status, retryAfterMs };
+      this.refusedIndex = this.urlIndex;
+      if (this.givingUp) {
+        // A refusal during the background retries: stop them instead of knocking again.
+        this.givingUp = false;
+        this.terminal('refused');
+        return;
+      }
+      // A confirmed refusal: no second try on this URL; the other format once (before anything played), else refused.
+      this.authRetried = true;
+      if (!this.playedThisPlay) this.refusedBeforePlay = true;
+      this.afterFail('AUTH', false, 'AUTH');
+      return;
+    }
+    this.failInfo = { httpStatus: status };
+    if (status === 404 || status === 410) {
+      this.givingUp = false;
+      this.terminal('gone');
+      return;
+    }
+    this.afterFail('NETWORK', false, why);
+  }
+
+  /** The failure's path once its code is known (the part of `fail` after the attempt has ended). */
+  private afterFail(code: ErrorCode | undefined, inline: boolean, why: ReconnectCause): void {
     if (this.givingUp) {
       this.scheduleGiveUpRetry();
       return;
@@ -661,6 +850,8 @@ export class PlaybackSupervisor {
     // Once the source has refused this channel, a later failure before anything played is the same refusal in
     // disguise (a cross-origin 403 reaches the page as a plain network error): stop instead of retrying a source
     // that is refusing us, which can keep a temporary block alive.
+    // The source refused this URL's attempt: the cooldown lands on its host.
+    if (code === 'AUTH') this.refusedIndex = this.urlIndex;
     if (this.refusedBeforePlay && !this.playedThisPlay) {
       if (!this.nextUrl(inline)) this.terminal('refused');
       return;
@@ -702,7 +893,7 @@ export class PlaybackSupervisor {
 
   /** Reopen at once (live drift, "go live"): spends budget, does not count as a failure. */
   private reopen(inline = false, cause: ReconnectCause = 'drift'): void {
-    if (!this.active || this.retryTimer !== undefined) return;
+    if (!this.active || this.busy()) return;
     this.endAttempt();
     this.scheduleReconnect(0, inline, cause);
   }
@@ -718,17 +909,88 @@ export class PlaybackSupervisor {
     const wait = Math.max(this.jitter(delayMs), this.gapWait());
     this.note({ k: 'reconnect', delayMs: wait, cause });
     if (inline && wait === 0) {
-      this.player.stop();
-      this.openCurrent();
+      this.restart();
       return;
     }
     const gen = this.gen;
     this.retryTimer = this.clock.setTimeout(() => {
       this.retryTimer = undefined;
       if (gen !== this.gen || !this.active) return;
-      this.player.stop();
-      this.openCurrent();
+      this.restart();
     }, wait);
+  }
+
+  /**
+   * Stops the engine, waits for its teardown (at most CLOSE_WAIT_MAX_MS), then for whatever is left of the minimum
+   * gap since the last open, then opens. `beforeOpen` runs right before the open.
+   */
+  private restart(beforeOpen?: () => void): void {
+    this.player.stop();
+    this.afterClosed(() => this.openAfterGap(true, beforeOpen));
+  }
+
+  /** Opens once the minimum gap since the last open (or probe) has passed. */
+  private openAfterGap(automatic: boolean, beforeOpen?: () => void): void {
+    const open = () => {
+      beforeOpen?.();
+      this.openCurrent(automatic);
+    };
+    const gap = this.gapWait();
+    if (gap <= 0) {
+      open();
+      return;
+    }
+    const gen = this.gen;
+    this.retryTimer = this.clock.setTimeout(() => {
+      this.retryTimer = undefined;
+      if (gen === this.gen && this.active) open();
+    }, gap);
+  }
+
+  /** A connection goes out now: the gap to the next one is drawn afresh (1000–1300 ms by default). */
+  private markOpen(): void {
+    const p = this.policy;
+    this.lastOpenAt = this.now();
+    this.openGapMs = p.minOpenGapMs + (p.openGapSpreadMs > 0 ? Math.round(p.openGapSpreadMs * this.random()) : 0);
+  }
+
+  /**
+   * Runs `fn` once the engine's previous session is torn down (`Player.closed`), or after CLOSE_WAIT_MAX_MS at most;
+   * at once when the engine does not say. Dropped when a newer play() or stop() came first.
+   */
+  private afterClosed(fn: () => void): void {
+    let closing: Promise<void> | undefined;
+    try {
+      closing = this.player.closed?.();
+    } catch {
+      closing = undefined;
+    }
+    if (!closing) {
+      fn();
+      return;
+    }
+    const gen = this.gen;
+    this.waiting = true;
+    let done = false;
+    let timer: Timer | undefined;
+    const go = () => {
+      if (done) return;
+      done = true;
+      // Only this wait's own cap: a late close from an older play must never disarm a newer play's cap.
+      if (timer !== undefined) this.clock.clearTimeout(timer);
+      if (this.closeTimer === timer) this.closeTimer = undefined;
+      if (gen !== this.gen || !this.active) return;
+      this.waiting = false;
+      fn();
+    };
+    timer = this.clock.setTimeout(go, CLOSE_WAIT_MAX_MS);
+    this.closeTimer = timer;
+    closing.then(go, go);
+  }
+
+  /** A reconnect, alternate switch, probe or teardown wait is pending. */
+  private busy(): boolean {
+    return this.retryTimer !== undefined || this.waiting;
   }
 
   /**
@@ -741,11 +1003,7 @@ export class PlaybackSupervisor {
     this.note({ k: 'alternate', urlIndex: this.urlIndex });
     this.fails = 0;
     this.authRetried = false;
-    const switchNow = () => {
-      this.player.stop();
-      this.emit({ kind: 'loading' });
-      this.openCurrent();
-    };
+    const switchNow = () => this.restart(() => this.emit({ kind: 'loading' }));
     const wait = this.gapWait();
     if (inline && wait === 0) {
       switchNow();
@@ -762,44 +1020,58 @@ export class PlaybackSupervisor {
 
   /** How long until another connection attempt is allowed (the minimum gap since the last open). */
   private gapWait(): number {
-    return Math.max(0, Math.ceil(this.policy.minOpenGapMs - (this.now() - this.lastOpenAt)));
+    return Math.max(0, Math.ceil(this.openGapMs - (this.now() - this.lastOpenAt)));
   }
 
-  private terminal(reason: 'unavailable' | 'unsupported' | 'refused'): void {
+  private terminal(reason: FailReason): void {
     this.clearTimers();
     this.endAttempt();
     this.note({ k: 'failed', reason });
-    this.emit({ kind: 'failed', reason });
+    const { httpStatus, retryAfterMs } = this.failInfo;
+    const carries = reason === 'refused' || reason === 'gone';
+    this.emit({
+      kind: 'failed', reason,
+      ...(carries && httpStatus !== undefined ? { httpStatus } : {}),
+      ...(reason === 'refused' && retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      ...(reason === 'refused' ? { urlIndex: this.refusedIndex ?? this.urlIndex } : {}),
+    });
     // Background retries only bring back a live stream that was playing; a channel that never started stays
     // stopped, and a VOD title waits for the user's "Try again".
     if (reason === 'unavailable' && this.playedThisPlay && !this.vod) {
       this.givingUp = true;
-      this.giveUpSince = this.now();
+      this.giveUpStep = 0;
       this.scheduleGiveUpRetry();
     } else {
       this.active = false;
     }
   }
 
+  /**
+   * The next background retry (30 s, 60 s, 120 s with jitter by default), or the end of them. The reconnect budget
+   * is never refilled: each retry takes from it, and a step with no room is skipped (the next wait follows).
+   */
   private scheduleGiveUpRetry(): void {
-    const p = this.policy;
-    if (this.now() - this.giveUpSince >= p.giveUpRetryForMs) {
+    const delays = this.policy.giveUpRetryDelaysMs;
+    if (this.giveUpStep >= delays.length) {
       this.givingUp = false;
       this.active = false;
       return;
     }
+    const wait = this.jitter(delays[this.giveUpStep++] ?? 0);
     const gen = this.gen;
     this.giveUpTimer = this.clock.setTimeout(() => {
       this.giveUpTimer = undefined;
       if (gen !== this.gen || !this.active) return;
+      if (!this.budget.tryTake()) {
+        this.scheduleGiveUpRetry();
+        return;
+      }
       this.note({ k: 'giveUpRetry' });
       // The format that played is kept: background retries never switch formats.
       this.fails = 0;
       this.authRetried = false;
-      this.budget.reset();
-      this.player.stop();
-      this.openCurrent();
-    }, p.giveUpRetryEveryMs);
+      this.restart();
+    }, wait);
   }
 
   private startSpinner(): void {
@@ -901,5 +1173,12 @@ export class PlaybackSupervisor {
     this.clearGiveUp();
     if (this.retryTimer !== undefined) this.clock.clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
+    if (this.closeTimer !== undefined) this.clock.clearTimeout(this.closeTimer);
+    this.closeTimer = undefined;
+    if (this.probeTimer !== undefined) this.clock.clearTimeout(this.probeTimer);
+    this.probeTimer = undefined;
+    this.probeAbort?.abort();
+    this.probeAbort = undefined;
+    this.waiting = false;
   }
 }

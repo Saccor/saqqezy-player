@@ -12,9 +12,9 @@ describe('playerStatusText', () => {
     expect(playerStatusText({ kind: 'loading' })).toBeUndefined();
     expect(playerStatusText({ kind: 'reconnecting', attempt: 2 })).toEqual({ kind: 'toast', text: 'Reconnecting…' });
     expect(playerStatusText({ kind: 'failed', reason: 'unavailable' }))
-      .toEqual({ kind: 'centre', text: "This channel isn't available right now" });
+      .toEqual({ kind: 'centre', text: "This channel isn't available right now." });
     expect(playerStatusText({ kind: 'failed', reason: 'unsupported' }))
-      .toEqual({ kind: 'centre', text: "This stream's format isn't supported on this device" });
+      .toEqual({ kind: 'centre', text: "This stream's format isn't supported on this device." });
   });
 });
 
@@ -82,7 +82,14 @@ describe('bannerNowNextStale', () => {
 describe('playerStatusText refused', () => {
   it('refused has its own message', () => {
     expect(playerStatusText({ kind: 'failed', reason: 'refused' }))
-      .toEqual({ kind: 'centre', text: 'Your source refused this stream' });
+      .toEqual({ kind: 'centre', text: 'Your source refused this stream.' });
+  });
+  it('names the status and the account limit when known (spec §2.8)', () => {
+    expect(playerStatusText({ kind: 'failed', reason: 'refused', httpStatus: 403 }, 2)).toEqual({
+      kind: 'centre', text: 'Your source refused this stream (403). It allows 2 connections: another device may be using this account.',
+    });
+    expect(playerStatusText({ kind: 'failed', reason: 'gone', httpStatus: 404 })?.text).toBe("This channel isn't on your source anymore (404).");
+    expect(playerStatusText({ kind: 'failed', reason: 'unavailable', httpStatus: 500 })?.text).toBe("This channel isn't available right now (500).");
   });
 });
 
