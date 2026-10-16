@@ -28,12 +28,17 @@ export function SourcesPage(props: PageProps) {
     try {
       const list = await api.listSources();
       if (alive) setSources(list);
+      // In parallel; one source that cannot be read only loses its own line.
+      const read = await Promise.all(list.filter((s) => s.kind === 'xtream').map(async (s) => {
+        try {
+          return [s.id, maxConnectionsOf(await api.getSource(s.id))] as const;
+        } catch (err) {
+          console.warn('Read source limit failed', err instanceof Error ? err.name : 'Error');
+          return [s.id, undefined] as const;
+        }
+      }));
       const next = new Map<string, number>();
-      for (const s of list) {
-        if (s.kind !== 'xtream') continue;
-        const max = maxConnectionsOf(await api.getSource(s.id));
-        if (max !== undefined) next.set(s.id, max);
-      }
+      for (const [id, max] of read) if (max !== undefined) next.set(id, max);
       if (alive) setLimits(next);
     } catch (err) {
       console.warn('List sources failed', err instanceof Error ? err.name : 'Error');

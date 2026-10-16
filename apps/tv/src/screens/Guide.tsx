@@ -7,6 +7,7 @@ import { api, onEvent } from '../api.ts';
 import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
 import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
+import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import type { GridHit } from '../input/pointerLogic.ts';
@@ -360,8 +361,8 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       <Show when={miniMessage()}>{(m) => (
         <View x={MINI.x} y={MINI.y} width={MINI.w} height={MINI.h} borderRadius={LAYOUT.radius}
           color={playback.current() ? COLORS.panel : COLORS.surface}>
-          <Text x={24} y={MINI.h / 2 - FONT.body} width={MINI.w - 48} maxWidth={MINI.w - 48} contain="width" maxLines={2}
-            textAlign="center" fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
+          <Text x={24} y={messageTop(m(), MESSAGE_BOXES.guide, MINI.h)} width={MINI.w - 48} maxWidth={MINI.w - 48} contain="width"
+            maxLines={MESSAGE_BOXES.guide.maxLines} lineHeight={MESSAGE_BOXES.guide.lineH} textAlign="center" fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
         </View>
       )}</Show>
 

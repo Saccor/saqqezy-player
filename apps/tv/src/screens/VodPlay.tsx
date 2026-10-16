@@ -1,9 +1,10 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { VodPlayable, VodTracks } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
+import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
 import { onLogicalKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
 import { failureText } from '../playback/failureText.ts';
@@ -42,6 +43,8 @@ const SUB_LINE_H = 54;
 const SUB_FONT = 40;
 const CARD_W = 1000;
 const CARD_H = 260;
+/** The card's text area, between its top margin (24) and its buttons (y 148). */
+const CARD_TEXT_H = 124;
 
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
@@ -102,11 +105,6 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return s?.kind === 'failed' ? s : undefined;
   };
   const ended = () => status()?.kind === 'ended';
-  /** The failure card's text: the cause and the status when known (spec 2026-10-16-source-retry §2.8). */
-  const failText = () => {
-    const f = failed();
-    return f ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video') : '';
-  };
   const visible = () => overlayVisible({
     paused: paused(),
     seeking: marker() !== undefined,
@@ -519,6 +517,18 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     // No status: the open is held (refusal cooldown or open-rate cap) and will start by itself.
     return s === undefined || s.kind === 'loading' ? 'Loading…' : s.kind === 'reconnecting' ? 'Reconnecting…' : '';
   };
+  /**
+   * The card's text (the failure: its cause and status, spec 2026-10-16-source-retry §2.8; else the next-episode
+   * countdown) and the box it fits: heading size, or body size for a long refusal that names the account's limit.
+   */
+  const card = createMemo(() => {
+    const f = failed();
+    const text = f
+      ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
+      : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
+    const small = !fitsBox(text, MESSAGE_BOXES.vodCard);
+    return { text, box: small ? MESSAGE_BOXES.vodCardSmall : MESSAGE_BOXES.vodCard, font: small ? FONT.body : FONT.heading };
+  });
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? BAND_Y + 40 : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
   const PILL_W = 420;
@@ -584,12 +594,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <Show when={failed() || (countdown() !== undefined && p.next)}>
         <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
           color={COLORS.panel} borderRadius={LAYOUT.radius * 2}>
-          {/* A refusal that names the account's limit is long: it takes three body-size lines above the buttons. */}
-          <Text x={40} y={failText().length > 80 ? 36 : 48} width={CARD_W - 80} maxWidth={CARD_W - 80} contain="width"
-            textAlign="center" maxLines={failText().length > 80 ? 3 : 2}
-            fontSize={failText().length > 80 ? FONT.body : FONT.heading} color={COLORS.text}>
-            {failed() ? failText() : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0)}
-          </Text>
+          {/* The text area above the buttons: y 24 to 148. */}
+          <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
+            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
+            fontSize={card().font} color={COLORS.text}>{card().text}</Text>
           <Show when={failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
               x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - 72 - 40}

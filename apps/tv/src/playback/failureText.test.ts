@@ -20,6 +20,12 @@ describe('failureText (spec 2026-10-16-source-retry §2.8)', () => {
       .toBe('Your source refused this stream. It allows 2 connections: another device may be using this account.');
   });
 
+  it('names the limit only for 401, 403 or no status (another device on the account); never for 503', () => {
+    expect(failureText({ reason: 'refused', httpStatus: 503, maxConnections: 2 })).toBe('Your source refused this stream (503).');
+    expect(failureText({ reason: 'refused', httpStatus: 500, maxConnections: 2 })).toBe('Your source refused this stream (500).');
+    expect(failureText({ reason: 'refused', httpStatus: 401, maxConnections: 2 })).toContain('another device');
+  });
+
   it('rate limits say the source is limiting connections', () => {
     for (const s of [429, 458, 509]) {
       expect(failureText({ reason: 'refused', httpStatus: s, maxConnections: 2 })).toBe(`Your source is limiting connections (${s}).`);
@@ -34,15 +40,16 @@ describe('failureText (spec 2026-10-16-source-retry §2.8)', () => {
   });
 
   it("unavailable keeps today's text, plus the status when known", () => {
-    expect(failureText({ reason: 'unavailable' })).toBe("This channel isn't available right now");
-    expect(failureText({ reason: 'unavailable', httpStatus: 500 })).toBe("This channel isn't available right now (500)");
+    expect(failureText({ reason: 'unavailable' })).toBe("This channel isn't available right now.");
+    expect(failureText({ reason: 'unavailable', httpStatus: 500 })).toBe("This channel isn't available right now (500).");
+    expect(failureText({ reason: 'unavailable', httpStatus: 503 }, 'stream')).toBe("This channel isn't available right now (503).");
     expect(failureText({ reason: 'unavailable' }, 'video')).toBe("This video can't play right now.");
     expect(failureText({ reason: 'unavailable', httpStatus: 502 }, 'video')).toBe("This video can't play right now (502).");
   });
 
   it('unsupported keeps each screen\'s text', () => {
-    expect(failureText({ reason: 'unsupported' }, 'stream')).toBe("This stream's format isn't supported on this device");
-    expect(failureText({ reason: 'unsupported' }, 'channel')).toBe("This channel's format isn't supported on this device");
+    expect(failureText({ reason: 'unsupported' }, 'stream')).toBe("This stream's format isn't supported on this device.");
+    expect(failureText({ reason: 'unsupported' }, 'channel')).toBe("This channel's format isn't supported on this device.");
     expect(failureText({ reason: 'unsupported' }, 'video')).toBe("This video format can't play on this device.");
   });
 

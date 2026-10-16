@@ -24,6 +24,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { cooldown, settings } from '../state/appState.ts';
+import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import {
@@ -470,10 +471,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const showClock = () => settings()?.showClock === true;
   const TOAST_W = 460;
   const CENTRE_W = 1100;
-  const CENTRE_LINE_H = 42;
-  // About 58 heading-size characters fit on one line of the centred box.
-  const centreLines = (text: string) => Math.min(3, Math.max(1, Math.ceil(text.length / 58)));
-  const centreH = (text: string) => Math.max(160, centreLines(text) * CENTRE_LINE_H + 80);
+  const CENTRE_BOX = MESSAGE_BOXES.player;
+  const centreH = (text: string) => Math.max(160, messageLines(text, CENTRE_BOX) * CENTRE_BOX.lineH + 80);
 
   return (
     <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
@@ -495,8 +494,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
               color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={4}>
-              <Text x={40} y={(centreH(s.text) - centreLines(s.text) * CENTRE_LINE_H) / 2} width={CENTRE_W - 80}
-                maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={3} lineHeight={CENTRE_LINE_H}
+              <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
+                maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
                 fontSize={FONT.heading} color={COLORS.text}>{s.text}</Text>
             </View>
           )

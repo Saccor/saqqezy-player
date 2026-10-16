@@ -16,13 +16,13 @@ export interface FailureFacts {
 export type FailureSubject = 'stream' | 'channel' | 'video';
 
 const UNAVAILABLE: Record<FailureSubject, string> = {
-  stream: "This channel isn't available right now",
-  channel: "This channel isn't available right now",
+  stream: "This channel isn't available right now.",
+  channel: "This channel isn't available right now.",
   video: "This video can't play right now.",
 };
 const UNSUPPORTED: Record<FailureSubject, string> = {
-  stream: "This stream's format isn't supported on this device",
-  channel: "This channel's format isn't supported on this device",
+  stream: "This stream's format isn't supported on this device.",
+  channel: "This channel's format isn't supported on this device.",
   video: "This video format can't play on this device.",
 };
 const GONE: Record<FailureSubject, string> = {
@@ -31,13 +31,15 @@ const GONE: Record<FailureSubject, string> = {
   video: "This video isn't on your source anymore.",
 };
 
+/** Statuses after which another device on the account is a likely cause (spec §2.8: 401/403, or none known). */
+const ACCOUNT_STATUSES: ReadonlySet<number> = new Set([401, 403]);
+
 /** Statuses a source sends when it caps how many or how often (spec §2.8 "Rate limited"). */
 const RATE_LIMIT_STATUSES: ReadonlySet<number> = new Set([429, 458, 509]);
 
-/** `text` with " (N)" before its final full stop (or at its end); unchanged when no status is known. */
+/** `text` (ending with a full stop) with " (N)" before it; unchanged when no status is known. */
 function withStatus(text: string, status: number | undefined): string {
-  if (status === undefined) return text;
-  return text.endsWith('.') ? `${text.slice(0, -1)} (${status}).` : `${text} (${status})`;
+  return status === undefined ? text : `${text.slice(0, -1)} (${status}).`;
 }
 
 /**
@@ -52,6 +54,7 @@ export function failureText(f: FailureFacts, subject: FailureSubject = 'channel'
       }
       const base = withStatus('Your source refused this stream.', f.httpStatus);
       const n = f.maxConnections;
+      if (f.httpStatus !== undefined && !ACCOUNT_STATUSES.has(f.httpStatus)) return base;
       if (n === undefined || !Number.isInteger(n) || n < 1) return base;
       return `${base} It allows ${n} connection${n === 1 ? '' : 's'}: another device may be using this account.`;
     }

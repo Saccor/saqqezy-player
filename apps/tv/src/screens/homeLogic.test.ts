@@ -41,7 +41,7 @@ describe('home logic', () => {
     expect(previewMessage(undefined, false)).toBe('Preview');
     expect(previewMessage({ kind: 'playing' }, true)).toBeUndefined();
     expect(previewMessage({ kind: 'loading' }, true)).toBe('Loading…');
-    expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now");
+    expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now.");
     expect(previewMessage({ kind: 'failed', reason: 'unsupported' }, true)).toContain("isn't supported");
     expect(previewMessage({ kind: 'failed', reason: 'refused' }, true)).toBe('Your source refused this stream.');
     expect(previewMessage({ kind: 'failed', reason: 'refused', httpStatus: 429 }, true)).toBe('Your source is limiting connections (429).');
