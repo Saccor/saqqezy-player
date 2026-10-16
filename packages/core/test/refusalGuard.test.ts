@@ -295,6 +295,36 @@ describe('RefusalGuard Retry-After', () => {
     expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
   });
 
+  test('a refusal with Retry-After on the manual step re-arms a wait, after a manual retry too', async () => {
+    const g = make();
+    for (const wait of [2 * MIN, 10 * MIN, 0]) {
+      await g.report('s', 'refused');
+      advance(wait);
+    }
+    expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
+    await g.retry('s');
+    await g.report('s', 'refused', { retryAfterMs: 4 * MIN });
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 4 * MIN, reason: 'refused' });
+    const seen: string[] = [];
+    g.onChange((_k, _c, cause) => seen.push(cause));
+    advance(4 * MIN);
+    expect(seen).toEqual(['expired']);
+    expect(g.isBlocked('s')).toBe(false);
+  });
+
+  test('wrap: a 503 with Retry-After uses the header', async () => {
+    const g = make();
+    await g.wrap('s', async () => new Response('', { status: 503, headers: { 'Retry-After': '600' } }))('http://x.test/a');
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 10 * MIN, reason: 'refused' });
+  });
+
+  test('wrap: an HTTP-date in the past clamps to 30 s', async () => {
+    const g = make();
+    const past = new Date(t - 60 * MIN).toUTCString();
+    await g.wrap('s', async () => new Response('', { status: 429, headers: { 'Retry-After': past } }))('http://x.test/a');
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30_000, reason: 'refused' });
+  });
+
   test('wrap reads the header of a refusal', async () => {
     const g = make();
     const f = g.wrap('s', async () => new Response('', { status: 429, headers: { 'Retry-After': '300' } }));
@@ -410,6 +440,39 @@ describe('RefusalGuard unreachable breaker', () => {
     expect(g.isBlocked('s')).toBe(true);
   });
 
+  test('a trip whose wait ended more than 5 min ago has decayed: one failure starts a new run', async () => {
+    const g = make();
+    await fail3(g);
+    advance(1 * MIN + 5 * MIN + 1);
+    await g.report('s', 'failed');
+    expect(await g.status('s')).toEqual({ state: 'clear' });
+    await g.report('s', 'failed');
+    await g.report('s', 'failed');
+    expect(await g.status('s')).toEqual(unreachable(t + 1 * MIN)); // the ladder starts over at 1 min
+  });
+
+  test('within 5 min of the wait ending, a failure still moves up', async () => {
+    const g = make();
+    await fail3(g);
+    advance(1 * MIN + 5 * MIN);
+    await g.report('s', 'failed');
+    expect(await g.status('s')).toEqual(unreachable(t + 5 * MIN));
+  });
+
+  test('a decayed trip is no probe: requests run in parallel again', async () => {
+    const g = make();
+    await fail3(g);
+    advance(7 * MIN);
+    const releases: ((r: Response) => void)[] = [];
+    const f = g.wrap('s', () => new Promise((r) => { releases.push(r); }));
+    const a = f('http://x.test/1');
+    const b = f('http://x.test/2');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(releases).toHaveLength(2);
+    for (const r of releases) r(new Response('ok'));
+    await Promise.all([a, b]);
+  });
+
   test('forget drops it', async () => {
     const g = make();
     await fail3(g);
@@ -441,6 +504,16 @@ describe('RefusalGuard unreachable breaker', () => {
       for (let i = 0; i < 3; i++) await expect(f('http://x.test/a')).rejects.toBeInstanceOf(TypeError);
       expect(g.isBlocked('s')).toBe(true);
       await expect(f('http://x.test/a')).rejects.toBeInstanceOf(SourceRefusedError);
+    });
+
+    test('blocked requests say which ladder blocks', async () => {
+      const g = make();
+      const f = g.wrap('s', async () => new Response('ok'));
+      await fail3(g);
+      await expect(f('http://x.test/a')).rejects.toMatchObject({ name: 'SourceRefused', reason: 'unreachable', message: "Your source isn't answering. The app is waiting so it doesn't flood it." });
+      await g.report('r', 'refused');
+      await expect(g.wrap('r', async () => new Response('ok'))('http://x.test/a'))
+        .rejects.toMatchObject({ name: 'SourceRefused', reason: 'refused', message: "Your source is refusing connections. The app is waiting so you don't get blocked." });
     });
 
     test('a user cancel does not count', async () => {

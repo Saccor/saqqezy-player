@@ -20,7 +20,8 @@ export const RETRY_AFTER_MAX_MS = 60 * 60_000;
 /** The unreachable breaker: this many failures in a row within the window trip it. */
 export const UNREACHABLE_FAILS = 3;
 export const UNREACHABLE_WINDOW_MS = 5 * 60_000;
-/** Its ladder: 1 min, 5 min, then 15 min for every further failed probe. */
+/** Its ladder: 1 min, 5 min, then 15 min for every further failed probe. A trip whose wait ended more than
+ * `UNREACHABLE_WINDOW_MS` ago has decayed: the next failure starts a new run instead of moving up. */
 export const UNREACHABLE_STEPS_MS: readonly number[] = [60_000, 5 * 60_000, 15 * 60_000];
 
 /**
@@ -150,7 +151,7 @@ export class RefusalGuard {
     if (outcome === 'answered') {
       if (!rec && !unr) return;
       // A run of failures that never tripped changes nothing the UI shows: dropped quietly.
-      const shown = rec !== undefined || (unr !== undefined && unr.step >= 1);
+      const shown = rec !== undefined || (unr !== undefined && this.tripped(unr));
       await this.commit(
         key,
         { refusal: rec ? null : undefined, unreachable: unr ? null : undefined },
@@ -209,10 +210,13 @@ export class RefusalGuard {
   wrap(key: string, fetchFn: FetchFn): FetchFn {
     return async (url, init) => {
       await this.load(key);
-      if (this.isBlocked(key)) throw new SourceRefusedError();
-      const probe = this.records.has(key) || (this.unreachable.get(key)?.step ?? 0) >= 1;
+      const blocked = this.statusNow(key);
+      if (blocked.state !== 'clear') throw new SourceRefusedError(blocked.reason);
+      const unr = this.unreachable.get(key);
+      const refusalProbe = this.records.has(key);
+      const probe = refusalProbe || (unr !== undefined && this.tripped(unr));
       if (probe) {
-        if (this.probing.has(key)) throw new SourceRefusedError();
+        if (this.probing.has(key)) throw new SourceRefusedError(refusalProbe ? 'refused' : 'unreachable');
         this.probing.add(key);
       }
       try {
@@ -240,11 +244,12 @@ export class RefusalGuard {
   private async failed(key: string, unr: UnreachableRecord | undefined): Promise<void> {
     if (unr && this.unreachableBlocks(unr)) return;
     const now = this.now();
-    if (unr && unr.step >= 1) {
+    if (unr && this.tripped(unr)) {
       await this.trip(key, Math.min(unr.step + 1, UNREACHABLE_STEPS_MS.length), now);
       return;
     }
-    const inRun = unr !== undefined && now - unr.windowStart < UNREACHABLE_WINDOW_MS;
+    // A decayed trip counts as no run at all.
+    const inRun = unr !== undefined && unr.step === 0 && now - unr.windowStart < UNREACHABLE_WINDOW_MS;
     const fails = inRun ? unr.fails + 1 : 1;
     if (fails >= UNREACHABLE_FAILS) {
       await this.trip(key, 1, now);
@@ -264,6 +269,11 @@ export class RefusalGuard {
 
   private unreachableBlocks(rec: UnreachableRecord): boolean {
     return rec.step >= 1 && this.now() < rec.until;
+  }
+
+  /** The breaker tripped and has not decayed: a failure moves it up, and requests go out one probe at a time. */
+  private tripped(rec: UnreachableRecord): boolean {
+    return rec.step >= 1 && this.now() - rec.until <= UNREACHABLE_WINDOW_MS;
   }
 
   private load(key: string): Promise<void> {

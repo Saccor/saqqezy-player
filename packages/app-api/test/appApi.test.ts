@@ -1671,6 +1671,19 @@ describe('AppApi – refusal cooldown', () => {
     expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: unreachable });
   });
 
+  test('explicit refresh while unreachable fails with the unreachable copy and sends nothing', async () => {
+    const r = refusingFetch();
+    const { api } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    for (let i = 0; i < 3; i++) await api.reportStreamUnreachable(sourceId);
+    r.state.sent = [];
+    await expect(api.refresh('both')).rejects.toMatchObject({
+      name: 'SourceRefused', message: "Your source isn't answering. The app is waiting so it doesn't flood it.",
+    });
+    expect(r.state.sent).toEqual([]);
+  });
+
   test('retry sends nothing by itself; the probe getting through runs the skipped refreshes', async () => {
     const r = refusingFetch();
     const { api, events } = make(storage, SourceService, r.f);

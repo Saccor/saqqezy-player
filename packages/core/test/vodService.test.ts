@@ -69,6 +69,16 @@ describe('VodService catalogues', () => {
     expect(calls).toEqual([]);
   });
 
+  test('with the guard, an unreachable source is not asked either, and the error says why', async () => {
+    const guard = new RefusalGuard({ storage, now: () => now });
+    const guarded = new VodService({ storage, fetch: fetchFn, now: () => now, guard });
+    for (let i = 0; i < 3; i++) await guard.report('x', 'failed');
+    await expect(guarded.refresh('x', 'movie')).rejects.toMatchObject({
+      name: 'SourceRefused', reason: 'unreachable', message: "Your source isn't answering. The app is waiting so it doesn't flood it.",
+    });
+    expect(calls).toEqual([]);
+  });
+
   test('autoRefreshHours 0 means never stale once fetched', async () => {
     await storage.setMeta('settings', { autoRefreshHours: 0 });
     await svc.refresh('x', 'movie');
