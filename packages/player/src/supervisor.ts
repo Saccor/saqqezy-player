@@ -20,8 +20,9 @@ export interface SupervisorOptions {
   liveTargets?: LiveTargetStore;
   journal?: JournalSink;
   /**
-   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). An open that does not fit waits for
-   * room; only opens with a `sourceKey` count.
+   * Per-source open limit across play() calls and reloads (`SourceOpenRate`). Only automatic opens count: reconnects,
+   * alternates, give-up retries and status probes. An automatic open that does not fit waits for room. A user's
+   * play() is paced only by close-before-open (and the gap for what follows); only opens with a `sourceKey` count.
    */
   openRate?: { waitMs(sourceKey: string): number; take(sourceKey: string): void };
   /**
@@ -31,8 +32,11 @@ export interface SupervisorOptions {
    * `openRate`, and never while `blocked`. Resolves `{}` when the status is unknown; never logs the URL.
    */
   probe?: (url: string, signal: AbortSignal) => Promise<{ status?: number; retryAfterMs?: number }>;
-  /** True while the source is cooling down (refusal or unreachable): nothing, not even a probe, is sent. */
-  blocked?: (sourceKey: string | undefined) => boolean;
+  /**
+   * True while the stream may not be sent anything (its host's refusal cooldown, or the source's): no probe goes out.
+   * `url` is the stream about to be probed (never log it).
+   */
+  blocked?: (sourceKey: string | undefined, url: string) => boolean;
   /** Statuses that mean "the source refuses us" (core's `REFUSAL_STATUSES`); defaults to the same set. */
   refusalStatuses?: ReadonlySet<number>;
   /** Every random draw (jitter, gap); injectable for tests. */
@@ -288,8 +292,9 @@ export class PlaybackSupervisor {
     this.player.stop();
     this.note({ k: 'play', channel: opts.channel, preset: this.preset(), urls: this.urls.length });
     this.emit({ kind: 'loading' });
-    // A new play() keeps no gap (zapping stays quick), but never overlaps the old stream's teardown.
-    this.afterClosed(() => this.openCurrent());
+    // A new play() keeps no gap (zapping stays quick), but never overlaps the old stream's teardown. It is the user's
+    // open: the open-rate cap neither holds nor counts it.
+    this.afterClosed(() => this.openCurrent(false));
   }
 
   stop(): void {
@@ -458,8 +463,9 @@ export class PlaybackSupervisor {
 
   // ---- attempts ----
 
-  private openCurrent(): void {
-    if (this.openRate && this.sourceKey !== undefined) {
+  /** `automatic`: a reconnect, alternate or give-up retry, which the open-rate cap holds and counts. */
+  private openCurrent(automatic: boolean): void {
+    if (automatic && this.openRate && this.sourceKey !== undefined) {
       const room = this.openRate.waitMs(this.sourceKey);
       if (room > 0) {
         // Wake a little after the slot frees, so many waiting TVs do not all knock at the same moment.
@@ -468,7 +474,7 @@ export class PlaybackSupervisor {
         const gen = this.gen;
         this.retryTimer = this.clock.setTimeout(() => {
           this.retryTimer = undefined;
-          if (gen === this.gen && this.active) this.openCurrent();
+          if (gen === this.gen && this.active) this.openCurrent(true);
         }, wait);
         return;
       }
@@ -723,7 +729,7 @@ export class PlaybackSupervisor {
   private mayProbe(): boolean {
     if (!this.probe || this.probedThisPlay || this.urls[this.urlIndex] === undefined) return false;
     try {
-      if (this.blocked?.(this.sourceKey)) return false;
+      if (this.blocked?.(this.sourceKey, this.urls[this.urlIndex]!)) return false;
     } catch {
       return false;
     }
@@ -897,7 +903,7 @@ export class PlaybackSupervisor {
     this.afterClosed(() => {
       const open = () => {
         beforeOpen?.();
-        this.openCurrent();
+        this.openCurrent(true);
       };
       const gap = this.gapWait();
       if (gap <= 0) {

@@ -157,11 +157,31 @@ describe('playback controller', () => {
       const calls: string[] = [];
       const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
         blocked: () => blocked.on,
-        refused: (k) => calls.push(`refused:${k}`),
-        answered: (k) => calls.push(`answered:${k}`),
+        refused: (k, url) => calls.push(`refused:${k}:${url}`),
+        answered: (k, url) => calls.push(`answered:${k}:${url}`),
       });
       return { f, pb, calls };
     };
+
+    it("asks the gate about the stream's own host, and tells it which stream is current", () => {
+      const f = fakes();
+      const asked: Array<string | undefined> = [];
+      const current: Array<string | undefined> = [];
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: (s) => { asked.push(s.cooldownKey); return s.cooldownKey === 'src-1@a.test'; },
+        refused: () => undefined,
+        answered: () => undefined,
+        current: (s) => current.push(s?.cooldownKey),
+      });
+      const seed = { state: 'waiting', until: 9, reason: 'refused' } as const;
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test', cooldown: seed })).toBe(false);
+      expect(pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' })).toBe(true);
+      pb.playVod({ kind: 'movie', itemId: 'm1', url: 'http://a.test/m.mp4', title: 'T', resumeMs: 0, tracks: {}, cooldownKey: 'src-1@a.test' }, 0);
+      pb.stop();
+      expect(asked).toEqual(['src-1@a.test', 'src-1@b.test', 'src-1@a.test']);
+      expect(current).toEqual(['src-1@a.test', 'src-1@b.test', 'src-1@a.test', undefined]);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    });
 
     it('opens nothing while the source is blocked, and plays the held channel once it is not', () => {
       const blocked = { on: true };
@@ -183,7 +203,8 @@ describe('playback controller', () => {
       pb.playChannel(ch('2'));
       f.emit({ kind: 'failed', reason: 'refused' });
       f.emit({ kind: 'failed', reason: 'unavailable' });
-      expect(calls).toEqual(['answered:src-1', 'refused:src-1', 'refused:src-1']);
+      const url = (id: string) => `http://example.test/live/u/p/${id}.ts`;
+      expect(calls).toEqual([`answered:src-1:${url('1')}`, `refused:src-1:${url('1')}`, `refused:src-1:${url('2')}`]);
     });
 
     it('resumeHeld opens the held channel once, and nothing when none is held', () => {

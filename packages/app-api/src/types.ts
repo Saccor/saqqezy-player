@@ -16,6 +16,10 @@ export interface PlayableChannel extends ChannelRow {
   alternateUrl?: string;
   /** Request headers for the stream: the channel's own (from the playlist) win over the source's settings. Never log. */
   headers?: StreamHeaders;
+  /** The key of this stream's refusal cooldown (source and host): matches a `cooldown` event's `streamKey`. */
+  cooldownKey?: string;
+  /** This stream's host cooldown when the answer was made, if it was not clear (the source's is in `InitState`). */
+  cooldown?: SourceCooldown;
 }
 
 export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u'; active: boolean }
@@ -57,8 +61,12 @@ export type AppEvent =
   | { type: 'refreshed'; what: 'playlist' | 'epg'; sourceId: string }
   | { type: 'refreshFailed'; what: 'playlist' | 'epg'; sourceId: string; error: RpcError }
   | { type: 'offline'; value: boolean }
-  /** A source's cooldown changed (a refusal, the unreachable breaker, an answer, a retry, or the end of a wait). */
-  | { type: 'cooldown'; sourceId: string; cooldown: SourceCooldown }
+  /**
+   * A cooldown changed (a refusal, the unreachable breaker, an answer, a retry, or the end of a wait). Without
+   * `streamKey` it is the source's own (API, playlist, EPG, and every stream); with it, only the streams on one host
+   * (`PlayableChannel.cooldownKey`).
+   */
+  | { type: 'cooldown'; sourceId: string; streamKey?: string; cooldown: SourceCooldown }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
   /** A search index of `sourceId` (guide titles, or movie and series titles) became ready: re-run an open search. */
@@ -221,4 +229,8 @@ export interface VodPlayable {
   prev?: { id: string; label: string };
   /** The source's User-Agent and Referer settings, when set. Never log. */
   headers?: StreamHeaders;
+  /** As `PlayableChannel.cooldownKey`. */
+  cooldownKey?: string;
+  /** As `PlayableChannel.cooldown`. */
+  cooldown?: SourceCooldown;
 }

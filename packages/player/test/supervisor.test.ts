@@ -969,7 +969,22 @@ describe('PlaybackSupervisor – per-source open rate', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('holds an open until the source has room, across play() calls, and journals the wait', () => {
+  it('a user play() is never held by the cap and does not count against it', () => {
+    const taken: string[] = [];
+    const journal: JournalEvent[] = [];
+    const { player, sup } = setup({
+      openRate: { waitMs: () => 60_000, take: (k) => { taken.push(k); } },
+      journal: { add: (e: unknown) => { journal.push(e as JournalEvent); } } as never,
+    });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    sup.play(B, undefined, { sourceKey: 'src' });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    expect(player.opened).toEqual([A, B, A]);
+    expect(taken).toEqual([]);
+    expect(journal.some((e) => e.k === 'rateWait')).toBe(false);
+  });
+
+  it('a reconnect waits for room, counts against the cap, and journals the wait', () => {
     let wait = 0;
     const taken: string[] = [];
     const journal: JournalEvent[] = [];
@@ -978,25 +993,42 @@ describe('PlaybackSupervisor – per-source open rate', () => {
       journal: { add: (e: unknown) => { journal.push(e as JournalEvent); } } as never,
     });
     sup.play(A, undefined, { sourceKey: 'src' });
-    expect(player.opened).toEqual([A]);
+    player.emit('playing');
     wait = 5000;
-    sup.play(B, undefined, { sourceKey: 'src' });
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000); // the reconnect delay and the gap
     expect(player.opened).toEqual([A]);
     expect(journal.some((e) => e.k === 'rateWait')).toBe(true);
     vi.advanceTimersByTime(4999);
     expect(player.opened).toEqual([A]);
     wait = 0;
     vi.advanceTimersByTime(1);
-    expect(player.opened).toEqual([A, B]);
-    expect(taken).toEqual(['src', 'src']);
+    expect(player.opened).toEqual([A, A]);
+    expect(taken).toEqual(['src']);
   });
 
-  it('a newer play() or stop() drops the held open', () => {
-    const { player, sup } = setup({ openRate: { waitMs: () => 1000, take: () => undefined } });
+  it('an alternate switch counts against the cap', () => {
+    const taken: string[] = [];
+    const { player, sup } = setup({ openRate: { waitMs: () => 0, take: (k) => { taken.push(k); } } });
+    sup.play(A, B, { sourceKey: 'src' });
+    player.emit('error', { code: 'UNSUPPORTED' }); // never played: the other format
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, B]);
+    expect(taken).toEqual(['src']);
+  });
+
+  it('a newer play() or stop() drops the held reconnect', () => {
+    let wait = 0;
+    const { player, sup } = setup({ openRate: { waitMs: () => wait, take: () => undefined } });
     sup.play(A, undefined, { sourceKey: 'src' });
+    player.emit('playing');
+    wait = 1000;
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1500);
     sup.stop();
+    wait = 0;
     vi.advanceTimersByTime(5000);
-    expect(player.opened).toEqual([]);
+    expect(player.opened).toEqual([A]);
   });
 
   it('without a source key nothing is limited', () => {
@@ -1492,7 +1524,7 @@ describe('PlaybackSupervisor: status probe', () => {
     player.emit('error', { code: 'NETWORK' });
     await flush();
     expect(probe).not.toHaveBeenCalled();
-    expect(blocked).toHaveBeenCalledWith('src');
+    expect(blocked).toHaveBeenCalledWith('src', A);
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, A]); // the normal path
   });
@@ -1506,7 +1538,7 @@ describe('PlaybackSupervisor: status probe', () => {
     roomy.player.emit('error', { code: 'NETWORK' });
     await flush();
     expect(roomy.probe).toHaveBeenCalledTimes(1);
-    expect(taken).toEqual(['src', 'src']); // the open and the probe
+    expect(taken).toEqual(['src']); // the probe only: the user's open does not count
     roomy.sup.dispose();
 
     const full = probed({}, { openRate });
@@ -1717,16 +1749,22 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
 
   it('an open held by the open-rate cap wakes 0–500 ms after the slot frees', () => {
     for (const [r, extra] of [[0, 0], [1, 500]] as const) {
-      let wait = 5000;
+      let wait = 0;
       const { player, sup } = setup({
-        random: () => r, policy: { openRateWakeJitterMs: 500 }, openRate: { waitMs: () => wait, take: () => undefined },
+        random: () => r, policy: { openRateWakeJitterMs: 500, openGapSpreadMs: 0, jitter: 0 },
+        openRate: { waitMs: () => wait, take: () => undefined },
       });
       sup.play(A, undefined, { sourceKey: 'src' });
+      player.emit('playing');
+      player.emit('error', { code: 'NETWORK' });
+      wait = 5000;
+      vi.advanceTimersByTime(1000); // the reconnect delay: now held by the cap
+      expect(player.opened).toEqual([A]);
       wait = 0;
       vi.advanceTimersByTime(5000 + extra - 1);
-      expect(player.opened).toEqual([]);
-      vi.advanceTimersByTime(1);
       expect(player.opened).toEqual([A]);
+      vi.advanceTimersByTime(1);
+      expect(player.opened).toEqual([A, A]);
       sup.dispose();
     }
   });

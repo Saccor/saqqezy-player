@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceRefusedError } from '../src/errors.ts';
-import { RefusalGuard, type SourceCooldown } from '../src/net/refusalGuard.ts';
+import { RefusalGuard, streamCooldownKey, type SourceCooldown } from '../src/net/refusalGuard.ts';
 import type { FetchFn } from '../src/types.ts';
 
 const MIN = 60_000;
@@ -34,7 +34,7 @@ describe('RefusalGuard ladder', () => {
     expect(await make().status('s')).toEqual({ state: 'clear' });
   });
 
-  test('2 min, then 10 min, then manual only', async () => {
+  test('2 min, then 10 min, then 30 min for the third refusal and every later one', async () => {
     const g = make();
     await g.report('s', 'refused');
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 2 * MIN, reason: 'refused' });
@@ -44,9 +44,24 @@ describe('RefusalGuard ladder', () => {
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 10 * MIN, reason: 'refused' });
     advance(10 * MIN);
     await g.report('s', 'refused');
-    expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
-    advance(24 * 60 * MIN);
-    expect(g.isBlocked('s')).toBe(true);
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
+    advance(30 * MIN);
+    expect(g.isBlocked('s')).toBe(false); // one probe may go out
+    await g.report('s', 'refused');
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
+  });
+
+  test('the end of the 30 min wait is announced, like every other wait', async () => {
+    const g = make();
+    for (const wait of [2 * MIN, 10 * MIN]) {
+      await g.report('s', 'refused');
+      advance(wait);
+    }
+    await g.report('s', 'refused');
+    const seen: string[] = [];
+    g.onChange((_k, _c, cause) => seen.push(cause));
+    advance(30 * MIN);
+    expect(seen).toEqual(['expired']);
   });
 
   test('a refusal while already blocked does not move up the ladder', async () => {
@@ -84,13 +99,21 @@ describe('RefusalGuard persistence, retry and listeners', () => {
     expect(g.isBlocked('s')).toBe(true);
   });
 
-  test('manual only survives a restart', async () => {
+  test('the 30 min wait survives a restart', async () => {
     const g = make();
     for (const wait of [2 * MIN, 10 * MIN, 0]) {
       await g.report('s', 'refused');
       advance(wait);
     }
-    expect(await make().status('s')).toEqual({ state: 'manual', reason: 'refused' });
+    expect(await make().status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
+  });
+
+  test('a stored manual-only record from an older version allows one probe; a refused probe waits 30 min', async () => {
+    await storage.setMeta('refusal:s', { step: 3, until: null });
+    const g = make();
+    expect(await g.status('s')).toEqual({ state: 'clear' });
+    await g.report('s', 'refused');
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
   });
 
   test('retry unblocks one attempt and keeps the step', async () => {
@@ -102,7 +125,7 @@ describe('RefusalGuard persistence, retry and listeners', () => {
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 10 * MIN, reason: 'refused' });
   });
 
-  test('a refused retry from manual stays manual', async () => {
+  test('a refused retry on the third step waits 30 min again', async () => {
     const g = make();
     for (const wait of [2 * MIN, 10 * MIN, 0]) {
       await g.report('s', 'refused');
@@ -111,7 +134,7 @@ describe('RefusalGuard persistence, retry and listeners', () => {
     await g.retry('s');
     expect(g.isBlocked('s')).toBe(false);
     await g.report('s', 'refused');
-    expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
   });
 
   test('forget drops the record and its storage', async () => {
@@ -281,7 +304,7 @@ describe('RefusalGuard Retry-After', () => {
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 10 * MIN, reason: 'refused' });
   });
 
-  test('on the manual step it still waits, then allows one probe', async () => {
+  test('on the 30 min step it overrides the wait (both ways), then allows one probe', async () => {
     const g = make();
     for (const wait of [2 * MIN, 10 * MIN]) {
       await g.report('s', 'refused');
@@ -291,17 +314,20 @@ describe('RefusalGuard Retry-After', () => {
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 3 * MIN, reason: 'refused' });
     advance(3 * MIN);
     expect(await g.status('s')).toEqual({ state: 'clear' });
+    await g.report('s', 'refused', { retryAfterMs: 45 * MIN });
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 45 * MIN, reason: 'refused' });
+    advance(45 * MIN);
     await g.report('s', 'refused');
-    expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
   });
 
-  test('a refusal with Retry-After on the manual step re-arms a wait, after a manual retry too', async () => {
+  test('a refusal with Retry-After on the 30 min step re-arms a wait, after a manual retry too', async () => {
     const g = make();
     for (const wait of [2 * MIN, 10 * MIN, 0]) {
       await g.report('s', 'refused');
       advance(wait);
     }
-    expect(await g.status('s')).toEqual({ state: 'manual', reason: 'refused' });
+    expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 30 * MIN, reason: 'refused' });
     await g.retry('s');
     await g.report('s', 'refused', { retryAfterMs: 4 * MIN });
     expect(await g.status('s')).toEqual({ state: 'waiting', until: t + 4 * MIN, reason: 'refused' });
@@ -549,5 +575,31 @@ describe('RefusalGuard unreachable breaker', () => {
       expect(await g.status('s')).toEqual({ state: 'clear' });
       expect(calls).toEqual(['http://x.test/1']);
     });
+  });
+});
+
+describe('streamCooldownKey', () => {
+  test("a stream refusal is keyed by source and the stream URL's host and port", () => {
+    expect(streamCooldownKey('s1', 'http://a.example.test:8080/live/u/p/1.ts')).toBe('s1@a.example.test:8080');
+    expect(streamCooldownKey('s1', 'https://B.Example.test/x.m3u8?token=1')).toBe('s1@b.example.test');
+    expect(streamCooldownKey('s1', 'http://a.example.test:80/1.ts')).toBe('s1@a.example.test');
+  });
+
+  test('never carries credentials or the path', () => {
+    expect(streamCooldownKey('s1', 'http://user:pass@a.example.test:8080/live/user/pass/1.ts')).toBe('s1@a.example.test:8080');
+  });
+
+  test('an URL without a host falls back to the source key', () => {
+    expect(streamCooldownKey('s1', 'not a url')).toBe('s1');
+    expect(streamCooldownKey('s1', 'file:///media/a.ts')).toBe('s1');
+  });
+
+  test('host keys and the source key are independent records', async () => {
+    const g = make();
+    const a = streamCooldownKey('s1', 'http://a.example.test/1.ts');
+    await g.report(a, 'refused');
+    expect(g.isBlocked(a)).toBe(true);
+    expect(g.isBlocked('s1')).toBe(false);
+    expect(g.isBlocked(streamCooldownKey('s1', 'http://b.example.test/1.ts'))).toBe(false);
   });
 });

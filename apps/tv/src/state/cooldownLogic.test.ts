@@ -15,9 +15,7 @@ describe('cooldownCopy', () => {
       .toBe('Trying again in 1 min · OK: Retry now');
   });
 
-  it('manual only: just Retry; pointer mode says click', () => {
-    expect(cooldownCopy({ state: 'manual', reason: 'refused' }, NOW, false)?.hint).toBe('OK: Retry');
-    expect(cooldownCopy({ state: 'manual', reason: 'refused' }, NOW, true)?.hint).toBe('Click to retry');
+  it('pointer mode says click', () => {
     expect(cooldownCopy({ state: 'waiting', until: NOW + 60_000, reason: 'refused' }, NOW, true)?.hint).toBe('Trying again in 1 min · Click to retry now');
   });
 

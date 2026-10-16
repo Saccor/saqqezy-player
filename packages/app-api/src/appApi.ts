@@ -1,6 +1,6 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl,
+  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, streamCooldownKey,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
@@ -239,29 +239,38 @@ export class AppApi {
     });
   }
 
-  /** Manual Retry: lets one probe reach the active source now (the cooldown step is kept). */
-  retrySource(): Promise<SourceCooldown> {
+  /**
+   * Manual Retry: lets one probe reach the active source now (the cooldown step is kept), and the host of `url` (the
+   * stream on screen) when given. Answers the worse of the two cooldowns.
+   */
+  retrySource(url?: string): Promise<SourceCooldown> {
     return this.run('retrySource', async () => {
       const id = this.activeId;
       if (!id) return { state: 'clear' };
-      await this.service.guard.retry(id);
-      return this.service.guard.status(id);
+      const guard = this.service.guard;
+      await guard.retry(id);
+      const host = url === undefined ? undefined : streamCooldownKey(id, url);
+      if (host === undefined || host === id) return guard.status(id);
+      await guard.retry(host);
+      return worseCooldown(await guard.status(id), await guard.status(host));
     });
   }
 
-  /** The player gave up on a stream of `sourceId` because the source refused it. */
-  reportStreamRefused(sourceId: string): Promise<void> {
-    return this.run('reportStreamRefused', () => this.service.guard.report(sourceId, 'refused'));
+  /**
+   * The player gave up on the stream at `url` of `sourceId` because the source refused it: only the streams on that
+   * host pause (spec 2026-10-16-source-retry §5). The URL is used for its host only; never logged.
+   */
+  reportStreamRefused(sourceId: string, url: string): Promise<void> {
+    return this.run('reportStreamRefused', () => this.service.guard.report(streamCooldownKey(sourceId, url), 'refused'));
   }
 
-  /** A stream of `sourceId` ended failed/unavailable without ever playing: counts toward the unreachable breaker. */
-  reportStreamUnreachable(sourceId: string): Promise<void> {
-    return this.run('reportStreamUnreachable', () => this.service.guard.report(sourceId, 'failed'));
-  }
-
-  /** A stream of `sourceId` played: the source answers us. */
-  reportStreamAnswered(sourceId: string): Promise<void> {
-    return this.run('reportStreamAnswered', () => this.service.guard.report(sourceId, 'answered'));
+  /** The stream at `url` of `sourceId` played: its host answers us, and so does the source. */
+  reportStreamAnswered(sourceId: string, url: string): Promise<void> {
+    return this.run('reportStreamAnswered', async () => {
+      const host = streamCooldownKey(sourceId, url);
+      if (host !== sourceId) await this.service.guard.report(host, 'answered');
+      await this.service.guard.report(sourceId, 'answered');
+    });
   }
 
   // ---- browsing ----
@@ -588,6 +597,7 @@ export class AppApi {
       const headers = mergeHeaders(this.sourceHeaders, out.headers);
       if (headers) out.headers = headers;
       else delete out.headers;
+      await this.addStreamCooldown(out);
       return out;
     });
   }
@@ -1042,7 +1052,15 @@ export class AppApi {
    * probe); when a probe got through, the refreshes skipped meanwhile run. A manual retry starts nothing here: the
    * user's own attempt (a stream, a saved source) is the probe.
    */
-  private cooldownChanged(sourceId: string, cooldown: SourceCooldown, cause: CooldownCause): void {
+  private cooldownChanged(key: string, cooldown: SourceCooldown, cause: CooldownCause): void {
+    // A stream host's key is `{sourceId}@{host}`; a host never holds an '@'.
+    const at = key.lastIndexOf('@');
+    if (at >= 0) {
+      // Only the streams on one host: the source's own requests are not affected.
+      this.emit({ type: 'cooldown', sourceId: key.slice(0, at), streamKey: key, cooldown });
+      return;
+    }
+    const sourceId = key;
     this.emit({ type: 'cooldown', sourceId, cooldown });
     if (sourceId !== this.activeId) return;
     if (cause === 'expired' || (cause === 'answered' && !this.background.has(sourceId))) this.startBackground(sourceId);
@@ -1329,7 +1347,19 @@ export class AppApi {
     // The channel's own headers (from the playlist) win over the source's settings, field by field.
     const headers = mergeHeaders(this.sourceHeaders, channel.headers);
     if (headers) out.headers = headers;
+    await this.addStreamCooldown(out);
     return out;
+  }
+
+  /** The stream's host cooldown key, and its cooldown when not clear (loaded from storage if needed). */
+  private async addStreamCooldown(out: { url: string; cooldownKey?: string; cooldown?: SourceCooldown }): Promise<void> {
+    const id = this.activeId;
+    if (!id) return;
+    const key = streamCooldownKey(id, out.url);
+    if (key === id) return;
+    out.cooldownKey = key;
+    const c = await this.service.guard.status(key);
+    if (c.state !== 'clear') out.cooldown = c;
   }
 
   /**
@@ -1374,6 +1404,13 @@ export class WrongSourceError extends Error {
   }
 }
 
+/** The cooldown that blocks longer (a stream is blocked when its host or its source is). */
+function worseCooldown(a: SourceCooldown, b: SourceCooldown): SourceCooldown {
+  if (a.state === 'clear') return b;
+  if (b.state === 'clear') return a;
+  return b.until > a.until ? b : a;
+}
+
 /** True when nothing but `recent` (and the version) differs: layouts are copy-on-write, so identity is enough. */
 function onlyRecentChanged(before: Layout, after: Layout): boolean {
   if (before.recent === after.recent) return false;
@@ -1385,7 +1422,7 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
-  'retrySource', 'reportStreamRefused', 'reportStreamUnreachable', 'reportStreamAnswered',
+  'retrySource', 'reportStreamRefused', 'reportStreamAnswered',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',

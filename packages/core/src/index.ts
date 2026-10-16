@@ -33,7 +33,7 @@ export { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from '
 export { alternateStreamUrl } from './net/alternate.ts';
 export {
   COOLDOWN_STEPS_MS, REFUSAL_STATUSES, RETRY_AFTER_MAX_MS, RETRY_AFTER_MIN_MS, RefusalGuard, UNREACHABLE_FAILS, UNREACHABLE_STEPS_MS,
-  UNREACHABLE_WINDOW_MS, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
+  UNREACHABLE_WINDOW_MS, streamCooldownKey, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
 } from './net/refusalGuard.ts';
 export { parseRetryAfter } from './net/retryAfter.ts';
 export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings } from './net/headers.ts';

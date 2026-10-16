@@ -1426,6 +1426,18 @@ describe('AppApi VOD', () => {
     expect((await api.getVodPlayable(first.id))?.url).toContain('/movie/');
   });
 
+  test("a VOD playable carries its host's cooldown key and, once refused, the cooldown", async () => {
+    const { api } = makeVod();
+    const { sourceId } = await api.addSource(xt());
+    await api.getVodHome('movie');
+    await api.idle();
+    const first = (await api.getVodHome('movie')).rows.find((r) => r.items.length)!.items[0]!;
+    const p = (await api.getVodPlayable(first.id))!;
+    expect(p.cooldownKey).toBe(`${sourceId}@${new URL(server.url).host}`);
+    await api.reportStreamRefused(sourceId, p.url);
+    expect((await api.getVodPlayable(first.id))?.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
   test('switching source resets VOD state', async () => {
     const { api, vod } = makeVod();
     const { sourceId: a } = await api.addSource(xt());
@@ -1633,12 +1645,17 @@ describe('AppApi – refusal cooldown', () => {
     expect(second.events.some((e) => e.type === 'refreshFailed')).toBe(false);
   });
 
+  /** The first channel's playable (its stream URL is on the fake server's host). */
+  const firstPlayable = async (api: AppApi) => (await api.getPlayable((await api.getChannelSlice('all', 0, 1)).rows[0]!.id))!;
+  const hostKey = (sourceId: string) => `${sourceId}@${new URL(server.url).host}`;
+
   test('explicit refresh while blocked fails with the neutral copy and sends nothing', async () => {
     const r = refusingFetch();
     const { api } = make(storage, SourceService, r.f);
-    const { sourceId } = await api.addSource(xt());
+    await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
     r.state.sent = [];
     await expect(api.refresh('both')).rejects.toMatchObject({
       name: 'SourceRefused', message: "Your source is refusing connections. The app is waiting so you don't get blocked.",
@@ -1646,26 +1663,57 @@ describe('AppApi – refusal cooldown', () => {
     expect(r.state.sent).toEqual([]);
   });
 
-  test('stream reports: refused blocks; an answer during the block is ignored', async () => {
-    const r = refusingFetch();
-    const { api } = make(storage, SourceService, r.f);
-    const { sourceId } = await api.addSource(xt());
-    await api.idle();
-    await api.reportStreamRefused(sourceId);
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
-    await api.reportStreamAnswered(sourceId); // a stream that was already playing
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
-  });
-
-  test('stream reports: three unreachable in a row trip the breaker', async () => {
+  test('a stream refusal pauses only its host: the source API stays clear and the playable carries the cooldown', async () => {
     const r = refusingFetch();
     const { api, events } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamUnreachable(sourceId);
-    await api.reportStreamUnreachable(sourceId);
+    const p = await firstPlayable(api);
+    expect(p.cooldownKey).toBe(hostKey(sourceId));
+    expect(p.cooldown).toBeUndefined();
+    await api.reportStreamRefused(sourceId, p.url);
+    const waiting = { state: 'waiting', until: NOW + 120_000, reason: 'refused' };
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, streamKey: hostKey(sourceId), cooldown: waiting });
     expect((await api.init()).cooldown).toEqual({ state: 'clear' });
-    await api.reportStreamUnreachable(sourceId);
+    r.state.sent = [];
+    await api.refresh('playlist'); // the API is not paused
+    expect(r.state.sent).not.toEqual([]);
+    expect((await firstPlayable(api)).cooldown).toEqual(waiting);
+  });
+
+  test('a persisted host cooldown reaches the playable after a reload', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    const second = make(storage, SourceService);
+    await second.api.init();
+    expect((await firstPlayable(second.api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test('stream reports: an answer during the host block is ignored', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url);
+    await api.reportStreamAnswered(sourceId, p.url); // a stream that was already playing
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test('a stream never counts toward the unreachable breaker: the API has no such report', () => {
+    expect(APP_API_METHODS).not.toContain('reportStreamUnreachable' as never);
+  });
+
+  test('three failed source requests through wrap trip the breaker', async () => {
+    const r = refusingFetch();
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api, events } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
     const unreachable = { state: 'waiting', until: NOW + 60_000, reason: 'unreachable' };
     expect((await api.init()).cooldown).toEqual(unreachable);
     expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: unreachable });
@@ -1673,10 +1721,13 @@ describe('AppApi – refusal cooldown', () => {
 
   test('explicit refresh while unreachable fails with the unreachable copy and sends nothing', async () => {
     const r = refusingFetch();
-    const { api } = make(storage, SourceService, r.f);
-    const { sourceId } = await api.addSource(xt());
+    let down = false;
+    const f: FetchFn = async (u, i) => (down ? new Response('', { status: 500 }) : r.f(u, i));
+    const { api } = make(storage, SourceService, f);
+    await api.addSource(xt());
     await api.idle();
-    for (let i = 0; i < 3; i++) await api.reportStreamUnreachable(sourceId);
+    down = true;
+    for (let i = 0; i < 3; i++) await api.refresh('playlist').catch(() => undefined);
     r.state.sent = [];
     await expect(api.refresh('both')).rejects.toMatchObject({
       name: 'SourceRefused', message: "Your source isn't answering. The app is waiting so it doesn't flood it.",
@@ -1689,16 +1740,52 @@ describe('AppApi – refusal cooldown', () => {
     const { api, events } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    const p = await firstPlayable(api);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
-    expect(await api.retrySource()).toEqual({ state: 'clear' });
+    expect(await api.retrySource(p.url)).toEqual({ state: 'clear' });
     await api.idle();
     expect(r.state.sent).toEqual([]); // the user's stream is the probe
     expect(cooldownEvents(events).at(-1)?.cooldown).toEqual({ state: 'clear' });
-    await api.reportStreamAnswered(sourceId);
+    await api.reportStreamAnswered(sourceId, p.url);
     await api.idle();
     expect(r.state.sent).toContain('/xmltv.php');
+  });
+
+  test("retry with the stream's URL lets one probe through on its host too; the answer is the worse of both", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    const p = await firstPlayable(api);
+    await api.reportStreamRefused(sourceId, p.url);
+    expect(await api.retrySource()).toEqual({ state: 'clear' }); // the source itself was never paused
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+    expect(await api.retrySource(p.url)).toEqual({ state: 'clear' });
+    expect((await firstPlayable(api)).cooldown).toBeUndefined();
+    await api.reportStreamRefused(sourceId, p.url); // the probe was refused: one step up
+    expect((await firstPlayable(api)).cooldown).toEqual({ state: 'waiting', until: NOW + 600_000, reason: 'refused' });
+  });
+
+  test('a host cooldown ending does not restart the background pass', async () => {
+    const r = refusingFetch();
+    let fire: (() => void) | undefined;
+    let t = NOW;
+    const guard = new RefusalGuard({ storage, now: () => t, timer: { set: (fn) => { fire = fn; return 1; }, clear: () => { fire = undefined; } } });
+    const service = new SourceService({ storage, fetch: r.f, now: () => NOW, guard });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW });
+    live.push(api);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    r.state.sent = [];
+    t = NOW + 120_000;
+    fire?.();
+    await api.idle();
+    expect(r.state.sent).toEqual([]);
   });
 
   test('the end of a wait restarts the background pass (the probe)', async () => {
@@ -1712,7 +1799,9 @@ describe('AppApi – refusal cooldown', () => {
     live.push(api);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
     t = NOW + 120_000;
@@ -1727,7 +1816,9 @@ describe('AppApi – refusal cooldown', () => {
     const { api } = make(storage, SourceService, r.f);
     const { sourceId } = await api.addSource(xt());
     await api.idle();
-    await api.reportStreamRefused(sourceId);
+    r.state.on = true;
+    await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
+    r.state.on = false;
     const src = (await api.getSource(sourceId))!;
     await expect(api.updateSource({ ...src, name: 'Renamed' })).resolves.toMatchObject({ channelCount: 40 });
     expect((await api.init()).cooldown).toEqual({ state: 'clear' });

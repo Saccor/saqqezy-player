@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, cooldown, initFailed, initState, wireEvents } from './appState.ts';
+import {
+  INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, cooldown, cooldownOf, initFailed, initState, setStreamCooldown, wireEvents,
+} from './appState.ts';
 
 const ready: InitState = {
   sources: [{ id: 's1', name: 'Mine', kind: 'xtream', active: true }],
@@ -104,10 +106,10 @@ describe('wireEvents – refusal cooldown', () => {
     const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
     const toast = vi.fn();
     const off = wireEvents(on, toast);
-    applyInitState({ sources: [], activeSourceId: 's1', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'manual', reason: 'refused' } });
-    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
+    applyInitState({ sources: [], activeSourceId: 's1', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'waiting', until: 9, reason: 'refused' } });
+    expect(cooldown()).toEqual({ state: 'waiting', until: 9, reason: 'refused' });
     fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'other', cooldown: { state: 'clear' } });
-    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
+    expect(cooldown()).toEqual({ state: 'waiting', until: 9, reason: 'refused' });
     fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's1', cooldown: { state: 'waiting', until: 5, reason: 'refused' } });
     expect(cooldown()).toEqual({ state: 'waiting', until: 5, reason: 'refused' });
     fns.get('refreshFailed')?.({ type: 'refreshFailed', what: 'playlist', sourceId: 's1', error: { name: 'SourceRefused', message: 'x' } });
@@ -115,9 +117,49 @@ describe('wireEvents – refusal cooldown', () => {
     applyInitState({ sources: [], groups: [], settings: DEFAULT_SETTINGS, hasVod: false });
     expect(cooldown()).toEqual({ state: 'clear' });
     // An event that arrived before InitState still counts once its source is active.
-    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's9', cooldown: { state: 'manual', reason: 'refused' } });
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's9', cooldown: { state: 'waiting', until: 7, reason: 'refused' } });
     applyInitState({ sources: [], activeSourceId: 's9', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'clear' } });
-    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
+    expect(cooldown()).toEqual({ state: 'waiting', until: 7, reason: 'refused' });
+    off();
+  });
+
+  it("a host's cooldown blocks only its streams, and shows for the current stream on that host", () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
+    const off = wireEvents(on, vi.fn());
+    applyInitState({ sources: [], activeSourceId: 'h1', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'clear' } });
+    const hostWait = { state: 'waiting', until: 50, reason: 'refused' } as const;
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'h1', streamKey: 'h1@a.test', cooldown: hostWait });
+    expect(cooldownOf('h1@a.test')).toEqual(hostWait);
+    expect(cooldownOf('h1@b.test')).toEqual({ state: 'clear' });
+    expect(cooldownOf(undefined)).toEqual({ state: 'clear' });
+    expect(cooldown()).toEqual({ state: 'clear' }); // no stream on that host is current
+    setStreamCooldown('h1@a.test');
+    expect(cooldown()).toEqual(hostWait);
+    setStreamCooldown('h1@b.test');
+    expect(cooldown()).toEqual({ state: 'clear' });
+    // The source's own cooldown blocks every stream; the longer wait shows.
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'h1', cooldown: { state: 'waiting', until: 20, reason: 'unreachable' } });
+    expect(cooldownOf('h1@b.test')).toEqual({ state: 'waiting', until: 20, reason: 'unreachable' });
+    expect(cooldownOf('h1@a.test')).toEqual(hostWait);
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'h1', cooldown: { state: 'clear' } });
+    setStreamCooldown(undefined);
+    off();
+  });
+
+  it("a playable's cooldown seeds its host until an event says otherwise", () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
+    const off = wireEvents(on, vi.fn());
+    applyInitState({ sources: [], activeSourceId: 'h2', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'clear' } });
+    const seed = { state: 'waiting', until: 70, reason: 'refused' } as const;
+    setStreamCooldown('h2@a.test', seed);
+    expect(cooldown()).toEqual(seed);
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'h2', streamKey: 'h2@a.test', cooldown: { state: 'clear' } });
+    expect(cooldown()).toEqual({ state: 'clear' });
+    setStreamCooldown('h2@a.test', seed); // an older answer never overrides an event
+    expect(cooldown()).toEqual({ state: 'clear' });
+    setStreamCooldown(undefined);
     off();
   });
 });

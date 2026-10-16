@@ -62,14 +62,19 @@ export interface PlaybackController {
 
 export type PlayerKind = 'AVPlay' | 'HTML5';
 
-/** The active source's refusal cooldown, as the controller sees it (the worker owns the state). */
+/** What the gate needs of a stream: its URL and its host's cooldown key and seed (from the worker). */
+export type CooldownStream = Pick<PlayableChannel, 'url' | 'cooldownKey' | 'cooldown'>;
+
+/** The refusal cooldown, as the controller sees it (the worker owns the state). */
 export interface CooldownGate {
-  /** True while nothing may be sent to the active source. */
-  blocked(): boolean;
-  /** The supervisor gave up because the source refused the stream. */
-  refused(sourceKey: string): void;
-  /** A stream played: the source answers us. */
-  answered(sourceKey: string): void;
+  /** True while nothing may be sent for this stream: its host or the active source is cooling down. */
+  blocked(stream: CooldownStream): boolean;
+  /** The supervisor gave up because the source refused the stream at `url` (only its host pauses). */
+  refused(sourceKey: string, url: string): void;
+  /** The stream at `url` played: its host and the source answer us. */
+  answered(sourceKey: string, url: string): void;
+  /** The current stream changed (undefined: none): the cooldown copy and the hold follow its host. */
+  current?(stream: CooldownStream | undefined): void;
 }
 
 const DESIGN_W = 1920;
@@ -103,6 +108,8 @@ export function createPlaybackController(
   let held = false;
   /** Source of the stream opened by the last play (its first frame and a refusal at any time are reported). */
   let playKey: string | undefined;
+  /** That stream's URL: reports name its host (the worker derives the key; never logged). */
+  let playUrl = '';
   let answeredReported = false;
   supervisor.onStatus((s) => {
     report(s);
@@ -110,12 +117,16 @@ export function createPlaybackController(
     if (key === undefined || !gate) return;
     if (s.kind === 'playing' && !answeredReported) {
       answeredReported = true;
-      gate.answered(key);
+      gate.answered(key, playUrl);
     } else if (s.kind === 'failed') {
       playKey = undefined;
-      if (s.reason === 'refused') gate.refused(key);
+      if (s.reason === 'refused') gate.refused(key, playUrl);
     }
   });
+  const setCurrentStream = (ch: PlayableChannel | undefined) => {
+    setCurrent(ch);
+    gate?.current?.(ch);
+  };
   let token = 0;
 
   /** The VOD request in flight (also while held by the cooldown): a held title resumes as VOD, never as live. */
@@ -132,6 +143,7 @@ export function createPlaybackController(
     held = false;
     const key = sourceKey();
     playKey = key;
+    playUrl = url;
     answeredReported = false;
     vodOpened = opts.vod === true;
     supervisor.play(url, alt, { sourceKey: key, ...opts });
@@ -155,14 +167,14 @@ export function createPlaybackController(
           const next: PlayableChannel = { ...ch, url: cur.url };
           if (cur.alternateUrl !== undefined) next.alternateUrl = cur.alternateUrl;
           else delete next.alternateUrl;
-          setCurrent(next);
+          setCurrentStream(next);
         }
         return false;
       }
       pendingVod = undefined;
       vodOpened = false;
-      setCurrent(ch);
-      if (gate?.blocked()) {
+      setCurrentStream(ch);
+      if (gate?.blocked(ch)) {
         hold();
         return false;
       }
@@ -172,10 +184,12 @@ export function createPlaybackController(
     playVod(p, startMs) {
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
+      if (p.cooldownKey !== undefined) stand.cooldownKey = p.cooldownKey;
+      if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
       pendingVod = { p, startMs };
       vodOpened = false;
-      setCurrent(stand);
-      if (gate?.blocked()) {
+      setCurrentStream(stand);
+      if (gate?.blocked(stand)) {
         hold();
         return;
       }
@@ -217,7 +231,7 @@ export function createPlaybackController(
       vodOpened = false;
       playKey = undefined;
       supervisor.stop();
-      setCurrent(undefined);
+      setCurrentStream(undefined);
       report(undefined);
     },
     begin: () => ++token,

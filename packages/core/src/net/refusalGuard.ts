@@ -9,9 +9,11 @@ import { parseRetryAfter } from './retryAfter.ts';
  */
 export const REFUSAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 458, 503, 509]);
 
-/** The cooldown ladder: the first refusal waits 2 min, the second 10 min, the third waits for a manual retry. */
-export const COOLDOWN_STEPS_MS: readonly number[] = [2 * 60_000, 10 * 60_000];
-const MANUAL_STEP = COOLDOWN_STEPS_MS.length + 1;
+/**
+ * The cooldown ladder: the first refusal waits 2 min, the second 10 min, the third and every later one 30 min. After
+ * each wait one probe may go out (spec 2026-10-16-source-retry §5: no manual-only step).
+ */
+export const COOLDOWN_STEPS_MS: readonly number[] = [2 * 60_000, 10 * 60_000, 30 * 60_000];
 
 /** A refusal's `Retry-After` replaces the step's wait, clamped to this range. */
 export const RETRY_AFTER_MIN_MS = 30_000;
@@ -25,16 +27,30 @@ export const UNREACHABLE_WINDOW_MS = 5 * 60_000;
 export const UNREACHABLE_STEPS_MS: readonly number[] = [60_000, 5 * 60_000, 15 * 60_000];
 
 /**
+ * The cooldown key for a stream refusal: `{sourceKey}@{host}`, host being the stream URL's host and port (never its
+ * credentials or path). A refusal then pauses only the streams on that host; API, playlist and EPG requests keep the
+ * plain source key. A URL without a host falls back to the source key.
+ */
+export function streamCooldownKey(sourceKey: string, url: string): string {
+  let host = '';
+  try {
+    host = new URL(url).host;
+  } catch {
+    host = '';
+  }
+  return host ? `${sourceKey}@${host}` : sourceKey;
+}
+
+/**
  * What the UI shows for a source. `clear` also covers "a wait ended and the next request is a probe". `reason` says
  * which ladder blocks: the source refused us, or it did not answer at all.
  */
 export type SourceCooldown =
   | { state: 'clear' }
-  | { state: 'waiting'; until: number; reason: 'refused' | 'unreachable' }
-  | { state: 'manual'; reason: 'refused' };
+  | { state: 'waiting'; until: number; reason: 'refused' | 'unreachable' };
 
-/** Stored as `refusal:{key}`. `until` null: blocked until a manual retry. */
-interface RefusalRecord { step: number; until: number | null }
+/** Stored as `refusal:{key}`. Older versions stored `until` null ("manual only"): it loads as a wait that ended. */
+interface RefusalRecord { step: number; until: number }
 
 /**
  * Stored as `unreachable:{key}`. `step` 0: a run of failures is being counted (`fails` since `windowStart`) and
@@ -59,10 +75,13 @@ export type CooldownListener = (key: string, cooldown: SourceCooldown, cause: Co
 const metaKey = (key: string) => `refusal:${key}`;
 const unreachableKey = (key: string) => `unreachable:${key}`;
 
-function isRecord(v: unknown): v is RefusalRecord {
-  if (!v || typeof v !== 'object') return false;
-  const r = v as Partial<RefusalRecord>;
-  return typeof r.step === 'number' && r.step >= 1 && (r.until === null || typeof r.until === 'number');
+/** A stored refusal record; an older "manual only" one (`until` null) reads as a wait that ended: one probe may go out. */
+function toRecord(v: unknown): RefusalRecord | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as { step?: unknown; until?: unknown };
+  if (typeof r.step !== 'number' || r.step < 1) return undefined;
+  if (r.until === null) return { step: Math.min(r.step, COOLDOWN_STEPS_MS.length), until: 0 };
+  return typeof r.until === 'number' ? { step: r.step, until: r.until } : undefined;
 }
 
 function isUnreachableRecord(v: unknown): v is UnreachableRecord {
@@ -81,12 +100,12 @@ function isUserCancel(err: unknown, signal: AbortSignal | null | undefined): boo
 interface Patch { refusal?: RefusalRecord | null; unreachable?: UnreachableRecord | null }
 
 /**
- * Per-source cooldown (keyed by source id) with two ladders.
- * - **Refused:** after a refusal nothing is sent to the source until the wait on the ladder ends (a `Retry-After`
- *   replaces the step's wait). A refused probe moves one step up, any other answer clears the record.
- * - **Unreachable:** 3 failures in a row within 5 min (a 5xx other than 503, a timeout or a network error, or a
- *   stream that never played) trip a breaker that blocks for 1, 5, then 15 min. A failed probe moves one step up;
- *   the first answer clears it. A refusal replaces it with the refusal ladder.
+ * Per-key cooldown with two ladders. Keys are source ids, or `streamCooldownKey` (source and host) for stream refusals.
+ * - **Refused:** after a refusal nothing is sent under the key until the wait on the ladder (2, 10, then 30 min)
+ *   ends (a `Retry-After` replaces the step's wait). A refused probe moves one step up, any other answer clears it.
+ * - **Unreachable:** 3 failures in a row within 5 min (a 5xx other than 503, a timeout or a network error, on a
+ *   source request through `wrap`) trip a breaker that blocks for 1, 5, then 15 min. A failed probe moves one step
+ *   up; the first answer clears it. A refusal replaces it with the refusal ladder. Streams never count toward it.
  * After either wait exactly one request (the probe) may run until it answers. Outcomes that land while the source is
  * already blocked (requests that were in flight) are not counted again. Records are persisted, so a reload keeps
  * waiting instead of firing a new burst.
@@ -123,11 +142,7 @@ export class RefusalGuard {
   /** From the loaded records only (a key not loaded yet reads as clear). */
   statusNow(key: string): SourceCooldown {
     const rec = this.records.get(key);
-    if (rec && this.blocks(rec)) {
-      return rec.until === null
-        ? { state: 'manual', reason: 'refused' }
-        : { state: 'waiting', until: rec.until, reason: 'refused' };
-    }
+    if (rec && this.blocks(rec)) return { state: 'waiting', until: rec.until, reason: 'refused' };
     const unr = this.unreachable.get(key);
     if (unr && this.unreachableBlocks(unr)) return { state: 'waiting', until: unr.until, reason: 'unreachable' };
     return { state: 'clear' };
@@ -138,8 +153,8 @@ export class RefusalGuard {
   }
 
   /**
-   * Records how the source answered a request made outside `wrap` (a stream open). `failed`: it did not answer at
-   * all. `retryAfterMs` (a refusal's `Retry-After`) replaces this step's wait, clamped to 30 s … 60 min.
+   * Records how the source answered a request made outside `wrap` (a stream open: `refused` or `answered` only;
+   * `failed` is for `wrap`'s source requests, a stream never reports it). `retryAfterMs` (a refusal's `Retry-After`) replaces this step's wait, clamped to 30 s … 60 min.
    */
   async report(key: string, outcome: 'refused' | 'answered' | 'failed', opts?: { retryAfterMs?: number }): Promise<void> {
     await this.load(key);
@@ -163,16 +178,12 @@ export class RefusalGuard {
       await this.failed(key, unr);
       return;
     }
-    const step = Math.min((rec?.step ?? 0) + 1, MANUAL_STEP);
+    const step = Math.min((rec?.step ?? 0) + 1, COOLDOWN_STEPS_MS.length);
     const retryAfter = opts?.retryAfterMs;
     const wait = retryAfter !== undefined
       ? Math.min(Math.max(retryAfter, RETRY_AFTER_MIN_MS), RETRY_AFTER_MAX_MS)
-      : COOLDOWN_STEPS_MS[step - 1];
-    await this.commit(
-      key,
-      { refusal: { step, until: wait === undefined ? null : this.now() + wait }, unreachable: unr ? null : undefined },
-      'refused',
-    );
+      : COOLDOWN_STEPS_MS[step - 1]!;
+    await this.commit(key, { refusal: { step, until: this.now() + wait }, unreachable: unr ? null : undefined }, 'refused');
   }
 
   /** The user asked to try again: one probe may go out now. The step is kept, so a refused or failed retry moves up. */
@@ -264,7 +275,7 @@ export class RefusalGuard {
   }
 
   private blocks(rec: RefusalRecord): boolean {
-    return rec.until === null || this.now() < rec.until;
+    return this.now() < rec.until;
   }
 
   private unreachableBlocks(rec: UnreachableRecord): boolean {
@@ -281,7 +292,8 @@ export class RefusalGuard {
     if (!p) {
       const read = (k: string) => this.storage.getMeta<unknown>(k).catch(() => undefined); // unreadable: no record
       p = Promise.all([read(metaKey(key)), read(unreachableKey(key))]).then(([r, u]) => {
-        if (isRecord(r) && !this.records.has(key)) this.records.set(key, r);
+        const rec = toRecord(r);
+        if (rec && !this.records.has(key)) this.records.set(key, rec);
         if (isUnreachableRecord(u) && !this.unreachable.has(key)) this.unreachable.set(key, u);
         this.schedule(key);
       });
