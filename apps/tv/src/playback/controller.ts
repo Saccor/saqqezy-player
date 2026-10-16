@@ -127,6 +127,11 @@ export function createPlaybackController(
       if (s.reason === 'refused') gate.refused(key, playUrl, s.retryAfterMs);
     }
   });
+  /**
+   * Sets the current channel and publishes its stream to the gate. Callers publish only after they decided between
+   * hold and open and updated `held`: publishing can run the shell's cooldown effect synchronously (resumeHeld), which
+   * must find this call's decision already made, or the channel would open twice.
+   */
   const setCurrentStream = (ch: PlayableChannel | undefined) => {
     setCurrent(ch);
     gate?.current?.(ch);
@@ -180,12 +185,15 @@ export function createPlaybackController(
       }
       pendingVod = undefined;
       vodOpened = false;
-      setCurrentStream(ch);
+      setCurrent(ch);
+      // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(ch)) {
         hold();
+        gate.current?.(ch);
         return false;
       }
       startPlay(ch.url, ch.alternateUrl, { channel: ch.name }, ch.headers);
+      gate?.current?.(ch);
       return true;
     },
     playVod(p, startMs) {
@@ -195,12 +203,15 @@ export function createPlaybackController(
       if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
       pendingVod = { p, startMs };
       vodOpened = false;
-      setCurrentStream(stand);
+      setCurrent(stand);
+      // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(stand)) {
         hold();
+        gate.current?.(stand);
         return;
       }
       startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
+      gate?.current?.(stand);
     },
     pause: () => supervisor.pause(),
     resume: () => supervisor.resume(),

@@ -153,12 +153,14 @@ describe('wireEvents – refusal cooldown', () => {
     const off = wireEvents(on, vi.fn());
     applyInitState({ sources: [], activeSourceId: 'h2', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'clear' } });
     const seed = { state: 'waiting', until: 70, reason: 'refused' } as const;
+    expect(cooldownOf('h2@a.test', seed)).toEqual(seed); // the gate decides with the seed before it is published
     setStreamCooldown('h2@a.test', seed);
     expect(cooldown()).toEqual(seed);
     fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'h2', streamKey: 'h2@a.test', cooldown: { state: 'clear' } });
     expect(cooldown()).toEqual({ state: 'clear' });
     setStreamCooldown('h2@a.test', seed); // an older answer never overrides an event
     expect(cooldown()).toEqual({ state: 'clear' });
+    expect(cooldownOf('h2@a.test', seed)).toEqual({ state: 'clear' });
     setStreamCooldown(undefined);
     off();
   });

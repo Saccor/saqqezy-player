@@ -1,10 +1,11 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, streamCooldownKey,
+  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
 } from '@iptv/core';
+import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
@@ -182,8 +183,9 @@ export class AppApi {
     return this.run('updateSource', async () => {
       // The account may change under a running VOD fetch: cancel it before anything is rewritten.
       if (this.activeId === source.id) this.vodc?.invalidate(source.id);
-      // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source.
-      await this.service.guard.retry(source.id);
+      // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source,
+      // and each of its stream hosts.
+      await this.service.guard.retryAll(source.id);
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
       this.companionStale();
       if (this.activeId === source.id) {
@@ -250,7 +252,7 @@ export class AppApi {
       const guard = this.service.guard;
       await guard.retry(id);
       const host = url === undefined ? undefined : streamCooldownKey(id, url);
-      if (host === undefined || host === id) return guard.status(id);
+      if (host === undefined) return guard.status(id);
       await guard.retry(host);
       return worseCooldown(await guard.status(id), await guard.status(host));
     });
@@ -286,8 +288,7 @@ export class AppApi {
   /** The stream at `url` of `sourceId` played: its host answers us, and so does the source. */
   reportStreamAnswered(sourceId: string, url: string): Promise<void> {
     return this.run('reportStreamAnswered', async () => {
-      const host = streamCooldownKey(sourceId, url);
-      if (host !== sourceId) await this.service.guard.report(host, 'answered');
+      await this.service.guard.report(streamCooldownKey(sourceId, url), 'answered');
       await this.service.guard.report(sourceId, 'answered');
     });
   }
@@ -1072,11 +1073,10 @@ export class AppApi {
    * user's own attempt (a stream, a saved source) is the probe.
    */
   private cooldownChanged(key: string, cooldown: SourceCooldown, cause: CooldownCause): void {
-    // A stream host's key is `{sourceId}@{host}`; a host never holds an '@'.
-    const at = key.lastIndexOf('@');
-    if (at >= 0) {
+    const owner = streamKeySource(key);
+    if (owner !== undefined) {
       // Only the streams on one host: the source's own requests are not affected.
-      this.emit({ type: 'cooldown', sourceId: key.slice(0, at), streamKey: key, cooldown });
+      this.emit({ type: 'cooldown', sourceId: owner, streamKey: key, cooldown });
       return;
     }
     const sourceId = key;
@@ -1357,6 +1357,8 @@ export class AppApi {
     // The channel about to play (or being re-read while it plays): the only row, with the focused one, that may
     // ask the short EPG.
     this.playingId = channel.id;
+    // The host's cooldown read starts now, beside the row (an alternate format keeps the host).
+    const early = this.streamCooldown(channel.url);
     const [row] = await this.toRows([channel]);
     // Never on the zap path's clock: the lookup's local guide read runs in the background.
     if (!row!.now && !row!.next) this.backgroundShortEpg(channel);
@@ -1366,18 +1368,32 @@ export class AppApi {
     // The channel's own headers (from the playlist) win over the source's settings, field by field.
     const headers = mergeHeaders(this.sourceHeaders, channel.headers);
     if (headers) out.headers = headers;
-    await this.addStreamCooldown(out);
+    await this.addStreamCooldown(out, early);
     return out;
   }
 
-  /** The stream's host cooldown key, and its cooldown when not clear (loaded from storage if needed). */
-  private async addStreamCooldown(out: { url: string; cooldownKey?: string; cooldown?: SourceCooldown }): Promise<void> {
+  /** Starts reading the cooldown of `url`'s host (loaded from storage if needed). */
+  private streamCooldown(url: string): { key: string; status: Promise<SourceCooldown> } | undefined {
     const id = this.activeId;
-    if (!id) return;
-    const key = streamCooldownKey(id, out.url);
-    if (key === id) return;
-    out.cooldownKey = key;
-    const c = await this.service.guard.status(key);
+    if (!id) return undefined;
+    const key = streamCooldownKey(id, url);
+    return { key, status: this.service.guard.status(key) };
+  }
+
+  /**
+   * The stream's host cooldown key, and its cooldown when not clear. `early`: a read already started for that host
+   * (reused when the final URL kept it).
+   */
+  private async addStreamCooldown(
+    out: { url: string; cooldownKey?: string; cooldown?: SourceCooldown },
+    early?: { key: string; status: Promise<SourceCooldown> },
+  ): Promise<void> {
+    const read = early && this.activeId !== undefined && early.key === streamCooldownKey(this.activeId, out.url)
+      ? early
+      : this.streamCooldown(out.url);
+    if (!read) return;
+    out.cooldownKey = read.key;
+    const c = await read.status;
     if (c.state !== 'clear') out.cooldown = c;
   }
 
@@ -1421,13 +1437,6 @@ export class WrongSourceError extends Error {
     super('The TV switched to another source.');
     this.name = 'WrongSource';
   }
-}
-
-/** The cooldown that blocks longer (a stream is blocked when its host or its source is). */
-function worseCooldown(a: SourceCooldown, b: SourceCooldown): SourceCooldown {
-  if (a.state === 'clear') return b;
-  if (b.state === 'clear') return a;
-  return b.until > a.until ? b : a;
 }
 
 /** True when nothing but `recent` (and the version) differs: layouts are copy-on-write, so identity is enough. */

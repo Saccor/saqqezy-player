@@ -91,7 +91,8 @@ export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
   // The worker owns the refusal cooldown: no stream opens while its host or the active source is cooling down.
   {
-    blocked: (s) => cooldownOf(s.cooldownKey).state !== 'clear',
+    // The playable's seed counts until the worker announces that host (it is published only after this decision).
+    blocked: (s) => cooldownOf(s.cooldownKey, s.cooldown).state !== 'clear',
     refused: (key, url, retryAfterMs) => { api.reportStreamRefused(key, url, retryAfterMs).catch(reportFailed); },
     answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
     current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),

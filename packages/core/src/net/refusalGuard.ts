@@ -26,10 +26,13 @@ export const UNREACHABLE_WINDOW_MS = 5 * 60_000;
  * `UNREACHABLE_WINDOW_MS` ago has decayed: the next failure starts a new run instead of moving up. */
 export const UNREACHABLE_STEPS_MS: readonly number[] = [60_000, 5 * 60_000, 15 * 60_000];
 
+/** The host part of a stream key whose URL has no host (unparseable, `file:`): never the plain source key. */
+const HOSTLESS = 'stream';
+
 /**
  * The cooldown key for a stream refusal: `{sourceKey}@{host}`, host being the stream URL's host and port (never its
  * credentials or path). A refusal then pauses only the streams on that host; API, playlist and EPG requests keep the
- * plain source key. A URL without a host falls back to the source key.
+ * plain source key. A URL without a host gets `{sourceKey}@stream`, so a stream refusal never pauses the API.
  */
 export function streamCooldownKey(sourceKey: string, url: string): string {
   let host = '';
@@ -38,7 +41,13 @@ export function streamCooldownKey(sourceKey: string, url: string): string {
   } catch {
     host = '';
   }
-  return host ? `${sourceKey}@${host}` : sourceKey;
+  return `${sourceKey}@${host || HOSTLESS}`;
+}
+
+/** The source of a stream key (`streamCooldownKey`), or undefined for a plain source key. A host never holds an '@'. */
+export function streamKeySource(key: string): string | undefined {
+  const at = key.lastIndexOf('@');
+  return at >= 0 ? key.slice(0, at) : undefined;
 }
 
 /**
@@ -73,6 +82,8 @@ export type CooldownCause = 'refused' | 'unreachable' | 'answered' | 'retry' | '
 export type CooldownListener = (key: string, cooldown: SourceCooldown, cause: CooldownCause) => void;
 
 const metaKey = (key: string) => `refusal:${key}`;
+/** The stream keys a source has had refusals on (one list per source), so `forget` and `retryAll` reach them. */
+const streamKeysKey = (sourceKey: string) => `streamKeys:${sourceKey}`;
 const unreachableKey = (key: string) => `unreachable:${key}`;
 
 /** A stored refusal record; an older "manual only" one (`until` null) reads as a wait that ended: one probe may go out. */
@@ -120,6 +131,8 @@ export class RefusalGuard {
   private readonly probing = new Set<string>();
   private readonly timers = new Map<string, unknown>();
   private readonly listeners = new Set<CooldownListener>();
+  /** Per source: the stream keys with a refusal record (persisted as `streamKeys:{sourceKey}`). */
+  private readonly streamKeys = new Map<string, Promise<Set<string>>>();
 
   constructor(deps: RefusalGuardDeps) {
     this.storage = deps.storage;
@@ -200,12 +213,52 @@ export class RefusalGuard {
     }
   }
 
-  /** The source is gone: drop its records. */
+  /**
+   * A deliberate attempt on the whole source (a saved source): one probe may go out for the source and for each
+   * stream host it has had refusals on.
+   */
+  async retryAll(sourceKey: string): Promise<void> {
+    await this.retry(sourceKey);
+    for (const key of await this.keysOf(sourceKey)) await this.retry(key);
+  }
+
+  /** The source is gone: drop its records, those of its stream hosts (their waits end without an event) and the list. */
   async forget(key: string): Promise<void> {
+    if (streamKeySource(key) === undefined) {
+      const keys = await this.keysOf(key);
+      for (const k of keys) await this.forgetOne(k);
+      keys.clear();
+      await this.storage.setMeta(streamKeysKey(key), null).catch(() => undefined);
+    }
+    await this.forgetOne(key);
+  }
+
+  private async forgetOne(key: string): Promise<void> {
     await this.load(key);
     this.probing.delete(key);
     const had = this.records.has(key) || this.unreachable.has(key);
     await this.commit(key, { refusal: null, unreachable: null }, had ? 'forget' : undefined);
+  }
+
+  /** The stream keys of `sourceKey` with a refusal record so far (loaded once from storage). */
+  private keysOf(sourceKey: string): Promise<Set<string>> {
+    let p = this.streamKeys.get(sourceKey);
+    if (!p) {
+      p = this.storage.getMeta<unknown>(streamKeysKey(sourceKey)).catch(() => undefined).then((v) =>
+        new Set(Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : []));
+      this.streamKeys.set(sourceKey, p);
+    }
+    return p;
+  }
+
+  /** Remembers a stream key with its source, so the source's `forget` and `retryAll` reach it. */
+  private async track(key: string): Promise<void> {
+    const source = streamKeySource(key);
+    if (source === undefined) return;
+    const keys = await this.keysOf(source);
+    if (keys.has(key)) return;
+    keys.add(key);
+    await this.storage.setMeta(streamKeysKey(source), [...keys]).catch(() => undefined);
   }
 
   onChange(fn: CooldownListener): () => void {
@@ -315,6 +368,7 @@ export class RefusalGuard {
       else this.unreachable.delete(key);
       writes.push(this.storage.setMeta(unreachableKey(key), patch.unreachable));
     }
+    if (patch.refusal) writes.push(this.track(key));
     this.schedule(key);
     if (cause) this.announce(key, cause);
     // Kept in memory for this session; a failed write must not fail the request.

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Rect, SupervisorStatus } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
-import { createPlaybackController } from './controller.ts';
+import { createPlaybackController, type CooldownStream, type PlaybackController } from './controller.ts';
 
 function fakes() {
   let statusFn: ((s: SupervisorStatus) => void) | undefined;
@@ -175,6 +175,64 @@ describe('playback controller', () => {
       });
       return { f, pb, calls };
     };
+
+    /**
+     * A gate whose `current` runs App's cooldown effect synchronously, as Solid does when the stream key signal
+     * changes: hold when the shown cooldown turns blocked, resumeHeld when it turns clear.
+     */
+    const appLike = (blockedKeys: ReadonlySet<string>) => {
+      const f = fakes();
+      let shown: 'clear' | 'waiting' | undefined;
+      const isBlocked = (s: CooldownStream) => s.cooldownKey !== undefined && blockedKeys.has(s.cooldownKey);
+      const ref: { pb?: PlaybackController } = {};
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', {
+        blocked: isBlocked,
+        refused: () => undefined,
+        answered: () => undefined,
+        current: (s) => {
+          const prev = shown;
+          shown = s && isBlocked(s) ? 'waiting' : 'clear';
+          if (shown !== 'clear') ref.pb?.holdForCooldown();
+          else if (prev !== undefined && prev !== 'clear') ref.pb?.resumeHeld();
+        },
+      });
+      ref.pb = pb;
+      return { f, pb };
+    };
+    const movie = (id: string, cooldownKey: string): VodPlayable =>
+      ({ kind: 'movie', itemId: id, url: `http://example.test/movie/u/p/${id}.mp4`, title: 'T', resumeMs: 0, tracks: {}, cooldownKey });
+
+    it('switching from a blocked host to a clear one opens exactly once (live)', () => {
+      const { f, pb } = appLike(new Set(['src-1@a.test']));
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' })).toBe(false);
+      expect(pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' })).toBe(true);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(f.supervisor.play.mock.calls[0]![0]).toBe('http://example.test/live/u/p/2.ts');
+      expect(pb.current()?.id).toBe('2');
+    });
+
+    it('switching from a blocked host to a clear one opens exactly once (VOD, and live to VOD)', () => {
+      const vod = appLike(new Set(['src-1@a.test']));
+      vod.pb.playVod(movie('m1', 'src-1@a.test'), 0);
+      vod.pb.playVod(movie('m2', 'src-1@b.test'), 5_000);
+      expect(vod.f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(vod.f.supervisor.play.mock.calls[0]![0]).toBe('http://example.test/movie/u/p/m2.mp4');
+
+      const mixed = appLike(new Set(['src-1@a.test']));
+      mixed.pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' });
+      mixed.pb.playVod(movie('m2', 'src-1@b.test'), 0);
+      expect(mixed.f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(mixed.f.supervisor.play.mock.calls[0]![2]).toMatchObject({ vod: true });
+    });
+
+    it('switching from a clear host to a blocked one holds without opening', () => {
+      const { f, pb } = appLike(new Set(['src-1@a.test']));
+      pb.playChannel({ ...ch('2'), cooldownKey: 'src-1@b.test' });
+      expect(pb.playChannel({ ...ch('1'), cooldownKey: 'src-1@a.test' })).toBe(false);
+      expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+      expect(f.supervisor.stop).toHaveBeenCalled();
+      expect(pb.current()?.id).toBe('1');
+    });
 
     it("asks the gate about the stream's own host, and tells it which stream is current", () => {
       const f = fakes();

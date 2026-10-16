@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import type { AppEvent, CompanionStatus, InitState, SourceCooldown } from '@iptv/app-api';
+import { worseCooldown, type AppEvent, type CompanionStatus, type InitState, type SourceCooldown } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle (it lives in the worker chunk).
 import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
@@ -51,20 +51,13 @@ const sourceCooldown = (): SourceCooldown => {
   return (id !== undefined ? cooldownEvents().get(id) : undefined) ?? s?.cooldown ?? CLEAR;
 };
 
-/** The cooldown that blocks longer. */
-function worse(a: SourceCooldown, b: SourceCooldown): SourceCooldown {
-  if (a.state === 'clear') return b;
-  if (b.state === 'clear') return a;
-  return b.until > a.until ? b : a;
-}
-
 /**
  * A stream's cooldown: its host's (`PlayableChannel.cooldownKey`) or the active source's, whichever blocks longer
  * (spec 2026-10-16-source-retry §5). A host refusal pauses only the streams on that host.
  */
-export function cooldownOf(key: string | undefined): SourceCooldown {
-  const host = key !== undefined ? cooldownEvents().get(key) ?? CLEAR : CLEAR;
-  return worse(sourceCooldown(), host);
+export function cooldownOf(key: string | undefined, seed?: SourceCooldown): SourceCooldown {
+  const host = key !== undefined ? cooldownEvents().get(key) ?? seed ?? CLEAR : CLEAR;
+  return worseCooldown(sourceCooldown(), host);
 }
 
 /**

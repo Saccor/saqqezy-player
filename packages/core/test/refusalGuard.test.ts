@@ -589,9 +589,16 @@ describe('streamCooldownKey', () => {
     expect(streamCooldownKey('s1', 'http://user:pass@a.example.test:8080/live/user/pass/1.ts')).toBe('s1@a.example.test:8080');
   });
 
-  test('an URL without a host falls back to the source key', () => {
-    expect(streamCooldownKey('s1', 'not a url')).toBe('s1');
-    expect(streamCooldownKey('s1', 'file:///media/a.ts')).toBe('s1');
+  test('https on 443, IPv6 and a udp multicast group', () => {
+    expect(streamCooldownKey('s1', 'https://a.example.test:443/x.m3u8')).toBe('s1@a.example.test');
+    expect(streamCooldownKey('s1', 'http://[::1]:8080/live/1.ts')).toBe('s1@[::1]:8080');
+    expect(streamCooldownKey('s1', 'http://[2001:db8::1]/live/1.ts')).toBe('s1@[2001:db8::1]');
+    expect(streamCooldownKey('s1', 'udp://@239.0.0.1:1234')).toBe('s1@239.0.0.1:1234');
+  });
+
+  test('an URL without a host gets its own stream key, never the source key (the API stays open)', () => {
+    expect(streamCooldownKey('s1', 'not a url')).toBe('s1@stream');
+    expect(streamCooldownKey('s1', 'file:///media/a.ts')).toBe('s1@stream');
   });
 
   test('host keys and the source key are independent records', async () => {
@@ -601,5 +608,48 @@ describe('streamCooldownKey', () => {
     expect(g.isBlocked(a)).toBe(true);
     expect(g.isBlocked('s1')).toBe(false);
     expect(g.isBlocked(streamCooldownKey('s1', 'http://b.example.test/1.ts'))).toBe(false);
+  });
+});
+
+describe('RefusalGuard host keys of a source', () => {
+  const a = streamCooldownKey('s1', 'http://a.example.test/1.ts');
+  const b = streamCooldownKey('s1', 'http://b.example.test/1.ts');
+  const other = streamCooldownKey('s2', 'http://a.example.test/1.ts');
+
+  test('forget(source) drops its host keys too, also after a reload, and no wait of theirs ends with an event', async () => {
+    const g = make();
+    await g.report(a, 'refused');
+    await g.report(b, 'refused');
+    await g.report(other, 'refused');
+    const fresh = make(); // a reload: nothing loaded yet
+    const seen: string[] = [];
+    fresh.onChange((k, _c, cause) => seen.push(`${k}:${cause}`));
+    await fresh.forget('s1');
+    expect(await fresh.status(a)).toEqual({ state: 'clear' });
+    expect(await fresh.status(b)).toEqual({ state: 'clear' });
+    expect(fresh.isBlocked(other)).toBe(false); // not loaded in this instance
+    expect(await fresh.status(other)).toMatchObject({ state: 'waiting' });
+    expect(await storage.getMeta(`refusal:${a}`)).toBeNull();
+    const before = seen.length;
+    advance(60 * MIN);
+    expect(seen.slice(before).filter((x) => x.startsWith('s1@'))).toEqual([]);
+    // The first instance's timers belong to records this test dropped elsewhere: forget there as well.
+    await g.forget('s1');
+    const seenOld: string[] = [];
+    g.onChange((k, _c, cause) => seenOld.push(`${k}:${cause}`));
+    advance(60 * MIN);
+    expect(seenOld.filter((x) => x.startsWith('s1@'))).toEqual([]);
+  });
+
+  test('retryAll(source) lets one probe through for the source and each of its host keys', async () => {
+    const g = make();
+    await g.report('s1', 'refused');
+    await g.report(a, 'refused');
+    await g.report(other, 'refused');
+    await make().retryAll('s1'); // tracked keys survive a reload
+    const fresh = make();
+    expect(await fresh.status('s1')).toEqual({ state: 'clear' });
+    expect(await fresh.status(a)).toEqual({ state: 'clear' });
+    expect(await fresh.status(other)).toMatchObject({ state: 'waiting' });
   });
 });

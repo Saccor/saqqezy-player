@@ -5,6 +5,7 @@ import {
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import { APP_API_METHODS, AppApi, scrub } from '../src/appApi.ts';
+import { worseCooldown } from '../src/index.ts';
 import type { AppEvent } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 13, 18, 10);
@@ -1864,6 +1865,46 @@ describe('AppApi – refusal cooldown', () => {
     const src = (await api.getSource(sourceId))!;
     await expect(api.updateSource({ ...src, name: 'Renamed' })).resolves.toMatchObject({ channelCount: 40 });
     expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+  });
+
+  test("updateSource also lets one probe through on each of the source's stream hosts", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    expect((await firstPlayable(api)).cooldown).toMatchObject({ state: 'waiting' });
+    const src = (await api.getSource(sourceId))!;
+    await api.updateSource({ ...src, name: 'Renamed' });
+    expect((await firstPlayable(api)).cooldown).toBeUndefined();
+  });
+
+  test("deleting a source drops its stream hosts' cooldowns and their list", async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, (await firstPlayable(api)).url);
+    expect(await storage.getMeta(`refusal:${hostKey(sourceId)}`)).toMatchObject({ step: 1 });
+    await api.deleteSource(sourceId);
+    expect(await storage.getMeta(`refusal:${hostKey(sourceId)}`)).toBeNull();
+    expect(await storage.getMeta(`streamKeys:${sourceId}`)).toBeNull();
+  });
+
+  test('a stream URL without a host pauses its own key, never the source', async () => {
+    const { api } = make(storage, SourceService);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamRefused(sourceId, 'not a url');
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    expect(await storage.getMeta(`refusal:${sourceId}@stream`)).toMatchObject({ step: 1 });
+  });
+
+  test('worseCooldown answers the cooldown that blocks longer', () => {
+    const a = { state: 'waiting', until: 5, reason: 'refused' } as const;
+    const b = { state: 'waiting', until: 9, reason: 'unreachable' } as const;
+    expect(worseCooldown({ state: 'clear' }, a)).toBe(a);
+    expect(worseCooldown(a, { state: 'clear' })).toBe(a);
+    expect(worseCooldown(a, b)).toBe(b);
+    expect(worseCooldown(b, a)).toBe(b);
   });
 });
 
