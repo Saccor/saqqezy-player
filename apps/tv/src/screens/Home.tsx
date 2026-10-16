@@ -158,9 +158,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let startupMarked = false;
   // Playback was stopped on purpose (sleep timer): no resume on mount.
   const held = previewHold.take();
-  // The live channel a Movies or Series tab stopped: taken by every Home mount, resumed only on Back from that tab
-  // and only for the source it came from.
-  const vodReturnId = liveReturn.take(initState()?.activeSourceId);
+  // The live channel a Movies or Series tab (or a title opened from Search) stopped: taken by every Home mount,
+  // resumed only on Back from that tab (or on the return from Search) and only for the source it came from.
+  const vodReturn = liveReturn.take(initState()?.activeSourceId);
   let lastTop = 0;
   // Only the latest openGroup call may write the selection and memory.
   let groupSeq = 0;
@@ -1006,7 +1006,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // Back from Movies or Series: the channel they stopped counts as the playing one (focus and resume), so it
         // plays again through the same path as Ok (the refusal cooldown holds it; the dev resume gate applies).
         const playingId = playback.current()?.id
-          ?? vodReturnTarget({ fromVod: focusTabsHint, returnId: vodReturnId, held, gatePaused: devResume.paused() });
+          ?? vodReturnTarget({
+            fromVod: focusTabsHint, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
+          });
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
         // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
         // and series has no channels to wait for: it shows the no-live text and focuses the tab bar instead.

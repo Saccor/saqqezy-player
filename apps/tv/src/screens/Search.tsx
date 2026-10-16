@@ -8,6 +8,8 @@ import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
 import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
+import { initState } from '../state/appState.ts';
+import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
@@ -91,6 +93,10 @@ export function SearchScreen() {
     const vod = vodRoute(r);
     if (vod) {
       memory.leaveTo(focus());
+      // As a Movies or Series tab does on entry: the detail and its player are full screens and a 1 GB TV needs the
+      // decoder, so live stops; a channel that plays (or loads) is remembered first and Home resumes it on return.
+      liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId, 'search');
+      playback.stop();
       router.push(vod.screen, vod.params);
       return true;
     }

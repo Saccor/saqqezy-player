@@ -81,17 +81,19 @@ export function resumeTarget(s: {
 }
 
 /**
- * Back from Movies or Series (`fromVod`): the live channel that was playing when the VOD tab opened (`returnId`)
- * comes back, through Home's usual play path. Nothing when nothing was playing, after a stop on purpose (`held`),
- * or while the dev resume gate is closed (`gatePaused`). A channel that is already current wins (the caller).
+ * Back from Movies or Series (`fromVod`), or Home revealed after Search opened a movie or series (`fromSearch`): the
+ * live channel that was playing when it stopped (`returnId`) comes back, through Home's usual play path. Nothing
+ * when nothing was playing, after a stop on purpose (`held`), or while the dev resume gate is closed (`gatePaused`).
+ * A channel that is already current wins (the caller).
  */
 export function vodReturnTarget(s: {
   fromVod: boolean;
+  fromSearch?: boolean;
   returnId: string | undefined;
   held: boolean;
   gatePaused: boolean;
 }): string | undefined {
-  if (!s.fromVod || s.held || s.gatePaused) return undefined;
+  if (!(s.fromVod || s.fromSearch === true) || s.held || s.gatePaused) return undefined;
   return s.returnId;
 }
 

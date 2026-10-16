@@ -155,4 +155,10 @@ describe('vodReturnTarget', () => {
     expect(vodReturnTarget({ ...base, held: true })).toBeUndefined();
     expect(vodReturnTarget({ ...base, gatePaused: true })).toBeUndefined();
   });
+
+  it('resumes after a movie or series opened from Search stopped live, whatever Back reveals Home', () => {
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true })).toBe('ch-7');
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, held: true })).toBeUndefined();
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, gatePaused: true })).toBeUndefined();
+  });
 });
