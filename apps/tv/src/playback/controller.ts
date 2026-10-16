@@ -1,6 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
-import type { PlayableChannel } from '@iptv/app-api';
-import type { Player, PlaybackSupervisor, Rect, SupervisorStatus } from '@iptv/player';
+import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
+import type { Player, PlaybackSupervisor, Rect, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
   /**
@@ -12,11 +12,35 @@ export interface PlaybackController {
   /**
    * The source just entered its refusal cooldown: a stream that is not playing (loading, reconnecting, or refused) is
    * stopped, so no retry reaches the source, while one that plays keeps playing. The channel stays current and is
-   * held: `resumeHeld` (or the next `playChannel`) opens it once the cooldown allows it.
+   * held: `resumeHeld` (or the next `playChannel`) opens it once the cooldown allows it. A VOD title that ended or
+   * failed is left alone: nothing is loading, and its next-episode or error card stays.
    */
   holdForCooldown(): void;
   /** The cooldown ended (a wait ran out, or Retry): opens the channel it held back, if any. */
   resumeHeld(): void;
+  /**
+   * VOD: plays a finite title from `startMs`. `current` becomes a stand-in channel (`vod:<itemId>`, empty name: no
+   * titles reach the playback journal). No live-delay logic; the open-rate cap and refusal cooldown still apply.
+   */
+  playVod(p: VodPlayable, startMs: number): void;
+  pause(): void;
+  resume(): void;
+  /** Absolute position in ms (clamped by the supervisor to [0, duration - 1 s]). */
+  seek(ms: number): void;
+  /** The current VOD title's playhead; undefined unless that title was actually opened (not while held, not for live). */
+  positionMs(): number | undefined;
+  /** As `positionMs`: undefined unless the current VOD title was opened. */
+  durationMs(): number | undefined;
+  paused(): boolean;
+  /** Attempts that reached their first frame (never reset): a new value means a new engine attempt is playing. */
+  startedAttempts(): number;
+  /** Subtitle cues from engines that cannot draw them; returns the unsubscribe function. */
+  onSubtitle(fn: (text: string | null) => void): () => void;
+  audioTracks(): TrackInfo[];
+  selectAudioTrack(id: string): void;
+  textTracks(): TrackInfo[];
+  /** `null`: subtitles off. */
+  selectTextTrack(id: string | null): void;
   /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
   /**
@@ -61,8 +85,8 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
-  player: Pick<Player, 'setRect'>,
-  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus'>,
+  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack'>,
+  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
@@ -94,7 +118,27 @@ export function createPlaybackController(
   });
   let token = 0;
 
+  /** The VOD request in flight (also while held by the cooldown): a held title resumes as VOD, never as live. */
+  let pendingVod: { p: VodPlayable; startMs: number } | undefined;
+  /** True only once `startPlay` opened the pending VOD: only then is the supervisor's position this title's. */
+  let vodOpened = false;
+  /** Folds the playhead of the opened title into the pending request's start (never goes backwards). */
+  const updateVodStart = () => {
+    if (!pendingVod || !vodOpened) return;
+    const pos = supervisor.positionMs();
+    if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
+  };
+  const startPlay = (url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }) => {
+    held = false;
+    const key = sourceKey();
+    playKey = key;
+    answeredReported = false;
+    vodOpened = opts.vod === true;
+    supervisor.play(url, alt, { sourceKey: key, ...opts });
+  };
+
   const hold = () => {
+    updateVodStart();
     held = true;
     playKey = undefined;
     supervisor.stop();
@@ -115,29 +159,62 @@ export function createPlaybackController(
         }
         return false;
       }
+      pendingVod = undefined;
+      vodOpened = false;
       setCurrent(ch);
       if (gate?.blocked()) {
         hold();
         return false;
       }
-      held = false;
-      const key = sourceKey();
-      playKey = key;
-      answeredReported = false;
-      supervisor.play(ch.url, ch.alternateUrl, { sourceKey: key, channel: ch.name });
+      startPlay(ch.url, ch.alternateUrl, { channel: ch.name });
       return true;
     },
+    playVod(p, startMs) {
+      token++;
+      const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
+      pendingVod = { p, startMs };
+      vodOpened = false;
+      setCurrent(stand);
+      if (gate?.blocked()) {
+        hold();
+        return;
+      }
+      startPlay(p.url, undefined, { vod: true, startMs });
+    },
+    pause: () => supervisor.pause(),
+    resume: () => supervisor.resume(),
+    seek: (ms) => supervisor.seek(ms),
+    // Only the opened title's: a held (never opened) VOD must not read the previous title's leftovers.
+    positionMs: () => (pendingVod && vodOpened ? supervisor.positionMs() : undefined),
+    durationMs: () => (pendingVod && vodOpened ? supervisor.durationMs() : undefined),
+    paused: () => supervisor.paused(),
+    startedAttempts: () => supervisor.startedAttempts(),
+    onSubtitle: (fn) => supervisor.onSubtitle(fn),
+    audioTracks: () => player.audioTracks(),
+    selectAudioTrack: (id) => player.selectAudioTrack(id),
+    textTracks: () => player.textTracks?.() ?? [],
+    selectTextTrack: (id) => player.selectTextTrack?.(id),
     holdForCooldown() {
       const kind = status()?.kind;
+      if (pendingVod && (kind === 'ended' || kind === 'failed')) return;
       if (current() !== undefined && !held && kind !== 'playing') hold();
     },
     resumeHeld() {
+      if (!held) return;
+      const v = pendingVod;
+      if (v) {
+        updateVodStart();
+        this.playVod(v.p, v.startMs);
+        return;
+      }
       const cur = current();
-      if (held && cur) this.playChannel(cur);
+      if (cur) this.playChannel(cur);
     },
     stop() {
       token++;
       held = false;
+      pendingVod = undefined;
+      vodOpened = false;
       playKey = undefined;
       supervisor.stop();
       setCurrent(undefined);

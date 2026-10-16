@@ -14,6 +14,7 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
+import { TAB_BAR_X, TabBar } from '../components/TabBar.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
@@ -24,10 +25,11 @@ import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
+import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup } from './homeLogic.ts';
+import { TABS_W, tabNavigation, type TabId } from '../vod/tabLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -68,6 +70,7 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const SEARCH_KB_ID = 'searchKeyboard';
+const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the tabs above.';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
 
@@ -94,28 +97,31 @@ let searchMemory: HomeSearchState = BROWSE;
 /** The first Home mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
 
-const PHONE_BADGE_W = 300;
+const PHONE_BADGE_W = 144;
 const PHONE_BADGE_H = 48;
-/** Left of the brand wordmark's zone (top centre); the offline badge and the clock sit to its right. */
-const PHONE_BADGE_X = WORDMARK_ZONE_X - LAYOUT.gap - PHONE_BADGE_W;
+/** Right of the tab bar, so it never overlaps the three tabs; the wordmark, offline badge and clock sit further right. */
+const PHONE_BADGE_X = TAB_BAR_X + TABS_W + LAYOUT.gap;
 
-/** "Phone connected": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
+/** "Phone": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
 function PhoneBadge() {
   return (
     <View x={PHONE_BADGE_X} y={LAYOUT.safeY - 4} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
       borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.focus }}>
       <Text y={(PHONE_BADGE_H - FONT.small) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
-        textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone connected'}</Text>
+        textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone'}</Text>
     </View>
   );
 }
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusTabs?: true };
   // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
   const focusHint = params.focusChannelId;
   delete params.focusChannelId;
+  // One-shot from Back on the Movies tab: the tab bar takes focus.
+  const focusTabsHint = params.focusTabs === true;
+  delete params.focusTabs;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
@@ -185,6 +191,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const searching = () => query() !== '';
 
   let barNode: ElementNode | undefined;
+  let tabsNode: ElementNode | undefined;
   let resultsNode: ElementNode | undefined;
   let searchKbNode: ElementNode | undefined;
   let removeSearchKb: (() => void) | undefined;
@@ -438,7 +445,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const focusArea = (a: Place) => {
     if (a === 'list' && (searching() ? !hasResults() : listCount() === 0)) return true;
     setArea(a);
-    const node = a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
+    const node = a === 'tabs' ? tabsNode : a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
       : searching() ? resultsNode : listNode;
     node?.setFocus();
     return true;
@@ -839,6 +846,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
+  /** Movies and Series open over Home and stop the preview there; coming back follows the resume rules (nothing restarts by itself). */
+  const goTab = (t: TabId) => {
+    if (modalOpen() || kbOpen()) return;
+    const nav = tabNavigation('live', t);
+    if (nav.action === 'push') router.push('vod', { kind: nav.kind, focus: 'tabs' });
+  };
+
   /** A click focuses the row like the D-pad, then the same rule as Ok: play in the small video, or fullscreen. */
   const clickChannel = (i: number, double: boolean) => {
     const r = rowAt(i);
@@ -902,7 +916,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
   const focusFromPointer = (node: ElementNode) => {
-    const place: Place | undefined = node === groupNode ? 'groups' : node === barNode ? 'bar' : node === searchKbNode ? 'keyboard'
+    const place: Place | undefined = node === tabsNode ? 'tabs' : node === groupNode ? 'groups' : node === barNode ? 'bar'
+      : node === searchKbNode ? 'keyboard'
       : node === listNode || node === resultsNode ? 'list' : undefined;
     if (place) focusArea(place);
     else node.setFocus();
@@ -920,10 +935,18 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     playback.setRect(PREVIEW_RECT);
     // The guide's title index became ready, or a guide import finished: re-run the open query (as on Search).
+    // A source without live channels ends with focus on the tab bar (after a refresh, or when that refresh failed).
+    const tabsIfNoLive = () => { if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs'); };
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && searching()) searcher.setQuery(query()); };
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
-      onEvent('refreshed', (e) => { setWaiting(false); void reload().catch(() => undefined); rerun(e); }),
+      onEvent('refreshed', (e) => {
+        setWaiting(false);
+        void reload().then(() => {
+          tabsIfNoLive();
+        }).catch(() => undefined);
+        rerun(e);
+      }),
       onEvent('searchReady', rerun),
       // A companion changed the layout (the shell shows "Updated from your phone"): re-read, keeping focus by
       // id. Changes made on this screen re-read on their own.
@@ -949,7 +972,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           if (wasSearching) focusArea(total() > 0 ? 'list' : 'groups');
         }).catch(() => undefined);
       }),
-      onEvent('refreshFailed', () => setWaiting(false)),
+      onEvent('refreshFailed', () => { setWaiting(false); tabsIfNoLive(); }),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
       // The playing channel's info outside the list rows (preview panel) is re-read too.
       onEvent('nowNextUpdated', (e) => {
@@ -978,8 +1001,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // last channel from init, then the remembered row / the first row.
         const playingId = playback.current()?.id;
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
-        // An empty cache on first start: the list arrives with a later `refreshed` event.
-        if ((gs.find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) setWaiting(true);
+        // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
+        // and series has no channels to wait for: it shows the no-live text and focuses the tab bar instead.
+        const allCount = gs.find((x) => x.id === GROUP_ALL)?.count ?? 0;
+        if (waitsForChannels(allCount, initState()?.hasVod)) setWaiting(true);
+        const vodOnly = allCount === 0 && initState()?.hasVod === true;
         // A channel reached by number entry may be outside the remembered group: show it in "All".
         if (playingId !== undefined && g !== undefined && g !== GROUP_ALL && gs.some((x) => x.id === GROUP_ALL)
           && await api.indexOf(g, playingId).catch(() => -1) < 0) g = GROUP_ALL;
@@ -996,7 +1022,10 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         startupResumed = true;
         if (resume && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
-        if (!searching() && !exited()) focusArea(total() > 0 ? 'list' : 'groups');
+        if (!searching() && !exited()) {
+          const toTabs = focusTabsHint || (vodOnly && total() === 0 && router.topOverlay() === undefined);
+          focusArea(toTabs ? 'tabs' : total() > 0 ? 'list' : 'groups');
+        }
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
         setReady(true);
@@ -1033,7 +1062,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       const p = progress();
       return p ? `Loading channels… ${p.count}` : 'Loading channels…';
     }
-    return emptyGroupText(groupId());
+    return groupId() === GROUP_ALL ? NO_LIVE_TEXT : emptyGroupText(groupId());
   };
 
   return (
@@ -1051,12 +1080,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       <View x={PREVIEW_RECT.x + PREVIEW_RECT.w} y={PREVIEW_RECT.y} width={LAYOUT.width - PREVIEW_RECT.x - PREVIEW_RECT.w}
         height={PREVIEW_RECT.h} color={COLORS.background} />
 
-      <Text x={GROUP_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Channels'}</Text>
+      <TabBar ref={(el) => { tabsNode = el; }} active="live" onSelect={goTab}
+        onDown={() => nav('tabs', 'down')} onFocusChanged={(f) => { if (f) setArea('tabs'); }} pointerEnabled={pointerOn()} />
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
       <SearchBar ref={(el) => { barNode = el; }} x={LIST_X} y={HEAD_Y} width={LIST_W} value={query()}
         count={searching() ? countText(sState()) : ''} editing={kbOpen()}
         onFocusChanged={(f) => { if (f) setArea('bar'); }}
-        onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onLeft={() => nav('bar', 'left')}
+        onOpenKeyboard={openSearchKeyboard} onDown={() => nav('bar', 'down')} onUp={() => nav('bar', 'up')} onLeft={() => nav('bar', 'left')}
         onBack={onBack} onType={(t) => setBarText(query() + t)}
         onClick={() => { focusArea('bar'); }}
         onKeyboardButton={() => { focusArea('bar'); openSearchKeyboard(); }} pointerEnabled={pointerOn()} />

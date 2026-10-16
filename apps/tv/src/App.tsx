@@ -9,10 +9,15 @@ import { playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { GuideScreen } from './screens/Guide.tsx';
 import { HomeScreen } from './screens/Home.tsx';
+import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
+import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
 import { SettingsScreen } from './screens/Settings.tsx';
+import { VodBrowseScreen } from './screens/VodBrowse.tsx';
+import { VodGridScreen } from './screens/VodGrid.tsx';
+import { VodPlayScreen } from './screens/VodPlay.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -26,7 +31,8 @@ import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
-import { bootstrap, cooldown, initFailed, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_W = 400;
@@ -48,6 +54,10 @@ function OfflineBadge() {
  */
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
+  // Movies tab warm-up: once live playback is up, load the stored movie catalogue in idle time (no network).
+  // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
+  const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
+  createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));
@@ -122,7 +132,12 @@ export function App() {
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen />
-            : entry.screen === 'settings' ? <SettingsScreen /> : <PlaceholderScreen entry={entry} />)}
+            : entry.screen === 'settings' ? <SettingsScreen />
+            : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
+            : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
+            : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />
+            : entry.screen === 'seriesDetail' ? <SeriesDetailScreen entry={entry} />
+            : entry.screen === 'vodPlay' ? <VodPlayScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       {/*

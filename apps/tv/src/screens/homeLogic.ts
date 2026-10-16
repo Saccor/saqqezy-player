@@ -119,3 +119,11 @@ export function previewMessage(status: SupervisorStatus | undefined, hasChannel:
           : "This channel isn't available right now";
   }
 }
+
+/**
+ * An empty All group on Home means "channels are still loading", except for a source with only movies and series
+ * (`InitState.hasVod`): that source has no live channels to wait for, so Home shows the no-live text at once.
+ */
+export function waitsForChannels(allCount: number, hasVod: boolean | undefined): boolean {
+  return allCount === 0 && hasVod !== true;
+}

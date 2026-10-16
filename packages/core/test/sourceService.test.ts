@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
-import { SourceService } from '../src/service/sourceService.ts';
+import { SourceService, emptyIfUnsupported } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
@@ -370,6 +370,35 @@ describe('SourceService – xtream', () => {
     expect(nn.get(c7!.id)?.now?.title).toBe('Live Now');
   });
 
+  test('updateSource resets the VOD freshness of an Xtream source', async () => {
+    const { source } = await (async () => {
+      routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+      routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+      routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+      return service.addSource(xInput);
+    })();
+    await storage.setMeta(`vodAt:movie:${source.id}`, NOW);
+    await storage.setMeta(`vodAt:series:${source.id}`, NOW);
+    await service.updateSource({ ...source, name: 'Renamed' });
+    expect(await storage.getMeta(`vodAt:movie:${source.id}`)).toBe(0);
+    expect(await storage.getMeta(`vodAt:series:${source.id}`)).toBe(0);
+  });
+
+  test('updateSource clears an Xtream source\'s VOD lists when the server or username changes', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+    const { source } = await service.addSource(xInput);
+    const list = { items: [{ id: `${source.id}:m1`, kind: 'movie' as const, title: 'Synthetic Film 001', categoryId: '1' }], categories: [] };
+    await storage.replaceVod(source.id, 'movie', list);
+    await service.updateSource({ ...source, name: 'Renamed' });
+    expect((await storage.getVod(source.id, 'movie'))?.items).toHaveLength(1);
+    if (source.kind !== 'xtream') throw new Error('expected an Xtream source');
+    await service.updateSource({ ...source, username: 'other' });
+    expect((await storage.getVod(source.id, 'movie'))?.items).toEqual([]);
+    expect((await storage.getVod(source.id, 'series'))?.items).toEqual([]);
+  });
+
   const addX = async (streams: number) => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
@@ -578,19 +607,129 @@ describe('SourceService – xtream', () => {
     expect((await svc.shortEpgFor(source.id, channels.slice(6))).size).toBe(1);
   });
 
-  test('an account with no live streams fails on add and on refresh, like an empty playlist', async () => {
+  test('an account with no live streams and no movies or series fails on add', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([]);
     routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json([]);
+    routes['api:get_series_categories'] = () => json([]);
     const err = await service.addSource(xInput).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(SourceNetworkError);
-    expect((err as Error).message).toBe('The account has no live channels.');
+    expect((err as Error).message).toBe('The account has no channels, movies or series.');
     expect(await service.listSources()).toEqual([]);
+  });
+
+  test('a live-empty account with movie or series categories is kept, and the ingest says it has a catalogue', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json([]);
+    routes['api:get_series_categories'] = () => json([{ category_id: '1', category_name: 'Synthetic Shows' }]);
+    const { source, result } = await service.addSource(xInput);
+    expect(result).toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+    expect(await storage.getMeta(`parseStats:${source.id}`)).toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+    await expect(service.refreshPlaylist(source.id)).resolves.toEqual({ channelCount: 0, skipped: 0, vodCatalogue: true });
+  });
+
+  test('a provider without the movie action still gives the clear empty-account message', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json({}, 500);
+    routes['api:get_series_categories'] = () => json([]);
+    const err = await service.addSource(xInput).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SourceNetworkError);
+    expect((err as Error).message).toBe('The account has no channels, movies or series.');
+  });
+
+  test('the VOD probe of a live-empty account rethrows refusals, a rejected login and network failures', async () => {
+    const liveEmpty = () => {
+      routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+      routes['api:get_live_categories'] = () => json([]);
+      routes['api:get_live_streams'] = () => json([]);
+      routes['api:get_series_categories'] = () => json([]);
+    };
+    liveEmpty();
+    routes['api:get_vod_categories'] = () => json({}, 403);
+    await expect(service.addSource(xInput)).rejects.toBeInstanceOf(SourceAuthError);
+    const fresh = () => new SourceService({ shortEpgGapMs: 0, storage: new MemoryStorage(), fetch: fetchFn, now: () => NOW });
+    liveEmpty();
+    routes['api:get_vod_categories'] = () => json({}, 429);
+    const refused = await fresh().addSource(xInput).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(SourceNetworkError);
+    expect((refused as SourceNetworkError).status).toBe(429);
+    liveEmpty();
+    routes['api:get_vod_categories'] = () => { throw new TypeError('fetch failed'); };
+    await expect(fresh().addSource(xInput)).rejects.toThrow('Could not reach the provider.');
+    expect(await service.listSources()).toEqual([]);
+  });
+
+  test('the VOD probe rethrows a cooldown refusal and keeps only "unsupported" answers as empty', () => {
+    expect(() => emptyIfUnsupported(new SourceRefusedError())).toThrow(SourceRefusedError);
+    expect(() => emptyIfUnsupported(new SourceAuthError())).toThrow(SourceAuthError);
+    expect(() => emptyIfUnsupported(new SourceNetworkError('x', 503))).toThrow(SourceNetworkError);
+    expect(() => emptyIfUnsupported(new SourceNetworkError('Could not reach the provider.'))).toThrow(SourceNetworkError);
+    expect(emptyIfUnsupported(new SourceNetworkError('x', 404))).toEqual([]);
+    expect(emptyIfUnsupported(new SourceNetworkError('Unexpected response from the provider.'))).toEqual([]);
+  });
+
+  test('a 503 on the VOD probe is a refusal: rethrown and the source cools down', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1' }]);
+    const { source } = await service.addSource(xInput);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json({}, 503);
+    routes['api:get_series_categories'] = () => json([]);
+    await expect(service.refreshPlaylist(source.id)).rejects.toMatchObject({ status: 503 });
+    expect(service.guard.isBlocked(source.id)).toBe(true);
+    await expect(service.refreshPlaylist(source.id)).rejects.toBeInstanceOf(SourceRefusedError);
+  });
+
+  test('a non-JSON answer to the VOD probe counts as no catalogue', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => new Response('<html>not here</html>');
+    routes['api:get_series_categories'] = () => json([]);
+    await expect(service.addSource(xInput)).rejects.toThrow('The account has no channels, movies or series.');
+  });
+
+  test('an account with only movies or series is accepted', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
+    routes['api:get_live_streams'] = () => json([]);
+    routes['api:get_vod_categories'] = () => json([{ category_id: '1', category_name: 'Drama' }]);
+    routes['api:get_series_categories'] = () => json([]);
+    const { result } = await service.addSource(xInput);
+    expect(result.channelCount).toBe(0);
+  });
+
+  test('a refresh that finds no live channels keeps the stored ones', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([]);
     routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
+    routes['api:get_vod_categories'] = () => json([{ category_id: '1', category_name: 'Drama' }]);
+    routes['api:get_series_categories'] = () => json([]);
     const { source } = await service.addSource(xInput);
     routes['api:get_live_streams'] = () => json([]);
     await expect(service.refreshPlaylist(source.id)).rejects.toThrow('The account has no live channels.');
     expect((await service.loadIndex(source.id)).groupSize('all')).toBe(1);
+  });
+
+  test('clearing the cache clears movie and series lists but keeps VOD user state', async () => {
+    routes['/vod.m3u'] = () => new Response([
+      '#EXTM3U', '#EXTINF:-1,Channel 001', 'http://example.test/live/u/p/1.ts',
+      '#EXTINF:-1 group-title="Drama",Synthetic Film 001', 'http://example.test/movie/u/p/11.mkv',
+    ].join('\n'));
+    const { source } = await service.addSource({ kind: 'm3u', name: 'Mine', playlistUrl: 'http://example.test/vod.m3u' });
+    const state = { position: 600_000, duration: 3_600_000, watched: false, favourite: true, updatedAt: NOW };
+    await storage.putVodUser(source.id, 'x', state);
+    await service.clearCachedData(source.id);
+    expect((await storage.getVod(source.id, 'movie'))?.items).toEqual([]);
+    expect((await storage.getVod(source.id, 'series'))?.items).toEqual([]);
+    expect(await storage.getMeta(`vodAt:movie:${source.id}`)).toBe(0);
+    expect(await storage.getVodUser(source.id, 'x')).toEqual(state);
   });
 
   test('rejected login surfaces SourceAuthError, server error surfaces SourceNetworkError', async () => {
@@ -862,6 +1001,62 @@ describe('SourceService – title index', () => {
     await service.deleteSource(source.id);
     await service.rebuildTitleIndex(source.id);
     expect(await storage.getMeta(`titleIndex:${source.id}`)).toBeUndefined();
+  });
+});
+
+describe('SourceService – m3u VOD split', () => {
+  const vodM3u = [
+    '#EXTM3U',
+    '#EXTINF:-1 tvg-chno="1" group-title="News",Channel 001',
+    'http://example.test/live/u/p/1.ts',
+    '#EXTINF:-1 group-title="Drama" tvg-logo="http://img.test/11.jpg",Synthetic Film 001 (2021)',
+    'http://example.test/movie/u/p/11.mkv',
+    '#EXTINF:-1 group-title="Shows",Synthetic Show S01E01',
+    'http://example.test/series/u/p/101.mp4',
+    '#EXTINF:-1 group-title="Shows",Synthetic Show S01E02',
+    'http://example.test/series/u/p/102.mp4',
+    '#EXTINF:-1 group-title="News",Channel 002',
+    'http://example.test/live/u/p/2.ts',
+  ].join('\n');
+  const input = { kind: 'm3u' as const, name: 'Mine', playlistUrl: 'http://example.test/vod.m3u' };
+
+  test('VOD entries leave the channel list and are stored as catalogues', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    const { result } = await service.addSource(input);
+    expect(result).toEqual({ channelCount: 2, skipped: 0, movieCount: 1, seriesCount: 1 });
+    const idx = await service.loadIndex('id1');
+    expect(idx.slice('all', 0, 10).map((c) => [c.name, c.number])).toEqual([['Channel 001', 1], ['Channel 002', 2]]);
+    const movies = await storage.getVod('id1', 'movie');
+    expect(movies?.items.map((m) => m.title)).toEqual(['Synthetic Film 001']);
+    const series = await storage.getVod('id1', 'series');
+    expect(Object.values(series!.episodes!)[0]).toHaveLength(2);
+    expect(await storage.getMeta('vodAt:movie:id1')).toBe(NOW);
+    expect(await storage.getMeta('vodAt:series:id1')).toBe(NOW);
+  });
+
+  test('a refresh replaces the catalogues', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    await service.addSource(input);
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 001\nhttp://example.test/live/u/p/1.ts\n');
+    await service.refreshPlaylist('id1');
+    expect((await storage.getVod('id1', 'movie'))?.items).toEqual([]);
+  });
+
+  test('a refresh of an M3U playlist that now holds only movies is stored', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    await service.addSource(input);
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Synthetic Film 009\nhttp://example.test/movie/u/p/9.mp4\n');
+    await expect(service.refreshPlaylist('id1')).resolves.toMatchObject({ channelCount: 0, movieCount: 1 });
+    expect(await storage.getChannels('id1')).toEqual([]);
+    expect((await storage.getVod('id1', 'movie'))?.items.map((m) => m.title)).toEqual(['Synthetic Film 009']);
+  });
+
+  test('a VOD-only playlist is accepted; an empty one is still rejected', async () => {
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Synthetic Film 009\nhttp://example.test/movie/u/p/9.mp4\n');
+    const { result } = await service.addSource(input);
+    expect(result).toEqual({ channelCount: 0, skipped: 0, movieCount: 1 });
+    routes['/vod.m3u'] = () => new Response('#EXTM3U\n');
+    await expect(service.addSource(input)).rejects.toThrow('The playlist contains no channels.');
   });
 });
 

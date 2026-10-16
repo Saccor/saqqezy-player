@@ -50,8 +50,20 @@ class FakeAvplay implements AvplayLike {
   setTimeoutForBuffering(n: number): void { this.hit('setTimeoutForBuffering'); this.timeouts.push(n); }
   setStreamingProperty(t: string, v: string): void { this.hit('setStreamingProperty'); this.props.push([t, v]); }
   getStreamingProperty(t: string): string { this.hit('getStreamingProperty'); return this.live[t] ?? ''; }
-  seekTo(ms: number): void { this.hit('seekTo'); this.seeks.push(ms); }
+  seekCbs: { ok: () => void; fail: (e: unknown) => void }[] = [];
+  seekTo(ms: number, ok?: () => void, fail?: (e: unknown) => void): void {
+    this.hit('seekTo');
+    this.seeks.push(ms);
+    this.seekCbs.push({ ok: ok ?? (() => {}), fail: fail ?? (() => {}) });
+  }
   setVideoStillMode(m: 'true' | 'false'): void { this.hit('setVideoStillMode'); this.still.push(m); }
+  state = 'IDLE';
+  durationMs = 0;
+  silent: boolean[] = [];
+  pause(): void { this.hit('pause'); }
+  getState(): string { this.hit('getState'); return this.state; }
+  getDuration(): number { this.hit('getDuration'); return this.durationMs; }
+  setSilentSubtitle(on: boolean): void { this.hit('setSilentSubtitle'); this.silent.push(on); }
 }
 
 function setup() {
@@ -554,5 +566,321 @@ describe('AvplayPlayer: diagnostics', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('AvplayPlayer: VOD controls', () => {
+  test('a VOD open with startMs seeks after prepare and plays once the seek lands', async () => {
+    const { av, p, events } = setup();
+    await p.open(URL_B, 8, { live: false, startMs: 90_000 });
+    av.prepared[0]!.ok();
+    expect(av.seeks).toEqual([90_000]);
+    expect(av.calls).not.toContain('play');
+    expect(events.map((e) => e[0])).toEqual(['loading']);
+    av.seekCbs[0]!.ok();
+    expect(av.calls.at(-1)).toBe('play');
+    expect(events.at(-1)).toEqual(['playing', { attemptId: 8 }]);
+  });
+
+  test('a failed start seek still plays (from 0)', async () => {
+    const { av, p, events } = setup();
+    await p.open(URL_B, 9, { live: false, startMs: 90_000 });
+    av.prepared[0]!.ok();
+    av.seekCbs[0]!.fail('PLAYER_ERROR_SEEK_FAILED');
+    expect(av.calls.at(-1)).toBe('play');
+    expect(events.at(-1)).toEqual(['playing', { attemptId: 9 }]);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+  });
+
+  test('a throwing start seek still plays', async () => {
+    const { av, p, events } = setup();
+    av.throwOn.add('seekTo');
+    await p.open(URL_B, 1, { live: false, startMs: 5_000 });
+    av.prepared[0]!.ok();
+    expect(av.calls.at(-1)).toBe('play');
+    expect(events.at(-1)?.[0]).toBe('playing');
+  });
+
+  test('the start seek of a stopped session does not play', async () => {
+    const { av, p, events } = setup();
+    await p.open(URL_B, 1, { live: false, startMs: 5_000 });
+    av.prepared[0]!.ok();
+    p.stop();
+    av.calls = [];
+    av.seekCbs[0]!.ok();
+    expect(av.calls).not.toContain('play');
+    expect(events.map((e) => e[0])).toEqual(['loading']);
+  });
+
+  test('VOD without a start position, and live opens, play at once without seeking', async () => {
+    const vod = setup();
+    await vod.p.open(URL_B, 1, { live: false, startMs: 0 });
+    vod.av.prepared[0]!.ok();
+    expect(vod.av.seeks).toEqual([]);
+    expect(vod.av.calls.at(-1)).toBe('play');
+
+    const live = setup();
+    await live.p.open(URL_A, 2, { live: true, startMs: 5_000 });
+    live.av.prepared[0]!.ok();
+    expect(live.av.seeks).toEqual([]);
+    expect(live.events.at(-1)).toEqual(['playing', { attemptId: 2 }]);
+  });
+
+  test('pause, play and paused map to AVPlay', async () => {
+    const { av, p } = setup();
+    expect(p.paused()).toBe(false);
+    p.pause(); // no stream: nothing
+    expect(av.calls).toEqual([]);
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    av.calls = [];
+    p.pause();
+    av.state = 'PAUSED';
+    expect(p.paused()).toBe(true);
+    p.play();
+    av.state = 'PLAYING';
+    expect(p.paused()).toBe(false);
+    expect(av.calls.filter((c) => c === 'pause' || c === 'play')).toEqual(['pause', 'play']);
+    av.throwOn.add('pause');
+    av.throwOn.add('getState');
+    expect(() => p.pause()).not.toThrow();
+    expect(p.paused()).toBe(false);
+  });
+
+  test('seek clamps to [0, duration - 1 s] and is false while the duration is unknown', async () => {
+    const { av, p } = setup();
+    expect(p.seek(1_000)).toBe(false); // no stream
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    expect(p.seek(1_000)).toBe(false); // duration 0: unknown
+    av.durationMs = 100_000;
+    expect(p.seek(200_000)).toBe(true);
+    expect(p.seek(-5_000)).toBe(true);
+    expect(p.seek(42_000)).toBe(true);
+    expect(av.seeks).toEqual([99_000, 0, 42_000]);
+    av.throwOn.add('seekTo');
+    expect(p.seek(1_000)).toBe(false);
+    Object.assign(av, { seekTo: undefined });
+    expect(p.seek(1_000)).toBe(false);
+  });
+
+  test('duration is getDuration (ms) when positive', async () => {
+    const { av, p } = setup();
+    expect(p.duration()).toBeUndefined();
+    await p.open(URL_B, 1, { live: false });
+    expect(p.duration()).toBeUndefined();
+    av.durationMs = 3_600_000;
+    expect(p.duration()).toBe(3_600_000);
+    av.throwOn.add('getDuration');
+    expect(p.duration()).toBeUndefined();
+  });
+
+  test('text tracks: listed from TEXT entries, selected with setSelectTrack, turned off silently', async () => {
+    const { av, p } = setup();
+    av.tracks = [
+      { index: 0, type: 'VIDEO', extra_info: '{}' },
+      { index: 1, type: 'AUDIO', extra_info: '{"language":"eng"}' },
+      { index: 2, type: 'TEXT', extra_info: '{"language":"swe"}' },
+      { index: 3, type: 'TEXT', extra_info: 'not json' },
+    ];
+    av.current = [{ index: 3, type: 'TEXT', extra_info: '' }];
+    expect(p.textTracks()).toEqual([]); // no stream
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    expect(p.textTracks()).toEqual([
+      { id: '2', label: 'swe', language: 'swe', active: false },
+      { id: '3', label: 'Subtitles 2', active: true },
+    ]);
+    p.selectTextTrack('2');
+    expect(av.selected).toEqual([['TEXT', 2]]);
+    expect(av.silent).toEqual([false]);
+    p.selectTextTrack('1'); // an audio track: ignored
+    p.selectTextTrack('x');
+    expect(av.selected).toEqual([['TEXT', 2]]);
+    p.selectTextTrack(null);
+    expect(av.silent).toEqual([false, true]);
+    expect(p.textTracks().every((t) => !t.active)).toBe(true);
+    av.throwOn.add('getTotalTrackInfo');
+    expect(p.textTracks()).toEqual([]);
+  });
+
+  test('a VOD session reports isLive false once started and ends in idle, whatever IS_LIVE says', async () => {
+    const { av, p, events } = setup();
+    await p.open(URL_B, 4, { live: false });
+    av.throwOn.add('getStreamingProperty');
+    av.prepared[0]!.ok();
+    expect(p.health()).toEqual({ engine: 'avplay', positionMs: 0, isLive: false });
+    av.listener!.onstreamcompleted?.();
+    expect(events.at(-1)).toEqual(['idle', { attemptId: 4 }]);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+  });
+
+  test('duration is undefined for a live session', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    av.live = { IS_LIVE: '1' };
+    av.durationMs = 60_000;
+    expect(p.duration()).toBeUndefined();
+  });
+
+  test('a start seek that never calls back starts playback after the seek watchdog', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p, events } = setup();
+      await p.open(URL_B, 3, { live: false, startMs: 90_000 });
+      av.prepared[0]!.ok();
+      vi.advanceTimersByTime(2_900);
+      expect(av.calls).not.toContain('play');
+      vi.advanceTimersByTime(200);
+      expect(av.calls.filter((c) => c === 'play')).toHaveLength(1);
+      expect(events.at(-1)).toEqual(['playing', { attemptId: 3 }]);
+      av.seekCbs[0]!.ok(); // a late callback does not start twice
+      expect(av.calls.filter((c) => c === 'play')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('the seek watchdog is cleared by stop and by the seek callback', async () => {
+    vi.useFakeTimers();
+    try {
+      const a = setup();
+      await a.p.open(URL_B, 1, { live: false, startMs: 5_000 });
+      a.av.prepared[0]!.ok();
+      a.p.stop();
+      vi.advanceTimersByTime(10_000);
+      expect(a.av.calls).not.toContain('play');
+      const b = setup();
+      await b.p.open(URL_B, 1, { live: false, startMs: 5_000 });
+      b.av.prepared[0]!.ok();
+      b.av.seekCbs[0]!.ok();
+      vi.advanceTimersByTime(10_000);
+      expect(b.av.calls.filter((c) => c === 'play')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('play() during the pending start seek is ignored', async () => {
+    const { av, p } = setup();
+    await p.open(URL_B, 1, { live: false, startMs: 5_000 });
+    av.prepared[0]!.ok();
+    p.play();
+    expect(av.calls).not.toContain('play');
+    av.seekCbs[0]!.ok();
+    expect(av.calls.filter((c) => c === 'play')).toHaveLength(1);
+  });
+
+  test('subtitle cues: emitted for the current session, cleared on select, Off, seek, stop and a new open', async () => {
+    const { av, p } = setup();
+    av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
+    const cues: (string | null)[] = [];
+    const off = p.onSubtitle((t) => cues.push(t));
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    const first = av.listener!;
+    first.onsubtitlechange?.(2000, 'Hello', 0, 0);
+    p.selectTextTrack('2');
+    first.onsubtitlechange?.(2000, 'World', 0, 0);
+    av.durationMs = 100_000;
+    p.seek(5_000);
+    first.onsubtitlechange?.(2000, 'Again', 0, 0);
+    p.selectTextTrack(null);
+    first.onsubtitlechange?.(2000, 'Hidden', 0, 0); // Off: no cue
+    expect(cues).toEqual(['Hello', null, 'World', null, 'Again', null]);
+    cues.length = 0;
+    await p.open(URL_B, 2, { live: false });
+    expect(cues).toEqual([null]);
+    first.onsubtitlechange?.(2000, 'stale', 0, 0); // old session
+    expect(cues).toEqual([null]);
+    p.stop();
+    expect(cues).toEqual([null, null]);
+    off();
+    await p.open(URL_B, 3, { live: false });
+    av.listener!.onsubtitlechange?.(2000, 'x', 0, 0);
+    expect(cues).toEqual([null, null]);
+  });
+
+  test('a subtitle cue expires after its duration; a new cue, seek, select, stop or open cancels the expiry', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = setup();
+      av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
+      av.durationMs = 100_000;
+      const cues: (string | null)[] = [];
+      p.onSubtitle((t) => cues.push(t));
+      await p.open(URL_B, 1, { live: false });
+      av.prepared[0]!.ok();
+      const l = av.listener!;
+      l.onsubtitlechange?.(2000, 'Hello', 0, 0);
+      vi.advanceTimersByTime(1999);
+      expect(cues).toEqual(['Hello']);
+      vi.advanceTimersByTime(1);
+      expect(cues).toEqual(['Hello', null]);
+
+      // A new cue replaces the old one and its expiry.
+      cues.length = 0;
+      l.onsubtitlechange?.(2000, 'One', 0, 0);
+      vi.advanceTimersByTime(1000);
+      l.onsubtitlechange?.(3000, 'Two', 0, 0);
+      vi.advanceTimersByTime(2999);
+      expect(cues).toEqual(['One', 'Two']);
+      vi.advanceTimersByTime(1);
+      expect(cues).toEqual(['One', 'Two', null]);
+
+      // Seek, select, Off and stop clear at once; no late expiry follows.
+      for (const clear of [() => p.seek(5_000), () => p.selectTextTrack('2'), () => p.selectTextTrack(null)]) {
+        p.selectTextTrack('2'); // subtitles on again for the next cue
+        cues.length = 0;
+        l.onsubtitlechange?.(2000, 'Cue', 0, 0);
+        clear();
+        vi.advanceTimersByTime(5000);
+        expect(cues).toEqual(['Cue', null]);
+      }
+      p.selectTextTrack('2');
+      cues.length = 0;
+      l.onsubtitlechange?.(2000, 'Last', 0, 0);
+      p.stop();
+      vi.advanceTimersByTime(5000);
+      expect(cues).toEqual(['Last', null]);
+
+      // A new open also cancels the expiry of the previous session's cue.
+      await p.open(URL_B, 2, { live: false });
+      av.prepared[1]!.ok();
+      av.listener!.onsubtitlechange?.(2000, 'New', 0, 0);
+      cues.length = 0;
+      await p.open(URL_B, 3, { live: false });
+      vi.advanceTimersByTime(5000);
+      expect(cues).toEqual([null]);
+
+      // No usable duration: the cue stays until the next one.
+      av.prepared[2]!.ok();
+      cues.length = 0;
+      av.listener!.onsubtitlechange?.('?', 'Stays', 0, 0);
+      vi.advanceTimersByTime(60_000);
+      expect(cues).toEqual(['Stays']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('Off drops cues and shows no active track even when the firmware lacks setSilentSubtitle', async () => {
+    const { av, p } = setup();
+    av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
+    av.current = [{ index: 2, type: 'TEXT', extra_info: '' }];
+    Object.assign(av, { setSilentSubtitle: undefined });
+    const cues: (string | null)[] = [];
+    p.onSubtitle((t) => cues.push(t));
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    p.selectTextTrack(null);
+    cues.length = 0;
+    av.listener!.onsubtitlechange?.(2000, 'Hidden', 0, 0);
+    expect(cues).toEqual([]);
+    expect(p.textTracks()[0]!.active).toBe(false);
+    p.selectTextTrack('2'); // a track again: cues show
+    av.listener!.onsubtitlechange?.(2000, 'Shown', 0, 0);
+    expect(cues).toContain('Shown');
   });
 });

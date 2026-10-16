@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 type Handler = (...a: unknown[]) => void;
 const created = vi.hoisted(() => ({
   hls: [] as { calls: string[]; config: unknown; handlers: Record<string, Handler>; playingDate: Date | null; latency: number; liveSyncPosition: number | null }[],
-  mpegts: [] as { calls: string[]; config: unknown; handlers: Record<string, Handler>; error?: (type: string, detail: string, info?: unknown) => void }[],
+  mpegts: [] as { calls: string[]; src: unknown; config: unknown; handlers: Record<string, Handler>; error?: (type: string, detail: string, info?: unknown) => void }[],
 }));
 
 vi.mock('hls.js', () => {
@@ -13,6 +13,8 @@ vi.mock('hls.js', () => {
     calls: string[] = [];
     handlers: Record<string, Handler> = {};
     audioTracks = [];
+    subtitleTracks: { name: string; lang?: string }[] = [];
+    subtitleTrack = -1;
     levels = [];
     playingDate: Date | null = null;
     latency = 0;
@@ -46,9 +48,10 @@ vi.mock('mpegts.js', () => ({
       MEDIA_FORMAT_ERROR: 'FormatError', MEDIA_FORMAT_UNSUPPORTED: 'FormatUnsupported',
       MEDIA_CODEC_UNSUPPORTED: 'CodecUnsupported', MEDIA_MSE_ERROR: 'MediaMSEError',
     },
-    createPlayer: (_src: unknown, config: unknown) => {
+    createPlayer: (src: unknown, config: unknown) => {
       const p = {
         calls: [] as string[],
+        src,
         config,
         handlers: {} as Record<string, Handler>,
         error: undefined as ((type: string, detail: string, info?: unknown) => void) | undefined,
@@ -101,14 +104,16 @@ function fakeVideo() {
     style: {} as Record<string, string>,
     parentElement: null as unknown,
     playCalls: 0,
+    paused: true,
+    textTracks: undefined as unknown,
     quality: undefined as { totalVideoFrames: number; droppedVideoFrames: number } | undefined,
     getVideoPlaybackQuality() { return v.quality ?? { totalVideoFrames: 0, droppedVideoFrames: 0 }; },
     addEventListener(t: string, fn: () => void) { (listeners[t] ??= []).push(fn); },
     removeEventListener(t: string, fn: () => void) { listeners[t] = (listeners[t] ?? []).filter((f) => f !== fn); },
     fire(t: string) { for (const fn of listeners[t] ?? []) fn(); },
     canPlayType: () => '',
-    play: () => { v.playCalls++; return Promise.resolve(); },
-    pause() {},
+    play: (): Promise<void> => { v.playCalls++; v.paused = false; return Promise.resolve(); },
+    pause() { v.paused = true; },
     load() {},
     removeAttribute() {},
   };
@@ -612,5 +617,213 @@ describe('Html5Player – mpegts.js audio the browser cannot decode', () => {
     ts.error!('MediaError', 'MediaMSEError', { code: 9, msg: "The type provided ('video/mp4;codecs=hvc1.1.1.L150.B0') is unsupported." });
 
     expect(events.filter(([s]) => s === 'error').map(([, d]) => d?.code)).toEqual(['MEDIA']);
+  });
+});
+
+describe('Html5Player – VOD', () => {
+  test('a VOD open configures mpegts.js for a finite stream', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/movie/u/p/1.ts', 1, { live: false });
+    const ts = created.mpegts.at(-1)!;
+    expect(ts.src).toMatchObject({ type: 'mpegts', isLive: false });
+    expect(ts.config).toMatchObject({ isLive: false, liveSync: false, liveBufferLatencyChasing: false });
+    player.destroy();
+  });
+
+  test('a live open is unchanged: mpegts.js stays live, hls.js keeps its live tuning', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    expect(created.mpegts.at(-1)!.src).toMatchObject({ isLive: true });
+    expect(created.mpegts.at(-1)!.config).toMatchObject({ isLive: true });
+    await player.open('http://example.test/a.m3u8');
+    expect(created.hls.at(-1)!.config).toHaveProperty('liveSyncDurationCount');
+    expect(created.hls.at(-1)!.config).not.toHaveProperty('startPosition');
+    player.destroy();
+  });
+
+  test('a VOD open gives hls.js the start position and no live-sync tuning', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/movie/1.m3u8', 1, { live: false, startMs: 754_000 });
+    const cfg = created.hls.at(-1)!.config as Record<string, unknown>;
+    expect(cfg).toMatchObject({ startPosition: 754 });
+    for (const k of ['liveSyncMode', 'liveSyncDurationCount', 'liveMaxLatencyDurationCount', 'maxLiveSyncPlaybackRate']) {
+      expect(cfg).not.toHaveProperty(k);
+    }
+    await player.open('http://example.test/movie/2.m3u8', 2, { live: false });
+    expect(created.hls.at(-1)!.config).not.toHaveProperty('startPosition');
+    player.destroy();
+  });
+
+  test('the native element seeks to the start position once, on loadedmetadata', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false, startMs: 90_000 });
+    expect(video.currentTime).toBe(0);
+    video.duration = 600;
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(90);
+    video.currentTime = 200;
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(200);
+    player.destroy();
+  });
+
+  test('the start position is clamped to the duration', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false, startMs: 900_000 });
+    video.duration = 600;
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(599);
+    player.destroy();
+  });
+
+  test('pause, play, paused, duration and a clamped seek drive the element', async () => {
+    const { player, video } = makePlayer();
+    expect(player.duration()).toBeUndefined();
+    expect(player.seek(5000)).toBe(false); // nothing open
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+    expect(player.duration()).toBeUndefined(); // not known yet
+    expect(player.seek(5000)).toBe(false);
+    video.duration = 600;
+    expect(player.duration()).toBe(600_000);
+    expect(player.paused()).toBe(false);
+    player.pause();
+    expect(player.paused()).toBe(true);
+    const calls = video.playCalls;
+    player.play();
+    expect(video.playCalls).toBe(calls + 1);
+    expect(player.paused()).toBe(false);
+    expect(player.seek(120_000)).toBe(true);
+    expect(video.currentTime).toBe(120);
+    expect(player.seek(-5000)).toBe(true);
+    expect(video.currentTime).toBe(0);
+    expect(player.seek(10_000_000)).toBe(true);
+    expect(video.currentTime).toBe(599);
+    player.destroy();
+  });
+
+  test('play() swallows an autoplay rejection', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+    video.play = () => Promise.reject(new Error('blocked'));
+    expect(() => player.play()).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+    player.destroy();
+  });
+
+  test('a live stream has no duration', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/live.mp4');
+    video.duration = Number.POSITIVE_INFINITY;
+    expect(player.duration()).toBeUndefined();
+    player.destroy();
+  });
+
+  test('a VOD session never reports isLive true', async () => {
+    const { player, video, events } = makePlayer();
+    await player.open('http://example.test/movie/1.ts', 1, { live: false });
+    expect(player.health().isLive).toBeUndefined();
+    expect(player.health()).not.toHaveProperty('behindLiveSource');
+    video.duration = 600;
+    expect(player.health().isLive).toBe(false);
+    // The download finishing is not the end of the film: no EOS; the element's ended reports idle.
+    created.mpegts.at(-1)!.handlers.loading_complete!();
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    video.fire('ended');
+    expect(events.at(-1)?.[0]).toBe('idle');
+
+    await player.open('http://example.test/movie/2.m3u8', 2, { live: false });
+    const hls = created.hls.at(-1)!;
+    hls.handlers.hlsLevelLoaded!('hlsLevelLoaded', { details: { live: true, targetduration: 6 } });
+    hls.latency = 7;
+    expect(player.health().isLive).toBe(false);
+    expect(player.health()).not.toHaveProperty('behindLiveS');
+    video.duration = Number.NaN;
+    expect(player.health().isLive).toBeUndefined();
+
+    await player.open('http://example.test/movie/3.mp4', 3, { live: false });
+    video.duration = Number.POSITIVE_INFINITY;
+    video.fire('durationchange');
+    expect(player.health().isLive).toBeUndefined();
+    video.duration = 600;
+    video.fire('ended');
+    expect(events.at(-1)?.[0]).toBe('idle');
+    player.destroy();
+  });
+
+  test('text tracks with hls.js: list, select and off', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/movie/1.m3u8', 1, { live: false });
+    const hls = created.hls.at(-1)! as unknown as { subtitleTracks: { name: string; lang?: string }[]; subtitleTrack: number };
+    hls.subtitleTracks = [{ name: 'English', lang: 'en' }, { name: '', lang: 'sv' }];
+    expect(player.textTracks()).toEqual([
+      { id: '0', label: 'English', language: 'en', active: false },
+      { id: '1', label: 'sv', language: 'sv', active: false },
+    ]);
+    player.selectTextTrack('1');
+    expect(hls.subtitleTrack).toBe(1);
+    expect(player.textTracks()[1]!.active).toBe(true);
+    player.selectTextTrack(null);
+    expect(hls.subtitleTrack).toBe(-1);
+    player.selectTextTrack('7'); // out of range: ignored
+    expect(hls.subtitleTrack).toBe(-1);
+    player.destroy();
+  });
+
+  test('native text tracks: subtitles and captions only; select shows one and disables the rest', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+    const list = [
+      { kind: 'subtitles', label: 'English', language: 'en', mode: 'disabled' },
+      { kind: 'metadata', label: 'meta', language: '', mode: 'hidden' },
+      { kind: 'captions', label: '', language: 'sv', mode: 'showing' },
+    ];
+    video.textTracks = list;
+    expect(player.textTracks()).toEqual([
+      { id: '0', label: 'English', language: 'en', active: false },
+      { id: '2', label: 'sv', language: 'sv', active: true },
+    ]);
+    player.selectTextTrack('0');
+    expect(list.map((t) => t.mode)).toEqual(['showing', 'hidden', 'disabled']);
+    player.selectTextTrack(null);
+    expect(list.map((t) => t.mode)).toEqual(['disabled', 'hidden', 'disabled']);
+    player.destroy();
+  });
+
+  test('a start seek that cannot land yet (duration unknown) is retried on durationchange and lands once', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false, startMs: 90_000 });
+    video.duration = Number.NaN;
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(0);
+    video.duration = Number.POSITIVE_INFINITY;
+    video.fire('durationchange');
+    expect(video.currentTime).toBe(0);
+    video.duration = 600;
+    video.fire('durationchange');
+    expect(video.currentTime).toBe(90);
+    video.currentTime = 200;
+    video.fire('durationchange');
+    video.fire('loadedmetadata');
+    expect(video.currentTime).toBe(200);
+    player.destroy();
+  });
+
+  test('paused() is false without a session, an empty text track id is ignored, VOD hls keeps a 60 s back buffer', async () => {
+    const { player, video } = makePlayer();
+    video.paused = true;
+    expect(player.paused()).toBe(false);
+    await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+    const list = [
+      { kind: 'subtitles', label: 'A', language: 'en', mode: 'disabled' },
+      { kind: 'subtitles', label: 'B', language: 'sv', mode: 'disabled' },
+    ];
+    video.textTracks = list;
+    player.selectTextTrack('');
+    expect(list.map((x) => x.mode)).toEqual(['disabled', 'disabled']);
+    await player.open('http://example.test/movie/2.m3u8', 2, { live: false });
+    expect(created.hls.at(-1)!.config).toMatchObject({ backBufferLength: 60 });
+    await player.open('http://example.test/a.m3u8');
+    expect(created.hls.at(-1)!.config).not.toMatchObject({ backBufferLength: 60 });
+    player.destroy();
   });
 });

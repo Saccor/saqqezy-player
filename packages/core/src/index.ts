@@ -11,6 +11,18 @@ export { m3uEntriesToChannels } from './m3u/toChannels.ts';
 export { ChannelIndex, type ProviderGroupInfo } from './index/channelIndex.ts';
 export { orderGroupChannels } from './index/order.ts';
 export { type Storage, MAX_PROGRAMME_MS } from './storage.ts';
+export * from './vod/types.ts';
+export { splitYear, parseEpisodeMarker } from './vod/title.ts';
+export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';
+export { VodCatalog } from './vod/catalog.ts';
+export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi } from './vod/fetchXtream.ts';
+export {
+  CONTINUE_MAX, MIN_RESUME_MS, WATCHED_RATIO,
+  applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress,
+  nextEpisode, prevEpisode, resumeMs, setFavourite, setTracks, setWatched, type SeriesContinue,
+} from './vod/progress.ts';
+export { classifyEntry, splitM3uVod, type EntryKind } from './m3u/vodSplit.ts';
+export { VodService, type VodServiceDeps } from './service/vodService.ts';
 export {
   XtreamClient, normalizeServer,
   type XtreamAccount, type XtreamCategory, type XtreamStream,

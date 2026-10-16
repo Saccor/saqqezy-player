@@ -7,22 +7,30 @@ import { normalizeLayout } from '../layout/ops.ts';
 import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
+import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
-import { RefusalGuard } from '../net/refusalGuard.ts';
+import { REFUSAL_STATUSES, RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
 import { splitLines } from '../text/lines.ts';
+import { emptyVodList } from '../vod/list.ts';
+import type { VodKind, VodList } from '../vod/types.ts';
 import type {
   Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, XtreamSourceConfig,
 } from '../types.ts';
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
-import { XtreamClient } from '../xtream/client.ts';
+import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
-export interface IngestResult { channelCount: number; skipped: number }
+export interface IngestResult {
+  channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
+  /** Xtream: the account has no live streams, and its movie or series categories were found (the titles load lazily). */
+  vodCatalogue?: true;
+}
+type IngestVod = Record<VodKind, VodList>;
 export interface EpgResult { programmes: number; skipped: number }
 export interface SourceServiceDeps {
   storage: Storage;
@@ -117,9 +125,9 @@ export class SourceService {
 
   async addSource(input: NewSource, onProgress?: Progress) {
     const source = { ...input, id: this.newId() } as SourceConfig;
-    const { channels, result } = await this.fetchChannels(source, onProgress);
+    const { channels, result, vod } = await this.fetchChannels(source, onProgress);
     try {
-      await this.saveChannels(source.id, channels, result);
+      await this.saveChannels(source.id, channels, result, vod);
       await this.storage.putSource(source);
       if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
     } catch (err) {
@@ -136,10 +144,22 @@ export class SourceService {
 
   updateSource(source: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(source.id, async () => {
-      const { channels, result } = await this.fetchChannels(source, onProgress);
+      const prev = (await this.storage.listSources()).find((s) => s.id === source.id);
+      const { channels, result, vod } = await this.fetchChannels(source, onProgress);
       await this.storage.putSource(source);
-      await this.saveChannels(source.id, channels, result);
+      await this.saveChannels(source.id, channels, result, vod);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
+      if (source.kind === 'xtream') {
+        // Another server or account: its stream ids mean nothing here, so the old catalogues must go.
+        const moved = prev?.kind !== 'xtream'
+          || normalizeServer(prev.server) !== normalizeServer(source.server)
+          || prev.username !== source.username;
+        // M3U catalogues are re-stored by saveChannels; Xtream ones are fetched lazily, so make them stale.
+        for (const kind of ['movie', 'series'] as const) {
+          if (moved) await this.storage.replaceVod(source.id, kind, emptyVodList());
+          await this.storage.setMeta(`vodAt:${kind}:${source.id}`, 0);
+        }
+      }
       return result;
     });
   }
@@ -168,9 +188,14 @@ export class SourceService {
   refreshPlaylist(id: string, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(id, async () => {
       const source = await this.requireSource(id);
-      const { channels, result } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod } = await this.fetchChannels(source, onProgress);
       if (!(await this.sourceExists(id))) return { channelCount: 0, skipped: 0 };
-      await this.saveChannels(id, channels, result);
+      // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
+      // An M3U answer needs no guard: fetchChannels rejects one with nothing, and one with only movies or series is valid.
+      if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
+        throw new SourceNetworkError('The account has no live channels.');
+      }
+      await this.saveChannels(id, channels, result, vod);
       return result;
     });
   }
@@ -202,6 +227,11 @@ export class SourceService {
       await this.storage.replaceChannels(id, []);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
+      // Movies and series are cached data too; progress, favourites and watched marks (VOD user state) are kept.
+      for (const kind of ['movie', 'series'] as const) {
+        await this.storage.replaceVod(id, kind, emptyVodList());
+        await this.storage.setMeta(`vodAt:${kind}:${id}`, 0);
+      }
     });
   }
 
@@ -552,15 +582,27 @@ export class SourceService {
     return res;
   }
 
-  private async fetchChannels(source: SourceConfig, onProgress?: Progress): Promise<{ channels: Channel[]; result: IngestResult }> {
+  private async fetchChannels(
+    source: SourceConfig, onProgress?: Progress,
+  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod }> {
     if (source.kind === 'xtream') {
       const client = this.xtream(source);
       await client.authenticate();
       const [categories, streams] = await Promise.all([client.liveCategories(), client.liveStreams()]);
       const channels = xtreamToChannels(source.id, client, categories, streams, 'ts');
-      if (channels.length === 0) throw new SourceNetworkError('The account has no live channels.');
+      if (channels.length === 0) {
+        // An account may offer only movies and series: accept it when either catalogue has categories.
+        const [movieCats, seriesCats] = await Promise.all([
+          client.vodCategories().catch(emptyIfUnsupported), client.seriesCategories().catch(emptyIfUnsupported),
+        ]);
+        if (movieCats.length === 0 && seriesCats.length === 0) {
+          throw new SourceNetworkError('The account has no channels, movies or series.');
+        }
+      }
       onProgress?.({ phase: 'playlist', count: channels.length });
-      return { channels, result: { channelCount: channels.length, skipped: 0 } };
+      const result: IngestResult = { channelCount: channels.length, skipped: 0 };
+      if (channels.length === 0) result.vodCatalogue = true;
+      return { channels, result };
     }
     const res = await this.get(source.id, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
@@ -570,14 +612,42 @@ export class SourceService {
       if (entries.length % PROGRESS_EVERY === 0) onProgress?.({ phase: 'playlist', count: entries.length });
     }
     onProgress?.({ phase: 'playlist', count: entries.length });
-    const channels = m3uEntriesToChannels(source.id, entries);
-    if (channels.length === 0) throw new SourceNetworkError('The playlist contains no channels.');
-    return { channels, result: { channelCount: channels.length, skipped: stats.skipped } };
+    const split = splitM3uVod(source.id, entries);
+    const channels = m3uEntriesToChannels(source.id, split.live);
+    const movieCount = split.movies.items.length;
+    const seriesCount = split.series.items.length;
+    if (channels.length === 0 && movieCount === 0 && seriesCount === 0) {
+      throw new SourceNetworkError('The playlist contains no channels.');
+    }
+    const result: IngestResult = { channelCount: channels.length, skipped: stats.skipped };
+    if (movieCount) result.movieCount = movieCount;
+    if (seriesCount) result.seriesCount = seriesCount;
+    return { channels, result, vod: { movie: split.movies, series: split.series } };
   }
 
-  private async saveChannels(id: string, channels: Channel[], result: IngestResult): Promise<void> {
+  private async saveChannels(id: string, channels: Channel[], result: IngestResult, vod?: IngestVod): Promise<void> {
     await this.storage.replaceChannels(id, channels);
+    if (vod) {
+      for (const kind of ['movie', 'series'] as const) {
+        await this.storage.replaceVod(id, kind, vod[kind]);
+        await this.storage.setMeta(`vodAt:${kind}:${id}`, this.now());
+      }
+    }
     await this.storage.setMeta(`playlistAt:${id}`, this.now());
     await this.storage.setMeta(`parseStats:${id}`, result);
   }
+}
+
+/**
+ * The VOD category probe of a live-empty Xtream account: a provider without the action answers with an HTTP error or
+ * something that is not JSON, which counts as "no catalogue". A refusal (cooldown, 401/403, 429 and the other refusal
+ * statuses), a rejected login or an unreachable provider is rethrown: it must reach the refusal guard's caller and the
+ * user, never read as an empty account.
+ */
+export function emptyIfUnsupported(err: unknown): never[] {
+  if (err instanceof SourceNetworkError) {
+    if (err.status !== undefined && !REFUSAL_STATUSES.has(err.status)) return [];
+    if (err.status === undefined && err.message === UNEXPECTED_RESPONSE) return [];
+  }
+  throw err;
 }

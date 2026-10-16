@@ -103,7 +103,7 @@ export function shouldForgetPairing(
   return startedAt === undefined || now - startedAt >= START_GRACE_MS;
 }
 
-/** Home shows "Phone connected" only while a companion is actually connected. */
+/** Home shows the "Phone" badge only while a companion is actually connected. */
 export function showPhoneBadge(status: CompanionStatus | undefined): boolean {
   return status?.state === 'connected';
 }

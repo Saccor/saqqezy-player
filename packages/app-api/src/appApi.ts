@@ -1,17 +1,20 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
   epgKey, isLayoutOp, isLayoutOpBatch, nowNext, queryTitles, redactUrl,
-  type AppSettings, type Channel, type GroupInfo, type Layout, type LayoutOp, type NewSource, type Programme,
-  type CooldownCause, type ProviderGroupInfo, type SourceConfig, type SourceCooldown, type SourceService, type Storage, type TitleIndexData,
+  type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
+  type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
+  type TitleIndexData, type VodKind, type VodService, type VodSort,
 } from '@iptv/core';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
+import { VodController } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceSummary, TitleHit,
+  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
+  VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -51,6 +54,8 @@ export interface AppApiDeps {
    * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
    */
   companion?: (api: AppApi, onStatus: (status: CompanionStatus) => void) => CompanionControl;
+  /** Movies and series. Without it, the VOD methods reject with "Movies and series are not available." */
+  vod?: VodService;
 }
 
 export class AppApi {
@@ -107,6 +112,8 @@ export class AppApi {
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
+  private readonly vodc: VodController | undefined;
+  private readonly vod: VodService | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -126,6 +133,10 @@ export class AppApi {
       if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
       deps.emit({ type: 'companion', status });
     });
+    this.vod = deps.vod;
+    this.vodc = deps.vod
+      ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
+      : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
   }
 
@@ -165,6 +176,8 @@ export class AppApi {
 
   updateSource(source: SourceConfig, origin: LayoutOrigin = 'local'): Promise<{ channelCount: number }> {
     return this.run('updateSource', async () => {
+      // The account may change under a running VOD fetch: cancel it before anything is rewritten.
+      if (this.activeId === source.id) this.vodc?.invalidate(source.id);
       // Saving a source is a deliberate attempt (the user may just have fixed the login): it may probe a cooling source.
       await this.service.guard.retry(source.id);
       const result = await this.service.updateSource(source, (p) => this.emit({ type: 'progress', ...p }));
@@ -513,6 +526,70 @@ export class AppApi {
     return this.run('companionStatus', async () => this.companion?.status() ?? { state: 'idle' });
   }
 
+  // ---- movies & series ----
+
+  getVodHome(kind: VodKind): Promise<VodHome> {
+    return this.run('getVodHome', () => this.vodFor(kind).home(kind));
+  }
+
+  getVodCategories(kind: VodKind): Promise<VodCategoryView[]> {
+    return this.run('getVodCategories', () => this.vodFor(kind).categories(kind));
+  }
+
+  getVodSlice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
+    return this.run('getVodSlice', async () => {
+      const c = this.vodFor(kind);
+      if (sort !== 'added' && sort !== 'title' && sort !== 'rating') throw new Error('Unknown sort order.');
+      return c.slice(kind, categoryId, sort, offset, count);
+    });
+  }
+
+  getMovie(id: string): Promise<MovieView | undefined> {
+    return this.run('getMovie', () => this.vodOrThrow().movie(id));
+  }
+
+  getSeries(id: string): Promise<SeriesView | undefined> {
+    return this.run('getSeries', () => this.vodOrThrow().series(id));
+  }
+
+  getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
+    return this.run('getVodPlayable', () => this.vodOrThrow().playable(itemId, seriesId));
+  }
+
+  saveVodProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {
+    return this.run('saveVodProgress', () => this.vodOrThrow().saveProgress(itemId, positionMs, durationMs, series));
+  }
+
+  setVodFavourite(itemId: string, on: boolean): Promise<void> {
+    return this.run('setVodFavourite', () => this.vodOrThrow().setFavourite(itemId, on));
+  }
+
+  setVodWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
+    return this.run('setVodWatched', () => this.vodOrThrow().setWatched(itemId, on, series));
+  }
+
+  clearVodProgress(itemId: string): Promise<void> {
+    return this.run('clearVodProgress', () => this.vodOrThrow().clearProgress(itemId));
+  }
+
+  /** "Remove from Continue watching" on a series tile. */
+  clearSeriesContinue(seriesId: string): Promise<void> {
+    return this.run('clearSeriesContinue', () => this.vodOrThrow().clearSeriesContinue(seriesId));
+  }
+
+  setVodTracks(itemId: string, tracks: VodTracks): Promise<void> {
+    return this.run('setVodTracks', () => this.vodOrThrow().setTracks(itemId, tracks));
+  }
+
+  refreshVod(kind: VodKind): Promise<void> {
+    return this.run('refreshVod', () => this.vodFor(kind).refresh(kind));
+  }
+
+  /** Idle-time warm-up after live playback starts: loads the stored catalogue into memory; never fetches. */
+  preloadVod(kind: VodKind): Promise<void> {
+    return this.run('preloadVod', () => this.vodFor(kind).preload(kind));
+  }
+
   // ---- settings, cache, diagnostics ----
 
   getSettings(): Promise<AppSettings> {
@@ -568,9 +645,21 @@ export class AppApi {
     while (this.queues.size || this.shortJobs.size || this.titleJobs.size) {
       await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
     }
+    await this.vodc?.idle();
   }
 
   // ---- internals ----
+
+  private vodOrThrow(): VodController {
+    if (!this.vodc) throw new Error('Movies and series are not available.');
+    return this.vodc;
+  }
+
+  /** The controller, after checking `kind` (RPC input). */
+  private vodFor(kind: VodKind): VodController {
+    if (kind !== 'movie' && kind !== 'series') throw new Error('Unknown kind of title.');
+    return this.vodOrThrow();
+  }
 
   /** Wraps every public call: records failures (credential-free) and rethrows. */
   private async run<T>(where: string, fn: () => Promise<T>): Promise<T> {
@@ -616,9 +705,11 @@ export class AppApi {
       sources: await this.summaries(),
       groups: id ? this.index.groups() : [],
       settings: await this.currentSettings(),
+      hasVod: false,
     };
     if (id) {
       state.activeSourceId = id;
+      state.hasVod = await this.hasVod(id);
       const lastChannel = await this.storage.getMeta<string>(`lastChannel:${id}`);
       const lastGroup = await this.storage.getMeta<string>(`lastGroup:${id}`);
       if (lastChannel) state.lastChannelId = lastChannel;
@@ -650,6 +741,7 @@ export class AppApi {
         this.playingId = undefined;
       }
       this.activeId = id;
+      this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
@@ -925,14 +1017,40 @@ export class AppApi {
   }
 
   private async refreshPlaylistFor(id: string): Promise<void> {
+    let result: IngestResult | undefined;
     try {
-      await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }));
+      result = await this.service.refreshPlaylist(id, (p) => this.emit({ type: 'progress', ...p }));
     } catch (err) {
       this.failed('playlist', id, 'refreshPlaylist', err);
     }
     await this.rebuildIndex(id);
+    await this.vodAfterPlaylist(id, result);
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'playlist', sourceId: id });
+  }
+
+  /**
+   * An M3U playlist refresh re-stores its movie and series lists: the active source's resident catalogue is stale,
+   * so the controller drops it and the TV is told (both kinds, with the ingest counts).
+   */
+  private async vodAfterPlaylist(id: string, result: IngestResult | undefined): Promise<void> {
+    if (!this.vodc || !this.vod || this.activeId !== id) return;
+    try {
+      const source = (await this.service.listSources()).find((s) => s.id === id);
+      if (source?.kind !== 'm3u' || this.activeId !== id) return;
+      const resident = this.vodc.residentKind();
+      this.vodc.invalidate(id);
+      // Counts come from the ingest (the M3U split has no cap); nothing is read back from storage here.
+      const counts = { movie: result?.movieCount ?? 0, series: result?.seriesCount ?? 0 };
+      // Both kinds, always: a kind whose count dropped to 0 must clear an open tab too.
+      for (const kind of ['movie', 'series'] as const) {
+        this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: counts[kind], truncated: false });
+      }
+      // Keep the idle preload's benefit: reload the kind that was resident (reads storage only if nothing is resident).
+      if (resident) void this.vodc.preload(resident).catch((err) => { this.record('preloadVod', err); });
+    } catch (err) {
+      this.record('refreshPlaylist', err);
+    }
   }
 
   private async refreshEpgFor(id: string): Promise<void> {
@@ -983,7 +1101,10 @@ export class AppApi {
     if ((await this.service.guard.status(id)).state !== 'clear') return;
     let playlist: boolean;
     try {
-      playlist = (this.activeId === id && this.totalChannels() === 0) || await this.service.needsPlaylistRefresh(id);
+      // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
+      // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
+      playlist = (this.activeId === id && this.totalChannels() === 0 && await this.expectsChannels(id))
+        || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
       this.failed('playlist', id, 'backgroundRefresh', err);
     }
@@ -995,6 +1116,31 @@ export class AppApi {
       this.failed('epg', id, 'backgroundRefresh', err);
     }
     if (epg) await this.refreshEpgFor(id);
+  }
+
+  /**
+   * Whether an empty channel cache must be filled: the last ingest found channels (a lost cache), or the source is not
+   * known to have movies or series (never loaded, or live only).
+   */
+  private async expectsChannels(id: string): Promise<boolean> {
+    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id));
+  }
+
+  /**
+   * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U) or found the
+   * categories of a live-empty account (Xtream), or a catalogue was fetched (Xtream). An M3U `vodAt` is not used:
+   * every M3U ingest stamps it, with or without titles.
+   */
+  private async hasVod(id: string): Promise<boolean> {
+    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+    if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0 || stats?.vodCatalogue === true) return true;
+    const source = (await this.service.listSources()).find((s) => s.id === id);
+    if (source?.kind !== 'xtream') return false;
+    for (const kind of ['movie', 'series'] as const) {
+      if (((await this.storage.getMeta<number>(`vodAt:${kind}:${id}`)) ?? 0) > 0) return true;
+    }
+    return false;
   }
 
   /** Every channel of the active source, hidden ones (and those in hidden groups or without a guide) included. */
@@ -1196,6 +1342,8 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
+  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

@@ -104,18 +104,22 @@ export type Decision =
 
 const NONE: Decision = { do: 'none' };
 
-/** The stall ladder (spec §3): one action for this tick, from the gentlest that fits. Pure. */
-export function decide(h: PlaybackHealth, w: WatchState, p: RecoveryPolicy, now: number): Decision {
+/**
+ * The stall ladder (spec §3): one action for this tick, from the gentlest that fits. Pure. `finite` (VOD): byte
+ * silence is not a stall, since a lazily loading engine parks its download far ahead of the playhead; and there is
+ * no gap jump or live-edge seek (a buffered gap there is a seek landing), so only the reconnect rungs act.
+ */
+export function decide(h: PlaybackHealth, w: WatchState, p: RecoveryPolicy, now: number, finite = false): Decision {
   if (w.framesStuckSince !== undefined && now - w.framesStuckSince >= p.frozenVideoMs) {
     return { do: 'reconnect', reason: 'frozenVideo' };
   }
   const stalledFor = now - w.lastProgressAt;
   if (stalledFor < p.gapJumpAfterMs) return NONE;
-  if (h.tracksBytes && h.lastByteAt !== undefined && now - h.lastByteAt >= p.noBytesReconnectMs) {
+  if (!finite && h.tracksBytes && h.lastByteAt !== undefined && now - h.lastByteAt >= p.noBytesReconnectMs) {
     return { do: 'reconnect', reason: 'noBytes' };
   }
   const ahead = h.bufferAheadS;
-  if ((ahead !== undefined && ahead >= 0.5) || (h.rangeCount ?? 0) > 1) {
+  if (!finite && ((ahead !== undefined && ahead >= 0.5) || (h.rangeCount ?? 0) > 1)) {
     if (w.gapJumpsAt.length < p.maxGapJumpsPer30s && now - w.lastGapJumpAt >= p.gapJumpAfterMs) return { do: 'gapJump' };
     // A non-live stream has no live edge: seeking "to live" would jump to the end of the file.
     if (h.isLive !== false && stalledFor >= p.edgeSeekAfterMs && now - w.lastSeekAt >= p.edgeSeekAfterMs) {

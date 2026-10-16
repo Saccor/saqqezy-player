@@ -92,3 +92,22 @@ describe('decide: non-live streams (final fixes)', () => {
     expect(decide(h, g, P, 1000)).toEqual({ do: 'gapJump' });
   });
 });
+
+describe('decide: finite streams (VOD)', () => {
+  it('byte silence is not a stall for a finite stream', () => {
+    const w = newWatch(0, 0);
+    const h: PlaybackHealth = { positionMs: 0, bufferAheadS: 0.3, tracksBytes: true, lastByteAt: 0 };
+    expect(decide(h, w, P, 3000)).toEqual({ do: 'reconnect', reason: 'noBytes' });
+    expect(decide(h, w, P, 3000, true)).toEqual({ do: 'none' });
+  });
+
+  it('a buffered gap is neither jumped nor seeked to live; the backstop still reopens', () => {
+    const w = newWatch(0, 0);
+    const h: PlaybackHealth = { positionMs: 0, bufferAheadS: 5, rangeCount: 2 };
+    expect(decide(h, w, P, 1000)).toEqual({ do: 'gapJump' });
+    expect(decide(h, w, P, 1000, true)).toEqual({ do: 'none' });
+    expect(decide(h, w, P, 7999, true)).toEqual({ do: 'none' });
+    expect(decide(h, w, P, 8000, true)).toEqual({ do: 'reconnect', reason: 'backstop' });
+    expect(decide({ positionMs: 0, bufferAheadS: 0 }, w, P, 4000, true)).toEqual({ do: 'reconnect', reason: 'emptyBuffer' });
+  });
+});

@@ -1,4 +1,4 @@
-import type { AppSettings, GroupInfo, SourceCooldown } from '@iptv/core';
+import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, VodKind } from '@iptv/core';
 
 export type { SourceCooldown };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -26,6 +26,8 @@ export interface InitState {
   lastChannelId?: string; lastGroupId?: string; settings: AppSettings;
   /** The active source's refusal cooldown (with an active source only). */
   cooldown?: SourceCooldown;
+  /** The active source has movies or series (from its last ingest or a fetched catalogue); false without one. */
+  hasVod: boolean;
 }
 
 /** A programme airing now that matched a search (times on the displayed, shifted timeline). */
@@ -60,7 +62,13 @@ export type AppEvent =
    */
   | { type: 'sourcesChanged'; activeSourceId?: string; origin: LayoutOrigin }
   /** The phone companion session changed state. */
-  | { type: 'companion'; status: CompanionStatus };
+  | { type: 'companion'; status: CompanionStatus }
+  /** A catalogue fetch started for the active source (first open or a stale refresh). */
+  | { type: 'vodLoading'; sourceId: string; kind: VodKind }
+  /** A catalogue fetch finished and was stored: re-read the VOD screen. */
+  | { type: 'vodRefreshed'; sourceId: string; kind: VodKind; count: number; truncated: boolean }
+  /** A catalogue fetch failed (the error is credential-free). Automatic fetching of this kind stops until `refreshVod`. */
+  | { type: 'vodRefreshFailed'; sourceId: string; kind: VodKind; error: RpcError };
 
 /** Why a session ended (with state `expired`). Built from relay close reasons and local causes; never secret. */
 export type CompanionEndReason = 'expired' | 'replaced' | 'rate-limit' | 'quota' | 'unreachable' | 'peer-errors' | 'stopped';
@@ -114,4 +122,91 @@ export interface DiagnosticsInfo {
   /** Messages are already credential-free. */
   lastErrors: { at: number; where: string; message: string }[];
   settings: AppSettings;
+}
+
+/** One poster in a row or grid. */
+export interface VodTile {
+  id: string;
+  kind: VodKind;
+  title: string;
+  categoryId: string;
+  poster?: string;
+  year?: number;
+  rating?: number;
+  watched: boolean;
+  favourite: boolean;
+  /** 0–1 when in progress. */
+  progress?: number;
+  /** Series in Continue watching: "S2 · E4". */
+  badge?: string;
+}
+
+/** A home row. `items` is empty past the first rows: fetch them with `getVodSlice(kind, id, …)`. */
+export interface VodRow { id: string; title: string; total: number; items: VodTile[] }
+
+export interface VodHome {
+  status: 'ready' | 'loading' | 'empty' | 'error';
+  rows: VodRow[];
+  /** The source has more titles than the app keeps (the 200,000 cap). */
+  truncated: boolean;
+  /** With status `error`. */
+  error?: RpcError;
+}
+
+/** A grid rail entry: pseudo-categories first, then the source's categories. */
+export interface VodCategoryView { id: string; name: string; count: number }
+
+export interface VodTracks { audio?: string; subtitle?: string }
+
+export interface MovieView {
+  tile: VodTile;
+  /** `null` when the detail could not be loaded (the list fields still show, Play still works). */
+  detail: MovieDetail | null;
+  resumeMs: number;
+  tracks: VodTracks;
+  /** "More in <category>", without this movie. */
+  more: VodTile[];
+}
+
+export interface EpisodeView {
+  id: string;
+  season: number;
+  episode: number;
+  title: string;
+  plot?: string;
+  runtimeMin?: number;
+  still?: string;
+  watched: boolean;
+  progress?: number;
+}
+
+export interface SeasonView { number: number; name: string; episodes: EpisodeView[] }
+
+/** What the series detail's primary button plays. */
+export interface SeriesPrimary { episodeId: string; season: number; episode: number; resumeMs: number; mode: 'continue' | 'start' }
+
+export interface SeriesView {
+  tile: VodTile;
+  detail: Omit<SeriesDetail, 'seasons'> | null;
+  seasons: SeasonView[];
+  primary?: SeriesPrimary;
+}
+
+export interface VodPlayable {
+  kind: 'movie' | 'episode';
+  itemId: string;
+  /** Carries credentials: never display or log it. */
+  url: string;
+  title: string;
+  /** Episodes: "S2 · E4 · Episode title". */
+  episodeLabel?: string;
+  resumeMs: number;
+  durationMs?: number;
+  tracks: VodTracks;
+  /** Episodes: pass back with every `saveVodProgress` / `setVodWatched`. */
+  series?: SeriesPointer;
+  /** Episodes: what the next-episode card offers. */
+  next?: { id: string; label: string };
+  /** Episodes: the previous episode (Channel down). */
+  prev?: { id: string; label: string };
 }

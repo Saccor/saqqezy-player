@@ -2,6 +2,14 @@ import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../erro
 import { responseText } from '../net/textStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
+import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
+import { isObj, posInt, str } from './json.ts';
+import {
+  parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
+} from './vod.ts';
+
+/** The message of a `SourceNetworkError` for an answer that is not the JSON the action should return. */
+export const UNEXPECTED_RESPONSE = 'Unexpected response from the provider.';
 
 export interface XtreamCategory { id: string; name: string }
 export interface XtreamStream {
@@ -30,14 +38,6 @@ function decodeBase64Utf8(b64: string): string {
   }
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const str = (v: unknown): string | undefined =>
-  v === null || v === undefined || String(v).trim() === '' ? undefined : String(v).trim();
-const posInt = (v: unknown): number | undefined => {
-  const n = Number.parseInt(String(v ?? ''), 10);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
-};
-
 export class XtreamClient {
   private readonly base: string;
   private readonly idleMs: number;
@@ -56,20 +56,20 @@ export class XtreamClient {
     return new URLSearchParams({ username: this.cfg.username, password: this.cfg.password }).toString();
   }
 
-  private async api(action?: string, extra: Record<string, string> = {}): Promise<unknown> {
+  private async api(action?: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<unknown> {
     const params = new URLSearchParams({ username: this.cfg.username, password: this.cfg.password });
     if (action) params.set('action', action);
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS });
+      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS, ...(signal ? { signal } : {}) });
     } catch (err) {
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);
-    const unexpected = () => new SourceNetworkError('Unexpected response from the provider.');
+    const unexpected = () => new SourceNetworkError(UNEXPECTED_RESPONSE);
     if (!res.body) throw unexpected();
     const url = `${this.base}/player_api.php`;
     let text = '';
@@ -138,6 +138,38 @@ export class XtreamClient {
     const u = encodeURIComponent(this.cfg.username);
     const p = encodeURIComponent(this.cfg.password);
     return `${this.base}/live/${u}/${p}/${streamId}.${ext}`;
+  }
+
+  async vodCategories(signal?: AbortSignal): Promise<VodCategory[]> {
+    return parseVodCategories(await this.api('get_vod_categories', {}, signal), 'movie');
+  }
+
+  async vodStreams(sourceId: string, categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
+    return parseVodStreams(await this.api('get_vod_streams', categoryId ? { category_id: categoryId } : {}, signal), sourceId);
+  }
+
+  async vodInfo(xid: number): Promise<MovieDetail> {
+    return parseVodInfo(await this.api('get_vod_info', { vod_id: String(xid) }));
+  }
+
+  async seriesCategories(signal?: AbortSignal): Promise<VodCategory[]> {
+    return parseVodCategories(await this.api('get_series_categories', {}, signal), 'series');
+  }
+
+  async seriesList(sourceId: string, categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
+    return parseSeriesList(await this.api('get_series', categoryId ? { category_id: categoryId } : {}, signal), sourceId);
+  }
+
+  async seriesInfo(sourceId: string, xid: number): Promise<SeriesDetail> {
+    return parseSeriesInfo(await this.api('get_series_info', { series_id: String(xid) }), sourceId);
+  }
+
+  movieUrl(xid: number, ext: string): string {
+    return `${this.base}/movie/${encodeURIComponent(this.cfg.username)}/${encodeURIComponent(this.cfg.password)}/${xid}.${ext}`;
+  }
+
+  episodeUrl(xid: number, ext: string): string {
+    return `${this.base}/series/${encodeURIComponent(this.cfg.username)}/${encodeURIComponent(this.cfg.password)}/${xid}.${ext}`;
   }
 
   xmltvUrl(): string {

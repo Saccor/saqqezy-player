@@ -207,9 +207,25 @@ describe('routeKey', () => {
     expect(routeKey('list', 'left', ctx())).toEqual(PASS);
   });
 
-  it('bar: Up and Right stay', () => {
-    expect(routeKey('bar', 'up', ctx())).toEqual(STAY);
+  it('bar: Up while searching and Right stay', () => {
+    expect(routeKey('bar', 'up', ctx({ searching: true }))).toEqual(STAY);
     expect(routeKey('bar', 'right', ctx({ searching: true }))).toEqual(STAY);
+  });
+
+  it('Up from the search bar reaches the tab bar (not while searching); Down from the tabs returns to the bar', () => {
+    const c = { searching: false, keyboardOpen: false, hasResults: false, hasChannels: true, atEdge: false };
+    expect(routeKey('bar', 'up', c)).toEqual({ kind: 'focus', place: 'tabs' });
+    expect(routeKey('bar', 'up', { ...c, searching: true })).toEqual({ kind: 'stay' });
+    expect(routeKey('tabs', 'down', c)).toEqual({ kind: 'focus', place: 'bar' });
+    expect(routeKey('tabs', 'left', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('tabs', 'up', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('tabs', 'right', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('tabs', 'back', c)).toEqual({ kind: 'pass' });
+  });
+
+  it('Up from the bar stays put while the compact keyboard is open, even with an empty bar', () => {
+    const c = { searching: false, keyboardOpen: true, hasResults: false, hasChannels: true, atEdge: false };
+    expect(routeKey('bar', 'up', c)).toEqual({ kind: 'stay' });
   });
 
   it('results: Left goes to the keyboard when it is open, else to the groups', () => {

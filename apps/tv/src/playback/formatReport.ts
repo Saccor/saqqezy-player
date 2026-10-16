@@ -33,7 +33,8 @@ export function installFormatReport(d: FormatReportDeps): () => void {
     if (s.kind !== 'playing') return;
     const ch = d.current();
     const url = d.inFlight();
-    if (!ch || url === undefined || playedAlternate(ch, url) === undefined) return;
+    // A movie or episode plays through a `vod:` stand-in channel: never a live channel's format.
+    if (!ch || ch.id.startsWith('vod:') || url === undefined || playedAlternate(ch, url) === undefined) return;
     const format = formatOf(url);
     const key = `${ch.id}|${format}`;
     if (key === last) return;

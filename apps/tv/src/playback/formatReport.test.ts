@@ -55,4 +55,12 @@ describe('installFormatReport', () => {
     r.emit({ kind: 'playing' });
     expect(r.reports).toEqual([]);
   });
+
+  it('never reports a movie or episode (the vod: stand-in channel), even with two URLs', () => {
+    const r = rig();
+    r.state.current = { id: 'vod:x:v1', url: 'http://example.test/movie/u/p/1.ts', alternateUrl: 'http://example.test/movie/u/p/1.m3u8' };
+    r.state.inFlight = 'http://example.test/movie/u/p/1.ts';
+    r.emit({ kind: 'playing' });
+    expect(r.reports).toEqual([]);
+  });
 });

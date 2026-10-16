@@ -1,4 +1,4 @@
-import type { Channel, Programme, SourceConfig, Storage } from '@iptv/core';
+import type { Channel, Programme, SourceConfig, Storage, VodKind, VodList, VodUserRecord, VodUserState } from '@iptv/core';
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -7,6 +7,8 @@ export class MemoryStorage implements Storage {
   private channels = new Map<string, Channel[]>();
   private meta = new Map<string, unknown>();
   private programmes = new Map<string, Programme[]>();
+  private vod = new Map<string, VodList>();
+  private vodUser = new Map<string, Map<string, VodUserState>>();
 
   async listSources() { return [...this.sources.values()].map(clone); }
   async putSource(source: SourceConfig) { this.sources.set(source.id, clone(source)); }
@@ -16,6 +18,8 @@ export class MemoryStorage implements Storage {
     this.channels.delete(id);
     this.programmes.delete(id);
     for (const key of [...this.meta.keys()]) if (key.endsWith(`:${id}`)) this.meta.delete(key);
+    for (const key of [...this.vod.keys()]) if (key.startsWith(`${id}\u0000`)) this.vod.delete(key);
+    this.vodUser.delete(id);
   }
 
   async getChannels(sourceId: string) { return clone(this.channels.get(sourceId) ?? []); }
@@ -43,10 +47,25 @@ export class MemoryStorage implements Storage {
     for (const p of this.programmes.get(sourceId) ?? []) fn(clone(p));
   }
 
+  async getVod(sourceId: string, kind: VodKind) { return clone(this.vod.get(`${sourceId}\u0000${kind}`)); }
+  async replaceVod(sourceId: string, kind: VodKind, list: VodList) { this.vod.set(`${sourceId}\u0000${kind}`, clone(list)); }
+
+  async getVodUser(sourceId: string, itemId: string) { return clone(this.vodUser.get(sourceId)?.get(itemId)); }
+  async putVodUser(sourceId: string, itemId: string, state: VodUserState) {
+    const m = this.vodUser.get(sourceId) ?? new Map<string, VodUserState>();
+    m.set(itemId, clone(state));
+    this.vodUser.set(sourceId, m);
+  }
+  async listVodUser(sourceId: string): Promise<VodUserRecord[]> {
+    return [...(this.vodUser.get(sourceId) ?? new Map<string, VodUserState>()).entries()].map(([itemId, state]) => ({ itemId, state: clone(state) }));
+  }
+
   async clearAll() {
     this.sources.clear();
     this.channels.clear();
     this.meta.clear();
     this.programmes.clear();
+    this.vod.clear();
+    this.vodUser.clear();
   }
 }

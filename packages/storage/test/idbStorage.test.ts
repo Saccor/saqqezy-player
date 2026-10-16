@@ -7,6 +7,30 @@ import { storageContract } from './storageContract.ts';
 storageContract('indexeddb', () => new IdbStorage(new IDBFactory()));
 
 describe('IdbStorage open', () => {
+  test('upgrades a version-1 database to version 2 and keeps its data', async () => {
+    const factory = new IDBFactory();
+    await new Promise<void>((resolve, reject) => {
+      const open = factory.open('upgrade-db', 1);
+      open.onupgradeneeded = () => {
+        const db = open.result;
+        db.createObjectStore('sources', { keyPath: 'id' });
+        db.createObjectStore('channels', { keyPath: 'sourceId' });
+        db.createObjectStore('meta');
+        db.createObjectStore('programmes', { autoIncrement: true }).createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+        open.transaction!.objectStore('sources').put({ id: 's1', kind: 'm3u', name: 'Old', playlistUrl: 'http://example.test/a.m3u' });
+      };
+      open.onsuccess = () => {
+        open.result.close();
+        resolve();
+      };
+      open.onerror = () => reject(open.error);
+    });
+    const s = new IdbStorage(factory, 'upgrade-db');
+    expect((await s.listSources()).map((x) => x.name)).toEqual(['Old']);
+    await s.replaceVod('s1', 'movie', { items: [], categories: [] });
+    expect(await s.getVod('s1', 'movie')).toEqual({ items: [], categories: [] });
+  });
+
   test('a blocked open rejects with a clear error and the next call opens again', async () => {
     let opens = 0;
     const blocked = {
