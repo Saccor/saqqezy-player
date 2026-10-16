@@ -1042,6 +1042,39 @@ describe('SourceService – m3u VOD split', () => {
     expect((await storage.getVod('id1', 'movie'))?.items).toEqual([]);
   });
 
+  test('updateSource to another playlist URL replaces the stored catalogues', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    const { source } = await service.addSource(input);
+    routes['/other.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 001\nhttp://example.test/live/u/p/1.ts\n');
+    await service.updateSource({ ...source, playlistUrl: 'http://example.test/other.m3u' } as typeof source);
+    expect((await storage.getVod(source.id, 'movie'))?.items).toEqual([]);
+    expect((await storage.getVod(source.id, 'series'))?.items).toEqual([]);
+  });
+
+  test('updateSource from M3U to Xtream clears the catalogues and their freshness', async () => {
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    const { source } = await service.addSource(input);
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+    await service.updateSource({ id: source.id, kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' });
+    for (const kind of ['movie', 'series'] as const) {
+      expect((await storage.getVod(source.id, kind))?.items).toEqual([]);
+      expect(await storage.getMeta(`vodAt:${kind}:${source.id}`)).toBe(0);
+    }
+  });
+
+  test('updateSource from Xtream to M3U replaces the Xtream catalogues with the playlist ones', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+    const { source } = await service.addSource({ kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' });
+    await storage.replaceVod(source.id, 'movie', { items: [{ id: `${source.id}:x1`, kind: 'movie', title: 'Synthetic Film 077', categoryId: '1' }], categories: [] });
+    routes['/vod.m3u'] = () => new Response(vodM3u);
+    await service.updateSource({ id: source.id, ...input });
+    expect((await storage.getVod(source.id, 'movie'))?.items.map((m) => m.title)).toEqual(['Synthetic Film 001']);
+  });
+
   test('a refresh of an M3U playlist that now holds only movies is stored', async () => {
     routes['/vod.m3u'] = () => new Response(vodM3u);
     await service.addSource(input);

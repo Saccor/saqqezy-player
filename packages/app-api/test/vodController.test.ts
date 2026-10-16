@@ -298,7 +298,7 @@ describe('VodController detail views and playable', () => {
     const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
     failVod = true;
     expect((await c.movie(id))!.detail).toBeNull();
-    expect(recorded).toEqual(['getMovie']);
+    expect(recorded).toEqual(['getVodDetail']);
     failVod = false;
     expect((await c.movie(id))!.detail).not.toBeNull();
   });
@@ -439,7 +439,7 @@ describe('VodController concurrent detail requests', () => {
     d.reject(new Error('detail failed'));
     expect((await view)?.detail).toBeNull();
     await expect(play).rejects.toThrow('detail failed');
-    expect(recorded).toHaveLength(1);
+    expect(recorded).toEqual(['getVodDetail']);
     expect((await c.series(showId(1)))?.detail).not.toBeNull();
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
   });
@@ -467,7 +467,7 @@ describe('VodController detail failures', () => {
     expect(view.detail).toBeNull();
     expect(view.seasons).toEqual([]);
     expect(view.primary).toBeUndefined();
-    expect(recorded).toEqual(['getSeries']);
+    expect(recorded).toEqual(['getVodDetail']);
     const again = (await c.series(showId(1)))!;
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
     expect(again.detail).not.toBeNull();
@@ -478,7 +478,7 @@ describe('VodController detail failures', () => {
     const { c, fake, recorded } = detailFake(0, 2);
     fake.seriesDetail.mockRejectedValueOnce(new Error('detail failed'));
     await expect(c.playable(epId(showId(1), 1), showId(1))).rejects.toThrow('detail failed');
-    expect(recorded).toEqual(['getVodPlayable']);
+    expect(recorded).toEqual(['getVodDetail']);
     expect((await c.playable(epId(showId(1), 1), showId(1)))?.kind).toBe('episode');
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
   });

@@ -1503,8 +1503,8 @@ describe('AppApi VOD', () => {
     const show = (await api.getVodSlice('series', 'all', 'title', 0, 1)).rows[0]!;
     failInfo = true;
     await expect(api.getVodPlayable(`${show.id}:e1`, show.id)).rejects.toBeInstanceOf(Error);
-    const mine = (await api.diagnostics()).lastErrors.filter((e) => e.where === 'getVodPlayable' || e.where === 'refreshVod');
-    expect(mine.map((e) => e.where)).toEqual(['getVodPlayable']);
+    const mine = (await api.diagnostics()).lastErrors.filter((e) => e.where === 'getVodPlayable' || e.where === 'getVodDetail' || e.where === 'refreshVod');
+    expect(mine.map((e) => e.where)).toEqual(['getVodDetail']);
   });
 
   test('M3U: a playlist refresh reloads the catalogue and announces both kinds', async () => {

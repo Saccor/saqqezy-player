@@ -85,6 +85,29 @@ describe('fetchXtreamCatalog', () => {
     expect(log.length).toBeLessThan(10);
   });
 
+  test('exactly at the cap with categories left: fetches on, not truncated when nothing new arrives', async () => {
+    const log: (string | undefined)[] = [];
+    const api = fakeApi(cats(4), (id) => (id === '4' ? items('1', 2).map((it) => ({ ...it, categoryId: '4' })) : items(id!, 2)), log);
+    const list = await fetchXtreamCatalog(api, 'movie', { cap: 6, concurrency: 1 });
+    expect(log).toHaveLength(4);
+    expect(list.items).toHaveLength(6);
+    expect(list.truncated).toBeFalsy();
+  });
+
+  test('exactly at the cap, then one new title: truncated', async () => {
+    const api = fakeApi(cats(4), (id) => items(id!, id === '4' ? 1 : 2));
+    const list = await fetchXtreamCatalog(api, 'movie', { cap: 6, concurrency: 2 });
+    expect(list.items).toHaveLength(6);
+    expect(list.truncated).toBe(true);
+  });
+
+  test('a full-list answer of exactly the cap is not truncated', async () => {
+    const all = [...items('1', 3), ...items('2', 3)];
+    const list = await fetchXtreamCatalog(fakeApi(cats(2), () => all), 'movie', { cap: 6 });
+    expect(list.items).toHaveLength(6);
+    expect(list.truncated).toBeFalsy();
+  });
+
   test('cancel: rejects with VodFetchCancelled', async () => {
     const ac = new AbortController();
     const api = fakeApi(cats(5), (id) => {

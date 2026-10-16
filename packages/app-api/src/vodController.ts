@@ -37,6 +37,12 @@ export interface VodControllerDeps {
 
 interface Job { ac: AbortController; done: Promise<void> }
 
+type DetailResult = { ok: true; d: MovieDetail | SeriesDetail } | { ok: false; err: Error };
+/** A detail fetch in flight: `p` settles with the outcome and never rejects. */
+interface DetailLoad { readonly epoch: number; readonly p: Promise<DetailResult> }
+/** The diagnostics op name of a failed detail fetch, whichever caller started it (a shared fetch has several). */
+const DETAIL_OP = 'getVodDetail';
+
 /**
  * All Movies and Series state in the worker, for the active source only. At most one catalogue is resident
  * (one kind); asking for the other kind drops it first. A source change (`reset`) drops everything and aborts fetches.
@@ -60,9 +66,9 @@ export class VodController {
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /**
    * Detail fetches in flight, per item id: a concurrent request for the same item (the hero resting, then a quick
-   * Play) joins it instead of fetching again. A failure is recorded once, by the fetch itself.
+   * Play) joins it instead of fetching again. A failure is recorded once, by the fetch itself, as `getVodDetail`.
    */
-  private readonly detailLoads = new Map<string, { epoch: number; p: Promise<{ ok: true; d: MovieDetail | SeriesDetail } | { ok: false; err: Error }> }>();
+  private readonly detailLoads = new Map<string, DetailLoad>();
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
@@ -198,7 +204,7 @@ export class VodController {
     if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
     if (this.epoch !== epoch) return undefined;
-    const detail = await this.detailOf<MovieDetail>(item, 'getMovie', () => this.vod.movieDetail(src, item));
+    const detail = await this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const s = user.get(id);
     const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
@@ -215,7 +221,7 @@ export class VodController {
     if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
     if (this.epoch !== epoch) return undefined;
-    const full = await this.detailOf<SeriesDetail>(item, 'getSeries', () => this.vod.seriesDetail(src, item));
+    const full = await this.detailOf<SeriesDetail>(item, () => this.vod.seriesDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const seasons = full?.seasons ?? [];
     const view: SeriesView = {
@@ -245,8 +251,8 @@ export class VodController {
     }
     const show = (await this.catalog('series'))?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
-    // A failure is recorded once, here, and that same Error is rethrown (AppApi does not record it again).
-    const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show), true);
+    // A failure is recorded once (as getVodDetail) by the shared fetch, and that same Error is rethrown (AppApi does not record it again).
+    const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show), true);
     if (this.epoch !== epoch || !detail) return undefined;
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
     if (!ep) return undefined;
@@ -404,7 +410,7 @@ export class VodController {
   }
 
   /** Cached detail (most recently used first out); a failure is recorded and not cached: returns null, or with `rethrow` throws the recorded Error. */
-  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, where: string, load: () => Promise<T>, rethrow = false): Promise<T | null> {
+  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, load: () => Promise<T>, rethrow = false): Promise<T | null> {
     const hit = this.details.get(item.id);
     if (hit) {
       this.details.delete(item.id);
@@ -415,19 +421,21 @@ export class VodController {
     let entry = this.detailLoads.get(item.id);
     if (!entry || entry.epoch !== epoch) {
       // In the map before `load` runs, so the cleanup below finds it even when `load` throws at once.
-      const mine = { epoch } as NonNullable<typeof entry>;
+      let settle!: (r: DetailResult) => void;
+      const mine: DetailLoad = { epoch, p: new Promise<DetailResult>((resolve) => { settle = resolve; }) };
       entry = mine;
       this.detailLoads.set(item.id, mine);
-      mine.p = (async () => {
+      void (async () => {
         try {
           const d = await load();
           if (this.epoch === epoch) {
             this.details.set(item.id, d);
             if (this.details.size > VOD_DETAIL_CACHE) this.details.delete(this.details.keys().next().value!);
           }
-          return { ok: true as const, d };
+          settle({ ok: true, d });
         } catch (err) {
-          return { ok: false as const, err: this.record(where, err) };
+          // Recorded once, under a neutral name: every caller sharing this fetch gets the same Error.
+          settle({ ok: false, err: this.record(DETAIL_OP, err) });
         } finally {
           if (this.detailLoads.get(item.id) === mine) this.detailLoads.delete(item.id);
         }

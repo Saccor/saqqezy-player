@@ -24,7 +24,7 @@ export class VodFetchCancelled extends Error {
 /**
  * Fetches a whole catalogue one category at a time (`concurrency` requests in flight), so no single response holds
  * the full list. A server that ignores `category_id` is detected on the first answer, which is then the full list.
- * Items are kept in category order, de-duplicated by id, and cut at `cap`.
+ * Items are kept in category order, de-duplicated by id, and cut at `cap` (`truncated` only when a title was dropped).
  */
 export async function fetchXtreamCatalog(
   api: XtreamVodApi,
@@ -84,7 +84,8 @@ export async function fetchXtreamCatalog(
       let stop = false;
       opts.onProgress?.(unique.size);
       const worker = async () => {
-        while (!stop && next < categories.length && unique.size < cap) {
+        // At exactly the cap the remaining categories may hold only duplicates: keep going until a title would be dropped.
+        while (!stop && next < categories.length && unique.size <= cap) {
           const i = next++;
           try {
             const list = await guard(api.list(categories[i]!.id, signal));
@@ -99,8 +100,8 @@ export async function fetchXtreamCatalog(
         }
       };
       await Promise.all(Array.from({ length: Math.min(concurrency, categories.length - 1) }, worker));
+      // `add` marks the list truncated only when a title is actually dropped.
       for (const r of results) if (r) add(r);
-      if (next < categories.length && unique.size >= cap) truncated = true;
     }
   }
   opts.onProgress?.(items.length);

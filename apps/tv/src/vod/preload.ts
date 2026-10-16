@@ -9,9 +9,14 @@ export function createVodPreloader(deps: { preload(): Promise<unknown>; schedule
     if (status !== 'playing' || !sourceId || handled === sourceId) return;
     handled = sourceId;
     deps.schedule(() => {
-      void deps.preload().catch(() => {
-        // Best effort: the tab loads on open anyway.
-      });
+      // Best effort, the tab loads on open anyway: a sync throw is swallowed like a rejection.
+      let p: Promise<unknown>;
+      try {
+        p = deps.preload();
+      } catch {
+        return;
+      }
+      void p.catch(() => {});
     });
   };
 }
