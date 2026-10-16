@@ -39,4 +39,25 @@ describe('createFavToggle', () => {
     await fav2.toggle(tile());
     expect(toast).not.toHaveBeenCalled();
   });
+  it('the saved state only applies to the title it was saved for (browse moves focus meanwhile)', async () => {
+    const fav = createFavToggle({ alive: () => true, reload: vi.fn(async () => undefined), setFavourite: vi.fn(async () => undefined), toast: vi.fn() });
+    await fav.toggle(tile());
+    expect(fav.apply(tile())?.favourite).toBe(true);
+    const other = tile({ id: 's:m2', title: 'Synthetic Film 2' });
+    expect(fav.apply(other)).toEqual(other);
+  });
+  it('a second press while one is saving is ignored', async () => {
+    let finish: () => void = () => undefined;
+    const setFavourite = vi.fn(async (): Promise<void> => undefined);
+    setFavourite.mockImplementationOnce(() => new Promise<void>((r) => { finish = r; }));
+    const fav = createFavToggle({ alive: () => true, reload: vi.fn(async () => undefined), setFavourite, toast: vi.fn() });
+    const first = fav.toggle(tile());
+    await fav.toggle(tile());
+    expect(setFavourite).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+    await fav.toggle(fav.apply(tile())!);
+    expect(setFavourite).toHaveBeenCalledTimes(2);
+    expect(setFavourite).toHaveBeenLastCalledWith('s:m1', false);
+  });
 });

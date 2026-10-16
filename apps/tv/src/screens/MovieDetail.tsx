@@ -10,7 +10,7 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
-import { minutesLeft, resumeLabel, titleLengthMs } from '../vod/vodPlayerLogic.ts';
+import { minutesLeft, resumeBarShown, resumeLabel, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
@@ -114,7 +114,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   const resumeMs = () => view()?.resumeMs ?? 0;
   const durationMs = () => titleLengthMs(resumeMs(), tile()?.progress, detail()?.runtimeMin);
-  const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : (tile()?.progress ?? 0));
+  const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : 0);
   const actions = () => [
     ...(resumeMs() > 0
       ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]
@@ -198,12 +198,13 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Show>
       <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={POSTER_Y + 392} actions={actions()} onAction={(id) => void onAction(id)}
         onDown={() => focusArea('more')} onFocusChanged={(f) => { if (f) setArea('actions'); }} />
-      <Show when={resumeMs() > 0}>
+      {/* Only with a known length: the bar and the minutes left would be guesses otherwise. */}
+      <Show when={resumeBarShown(resumeMs(), durationMs())}>
         <View x={INFO_X} y={POSTER_Y + 392 + 80} width={360} height={6} borderRadius={3} color={COLORS.surface}>
           <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.focus} />
         </View>
         <Text x={INFO_X} y={POSTER_Y + 392 + 94} fontSize={FONT.small} color={COLORS.muted}>
-          {durationMs() > 0 ? minutesLeft(resumeMs(), durationMs()) : ''}
+          {minutesLeft(resumeMs(), durationMs())}
         </Text>
       </Show>
 

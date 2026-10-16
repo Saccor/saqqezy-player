@@ -19,9 +19,14 @@ export function buildVodList(
     if (!known.has(it.categoryId)) it.categoryId = VOD_UNCATEGORIZED;
     counts.set(it.categoryId, (counts.get(it.categoryId) ?? 0) + 1);
   }
-  const cats: VodCategory[] = categories
-    .map((c) => ({ id: c.id, kind, name: c.name, count: counts.get(c.id) ?? 0 }))
-    .filter((c) => c.count > 0);
+  const cats: VodCategory[] = [];
+  const emitted = new Set<string>();
+  for (const c of categories) {
+    if (emitted.has(c.id)) continue;
+    emitted.add(c.id);
+    const count = counts.get(c.id) ?? 0;
+    if (count > 0) cats.push({ id: c.id, kind, name: c.name, count });
+  }
   const unc = counts.get(VOD_UNCATEGORIZED);
   if (unc && !known.has(VOD_UNCATEGORIZED)) cats.push({ id: VOD_UNCATEGORIZED, kind, name: UNCATEGORIZED, count: unc });
   const list: VodList = { items, categories: cats };

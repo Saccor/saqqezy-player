@@ -6,6 +6,8 @@ export const CONTINUE_MAX = 20;
 
 export interface SeriesContinue { seriesId: string; episodeId: string; season: number; episode: number; resumeMs: number }
 
+const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 export const emptyUserState = (): VodUserState => ({ position: 0, duration: 0, watched: false, favourite: false, updatedAt: 0 });
 
 export const isInProgress = (s: VodUserState): boolean => !s.watched && s.position >= MIN_RESUME_MS;
@@ -37,13 +39,16 @@ export function applyProgress(
 
 /**
  * Mark as watched or unwatched; both clear the position. Watched bumps `updatedAt` (an episode marked watched
- * becomes its series' latest record, so Continue watching moves to `series.next`). Unwatched keeps `updatedAt`:
+ * becomes its series' latest record, so Continue watching moves to `series.next`), unless `keepUpdatedAt` is set
+ * (an episode before the series' Continue point must not pull it backwards). Unwatched keeps `updatedAt`:
  * it never becomes the latest record, so a series' Continue state is untouched (an unwatched movie has no
  * position, so it is not in Continue watching either way).
  */
-export function setWatched(prev: VodUserState | undefined, on: boolean, now: number, series?: SeriesPointer): VodUserState {
+export function setWatched(
+  prev: VodUserState | undefined, on: boolean, now: number, series?: SeriesPointer, opts?: { keepUpdatedAt?: boolean },
+): VodUserState {
   const base = prev ?? emptyUserState();
-  const s: VodUserState = { ...base, watched: on, position: 0, updatedAt: on ? now : base.updatedAt };
+  const s: VodUserState = { ...base, watched: on, position: 0, updatedAt: on && !opts?.keepUpdatedAt ? now : base.updatedAt };
   if (series) s.series = series;
   return s;
 }
@@ -70,9 +75,28 @@ export function setTracks(prev: VodUserState | undefined, tracks: { audio?: stri
 export function continueMovies(records: VodUserRecord[], max = CONTINUE_MAX): string[] {
   return records
     .filter((r) => !r.state.series && isInProgress(r.state))
-    .sort((a, b) => b.state.updatedAt - a.state.updatedAt)
+    .sort((a, b) => b.state.updatedAt - a.state.updatedAt || byId(a.itemId, b.itemId))
     .slice(0, max)
     .map((r) => r.itemId);
+}
+
+/** `r` is a newer record than `cur`: later `updatedAt`, then the lower item id on a tie. */
+const newer = (r: VodUserRecord, cur: VodUserRecord | undefined): boolean =>
+  !cur || r.state.updatedAt > cur.state.updatedAt || (r.state.updatedAt === cur.state.updatedAt && byId(r.itemId, cur.itemId) < 0);
+
+/**
+ * Is (`season`, `episode`) before the series' point, so marking it watched must not make it the latest record? The
+ * point is the latest record's `next` episode when it has one, else that record's own episode (an in-progress one,
+ * a watched finale, or one removed from Continue watching). Specials (season 0) sort before every regular season.
+ * No record for the series: no point, nothing is before it.
+ */
+export function isBeforeSeriesPoint(records: VodUserRecord[], seriesId: string, season: number, episode: number): boolean {
+  let latest: VodUserRecord | undefined;
+  for (const r of records) if (r.state.series?.id === seriesId && newer(r, latest)) latest = r;
+  const p = latest?.state.series;
+  if (!p) return false;
+  const at = p.next ?? p;
+  return season < at.season || (season === at.season && episode < at.episode);
 }
 
 /** Per series, its most recently updated episode: resume it if in progress, else its known next episode. */
@@ -81,8 +105,7 @@ export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): Se
   for (const r of records) {
     const p = r.state.series;
     if (!p) continue;
-    const cur = latest.get(p.id);
-    if (!cur || r.state.updatedAt > cur.state.updatedAt) latest.set(p.id, r);
+    if (newer(r, latest.get(p.id))) latest.set(p.id, r);
   }
   const out: (SeriesContinue & { at: number })[] = [];
   for (const r of latest.values()) {
@@ -94,7 +117,7 @@ export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): Se
     }
   }
   return out
-    .sort((a, b) => b.at - a.at)
+    .sort((a, b) => b.at - a.at || byId(a.seriesId, b.seriesId))
     .slice(0, max)
     .map(({ at: _at, ...rest }) => rest);
 }

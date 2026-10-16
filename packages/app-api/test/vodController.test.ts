@@ -298,7 +298,7 @@ describe('VodController detail views and playable', () => {
     const id = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
     failVod = true;
     expect((await c.movie(id))!.detail).toBeNull();
-    expect(recorded).toEqual(['getMovie']);
+    expect(recorded).toEqual(['getVodDetail']);
     failVod = false;
     expect((await c.movie(id))!.detail).not.toBeNull();
   });
@@ -439,7 +439,7 @@ describe('VodController concurrent detail requests', () => {
     d.reject(new Error('detail failed'));
     expect((await view)?.detail).toBeNull();
     await expect(play).rejects.toThrow('detail failed');
-    expect(recorded).toHaveLength(1);
+    expect(recorded).toEqual(['getVodDetail']);
     expect((await c.series(showId(1)))?.detail).not.toBeNull();
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
   });
@@ -467,7 +467,7 @@ describe('VodController detail failures', () => {
     expect(view.detail).toBeNull();
     expect(view.seasons).toEqual([]);
     expect(view.primary).toBeUndefined();
-    expect(recorded).toEqual(['getSeries']);
+    expect(recorded).toEqual(['getVodDetail']);
     const again = (await c.series(showId(1)))!;
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
     expect(again.detail).not.toBeNull();
@@ -478,7 +478,7 @@ describe('VodController detail failures', () => {
     const { c, fake, recorded } = detailFake(0, 2);
     fake.seriesDetail.mockRejectedValueOnce(new Error('detail failed'));
     await expect(c.playable(epId(showId(1), 1), showId(1))).rejects.toThrow('detail failed');
-    expect(recorded).toEqual(['getVodPlayable']);
+    expect(recorded).toEqual(['getVodDetail']);
     expect((await c.playable(epId(showId(1), 1), showId(1)))?.kind).toBe('episode');
     expect(fake.seriesDetail).toHaveBeenCalledTimes(2);
   });
@@ -615,6 +615,50 @@ describe('VodController user state', () => {
     await c.setWatched(eps[4]!.id, true, bare(4));
     expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
     expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[5]!.id, season: 1, episode: 6, mode: 'continue' });
+  });
+
+  test('marking an earlier episode watched keeps Continue where it is', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E4' });
+    expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[3]!.id, resumeMs: 5 * 60_000, mode: 'continue' });
+    expect((await c.series(showId))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+    // At or after the Continue point still moves it on.
+    await c.setWatched(eps[4]!.id, true, bare(4));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
+  });
+
+  test('marking an earlier episode watched after the finale keeps the series out of Continue watching', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    expect(eps).toHaveLength(6);
+    await c.setWatched(eps[5]!.id, true, bare(5));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    expect((await c.series(showId))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+  });
+
+  test('marking an earlier episode watched after "Remove from Continue watching" keeps it removed', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    await c.setWatched(eps[3]!.id, true, bare(3));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E5' });
+    await c.clearSeriesContinue(showId);
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    // A later one still counts: Continue moves on from it.
+    await c.setWatched(eps[4]!.id, true, bare(4));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
+  });
+
+  test('marking the Continue episode itself watched moves Continue to the next one', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    await c.setWatched(eps[3]!.id, true, bare(3));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E5' });
   });
 
   test('marking an episode unwatched leaves the series Continue state alone', async () => {
@@ -902,5 +946,173 @@ describe('VodController stale refresh failure', () => {
     await c.idle();
     expect(calls.refresh).toBe(1);
     expect(events).toHaveLength(2);
+  });
+});
+
+describe('VodController search', () => {
+  const titled = (kind: VodKind, n: number, title: string, extra: Partial<VodItem> = {}): VodItem => ({ id: `${kind}:${n}`, kind, title, categoryId: '1', ...extra });
+  const stored = (kind: VodKind, items: VodItem[]): VodList => ({ items, categories: [{ id: '1', kind, name: 'Cat', count: items.length }] });
+
+  async function seeded() {
+    const s = await setup();
+    await storage.replaceVod(s.sourceId, 'movie', stored('movie', [
+      titled('movie', 1, 'Harbour Lights', { year: 2004, poster: 'http://img.example.test/p/1.jpg' }),
+      titled('movie', 2, 'The Lighthouse Keeper'),
+      titled('movie', 3, 'Night Shift'),
+    ]));
+    await storage.replaceVod(s.sourceId, 'series', stored('series', [titled('series', 1, 'Lighthouse Stories', { year: 2019 })]));
+    return s;
+  }
+
+  test('the first search builds both indexes from storage in the background: pending, then searchReady, then hits', async () => {
+    const { c, events, sourceId } = await seeded();
+    expect(await c.search('light', 20)).toEqual({ movies: [], series: [], pending: true });
+    await c.idle();
+    expect(events).toEqual([{ type: 'searchReady', sourceId }]);
+    const r = await c.search('light', 20);
+    expect(r.pending).toBe(false);
+    // Ranked by match position: "the lighthouse…" (4) before "harbour lights" (8).
+    expect(r.movies.map((t) => t.title)).toEqual(['The Lighthouse Keeper', 'Harbour Lights']);
+    // Text-only rows: no poster in search tiles.
+    expect(r.movies[1]).toEqual({ id: 'movie:1', kind: 'movie', title: 'Harbour Lights', categoryId: '1', year: 2004, watched: false, favourite: false });
+    expect(r.series).toEqual([{ id: 'series:1', kind: 'series', title: 'Lighthouse Stories', categoryId: '1', year: 2019, watched: false, favourite: false }]);
+  });
+
+  test('never fetches and never changes which catalogue is resident', async () => {
+    const { c, vod, events } = await seeded();
+    const refresh = vi.spyOn(vod, 'refresh');
+    await c.search('light', 20);
+    await c.idle();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(events.map((e) => e.type)).toEqual(['searchReady']);
+    expect(c.residentKind()).toBeUndefined();
+  });
+
+  test('a resident kind is indexed from memory; only the other kind is read from storage, as a raw list', async () => {
+    const { c, vod } = await seeded();
+    await c.preload('movie');
+    const spy = vi.spyOn(vod, 'storedList');
+    const catalogs = vi.spyOn(vod, 'storedCatalog');
+    await c.search('light', 20);
+    await c.idle();
+    expect(spy.mock.calls.map((a) => a[1])).toEqual(['series']);
+    expect(catalogs).not.toHaveBeenCalled();
+    expect((await c.search('light', 20)).movies).toHaveLength(2);
+    expect(c.residentKind()).toBe('movie');
+  });
+
+  test('indexes are built once; tiles carry the user state', async () => {
+    const { c, vod } = await seeded();
+    await c.search('light', 20);
+    await c.idle();
+    const spy = vi.spyOn(vod, 'storedList');
+    await c.setFavourite('movie:2', true);
+    await c.saveProgress('movie:1', 600_000, 6_000_000);
+    const r = await c.search('LIGHT', 20);
+    expect(spy).not.toHaveBeenCalled();
+    expect(r.movies[0]).toMatchObject({ id: 'movie:2', favourite: true });
+    expect(r.movies[1]).toMatchObject({ id: 'movie:1', progress: 0.1, favourite: false });
+  });
+
+  test('ranking as the catalogue search, at most `cap` per kind', async () => {
+    const { c, sourceId } = await setup();
+    await storage.replaceVod(sourceId, 'movie', stored('movie', Array.from({ length: 30 }, (_, i) => titled('movie', i, `Film ${String(29 - i).padStart(2, '0')}`))));
+    await c.search('film', 20);
+    await c.idle();
+    const r = await c.search('film', 20);
+    expect(r.movies.map((t) => t.title)).toEqual(Array.from({ length: 20 }, (_, i) => `Film ${String(i).padStart(2, '0')}`));
+    expect(r.series).toEqual([]);
+  });
+
+  test('an empty query or no source: nothing, and nothing is built', async () => {
+    const { c, vod, events } = await seeded();
+    const spy = vi.spyOn(vod, 'storedList');
+    expect(await c.search('  ', 20)).toEqual({ movies: [], series: [], pending: false });
+    await c.idle();
+    expect(spy).not.toHaveBeenCalled();
+    c.reset(undefined);
+    expect(await c.search('light', 20)).toEqual({ movies: [], series: [], pending: false });
+    expect(events).toEqual([]);
+  });
+
+  test('nothing stored: no hits and not pending once built (no fetch is started)', async () => {
+    const { c, events } = await setup();
+    expect((await c.search('light', 20)).pending).toBe(true);
+    await c.idle();
+    expect(await c.search('light', 20)).toEqual({ movies: [], series: [], pending: false });
+    expect(events.map((e) => e.type)).toEqual(['searchReady']);
+  });
+
+  test('invalidate drops the indexes: the next search rebuilds from the new stored lists', async () => {
+    const { c, sourceId } = await seeded();
+    await c.search('light', 20);
+    await c.idle();
+    await storage.replaceVod(sourceId, 'movie', stored('movie', [titled('movie', 9, 'Lighter Days')]));
+    c.invalidate(sourceId);
+    expect((await c.search('light', 20)).pending).toBe(true);
+    await c.idle();
+    expect((await c.search('light', 20)).movies.map((t) => t.title)).toEqual(['Lighter Days']);
+  });
+
+  test('a refresh of one kind drops that index only; it is rebuilt from the fresh catalogue', async () => {
+    const { c, vod } = await seeded();
+    await c.search('synthetic', 20);
+    await c.idle();
+    await c.refresh('movie');
+    const spy = vi.spyOn(vod, 'storedList');
+    const r1 = await c.search('synthetic', 20);
+    expect(r1.pending).toBe(true);
+    await c.idle();
+    // Rebuilt from the resident fresh list (no storage read); the series index was kept.
+    expect(spy).not.toHaveBeenCalled();
+    const r2 = await c.search('synthetic film', 20);
+    expect(r2.movies).toHaveLength(20);
+    expect(r2.movies[0]!.title).toMatch(/^Synthetic Film /);
+  });
+
+  test('a dropped index is announced to an open Search (searchReady), so it re-runs and rebuilds', async () => {
+    const { c, events, sourceId } = await seeded();
+    c.invalidate(sourceId);
+    expect(events).toEqual([]);
+    await c.search('light', 20);
+    await c.idle();
+    events.length = 0;
+    c.invalidate(sourceId);
+    expect(events).toEqual([{ type: 'searchReady', sourceId }]);
+    await c.search('light', 20);
+    await c.idle();
+    events.length = 0;
+    await c.refresh('series');
+    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodRefreshed', 'searchReady']);
+    // An invalidate while a build is in flight still tells Search (that build will never answer).
+    events.length = 0;
+    c.invalidate(sourceId);
+    void c.search('light', 20);
+    c.invalidate(sourceId);
+    expect(events).toEqual([{ type: 'searchReady', sourceId }, { type: 'searchReady', sourceId }]);
+  });
+
+  test('a source switch while an index builds: the old build is dropped, no event for it', async () => {
+    const { c, vod, events, sourceId } = await seeded();
+    const gate = deferred<VodList | undefined>();
+    const real = vod.storedList.bind(vod);
+    vi.spyOn(vod, 'storedList').mockImplementationOnce(() => gate.promise);
+    await c.search('light', 20);
+    c.reset(sourceId);
+    gate.resolve(await real(sourceId, 'movie'));
+    await c.idle();
+    expect(events).toEqual([]);
+    expect((await c.search('light', 20)).pending).toBe(true);
+  });
+
+  test('a failed storage read is recorded once; that kind has no hits until the next invalidate', async () => {
+    const { c, vod, recorded } = await seeded();
+    vi.spyOn(vod, 'storedList').mockRejectedValueOnce(new Error('read failed'));
+    await c.search('light', 20);
+    await c.idle();
+    const r = await c.search('light', 20);
+    expect(recorded).toEqual(['searchVod']);
+    expect(r).toMatchObject({ movies: [], pending: false });
+    expect(r.series).toHaveLength(1);
   });
 });

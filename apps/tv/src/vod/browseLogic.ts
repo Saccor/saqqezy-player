@@ -92,3 +92,41 @@ export function wheelKey(dy: number, dx: number): 'up' | 'down' | 'left' | 'righ
   if (dx !== 0) return dx > 0 ? 'right' : 'left';
   return undefined;
 }
+
+/** Skeleton rows stand in for the rows while the first catalogue load runs (spec §3.7). */
+export function skeletonShown(status: VodHome['status'] | undefined, rowCount: number): boolean {
+  return status === 'loading' && rowCount === 0;
+}
+
+export interface SkeletonRect { x: number; y: number; w: number; h: number }
+export interface SkeletonRow { label: SkeletonRect; posters: SkeletonRect[] }
+
+const SKELETON_LABEL_W = 260;
+const SKELETON_LABEL_H = 20;
+const SKELETON_LABEL_GAP = 14;
+
+/**
+ * `rows` skeleton rows filling `area` (left edge x, top to bottom): a row label bar, then `cols` portrait (2:3) poster
+ * placeholders `gap` apart, with `gap` between rows.
+ */
+export function skeletonRows(area: { x: number; top: number; bottom: number }, rows = 3, cols = 7, gap = 24): SkeletonRow[] {
+  const pitch = Math.floor((area.bottom - area.top + gap) / rows);
+  const posterH = Math.max(0, pitch - gap - SKELETON_LABEL_H - SKELETON_LABEL_GAP);
+  const posterW = Math.round((posterH * 2) / 3);
+  return Array.from({ length: rows }, (_, r) => {
+    const y = area.top + r * pitch;
+    const py = y + SKELETON_LABEL_H + SKELETON_LABEL_GAP;
+    return {
+      label: { x: area.x, y, w: SKELETON_LABEL_W, h: SKELETON_LABEL_H },
+      posters: Array.from({ length: cols }, (_, c) => ({ x: area.x + c * (posterW + gap), y: py, w: posterW, h: posterH })),
+    };
+  });
+}
+
+/**
+ * The rows drawn: the focused one and the next peeking in below. In pointer mode only the focused one: the peek row's
+ * label would sit under the shell's Back button.
+ */
+export function visibleRowIndexes(focusRow: number, rowCount: number, pointer: boolean): number[] {
+  return (pointer ? [focusRow] : [focusRow, focusRow + 1]).filter((i) => i >= 0 && i < rowCount);
+}

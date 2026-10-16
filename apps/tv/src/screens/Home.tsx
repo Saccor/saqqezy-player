@@ -29,7 +29,7 @@ import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { TABS_W, tabNavigation, type TabId } from '../vod/tabLogic.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, waitsForChannels } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -46,6 +46,7 @@ import {
 } from './searchLogic.ts';
 import { SliceCache } from './sliceCache.ts';
 import { devResume, PAUSED_NOTE } from '../playback/devResume.ts';
+import { liveReturn } from '../vod/liveReturn.ts';
 
 // Layout A: groups 22 % | channel list | preview 34 % of the safe width.
 const SAFE_W = LAYOUT.width - LAYOUT.safeX * 2;
@@ -157,6 +158,9 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   let startupMarked = false;
   // Playback was stopped on purpose (sleep timer): no resume on mount.
   const held = previewHold.take();
+  // The live channel a Movies or Series tab (or a title opened from Search) stopped: taken by every Home mount,
+  // resumed only on Back from that tab (or on the return from Search) and only for the source it came from.
+  const vodReturn = liveReturn.take(initState()?.activeSourceId);
   let lastTop = 0;
   // Only the latest openGroup call may write the selection and memory.
   let groupSeq = 0;
@@ -846,7 +850,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
-  /** Movies and Series open over Home and stop the preview there; coming back follows the resume rules (nothing restarts by itself). */
+  /** Movies and Series open over Home and stop the preview there; Back to Live TV resumes the channel that was playing (`vodReturnTarget`). */
   const goTab = (t: TabId) => {
     if (modalOpen() || kbOpen()) return;
     const nav = tabNavigation('live', t);
@@ -999,7 +1003,12 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         setGroups(gs);
         // Focus order: the playing channel (it may have zapped away in the Player), the remembered channel, the
         // last channel from init, then the remembered row / the first row.
-        const playingId = playback.current()?.id;
+        // Back from Movies or Series: the channel they stopped counts as the playing one (focus and resume), so it
+        // plays again through the same path as Ok (the refusal cooldown holds it; the dev resume gate applies).
+        const playingId = playback.current()?.id
+          ?? vodReturnTarget({
+            fromVod: focusTabsHint, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
+          });
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
         // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
         // and series has no channels to wait for: it shows the no-live text and focuses the tab bar instead.

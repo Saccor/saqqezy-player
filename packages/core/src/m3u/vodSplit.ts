@@ -51,7 +51,7 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
   const seriesCats = new Categories('series');
   const usedIds = new Set<string>();
   const seenUrls = new Set<string>();
-  const shows = new Map<string, { item: VodItem; eps: { ep: Episode; order: number }[] }>();
+  const shows = new Map<string, { item: VodItem; eps: { ep: Episode; order: number; marked: boolean }[] }>();
   let order = 0;
 
   for (const e of entries) {
@@ -86,7 +86,7 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
     const ep: Episode = {
       id: uniqueId(`${sourceId}:e${fnv1a(e.url)}`, usedIds),
       season: marker?.season ?? 1,
-      episode: marker?.episode ?? show.eps.length + 1,
+      episode: marker?.episode ?? 0,
       title: marker?.title ?? e.name,
       url: e.url,
     };
@@ -94,11 +94,14 @@ export function splitM3uVod(sourceId: string, entries: M3uEntry[]): { live: M3uE
       ep.still = e.tvgLogo;
       show.item.poster ??= e.tvgLogo;
     }
-    show.eps.push({ ep, order: order++ });
+    show.eps.push({ ep, order: order++, marked: marker !== undefined });
   }
 
   const episodes: Record<string, Episode[]> = {};
   for (const { item, eps } of shows.values()) {
+    // Unmarked entries are episodes of season 1, numbered after the highest marked episode there.
+    let next = eps.reduce((m, x) => (x.marked && x.ep.season === 1 ? Math.max(m, x.ep.episode) : m), 0);
+    for (const x of eps) if (!x.marked) x.ep.episode = ++next;
     episodes[item.id] = eps
       .sort((a, b) => a.ep.season - b.ep.season || a.ep.episode - b.ep.episode || a.order - b.order)
       .map(({ ep }) => ep);

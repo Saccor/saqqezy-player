@@ -1,7 +1,8 @@
 import { expect, test } from 'vitest';
 import { VodCatalog } from '../src/vod/catalog.ts';
 import { buildVodList } from '../src/vod/list.ts';
-import type { VodCategory, VodItem } from '../src/vod/types.ts';
+import { buildVodSearchIndex, searchVodIndex, vodSearchIndexBytes, type VodSearchIndex } from '../src/vod/searchIndex.ts';
+import type { VodCategory, VodItem, VodList } from '../src/vod/types.ts';
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -120,4 +121,104 @@ test('vod catalogue: resident heap at 60k movies with realistic ids and poster U
     expect(r.size).toBe(n);
   }
   expect(med).toBeLessThan(40);
+});
+
+/** Non-Latin titles for the wide-title case (synthetic words). */
+const WIDE = ['Синтетический фильм', '合成映画タイトル', 'Συνθετική ταινία', '합성 영화 제목'];
+
+/**
+ * Stored-list items as the worker reads them (structured clone gives flat strings). `wide(i)`: title i is non-Latin.
+ */
+function storedItems(kind: 'movie' | 'series', n: number, wide: (i: number) => boolean = () => false): VodItem[] {
+  const sourceId = 'mgq3x7k2a9f1zp';
+  return structuredClone(Array.from({ length: n }, (_, i): VodItem => ({
+    id: `${sourceId}:${kind === 'movie' ? 'm' : 's'}${100_000 + i}`, kind,
+    title: wide(i) ? `${WIDE[i % WIDE.length]} ${i} Part ${i % 7}` : `Synthetic Film Title Number ${i} Part ${i % 7}`,
+    categoryId: String((i % 80) + 1), xid: 100_000 + i,
+    poster: `https://img.example.test/t/p/w600_and_h900_bestv2/${i.toString(16).padStart(32, '0')}.jpg`,
+    year: 1950 + (i % 75), rating: (i % 100) / 10, added: 1_760_000_000 - i * 60, ext: 'mkv',
+  })));
+}
+const vodCategories = (kind: 'movie' | 'series'): VodCategory[] => Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), kind, name: `Synthetic Category ${i + 1}`, count: 0 }));
+
+/**
+ * What the worker does for kinds that are not resident: read the raw stored list, build, drop the list. Retained
+ * heap of both indexes (median of 3), and the transient peak of one build: the stored list's heap plus the index.
+ */
+function measureIndexes(wide?: (i: number) => boolean) {
+  const once = () => {
+    gcFn!();
+    const mem0 = process.memoryUsage();
+    const t0 = performance.now();
+    let listMB = 0;
+    const indexes: VodSearchIndex[] = (['movie', 'series'] as const).map((kind) => {
+      const g0 = process.memoryUsage();
+      let list: VodList | undefined = buildVodList(kind, storedItems(kind, kind === 'movie' ? 50_000 : 10_000, wide), vodCategories(kind));
+      gcFn!();
+      const g1 = process.memoryUsage();
+      listMB = Math.max(listMB, (g1.heapUsed - g0.heapUsed) / 1e6);
+      const ix = buildVodSearchIndex(kind, list.items);
+      list = undefined;
+      return ix;
+    });
+    const buildMs = performance.now() - t0;
+    gcFn!();
+    const mem1 = process.memoryUsage();
+    return { indexes, buildMs, listMB, heapMB: (mem1.heapUsed - mem0.heapUsed + mem1.arrayBuffers - mem0.arrayBuffers) / 1e6 };
+  };
+  const runs = [once(), once(), once(), once(), once()];
+  return { runs, med: median(runs.map((r) => r.heapMB)), indexes: runs[0]!.indexes };
+}
+
+test('vod search index: 50k movies + 10k series built from stored lists, retained heap, transient peak and search time', () => {
+  if (!gcFn) throw new Error('Run with --expose-gc (pnpm test:perf does).');
+  const { runs, med, indexes } = measureIndexes();
+
+  const searchTimes: number[] = [];
+  for (const q of ['s', 'film 1', 'part 3', 'synthetic film title number 49999', 'zzz']) {
+    for (let r = 0; r < 5; r++) {
+      const t = performance.now();
+      for (const ix of indexes) searchVodIndex(ix, q, 20);
+      searchTimes.push(performance.now() - t);
+    }
+  }
+  const movieMB = vodSearchIndexBytes(indexes[0]!) / 1e6;
+  const listMB = median(runs.map((r) => r.listMB));
+  console.log(JSON.stringify({
+    indexHeapMB: runs.map((r) => r.heapMB.toFixed(2)), medianIndexHeapMB: med.toFixed(2),
+    packedMB: indexes.map((ix) => (vodSearchIndexBytes(ix) / 1e6).toFixed(2)),
+    // Transient: the 50k-movie stored list alive while its index is built (then dropped).
+    storedListHeapMB: listMB.toFixed(1), transientPeakMB: (listMB + movieMB).toFixed(1),
+    buildMs: runs.map((r) => Math.round(r.buildMs)), searchMedianMs: median(searchTimes).toFixed(2),
+  }));
+  expect(indexes.map((ix) => ix.size)).toEqual([50_000, 10_000]);
+  expect(median(searchTimes)).toBeLessThan(30);
+  // Budget (plan 6 decision): 7 MB, no posters in the index (with posters it measured 8.7 MB).
+  expect(med).toBeLessThan(7);
+});
+
+test('vod search index: 10% non-Latin titles (grouped as providers list them) stay under the budget', () => {
+  if (!gcFn) throw new Error('Run with --expose-gc (pnpm test:perf does).');
+  // Grouped: the last 10% of each list (a block of language categories). Spread: every tenth title (worst case:
+  // every chunk holds one, so every chunk is two bytes per character). Only the grouped case is asserted.
+  const grouped = measureIndexes((i) => i % 10_000 >= 9_000);
+  const spread = measureIndexes((i) => i % 10 === 0);
+  const searchTimes: number[] = [];
+  for (const q of ['синтет', '映画', 'film 1', 'zzz']) {
+    for (let r = 0; r < 5; r++) {
+      const t = performance.now();
+      for (const ix of grouped.indexes) searchVodIndex(ix, q, 20);
+      searchTimes.push(performance.now() - t);
+    }
+  }
+  console.log(JSON.stringify({
+    groupedHeapMB: grouped.runs.map((r) => r.heapMB.toFixed(2)), groupedMedianMB: grouped.med.toFixed(2),
+    groupedPackedMB: (grouped.indexes.reduce((n, ix) => n + vodSearchIndexBytes(ix), 0) / 1e6).toFixed(2),
+    spreadHeapMB: spread.runs.map((r) => r.heapMB.toFixed(2)), spreadMedianMB: spread.med.toFixed(2),
+    spreadPackedMB: (spread.indexes.reduce((n, ix) => n + vodSearchIndexBytes(ix), 0) / 1e6).toFixed(2),
+    searchMedianMs: median(searchTimes).toFixed(2),
+  }));
+  expect(grouped.indexes[0]!.size).toBe(50_000);
+  expect(median(searchTimes)).toBeLessThan(30);
+  expect(grouped.med).toBeLessThan(7);
 });

@@ -19,6 +19,9 @@ export const COLORS = {
   hover: 0x232b3cff,
 } as const;
 
+/** The background colour without alpha (0xRRGGBB), for the canvas fade textures (`vod/scrim.ts`). */
+export const BACKGROUND_RGB = Math.floor(COLORS.background / 0x100);
+
 export const FONT = { title: 48, heading: 32, body: 26, small: 22 } as const;
 
 /** 1920x1080 design space with a 5% overscan-safe margin. */

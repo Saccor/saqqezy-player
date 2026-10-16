@@ -46,6 +46,17 @@ describe('splitM3uVod', () => {
     expect(r.movies.items[0]!.id).toMatch(/^src:v[0-9a-f]{8}$/);
   });
 
+  test('an unmarked episode numbers after the highest marked one in its show', () => {
+    const rr = splitM3uVod('src', [
+      e('Show S01E01', 'http://h.test/series/u/p/1.mp4'),
+      e('Show S01E02', 'http://h.test/series/u/p/2.mp4'),
+      e('Show', 'http://h.test/series/u/p/3.mp4'),
+      e('show', 'http://h.test/series/u/p/4.mp4'),
+    ]);
+    const eps = rr.series.episodes![rr.series.items[0]!.id]!;
+    expect(eps.map((x) => [x.season, x.episode])).toEqual([[1, 1], [1, 2], [1, 3], [1, 4]]);
+  });
+
   test('series: grouped case-insensitively by show, episodes ordered, unmarked is its own series', () => {
     expect(r.series.items.map((s) => s.title)).toEqual(['Synthetic Show', 'Unmarked Special']);
     const show = r.series.items[0]!;

@@ -51,6 +51,11 @@ export function titleLengthMs(resumeMs: number, progress: number | undefined, ru
   return runtimeMin && runtimeMin > 0 ? runtimeMin * 60_000 : 0;
 }
 
+/** The detail's resume bar and minutes-left line: only with a resume point and a known length. */
+export function resumeBarShown(resumeMs: number, lengthMs: number): boolean {
+  return resumeMs > 0 && Number.isFinite(lengthMs) && lengthMs > 0;
+}
+
 /** A usable duration: the engine's when finite and > 0, else the playable's, else undefined (unknown). */
 export function knownDuration(engineMs: number | undefined, fallbackMs: number | undefined): number | undefined {
   const ok = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v) && v > 0;

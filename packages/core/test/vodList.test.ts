@@ -23,6 +23,11 @@ describe('buildVodList', () => {
     expect(list.categories.at(-1)).toEqual({ id: VOD_UNCATEGORIZED, kind: 'movie', name: 'Uncategorized', count: 1 });
   });
 
+  test('duplicate category ids are de-duplicated, first wins', () => {
+    const list = buildVodList('movie', [item(1, '1'), item(2, '1')], [cat('1', 'Drama'), cat('1', 'Dupe')]);
+    expect(list.categories).toEqual([{ id: '1', kind: 'movie', name: 'Drama', count: 2 }]);
+  });
+
   test('extras are kept', () => {
     const list = buildVodList('series', [], [], { episodes: { x: [] }, truncated: true });
     expect(list.episodes).toEqual({ x: [] });

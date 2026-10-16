@@ -11,13 +11,21 @@ import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback } from '../playback/playback.ts';
+import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
-import { cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, toRowModels, type BrowseFocus, type FocusMemory, type RowModel } from '../vod/browseLogic.ts';
+import {
+  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
+  type BrowseFocus, type FocusMemory, type RowModel,
+} from '../vod/browseLogic.ts';
+import { CrossFadeArt } from '../vod/CrossFadeArt.tsx';
+import { heroArt } from '../vod/fadeLogic.ts';
+import { createFavToggle } from '../vod/favToggle.ts';
+import { lruGet } from '../vod/memoryLogic.ts';
 import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
 import { minutesLeft, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
@@ -38,8 +46,10 @@ const ART_X = 640;
 const ART_W = LAYOUT.width - ART_X;
 const ART_H = 720;
 const BG = COLORS.background;
-/** The background colour without alpha (0xRRGGBB), for the fade textures. */
-const BG_RGB = Math.floor(COLORS.background / 0x100);
+/** Per source and kind focus memories kept (least recently used go). */
+const MEMORY_MAX = 20;
+/** Skeleton rows (first load): under the loading line, ending a gap above the pointer-mode bottom row. */
+const SKELETONS = skeletonRows({ x: LAYOUT.safeX, top: HERO_Y + 160, bottom: BOTTOM_ROW_Y - LAYOUT.gap });
 
 type Area = 'tabs' | 'hero' | 'rows';
 
@@ -47,11 +57,7 @@ type Area = 'tabs' | 'hero' | 'rows';
 interface BrowseMemory { focus: FocusMemory; cols: Map<string, number> }
 /** Kept across visits (per source and kind) so Back from the detail returns to the same poster. */
 const memories = new Map<string, BrowseMemory>();
-const memoryFor = (key: string): BrowseMemory => {
-  let m = memories.get(key);
-  if (!m) { m = { focus: { row: 0, col: 0 }, cols: new Map() }; memories.set(key, m); }
-  return m;
-};
+const memoryFor = (key: string): BrowseMemory => lruGet(memories, key, () => ({ focus: { row: 0, col: 0 }, cols: new Map() }), MEMORY_MAX);
 
 const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
 const FAV_ADD_ACTION = { id: 'fav', label: 'Add to favourites', width: 300 };
@@ -167,7 +173,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       setHome(h);
       setRows(models);
       setFocus(locateFocus(models, memory.focus));
-      setFavOverride(undefined);
+      fav.clear();
     });
     remember();
     syncHero();
@@ -203,9 +209,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
 
   // The hero detail (plot, runtime or seasons, backdrop) after focus rests; the tile's own fields show at once.
+  /** A title whose hero detail could not be read: its art is settled as none (it is no longer pending). */
+  const [heroMissId, setHeroMissId] = createSignal<string | undefined>(undefined);
   const heroLoad = createDebounce<string>(HERO_SETTLE_MS, (id) => {
     const view: Promise<MovieView | SeriesView | undefined> = kind === 'series' ? api.getSeries(id) : api.getMovie(id);
-    void view.then((v) => { if (alive && focusedTile()?.id === id) setHero(v); }).catch(() => undefined);
+    const missed = () => { if (alive && focusedTile()?.id === id) setHeroMissId(id); };
+    void view.then((v) => {
+      if (!alive || focusedTile()?.id !== id) return;
+      setHero(v);
+      if (!v) missed();
+    }).catch(missed);
   });
   /** Drops a hero detail that belongs to another title and schedules the focused tile's. */
   const syncHero = () => {
@@ -246,20 +259,21 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
   });
-  const menu = createPosterMenu({ refocus: () => focusArea(area()), onChanged: () => void load() });
+  // Back to the area the user chose: `area` may sit on a fallback (tabs while there were no rows).
+  const menu = createPosterMenu({ refocus: () => focusArea(preferredArea), onChanged: () => void load() });
   const openMenu = () => {
     const t = focusedTile();
     if (t) menu.open(t, rows()[focus().row]?.id === VOD_ROW_CONTINUE);
     return true;
   };
-  /** Set after a successful toggle so the hero shows the new state at once; cleared when a reload lands. */
-  const [favOverride, setFavOverride] = createSignal<{ id: string; on: boolean } | undefined>(undefined);
-  let favBusy = false;
-  const isFav = createMemo(() => {
-    const t = focusedTile();
-    const o = favOverride();
-    return t ? (o?.id === t.id ? o.on : !!t.favourite) : false;
+  /** The hero's Favourite: the saved state shows at once (for that title only) and is cleared when a reload lands. */
+  const fav = createFavToggle({
+    alive: () => alive,
+    reload: () => load(),
+    setFavourite: (id, on) => api.setVodFavourite(id, on),
+    toast: showToast,
   });
+  const isFav = createMemo(() => fav.apply(focusedTile())?.favourite === true);
   /** The focused series' view once loaded (its primary episode and seasons). */
   const heroSeries = (): SeriesView | undefined => {
     const h = hero();
@@ -281,24 +295,6 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     return { id: 'play', label: `Resume · ${minutesLeft(h.resumeMs, total)}`, width: 320 };
   });
   const heroActions = createMemo(() => [playAction(), DETAILS_ACTION, isFav() ? FAV_ON_ACTION : FAV_ADD_ACTION]);
-  const toggleFav = async (t: VodTile) => {
-    if (favBusy) return;
-    favBusy = true;
-    const on = !isFav();
-    try {
-      try {
-        await api.setVodFavourite(t.id, on);
-      } catch {
-        if (alive) showToast("Couldn't save that. Try again.");
-        return;
-      }
-      if (!alive) return;
-      setFavOverride({ id: t.id, on });
-      await load();
-    } finally {
-      favBusy = false;
-    }
-  };
   /** A series Play press waiting for the view to load (a second press meanwhile is ignored). */
   let seriesPlayPending = false;
   const playSeries = async (t: VodTile) => {
@@ -330,7 +326,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       // A series plays its primary episode, loading the view first when the press comes before it.
       void playSeries(t);
     } else if (id === 'details') router.push(copy.detailRoute, { id: t.id, tile: t });
-    else if (id === 'fav') void toggleFav(t);
+    else if (id === 'fav') { const f = fav.apply(t); if (f) void fav.toggle(f); }
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -364,6 +360,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
+    // A live channel that plays (or loads or reconnects) is remembered first: Home resumes it on the way back to Live TV.
+    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
     playback.stop();
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };
@@ -413,6 +411,20 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** The detail only shows while it belongs to the focused title. */
   const heroDetail = () => (hero()?.tile.id === heroTile()?.id ? hero()?.detail : undefined);
   const art = () => heroDetail()?.backdrop ?? undefined;
+  /** Bumped when a backdrop fails, so the poster fallback shows (the poster cache itself is not reactive). */
+  const [artFailures, setArtFailures] = createSignal(0);
+  const backdropUrl = () => {
+    artFailures();
+    const u = art();
+    return u && posterCache.usable(u) ? u : undefined;
+  };
+  /** The focused title's detail is still on its way (neither loaded nor known missing). */
+  const heroPending = () => {
+    const t = heroTile();
+    return t !== undefined && hero()?.tile.id !== t.id && heroMissId() !== t.id;
+  };
+  /** The art drawn: the last one stays while the next title is pending, so the new art cross-fades over it. */
+  const shownArt = createMemo<string | undefined>((prev) => heroArt(prev, heroPending(), backdropUrl()));
   /** "2022 · 1 h 54 min · Drama · 12 · ★ 7.6"; a series shows "N seasons" in place of the runtime once its view is loaded. */
   const heroMeta = () => {
     const d = heroDetail();
@@ -423,8 +435,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     }
     return seriesMetaLine({ year: t?.year, seasons: regularSeasonCount(heroSeries()?.seasons ?? []), genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
   };
-  /** The focused row, and the next one peeking in below; not in pointer mode, where it would sit under the shell's Back button. */
-  const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => rows()[i] !== undefined);
+  /** The focused row, and the next one peeking in below; not in pointer mode, where its label would sit under the shell's Back button. */
+  const visibleRows = () => visibleRowIndexes(focus().row, rows().length, pointerMode());
   /** A pointer press on a poster: the column memory of the row left and of the row pressed are kept, as with the keys. */
   const pointTo = (row: number, col: number) => {
     const from = rows()[focus().row];
@@ -442,18 +454,15 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <Show when={heroTile()}>
         {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
         <View zIndex={0}>
-        <Show when={art() && posterCache.usable(art()) ? art() : undefined} keyed fallback={
-          <Show when={heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
+          {/* A new backdrop cross-fades in over 200 ms (two stacked image nodes). */}
+          <CrossFadeArt x={ART_X} y={0} width={ART_W} height={ART_H} url={shownArt()} onFailed={(u) => { posterCache.markFailed(u); setArtFailures((n) => n + 1); }} />
+          <Show when={!shownArt() && heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
             {(u) => <View x={LAYOUT.width - LAYOUT.safeX - 300} y={130} width={300} height={450} src={rawViaDevProxy(u)} alpha={0.9} />}
           </Show>
-        }>
-          {(u) => <View x={ART_X} y={0} width={ART_W} height={ART_H} src={rawViaDevProxy(u)}
-            onEvent={{ failed: () => posterCache.markFailed(u) }} />}
-        </Show>
         </View>
         {/* Scrims: left to right, and into the rows. */}
-        <View zIndex={1} x={ART_X} y={0} width={ART_W} height={ART_H} src={scrimTexture('left', BG_RGB)} />
-        <View zIndex={1} y={ART_H - 280} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+        <View zIndex={1} x={ART_X} y={0} width={ART_W} height={ART_H} src={scrimTexture('left', BACKGROUND_RGB)} />
+        <View zIndex={1} y={ART_H - 280} width={LAYOUT.width} height={280} src={scrimTexture('down', BACKGROUND_RGB)} />
         <View zIndex={2}>
         <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{focusedRowTitle()}</Text>
         <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTile()?.title ?? ''}</Text>
@@ -478,6 +487,15 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <Show when={status() === 'ready'} fallback={
         <View>
           <Text x={HERO_X} y={HERO_Y + 100} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={2} fontSize={FONT.heading} color={COLORS.text}>{message()}</Text>
+          {/* First load: skeleton rows (a label bar and poster placeholders) stand in for the rows (spec §3.7). */}
+          <Show when={skeletonShown(status(), rows().length)}>
+            <For each={SKELETONS}>{(r) => (
+              <View>
+                <View x={r.label.x} y={r.label.y} width={r.label.w} height={r.label.h} borderRadius={r.label.h / 2} color={COLORS.surface} />
+                <For each={r.posters}>{(p) => <View x={p.x} y={p.y} width={p.w} height={p.h} borderRadius={LAYOUT.radius} color={COLORS.surface} />}</For>
+              </View>
+            )}</For>
+          </Show>
           <Show when={status() === 'error'}>
             <Button ref={(el) => { errorNode = el; }} x={HERO_X} y={HERO_Y + 220} label="Try again"
               onPress={() => void api.refreshVod(kind).catch(() => undefined).then(() => load())} onUp={() => { tabsNode?.setFocus(); return true; }} />

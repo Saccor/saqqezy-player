@@ -10,7 +10,7 @@ import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
-import { VodController } from './vodController.ts';
+import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
@@ -25,6 +25,8 @@ const NOW_NEXT_MARGIN_MS = 6 * HOUR;
 /** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
 const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
+/** Most movies, and most series, one search returns. */
+export const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
 /** The loaded title index is dropped this long after the last search (memory on 1 GB TVs). */
 const TITLES_IDLE_MS = 2 * 60_000;
@@ -351,6 +353,25 @@ export class AppApi {
 
   search(query: string, limit: number): Promise<SearchResult> {
     return this.run('search', async () => {
+      const [result, vod] = await Promise.all([this.channelSearch(query, limit), this.vodSearch(query, limit)]);
+      return { ...result, movies: vod.movies, series: vod.series, vodPending: vod.pending };
+    });
+  }
+
+  /** Movies and series for Search: never waits on building an index, and a failure never fails the search. */
+  private async vodSearch(query: string, limit: number): Promise<VodSearchHits> {
+    const none: VodSearchHits = { movies: [], series: [], pending: false };
+    if (!this.vodc || query.trim() === '') return none;
+    try {
+      return await this.vodc.search(query, Math.min(SEARCH_VOD_MAX, Math.max(0, limit)));
+    } catch (err) {
+      this.record('searchVod', err);
+      return none;
+    }
+  }
+
+  private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'movies' | 'series' | 'vodPending'>> {
+    return (async () => {
       const id = this.activeId;
       const found = this.index.search(query, limit);
       const epoch = this.titlesEpoch;
@@ -380,7 +401,7 @@ export class AppApi {
         later: later.map((h, i): TitleHit => ({ channel: progRows[onNow.length + i]!, title: h.title, start: h.start, stop: h.stop, more: h.more })),
         guidePending: false,
       };
-    });
+    })();
   }
 
   // ---- layout ----

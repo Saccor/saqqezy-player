@@ -1,8 +1,20 @@
 const YEAR_RE = /\s*[([](\d{4})[)\]]\s*$/;
 const MARKERS = [/\bS(\d{1,2})\s*E(\d{1,3})\b/i, /\b(\d{1,2})x(\d{2,3})\b/i];
-const EDGE_SEPARATORS = /^[\s\-–—|:.]+|[\s\-–—|:.]+$/g;
+const LEADING_SEPARATORS = /^[\s\-–—|:.]+/;
+const TRAILING_SEPARATORS = /[\s\-–—|:.]+$/;
+/** Words whose trailing `.` is part of the word (`Dr.`, `Vol.`), so edge stripping keeps it. */
+const ABBREVIATION = /(?:^|[^\p{L}])(?:dr|mr|mrs|ms|st|vol|jr|sr|mt|prof)$/iu;
 
-const clean = (s: string) => s.replace(EDGE_SEPARATORS, '').replace(/\s+/g, ' ').trim();
+function clean(s: string): string {
+  const lead = s.replace(LEADING_SEPARATORS, '');
+  const run = TRAILING_SEPARATORS.exec(lead);
+  let out = lead;
+  if (run) {
+    out = lead.slice(0, run.index);
+    if (run[0].startsWith('.') && ABBREVIATION.test(out)) out += '.';
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
 
 /** "Title (2021)" → { title: "Title", year: 2021 }. Years outside 1900–2100, or nothing left of the title, keep the name. */
 export function splitYear(name: string): { title: string; year?: number } {

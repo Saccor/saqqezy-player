@@ -87,6 +87,21 @@ describe('Xtream VOD parsers', () => {
     ]);
   });
 
+  test('years: only a 4-digit year from 1900 to 2100 counts', () => {
+    const y = (year: unknown) => parseVodStreams([{ stream_id: 1, name: 'F', year }], 'src')[0]!.year;
+    expect(y('2021-05-01')).toBe(2021);
+    expect(y('20211')).toBeUndefined();
+    expect(y('1899')).toBeUndefined();
+    expect(y('2101')).toBeUndefined();
+    expect(y('1900')).toBe(1900);
+    expect(y('2100')).toBe(2100);
+  });
+
+  test('series info: season 0 from the episode field stays 0', () => {
+    const d = parseSeriesInfo({ episodes: { '1': [{ id: 3, episode_num: 1, season: 0, title: 'X' }] } }, 'src');
+    expect(d.seasons.map((s) => s.number)).toEqual([0]);
+  });
+
   test('series info: episodes as an array of season arrays', () => {
     const d = parseSeriesInfo({ episodes: [[{ id: 1, episode_num: 1, season: 1, title: 'A' }], [{ id: 2, episode_num: 1, season: 2, title: 'B' }]] }, 'src');
     expect(d.seasons.map((s) => s.number)).toEqual([1, 2]);

@@ -1,6 +1,8 @@
 import {
-  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
+  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
+  buildVodSearchIndex, searchKey, searchVodIndex, vodIndexEntry,
+  type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
+  type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type {
@@ -26,6 +28,11 @@ const LABELS: Record<string, string> = {
   [VOD_ROW_FAVOURITES]: 'Favourites',
   [VOD_ROW_RECENT]: 'Recently added',
 };
+const KINDS: readonly VodKind[] = ['movie', 'series'];
+
+/** Movies and series matching a Search query. `pending`: an index is being built; `searchReady` follows. */
+export interface VodSearchHits { movies: VodTile[]; series: VodTile[]; pending: boolean }
+
 const allLabel = (kind: VodKind) => (kind === 'movie' ? 'All movies' : 'All series');
 
 export interface VodControllerDeps {
@@ -36,6 +43,12 @@ export interface VodControllerDeps {
 }
 
 interface Job { ac: AbortController; done: Promise<void> }
+
+type DetailResult = { ok: true; d: MovieDetail | SeriesDetail } | { ok: false; err: Error };
+/** A detail fetch in flight: `p` settles with the outcome and never rejects. */
+interface DetailLoad { readonly epoch: number; readonly p: Promise<DetailResult> }
+/** The diagnostics op name of a failed detail fetch, whichever caller started it (a shared fetch has several). */
+const DETAIL_OP = 'getVodDetail';
 
 /**
  * All Movies and Series state in the worker, for the active source only. At most one catalogue is resident
@@ -60,12 +73,20 @@ export class VodController {
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /**
    * Detail fetches in flight, per item id: a concurrent request for the same item (the hero resting, then a quick
-   * Play) joins it instead of fetching again. A failure is recorded once, by the fetch itself.
+   * Play) joins it instead of fetching again. A failure is recorded once, by the fetch itself, as `getVodDetail`.
    */
-  private readonly detailLoads = new Map<string, { epoch: number; p: Promise<{ ok: true; d: MovieDetail | SeriesDetail } | { ok: false; err: Error }> }>();
+  private readonly detailLoads = new Map<string, DetailLoad>();
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
+  /**
+   * Search: a compact title index per kind (null when nothing is stored or the read failed), built in the
+   * background from the resident catalogue or one stored read, never a fetch. Dropped by `reset` and `invalidate`;
+   * a refresh drops its kind's (and bumps its generation, so a build in flight does not install an older one).
+   */
+  private readonly indexes = new Map<VodKind, VodSearchIndex | null>();
+  private readonly indexGens: Record<VodKind, number> = { movie: 0, series: 0 };
+  private indexJob: { epoch: number; p: Promise<void> } | undefined;
 
   constructor(deps: VodControllerDeps) {
     this.vod = deps.vod;
@@ -82,6 +103,7 @@ export class VodController {
     this.user = undefined;
     this.userLoad = undefined;
     this.resetDetails();
+    this.dropIndexes();
     this.sourceId = sourceId;
     this.epoch++;
     this.sourceEpoch++;
@@ -104,7 +126,36 @@ export class VodController {
     this.resident = undefined;
     this.loading = undefined;
     this.resetDetails();
+    // An open Search re-runs on searchReady: tell it its movie and series results are gone (it rebuilds them).
+    const searched = this.indexes.size > 0 || this.indexJob !== undefined;
+    this.dropIndexes();
     this.epoch++;
+    if (searched) this.emit({ type: 'searchReady', sourceId });
+  }
+
+  /**
+   * Movies and series whose title contains `query` (`searchKey` substring, ranked as `VodCatalog.search`), at most
+   * `cap` per kind. Never waits for an index: a kind without one has no hits yet, `pending` is set, and the
+   * background build emits `searchReady` when done.
+   */
+  async search(query: string, cap: number): Promise<VodSearchHits> {
+    const id = this.sourceId;
+    if (!id || !searchKey(query)) return { movies: [], series: [], pending: false };
+    const epoch = this.epoch;
+    const pending = KINDS.some((k) => !this.indexes.has(k));
+    if (pending) this.buildIndexes(id);
+    const hits = (kind: VodKind): VodItem[] => {
+      const ix = this.indexes.get(kind);
+      if (!ix) return [];
+      return searchVodIndex(ix, query, cap).map((i) => ({ ...vodIndexEntry(ix, i), kind }));
+    };
+    const movies = hits('movie');
+    const series = hits('series');
+    if (movies.length || series.length) {
+      await this.userMap();
+      if (this.epoch !== epoch) return this.search(query, cap);
+    }
+    return { movies: movies.map((item) => this.tile(item)), series: series.map((item) => this.tile(item)), pending };
   }
 
   async home(kind: VodKind): Promise<VodHome> {
@@ -198,7 +249,7 @@ export class VodController {
     if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
     if (this.epoch !== epoch) return undefined;
-    const detail = await this.detailOf<MovieDetail>(item, 'getMovie', () => this.vod.movieDetail(src, item));
+    const detail = await this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const s = user.get(id);
     const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
@@ -215,7 +266,7 @@ export class VodController {
     if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
     if (this.epoch !== epoch) return undefined;
-    const full = await this.detailOf<SeriesDetail>(item, 'getSeries', () => this.vod.seriesDetail(src, item));
+    const full = await this.detailOf<SeriesDetail>(item, () => this.vod.seriesDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const seasons = full?.seasons ?? [];
     const view: SeriesView = {
@@ -245,8 +296,8 @@ export class VodController {
     }
     const show = (await this.catalog('series'))?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
-    // A failure is recorded once, here, and that same Error is rethrown (AppApi does not record it again).
-    const detail = await this.detailOf<SeriesDetail>(show, 'getVodPlayable', () => this.vod.seriesDetail(src, show), true);
+    // A failure is recorded once (as getVodDetail) by the shared fetch, and that same Error is rethrown (AppApi does not record it again).
+    const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show), true);
     if (this.epoch !== epoch || !detail) return undefined;
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
     if (!ep) return undefined;
@@ -279,16 +330,25 @@ export class VodController {
   /**
    * An episode marked watched carries its next episode, so Continue watching moves on to it. The next one comes
    * from the series' detail when it is cached or loading (never a new fetch); else the caller's pointer is kept.
+   * An episode before the series' point (`isBeforeSeriesPoint`: the latest record's next episode, else its own)
+   * keeps its `updatedAt`, so marking an earlier episode watched never pulls Continue watching backwards, nor brings
+   * back a finished or removed series.
    */
   async setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
     let pointer = series;
+    let keep = false;
     if (on && series) {
       const epoch = this.sourceEpoch;
       const next = await this.knownNextEpisode(series.id, itemId);
+      const map = await this.userMap();
       // A source switch while the detail loaded: this episode belongs to the old source.
       if (this.sourceEpoch !== epoch) return;
       if (next) pointer = { ...series, next: { id: next.id, season: next.season, episode: next.episode } };
+      const records: VodUserRecord[] = [];
+      for (const [id, state] of map) if (state.series?.id === series.id) records.push({ itemId: id, state });
+      keep = isBeforeSeriesPoint(records, series.id, series.season, series.episode);
     }
+    if (keep) return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer, { keepUpdatedAt: true }));
     return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer));
   }
 
@@ -323,6 +383,53 @@ export class VodController {
 
   setTracks(itemId: string, tracks: VodTracks): Promise<void> {
     return this.write(itemId, (src) => this.vod.setTracks(src, itemId, tracks));
+  }
+
+  /** One background job builds every missing index, after the search that asked has answered. */
+  private buildIndexes(id: string): void {
+    const epoch = this.epoch;
+    if (this.indexJob?.epoch === epoch) return;
+    const p = (async () => {
+      for (const kind of KINDS) {
+        // A macrotask before each kind: the search that started this answers (with its channels) before any build
+        // work, and other requests get a turn between the two builds.
+        await yieldTask();
+        if (this.epoch !== epoch) return;
+        if (this.indexes.has(kind)) continue;
+        const gen = this.indexGens[kind];
+        const current = () => this.epoch === epoch && this.indexGens[kind] === gen;
+        let ix: VodSearchIndex | null = null;
+        try {
+          if (this.resident?.kind === kind) ix = this.resident.catalog.searchIndex();
+          else if (this.loading?.kind === kind) {
+            const catalog = await this.loading.p;
+            if (catalog && current()) ix = catalog.searchIndex();
+          } else {
+            // The raw stored list, not a catalogue (no id map, no cached keys): only the list and the index are
+            // ever alive together, and the list is dropped as soon as the index is built.
+            let list = await this.vod.storedList(id, kind);
+            await yieldTask();
+            if (list && current()) ix = buildVodSearchIndex(kind, list.items);
+            list = undefined;
+          }
+        } catch (err) {
+          if (this.epoch === epoch) this.record('searchVod', err);
+        }
+        if (current()) this.indexes.set(kind, ix);
+      }
+      if (this.epoch === epoch) this.emit({ type: 'searchReady', sourceId: id });
+    })().finally(() => {
+      if (this.indexJob?.p === p) this.indexJob = undefined;
+    });
+    this.indexJob = { epoch, p };
+    this.pending.add(p);
+    const forget = () => { this.pending.delete(p); };
+    p.then(forget, forget);
+  }
+
+  private dropIndexes(): void {
+    this.indexes.clear();
+    this.indexJob = undefined;
   }
 
   async idle(): Promise<void> {
@@ -404,7 +511,7 @@ export class VodController {
   }
 
   /** Cached detail (most recently used first out); a failure is recorded and not cached: returns null, or with `rethrow` throws the recorded Error. */
-  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, where: string, load: () => Promise<T>, rethrow = false): Promise<T | null> {
+  private async detailOf<T extends MovieDetail | SeriesDetail>(item: VodItem, load: () => Promise<T>, rethrow = false): Promise<T | null> {
     const hit = this.details.get(item.id);
     if (hit) {
       this.details.delete(item.id);
@@ -415,19 +522,21 @@ export class VodController {
     let entry = this.detailLoads.get(item.id);
     if (!entry || entry.epoch !== epoch) {
       // In the map before `load` runs, so the cleanup below finds it even when `load` throws at once.
-      const mine = { epoch } as NonNullable<typeof entry>;
+      let settle!: (r: DetailResult) => void;
+      const mine: DetailLoad = { epoch, p: new Promise<DetailResult>((resolve) => { settle = resolve; }) };
       entry = mine;
       this.detailLoads.set(item.id, mine);
-      mine.p = (async () => {
+      void (async () => {
         try {
           const d = await load();
           if (this.epoch === epoch) {
             this.details.set(item.id, d);
             if (this.details.size > VOD_DETAIL_CACHE) this.details.delete(this.details.keys().next().value!);
           }
-          return { ok: true as const, d };
+          settle({ ok: true, d });
         } catch (err) {
-          return { ok: false as const, err: this.record(where, err) };
+          // Recorded once, under a neutral name: every caller sharing this fetch gets the same Error.
+          settle({ ok: false, err: this.record(DETAIL_OP, err) });
         } finally {
           if (this.detailLoads.get(item.id) === mine) this.detailLoads.delete(item.id);
         }
@@ -458,7 +567,11 @@ export class VodController {
           this.resident = { kind, catalog: new VodCatalog(kind, r.list) };
           this.loading = undefined;
         }
+        // Search rebuilds this kind's index from the fresh list on its next query (told below, when it had one).
+        const searched = this.indexes.delete(kind);
+        this.indexGens[kind]++;
         this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: r.count, truncated: r.truncated });
+        if (searched) this.emit({ type: 'searchReady', sourceId: id });
       } catch (err) {
         if (err instanceof VodFetchCancelled || this.epoch !== epoch) return;
         const out = this.record('refreshVod', err);
@@ -528,6 +641,11 @@ export class VodController {
       })
       .sort((a, b) => a.title.localeCompare(b.title));
   }
+}
+
+/** Resolves on a new macrotask. */
+function yieldTask(): Promise<void> {
+  return new Promise<void>((resolve) => { setTimeout(resolve, 0); });
 }
 
 function tracksOf(s: VodUserState | undefined): VodTracks {

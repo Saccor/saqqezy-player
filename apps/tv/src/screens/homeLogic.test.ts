@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
-  resumeTarget, videoClickGroup, waitsForChannels,
+  resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
 const groups = [
@@ -133,5 +133,32 @@ describe('waitsForChannels', () => {
     expect(waitsForChannels(0, undefined)).toBe(true);
     expect(waitsForChannels(0, true)).toBe(false);
     expect(waitsForChannels(12, false)).toBe(false);
+  });
+});
+
+describe('vodReturnTarget', () => {
+  const base = { fromVod: true, returnId: 'ch-7', held: false, gatePaused: false };
+
+  it('resumes the channel that was playing when a Movies or Series tab opened', () => {
+    expect(vodReturnTarget(base)).toBe('ch-7');
+  });
+
+  it('resumes nothing when nothing was playing', () => {
+    expect(vodReturnTarget({ ...base, returnId: undefined })).toBeUndefined();
+  });
+
+  it('resumes nothing unless Home is revealed by Back from a VOD tab', () => {
+    expect(vodReturnTarget({ ...base, fromVod: false })).toBeUndefined();
+  });
+
+  it('resumes nothing after a stop on purpose or while the dev resume gate is closed', () => {
+    expect(vodReturnTarget({ ...base, held: true })).toBeUndefined();
+    expect(vodReturnTarget({ ...base, gatePaused: true })).toBeUndefined();
+  });
+
+  it('resumes after a movie or series opened from Search stopped live, whatever Back reveals Home', () => {
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true })).toBe('ch-7');
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, held: true })).toBeUndefined();
+    expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, gatePaused: true })).toBeUndefined();
   });
 });

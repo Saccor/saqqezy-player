@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EpisodeView, SeasonView, SeriesView } from '@iptv/app-api';
 import {
-  cardAt, episodeMeta, fallbackArea, initialFocus, primaryLabel, refocus, regularSeasonCount, remountRestore, seasonLabel, seasonTabWidth,
+  cardAt, episodeMeta, fallbackArea, initialFocus, primaryLabel, refocus, regularSeasonCount, remountRestore, restoreFocusMove, seasonLabel, seasonTabWidth,
   seriesActions, seriesMeta, stripAt, stripOffset, stripStarts, tabSelAfterReload,
 } from './seriesDetailLogic.ts';
 
@@ -203,5 +203,18 @@ describe('seriesActions', () => {
   it('shows Play while loading and hides it once loaded without a primary episode', () => {
     expect(seriesActions({ loaded: false, favourite: false }).map((a) => [a.id, a.label])).toEqual([['play', 'Play'], ['fav', 'Add to favourites']]);
     expect(seriesActions({ loaded: true, favourite: false }).map((a) => a.id)).toEqual(['fav']);
+  });
+});
+
+describe('restoreFocusMove', () => {
+  it('the first load moves focus to the restored seasons or episodes', () => {
+    expect(restoreFocusMove('episodes', false)).toBe('episodes');
+    expect(restoreFocusMove('seasons', false)).toBe('seasons');
+  });
+
+  it('no move to the actions (focus starts there) and none once the user pressed a key', () => {
+    expect(restoreFocusMove('actions', false)).toBeUndefined();
+    expect(restoreFocusMove('episodes', true)).toBeUndefined();
+    expect(restoreFocusMove(undefined, false)).toBeUndefined();
   });
 });

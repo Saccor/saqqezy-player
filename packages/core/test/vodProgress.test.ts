@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress,
+  applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress, isBeforeSeriesPoint,
   nextEpisode, prevEpisode, resumeMs, setFavourite, setTracks, setWatched,
 } from '../src/vod/progress.ts';
 import type { Season, VodUserRecord, VodUserState } from '../src/vod/types.ts';
@@ -51,6 +51,12 @@ describe('setWatched, clearProgress, setFavourite', () => {
     expect(setWatched({ ...emptyUserState(), position: 5 * MIN, watched: true, updatedAt: 3 }, false, 7)).toMatchObject({ watched: false, position: 0, updatedAt: 3 });
     expect(setWatched(undefined, false, 7).updatedAt).toBe(0);
   });
+  test('setWatched (watched) with keepUpdatedAt keeps updatedAt, so an earlier episode never becomes the latest record', () => {
+    const p = { id: 's', season: 1, episode: 2 };
+    expect(setWatched({ ...emptyUserState(), position: 5 * MIN, updatedAt: 3 }, true, 7, p, { keepUpdatedAt: true }))
+      .toMatchObject({ watched: true, position: 0, updatedAt: 3, series: p });
+    expect(setWatched(undefined, true, 7, p, { keepUpdatedAt: true }).updatedAt).toBe(0);
+  });
   test('clearProgress keeps watched, drops position and next pointer', () => {
     const s: VodUserState = { ...emptyUserState(), position: 5 * MIN, watched: false, updatedAt: 4, series: { id: 's', season: 1, episode: 1, next: { id: 'n', season: 1, episode: 2 } } };
     expect(clearProgress(s)).toMatchObject({ position: 0, updatedAt: 4, series: { id: 's', season: 1, episode: 1 } });
@@ -90,6 +96,24 @@ describe('continue watching', () => {
   });
 });
 
+describe('deterministic ties', () => {
+  const rec = (itemId: string, s: Partial<VodUserState>): VodUserRecord => ({ itemId, state: { ...emptyUserState(), duration: H, ...s } });
+  test('continueMovies breaks updatedAt ties by itemId', () => {
+    const records = [rec('m2', { position: 5 * MIN, updatedAt: 3 }), rec('m1', { position: 5 * MIN, updatedAt: 3 })];
+    expect(continueMovies(records)).toEqual(['m1', 'm2']);
+    expect(continueMovies([...records].reverse())).toEqual(['m1', 'm2']);
+  });
+  test('continueSeries ties pick the same episode and order regardless of record order', () => {
+    const a = rec('e1', { position: 5 * MIN, updatedAt: 4, series: { id: 'A', season: 1, episode: 1 } });
+    const b = rec('e2', { position: 6 * MIN, updatedAt: 4, series: { id: 'A', season: 1, episode: 2 } });
+    const c2 = rec('c1', { position: 7 * MIN, updatedAt: 4, series: { id: 'B', season: 1, episode: 1 } });
+    const one = continueSeries([a, b, c2]);
+    expect(continueSeries([c2, b, a])).toEqual(one);
+    expect(one.map((x) => x.seriesId)).toEqual(['A', 'B']);
+    expect(one[0]!.episodeId).toBe('e1');
+  });
+});
+
 describe('episodes', () => {
   const seasons: Season[] = [
     { number: 1, name: 'Season 1', episodes: [{ id: 'a', season: 1, episode: 1, title: 'A' }, { id: 'b', season: 1, episode: 2, title: 'B' }] },
@@ -124,5 +148,53 @@ describe('episodes', () => {
   });
   test('episodeLabel', () => {
     expect(episodeLabel(2, 4)).toBe('S2 · E4');
+  });
+});
+
+describe('isBeforeSeriesPoint', () => {
+  const rec = (itemId: string, updatedAt: number, season: number, episode: number, next?: [number, number], watched = true): VodUserRecord => ({
+    itemId,
+    state: {
+      ...emptyUserState(), watched, updatedAt,
+      series: { id: 's', season, episode, ...(next ? { next: { id: `n${next[0]}x${next[1]}`, season: next[0], episode: next[1] } } : {}) },
+    },
+  });
+
+  test('a series with no records has no point: nothing is before it', () => {
+    expect(isBeforeSeriesPoint([], 's', 1, 1)).toBe(false);
+    expect(isBeforeSeriesPoint([rec('x', 5, 3, 3)].map((r) => ({ ...r, state: { ...r.state, series: { id: 'other', season: 3, episode: 3 } } })), 's', 1, 1)).toBe(false);
+  });
+
+  test("the latest record's next episode is the point: before it keeps, at or after it does not", () => {
+    const rs = [rec('a', 1, 1, 6, [1, 7]), rec('b', 2, 1, 3, [1, 4])];
+    expect(isBeforeSeriesPoint(rs, 's', 1, 2)).toBe(true);
+    expect(isBeforeSeriesPoint(rs, 's', 1, 4)).toBe(false);
+    expect(isBeforeSeriesPoint(rs, 's', 1, 5)).toBe(false);
+  });
+
+  test("without a next episode (finale watched, or removed from Continue) the latest record's own episode is the point", () => {
+    const rs = [rec('fin', 3, 1, 6)];
+    expect(isBeforeSeriesPoint(rs, 's', 1, 2)).toBe(true);
+    expect(isBeforeSeriesPoint(rs, 's', 1, 6)).toBe(false);
+  });
+
+  test('ordering runs across seasons', () => {
+    const rs = [rec('a', 3, 2, 1, undefined, false)];
+    expect(isBeforeSeriesPoint(rs, 's', 1, 9)).toBe(true);
+    expect(isBeforeSeriesPoint(rs, 's', 2, 1)).toBe(false);
+    expect(isBeforeSeriesPoint(rs, 's', 3, 1)).toBe(false);
+  });
+
+  test('Specials (season 0) come before every regular season', () => {
+    expect(isBeforeSeriesPoint([rec('a', 3, 1, 1, [1, 2])], 's', 0, 5)).toBe(true);
+    const inSpecials = [rec('sp', 3, 0, 2, [0, 3])];
+    expect(isBeforeSeriesPoint(inSpecials, 's', 0, 1)).toBe(true);
+    expect(isBeforeSeriesPoint(inSpecials, 's', 1, 1)).toBe(false);
+  });
+
+  test('the latest record is picked like continueSeries: newest, then lowest id on a tie', () => {
+    const rs = [rec('b', 5, 1, 1, [1, 2]), rec('a', 5, 1, 4, [1, 5])];
+    expect(isBeforeSeriesPoint(rs, 's', 1, 3)).toBe(true);
+    expect(isBeforeSeriesPoint([...rs].reverse(), 's', 1, 3)).toBe(true);
   });
 });

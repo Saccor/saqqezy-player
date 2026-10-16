@@ -40,6 +40,11 @@ export interface SearchResult {
   later: TitleHit[];
   /** The guide's title index is being built or loaded: programme sections are empty for now. */
   guidePending: boolean;
+  /** Matching movies and series of the active source (from catalogues stored on the device), at most 20 each. */
+  movies: VodTile[];
+  series: VodTile[];
+  /** The movie or series title index is being built: those sections fill in after `searchReady`. */
+  vodPending: boolean;
 }
 
 export type AppEvent =
@@ -51,7 +56,7 @@ export type AppEvent =
   | { type: 'cooldown'; sourceId: string; cooldown: SourceCooldown }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
-  /** The title index of `sourceId` was built: re-run an open search. */
+  /** A search index of `sourceId` (guide titles, or movie and series titles) became ready: re-run an open search. */
   | { type: 'searchReady'; sourceId: string }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
   /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */

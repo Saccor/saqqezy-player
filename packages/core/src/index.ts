@@ -15,10 +15,11 @@ export * from './vod/types.ts';
 export { splitYear, parseEpisodeMarker } from './vod/title.ts';
 export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';
 export { VodCatalog } from './vod/catalog.ts';
+export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
 export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi } from './vod/fetchXtream.ts';
 export {
   CONTINUE_MAX, MIN_RESUME_MS, WATCHED_RATIO,
-  applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isInProgress,
+  applyProgress, clearProgress, continueMovies, continueSeries, emptyUserState, episodeLabel, isBeforeSeriesPoint, isInProgress,
   nextEpisode, prevEpisode, resumeMs, setFavourite, setTracks, setWatched, type SeriesContinue,
 } from './vod/progress.ts';
 export { classifyEntry, splitM3uVod, type EntryKind } from './m3u/vodSplit.ts';

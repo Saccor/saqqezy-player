@@ -1,10 +1,12 @@
 import { searchKey } from '../text/searchKey.ts';
+import { buildVodSearchIndex, type VodSearchIndex } from './searchIndex.ts';
 import { VOD_ALL, type Episode, type VodCategory, type VodItem, type VodKind, type VodList, type VodSort } from './types.ts';
 
 /** In-worker index over one stored catalogue. Sort orders are built on first use and cached per category. */
 export class VodCatalog {
   private readonly ids: Map<string, VodItem>;
   private keys: string[] | undefined;
+  private added: boolean | undefined;
   private readonly orders = new Map<string, number[]>();
   /** Item indexes per category, built in one pass on first use. */
   private buckets: Map<string, number[]> | undefined;
@@ -23,11 +25,11 @@ export class VodCatalog {
 
   /** False for most M3U catalogues: "Recently added" has nothing to sort by. */
   get hasAddedDates(): boolean {
-    return this.list.items.some((i) => i.added !== undefined);
+    return (this.added ??= this.list.items.some((i) => i.added !== undefined));
   }
 
   categories(): VodCategory[] {
-    return this.list.categories;
+    return [...this.list.categories];
   }
 
   byId(id: string): VodItem | undefined {
@@ -52,13 +54,31 @@ export class VodCatalog {
   search(query: string, cap: number): VodItem[] {
     const q = searchKey(query);
     if (!q) return [];
-    const hits: { i: number; pos: number }[] = [];
+    const k = Math.floor(cap);
+    if (!(k > 0)) return [];
+    // Bounded top-k: `top` stays sorted best-first and never grows past k, so a keystroke never sorts every hit.
+    const better = (a: { i: number; pos: number }, b: { i: number; pos: number }) => a.pos - b.pos || this.byTitle(a.i, b.i);
+    const top: { i: number; pos: number }[] = [];
     for (let i = 0; i < this.list.items.length; i++) {
       const pos = this.key(i).indexOf(q);
-      if (pos >= 0) hits.push({ i, pos });
+      if (pos < 0) continue;
+      const hit = { i, pos };
+      if (top.length === k && better(hit, top[k - 1]!) >= 0) continue;
+      let at = top.length;
+      while (at > 0 && better(hit, top[at - 1]!) < 0) at--;
+      top.splice(at, 0, hit);
+      if (top.length > k) top.pop();
     }
-    hits.sort((a, b) => a.pos - b.pos || this.byTitle(a.i, b.i));
-    return hits.slice(0, cap).map((h) => this.list.items[h.i]!);
+    return top.map((h) => this.list.items[h.i]!);
+  }
+
+  /**
+   * The compact Search index of this catalogue (shares no storage with it). Reuses the search keys when this
+   * catalogue already built them; otherwise they are built per chunk and dropped, not cached here.
+   */
+  searchIndex(): VodSearchIndex {
+    const keys = this.keys;
+    return buildVodSearchIndex(this.kind, this.list.items, keys ? (i) => keys[i]! : undefined);
   }
 
   private key(i: number): string {

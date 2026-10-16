@@ -1,4 +1,4 @@
-import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit } from '@iptv/app-api';
+import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit, VodTile } from '@iptv/app-api';
 import { firstSelectable, scrollTopFor } from '../components/virtualWindow.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
@@ -70,8 +70,10 @@ export function createSearcher<T>(
 }
 
 export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
+export const VOD_PENDING_NOTE = 'Movies and series are being prepared';
+const PENDING_NOTES: readonly string[] = [GUIDE_PENDING_NOTE, VOD_PENDING_NOTE];
 
-/** Events after which Search re-runs the open query: the title index became ready, or a guide import finished. */
+/** Events after which Search re-runs the open query: a search index became ready, or a guide import finished. */
 export function rerunsSearch(e: AppEvent): boolean {
   return e.type === 'searchReady' || (e.type === 'refreshed' && e.what === 'epg');
 }
@@ -81,15 +83,27 @@ export type SearchRow =
   | { kind: 'header'; label: string }
   | { kind: 'note'; label: string }
   | { kind: 'channel'; channel: ChannelRow }
+  | { kind: 'vod'; tile: VodTile }
   | { kind: 'onNow'; hit: ProgrammeHit }
   | { kind: 'later'; hit: TitleHit };
 
-/** Sections in fixed order (Channels, On now, Coming up), each under a header; empty sections are left out. */
+/**
+ * Sections in fixed order (Channels, Movies, Series, On now, Coming up), each under a header; empty sections are
+ * left out. Pending notes (guide, then movies and series) come last.
+ */
 export function flattenResults(r: SearchResult): SearchRow[] {
   const out: SearchRow[] = [];
   if (r.channels.length) {
     out.push({ kind: 'header', label: 'Channels' });
     for (const channel of r.channels) out.push({ kind: 'channel', channel });
+  }
+  if (r.movies.length) {
+    out.push({ kind: 'header', label: 'Movies' });
+    for (const tile of r.movies) out.push({ kind: 'vod', tile });
+  }
+  if (r.series.length) {
+    out.push({ kind: 'header', label: 'Series' });
+    for (const tile of r.series) out.push({ kind: 'vod', tile });
   }
   if (r.onNow.length) {
     out.push({ kind: 'header', label: 'On now' });
@@ -99,9 +113,21 @@ export function flattenResults(r: SearchResult): SearchRow[] {
     out.push({ kind: 'header', label: 'Coming up' });
     for (const hit of r.later) out.push({ kind: 'later', hit });
   }
-  // Kept even when nothing is selectable, so `resultsMessage` can say the guide is still being prepared.
+  // Kept even when nothing is selectable, so `resultsMessage` can say what is still being prepared.
   if (r.guidePending) out.push({ kind: 'note', label: GUIDE_PENDING_NOTE });
+  if (r.vodPending) out.push({ kind: 'note', label: VOD_PENDING_NOTE });
   return out;
+}
+
+/** Where Ok on a movie or series row goes: its detail screen, with the tile to draw until the detail loads. */
+export function vodRoute(row: SearchRow | undefined): { screen: 'movieDetail' | 'seriesDetail'; params: { id: string; tile: VodTile } } | undefined {
+  if (row?.kind !== 'vod') return undefined;
+  return { screen: row.tile.kind === 'movie' ? 'movieDetail' : 'seriesDetail', params: { id: row.tile.id, tile: row.tile } };
+}
+
+/** A movie or series row's text: compact, no poster (title · year). */
+export function vodLine(t: VodTile): string {
+  return t.year ? `${t.title} · ${t.year}` : t.title;
 }
 
 /** The rows the list draws: none when nothing is selectable (a lone note is shown by `resultsMessage` instead). */
@@ -112,6 +138,12 @@ export function listRows(rows: readonly SearchRow[]): readonly SearchRow[] {
 /** True when the answer is still waiting for guide results (it carries the pending note). */
 export function isGuidePending(rows: readonly SearchRow[]): boolean {
   return rows.some((r) => r.kind === 'note' && r.label === GUIDE_PENDING_NOTE);
+}
+
+/** The first pending note of the answer (guide, or movies and series), if it is still waiting for any results. */
+function pendingNote(rows: readonly SearchRow[]): string | undefined {
+  for (const r of rows) if (r.kind === 'note' && PENDING_NOTES.includes(r.label)) return r.label;
+  return undefined;
 }
 
 export interface FocusInput {
@@ -137,8 +169,8 @@ export interface FocusDecision {
 }
 
 /**
- * Focus for a settled answer. Returning from the Player or Guide restores the saved row, but an answer still
- * waiting for guide results (programme rows missing) only sets a provisional focus and keeps `returning`, so the
+ * Focus for a settled answer. Returning from the Player, Guide or a detail screen restores the saved row, but an
+ * answer still waiting for guide, movie or series results only sets a provisional focus and keeps `returning`, so the
  * full answer that follows restores the saved row exactly. A re-run of the same query keeps the focused row; a
  * new query starts at the top.
  */
@@ -148,7 +180,7 @@ export function nextFocus(i: FocusInput): FocusDecision {
   const top = (f: number) => Math.max(0, f - i.viewRows + 1);
   if (i.returning && selectableCount(rows) > 0) {
     const focus = firstSelectable(i.memoryFocus, rows.length, sel);
-    return { focus, top: top(focus), consumeReturning: !isGuidePending(rows), focusList: true };
+    return { focus, top: top(focus), consumeReturning: pendingNote(rows) === undefined, focusList: true };
   }
   if (!i.returning && i.query !== '' && i.query === i.settledQuery) {
     return { focus: firstSelectable(Math.min(i.prevFocus, rows.length - 1), rows.length, sel), consumeReturning: false, focusList: false };
@@ -169,14 +201,13 @@ export function selectableCount(rows: readonly SearchRow[]): number {
 
 /** Text for the empty/placeholder area of the results (undefined when there are results). */
 export function resultsMessage(s: SearchState<SearchRow>): string | undefined {
-  if (s.query === '') return 'Type to search channels and programmes';
+  if (s.query === '') return 'Type to search channels, programmes, movies and series';
   if (selectableCount(s.results) > 0) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
-  if (isGuidePending(s.results)) {
-    return `No channels match "${s.query}" · ${GUIDE_PENDING_NOTE}`;
-  }
-  return `No channels or programmes match "${s.query}"`;
+  const note = pendingNote(s.results);
+  if (note) return `No channels match "${s.query}" · ${note}`;
+  return `Nothing matches "${s.query}"`;
 }
 
 /** The line above the results: a subtle `Searching…` while a query runs over the shown results, else the count. */

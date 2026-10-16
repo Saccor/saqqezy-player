@@ -46,4 +46,13 @@ describe('createVodPreloader', () => {
     await Promise.resolve();
     expect(preload).toHaveBeenCalledTimes(1);
   });
+
+  test('a preload that throws synchronously is swallowed like a rejection', () => {
+    const preload = vi.fn((): Promise<unknown> => { throw new Error('worker gone'); });
+    const queued: (() => void)[] = [];
+    const onStatus = createVodPreloader({ preload, schedule: (run) => queued.push(run) });
+    onStatus('playing', 's1');
+    expect(() => queued[0]!()).not.toThrow();
+    expect(preload).toHaveBeenCalledTimes(1);
+  });
 });

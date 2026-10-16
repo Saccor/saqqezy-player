@@ -4,7 +4,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
 import { dayLabel } from '../screens/guideLogic.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
-import type { SearchRow } from '../screens/searchLogic.ts';
+import { vodLine, type SearchRow } from '../screens/searchLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { BAR_H, ChannelRowView, LOGO_H_PX, LOGO_W_PX, Logo, NUM_W_PX, ROW_FOCUS_FILL, ROW_H, TRACK } from './ChannelList.tsx';
 import { renderRange } from './virtualWindow.ts';
@@ -43,8 +43,38 @@ function ProgrammeRowView(props: {
   );
 }
 
+/** A movie or series row: compact (no poster, to keep Search fast): "title · year", the kind and state below. */
+function VodRowView(props: {
+  y: number; width: number; row: Extract<SearchRow, { kind: 'vod' }>; lit: boolean; isFocus: boolean; hover?: boolean;
+}) {
+  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
+  const textX = NUM_W_PX + LOGO_W_PX + 20;
+  const textW = props.width - textX - 20;
+  const t = () => props.row.tile;
+  const sub = () => {
+    const parts = [t().kind === 'movie' ? 'Movie' : 'Series'];
+    if (t().badge) parts.push(t().badge!);
+    if (t().watched) parts.push('Watched');
+    if (t().favourite) parts.push('In favourites');
+    return parts.join(' · ');
+  };
+  return (
+    <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={LAYOUT.radius}>
+      <Text x={textX} y={8} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.body}
+        color={props.lit ? COLORS.onFocus : COLORS.text}>{vodLine(t())}</Text>
+      <Text x={textX} y={42} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.small}
+        color={props.lit ? 0xffffffcc : COLORS.muted}>{sub()}</Text>
+      <Show when={t().progress !== undefined}>
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
+          <View width={Math.round(textW * (t().progress ?? 0))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.focus} />
+        </View>
+      </Show>
+    </View>
+  );
+}
+
 /**
- * Virtualised search results: section headers, channel rows, programme rows and a trailing note. One focusable
+ * Virtualised search results: section headers, channel rows, movie and series rows, programme rows and trailing notes. One focusable
  * node handles the keys; the caller keeps focus on selectable rows.
  *
  * Pointer: one target for the list. Hover highlights a channel or programme row (never focus); clicks report the
@@ -120,6 +150,9 @@ export function SearchResultList(props: {
             if (row.kind === 'channel') {
               return <ChannelRowView y={y()} width={props.width} row={row.channel} lit={lit()} isFocus={isFocus()}
                 now={props.now} playingId={props.playingId} showNext hover={hover()} />;
+            }
+            if (row.kind === 'vod') {
+              return <VodRowView y={y()} width={props.width} row={row} lit={lit()} isFocus={isFocus()} hover={hover()} />;
             }
             return <ProgrammeRowView y={y()} width={props.width} row={row} lit={lit()} isFocus={isFocus()} now={props.now}
               hover={hover()} />;
