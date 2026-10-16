@@ -146,14 +146,25 @@ describe('cardAt', () => {
 
 describe('remountRestore', () => {
   const focus = { seasonNumber: 2, episodeId: 'e2-4' };
+  const v = view();
   it('restores the saved episode and area when the screen was left from the seasons or episodes', () => {
-    expect(remountRestore({ focus, area: 'episodes' })).toEqual({ prev: focus, area: 'episodes' });
-    expect(remountRestore({ focus, area: 'seasons' })).toEqual({ prev: focus, area: 'seasons' });
+    expect(remountRestore({ focus, area: 'episodes' }, v)).toEqual({ prev: focus, area: 'episodes' });
+    expect(remountRestore({ focus, area: 'seasons' }, v)).toEqual({ prev: focus, area: 'seasons' });
   });
   it('opens on the primary button (and the primary episode) on a first open or when left from the actions', () => {
-    expect(remountRestore({})).toEqual({ prev: undefined, area: 'actions' });
-    expect(remountRestore({ focus, area: 'actions' })).toEqual({ prev: undefined, area: 'actions' });
-    expect(remountRestore({ area: 'episodes' })).toEqual({ prev: undefined, area: 'actions' });
+    expect(remountRestore({}, v)).toEqual({ prev: undefined, area: 'actions' });
+    expect(remountRestore({ focus, area: 'actions' }, v)).toEqual({ prev: undefined, area: 'actions' });
+    expect(remountRestore({ area: 'episodes' }, v)).toEqual({ prev: undefined, area: 'actions' });
+  });
+  it('moves to the primary episode, keeping the area, when the saved episode is now watched (the player auto-advanced)', () => {
+    const primary = { episodeId: 'e2-5', season: 2, episode: 5, resumeMs: 0, mode: 'continue' as const };
+    const watched = view({ seasons: [season(1, 3), { ...season(2, 5), episodes: season(2, 5).episodes.map((e) => ({ ...e, watched: e.episode <= 4 })) }], primary });
+    expect(remountRestore({ focus, area: 'episodes' }, watched)).toEqual({ prev: { seasonNumber: 2, episodeId: 'e2-5' }, area: 'episodes' });
+    expect(remountRestore({ focus, area: 'seasons' }, watched)).toEqual({ prev: { seasonNumber: 2, episodeId: 'e2-5' }, area: 'seasons' });
+    // No primary: the saved (watched) episode stays.
+    expect(remountRestore({ focus, area: 'episodes' }, { ...watched, primary: undefined })).toEqual({ prev: focus, area: 'episodes' });
+    // Not watched: the saved episode stays even with a primary elsewhere.
+    expect(remountRestore({ focus, area: 'episodes' }, view({ primary }))).toEqual({ prev: focus, area: 'episodes' });
   });
 });
 

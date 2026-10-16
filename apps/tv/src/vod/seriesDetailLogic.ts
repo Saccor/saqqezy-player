@@ -112,10 +112,19 @@ export interface SavedFocus { seasonNumber: number; episodeId: string }
 /**
  * The first load after a (re)mount: the saved episode and area when the screen was left from the seasons or episodes
  * (returning from the player); else the primary episode (it may have moved on) with focus on the primary button.
+ * When the saved episode is now watched (the player auto-advanced past it) and there is a primary, the primary's
+ * episode is focused instead, in the same area.
  */
-export function remountRestore(saved: { focus?: SavedFocus; area?: SeriesArea }): { prev: SavedFocus | undefined; area: SeriesArea } {
-  if (saved.focus && (saved.area === 'seasons' || saved.area === 'episodes')) return { prev: saved.focus, area: saved.area };
-  return { prev: undefined, area: 'actions' };
+export function remountRestore(
+  saved: { focus?: SavedFocus; area?: SeriesArea },
+  view: SeriesView,
+): { prev: SavedFocus | undefined; area: SeriesArea } {
+  if (!saved.focus || (saved.area !== 'seasons' && saved.area !== 'episodes')) return { prev: undefined, area: 'actions' };
+  const id = saved.focus.episodeId;
+  const watched = view.seasons.some((s) => s.episodes.some((e) => e.id === id && e.watched));
+  const p = view.primary;
+  if (watched && p) return { prev: { seasonNumber: p.season, episodeId: p.episodeId }, area: saved.area };
+  return { prev: saved.focus, area: saved.area };
 }
 
 /** The area to focus when `a` may have emptied: episodes fall back to the seasons, no seasons to the actions. */

@@ -38,8 +38,8 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
  */
 export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { id: string; tile?: VodTile; focus?: SavedFocus; area?: Area };
-  /** Read before the effect below starts overwriting the saved focus. */
-  const restore = remountRestore({ focus: params.focus, area: params.area });
+  /** Read before the effect below starts overwriting the saved focus; resolved against the view on the first load. */
+  const saved = { focus: params.focus, area: params.area };
   const [view, setView] = createSignal<SeriesView | undefined>(undefined);
   const [loaded, setLoaded] = createSignal(false);
   const [loadFailed, setLoadFailed] = createSignal(false);
@@ -121,11 +121,11 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   });
 
   /**
-   * Places the season, tab and episode. First load: `restore` (the saved episode, or the primary). A reload keeps the
+   * Places the season, tab and episode. First load: `prev` from `remountRestore` (the saved episode, or the primary). A reload keeps the
    * current episode; while the keys are on the tabs their selection and a pending rest switch are kept.
    */
-  const place = (v: SeriesView, first: boolean) => {
-    const pos = refocus(first ? restore.prev : position(), v);
+  const place = (v: SeriesView, first: boolean, prev: SavedFocus | undefined) => {
+    const pos = refocus(first ? prev : position(), v);
     const onTabs = !first && area() === 'seasons';
     if (!onTabs) clearRest();
     setSeason(pos.season);
@@ -150,12 +150,13 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     firstPending = false;
     if (v || first) setView(v);
     if (first || v) setLoadFailed(failed);
+    const restore = first && v ? remountRestore(saved, v) : undefined;
     if (v) {
       fav.clear();
-      place(v, first);
+      place(v, first, restore?.prev);
     }
     setLoaded(true);
-    if (first && v && restore.area !== 'actions' && free()) {
+    if (restore && restore.area !== 'actions' && free()) {
       queueMicrotask(() => { if (alive && free()) focusArea(restore.area, true); });
     } else {
       settleFocus();
