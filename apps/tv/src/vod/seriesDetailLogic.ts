@@ -146,3 +146,12 @@ export function seriesActions(p: { loaded: boolean; primary?: SeriesPrimary; fav
   if (p.loaded && !p.primary) return [fav];
   return [{ id: 'play', label: primaryLabel(p.primary), width: p.primary ? 360 : 220 }, fav];
 }
+
+/**
+ * Where the first load's restore moves focus (the saved seasons or episodes area), or undefined to leave it: focus
+ * starts on the actions, and once the user has pressed a key (a Favourite press while loading) the restore only places
+ * the season and episode.
+ */
+export function restoreFocusMove(area: SeriesArea | undefined, userPressed: boolean): SeriesArea | undefined {
+  return area !== undefined && area !== 'actions' && !userPressed ? area : undefined;
+}

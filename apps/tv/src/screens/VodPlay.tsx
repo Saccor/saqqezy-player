@@ -9,7 +9,7 @@ import { usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
@@ -23,8 +23,6 @@ const TRACKS_ID = 'vodTracks';
 const CANT_PLAY_NOW = "This video can't play right now.";
 const CANT_PLAY_FORMAT = "This video format can't play on this device.";
 
-/** The background colour without alpha (0xRRGGBB), for the scrim texture. */
-const BG_RGB = Math.floor(COLORS.background / 0x100);
 const BAND_H = 420;
 const BAND_Y = LAYOUT.height - BAND_H;
 const CONTENT_X = LAYOUT.safeX;
@@ -535,7 +533,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={visible()}>
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
-          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('down', BG_RGB)} />
+          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('down', BACKGROUND_RGB)} />
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
             fontSize={FONT.title} color={COLORS.text}>{title}</Text>
           <Show when={label}>

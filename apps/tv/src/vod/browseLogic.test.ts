@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
-import { cellAt, cellCount, clampFocus, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, toRowModels, type RowModel } from './browseLogic.ts';
+import {
+  cellAt, cellCount, clampFocus, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
+  type RowModel,
+} from './browseLogic.ts';
 
 const tile = (n: number): VodTile => ({ id: `s:m${n}`, kind: 'movie', title: `Synthetic Film ${n}`, categoryId: '1', watched: false, favourite: false });
 const row = (id: string, total: number, items: number, loaded = true): RowModel =>
@@ -153,5 +156,41 @@ describe('browseLogic', () => {
     expect(wheelKey(0, -1)).toBe('left');
     expect(wheelKey(1, -1)).toBe('down');
     expect(wheelKey(0, 0)).toBeUndefined();
+  });
+
+  test('skeleton rows show only while the home is loading with no rows', () => {
+    expect(skeletonShown('loading', 0)).toBe(true);
+    expect(skeletonShown('loading', 2)).toBe(false);
+    expect(skeletonShown(undefined, 0)).toBe(false);
+    expect(skeletonShown('ready', 0)).toBe(false);
+    expect(skeletonShown('empty', 0)).toBe(false);
+    expect(skeletonShown('error', 0)).toBe(false);
+  });
+
+  test('skeleton rows: 3 rows of a label bar and 7 portrait posters, inside the area, not overlapping', () => {
+    const area = { x: 96, top: 360, bottom: 954 };
+    const rows = skeletonRows(area);
+    expect(rows).toHaveLength(3);
+    let prevBottom = area.top;
+    for (const r of rows) {
+      expect(r.posters).toHaveLength(7);
+      expect(r.label.x).toBe(area.x);
+      expect(r.label.y).toBeGreaterThanOrEqual(prevBottom);
+      const p0 = r.posters[0]!;
+      expect(p0.x).toBe(area.x);
+      expect(p0.y).toBeGreaterThan(r.label.y + r.label.h);
+      expect(p0.h).toBeGreaterThan(p0.w);
+      expect(Math.abs(p0.w / p0.h - 2 / 3)).toBeLessThan(0.02);
+      for (let c = 1; c < r.posters.length; c++) expect(r.posters[c]!.x).toBeGreaterThan(r.posters[c - 1]!.x + r.posters[c - 1]!.w);
+      prevBottom = p0.y + p0.h;
+    }
+    expect(prevBottom).toBeLessThanOrEqual(area.bottom);
+  });
+
+  test('visible rows: the focused row and the one peeking below; pointer mode only the focused one (the shell Back sits there)', () => {
+    expect(visibleRowIndexes(0, 3, false)).toEqual([0, 1]);
+    expect(visibleRowIndexes(2, 3, false)).toEqual([2]);
+    expect(visibleRowIndexes(0, 3, true)).toEqual([0]);
+    expect(visibleRowIndexes(0, 0, false)).toEqual([]);
   });
 });

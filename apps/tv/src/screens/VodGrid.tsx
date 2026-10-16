@@ -20,6 +20,7 @@ import {
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { KIND_COPY } from '../vod/kindCopy.ts';
+import { lruSet } from '../vod/memoryLogic.ts';
 import { TAB_SWITCH_MS, type VodKind } from '../vod/tabLogic.ts';
 
 const RAIL_X = LAYOUT.safeX;
@@ -45,8 +46,9 @@ const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: RO
 type Area = 'rail' | 'sort' | 'grid' | 'retry';
 
 interface GridMemory { focus: number; top: number }
-/** Kept across visits so Back from the detail returns to the same poster. */
+/** Kept across visits so Back from the detail returns to the same poster; the 20 most recently used (source, kind, category, sort). */
 const memories = new Map<string, GridMemory>();
+const MEMORY_MAX = 20;
 
 const store = () => {
   try {
@@ -88,7 +90,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   const cat = () => cats()[catIndex()];
   const memKey = () => `${initState()?.activeSourceId ?? ''}:${kind}:${cat()?.id ?? ''}:${sort()}`;
-  const remember = () => { if (cat()) memories.set(memKey(), { focus: focus(), top: topRow() }); };
+  const remember = () => { if (cat()) lruSet(memories, memKey(), { focus: focus(), top: topRow() }, MEMORY_MAX); };
   const sorts = () => sortsFor(cats().some((c) => c.id === VOD_ROW_RECENT));
   const tileAt = (i: number) => pages().get(Math.floor(i / GRID_PAGE))?.[i % GRID_PAGE];
   const topRow = createMemo(() => {

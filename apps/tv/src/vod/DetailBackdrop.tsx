@@ -1,27 +1,23 @@
-import { Show, View } from '@lightningtv/solid';
+import { View } from '@lightningtv/solid';
 import { posterCache } from '../components/posterCache.ts';
-import { rawViaDevProxy } from '../net/devProxy.ts';
-import { COLORS, LAYOUT } from '../shell/theme.ts';
+import { BACKGROUND_RGB, LAYOUT } from '../shell/theme.ts';
+import { CrossFadeArt } from './CrossFadeArt.tsx';
 import { scrimTexture } from './scrim.ts';
-
-/** The background colour without alpha (0xRRGGBB), for the fade textures. */
-const BG_RGB = Math.floor(COLORS.background / 0x100);
 
 /**
  * The detail screens' backdrop art (top right, from the source's data only) with its left and bottom fades into the
- * background. Place it first in the screen; it takes zIndex 0 and 1, so the screen's content goes at zIndex 2 or above
- * (a late image is inserted last and would otherwise cover the rest).
+ * background; a new backdrop cross-fades in over 200 ms. Place it first in the screen; it takes zIndex 0 and 1, so the
+ * screen's content goes at zIndex 2 or above (a late image is inserted last and would otherwise cover the rest).
  */
 export function DetailBackdrop(props: { url: string | undefined }) {
   return (
     <>
       <View zIndex={0}>
-        <Show when={props.url && posterCache.usable(props.url) ? props.url : undefined} keyed>
-          {(u) => <View x={640} y={0} width={1280} height={720} src={rawViaDevProxy(u)} onEvent={{ failed: () => posterCache.markFailed(u) }} />}
-        </Show>
+        <CrossFadeArt x={640} y={0} width={1280} height={720} url={props.url && posterCache.usable(props.url) ? props.url : undefined}
+          onFailed={(u) => posterCache.markFailed(u)} />
       </View>
-      <View zIndex={1} x={640} y={0} width={1280} height={720} src={scrimTexture('left', BG_RGB)} />
-      <View zIndex={1} y={440} width={LAYOUT.width} height={280} src={scrimTexture('down', BG_RGB)} />
+      <View zIndex={1} x={640} y={0} width={1280} height={720} src={scrimTexture('left', BACKGROUND_RGB)} />
+      <View zIndex={1} y={440} width={LAYOUT.width} height={280} src={scrimTexture('down', BACKGROUND_RGB)} />
     </>
   );
 }

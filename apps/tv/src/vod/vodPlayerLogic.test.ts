@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -203,5 +203,16 @@ describe('tracksKeyId', () => {
   });
   it('falls back to the item id for an episode without a series pointer', () => {
     expect(tracksKeyId({ ...base, kind: 'episode', itemId: 'e8' })).toBe('e8');
+  });
+});
+
+describe('resumeBarShown', () => {
+  it('a resume point with a known length shows the bar', () => {
+    expect(resumeBarShown(60_000, 600_000)).toBe(true);
+  });
+  it('no resume point, or an unknown length, hides it', () => {
+    expect(resumeBarShown(0, 600_000)).toBe(false);
+    expect(resumeBarShown(60_000, 0)).toBe(false);
+    expect(resumeBarShown(60_000, Number.NaN)).toBe(false);
   });
 });

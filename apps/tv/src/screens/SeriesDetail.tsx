@@ -15,7 +15,7 @@ import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import {
-  fallbackArea, refocus, remountRestore, seasonLabel, seriesActions, seriesMeta, tabSelAfterReload, type SavedFocus, type SeriesArea,
+  fallbackArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, tabSelAfterReload, type SavedFocus, type SeriesArea,
 } from '../vod/seriesDetailLogic.ts';
 import { TAB_SWITCH_MS } from '../vod/tabLogic.ts';
 
@@ -55,6 +55,8 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   /** Bumped by every load; an answer from an older load never writes state. */
   let gen = 0;
   let busy = false;
+  /** The user pressed a key (or clicked) since mount: the first load's restore then leaves focus where it is. */
+  let userPressed = false;
   let restTimer: ReturnType<typeof setTimeout> | undefined;
   const launcher = createVodLauncher({
     alive: () => alive,
@@ -164,8 +166,9 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       place(v, first, restore?.prev);
     }
     setLoaded(true);
-    if (restore && restore.area !== 'actions' && free()) {
-      queueMicrotask(() => { if (alive && free()) focusArea(restore.area, true); });
+    const moveTo = restoreFocusMove(restore?.area, userPressed);
+    if (moveTo && free()) {
+      queueMicrotask(() => { if (alive && free() && !userPressed) focusArea(moveTo, true); });
     } else {
       settleFocus();
     }
@@ -179,6 +182,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   const actions = () => seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true });
   const onAction = async (id: string) => {
+    userPressed = true;
     if (busy || !free()) return;
     busy = true;
     try {
@@ -231,12 +235,14 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   /** Pointer: a tab click shows that season at once. */
   const clickTab = (i: number) => {
+    userPressed = true;
     if (!free()) return;
     setTabSel(i);
     showSeason(i);
     focusArea('seasons');
   };
   const clickCard = (col: number, options: boolean) => {
+    userPressed = true;
     if (!free()) return;
     setEpCol(col);
     focusArea('episodes');
@@ -263,7 +269,8 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   };
 
   return (
-    <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>
+    <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}
+      onCaptureKey={() => { userPressed = true; return false; }}>
       <DetailBackdrop url={backdrop()} />
       <View zIndex={2}>
         <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>
