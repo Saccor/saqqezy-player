@@ -43,7 +43,10 @@ describe('home logic', () => {
     expect(previewMessage({ kind: 'loading' }, true)).toBe('Loading…');
     expect(previewMessage({ kind: 'failed', reason: 'unavailable' }, true)).toBe("This channel isn't available right now");
     expect(previewMessage({ kind: 'failed', reason: 'unsupported' }, true)).toContain("isn't supported");
-    expect(previewMessage({ kind: 'failed', reason: 'refused' }, true)).toBe('Your source refused this stream');
+    expect(previewMessage({ kind: 'failed', reason: 'refused' }, true)).toBe('Your source refused this stream.');
+    expect(previewMessage({ kind: 'failed', reason: 'refused', httpStatus: 429 }, true)).toBe('Your source is limiting connections (429).');
+    expect(previewMessage({ kind: 'failed', reason: 'refused', httpStatus: 403 }, true, 'Preview', 1))
+      .toBe('Your source refused this stream (403). It allows 1 connection: another device may be using this account.');
     // Home's paused note replaces "Preview" while nothing plays; a channel without a status yet still says "Preview".
     expect(previewMessage(undefined, false, 'Paused after reload: press OK to play')).toBe('Paused after reload: press OK to play');
     expect(previewMessage(undefined, true, 'Paused after reload: press OK to play')).toBe('Preview');

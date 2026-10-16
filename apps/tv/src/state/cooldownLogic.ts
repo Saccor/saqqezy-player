@@ -2,12 +2,18 @@ import type { SourceCooldown } from '@iptv/app-api';
 
 /** Same words as core's `SOURCE_REFUSING_MESSAGE` (core stays out of the main-thread bundle). */
 export const COOLDOWN_TEXT = "Your source is refusing connections. The app is waiting so you don't get blocked.";
+/** Same words as core's `SOURCE_UNREACHABLE_MESSAGE`: the source stopped answering (spec §2.4). */
+export const UNREACHABLE_TEXT = "Your source isn't answering. The app is waiting so it doesn't flood it.";
 
-/** What Home's preview box and the Player show while the current stream (its host or source) cools down, or undefined when clear. */
+/**
+ * What Home's preview box and the Player show while the current stream (its host or source) cools down, or undefined when
+ * clear. The text says why: a refusal, or a source that stopped answering.
+ */
 export function cooldownCopy(c: SourceCooldown, now: number, pointer: boolean): { text: string; hint: string } | undefined {
   if (c.state === 'clear') return undefined;
   const min = Math.max(1, Math.ceil((c.until - now) / 60_000));
-  return { text: COOLDOWN_TEXT, hint: `Trying again in ${min} min · ${pointer ? 'Click to retry now' : 'OK: Retry now'}` };
+  const text = c.reason === 'unreachable' ? UNREACHABLE_TEXT : COOLDOWN_TEXT;
+  return { text, hint: `Trying again in ${min} min · ${pointer ? 'Click to retry now' : 'OK: Retry now'}` };
 }
 
 /**

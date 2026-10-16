@@ -15,6 +15,7 @@ import { playback } from '../playback/playback.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
@@ -334,7 +335,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
   const groupName = () => groups().find((g) => g.id === groupId())?.name ?? '';
   const miniMessage = () => {
     const playing = playback.current() !== undefined;
-    return playing ? previewMessage(playback.status(), true) : 'Nothing playing';
+    return playing ? previewMessage(playback.status(), true, undefined, activeMaxConnections()) : 'Nothing playing';
   };
   const whenLine = () => {
     const b = focusBlock();

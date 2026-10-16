@@ -1,20 +1,19 @@
 import type { AspectMode, LiveInfo, SupervisorStatus } from '@iptv/player';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
+import { failureText } from '../playback/failureText.ts';
 import { LAYOUT } from '../shell/theme.ts';
 
-/** How the Player shows the supervisor status: a small toast, a centred message, or nothing. */
-export function playerStatusText(s: SupervisorStatus | undefined): { kind: 'toast' | 'centre'; text: string } | undefined {
+/**
+ * How the Player shows the supervisor status: a small toast, a centred message, or nothing. `maxConnections` is the
+ * active Xtream account's limit, when known (a refusal names it).
+ */
+export function playerStatusText(
+  s: SupervisorStatus | undefined, maxConnections?: number,
+): { kind: 'toast' | 'centre'; text: string } | undefined {
   if (!s) return undefined;
   if (s.kind === 'reconnecting') return { kind: 'toast', text: 'Reconnecting…' };
   if (s.kind === 'failed') {
-    return {
-      kind: 'centre',
-      text: s.reason === 'unsupported'
-        ? "This stream's format isn't supported on this device"
-        : s.reason === 'refused'
-          ? 'Your source refused this stream'
-          : "This channel isn't available right now",
-    };
+    return { kind: 'centre', text: failureText({ reason: s.reason, httpStatus: s.httpStatus, maxConnections }, 'stream') };
   }
   return undefined;
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
-import { NAME_MAX } from '@iptv/core';
+import { HEADER_VALUE_MAX, NAME_MAX } from '@iptv/core';
 import {
+  ADVANCED_HELP, HEADER_FIELD_MAX, connectionsLine, httpFormFromSource, withHttpSettings,
   DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, SOURCE_NAME_MAX, URL_MAX, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
   revealLabel, toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
@@ -119,6 +120,55 @@ describe('edit mode', () => {
     const v = validateM3u({ name: ' B ', playlistUrl: 'http://example.test/a.m3u', epgUrl: '' });
     if (!v.ok) throw new Error('invalid');
     expect(toUpdatedSource('s2', v.input)).toEqual({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' });
+  });
+});
+
+describe('edit keeps the Advanced settings', () => {
+  const stored = {
+    kind: 'xtream' as const, id: 's1', name: 'A', server: 'http://example.test', username: 'u', password: 'p',
+    userAgent: 'TestAgent/1.0', referrer: 'http://example.test/', maxConnections: 2,
+  };
+  it('carries the stored User-Agent and Referer through an edit of the login form', () => {
+    const v = validateXtream({ name: 'B', server: 'http://example.test', username: 'u2', password: 'p' });
+    if (!v.ok) throw new Error('invalid');
+    expect(toUpdatedSource('s1', v.input, stored)).toEqual({
+      kind: 'xtream', id: 's1', name: 'B', server: 'http://example.test', username: 'u2', password: 'p',
+      userAgent: 'TestAgent/1.0', referrer: 'http://example.test/',
+    });
+  });
+  it('adds nothing when the stored source has no settings', () => {
+    const v = validateM3u({ name: 'B', playlistUrl: 'http://example.test/a.m3u', epgUrl: '' });
+    if (!v.ok) throw new Error('invalid');
+    expect(toUpdatedSource('s2', v.input, { kind: 'm3u', id: 's2', name: 'A', playlistUrl: 'http://example.test/a.m3u' }))
+      .toEqual({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' });
+  });
+});
+
+describe('Advanced (User-Agent and Referer)', () => {
+  const m3u = { kind: 'm3u' as const, id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' };
+  it('prefills from the source; empty when unset', () => {
+    expect(httpFormFromSource(m3u)).toEqual({ userAgent: '', referrer: '' });
+    expect(httpFormFromSource({ ...m3u, userAgent: 'TestAgent/1.0', referrer: 'http://example.test/' }))
+      .toEqual({ userAgent: 'TestAgent/1.0', referrer: 'http://example.test/' });
+  });
+  it('saves trimmed values on the stored source; empty means the default (the field is removed)', () => {
+    expect(withHttpSettings(m3u, { userAgent: '  TestAgent/2.0 ', referrer: '' }))
+      .toEqual({ ...m3u, userAgent: 'TestAgent/2.0' });
+    expect(withHttpSettings({ ...m3u, userAgent: 'Old', referrer: 'http://example.test/' }, { userAgent: ' ', referrer: '' }))
+      .toEqual(m3u);
+  });
+  it('the field limit matches the stored cap; the help says where it applies', () => {
+    expect(HEADER_FIELD_MAX).toBe(HEADER_VALUE_MAX);
+    expect(ADVANCED_HELP).toBe('Applies on Samsung TVs.');
+  });
+});
+
+describe('connectionsLine', () => {
+  it('shows the account limit when known', () => {
+    expect(connectionsLine(2)).toBe('Connections allowed: 2');
+    expect(connectionsLine(1)).toBe('Connections allowed: 1');
+    expect(connectionsLine(undefined)).toBeUndefined();
+    expect(connectionsLine(0)).toBeUndefined();
   });
 });
 

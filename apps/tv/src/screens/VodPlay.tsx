@@ -6,10 +6,12 @@ import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { onLogicalKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
+import { failureText } from '../playback/failureText.ts';
 import { playback } from '../playback/playback.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
@@ -20,8 +22,7 @@ import {
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
-const CANT_PLAY_NOW = "This video can't play right now.";
-const CANT_PLAY_FORMAT = "This video format can't play on this device.";
+const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
 const BAND_H = 420;
 const BAND_Y = LAYOUT.height - BAND_H;
@@ -101,6 +102,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return s?.kind === 'failed' ? s : undefined;
   };
   const ended = () => status()?.kind === 'ended';
+  /** The failure card's text: the cause and the status when known (spec 2026-10-16-source-retry §2.8). */
+  const failText = () => {
+    const f = failed();
+    return f ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video') : '';
+  };
   const visible = () => overlayVisible({
     paused: paused(),
     seeking: marker() !== undefined,
@@ -578,11 +584,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <Show when={failed() || (countdown() !== undefined && p.next)}>
         <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
           color={COLORS.panel} borderRadius={LAYOUT.radius * 2}>
-          <Text x={40} y={48} width={CARD_W - 80} maxWidth={CARD_W - 80} contain="width" textAlign="center" maxLines={2}
-            fontSize={FONT.heading} color={COLORS.text}>
-            {failed()
-              ? (failed()!.reason === 'unsupported' ? CANT_PLAY_FORMAT : CANT_PLAY_NOW)
-              : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0)}
+          {/* A refusal that names the account's limit is long: it takes three body-size lines above the buttons. */}
+          <Text x={40} y={failText().length > 80 ? 36 : 48} width={CARD_W - 80} maxWidth={CARD_W - 80} contain="width"
+            textAlign="center" maxLines={failText().length > 80 ? 3 : 2}
+            fontSize={failText().length > 80 ? FONT.body : FONT.heading} color={COLORS.text}>
+            {failed() ? failText() : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0)}
           </Text>
           <Show when={failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}

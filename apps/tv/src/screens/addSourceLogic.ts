@@ -125,9 +125,45 @@ export function formFromSource(src: SourceConfig): SourceForm {
   return { kind: 'm3u', m3u: { name: src.name, playlistUrl: src.playlistUrl, epgUrl: src.epgUrl ?? '' } };
 }
 
-/** Edit mode: the validated form as the stored source (same id), for `api.updateSource`. */
-export function toUpdatedSource(id: string, input: NewSource): SourceConfig {
-  return { ...input, id } as SourceConfig;
+/**
+ * Edit mode: the validated form as the stored source (same id), for `api.updateSource`. The login form has no
+ * User-Agent or Referer fields, so the stored ones (Settings → source → Advanced) are carried over, never wiped.
+ */
+export function toUpdatedSource(id: string, input: NewSource, stored?: SourceConfig): SourceConfig {
+  const out = { ...input, id } as SourceConfig;
+  if (stored?.userAgent) out.userAgent = stored.userAgent;
+  if (stored?.referrer) out.referrer = stored.referrer;
+  return out;
+}
+
+/** Settings → source → Advanced: the User-Agent and Referer fields (spec 2026-10-16-source-retry §2.7). */
+export interface HttpForm { userAgent: string; referrer: string }
+
+/** The longest User-Agent or Referer kept: core's `HEADER_VALUE_MAX` (core stays out of the main-thread bundle). */
+export const HEADER_FIELD_MAX = 512;
+
+/** Browsers forbid scripts to set these headers; only Samsung's AVPlay applies them. Empty means the platform default. */
+export const ADVANCED_HELP = 'Applies on Samsung TVs.';
+
+/** Advanced: the form prefilled from the stored source (empty when unset). */
+export function httpFormFromSource(src: SourceConfig): HttpForm {
+  return { userAgent: src.userAgent ?? '', referrer: src.referrer ?? '' };
+}
+
+/** Advanced: the stored source with the form's values, trimmed; an empty field removes the setting (the default). */
+export function withHttpSettings(src: SourceConfig, form: HttpForm): SourceConfig {
+  const { userAgent: _ua, referrer: _ref, ...rest } = src;
+  const out = { ...rest } as SourceConfig;
+  const ua = form.userAgent.trim();
+  const ref = form.referrer.trim();
+  if (ua) out.userAgent = ua;
+  if (ref) out.referrer = ref;
+  return out;
+}
+
+/** The source's info line for an Xtream account's connection limit, when the login reported one. */
+export function connectionsLine(max: number | undefined): string | undefined {
+  return max !== undefined && Number.isInteger(max) && max >= 1 ? `Connections allowed: ${max}` : undefined;
 }
 
 /** The pointer-mode button next to the password field (the Yellow key's action). */

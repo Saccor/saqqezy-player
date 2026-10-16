@@ -31,6 +31,7 @@ import { router } from './shell/router.ts';
 import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
+import { reloadSourceLimit } from './state/activeLimit.ts';
 import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
@@ -59,6 +60,15 @@ export function App() {
   // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
   const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
   createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
+  // The failure text names the Xtream account's connection limit: read it for the active source, and again after a
+  // refusal (a refresh may have learnt a new limit since).
+  const refused = () => {
+    const s = playback.status();
+    return s?.kind === 'failed' && s.reason === 'refused';
+  };
+  createEffect(on(() => [initState(), refused()] as const, ([state, r], prev) => {
+    if (state && (prev === undefined || prev[0]?.activeSourceId !== state.activeSourceId || (r && !prev[1]))) void reloadSourceLimit();
+  }));
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));

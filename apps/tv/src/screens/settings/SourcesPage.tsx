@@ -6,6 +6,8 @@ import { playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { applyInitState } from '../../state/appState.ts';
+import { maxConnectionsOf } from '../../state/sourceLimit.ts';
+import { connectionsLine } from '../addSourceLogic.ts';
 import { markSubscreenLeave, type PageProps } from './shared.ts';
 
 const ADD_ID = '__add';
@@ -16,6 +18,8 @@ const KIND: Record<SourceSummary['kind'], string> = { xtream: 'Xtream', m3u: 'M3
 /** Sources: the list with an "Active" marker, per-source actions (Ok) and "Add source". */
 export function SourcesPage(props: PageProps) {
   const [sources, setSources] = createSignal<SourceSummary[]>([]);
+  /** Each Xtream source's connection limit, when its login reported one ("Connections allowed: N"). */
+  const [limits, setLimits] = createSignal<ReadonlyMap<string, number>>(new Map());
   const [sel, setSelSignal] = createSignal(lastSel);
   const setSel = (v: number | ((i: number) => number)) => { lastSel = setSelSignal(v); };
   let alive = true;
@@ -24,6 +28,13 @@ export function SourcesPage(props: PageProps) {
     try {
       const list = await api.listSources();
       if (alive) setSources(list);
+      const next = new Map<string, number>();
+      for (const s of list) {
+        if (s.kind !== 'xtream') continue;
+        const max = maxConnectionsOf(await api.getSource(s.id));
+        if (max !== undefined) next.set(s.id, max);
+      }
+      if (alive) setLimits(next);
     } catch (err) {
       console.warn('List sources failed', err instanceof Error ? err.name : 'Error');
     }
@@ -34,7 +45,7 @@ export function SourcesPage(props: PageProps) {
       id: s.id,
       label: s.name,
       value: s.active ? 'Active' : '',
-      help: `${KIND[s.kind]} · Ok: options`,
+      help: [KIND[s.kind], connectionsLine(limits().get(s.id)), 'Ok: options'].filter(Boolean).join(' · '),
     })),
     { id: ADD_ID, label: 'Add source', help: 'Xtream login or M3U link' },
   ];
@@ -99,6 +110,7 @@ export function SourcesPage(props: PageProps) {
     const choice = await props.choose(s.name, [
       ...(s.active ? [] : [{ id: 'active', label: 'Set as active' }]),
       { id: 'edit', label: 'Edit' },
+      { id: 'advanced', label: 'Advanced' },
       ...(s.active ? [{ id: 'refresh', label: 'Refresh now' }] : []),
       { id: 'delete', label: 'Delete' },
       { id: 'cancel', label: 'Cancel' },
@@ -106,6 +118,7 @@ export function SourcesPage(props: PageProps) {
     if (!alive) return;
     if (choice === 'active') await setActive(s);
     else if (choice === 'edit') { markSubscreenLeave(); router.push('addSource', { sourceId: s.id }); }
+    else if (choice === 'advanced') { markSubscreenLeave(); router.push('addSource', { sourceId: s.id, advanced: true }); }
     else if (choice === 'refresh') await refreshNow();
     else if (choice === 'delete') await remove(s);
   };

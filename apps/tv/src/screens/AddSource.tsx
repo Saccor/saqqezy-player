@@ -1,6 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
+// Type-only: @iptv/core must stay out of the main-thread bundle.
+import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
@@ -13,8 +15,8 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, progressText, revealLabel, toUpdatedSource, validateM3u,
-  validateXtream, type M3uForm, type XtreamForm,
+  ADVANCED_HELP, FIELD_MAX, HEADER_FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
+  progressText, revealLabel, toUpdatedSource, validateM3u, validateXtream, withHttpSettings, type HttpForm, type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
 type Kind = 'xtream' | 'm3u';
@@ -36,6 +38,11 @@ const FIELDS: Record<Kind, FieldDef[]> = {
     { key: 'epgUrl', label: 'TV guide URL (optional)' },
   ],
 };
+/** Settings → source → Advanced: free text, no presets; empty means the platform's own default. */
+const ADVANCED_FIELDS: FieldDef[] = [
+  { key: 'userAgent', label: 'User-Agent', placeholder: 'Default' },
+  { key: 'referrer', label: 'Referer', placeholder: 'Default' },
+];
 const SUBMIT_LABEL: Record<Kind, string> = { xtream: 'Log in', m3u: 'Add' };
 const FORM_TITLE: Record<Kind, string> = { xtream: 'Xtream login', m3u: 'M3U link' };
 
@@ -84,10 +91,19 @@ function TypeTile(props: {
  * never logged.
  *
  * Edit mode (`params.sourceId`, from Settings > Sources): the form of the source's kind, prefilled from
- * `api.getSource`, saved with `api.updateSource`; there is no type step, and Back returns to Settings.
+ * `api.getSource`, saved with `api.updateSource`; there is no type step, and Back returns to Settings. The stored
+ * User-Agent and Referer are carried through.
+ *
+ * Advanced mode (`params.advanced` with `params.sourceId`): only the source's User-Agent and Referer fields, saved on
+ * the stored source through `api.updateSource` (spec 2026-10-16-source-retry §2.7).
  */
 export function AddSourceScreen(props: { entry?: ScreenEntry }) {
-  const editId = (props.entry?.params as { sourceId?: string } | undefined)?.sourceId;
+  const params = props.entry?.params as { sourceId?: string; advanced?: boolean } | undefined;
+  const editId = params?.sourceId;
+  const advanced = editId !== undefined && params?.advanced === true;
+  /** Edit and Advanced modes: the source as stored, so a save keeps what the form does not show. */
+  let stored: SourceConfig | undefined;
+  const [http, setHttp] = createSignal<HttpForm>({ userAgent: '', referrer: '' });
   const [step, setStep] = createSignal<Step>('type');
   // Edit mode draws nothing until the stored source has been loaded into the form.
   const [ready, setReady] = createSignal(editId === undefined);
@@ -111,13 +127,14 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
   let offProgress: (() => void) | undefined;
 
   const kind = (): Kind => (step() === 'm3u' ? 'm3u' : 'xtream');
-  const fields = () => FIELDS[kind()];
-  const values = (): Record<string, string> => ({ ...(kind() === 'xtream' ? xtream() : m3u()) });
+  const fields = () => (advanced ? ADVANCED_FIELDS : FIELDS[kind()]);
+  const values = (): Record<string, string> => ({ ...(advanced ? http() : kind() === 'xtream' ? xtream() : m3u()) });
   const setValue = (key: string, raw: string) => {
-    // The same limits as the companion protocol: typing stops at the field's maximum.
-    const max = FIELD_MAX[key];
+    // The same limits as the companion protocol (headers: the stored cap): typing stops at the field's maximum.
+    const max = advanced ? HEADER_FIELD_MAX : FIELD_MAX[key];
     const v = max === undefined ? raw : clampField(raw, max);
-    if (kind() === 'xtream') setXtream((f) => ({ ...f, [key]: v }));
+    if (advanced) setHttp((f) => ({ ...f, [key]: v }));
+    else if (kind() === 'xtream') setXtream((f) => ({ ...f, [key]: v }));
     else setM3u((f) => ({ ...f, [key]: v }));
   };
 
@@ -180,6 +197,10 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       removeKeyboard?.();
       closeKeyboard();
     }
+    if (advanced) {
+      await saveAdvanced();
+      return;
+    }
     const v = kind() === 'xtream' ? validateXtream(xtream()) : validateM3u(m3u());
     if (!v.ok) {
       setError(v.message);
@@ -193,7 +214,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     offProgress = onEvent('progress', (p) => setProgress(p as Progress));
     try {
       if (editId !== undefined) {
-        await api.updateSource(toUpdatedSource(editId, v.input));
+        await api.updateSource(toUpdatedSource(editId, v.input, stored));
         offProgress();
         // Renamed sources must show their new name everywhere; a failed re-read must not fail the save.
         try {
@@ -240,6 +261,29 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     }
   };
 
+  /** Advanced: the stored source with the new User-Agent and Referer (free text; empty fields mean the default). */
+  const saveAdvanced = async () => {
+    if (!stored) return;
+    setError(undefined);
+    setProgress(undefined);
+    setBusy(true);
+    offProgress = onEvent('progress', (p) => setProgress(p as Progress));
+    try {
+      await api.updateSource(withHttpSettings(stored, http()));
+      offProgress();
+      if (stored.id === activeId) playback.stop(); // the next open uses the new headers
+      if (alive) router.back();
+      showToast('Source saved');
+    } catch (err) {
+      offProgress();
+      if (!alive) return;
+      console.warn('Save source failed', err instanceof Error ? err.name : 'Error');
+      setBusy(false);
+      setError(errorMessage(err));
+      focusItem(0);
+    }
+  };
+
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // layered Back: the shell closes the overlay first
     if (busy()) return true;
@@ -265,6 +309,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         showToast("This source doesn't exist any more.");
         return;
       }
+      stored = src;
+      setHttp(httpFormFromSource(src));
       const form = formFromSource(src);
       if (form.kind === 'xtream') setXtream(form.xtream);
       else setM3u(form.m3u);
@@ -318,8 +364,14 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
 
       <Show when={ready() && step() !== 'type'}>
         <Text x={X} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>
-          {editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
+          {advanced ? `Advanced · ${stored?.name ?? ''}` : editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
         </Text>
+        <Show when={advanced}>
+          <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + 16 + BUTTON_H + 32} width={FORM_W} maxWidth={FORM_W} contain="width"
+            maxLines={2} fontSize={FONT.body} color={COLORS.muted}>
+            {`${ADVANCED_HELP} Leave a field empty to use the default.`}
+          </Text>
+        </Show>
         <For each={fields()}>{(f, i) => (
           <TextField ref={(el) => { items[i()] = el; }} x={X} y={FORM_Y + i() * FIELD_STEP} width={FORM_W}
             label={f.label} placeholder={f.placeholder} value={values()[f.key] ?? ''} secret={f.secret}
