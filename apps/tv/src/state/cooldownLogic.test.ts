@@ -9,16 +9,16 @@ describe('cooldownCopy', () => {
   });
 
   it('counts down whole minutes while waiting, with OK to retry', () => {
-    expect(cooldownCopy({ state: 'waiting', until: NOW + 90_000 }, NOW, false))
+    expect(cooldownCopy({ state: 'waiting', until: NOW + 90_000, reason: 'refused' }, NOW, false))
       .toEqual({ text: COOLDOWN_TEXT, hint: 'Trying again in 2 min · OK: Retry now' });
-    expect(cooldownCopy({ state: 'waiting', until: NOW + 1_000 }, NOW, false)?.hint)
+    expect(cooldownCopy({ state: 'waiting', until: NOW + 1_000, reason: 'refused' }, NOW, false)?.hint)
       .toBe('Trying again in 1 min · OK: Retry now');
   });
 
   it('manual only: just Retry; pointer mode says click', () => {
-    expect(cooldownCopy({ state: 'manual' }, NOW, false)?.hint).toBe('OK: Retry');
-    expect(cooldownCopy({ state: 'manual' }, NOW, true)?.hint).toBe('Click to retry');
-    expect(cooldownCopy({ state: 'waiting', until: NOW + 60_000 }, NOW, true)?.hint).toBe('Trying again in 1 min · Click to retry now');
+    expect(cooldownCopy({ state: 'manual', reason: 'refused' }, NOW, false)?.hint).toBe('OK: Retry');
+    expect(cooldownCopy({ state: 'manual', reason: 'refused' }, NOW, true)?.hint).toBe('Click to retry');
+    expect(cooldownCopy({ state: 'waiting', until: NOW + 60_000, reason: 'refused' }, NOW, true)?.hint).toBe('Trying again in 1 min · Click to retry now');
   });
 
   it('uses the neutral copy', () => {

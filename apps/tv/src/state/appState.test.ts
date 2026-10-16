@@ -104,20 +104,20 @@ describe('wireEvents – refusal cooldown', () => {
     const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
     const toast = vi.fn();
     const off = wireEvents(on, toast);
-    applyInitState({ sources: [], activeSourceId: 's1', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'manual' } });
-    expect(cooldown()).toEqual({ state: 'manual' });
+    applyInitState({ sources: [], activeSourceId: 's1', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'manual', reason: 'refused' } });
+    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
     fns.get('cooldown')?.({ type: 'cooldown', sourceId: 'other', cooldown: { state: 'clear' } });
-    expect(cooldown()).toEqual({ state: 'manual' });
-    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's1', cooldown: { state: 'waiting', until: 5 } });
-    expect(cooldown()).toEqual({ state: 'waiting', until: 5 });
+    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's1', cooldown: { state: 'waiting', until: 5, reason: 'refused' } });
+    expect(cooldown()).toEqual({ state: 'waiting', until: 5, reason: 'refused' });
     fns.get('refreshFailed')?.({ type: 'refreshFailed', what: 'playlist', sourceId: 's1', error: { name: 'SourceRefused', message: 'x' } });
     expect(toast).not.toHaveBeenCalled();
     applyInitState({ sources: [], groups: [], settings: DEFAULT_SETTINGS, hasVod: false });
     expect(cooldown()).toEqual({ state: 'clear' });
     // An event that arrived before InitState still counts once its source is active.
-    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's9', cooldown: { state: 'manual' } });
+    fns.get('cooldown')?.({ type: 'cooldown', sourceId: 's9', cooldown: { state: 'manual', reason: 'refused' } });
     applyInitState({ sources: [], activeSourceId: 's9', groups: [], settings: DEFAULT_SETTINGS, hasVod: false, cooldown: { state: 'clear' } });
-    expect(cooldown()).toEqual({ state: 'manual' });
+    expect(cooldown()).toEqual({ state: 'manual', reason: 'refused' });
     off();
   });
 });

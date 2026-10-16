@@ -32,8 +32,10 @@ export { xtreamToChannels } from './xtream/toChannels.ts';
 export { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from './net/timeout.ts';
 export { alternateStreamUrl } from './net/alternate.ts';
 export {
-  COOLDOWN_STEPS_MS, REFUSAL_STATUSES, RefusalGuard, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
+  COOLDOWN_STEPS_MS, REFUSAL_STATUSES, RETRY_AFTER_MAX_MS, RETRY_AFTER_MIN_MS, RefusalGuard, UNREACHABLE_FAILS, UNREACHABLE_STEPS_MS,
+  UNREACHABLE_WINDOW_MS, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
 } from './net/refusalGuard.ts';
+export { parseRetryAfter } from './net/retryAfter.ts';
 export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';

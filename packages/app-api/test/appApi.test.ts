@@ -1619,14 +1619,14 @@ describe('AppApi – refusal cooldown', () => {
     await api.idle();
     r.state.on = true;
     await expect(api.refresh('playlist')).rejects.toMatchObject({ name: 'SourceAuthError' });
-    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: { state: 'waiting', until: NOW + 120_000 } });
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: { state: 'waiting', until: NOW + 120_000, reason: 'refused' } });
     // Reload: a stale playlist and guide would refresh, and every row would look up its short EPG.
     await storage.setMeta(`playlistAt:${sourceId}`, 0);
     await storage.setMeta(`epgAt:${sourceId}`, 0);
     r.state.sent = [];
     const second = make(storage, SourceService, r.f);
     const s = await second.api.init();
-    expect(s.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    expect(s.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
     await second.api.getChannelSlice('all', 0, 40);
     await second.api.idle();
     expect(r.state.sent).toEqual([]);
@@ -1652,9 +1652,23 @@ describe('AppApi – refusal cooldown', () => {
     const { sourceId } = await api.addSource(xt());
     await api.idle();
     await api.reportStreamRefused(sourceId);
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
     await api.reportStreamAnswered(sourceId); // a stream that was already playing
-    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000 });
+    expect((await api.init()).cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test('stream reports: three unreachable in a row trip the breaker', async () => {
+    const r = refusingFetch();
+    const { api, events } = make(storage, SourceService, r.f);
+    const { sourceId } = await api.addSource(xt());
+    await api.idle();
+    await api.reportStreamUnreachable(sourceId);
+    await api.reportStreamUnreachable(sourceId);
+    expect((await api.init()).cooldown).toEqual({ state: 'clear' });
+    await api.reportStreamUnreachable(sourceId);
+    const unreachable = { state: 'waiting', until: NOW + 60_000, reason: 'unreachable' };
+    expect((await api.init()).cooldown).toEqual(unreachable);
+    expect(cooldownEvents(events).at(-1)).toEqual({ type: 'cooldown', sourceId, cooldown: unreachable });
   });
 
   test('retry sends nothing by itself; the probe getting through runs the skipped refreshes', async () => {

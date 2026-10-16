@@ -252,6 +252,11 @@ export class AppApi {
     return this.run('reportStreamRefused', () => this.service.guard.report(sourceId, 'refused'));
   }
 
+  /** A stream of `sourceId` ended failed/unavailable without ever playing: counts toward the unreachable breaker. */
+  reportStreamUnreachable(sourceId: string): Promise<void> {
+    return this.run('reportStreamUnreachable', () => this.service.guard.report(sourceId, 'failed'));
+  }
+
   /** A stream of `sourceId` played: the source answers us. */
   reportStreamAnswered(sourceId: string): Promise<void> {
     return this.run('reportStreamAnswered', () => this.service.guard.report(sourceId, 'answered'));
@@ -1359,7 +1364,7 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
-  'retrySource', 'reportStreamRefused', 'reportStreamAnswered',
+  'retrySource', 'reportStreamRefused', 'reportStreamUnreachable', 'reportStreamAnswered',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',

@@ -24,7 +24,7 @@ export type _SourceSummaryInSync = Assert<
 export interface InitState {
   sources: SourceSummary[]; activeSourceId?: string; groups: GroupInfo[];
   lastChannelId?: string; lastGroupId?: string; settings: AppSettings;
-  /** The active source's refusal cooldown (with an active source only). */
+  /** The active source's cooldown, refused or unreachable (with an active source only). */
   cooldown?: SourceCooldown;
   /** The active source has movies or series (from its last ingest or a fetched catalogue); false without one. */
   hasVod: boolean;
@@ -52,7 +52,7 @@ export type AppEvent =
   | { type: 'refreshed'; what: 'playlist' | 'epg'; sourceId: string }
   | { type: 'refreshFailed'; what: 'playlist' | 'epg'; sourceId: string; error: RpcError }
   | { type: 'offline'; value: boolean }
-  /** A source's refusal cooldown changed (a refusal, an answer, a retry, or the end of a wait). */
+  /** A source's cooldown changed (a refusal, the unreachable breaker, an answer, a retry, or the end of a wait). */
   | { type: 'cooldown'; sourceId: string; cooldown: SourceCooldown }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
