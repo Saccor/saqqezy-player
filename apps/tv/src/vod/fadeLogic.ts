@@ -28,3 +28,20 @@ export function settleLayer(layers: readonly FadeLayer[], id: number): FadeLayer
 export function dropLayer(layers: readonly FadeLayer[], id: number): FadeLayer[] {
   return layers.some((l) => l.id === id) ? layers.filter((l) => l.id !== id) : (layers as FadeLayer[]);
 }
+
+/**
+ * Layer `id` failed to load. The top (fading) layer failing drops every layer, so the box is empty and the screen's own
+ * fallback shows instead of the previous title's image; a lower layer only drops itself.
+ */
+export function failLayer(layers: readonly FadeLayer[], id: number): FadeLayer[] {
+  if (layers[layers.length - 1]?.id === id) return [];
+  return dropLayer(layers, id);
+}
+
+/**
+ * The browse hero's art URL: while the focused title's detail is pending the last one stays (so the new art can
+ * cross-fade over it), then it switches to that title's art, or to none when it has none.
+ */
+export function heroArt(shown: string | undefined, pending: boolean, art: string | undefined): string | undefined {
+  return pending ? shown : art;
+}

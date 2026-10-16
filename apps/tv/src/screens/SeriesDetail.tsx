@@ -270,7 +270,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}
-      onCaptureKey={() => { userPressed = true; return false; }}>
+      onCaptureKey={(e: KeyboardEvent) => { if (!e.repeat) userPressed = true; return false; }}>
       <DetailBackdrop url={backdrop()} />
       <View zIndex={2}>
         <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>

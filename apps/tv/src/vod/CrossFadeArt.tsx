@@ -1,7 +1,7 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup } from 'solid-js';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { dropLayer, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
+import { failLayer, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
 
 /** How long a new image takes to fade in (spec §6). */
 export const ART_FADE_MS = 200;
@@ -14,7 +14,8 @@ const START_ALPHA = 0.001;
 /**
  * An image box that cross-fades: a new `url` is drawn on a second image node above the current one and fades in over
  * 200 ms once its texture has loaded; then the old node goes. No `url`: nothing is drawn. `onFailed` reports an image
- * that could not load (its layer goes; the one under it stays).
+ * that could not load, once per layer; when it was the new (top) image every layer goes, so the box is empty and the
+ * screen's fallback can show.
  */
 export function CrossFadeArt(props: { url: string | undefined; x: number; y: number; width: number; height: number; onFailed?: (url: string) => void }) {
   const [layers, setLayers] = createSignal<FadeLayer[]>([]);
@@ -34,9 +35,11 @@ export function CrossFadeArt(props: { url: string | undefined; x: number; y: num
       fade = node.animate({ alpha: 1 }, { duration: ART_FADE_MS, easing: 'ease-in-out' }).start();
       void fade.waitUntilStopped().then(() => { if (alive) setLayers((ls) => settleLayer(ls, id)); });
     };
+    let failed = false;
     const onFailed = () => {
-      if (!alive) return;
-      setLayers((ls) => dropLayer(ls, id));
+      if (!alive || failed) return;
+      failed = true;
+      setLayers((ls) => failLayer(ls, id));
       props.onFailed?.(url);
     };
     onCleanup(() => fade?.stop());

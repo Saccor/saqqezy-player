@@ -23,6 +23,7 @@ import {
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import { CrossFadeArt } from '../vod/CrossFadeArt.tsx';
+import { heroArt } from '../vod/fadeLogic.ts';
 import { createFavToggle } from '../vod/favToggle.ts';
 import { lruGet } from '../vod/memoryLogic.ts';
 import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
@@ -208,9 +209,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
 
   // The hero detail (plot, runtime or seasons, backdrop) after focus rests; the tile's own fields show at once.
+  /** A title whose hero detail could not be read: its art is settled as none (it is no longer pending). */
+  const [heroMissId, setHeroMissId] = createSignal<string | undefined>(undefined);
   const heroLoad = createDebounce<string>(HERO_SETTLE_MS, (id) => {
     const view: Promise<MovieView | SeriesView | undefined> = kind === 'series' ? api.getSeries(id) : api.getMovie(id);
-    void view.then((v) => { if (alive && focusedTile()?.id === id) setHero(v); }).catch(() => undefined);
+    const missed = () => { if (alive && focusedTile()?.id === id) setHeroMissId(id); };
+    void view.then((v) => {
+      if (!alive || focusedTile()?.id !== id) return;
+      setHero(v);
+      if (!v) missed();
+    }).catch(missed);
   });
   /** Drops a hero detail that belongs to another title and schedules the focused tile's. */
   const syncHero = () => {
@@ -410,6 +418,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const u = art();
     return u && posterCache.usable(u) ? u : undefined;
   };
+  /** The focused title's detail is still on its way (neither loaded nor known missing). */
+  const heroPending = () => {
+    const t = heroTile();
+    return t !== undefined && hero()?.tile.id !== t.id && heroMissId() !== t.id;
+  };
+  /** The art drawn: the last one stays while the next title is pending, so the new art cross-fades over it. */
+  const shownArt = createMemo<string | undefined>((prev) => heroArt(prev, heroPending(), backdropUrl()));
   /** "2022 · 1 h 54 min · Drama · 12 · ★ 7.6"; a series shows "N seasons" in place of the runtime once its view is loaded. */
   const heroMeta = () => {
     const d = heroDetail();
@@ -440,8 +455,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
         <View zIndex={0}>
           {/* A new backdrop cross-fades in over 200 ms (two stacked image nodes). */}
-          <CrossFadeArt x={ART_X} y={0} width={ART_W} height={ART_H} url={backdropUrl()} onFailed={(u) => { posterCache.markFailed(u); setArtFailures((n) => n + 1); }} />
-          <Show when={!backdropUrl() && heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
+          <CrossFadeArt x={ART_X} y={0} width={ART_W} height={ART_H} url={shownArt()} onFailed={(u) => { posterCache.markFailed(u); setArtFailures((n) => n + 1); }} />
+          <Show when={!shownArt() && heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
             {(u) => <View x={LAYOUT.width - LAYOUT.safeX - 300} y={130} width={300} height={450} src={rawViaDevProxy(u)} alpha={0.9} />}
           </Show>
         </View>

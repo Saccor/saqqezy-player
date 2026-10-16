@@ -114,7 +114,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   const resumeMs = () => view()?.resumeMs ?? 0;
   const durationMs = () => titleLengthMs(resumeMs(), tile()?.progress, detail()?.runtimeMin);
-  const fraction = () => Math.max(0, Math.min(1, resumeMs() / durationMs()));
+  const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : 0);
   const actions = () => [
     ...(resumeMs() > 0
       ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]

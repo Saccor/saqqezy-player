@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { dropLayer, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
+import { dropLayer, failLayer, heroArt, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
 
 const shown = (id: number, url: string): FadeLayer => ({ id, url, shown: true });
 const fading = (id: number, url: string): FadeLayer => ({ id, url, shown: false });
@@ -50,5 +50,20 @@ describe('fadeLogic', () => {
     expect(dropLayer([shown(1, 'a.jpg'), fading(2, 'b.jpg')], 2)).toEqual([shown(1, 'a.jpg')]);
     const ls = [shown(1, 'a.jpg')];
     expect(dropLayer(ls, 7)).toBe(ls);
+  });
+
+  test('a failed top (fading) layer drops every layer; a failed lower one only itself', () => {
+    expect(failLayer([shown(1, 'a.jpg'), fading(2, 'b.jpg')], 2)).toEqual([]);
+    expect(failLayer([fading(1, 'a.jpg')], 1)).toEqual([]);
+    expect(failLayer([shown(1, 'a.jpg'), fading(2, 'b.jpg')], 1)).toEqual([fading(2, 'b.jpg')]);
+    const ls = [shown(1, 'a.jpg')];
+    expect(failLayer(ls, 7)).toBe(ls);
+  });
+
+  test('hero art: the last image stays while the focused title is pending, then switches to its art or none', () => {
+    expect(heroArt('a.jpg', true, undefined)).toBe('a.jpg');
+    expect(heroArt(undefined, true, undefined)).toBeUndefined();
+    expect(heroArt('a.jpg', false, 'b.jpg')).toBe('b.jpg');
+    expect(heroArt('a.jpg', false, undefined)).toBeUndefined();
   });
 });
