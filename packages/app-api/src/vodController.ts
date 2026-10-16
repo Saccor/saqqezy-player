@@ -1,5 +1,5 @@
 import {
-  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isInProgress, nextEpisode, prevEpisode, resumeMs,
+  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
@@ -285,8 +285,9 @@ export class VodController {
   /**
    * An episode marked watched carries its next episode, so Continue watching moves on to it. The next one comes
    * from the series' detail when it is cached or loading (never a new fetch); else the caller's pointer is kept.
-   * An episode before the series' current Continue point (season/episode order) keeps its `updatedAt`, so marking
-   * an earlier episode watched never pulls Continue watching backwards.
+   * An episode before the series' point (`isBeforeSeriesPoint`: the latest record's next episode, else its own)
+   * keeps its `updatedAt`, so marking an earlier episode watched never pulls Continue watching backwards, nor brings
+   * back a finished or removed series.
    */
   async setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
     let pointer = series;
@@ -300,8 +301,7 @@ export class VodController {
       if (next) pointer = { ...series, next: { id: next.id, season: next.season, episode: next.episode } };
       const records: VodUserRecord[] = [];
       for (const [id, state] of map) if (state.series?.id === series.id) records.push({ itemId: id, state });
-      const at = continueSeries(records, 1)[0];
-      keep = !!at && (at.season > series.season || (at.season === series.season && at.episode > series.episode));
+      keep = isBeforeSeriesPoint(records, series.id, series.season, series.episode);
     }
     if (keep) return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer, { keepUpdatedAt: true }));
     return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer));

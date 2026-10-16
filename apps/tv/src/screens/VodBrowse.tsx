@@ -352,8 +352,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
-    // A playing live channel is remembered first: Home resumes it on the way back to Live TV.
-    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind));
+    // A live channel that plays (or loads or reconnects) is remembered first: Home resumes it on the way back to Live TV.
+    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
     playback.stop();
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };

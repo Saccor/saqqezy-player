@@ -82,17 +82,16 @@ export function resumeTarget(s: {
 
 /**
  * Back from Movies or Series (`fromVod`): the live channel that was playing when the VOD tab opened (`returnId`)
- * comes back, through Home's usual play path. Nothing when nothing was playing, when a channel is already current,
- * after a stop on purpose (`held`), or while the dev resume gate is closed (`gatePaused`).
+ * comes back, through Home's usual play path. Nothing when nothing was playing, after a stop on purpose (`held`),
+ * or while the dev resume gate is closed (`gatePaused`). A channel that is already current wins (the caller).
  */
 export function vodReturnTarget(s: {
   fromVod: boolean;
   returnId: string | undefined;
-  playingId: string | undefined;
   held: boolean;
   gatePaused: boolean;
 }): string | undefined {
-  if (!s.fromVod || s.held || s.gatePaused || s.playingId !== undefined) return undefined;
+  if (!s.fromVod || s.held || s.gatePaused) return undefined;
   return s.returnId;
 }
 

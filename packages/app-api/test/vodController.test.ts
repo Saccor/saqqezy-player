@@ -630,6 +630,29 @@ describe('VodController user state', () => {
     expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
   });
 
+  test('marking an earlier episode watched after the finale keeps the series out of Continue watching', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    expect(eps).toHaveLength(6);
+    await c.setWatched(eps[5]!.id, true, bare(5));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    expect((await c.series(showId))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+  });
+
+  test('marking an earlier episode watched after "Remove from Continue watching" keeps it removed', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    await c.setWatched(eps[3]!.id, true, bare(3));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E5' });
+    await c.clearSeriesContinue(showId);
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]?.id).not.toBe(VOD_ROW_CONTINUE);
+    // A later one still counts: Continue moves on from it.
+    await c.setWatched(eps[4]!.id, true, bare(4));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
+  });
+
   test('marking the Continue episode itself watched moves Continue to the next one', async () => {
     const { c, showId, eps, bare } = await sixEpisodeShow();
     const p4 = (await c.playable(eps[3]!.id, showId))!;

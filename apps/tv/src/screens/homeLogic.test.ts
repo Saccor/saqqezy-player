@@ -137,7 +137,7 @@ describe('waitsForChannels', () => {
 });
 
 describe('vodReturnTarget', () => {
-  const base = { fromVod: true, returnId: 'ch-7', playingId: undefined, held: false, gatePaused: false };
+  const base = { fromVod: true, returnId: 'ch-7', held: false, gatePaused: false };
 
   it('resumes the channel that was playing when a Movies or Series tab opened', () => {
     expect(vodReturnTarget(base)).toBe('ch-7');
@@ -149,10 +149,6 @@ describe('vodReturnTarget', () => {
 
   it('resumes nothing unless Home is revealed by Back from a VOD tab', () => {
     expect(vodReturnTarget({ ...base, fromVod: false })).toBeUndefined();
-  });
-
-  it('leaves a channel that is already current alone', () => {
-    expect(vodReturnTarget({ ...base, playingId: 'ch-2' })).toBeUndefined();
   });
 
   it('resumes nothing after a stop on purpose or while the dev resume gate is closed', () => {

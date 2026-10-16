@@ -80,14 +80,32 @@ export function continueMovies(records: VodUserRecord[], max = CONTINUE_MAX): st
     .map((r) => r.itemId);
 }
 
+/** `r` is a newer record than `cur`: later `updatedAt`, then the lower item id on a tie. */
+const newer = (r: VodUserRecord, cur: VodUserRecord | undefined): boolean =>
+  !cur || r.state.updatedAt > cur.state.updatedAt || (r.state.updatedAt === cur.state.updatedAt && byId(r.itemId, cur.itemId) < 0);
+
+/**
+ * Is (`season`, `episode`) before the series' point, so marking it watched must not make it the latest record? The
+ * point is the latest record's `next` episode when it has one, else that record's own episode (an in-progress one,
+ * a watched finale, or one removed from Continue watching). Specials (season 0) sort before every regular season.
+ * No record for the series: no point, nothing is before it.
+ */
+export function isBeforeSeriesPoint(records: VodUserRecord[], seriesId: string, season: number, episode: number): boolean {
+  let latest: VodUserRecord | undefined;
+  for (const r of records) if (r.state.series?.id === seriesId && newer(r, latest)) latest = r;
+  const p = latest?.state.series;
+  if (!p) return false;
+  const at = p.next ?? p;
+  return season < at.season || (season === at.season && episode < at.episode);
+}
+
 /** Per series, its most recently updated episode: resume it if in progress, else its known next episode. */
 export function continueSeries(records: VodUserRecord[], max = CONTINUE_MAX): SeriesContinue[] {
   const latest = new Map<string, VodUserRecord>();
   for (const r of records) {
     const p = r.state.series;
     if (!p) continue;
-    const cur = latest.get(p.id);
-    if (!cur || r.state.updatedAt > cur.state.updatedAt || (r.state.updatedAt === cur.state.updatedAt && byId(r.itemId, cur.itemId) < 0)) latest.set(p.id, r);
+    if (newer(r, latest.get(p.id))) latest.set(p.id, r);
   }
   const out: (SeriesContinue & { at: number })[] = [];
   for (const r of latest.values()) {
