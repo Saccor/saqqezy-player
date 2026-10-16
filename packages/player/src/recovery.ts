@@ -20,12 +20,19 @@ export interface RecoveryPolicy {
    * bursts of attempts get accounts blocked.
    */
   minOpenGapMs: number;
+  /** The gap is `minOpenGapMs` plus up to this much, drawn per open, so retries from many TVs do not line up. */
+  openGapSpreadMs: number;
+  /** An open held by the per-source open rate wakes up to this much later than the slot frees. */
+  openRateWakeJitterMs: number;
   jitter: number;
   failuresBeforeAlternate: number;
   stableMs: number;
   showSpinnerAfterMs: number;
-  giveUpRetryEveryMs: number;
-  giveUpRetryForMs: number;
+  /**
+   * Background retries after a live stream that played ran out of reconnects: one try after each wait (with
+   * `jitter`), then it stops. They never refill the reconnect budget.
+   */
+  giveUpRetryDelaysMs: number[];
 }
 
 export const DEFAULT_POLICY: RecoveryPolicy = {
@@ -42,12 +49,13 @@ export const DEFAULT_POLICY: RecoveryPolicy = {
   firstFrameTimeoutMs: 15000,
   reconnectDelaysMs: [1000, 2000, 4000, 8000, 15000],
   minOpenGapMs: 1000,
+  openGapSpreadMs: 300,
+  openRateWakeJitterMs: 500,
   jitter: 0.2,
   failuresBeforeAlternate: 2,
   stableMs: 30000,
   showSpinnerAfterMs: 1000,
-  giveUpRetryEveryMs: 30000,
-  giveUpRetryForMs: 180000,
+  giveUpRetryDelaysMs: [30000, 60000, 120000],
 };
 
 /** What the supervisor remembers between ticks of one playing attempt. */

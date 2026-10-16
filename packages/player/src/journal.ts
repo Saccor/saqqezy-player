@@ -18,7 +18,7 @@ export type JournalEvent =
   /** The source had no room for another open (per-source open rate): the open waits `delayMs`. */
   | { k: 'rateWait'; t: number; delayMs: number }
   | { k: 'drift'; t: number; action: 'seek' | 'reopen' | 'rate'; behindS?: number; targetS: number; rate?: number }
-  | { k: 'failed'; t: number; reason: 'unavailable' | 'unsupported' | 'refused' }
+  | { k: 'failed'; t: number; reason: 'unavailable' | 'unsupported' | 'refused' | 'gone' }
   | { k: 'giveUpRetry'; t: number }
   | { k: 'stop'; t: number };
 

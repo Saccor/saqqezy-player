@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  PlaybackSupervisor,
+  DEFAULT_POLICY, PlaybackSupervisor,
   type AspectMode, type JournalEvent, type LiveProfile, type OpenOptions, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
@@ -53,7 +53,11 @@ const B = 'http://b.example.test/1';
 
 function setup(opts: SupervisorOptions = {}) {
   const player = new FakePlayer();
-  const sup = new PlaybackSupervisor(player, { random: () => 0.5, ...opts });
+  // The gap spread and the open-rate wake jitter are pinned to 0 here so the older tests keep exact timings; their
+  // own tests set them.
+  const sup = new PlaybackSupervisor(player, {
+    random: () => 0.5, ...opts, policy: { openGapSpreadMs: 0, openRateWakeJitterMs: 0, ...opts.policy },
+  });
   const statuses: SupervisorStatus[] = [];
   sup.onStatus((s) => statuses.push(s));
   return { player, sup, statuses };
@@ -66,6 +70,9 @@ function playFor(player: FakePlayer, ms: number) {
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
+
+/** Lets resolved promises run without moving the clock. */
+async function flush() { for (let i = 0; i < 5; i++) await Promise.resolve(); }
 
 describe('PlaybackSupervisor: starting and failing', () => {
   it('releases any held frame, stops, opens; loading then playing', () => {
@@ -1363,5 +1370,373 @@ describe('PlaybackSupervisor: VOD mode', () => {
     player.duration = () => undefined;
     sup.seek(500_000);
     expect(player.seek).toHaveBeenLastCalledWith(500_000);
+  });
+});
+
+describe('PlaybackSupervisor: status probe', () => {
+  type ProbeResult = { status?: number; retryAfterMs?: number };
+  function probed(result: ProbeResult, opts: SupervisorOptions = {}) {
+    const calls: Array<{ url: string; signal: AbortSignal }> = [];
+    const probe = vi.fn((url: string, signal: AbortSignal) => { calls.push({ url, signal }); return Promise.resolve(result); });
+    return { ...setup({ probe, ...opts }), probe, calls };
+  }
+
+  it('a native NETWORK failure before the first frame probes once; a refusal becomes refused with status and Retry-After', async () => {
+    const { player, sup, statuses, calls } = probed({ status: 403, retryAfterMs: 90_000 });
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    expect(player.calls).toEqual(['stop', `open:${A}`, 'stop']); // the attempt is stopped before the probe
+    await flush();
+    expect(calls.map((c) => c.url)).toEqual([A]);
+    // The AUTH path: one retry after the gap, and the next failure ends as refused (no second probe).
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A]);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(60_000);
+    expect(calls).toHaveLength(1);
+    expect(player.opened).toEqual([A, A]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, retryAfterMs: 90_000 });
+  });
+
+  it('404 or 410 ends as gone: no retry, no alternate', async () => {
+    for (const status of [404, 410]) {
+      const { player, sup, statuses } = probed({ status });
+      sup.play(A, B);
+      player.emit('error', { code: 'NETWORK' });
+      await flush();
+      vi.advanceTimersByTime(10 * 60_000);
+      expect(player.opened).toEqual([A]);
+      expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: status });
+      sup.dispose();
+    }
+  });
+
+  it('any other answer keeps the normal NETWORK path, and a play() probes at most once', async () => {
+    const { player, sup, statuses, calls } = probed({ status: 200 });
+    sup.play(A, B);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(999);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, A]);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A, B]); // two tries, then the other format, as before
+    expect(calls).toHaveLength(1);
+    expect(statuses.some((s) => s.kind === 'failed')).toBe(false);
+  });
+
+  it('an unknown answer (a rejected probe) is NETWORK as well', async () => {
+    const probe = vi.fn((_u: string, _s: AbortSignal) => Promise.reject(new Error('cors')));
+    const { player, sup } = setup({ probe });
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(1000);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(player.opened).toEqual([A, A]);
+  });
+
+  it('a later play() probes again', async () => {
+    const { player, sup, calls } = probed({});
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    sup.play(B);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(calls.map((c) => c.url)).toEqual([A, B]);
+  });
+
+  it('does not probe an engine that maps statuses itself, after a first frame, or for other codes', async () => {
+    const aware = probed({ status: 403 });
+    (aware.player as FakePlayer & { supportsStatus?: () => boolean }).supportsStatus = () => true;
+    aware.sup.play(A);
+    aware.player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(aware.probe).not.toHaveBeenCalled();
+    aware.sup.dispose();
+
+    const played = probed({ status: 403 });
+    played.sup.play(A);
+    played.player.emit('playing');
+    played.player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(played.probe).not.toHaveBeenCalled();
+    played.sup.dispose();
+
+    const media = probed({ status: 403 });
+    media.sup.play(A);
+    media.player.emit('error', { code: 'MEDIA' });
+    await flush();
+    expect(media.probe).not.toHaveBeenCalled();
+  });
+
+  it('a start timeout (no first frame) probes too', async () => {
+    const { player, sup, probe, statuses } = probed({ status: 404 });
+    sup.play(A);
+    vi.advanceTimersByTime(15_000);
+    await flush();
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(player.opened).toEqual([A]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: 404 });
+  });
+
+  it('never probes while the source is blocked', async () => {
+    const blocked = vi.fn((_k?: string) => true);
+    const { player, sup, probe } = probed({ status: 403 }, { blocked });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(probe).not.toHaveBeenCalled();
+    expect(blocked).toHaveBeenCalledWith('src');
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A]); // the normal path
+  });
+
+  it('counts against the open-rate cap, and is skipped when the source has no room', async () => {
+    const taken: string[] = [];
+    let wait = 0;
+    const openRate = { waitMs: () => wait, take: (k: string) => { taken.push(k); } };
+    const roomy = probed({}, { openRate });
+    roomy.sup.play(A, undefined, { sourceKey: 'src' });
+    roomy.player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(roomy.probe).toHaveBeenCalledTimes(1);
+    expect(taken).toEqual(['src', 'src']); // the open and the probe
+    roomy.sup.dispose();
+
+    const full = probed({}, { openRate });
+    full.sup.play(A, undefined, { sourceKey: 'src' });
+    wait = 5000;
+    full.player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(full.probe).not.toHaveBeenCalled();
+  });
+
+  it('waits for the failed attempt to close (at most 1.5 s) before probing', async () => {
+    const { player, sup, probe } = probed({});
+    sup.play(A);
+    let close!: () => void;
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { close = r; });
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    expect(probe).not.toHaveBeenCalled();
+    close();
+    await flush();
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    const hung = probed({});
+    hung.sup.play(A);
+    (hung.player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>(() => undefined);
+    hung.player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1499);
+    expect(hung.probe).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(hung.probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() during the probe aborts it and drops its answer', async () => {
+    let answer!: (r: ProbeResult) => void;
+    const signals: AbortSignal[] = [];
+    const probe = vi.fn((_u: string, signal: AbortSignal) => { signals.push(signal); return new Promise<ProbeResult>((r) => { answer = r; }); });
+    const { player, sup, statuses } = setup({ probe });
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    sup.stop();
+    expect(signals[0]!.aborted).toBe(true);
+    answer({ status: 404 });
+    await flush();
+    vi.advanceTimersByTime(60_000);
+    expect(player.opened).toEqual([A]);
+    expect(statuses.some((s) => s.kind === 'failed')).toBe(false);
+  });
+
+  it('gives up waiting on the probe after 5 s and treats it as unknown', async () => {
+    const probe = vi.fn((_u: string, _s: AbortSignal) => new Promise<{ status?: number }>(() => undefined));
+    const { player, sup } = setup({ probe });
+    sup.play(A);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(4999);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(probe.mock.calls[0]![1].aborted).toBe(true);
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A]);
+  });
+
+  it('a probe refusal during the background retries stops them as refused', async () => {
+    const { player, sup, statuses } = probed({ status: 403 });
+    sup.play(A);
+    player.emit('playing');
+    for (let i = 0; i < 7; i++) { player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    const n = player.opened.length;
+    vi.advanceTimersByTime(30_000);
+    expect(player.opened).toHaveLength(n + 1);
+    player.emit('error', { code: 'NETWORK' });
+    await flush();
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(player.opened).toHaveLength(n + 1);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+  });
+
+  it('an engine-reported status rides on the failure', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(A);
+    player.emit('playing');
+    player.emit('error', { code: 'AUTH', httpStatus: 401 });
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403 });
+  });
+});
+
+describe('PlaybackSupervisor: spaced give-up retries', () => {
+  /** Plays, then drops until the reconnect budget runs out: the background retries begin. */
+  function exhaust(s: ReturnType<typeof setup>) {
+    s.sup.play(A);
+    s.player.emit('playing');
+    for (let i = 0; i < 7; i++) { s.player.emit('error', { code: 'EOS' }); vi.advanceTimersByTime(1000); }
+    expect(s.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+    return s.player.opened.length;
+  }
+
+  it('retries after 30 s, 60 s and 120 s, then stops', () => {
+    const s = setup();
+    const n = exhaust(s);
+    const opensAt = (ms: number) => {
+      vi.advanceTimersByTime(ms - 1);
+      const before = s.player.opened.length;
+      vi.advanceTimersByTime(1);
+      return [before, s.player.opened.length];
+    };
+    expect(opensAt(29_000)).toEqual([n, n + 1]); // the loop already spent 1 s of the first wait
+    s.player.emit('error', { code: 'NETWORK' });
+    expect(opensAt(60_000)).toEqual([n + 1, n + 2]);
+    s.player.emit('error', { code: 'NETWORK' });
+    expect(opensAt(120_000)).toEqual([n + 2, n + 3]);
+    s.player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(s.player.opened).toHaveLength(n + 3);
+  });
+
+  it('the waits get ±20 % jitter', () => {
+    const s = setup({ random: () => 1 });
+    const n = exhaust(s);
+    vi.advanceTimersByTime(36_000 - 1000 - 1);
+    expect(s.player.opened).toHaveLength(n);
+    vi.advanceTimersByTime(1);
+    expect(s.player.opened).toHaveLength(n + 1);
+    s.player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(72_000 - 1);
+    expect(s.player.opened).toHaveLength(n + 1);
+    vi.advanceTimersByTime(1);
+    expect(s.player.opened).toHaveLength(n + 2);
+  });
+
+  it('keeps the reconnect budget: a retry that plays and drops at once gets no fresh reconnects', () => {
+    const s = setup();
+    const n = exhaust(s);
+    vi.advanceTimersByTime(29_000);
+    expect(s.player.opened).toHaveLength(n + 1);
+    s.player.emit('playing');
+    expect(s.statuses.at(-1)).toEqual({ kind: 'playing' });
+    s.player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(5000);
+    expect(s.player.opened).toHaveLength(n + 1); // the budget is still spent: no reconnect
+    expect(s.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+  });
+
+  it('defaults', () => {
+    expect(DEFAULT_POLICY.giveUpRetryDelaysMs).toEqual([30_000, 60_000, 120_000]);
+    expect(DEFAULT_POLICY.minOpenGapMs).toBe(1000);
+    expect(DEFAULT_POLICY.openGapSpreadMs).toBe(300);
+    expect(DEFAULT_POLICY.openRateWakeJitterMs).toBe(500);
+  });
+});
+
+describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', () => {
+  it('the gap between opens is 1000–1300 ms, drawn per open', () => {
+    for (const [r, gap] of [[0, 1000], [0.5, 1150], [1, 1300]] as const) {
+      const { player, sup } = setup({ random: () => r, policy: { openGapSpreadMs: 300 } });
+      sup.play(A);
+      player.emit('playing');
+      player.emit('error', { code: 'EOS' }); // reconnect at once, but not before the gap
+      vi.advanceTimersByTime(gap - 1);
+      expect(player.opened).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(player.opened).toHaveLength(2);
+      sup.dispose();
+    }
+  });
+
+  it('an open waits for the previous attempt to close', async () => {
+    const { player, sup } = setup();
+    let close!: () => void;
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { close = r; });
+    sup.play(A);
+    expect(player.opened).toEqual([]);
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([]);
+    close();
+    await flush();
+    expect(player.opened).toEqual([A]);
+  });
+
+  it('a hung teardown delays the open by at most 1.5 s, after the gap', () => {
+    const { player, sup } = setup();
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>(() => undefined);
+    sup.play(A);
+    vi.advanceTimersByTime(1499);
+    expect(player.opened).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A]);
+    player.emit('playing');
+    player.emit('error', { code: 'EOS' }); // the gap (1 s), then the teardown wait (1.5 s)
+    vi.advanceTimersByTime(1000 + 1499);
+    expect(player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A, A]);
+  });
+
+  it('a new play() while waiting for the close drops the old open', async () => {
+    const { player, sup } = setup();
+    const closers: Array<() => void> = [];
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>((r) => { closers.push(r); });
+    sup.play(A);
+    sup.play(B);
+    closers.forEach((c) => c());
+    await flush();
+    expect(player.opened).toEqual([B]);
+  });
+
+  it('an open held by the open-rate cap wakes 0–500 ms after the slot frees', () => {
+    for (const [r, extra] of [[0, 0], [1, 500]] as const) {
+      let wait = 5000;
+      const { player, sup } = setup({
+        random: () => r, policy: { openRateWakeJitterMs: 500 }, openRate: { waitMs: () => wait, take: () => undefined },
+      });
+      sup.play(A, undefined, { sourceKey: 'src' });
+      wait = 0;
+      vi.advanceTimersByTime(5000 + extra - 1);
+      expect(player.opened).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(player.opened).toEqual([A]);
+      sup.dispose();
+    }
+  });
+
+  it('passes the stream headers to every open, live and VOD', () => {
+    const headers = { userAgent: 'TestAgent/1.0', referrer: 'http://ref.example.test/' };
+    const { player, sup } = setup();
+    sup.play(A, undefined, { headers });
+    expect(player.openOpts[0]).toEqual({ headers });
+    sup.play(A, undefined, { vod: true, startMs: 5000, headers });
+    expect(player.openOpts[1]).toEqual({ live: false, startMs: 5000, headers });
   });
 });
