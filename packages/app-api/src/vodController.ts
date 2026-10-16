@@ -1,6 +1,6 @@
 import {
   VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  searchKey, searchVodIndex, vodIndexEntry,
+  buildVodSearchIndex, searchKey, searchVodIndex, vodIndexEntry,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
   type VodUserRecord, type VodUserState,
 } from '@iptv/core';
@@ -390,22 +390,32 @@ export class VodController {
     const epoch = this.epoch;
     if (this.indexJob?.epoch === epoch) return;
     const p = (async () => {
-      // A macrotask: the search that started this answers (with its channels) before any build work.
-      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
       for (const kind of KINDS) {
+        // A macrotask before each kind: the search that started this answers (with its channels) before any build
+        // work, and other requests get a turn between the two builds.
+        await yieldTask();
         if (this.epoch !== epoch) return;
         if (this.indexes.has(kind)) continue;
         const gen = this.indexGens[kind];
+        const current = () => this.epoch === epoch && this.indexGens[kind] === gen;
         let ix: VodSearchIndex | null = null;
         try {
-          const catalog = this.resident?.kind === kind ? this.resident.catalog
-            : this.loading?.kind === kind ? await this.loading.p
-              : await this.vod.storedCatalog(id, kind);
-          if (catalog && this.epoch === epoch && this.indexGens[kind] === gen) ix = catalog.searchIndex();
+          if (this.resident?.kind === kind) ix = this.resident.catalog.searchIndex();
+          else if (this.loading?.kind === kind) {
+            const catalog = await this.loading.p;
+            if (catalog && current()) ix = catalog.searchIndex();
+          } else {
+            // The raw stored list, not a catalogue (no id map, no cached keys): only the list and the index are
+            // ever alive together, and the list is dropped as soon as the index is built.
+            let list = await this.vod.storedList(id, kind);
+            await yieldTask();
+            if (list && current()) ix = buildVodSearchIndex(kind, list.items);
+            list = undefined;
+          }
         } catch (err) {
           if (this.epoch === epoch) this.record('searchVod', err);
         }
-        if (this.epoch === epoch && this.indexGens[kind] === gen) this.indexes.set(kind, ix);
+        if (current()) this.indexes.set(kind, ix);
       }
       if (this.epoch === epoch) this.emit({ type: 'searchReady', sourceId: id });
     })().finally(() => {
@@ -631,6 +641,11 @@ export class VodController {
       })
       .sort((a, b) => a.title.localeCompare(b.title));
   }
+}
+
+/** Resolves on a new macrotask. */
+function yieldTask(): Promise<void> {
+  return new Promise<void>((resolve) => { setTimeout(resolve, 0); });
 }
 
 function tracksOf(s: VodUserState | undefined): VodTracks {

@@ -69,10 +69,45 @@ describe('VodSearchIndex', () => {
     }
   });
 
+  test('wide titles (Cyrillic, CJK, emoji) across chunk boundaries rank exactly as VodCatalog.search', () => {
+    const words = ['Зимний вечер', 'Синтетика', '夜の街', '合成映画', 'Ночь 🌙 Film', 'Film 🎬 Night', 'Été Film', 'film'];
+    const many: VodItem[] = Array.from({ length: 300 }, (_, n) => it(n, `${words[n % words.length]} ${(n * 37) % 61}`));
+    const catalog = new VodCatalog('movie', { items: many, categories: [] });
+    for (const [chunk, min] of [[1, 1], [7, 1], [7, 3], [64, 4], [1024, 64]] as const) {
+      const ix = buildVodSearchIndex('movie', many, undefined, chunk, min);
+      for (let n = 0; n < many.length; n += 13) expect(vodIndexEntry(ix, n)).toMatchObject({ id: many[n]!.id, title: many[n]!.title });
+      for (const q of ['film', 'ночь', 'НОЧЬ', '街', '合成', 'синт', 'ete', '1', 'night', 'зим']) {
+        for (const k of [1, 5, 20, 1000]) expect(ids(ix, q, k)).toEqual(catalog.search(q, k).map((r) => r.id));
+      }
+    }
+  });
+
+  test('a block of wide titles gets chunks of its own (cut where the text switches, once a chunk holds the minimum)', () => {
+    const items = Array.from({ length: 3000 }, (_, n) => it(n, n >= 1000 && n < 1500 ? `Синтетика ${n}` : `Synthetic ${n}`));
+    const ix = buildVodSearchIndex('movie', items);
+    const bounds = ix.chunks.map((c) => [c.start, c.start + c.keyAt.length - 1]);
+    expect(bounds).toEqual([[0, 1000], [1000, 1500], [1500, 2524], [2524, 3000]]);
+    for (const n of [0, 999, 1000, 1499, 1500, 2999]) expect(vodIndexEntry(ix, n).id).toBe(items[n]!.id);
+  });
+
+  test('a wide title widens only its own chunk', () => {
+    const narrow = Array.from({ length: 4096 }, (_, n) => it(n, `Synthetic Title ${n}`));
+    const oneWide = narrow.map((x, n) => (n === 5 ? { ...x, title: 'Синтетика 5' } : x));
+    const base = vodSearchIndexBytes(buildVodSearchIndex('movie', narrow, undefined, 1024));
+    const wide = vodSearchIndexBytes(buildVodSearchIndex('movie', oneWide, undefined, 1024));
+    // One chunk of four doubles its strings (titles and keys); unchunked, every string would.
+    expect(wide - base).toBeLessThan(base / 4);
+    expect(wide).toBeGreaterThan(base);
+  });
+
   test('VodCatalog.searchIndex builds from the catalogue kind; the byte estimate counts the packed data', () => {
     const fromCatalog = new VodCatalog('movie', list).searchIndex();
     expect(fromCatalog.kind).toBe('movie');
     expect(ids(fromCatalog, 'bravo', 5)).toEqual(['src1:m1']);
     expect(vodSearchIndexBytes(fromCatalog)).toBeGreaterThan(0);
+    // The index builds its keys transiently: a resident catalogue does not keep a copy because of Search.
+    const fresh = new VodCatalog('movie', list);
+    fresh.searchIndex();
+    expect((fresh as unknown as { keys?: string[] }).keys).toBeUndefined();
   });
 });

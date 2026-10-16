@@ -52,6 +52,11 @@ export class VodService {
   }
 
   /** The stored catalogue, or undefined when nothing was ever stored for this source and kind. */
+  /** The stored list as read (no catalogue around it): for a one-off pass such as building the Search index. */
+  storedList(sourceId: string, kind: VodKind): Promise<VodList | undefined> {
+    return this.storage.getVod(sourceId, kind);
+  }
+
   async storedCatalog(sourceId: string, kind: VodKind): Promise<VodCatalog | undefined> {
     const list = await this.storage.getVod(sourceId, kind);
     return list ? new VodCatalog(kind, list) : undefined;

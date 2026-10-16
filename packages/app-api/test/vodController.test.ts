@@ -988,13 +988,15 @@ describe('VodController search', () => {
     expect(c.residentKind()).toBeUndefined();
   });
 
-  test('a resident kind is indexed from memory; only the other kind is read from storage', async () => {
+  test('a resident kind is indexed from memory; only the other kind is read from storage, as a raw list', async () => {
     const { c, vod } = await seeded();
     await c.preload('movie');
-    const spy = vi.spyOn(vod, 'storedCatalog');
+    const spy = vi.spyOn(vod, 'storedList');
+    const catalogs = vi.spyOn(vod, 'storedCatalog');
     await c.search('light', 20);
     await c.idle();
     expect(spy.mock.calls.map((a) => a[1])).toEqual(['series']);
+    expect(catalogs).not.toHaveBeenCalled();
     expect((await c.search('light', 20)).movies).toHaveLength(2);
     expect(c.residentKind()).toBe('movie');
   });
@@ -1003,7 +1005,7 @@ describe('VodController search', () => {
     const { c, vod } = await seeded();
     await c.search('light', 20);
     await c.idle();
-    const spy = vi.spyOn(vod, 'storedCatalog');
+    const spy = vi.spyOn(vod, 'storedList');
     await c.setFavourite('movie:2', true);
     await c.saveProgress('movie:1', 600_000, 6_000_000);
     const r = await c.search('LIGHT', 20);
@@ -1024,7 +1026,7 @@ describe('VodController search', () => {
 
   test('an empty query or no source: nothing, and nothing is built', async () => {
     const { c, vod, events } = await seeded();
-    const spy = vi.spyOn(vod, 'storedCatalog');
+    const spy = vi.spyOn(vod, 'storedList');
     expect(await c.search('  ', 20)).toEqual({ movies: [], series: [], pending: false });
     await c.idle();
     expect(spy).not.toHaveBeenCalled();
@@ -1057,7 +1059,7 @@ describe('VodController search', () => {
     await c.search('synthetic', 20);
     await c.idle();
     await c.refresh('movie');
-    const spy = vi.spyOn(vod, 'storedCatalog');
+    const spy = vi.spyOn(vod, 'storedList');
     const r1 = await c.search('synthetic', 20);
     expect(r1.pending).toBe(true);
     await c.idle();
@@ -1092,9 +1094,9 @@ describe('VodController search', () => {
 
   test('a source switch while an index builds: the old build is dropped, no event for it', async () => {
     const { c, vod, events, sourceId } = await seeded();
-    const gate = deferred<VodCatalog | undefined>();
-    const real = vod.storedCatalog.bind(vod);
-    vi.spyOn(vod, 'storedCatalog').mockImplementationOnce(() => gate.promise);
+    const gate = deferred<VodList | undefined>();
+    const real = vod.storedList.bind(vod);
+    vi.spyOn(vod, 'storedList').mockImplementationOnce(() => gate.promise);
     await c.search('light', 20);
     c.reset(sourceId);
     gate.resolve(await real(sourceId, 'movie'));
@@ -1105,7 +1107,7 @@ describe('VodController search', () => {
 
   test('a failed storage read is recorded once; that kind has no hits until the next invalidate', async () => {
     const { c, vod, recorded } = await seeded();
-    vi.spyOn(vod, 'storedCatalog').mockRejectedValueOnce(new Error('read failed'));
+    vi.spyOn(vod, 'storedList').mockRejectedValueOnce(new Error('read failed'));
     await c.search('light', 20);
     await c.idle();
     const r = await c.search('light', 20);

@@ -72,9 +72,13 @@ export class VodCatalog {
     return top.map((h) => this.list.items[h.i]!);
   }
 
-  /** The compact Search index of this catalogue (shares no storage with it; reuses the search keys). */
+  /**
+   * The compact Search index of this catalogue (shares no storage with it). Reuses the search keys when this
+   * catalogue already built them; otherwise they are built per chunk and dropped, not cached here.
+   */
   searchIndex(): VodSearchIndex {
-    return buildVodSearchIndex(this.kind, this.list.items, (i) => this.key(i));
+    const keys = this.keys;
+    return buildVodSearchIndex(this.kind, this.list.items, keys ? (i) => keys[i]! : undefined);
   }
 
   private key(i: number): string {
