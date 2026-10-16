@@ -11,6 +11,7 @@ import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback } from '../playback/playback.ts';
+import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -364,6 +365,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
+    // A playing live channel is remembered first: Home resumes it on the way back to Live TV.
+    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind));
     playback.stop();
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };

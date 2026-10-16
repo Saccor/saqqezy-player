@@ -285,16 +285,25 @@ export class VodController {
   /**
    * An episode marked watched carries its next episode, so Continue watching moves on to it. The next one comes
    * from the series' detail when it is cached or loading (never a new fetch); else the caller's pointer is kept.
+   * An episode before the series' current Continue point (season/episode order) keeps its `updatedAt`, so marking
+   * an earlier episode watched never pulls Continue watching backwards.
    */
   async setWatched(itemId: string, on: boolean, series?: SeriesPointer): Promise<void> {
     let pointer = series;
+    let keep = false;
     if (on && series) {
       const epoch = this.sourceEpoch;
       const next = await this.knownNextEpisode(series.id, itemId);
+      const map = await this.userMap();
       // A source switch while the detail loaded: this episode belongs to the old source.
       if (this.sourceEpoch !== epoch) return;
       if (next) pointer = { ...series, next: { id: next.id, season: next.season, episode: next.episode } };
+      const records: VodUserRecord[] = [];
+      for (const [id, state] of map) if (state.series?.id === series.id) records.push({ itemId: id, state });
+      const at = continueSeries(records, 1)[0];
+      keep = !!at && (at.season > series.season || (at.season === series.season && at.episode > series.episode));
     }
+    if (keep) return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer, { keepUpdatedAt: true }));
     return this.write(itemId, (src) => this.vod.setWatched(src, itemId, on, pointer));
   }
 

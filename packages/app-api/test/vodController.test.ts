@@ -617,6 +617,27 @@ describe('VodController user state', () => {
     expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[5]!.id, season: 1, episode: 6, mode: 'continue' });
   });
 
+  test('marking an earlier episode watched keeps Continue where it is', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    await c.setWatched(eps[1]!.id, true, bare(1));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E4' });
+    expect((await c.series(showId))!.primary).toMatchObject({ episodeId: eps[3]!.id, resumeMs: 5 * 60_000, mode: 'continue' });
+    expect((await c.series(showId))!.seasons[0]!.episodes[1]!.watched).toBe(true);
+    // At or after the Continue point still moves it on.
+    await c.setWatched(eps[4]!.id, true, bare(4));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E6' });
+  });
+
+  test('marking the Continue episode itself watched moves Continue to the next one', async () => {
+    const { c, showId, eps, bare } = await sixEpisodeShow();
+    const p4 = (await c.playable(eps[3]!.id, showId))!;
+    await c.saveProgress(eps[3]!.id, 5 * 60_000, 45 * 60_000, p4.series);
+    await c.setWatched(eps[3]!.id, true, bare(3));
+    expect((await c.home('series')).rows[0]!.items[0]).toMatchObject({ id: showId, badge: 'S1 · E5' });
+  });
+
   test('marking an episode unwatched leaves the series Continue state alone', async () => {
     const { c, showId, eps, bare } = await sixEpisodeShow();
     await c.setWatched(eps[1]!.id, true, bare(1));

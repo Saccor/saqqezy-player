@@ -146,8 +146,10 @@ export class VodService {
     return this.updateUser(sourceId, itemId, (prev) => setFavourite(prev, on));
   }
 
-  setWatched(sourceId: string, itemId: string, on: boolean, series?: SeriesPointer): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => setWatched(prev, on, this.now(), series));
+  setWatched(
+    sourceId: string, itemId: string, on: boolean, series?: SeriesPointer, opts?: { keepUpdatedAt?: boolean },
+  ): Promise<VodUserState | undefined> {
+    return this.updateUser(sourceId, itemId, (prev) => setWatched(prev, on, this.now(), series, opts));
   }
 
   clearProgress(sourceId: string, itemId: string): Promise<VodUserState | undefined> {
