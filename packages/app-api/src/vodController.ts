@@ -1,6 +1,8 @@
 import {
   VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodService, type VodSort, type VodUserRecord, type VodUserState,
+  searchKey, searchVodIndex, vodIndexEntry,
+  type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
+  type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type {
@@ -26,6 +28,11 @@ const LABELS: Record<string, string> = {
   [VOD_ROW_FAVOURITES]: 'Favourites',
   [VOD_ROW_RECENT]: 'Recently added',
 };
+const KINDS: readonly VodKind[] = ['movie', 'series'];
+
+/** Movies and series matching a Search query. `pending`: an index is being built; `searchReady` follows. */
+export interface VodSearchHits { movies: VodTile[]; series: VodTile[]; pending: boolean }
+
 const allLabel = (kind: VodKind) => (kind === 'movie' ? 'All movies' : 'All series');
 
 export interface VodControllerDeps {
@@ -72,6 +79,14 @@ export class VodController {
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
+  /**
+   * Search: a compact title index per kind (null when nothing is stored or the read failed), built in the
+   * background from the resident catalogue or one stored read, never a fetch. Dropped by `reset` and `invalidate`;
+   * a refresh drops its kind's (and bumps its generation, so a build in flight does not install an older one).
+   */
+  private readonly indexes = new Map<VodKind, VodSearchIndex | null>();
+  private readonly indexGens: Record<VodKind, number> = { movie: 0, series: 0 };
+  private indexJob: { epoch: number; p: Promise<void> } | undefined;
 
   constructor(deps: VodControllerDeps) {
     this.vod = deps.vod;
@@ -88,6 +103,7 @@ export class VodController {
     this.user = undefined;
     this.userLoad = undefined;
     this.resetDetails();
+    this.dropIndexes();
     this.sourceId = sourceId;
     this.epoch++;
     this.sourceEpoch++;
@@ -110,7 +126,36 @@ export class VodController {
     this.resident = undefined;
     this.loading = undefined;
     this.resetDetails();
+    // An open Search re-runs on searchReady: tell it its movie and series results are gone (it rebuilds them).
+    const searched = this.indexes.size > 0 || this.indexJob !== undefined;
+    this.dropIndexes();
     this.epoch++;
+    if (searched) this.emit({ type: 'searchReady', sourceId });
+  }
+
+  /**
+   * Movies and series whose title contains `query` (`searchKey` substring, ranked as `VodCatalog.search`), at most
+   * `cap` per kind. Never waits for an index: a kind without one has no hits yet, `pending` is set, and the
+   * background build emits `searchReady` when done.
+   */
+  async search(query: string, cap: number): Promise<VodSearchHits> {
+    const id = this.sourceId;
+    if (!id || !searchKey(query)) return { movies: [], series: [], pending: false };
+    const epoch = this.epoch;
+    const pending = KINDS.some((k) => !this.indexes.has(k));
+    if (pending) this.buildIndexes(id);
+    const hits = (kind: VodKind): VodItem[] => {
+      const ix = this.indexes.get(kind);
+      if (!ix) return [];
+      return searchVodIndex(ix, query, cap).map((i) => ({ ...vodIndexEntry(ix, i), kind }));
+    };
+    const movies = hits('movie');
+    const series = hits('series');
+    if (movies.length || series.length) {
+      await this.userMap();
+      if (this.epoch !== epoch) return this.search(query, cap);
+    }
+    return { movies: movies.map((item) => this.tile(item)), series: series.map((item) => this.tile(item)), pending };
   }
 
   async home(kind: VodKind): Promise<VodHome> {
@@ -340,6 +385,43 @@ export class VodController {
     return this.write(itemId, (src) => this.vod.setTracks(src, itemId, tracks));
   }
 
+  /** One background job builds every missing index, after the search that asked has answered. */
+  private buildIndexes(id: string): void {
+    const epoch = this.epoch;
+    if (this.indexJob?.epoch === epoch) return;
+    const p = (async () => {
+      // A macrotask: the search that started this answers (with its channels) before any build work.
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      for (const kind of KINDS) {
+        if (this.epoch !== epoch) return;
+        if (this.indexes.has(kind)) continue;
+        const gen = this.indexGens[kind];
+        let ix: VodSearchIndex | null = null;
+        try {
+          const catalog = this.resident?.kind === kind ? this.resident.catalog
+            : this.loading?.kind === kind ? await this.loading.p
+              : await this.vod.storedCatalog(id, kind);
+          if (catalog && this.epoch === epoch && this.indexGens[kind] === gen) ix = catalog.searchIndex();
+        } catch (err) {
+          if (this.epoch === epoch) this.record('searchVod', err);
+        }
+        if (this.epoch === epoch && this.indexGens[kind] === gen) this.indexes.set(kind, ix);
+      }
+      if (this.epoch === epoch) this.emit({ type: 'searchReady', sourceId: id });
+    })().finally(() => {
+      if (this.indexJob?.p === p) this.indexJob = undefined;
+    });
+    this.indexJob = { epoch, p };
+    this.pending.add(p);
+    const forget = () => { this.pending.delete(p); };
+    p.then(forget, forget);
+  }
+
+  private dropIndexes(): void {
+    this.indexes.clear();
+    this.indexJob = undefined;
+  }
+
   async idle(): Promise<void> {
     while (this.jobs.size || this.pending.size) {
       await Promise.allSettled([...this.jobs.values()].map((j) => j.done).concat([...this.pending]));
@@ -475,7 +557,11 @@ export class VodController {
           this.resident = { kind, catalog: new VodCatalog(kind, r.list) };
           this.loading = undefined;
         }
+        // Search rebuilds this kind's index from the fresh list on its next query (told below, when it had one).
+        const searched = this.indexes.delete(kind);
+        this.indexGens[kind]++;
         this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: r.count, truncated: r.truncated });
+        if (searched) this.emit({ type: 'searchReady', sourceId: id });
       } catch (err) {
         if (err instanceof VodFetchCancelled || this.epoch !== epoch) return;
         const out = this.record('refreshVod', err);

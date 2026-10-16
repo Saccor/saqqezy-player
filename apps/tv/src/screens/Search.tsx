@@ -13,7 +13,10 @@ import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { PREVIEW_RECT } from './Home.tsx';
-import { SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage, type SearchRow, type SearchState } from './searchLogic.ts';
+import {
+  SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage,
+  vodRoute, type SearchRow, type SearchState,
+} from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
 const KB_X = LAYOUT.safeX;
@@ -32,7 +35,10 @@ const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
 const memory = createSearchMemory();
 
-/** Search: inline on-screen keyboard (left) and up to 50 results with now/next (right). Ok plays the channel. */
+/**
+ * Search: inline on-screen keyboard (left) and results (right): channels with now/next, movies and series (20 each,
+ * from catalogues stored on the device), programmes. Ok plays the channel or opens the title's detail screen.
+ */
 export function SearchScreen() {
   const [query, setQuery] = createSignal(memory.query);
   const [state, setState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
@@ -78,10 +84,16 @@ export function SearchScreen() {
   const focusList = () => { if (state().results.some((r) => isSelectable(r))) listNode?.setFocus(); };
   const focusKeyboard = () => { kbNode?.setFocus(); return true; };
 
-  /** Channel and on-now rows play the channel; a coming-up row opens the Guide at that channel and time. */
+  /** Channel and on-now rows play the channel; a coming-up row opens the Guide at that channel and time; a movie or series row opens its detail. */
   const open = () => {
     const r = rowAt(focus());
     if (!r || !isSelectable(r)) return true;
+    const vod = vodRoute(r);
+    if (vod) {
+      memory.leaveTo(focus());
+      router.push(vod.screen, vod.params);
+      return true;
+    }
     if (r.kind === 'later') {
       memory.leaveTo(focus());
       router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
@@ -110,8 +122,8 @@ export function SearchScreen() {
   onMount(() => {
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     onCleanup(() => clearInterval(tick));
-    // The guide's title index became ready, or a guide import finished (the first one may finish while Search is
-    // open): re-run the open query so programme results appear. A same-query re-run keeps the focused row.
+    // A search index (guide titles, or movies and series) became ready, or a guide import finished (the first one may
+    // finish while Search is open): re-run the open query so those results appear. A same-query re-run keeps the focused row.
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
     onCleanup(onEvent('searchReady', rerun));
     onCleanup(onEvent('refreshed', rerun));
@@ -143,7 +155,7 @@ export function SearchScreen() {
       <Text x={COUNT_X} y={COUNT_Y} width={COUNT_W} maxWidth={COUNT_W} contain="width" maxLines={1} textAlign="right"
         fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>
 
-      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel or programme" hint="Right: results · Back returns" value={query()}
+      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel, programme or title" hint="Right: results · Back returns" value={query()}
         onChange={onChange} onDone={focusList} onEdgeRight={() => { focusList(); }} />
 
       <SearchResultList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
@@ -174,7 +186,7 @@ export function SearchScreen() {
       <Show when={!pointerMode()}>
         <Text x={KB_X} y={HINT_Y} width={LAYOUT.width - KB_X * 2} maxWidth={LAYOUT.width - KB_X * 2} contain="width"
           maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {'Type with the keyboard or remote · Right: results · Ok watch or open in guide · Left: keyboard · Back'}
+          {'Type with the keyboard or remote · Right: results · Ok watch, open in guide or open title · Left: keyboard · Back'}
         </Text>
       </Show>
     </View>

@@ -302,7 +302,11 @@ describe('AppApi', () => {
     expect(r.onNow).toEqual([]);
     expect(r.later).toEqual([]);
     expect(r.guidePending).toBe(false);
-    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false });
+    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, movies: [], series: [], vodPending: false });
+    // Without movies and series support: no VOD sections, never pending.
+    expect(r.movies).toEqual([]);
+    expect(r.series).toEqual([]);
+    expect(r.vodPending).toBe(false);
   });
 
   test('search: on now (capped at 20) and coming up, one row per title', async () => {
@@ -1558,6 +1562,34 @@ describe('AppApi VOD', () => {
     await api.refresh('playlist');
     const vod = events.filter((e) => e.type === 'vodRefreshed');
     expect(vod.map((e) => [(e as { kind: string }).kind, (e as { count: number }).count])).toEqual([['movie', 0], ['series', 0]]);
+  });
+
+  test('search: movies and series from the stored catalogues (20 at most each), filled in after searchReady, never fetched', async () => {
+    const { api, events, vod } = makeVod();
+    await api.addSource(xt());
+    const id = (await storage.listSources())[0]!.id;
+    const items = (kind: 'movie' | 'series', n: number) => Array.from({ length: n }, (_, i) => ({
+      id: `${id}:${kind[0]}${i}`, kind, title: `Synthetic ${kind} ${String(i).padStart(2, '0')}`, categoryId: '1', year: 2000 + i,
+    }));
+    await storage.replaceVod(id, 'movie', { items: items('movie', 25), categories: [] });
+    await storage.replaceVod(id, 'series', { items: items('series', 3), categories: [] });
+    await api.idle();
+    const refresh = vi.spyOn(vod, 'refresh');
+    events.length = 0;
+    const first = await api.search('synthetic', 50);
+    expect(first).toMatchObject({ channels: [], movies: [], series: [], vodPending: true });
+    await api.idle();
+    expect(events).toContainEqual({ type: 'searchReady', sourceId: id });
+    const r = await api.search('synthetic', 50);
+    expect(r.vodPending).toBe(false);
+    expect(r.movies).toHaveLength(20);
+    expect(r.movies[0]).toEqual({ id: `${id}:m0`, kind: 'movie', title: 'Synthetic movie 00', categoryId: '1', year: 2000, watched: false, favourite: false });
+    expect(r.series.map((t) => t.title)).toEqual(['Synthetic series 00', 'Synthetic series 01', 'Synthetic series 02']);
+    expect(refresh).not.toHaveBeenCalled();
+    // A source switch drops the indexes: the next search is pending again.
+    const other = await api.addSource({ kind: 'm3u', name: 'M', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    await api.setActiveSource(other.sourceId);
+    expect((await api.search('synthetic', 50)).vodPending).toBe(true);
   });
 
   test('an invalid kind is rejected', async () => {

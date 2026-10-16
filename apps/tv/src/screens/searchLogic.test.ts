@@ -1,4 +1,4 @@
-import type { ChannelRow, SearchResult } from '@iptv/app-api';
+import type { ChannelRow, SearchResult, VodTile } from '@iptv/app-api';
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 import {
   countText,
@@ -14,6 +14,9 @@ import {
   resultsMessage,
   scrollAnchor,
   selectableCount,
+  vodLine,
+  vodRoute,
+  VOD_PENDING_NOTE,
   type SearchRow,
   type SearchState,
 } from './searchLogic.ts';
@@ -21,7 +24,12 @@ import {
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 const row = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
-const result = (over: Partial<SearchResult> = {}): SearchResult => ({ channels: [], onNow: [], later: [], guidePending: false, ...over });
+const result = (over: Partial<SearchResult> = {}): SearchResult => ({
+  channels: [], onNow: [], later: [], guidePending: false, movies: [], series: [], vodPending: false, ...over,
+});
+const tile = (kind: 'movie' | 'series', n: number, extra: Partial<VodTile> = {}): VodTile => ({
+  id: `s:${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false, ...extra,
+});
 const chRow = (n: number): SearchRow => ({ kind: 'channel', channel: row(n) });
 
 describe('createSearcher', () => {
@@ -113,6 +121,26 @@ describe('flattenResults', () => {
     expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'On now', 'Coming up']);
   });
 
+  test('movies and series follow channels, before the programme sections', () => {
+    const rows = flattenResults(result({
+      channels: [row(1)],
+      movies: [tile('movie', 1), tile('movie', 2)],
+      series: [tile('series', 1)],
+      onNow: [{ channel: row(3), title: 'Now Show', start: 0, stop: 1 }],
+    }));
+    expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'Movies', 'Series', 'On now']);
+    expect(rows.map((r) => r.kind)).toEqual(['header', 'channel', 'header', 'vod', 'vod', 'header', 'vod', 'header', 'onNow']);
+    expect(rows[3]).toEqual({ kind: 'vod', tile: tile('movie', 1) });
+    expect(rows.map(isSelectable)).toEqual([false, true, false, true, true, false, true, false, true]);
+  });
+
+  test('a pending movie and series index adds its note (after the guide one)', () => {
+    expect(flattenResults(result({ channels: [row(1)], vodPending: true })).at(-1)).toEqual({ kind: 'note', label: VOD_PENDING_NOTE });
+    expect(flattenResults(result({ guidePending: true, vodPending: true }))).toEqual([
+      { kind: 'note', label: GUIDE_PENDING_NOTE }, { kind: 'note', label: VOD_PENDING_NOTE },
+    ]);
+  });
+
   test('pending note after the results, and on its own when nothing is selectable', () => {
     expect(flattenResults(result({ channels: [row(1)], guidePending: true })).at(-1)).toEqual({ kind: 'note', label: GUIDE_PENDING_NOTE });
     expect(flattenResults(result({ guidePending: true }))).toEqual([{ kind: 'note', label: GUIDE_PENDING_NOTE }]);
@@ -167,6 +195,13 @@ describe('nextFocus', () => {
     expect(nextFocus({ ...base, rows: full, returning: true, memoryFocus: 6 })).toEqual({ focus: 6, top: 0, consumeReturning: true, focusList: true });
   });
 
+  it('an answer still waiting for movies and series only sets a provisional focus too', () => {
+    const vodPending = flattenResults(result({ channels: [row(1), row(2), row(3)], vodPending: true }));
+    const d = nextFocus({ ...base, rows: vodPending, returning: true, memoryFocus: 20 });
+    expect(d.consumeReturning).toBe(false);
+    expect(d.focus).toBe(3);
+  });
+
   it('an empty or failed answer is safe and keeps returning', () => {
     expect(nextFocus({ ...base, rows: [] })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
     expect(nextFocus({ ...base, rows: [], returning: true, memoryFocus: 20 })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
@@ -186,9 +221,9 @@ describe('rerunsSearch', () => {
 describe('resultsMessage', () => {
   const st = (p: Partial<SearchState<SearchRow>>): SearchState<SearchRow> => ({ query: 'xyz', results: [], busy: false, failed: false, ...p });
   it('covers each state', () => {
-    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels and programmes');
+    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels, programmes, movies and series');
     expect(resultsMessage(st({ busy: true }))).toBe('Searching…');
-    expect(resultsMessage(st({}))).toBe('No channels or programmes match "xyz"');
+    expect(resultsMessage(st({}))).toBe('Nothing matches "xyz"');
     expect(resultsMessage(st({ results: [chRow(1)] }))).toBeUndefined();
     expect(resultsMessage(st({ failed: true }))).toBe("Couldn't search right now.");
   });
@@ -198,6 +233,29 @@ describe('resultsMessage', () => {
     expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Guide results are being prepared');
     expect(resultsMessage(st({ results: pending, busy: true }))).toBe('Searching…');
     expect(resultsMessage(st({ results: flattenResults(result({ channels: [row(1)], guidePending: true })) }))).toBeUndefined();
+  });
+
+  it('says movies and series are being prepared when only they are pending', () => {
+    const pending = flattenResults(result({ vodPending: true }));
+    expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Movies and series are being prepared');
+    expect(resultsMessage(st({ results: flattenResults(result({ guidePending: true, vodPending: true })) })))
+      .toBe('No channels match "xyz" · Guide results are being prepared');
+  });
+});
+
+describe('movie and series rows', () => {
+  test('Ok opens the detail screen of the kind with the tile', () => {
+    const m = tile('movie', 1);
+    const s = tile('series', 2);
+    expect(vodRoute({ kind: 'vod', tile: m })).toEqual({ screen: 'movieDetail', params: { id: m.id, tile: m } });
+    expect(vodRoute({ kind: 'vod', tile: s })).toEqual({ screen: 'seriesDetail', params: { id: s.id, tile: s } });
+    expect(vodRoute({ kind: 'channel', channel: row(1) })).toBeUndefined();
+    expect(vodRoute(undefined)).toBeUndefined();
+  });
+
+  test('a compact line: title, then year when known', () => {
+    expect(vodLine(tile('movie', 1, { year: 2004 }))).toBe('Synthetic movie 1 · 2004');
+    expect(vodLine(tile('series', 1))).toBe('Synthetic series 1');
   });
 });
 

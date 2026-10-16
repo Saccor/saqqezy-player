@@ -1,4 +1,5 @@
 import { searchKey } from '../text/searchKey.ts';
+import { buildVodSearchIndex, type VodSearchIndex } from './searchIndex.ts';
 import { VOD_ALL, type Episode, type VodCategory, type VodItem, type VodKind, type VodList, type VodSort } from './types.ts';
 
 /** In-worker index over one stored catalogue. Sort orders are built on first use and cached per category. */
@@ -69,6 +70,11 @@ export class VodCatalog {
       if (top.length > k) top.pop();
     }
     return top.map((h) => this.list.items[h.i]!);
+  }
+
+  /** The compact Search index of this catalogue (shares no storage with it; reuses the search keys). */
+  searchIndex(): VodSearchIndex {
+    return buildVodSearchIndex(this.kind, this.list.items, (i) => this.key(i));
   }
 
   private key(i: number): string {

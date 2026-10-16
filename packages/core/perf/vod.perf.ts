@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { VodCatalog } from '../src/vod/catalog.ts';
 import { buildVodList } from '../src/vod/list.ts';
+import { searchVodIndex, vodSearchIndexBytes, type VodSearchIndex } from '../src/vod/searchIndex.ts';
 import type { VodCategory, VodItem } from '../src/vod/types.ts';
 
 function median(xs: number[]): number {
@@ -120,4 +121,52 @@ test('vod catalogue: resident heap at 60k movies with realistic ids and poster U
     expect(r.size).toBe(n);
   }
   expect(med).toBeLessThan(40);
+});
+
+test('vod search index: 50k movies + 10k series built from stored catalogues, retained heap and search time', () => {
+  if (!gcFn) throw new Error('Run with --expose-gc (pnpm test:perf does).');
+  const sourceId = 'mgq3x7k2a9f1zp';
+  const stored = (kind: 'movie' | 'series', n: number): VodItem[] => structuredClone(Array.from({ length: n }, (_, i): VodItem => ({
+    id: `${sourceId}:${kind === 'movie' ? 'm' : 's'}${100_000 + i}`, kind, title: `Synthetic Film Title Number ${i} Part ${i % 7}`,
+    categoryId: String((i % 80) + 1), xid: 100_000 + i,
+    poster: `https://img.example.test/t/p/w600_and_h900_bestv2/${i.toString(16).padStart(32, '0')}.jpg`,
+    year: 1950 + (i % 75), rating: (i % 100) / 10, added: 1_760_000_000 - i * 60, ext: 'mkv',
+  })));
+  const categories = (kind: 'movie' | 'series'): VodCategory[] => Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), kind, name: `Synthetic Category ${i + 1}`, count: 0 }));
+
+  const measure = () => {
+    gcFn();
+    const mem0 = process.memoryUsage();
+    const t0 = performance.now();
+    // What the worker does for a kind that is not resident: read the stored list once, build, drop the list.
+    const indexes: VodSearchIndex[] = (['movie', 'series'] as const).map((kind) => {
+      const list = buildVodList(kind, stored(kind, kind === 'movie' ? 50_000 : 10_000), categories(kind));
+      return new VodCatalog(kind, list).searchIndex();
+    });
+    const buildMs = performance.now() - t0;
+    gcFn();
+    const mem1 = process.memoryUsage();
+    return { indexes, buildMs, heapMB: (mem1.heapUsed - mem0.heapUsed + mem1.arrayBuffers - mem0.arrayBuffers) / 1e6 };
+  };
+  const runs = [measure(), measure(), measure()];
+  const med = median(runs.map((r) => r.heapMB));
+  const { indexes } = runs[0]!;
+
+  const searchTimes: number[] = [];
+  for (const q of ['s', 'film 1', 'part 3', 'synthetic film title number 49999', 'zzz']) {
+    for (let r = 0; r < 5; r++) {
+      const t = performance.now();
+      for (const ix of indexes) searchVodIndex(ix, q, 20);
+      searchTimes.push(performance.now() - t);
+    }
+  }
+  console.log(JSON.stringify({
+    indexHeapMB: runs.map((r) => r.heapMB.toFixed(2)), medianIndexHeapMB: med.toFixed(2),
+    packedMB: indexes.map((ix) => (vodSearchIndexBytes(ix) / 1e6).toFixed(2)),
+    buildMs: runs.map((r) => Math.round(r.buildMs)), searchMedianMs: median(searchTimes).toFixed(2),
+  }));
+  expect(indexes.map((ix) => ix.size)).toEqual([50_000, 10_000]);
+  expect(median(searchTimes)).toBeLessThan(30);
+  // Budget (plan 6 decision): 7 MB, no posters in the index (with posters it measured 8.7 MB).
+  expect(med).toBeLessThan(7);
 });
