@@ -626,9 +626,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return { text, box: small ? MESSAGE_BOXES.vodCardSmall : MESSAGE_BOXES.vodCard, font: small ? FONT.body : FONT.heading };
   });
   const subLines = () => cue().split('\n').length;
-  const subY = () => (visible() ? BAND_Y + 40 : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
-  // Toasts end above the overlay's title and bar, or above a subtitle when the overlay is hidden.
-  useToastFloor(() => (visible() ? TITLE_Y - LAYOUT.gap : cue() ? subY() - LAYOUT.gap : undefined));
+  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
+  // Toasts end above a subtitle, else above the overlay's title.
+  useToastFloor(() => (cue() ? subY() - LAYOUT.gap : visible() ? TITLE_Y - LAYOUT.gap : undefined));
   const PILL_W = 420;
 
   return (
