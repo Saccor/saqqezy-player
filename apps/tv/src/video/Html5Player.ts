@@ -233,8 +233,8 @@ export class Html5Player implements Player {
       v.src = src;
     } else if (kind === 'hls') {
       const hls = new Hls(s.live ? hlsConfig(this.profile.preset, this.isTv) : this.vodHlsConfig(s));
-      // The selected subtitle track loads its cues into a hidden text track; the app draws them (onSubtitle).
-      hls.subtitleDisplay = false;
+      // VOD: the selected subtitle track loads its cues into a hidden text track; the app draws them (onSubtitle).
+      if (!s.live) hls.subtitleDisplay = false;
       s.engine = { kind: 'hls', hls };
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
         s.hlsLive = data.details.live;
@@ -483,7 +483,20 @@ export class Html5Player implements Player {
   private pollSubtitle(): void {
     const list = (this.video as HTMLVideoElement & { textTracks?: NativeTextTrackList }).textTracks;
     let text: string | null = null;
-    if (this.session && list) {
+    const e = this.session?.engine;
+    if (e?.kind === 'hls') {
+      // Only hls.js's selected subtitle track: the captions track it adds for embedded CEA-608 is never listed or
+      // chosen, so it must never show.
+      const chosen = e.hls.subtitleTrack >= 0 ? e.hls.subtitleTracks[e.hls.subtitleTrack] : undefined;
+      if (chosen && list) {
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          if (t?.kind !== 'subtitles' || t.mode === 'disabled' || t.label !== chosen.name) continue;
+          text = cueTextOf(t.activeCues);
+          break;
+        }
+      }
+    } else if (this.session && list) {
       for (let i = 0; i < list.length; i++) {
         const t = list[i];
         if (!isSubtitleKind(t) || t.mode === 'disabled') continue;

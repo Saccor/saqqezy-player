@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -191,6 +191,16 @@ describe('pauseOnHidden', () => {
     expect(pauseOnHidden({ hidden: false, paused: false, problem: false })).toBe(false); // visible again: no auto-resume
     expect(pauseOnHidden({ hidden: true, paused: true, problem: false })).toBe(false);
     expect(pauseOnHidden({ hidden: true, paused: false, problem: true })).toBe(false); // ended or failed
+  });
+});
+
+describe('shapeCheckDue', () => {
+  it('looks for late tracks once a second, only in the first 10 s after the tracks were applied', () => {
+    expect(shapeCheckDue(0)).toBe(false);
+    expect(shapeCheckDue(4)).toBe(true);
+    expect(shapeCheckDue(5)).toBe(false);
+    expect(shapeCheckDue(40)).toBe(true);
+    expect(shapeCheckDue(44)).toBe(false);
   });
 });
 

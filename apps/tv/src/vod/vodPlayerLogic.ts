@@ -193,6 +193,14 @@ export function tracksDue(
   return startedAttempts !== appliedAt || appliedShape !== shape;
 }
 
+/**
+ * Whether the player's 250 ms tick looks for late tracks now (`ticks`: ticks since the tracks were last applied): once
+ * a second for the first 10 s. Reading the track lists is a native call on AVPlay, so never on every tick for a whole film.
+ */
+export function shapeCheckDue(ticks: number): boolean {
+  return ticks > 0 && ticks <= 40 && ticks % 4 === 0;
+}
+
 /** The track lists' shape for `tracksDue`. */
 export function trackShape(audio: readonly unknown[], text: readonly unknown[]): string {
   return `${audio.length}/${text.length}`;

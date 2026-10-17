@@ -25,7 +25,7 @@ import {
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
@@ -108,6 +108,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let tracksAppliedAt: number | undefined;
   /** The track lists' shape when they were last applied (`trackShape`): late tracks re-apply the choices. */
   let tracksAppliedShape: string | undefined;
+  /** Ticks since the tracks were last applied (`shapeCheckDue`). */
+  let shapeTicks = 0;
   /**
    * Playhead saves wait until this attempt played near the start position (or the user seeked, or paused while it
    * played): see `progressSaveArmed`. A start at 0 is armed at once.
@@ -280,6 +282,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const audios = playback.audioTracks();
     const texts = playback.textTracks();
     tracksAppliedShape = trackShape(audios, texts);
+    shapeTicks = 0;
     const a = findTrack(audios, chosen.audio);
     if (a && !a.active) playback.selectAudioTrack(a.id);
     if (chosen.subtitle === SUBTITLE_KEY_OFF) {
@@ -574,8 +577,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       setPaused(playback.paused());
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
       const playing = status()?.kind === 'playing';
-      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape,
-        playing ? trackShape(playback.audioTracks(), playback.textTracks()) : undefined)) applyTracks();
+      shapeTicks++;
+      const shape = playing && shapeCheckDue(shapeTicks) ? trackShape(playback.audioTracks(), playback.textTracks()) : tracksAppliedShape;
+      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
     }, TICK_MS);
