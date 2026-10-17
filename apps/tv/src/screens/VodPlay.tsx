@@ -25,7 +25,7 @@ import {
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, trackKey, trackRows, tracksDue, tracksKeyId,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
@@ -104,6 +104,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
   let tracksAppliedAt: number | undefined;
+  /** The track lists' shape when they were last applied (`trackShape`): late tracks re-apply the choices. */
+  let tracksAppliedShape: string | undefined;
   /**
    * Playhead saves wait until this attempt played near the start position (or the user seeked, or paused while it
    * played): see `progressSaveArmed`. A start at 0 is armed at once.
@@ -273,9 +275,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const applyTracks = () => {
     tracksAppliedAt = playback.startedAttempts();
-    const a = findTrack(playback.audioTracks(), chosen.audio);
-    if (a && !a.active) playback.selectAudioTrack(a.id);
+    const audios = playback.audioTracks();
     const texts = playback.textTracks();
+    tracksAppliedShape = trackShape(audios, texts);
+    const a = findTrack(audios, chosen.audio);
+    if (a && !a.active) playback.selectAudioTrack(a.id);
     if (chosen.subtitle === SUBTITLE_KEY_OFF) {
       if (texts.some((t) => t.active)) playback.selectTextTrack(null);
     } else {
@@ -563,7 +567,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       setBufEnd(d === undefined ? undefined : bufferedEndMs(at ?? pos(), playback.bufferedAheadMs(), d));
       setPaused(playback.paused());
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
-      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), status()?.kind === 'playing')) applyTracks();
+      const playing = status()?.kind === 'playing';
+      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape,
+        playing ? trackShape(playback.audioTracks(), playback.textTracks()) : undefined)) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
     }, TICK_MS);

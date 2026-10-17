@@ -8,6 +8,7 @@ import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';
+import { cueTextOf, nativeHlsPreferred } from './trackSupport.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
 type Engine =
@@ -87,7 +88,9 @@ const HOLD_MAX_MS = 30_000;
 
 interface NativeAudioTrack { id: string; label: string; language: string; enabled: boolean }
 interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
-interface NativeTextTrack { kind: string; label: string; language: string; mode: string }
+interface NativeTextTrack { kind: string; label: string; language: string; mode: string; activeCues?: ArrayLike<{ text?: string }> | null }
+/** How often the selected subtitle track's active cues are read (cuechange is unreliable on older TV engines). */
+const SUBTITLE_POLL_MS = 250;
 interface NativeTextTrackList { length: number; [i: number]: NativeTextTrack }
 const isSubtitleKind = (t: NativeTextTrack | undefined): t is NativeTextTrack => t?.kind === 'subtitles' || t?.kind === 'captions';
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
@@ -122,6 +125,10 @@ export class Html5Player implements Player {
   private frameOverlay: { remove(): void } | undefined;
   private overlayTimer: ReturnType<typeof setTimeout> | undefined;
 
+  private readonly subtitleListeners = new Set<(text: string | null) => void>();
+  private subtitleTimer: ReturnType<typeof setInterval> | undefined;
+  /** The cue text last reported (null: none shown). */
+  private lastCue: string | null = null;
   private readonly preferNativeHls: boolean;
   private readonly isTv: boolean;
   private readonly autoMute: AutoMute;
@@ -204,7 +211,7 @@ export class Html5Player implements Player {
       nativeTs: v.canPlayType(TS_MIME) !== '',
       hlsJs: Hls.isSupported(),
       mpegtsJs: mpegts.isSupported(),
-      preferNativeHls: this.preferNativeHls,
+      preferNativeHls: nativeHlsPreferred({ prefer: this.preferNativeHls, live: s.live, audioTrackApi: 'audioTracks' in v }),
     });
     if (choice.engine === 'none') {
       const message = choice.reason === 'hls' ? 'HLS is not supported here' : 'MPEG-TS is not supported here';
@@ -226,6 +233,8 @@ export class Html5Player implements Player {
       v.src = src;
     } else if (kind === 'hls') {
       const hls = new Hls(s.live ? hlsConfig(this.profile.preset, this.isTv) : this.vodHlsConfig(s));
+      // The selected subtitle track loads its cues into a hidden text track; the app draws them (onSubtitle).
+      hls.subtitleDisplay = false;
       s.engine = { kind: 'hls', hls };
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data: LevelLoadedData) => {
         s.hlsLive = data.details.live;
@@ -428,7 +437,7 @@ export class Html5Player implements Player {
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
       if (!isSubtitleKind(t)) continue;
-      const info: TrackInfo = { id: String(i), label: t.label || t.language || `Subtitles ${out.length + 1}`, active: t.mode === 'showing' };
+      const info: TrackInfo = { id: String(i), label: t.label || t.language || `Subtitles ${out.length + 1}`, active: t.mode !== 'disabled' };
       if (t.language) info.language = t.language;
       out.push(info);
     }
@@ -449,7 +458,52 @@ export class Html5Player implements Player {
     if (idx >= 0 && !isSubtitleKind(list[idx])) return;
     for (let i = 0; i < list.length; i++) {
       const t = list[i];
-      if (isSubtitleKind(t)) t.mode = i === idx ? 'showing' : 'disabled';
+      // Hidden, not showing: the cues still load, and the app draws them (onSubtitle) clear of its overlay.
+      if (isSubtitleKind(t)) t.mode = i === idx ? 'hidden' : 'disabled';
+    }
+  }
+
+  /**
+   * The selected subtitle track's cue text (native tracks and hls.js, which loads its cues into a hidden text track),
+   * read every SUBTITLE_POLL_MS while someone listens; changes only, `null` when the cue clears. A track the element
+   * shows by itself (a default track) is switched to hidden, so the cue is never drawn twice.
+   */
+  onSubtitle(fn: (text: string | null) => void): () => void {
+    this.subtitleListeners.add(fn);
+    if (this.subtitleTimer === undefined) this.subtitleTimer = setInterval(() => this.pollSubtitle(), SUBTITLE_POLL_MS);
+    return () => {
+      this.subtitleListeners.delete(fn);
+      if (this.subtitleListeners.size === 0 && this.subtitleTimer !== undefined) {
+        clearInterval(this.subtitleTimer);
+        this.subtitleTimer = undefined;
+      }
+    };
+  }
+
+  private pollSubtitle(): void {
+    const list = (this.video as HTMLVideoElement & { textTracks?: NativeTextTrackList }).textTracks;
+    let text: string | null = null;
+    if (this.session && list) {
+      for (let i = 0; i < list.length; i++) {
+        const t = list[i];
+        if (!isSubtitleKind(t) || t.mode === 'disabled') continue;
+        if (t.mode === 'showing') t.mode = 'hidden';
+        text = cueTextOf(t.activeCues);
+        break;
+      }
+    }
+    this.emitSubtitle(text);
+  }
+
+  private emitSubtitle(text: string | null): void {
+    if (text === this.lastCue) return;
+    this.lastCue = text;
+    for (const fn of [...this.subtitleListeners]) {
+      try {
+        fn(text);
+      } catch {
+        // A faulty listener must not break the player.
+      }
     }
   }
 
@@ -565,6 +619,7 @@ export class Html5Player implements Player {
     if (!s) return;
     s.dead = true;
     this.session = undefined;
+    this.emitSubtitle(null);
     for (const c of s.cleanups) c();
     this.teardownEngine(s.engine);
     const v = this.video;
@@ -808,6 +863,9 @@ export class Html5Player implements Player {
     this.releaseLastFrame();
     this.stop();
     this.listeners.clear();
+    this.subtitleListeners.clear();
+    if (this.subtitleTimer !== undefined) clearInterval(this.subtitleTimer);
+    this.subtitleTimer = undefined;
   }
 
   private emit(s: Session, state: PlayerState, detail: StateDetail = {}): void {
