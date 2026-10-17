@@ -24,7 +24,7 @@ import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
-  showWordmark, WORDMARK_MAX_WAIT_MS,
+  OFFLINE_BADGE_W, OFFLINE_BADGE_X, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
@@ -37,15 +37,14 @@ import { bootstrap, cooldown, initFailed, initState, offline, platformId, settin
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
-const BADGE_W = 400;
 const BADGE_H = 48;
 
 function OfflineBadge() {
   return (
-    <View x={LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - BADGE_W} y={LAYOUT.safeY - 4} width={BADGE_W} height={BADGE_H}
+    <View x={OFFLINE_BADGE_X} y={LAYOUT.safeY - 4} width={OFFLINE_BADGE_W} height={BADGE_H}
       color={COLORS.surface} borderRadius={BADGE_H / 2} border={{ width: 2, color: COLORS.muted }} zIndex={10}>
-      <Text y={(BADGE_H - FONT.small) / 2 - 3} width={BADGE_W} maxWidth={BADGE_W} contain="width" textAlign="center"
-        fontSize={FONT.small} color={COLORS.text}>{'Offline – showing saved list'}</Text>
+      <Text y={(BADGE_H - FONT.small) / 2 - 3} width={OFFLINE_BADGE_W} maxWidth={OFFLINE_BADGE_W} contain="width" textAlign="center"
+        maxLines={1} fontSize={FONT.small} color={COLORS.text}>{'Offline · saved list'}</Text>
     </View>
   );
 }

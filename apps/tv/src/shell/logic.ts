@@ -104,6 +104,13 @@ export const SHELL_BACK_W = 200;
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
 
+/**
+ * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the
+ * Guide narrows that line to end before it while offline.
+ */
+export const OFFLINE_BADGE_W = 280;
+export const OFFLINE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - OFFLINE_BADGE_W;
+
 /** The toast: 1100 wide, its text 1052 wide at body size (about 72 characters a line), at most two lines. */
 export const TOAST_W = 1100;
 const TOAST_BOX = { charsPerLine: 72, maxLines: 2, lineH: 32 } as const satisfies MessageBox;

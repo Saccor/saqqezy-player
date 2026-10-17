@@ -12,7 +12,7 @@ import { playback } from '../playback/playback.ts';
 import { applyInitState } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
+import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
   ADVANCED_HELP, FIELD_MAX, HEADER_FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
@@ -48,6 +48,7 @@ const FORM_TITLE: Record<Kind, string> = { xtream: 'Xtream login', m3u: 'M3U lin
 
 const KEYBOARD_ID = 'keyboard';
 const X = LAYOUT.safeX;
+const TITLE_W = WORDMARK_ZONE_X - X - LAYOUT.gap;
 const FORM_Y = 170;
 /** Below the brand wordmark, whose right edge overlaps the keyboard's left edge. */
 const KEYBOARD_Y = WORDMARK_BOTTOM + 10;
@@ -363,7 +364,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       </Show>
 
       <Show when={ready() && step() !== 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>
+        {/* Ends before the wordmark zone: "Advanced · <long source name>" ran under the wordmark. */}
+        <Text x={X} y={LAYOUT.safeY + 40} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
           {advanced ? `Advanced · ${stored?.name ?? ''}` : editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
         </Text>
         <Show when={advanced}>
