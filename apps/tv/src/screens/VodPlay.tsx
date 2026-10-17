@@ -210,6 +210,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     arm({ userSeeked: true }); // the user chose this position
     playback.seek(s.targetMs);
     setPos(s.targetMs);
+    setBufEnd(undefined); // the buffer reading is the old position's until the engine reports again
     lastPos = s.targetMs;
   };
 
