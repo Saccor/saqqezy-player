@@ -42,6 +42,9 @@ export interface FetchCatalogOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** A further snapshot needs the list to have grown by this factor since the last one. */
+const SNAPSHOT_GROWTH = 1.5;
+
 /** Errors that mean "stop asking": the source refuses us or the login is wrong. */
 const stopsAsking = (e: unknown) => e instanceof SourceRefusedError || e instanceof SourceAuthError;
 
@@ -81,6 +84,7 @@ export async function fetchXtreamCatalog(api: XtreamVodApi, kind: VodKind, opts:
   let truncated = false;
   let partial = false;
   let lastSnapshot: number | undefined;
+  let snapshotCount = 0;
   const add = (list: VodItem[]) => {
     for (const it of list) {
       if (seen.has(it.id)) continue;
@@ -96,8 +100,11 @@ export async function fetchXtreamCatalog(api: XtreamVodApi, kind: VodKind, opts:
     opts.onProgress?.(items.length);
     if (!opts.onSnapshot || items.length === 0) return;
     const t = now();
-    if (lastSnapshot !== undefined && t - lastSnapshot < snapshotMs) return;
+    // Each snapshot costs O(n) here and a re-sort on screen: besides the interval, the list must have grown by half,
+    // so a big catalogue gets a handful of snapshots (total work stays near linear), not one per interval.
+    if (lastSnapshot !== undefined && (t - lastSnapshot < snapshotMs || items.length < snapshotCount * SNAPSHOT_GROWTH)) return;
     lastSnapshot = t;
+    snapshotCount = items.length;
     opts.onSnapshot(buildVodList(kind, items.slice(), categories));
   };
 
@@ -132,6 +139,7 @@ export async function fetchXtreamCatalog(api: XtreamVodApi, kind: VodKind, opts:
     const known = new Set(categories.map((c) => c.id));
     let lastStart: number | undefined;
     let fails = 0;
+    let answered = false;
     let lastError: unknown;
     for (let i = 0; i < categories.length && !truncated; i++) {
       if (lastStart !== undefined) {
@@ -153,14 +161,18 @@ export async function fetchXtreamCatalog(api: XtreamVodApi, kind: VodKind, opts:
       }
       check();
       fails = 0;
-      // The first answer holds other categories' titles: the panel ignores category_id, so this is everything.
-      if (i === 0 && list.some((it) => it.categoryId !== id && known.has(it.categoryId))) {
+      const firstAnswer = !answered;
+      answered = true;
+      // The first answer holds other categories' titles: the panel ignores category_id, so this is everything (and
+      // categories that failed before it are in it too).
+      if (firstAnswer && list.some((it) => it.categoryId !== id && known.has(it.categoryId))) {
         add(list);
+        partial = false;
         progressed();
         break;
       }
       // An empty probe: the source has no titles of this kind.
-      if (i === 0 && probing && list.length === 0) break;
+      if (firstAnswer && probing && list.length === 0) break;
       add(list);
       progressed();
     }

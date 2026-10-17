@@ -209,6 +209,47 @@ describe('VodController first load in progress', () => {
     expect((await c.home('movie')).rows.find((r) => r.id === '1')?.total).toBe(375);
   });
 
+  test('two first loads at once: only the kind on screen shows its titles so far', async () => {
+    let release!: () => void;
+    held = { gate: new Promise<void>((r) => { release = r; }) };
+    const { c, events } = await setup();
+    await c.home('movie');
+    await settle();
+    events.length = 0;
+    await c.home('series');
+    await settle();
+    // From here on the Series screen shows: Movies' load goes on in the background without taking the slot.
+    release();
+    await new Promise((r) => setTimeout(r, 60));
+    const kinds = events.filter((e) => e.type === 'vodProgress').map((e) => (e as { kind: string }).kind);
+    expect(kinds).not.toContain('movie');
+    const s = await c.home('series');
+    expect(s.status).toBe('ready');
+    expect(s.rows.some((r) => r.items.some((t) => t.kind === 'movie'))).toBe(false);
+    await c.idle();
+    expect((await c.home('movie')).rows.find((r) => r.id === '1')?.total).toBe(375);
+  });
+
+  test('a failed first load drops a Search index built from its titles', async () => {
+    const { c, vod, sourceId, events } = await setup();
+    let fail!: () => void;
+    const gate = new Promise<void>((r) => { fail = r; });
+    vi.spyOn(vod, 'refresh').mockImplementation(async (_id, kind, opts) => {
+      opts?.onSnapshot?.({ items: [{ id: `${sourceId}:m1`, kind, title: 'Synthetic Lantern', categoryId: '1' }], categories: [{ id: '1', kind, name: 'Drama', count: 1 }] });
+      await gate;
+      throw new Error('boom');
+    });
+    await c.home('movie');
+    await c.search('lantern', 20);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await c.search('lantern', 20)).movies).toHaveLength(1);
+    events.length = 0;
+    fail();
+    await c.idle();
+    expect(events.map((e) => e.type)).toContain('searchReady');
+    expect((await c.search('lantern', 20)).movies).toEqual([]);
+  });
+
   test('a partial stored list is reported', async () => {
     const { c, sourceId } = await setup();
     await storage.replaceVod(sourceId, 'movie', {

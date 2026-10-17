@@ -156,6 +156,25 @@ describe('fetchXtreamCatalog: one full request', () => {
   });
 });
 
+test('snapshots of a big list need it to grow by half: a handful, not one per interval', async () => {
+  const time = fakeTime();
+  const sizes: number[] = [];
+  const api: XtreamVodApi = {
+    categories: async () => cats(1),
+    list: async () => [],
+    all: async function* () {
+      for (let b = 0; b < 100; b++) {
+        time.tick(2000);
+        yield items('1', 1000, b * 1000);
+      }
+    },
+  };
+  await fetchXtreamCatalog(api, 'movie', { now: time.now, onSnapshot: (l) => sizes.push(l.items.length) });
+  expect(sizes[0]).toBe(1000);
+  for (let i = 1; i < sizes.length; i++) expect(sizes[i]!).toBeGreaterThanOrEqual(sizes[i - 1]! * 1.5);
+  expect(sizes.length).toBeLessThanOrEqual(12);
+});
+
 describe('fetchXtreamCatalog: fallback', () => {
   test('a failed full request falls back to one category at a time, paced', async () => {
     const time = fakeTime();
@@ -243,6 +262,19 @@ describe('fetchXtreamCatalog: fallback', () => {
     const list = await fetchXtreamCatalog(api, 'movie', { now: time.now, sleep: time.sleep });
     expect(api.log.filter((l) => l.startsWith('cat:'))).toEqual(['cat:1']);
     expect(list.items).toHaveLength(5);
+  });
+
+  test('the ignores-category_id check uses the first answer that arrives, even after a failed category', async () => {
+    const time = fakeTime();
+    const all = [...items('1', 2), ...items('2', 3), ...items('3', 1)];
+    const api = fakeApi(cats(3), { batches: [], error: down() }, (id) => {
+      if (id === '1') throw down();
+      return all;
+    });
+    const list = await fetchXtreamCatalog(api, 'movie', { now: time.now, sleep: time.sleep });
+    expect(api.log.filter((l) => l.startsWith('cat:'))).toEqual(['cat:1', 'cat:2']);
+    expect(list.items).toHaveLength(6);
+    expect(list.partial).toBeUndefined();
   });
 
   test('an uncategorised item in the first fallback answer does not make it the full list', async () => {

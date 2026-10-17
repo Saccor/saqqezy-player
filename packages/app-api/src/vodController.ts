@@ -72,6 +72,8 @@ export class VodController {
   private readonly jobs = new Map<VodKind, Job>();
   /** First loads that installed a snapshot as the resident catalogue: the titles so far, per kind. */
   private readonly progress = new Map<VodKind, number>();
+  /** The kind last asked for (the screen showing): only its first load shows snapshots. */
+  private wanted: VodKind | undefined;
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /**
    * Detail fetches in flight, per item id: a concurrent request for the same item (the hero resting, then a quick
@@ -108,6 +110,7 @@ export class VodController {
     this.resetDetails();
     this.dropIndexes();
     this.sourceId = sourceId;
+    this.wanted = undefined;
     this.epoch++;
     this.sourceEpoch++;
   }
@@ -240,7 +243,8 @@ export class VodController {
     const id = this.sourceId;
     if (!id) return;
     this.failures.delete(kind);
-    // Try again comes from a screen with nothing to show: a first load, unless a list of this kind is resident.
+    // Try again comes from this kind's screen, usually with nothing to show: a first load, unless a list is resident.
+    this.wanted = kind;
     const shown = this.resident?.kind === kind && this.resident.catalog.size > 0;
     await this.startFetch(kind, id, this.epoch, false, !shown);
   }
@@ -459,6 +463,7 @@ export class VodController {
   protected async catalog(kind: VodKind): Promise<VodCatalog | undefined> {
     const id = this.sourceId;
     if (!id) return undefined;
+    this.wanted = kind;
     if (this.resident?.kind === kind) return this.resident.catalog;
     if (this.loading?.kind === kind) return this.loading.p;
     // Drop the other kind before loading, so two catalogues are never resident together.
@@ -576,6 +581,8 @@ export class VodController {
     this.emit({ type: 'vodLoading', sourceId: id, kind });
     const onSnapshot = (list: VodList) => {
       if (this.epoch !== epoch || ac.signal.aborted) return;
+      // Two first loads at once (Movies, then Series): only the one on screen takes the resident slot.
+      if (this.wanted !== kind) return;
       // Like the final swap: never next to (or instead of) a catalogue of the other kind.
       if ((this.loading && this.loading.kind !== kind) || (this.resident && this.resident.kind !== kind)) return;
       if (this.resident?.kind === kind && !this.progress.has(kind) && this.resident.catalog.size > 0) return;
@@ -606,7 +613,12 @@ export class VodController {
       } catch (err) {
         if (this.epoch !== epoch) return;
         // The titles so far were never stored: a failed first load must not leave them looking like the catalogue.
-        if (this.progress.delete(kind) && this.resident?.kind === kind) this.resident = undefined;
+        if (this.progress.delete(kind)) {
+          if (this.resident?.kind === kind) this.resident = undefined;
+          // A Search index built from those titles goes too (a build in flight must not install it).
+          if (this.indexes.delete(kind)) this.emit({ type: 'searchReady', sourceId: id });
+          this.indexGens[kind]++;
+        }
         if (err instanceof VodFetchCancelled) return;
         const out = this.record('refreshVod', err);
         const error = toRpcError(out);
