@@ -9,6 +9,12 @@ export const VOD_UNCATEGORIZED = 'uncategorized';
 export const VOD_ALL = 'all';
 /** Most items kept per kind and source (protects 1 GB-RAM TVs). */
 export const VOD_CAP = 200_000;
+/** Fallback (one category at a time): request starts at least this far apart, so a flood limit is never hit. */
+export const VOD_FALLBACK_GAP_MS = 1000;
+/** Fallback: this many failed categories in a row end it (the source is down; the rest would fail too). */
+export const VOD_FALLBACK_MAX_FAILS = 3;
+/** A first load shows the list so far at most this often. */
+export const VOD_SNAPSHOT_MS = 1500;
 
 /** One row of a catalogue list. Kept compact: 60k of these stay resident in the worker. */
 export interface VodItem {
@@ -61,6 +67,8 @@ export interface VodList {
   episodes?: Record<string, Episode[]>;
   /** Set when the fetch stopped at `VOD_CAP`. */
   truncated?: boolean;
+  /** Set when some categories could not be fetched (Xtream fallback). */
+  partial?: boolean;
 }
 
 export interface MovieDetail {

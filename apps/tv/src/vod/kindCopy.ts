@@ -22,3 +22,20 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     detailRoute: 'seriesDetail',
   },
 };
+
+/** 12400 → "12,400" (no Intl: older TV engines). */
+function grouped(n: number): string {
+  return String(Math.max(0, Math.floor(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * The one line under the tab bar: a first load still running (titles so far), else some categories missing, else
+ * the cap. Empty when there is nothing to say.
+ */
+export function vodStatusLine(kind: VodKind, home: { progress?: number; partial?: boolean; truncated: boolean } | undefined): string {
+  if (!home) return '';
+  if (home.progress !== undefined) return `Still loading… ${grouped(home.progress)} ${kind === 'movie' ? 'movies' : 'series'} so far`;
+  if (home.partial) return 'Some categories could not be loaded.';
+  if (home.truncated) return 'Showing the first 200,000 titles.';
+  return '';
+}

@@ -1,6 +1,7 @@
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { responseText } from '../net/textStream.ts';
-import { API_TIMEOUT_MS, BODY_IDLE_MS } from '../net/timeout.ts';
+import { jsonArrayBatches } from '../net/jsonArrayStream.ts';
+import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { FetchFn, Programme } from '../types.ts';
 import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
 import { isObj, nonNegInt, posInt, str } from './json.ts';
@@ -56,25 +57,30 @@ export class XtreamClient {
     return new URLSearchParams({ username: this.cfg.username, password: this.cfg.password }).toString();
   }
 
-  private async api(action?: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<unknown> {
+  /** One `player_api.php` request, its status mapped: a 2xx response with a body, or a neutral error. */
+  private async request(action: string | undefined, extra: Record<string, string>, signal: AbortSignal | undefined, timeoutMs: number): Promise<Response> {
     const params = new URLSearchParams({ username: this.cfg.username, password: this.cfg.password });
     if (action) params.set('action', action);
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs: API_TIMEOUT_MS, ...(signal ? { signal } : {}) });
+      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs, ...(signal ? { signal } : {}) });
     } catch (err) {
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);
+    if (!res.body) throw new SourceNetworkError(UNEXPECTED_RESPONSE);
+    return res;
+  }
+
+  private async api(action?: string, extra: Record<string, string> = {}, signal?: AbortSignal): Promise<unknown> {
+    const res = await this.request(action, extra, signal, API_TIMEOUT_MS);
     const unexpected = () => new SourceNetworkError(UNEXPECTED_RESPONSE);
-    if (!res.body) throw unexpected();
-    const url = `${this.base}/player_api.php`;
     let text = '';
     try {
-      for await (const chunk of responseText(res, url, { idleMs: this.idleMs })) text += chunk;
+      for await (const chunk of responseText(res, `${this.base}/player_api.php`, { idleMs: this.idleMs })) text += chunk;
     } catch (err) {
       // Our own neutral body errors (stalled, cancelled) are kept; anything else reads as a bad answer.
       if (err instanceof SourceNetworkError) throw err;
@@ -84,6 +90,25 @@ export class XtreamClient {
       return JSON.parse(text) as unknown;
     } catch {
       throw unexpected();
+    }
+  }
+
+  /**
+   * A whole list action (no `category_id`), parsed while it downloads: `parse` runs on each batch of raw elements, so
+   * the body is never held as one string. Headers get the download timeout (panels build the full answer before the
+   * first byte); the body the inactivity timeout. A non-array answer goes to `parse` as is (it parses to no items).
+   */
+  private async *streamList<T>(action: string, parse: (data: unknown) => T[], signal?: AbortSignal): AsyncGenerator<T[]> {
+    const res = await this.request(action, {}, signal, DOWNLOAD_TIMEOUT_MS);
+    const text = responseText(res, `${this.base}/player_api.php`, { idleMs: this.idleMs, ...(signal ? { signal } : {}) });
+    try {
+      for await (const b of jsonArrayBatches(text)) {
+        const items = parse(b.nonArray ? b.items[0] : b.items);
+        if (items.length) yield items;
+      }
+    } catch (err) {
+      if (err instanceof SourceNetworkError) throw err;
+      throw new SourceNetworkError(UNEXPECTED_RESPONSE);
     }
   }
 
@@ -150,6 +175,16 @@ export class XtreamClient {
 
   async vodStreams(sourceId: string, categoryId?: string, signal?: AbortSignal): Promise<VodItem[]> {
     return parseVodStreams(await this.api('get_vod_streams', categoryId ? { category_id: categoryId } : {}, signal), sourceId);
+  }
+
+  /** Every movie in one streamed request, in batches. */
+  vodStreamBatches(sourceId: string, signal?: AbortSignal): AsyncGenerator<VodItem[]> {
+    return this.streamList('get_vod_streams', (d) => parseVodStreams(d, sourceId), signal);
+  }
+
+  /** Every series in one streamed request, in batches. */
+  seriesBatches(sourceId: string, signal?: AbortSignal): AsyncGenerator<VodItem[]> {
+    return this.streamList('get_series', (d) => parseSeriesList(d, sourceId), signal);
   }
 
   async vodInfo(xid: number): Promise<MovieDetail> {

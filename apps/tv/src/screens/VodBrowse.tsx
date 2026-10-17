@@ -33,7 +33,7 @@ import { scrimTexture } from '../vod/scrim.ts';
 import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { primaryLabel, regularSeasonCount } from '../vod/seriesDetailLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
-import { KIND_COPY } from '../vod/kindCopy.ts';
+import { KIND_COPY, vodStatusLine } from '../vod/kindCopy.ts';
 import { TAB_H, tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
@@ -371,6 +371,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       onEvent('vodRefreshed', (e) => { if (sameSource(e)) void load(); }),
       onEvent('vodRefreshFailed', (e) => { if (sameSource(e)) void load(); }),
       onEvent('vodLoading', (e) => { if (sameSource(e) && rows().length === 0) void load(); }),
+      // A first load got further (the worker throttles these): show the titles so far.
+      onEvent('vodProgress', (e) => { if (sameSource(e)) void load(); }),
       // Another source became active (a phone companion, Settings): drop everything and re-read.
       onEvent('sourcesChanged', (e) => {
         const ev = e as { type: 'sourcesChanged'; activeSourceId?: string };
@@ -407,6 +409,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     if (s === 'error') return home()?.error?.message ?? copy.loadError;
     return '';
   };
+  const statusLine = () => vodStatusLine(kind, home());
   const heroTile = () => focusedTile();
   /** The detail only shows while it belongs to the focused title. */
   const heroDetail = () => (hero()?.tile.id === heroTile()?.id ? hero()?.detail : undefined);
@@ -479,9 +482,9 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
       <TabBar ref={(el) => { tabsNode = el; }} active={tabOfKind(kind)} onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
         onFocusChanged={(f) => { if (f) choose('tabs'); }} />
-      <Show when={home()?.truncated}>
+      <Show when={statusLine()}>
         {/* Under the tab bar: right of it the line would run into the wordmark zone (x 700). */}
-        <Text zIndex={2} x={TAB_BAR_X} y={TAB_BAR_Y + TAB_H + 12} fontSize={FONT.small} color={COLORS.muted}>{'Showing the first 200,000 titles.'}</Text>
+        <Text zIndex={2} x={TAB_BAR_X} y={TAB_BAR_Y + TAB_H + 12} fontSize={FONT.small} color={COLORS.muted}>{statusLine()}</Text>
       </Show>
 
       <Show when={status() === 'ready'} fallback={

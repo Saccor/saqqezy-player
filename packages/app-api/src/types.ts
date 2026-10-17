@@ -83,6 +83,8 @@ export type AppEvent =
   | { type: 'companion'; status: CompanionStatus }
   /** A catalogue fetch started for the active source (first open or a stale refresh). */
   | { type: 'vodLoading'; sourceId: string; kind: VodKind }
+  /** A first load got further: the VOD screen can show the titles so far (`count`). Throttled in the worker. */
+  | { type: 'vodProgress'; sourceId: string; kind: VodKind; count: number }
   /** A catalogue fetch finished and was stored: re-read the VOD screen. */
   | { type: 'vodRefreshed'; sourceId: string; kind: VodKind; count: number; truncated: boolean }
   /** A catalogue fetch failed (the error is credential-free). Automatic fetching of this kind stops until `refreshVod`. */
@@ -169,6 +171,10 @@ export interface VodHome {
   truncated: boolean;
   /** With status `error`. */
   error?: RpcError;
+  /** A first load is still running: the rows hold this many titles so far. */
+  progress?: number;
+  /** Some categories could not be fetched. */
+  partial?: boolean;
 }
 
 /** A grid rail entry: pseudo-categories first, then the source's categories. */
