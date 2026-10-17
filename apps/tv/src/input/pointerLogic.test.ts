@@ -2,8 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTO_HIDE_MS, CLICK_MAX_MS, CLICK_SLOP_PX, DOUBLE_CLICK_MS, POINTER_BAR_H, POINTER_BTN_W, POINTER_START, ROW_OPTIONS_LABEL, WHEEL_START,
   WHEEL_IDLE_MS, WHEEL_STEP_MS, barLayout, cellAt, rowTextEnd, hitBeforeWake, inRect, isClick, isDoubleClick, isRevealedPress, localPoint, nextPress, REVEAL_MS, REVEAL_SLOP_PX, nextClick, pickTarget, pointerModeReducer, panelRowHit, rowAt, rowHit, sameGridHit, toDesign,
-  wheelPixels, wheelStep, type GridGeometry, type HitCandidate,
+  wheelPixels, wheelStep, type GridGeometry, type HitCandidate, pastSlop,
 } from './pointerLogic.ts';
+
+describe('pastSlop', () => {
+  it('is a drag once the pointer moves further than a click allows', () => {
+    expect(pastSlop({ x: 100, y: 100 }, { x: 100 + CLICK_SLOP_PX, y: 100 })).toBe(false);
+    expect(pastSlop({ x: 100, y: 100 }, { x: 100 + CLICK_SLOP_PX + 1, y: 100 })).toBe(true);
+    expect(pastSlop({ x: 100, y: 100 }, { x: 100, y: 90 })).toBe(true);
+  });
+});
 
 const moved = (x: number, y: number, at: number) => pointerModeReducer(POINTER_START, { type: 'move', x, y, at });
 

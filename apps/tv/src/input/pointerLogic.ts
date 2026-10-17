@@ -216,6 +216,11 @@ export function nextPress(prev: PressHit | undefined, now: PressHit): { revealed
   return { revealed, last: revealed && prev ? { ...now, target: prev.target } : now };
 }
 
+/** The pointer moved further from its press than a click allows: a drag (for targets with `onDrag`). */
+export function pastSlop(down: { x: number; y: number }, now: { x: number; y: number }): boolean {
+  return Math.hypot(now.x - down.x, now.y - down.y) > CLICK_SLOP_PX;
+}
+
 /** A release within `CLICK_SLOP_PX` and `CLICK_MAX_MS` of its press. */
 export function isClick(down: Press, up: Press): boolean {
   return Math.hypot(up.x - down.x, up.y - down.y) <= CLICK_SLOP_PX && up.at - down.at <= CLICK_MAX_MS;
