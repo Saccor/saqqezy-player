@@ -90,7 +90,7 @@ export class VodService {
    */
   refresh(
     sourceId: string, kind: VodKind,
-    opts: { signal?: AbortSignal; onProgress?: (n: number) => void; automatic?: boolean } = {},
+    opts: { signal?: AbortSignal; onProgress?: (n: number) => void; onSnapshot?: (list: VodList) => void; gap?: number; automatic?: boolean } = {},
   ): Promise<{ count: number; truncated: boolean; list: VodList }> {
     return this.withLock(`vod:${kind}:${sourceId}`, () => this.withBackoff(sourceId, kind, opts.automatic === true, async () => {
       const source = await this.source(sourceId);
@@ -100,15 +100,18 @@ export class VodService {
         return { count: list.items.length, truncated: list.truncated === true, list };
       }
       const server = normalizeServer(source.server);
-      const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, opts);
+      const { automatic: _automatic, ...fetchOpts } = opts;
+      const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, fetchOpts);
       // The account may have been removed or changed during the fetch: this list belongs to the old one.
       const now = await this.source(sourceId);
       if (!now || now.kind !== 'xtream' || normalizeServer(now.server) !== server || now.username !== source.username) {
         throw new VodFetchCancelled();
       }
-      // A 200 with an error body parses to an empty list: keep a good cached catalogue rather than wipe it.
-      if (list.items.length === 0 && ((await this.storage.getVod(sourceId, kind))?.items.length ?? 0) > 0) {
-        throw new SourceNetworkError('Unexpected response from the provider.');
+      // A 200 with an error body parses to an empty list, and a partial list (some categories failed) may have lost
+      // titles: either way, keep a bigger cached catalogue rather than shrink it.
+      if (list.items.length === 0 || list.partial) {
+        const stored = (await this.storage.getVod(sourceId, kind))?.items.length ?? 0;
+        if (stored > list.items.length) throw new SourceNetworkError('Unexpected response from the provider.');
       }
       // Checked right before the write: an abort during the awaits above must store nothing.
       if (opts.signal?.aborted) throw new VodFetchCancelled();

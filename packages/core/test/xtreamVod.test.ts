@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { XtreamClient } from '../src/xtream/client.ts';
+import { UNEXPECTED_RESPONSE, XtreamClient } from '../src/xtream/client.ts';
+import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
+import { DOWNLOAD_TIMEOUT_MS } from '../src/net/timeout.ts';
 import {
   parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
 } from '../src/xtream/vod.ts';
@@ -133,5 +135,68 @@ describe('XtreamClient VOD methods', () => {
     ]);
     expect(c.movieUrl(11, 'mkv')).toBe('http://example.test/movie/u/p%26/11.mkv');
     expect(c.episodeUrl(202, 'mp4')).toBe('http://example.test/series/u/p%26/202.mp4');
+  });
+});
+
+describe('XtreamClient full-list streaming', () => {
+  const cfg = { server: 'example.test', username: 'u', password: 'p&' };
+  const drain = async <T>(it: AsyncIterable<T[]>) => {
+    const out: T[][] = [];
+    for await (const b of it) out.push(b);
+    return out;
+  };
+  /** A body sent in small chunks, so items cross chunk boundaries. */
+  const chunked = (text: string, size = 7) => new Response(new ReadableStream<Uint8Array>({
+    start(c) {
+      const bytes = new TextEncoder().encode(text);
+      for (let i = 0; i < bytes.length; i += size) c.enqueue(bytes.slice(i, i + size));
+      c.close();
+    },
+  }), { status: 200 });
+
+  test('one request without category_id, download timeout, items in batches', async () => {
+    const seen: { url: string; timeoutMs?: number }[] = [];
+    const movies = Array.from({ length: 2500 }, (_, i) => ({ stream_id: i + 1, name: `Synthetic Film ${i + 1}`, category_id: '1', container_extension: 'mkv' }));
+    const fetchFn: FetchFn = async (url, init) => {
+      seen.push({ url, timeoutMs: init?.timeoutMs });
+      return chunked(JSON.stringify(movies), 4096);
+    };
+    const c = new XtreamClient(cfg, fetchFn);
+    const batches = await drain(c.vodStreamBatches('src'));
+    expect(seen.map((s) => new URL(s.url).search)).toEqual(['?username=u&password=p%26&action=get_vod_streams']);
+    expect(seen[0]!.timeoutMs).toBe(DOWNLOAD_TIMEOUT_MS);
+    expect(batches.length).toBeGreaterThan(1);
+    const items = batches.flat();
+    expect(items.length).toBe(2500);
+    expect(items[0]).toMatchObject({ id: 'src:m1', kind: 'movie', title: 'Synthetic Film 1', xid: 1, ext: 'mkv' });
+  });
+
+  test('series list streams too', async () => {
+    const seen: string[] = [];
+    const fetchFn: FetchFn = async (url) => {
+      seen.push(url);
+      return chunked(JSON.stringify([{ series_id: 5, name: 'Synthetic Series 05', cover: 'http://img.test/5.png' }]));
+    };
+    const items = (await drain(new XtreamClient(cfg, fetchFn).seriesBatches('src'))).flat();
+    expect(new URL(seen[0]!).search).toBe('?username=u&password=p%26&action=get_series');
+    expect(items).toEqual([expect.objectContaining({ id: 'src:s5', kind: 'series', poster: 'http://img.test/5.png' })]);
+  });
+
+  test('a non-array answer gives no items; not JSON is an unexpected response', async () => {
+    const obj = new XtreamClient(cfg, async () => new Response('{"user_info":{"auth":0}}', { status: 200 }));
+    expect((await drain(obj.vodStreamBatches('src'))).flat()).toEqual([]);
+    const html = new XtreamClient(cfg, async () => new Response('<html>not here</html>', { status: 200 }));
+    await expect(drain(html.vodStreamBatches('src'))).rejects.toThrow(UNEXPECTED_RESPONSE);
+    const cut = new XtreamClient(cfg, async () => new Response('[{"stream_id":1,"name":"A"},{"stream_', { status: 200 }));
+    await expect(drain(cut.vodStreamBatches('src'))).rejects.toBeInstanceOf(SourceNetworkError);
+  });
+
+  test('HTTP errors map like every other call', async () => {
+    const auth = new XtreamClient(cfg, async () => new Response('', { status: 401 }));
+    await expect(drain(auth.vodStreamBatches('src'))).rejects.toBeInstanceOf(SourceAuthError);
+    const down = new XtreamClient(cfg, async () => new Response('', { status: 502 }));
+    await expect(drain(down.seriesBatches('src'))).rejects.toMatchObject({ name: 'SourceNetworkError', status: 502 });
+    const net = new XtreamClient(cfg, async () => { throw new TypeError('fetch failed'); });
+    await expect(drain(net.vodStreamBatches('src'))).rejects.toBeInstanceOf(SourceNetworkError);
   });
 });

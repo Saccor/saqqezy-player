@@ -38,7 +38,8 @@ beforeEach(async () => {
   hold = undefined;
   api = {
     get_vod_categories: () => [{ category_id: '1', category_name: 'Drama' }, { category_id: '2', category_name: 'Comedy' }],
-    get_vod_streams: (q) => [{ stream_id: Number(q.get('category_id')) * 10, name: `Synthetic Film ${q.get('category_id')}`, category_id: q.get('category_id'), container_extension: 'mkv' }],
+    get_vod_streams: (q) => (q.get('category_id') ? [q.get('category_id')!] : ['1', '2'])
+      .map((c) => ({ stream_id: Number(c) * 10, name: `Synthetic Film ${c}`, category_id: c, container_extension: 'mkv' })),
     get_series_categories: () => [],
     get_series: () => [{ series_id: 5, name: 'Synthetic Series 01' }],
     get_vod_info: () => ({ info: { plot: 'A synthetic plot.' } }),
@@ -48,10 +49,10 @@ beforeEach(async () => {
 });
 
 describe('VodService catalogues', () => {
-  test('refresh fetches per category, stores, stamps; loadCatalog reads it', async () => {
+  test('refresh fetches the full list in one request, stores, stamps; loadCatalog reads it', async () => {
     expect(await svc.needsRefresh('x', 'movie')).toBe(true);
     expect(await svc.refresh('x', 'movie')).toMatchObject({ count: 2, truncated: false });
-    expect(calls).toEqual(['get_vod_categories', 'get_vod_streams:1', 'get_vod_streams:2']);
+    expect(calls).toEqual(['get_vod_categories', 'get_vod_streams']);
     expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
     expect(await svc.needsRefresh('x', 'movie')).toBe(false);
     now = NOW + 13 * 3600_000;
@@ -117,6 +118,38 @@ describe('VodService catalogues', () => {
     await expect(svc.refresh('x', 'movie')).rejects.toThrow('Unexpected response from the provider.');
     expect(await storage.getVod('x', 'movie')).toEqual(before);
     expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
+  });
+
+  test('snapshots of a first load reach the caller; only the final list is stored', async () => {
+    const snaps: number[] = [];
+    await svc.refresh('x', 'movie', { onSnapshot: (l) => snaps.push(l.items.length) });
+    expect(snaps).toEqual([2]);
+    expect((await storage.getVod('x', 'movie'))?.items).toHaveLength(2);
+  });
+
+  test('a partial list smaller than the stored one keeps the stored one', async () => {
+    await svc.refresh('x', 'movie');
+    const before = await storage.getVod('x', 'movie');
+    // The full request fails, so the fallback asks per category; category 2 fails.
+    api.get_vod_streams = (q) => {
+      const c = q.get('category_id');
+      if (!c || c === '2') throw new TypeError('fetch failed');
+      return [{ stream_id: 10, name: 'Synthetic Film 1', category_id: '1' }];
+    };
+    now = NOW + 99 * 3600_000;
+    await expect(svc.refresh('x', 'movie', { gap: 0 })).rejects.toThrow('Unexpected response from the provider.');
+    expect(await storage.getVod('x', 'movie')).toEqual(before);
+    expect(await svc.fetchedAt('x', 'movie')).toBe(NOW);
+  });
+
+  test('a partial list is stored when nothing better is', async () => {
+    api.get_vod_streams = (q) => {
+      const c = q.get('category_id');
+      if (!c || c === '2') throw new TypeError('fetch failed');
+      return [{ stream_id: 10, name: 'Synthetic Film 1', category_id: '1' }];
+    };
+    expect(await svc.refresh('x', 'movie', { gap: 0 })).toMatchObject({ count: 1 });
+    expect((await storage.getVod('x', 'movie'))?.partial).toBe(true);
   });
 
   test('an empty answer with nothing stored is stored (a source with no movies)', async () => {
@@ -287,7 +320,7 @@ describe('VodService refresh backoff', () => {
     expect(await svc.needsRefresh('x', 'movie')).toBe(false);
     // A manual refresh (Try again) is never gated.
     api.get_vod_categories = () => [{ category_id: '1', category_name: 'Drama' }];
-    await expect(svc.refresh('x', 'movie')).resolves.toMatchObject({ count: 1 });
+    await expect(svc.refresh('x', 'movie')).resolves.toMatchObject({ count: 2 });
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
   });
 

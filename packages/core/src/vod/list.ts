@@ -11,7 +11,7 @@ export function buildVodList(
   kind: VodKind,
   items: VodItem[],
   categories: VodCategory[],
-  extras: { episodes?: Record<string, Episode[]>; truncated?: boolean } = {},
+  extras: { episodes?: Record<string, Episode[]>; truncated?: boolean; partial?: boolean } = {},
 ): VodList {
   const known = new Set(categories.map((c) => c.id));
   const counts = new Map<string, number>();
@@ -32,6 +32,7 @@ export function buildVodList(
   const list: VodList = { items, categories: cats };
   if (extras.episodes) list.episodes = extras.episodes;
   if (extras.truncated) list.truncated = true;
+  if (extras.partial) list.partial = true;
   return list;
 }
 
