@@ -19,7 +19,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { DESIGN_WIDTH } from '../video/videoLayer.ts';
 import { notifyUserGesture, onLogicalKey, sendKey } from './keys.ts';
 import {
-  POINTER_START, WHEEL_START, hitBeforeWake, isClick, localPoint, nextClick, nextPress, pickTarget, pointerModeReducer, toDesign, wheelPixels,
+  POINTER_START, WHEEL_START, hitBeforeWake, isClick, localPoint, pastSlop, nextClick, nextPress, pickTarget, pointerModeReducer, toDesign, wheelPixels,
   wheelStep, type HitCandidate, type LastClick, type Point, type PointerModeEvent, type Press, type PressHit, type Rect,
 } from './pointerLogic.ts';
 
@@ -52,6 +52,13 @@ export interface PointerTarget {
   onContextMenu?: (p: Point) => void;
   /** One throttled wheel step per axis (-1, 0 or 1). True when handled; unhandled steps are dropped. */
   onWheel?: (dy: number, dx: number) => boolean;
+  /**
+   * A left-button drag that started on this target (a timeline). `start` comes once the pointer moves past the click
+   * slop, `move` follows every move while the button is held (node-local, even outside the node), and the release
+   * reports `end` instead of a click. `cancel`: the drag was lost (pointer cancel, window blur, screen change). A
+   * press that never moves past the slop stays an ordinary click.
+   */
+  onDrag?: (p: Point, phase: 'start' | 'move' | 'end' | 'cancel') => void;
 }
 
 interface Entry { seq: number; t: PointerTarget; scope: ScreenEntry | undefined }
@@ -226,11 +233,42 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   /** The last left or right press, for `nextPress`. */
   let lastPress: PressHit | undefined;
   let wheel = WHEEL_START;
+  /** A left press on a target with `onDrag`: `started` once it moved past the click slop. */
+  let drag: { entry: Entry; x: number; y: number; scope: ScreenEntry | undefined; started: boolean } | undefined;
+
+  const dragTo = (e: { clientX: number; clientY: number }, phase: 'start' | 'move' | 'end') => {
+    const d = drag;
+    const n = d?.entry.t.node();
+    if (!d || !n) return;
+    const local = localPoint(rectOf(n), design(e));
+    safely(() => d.entry.t.onDrag?.(local, phase));
+  };
+  /** Drops a running drag; one that already started hears `cancel`. */
+  const dropDrag = () => {
+    const d = drag;
+    drag = undefined;
+    if (d?.started) safely(() => d.entry.t.onDrag?.({ x: 0, y: 0 }, 'cancel'));
+  };
 
   const onMove = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
     lastPoint = design(e);
     dispatch({ type: 'move', x: e.clientX, y: e.clientY, at: Date.now() });
+    if (drag) {
+      if ((e.buttons & 1) === 0 || router.current() !== drag.scope) {
+        dropDrag(); // the release happened outside the window, or the screen changed under it
+      } else {
+        if (!drag.started && pastSlop(drag, { x: e.clientX, y: e.clientY })) {
+          drag.started = true;
+          down = undefined; // a drag is never a click
+          dragTo(e, 'start');
+        }
+        if (drag.started) {
+          dragTo(e, 'move');
+          return; // the hover stays where the drag began
+        }
+      }
+    }
     rehover();
   };
   const onDown = (e: PointerEvent) => {
@@ -258,6 +296,9 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
       return;
     }
     down = revealed ? undefined : { ...press, scope: router.current(), entry: target?.entry };
+    drag = !revealed && target?.entry.t.onDrag
+      ? { entry: target.entry, x: e.clientX, y: e.clientY, scope: router.current(), started: false }
+      : undefined;
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerType === 'touch') return;
@@ -270,6 +311,17 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     if (e.button === 4) {
       e.preventDefault();
       return;
+    }
+    if (e.button === 0 && drag) {
+      const d = drag;
+      if (d.started) {
+        if (router.current() === d.scope) dragTo(e, 'end');
+        else dropDrag();
+        drag = undefined;
+        queueMicrotask(rehover);
+        return;
+      }
+      drag = undefined;
     }
     if (e.button !== 0 || !down) return;
     const start = down;
@@ -339,6 +391,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   win.addEventListener('pointermove', onMove);
   win.addEventListener('pointerdown', onDown);
   win.addEventListener('pointerup', onUp);
+  win.addEventListener('pointercancel', dropDrag);
+  win.addEventListener('blur', dropDrag);
   win.addEventListener('contextmenu', onContext);
   win.addEventListener('mouseup', onHistoryButton);
   win.addEventListener('auxclick', onHistoryButton);
@@ -351,6 +405,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
     win.removeEventListener('pointermove', onMove);
     win.removeEventListener('pointerdown', onDown);
     win.removeEventListener('pointerup', onUp);
+    win.removeEventListener('pointercancel', dropDrag);
+    win.removeEventListener('blur', dropDrag);
     win.removeEventListener('contextmenu', onContext);
     win.removeEventListener('mouseup', onHistoryButton);
     win.removeEventListener('auxclick', onHistoryButton);

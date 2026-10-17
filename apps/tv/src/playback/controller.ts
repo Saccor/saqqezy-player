@@ -31,6 +31,8 @@ export interface PlaybackController {
   positionMs(): number | undefined;
   /** As `positionMs`: undefined unless the current VOD title was opened. */
   durationMs(): number | undefined;
+  /** Ms buffered ahead of the playhead, as `positionMs`: undefined unless the current VOD title was opened. */
+  bufferedAheadMs(): number | undefined;
   paused(): boolean;
   /** Attempts that reached their first frame (never reset): a new value means a new engine attempt is playing. */
   startedAttempts(): number;
@@ -94,7 +96,7 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  */
 export function createPlaybackController(
   player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack'>,
-  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle'>,
+  supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle' | 'liveInfo'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
@@ -223,6 +225,10 @@ export function createPlaybackController(
     // Only the opened title's: a held (never opened) VOD must not read the previous title's leftovers.
     positionMs: () => (pendingVod && vodOpened ? supervisor.positionMs() : undefined),
     durationMs: () => (pendingVod && vodOpened ? supervisor.durationMs() : undefined),
+    bufferedAheadMs: () => {
+      const s = pendingVod && vodOpened ? supervisor.liveInfo().bufferAheadS : undefined;
+      return s === undefined ? undefined : s * 1000;
+    },
     paused: () => supervisor.paused(),
     startedAttempts: () => supervisor.startedAttempts(),
     onSubtitle: (fn) => supervisor.onSubtitle(fn),

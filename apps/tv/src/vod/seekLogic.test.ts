@@ -1,32 +1,63 @@
 import { describe, expect, it } from 'vitest';
-import { HOLD_GAP_MS, holdPress, pressSeek, seekStep } from './seekLogic.ts';
+import { HOLD_GAP_MS, commitDelayMs, dragScrub, holdPress, jumpLabel, pressScrub, seekStep } from './seekLogic.ts';
 
 describe('seekStep', () => {
-  it('uses thresholds', () => {
+  it('accelerates with the hold time', () => {
     expect(seekStep(0)).toBe(10_000);
     expect(seekStep(999)).toBe(10_000);
     expect(seekStep(1000)).toBe(30_000);
     expect(seekStep(2999)).toBe(30_000);
     expect(seekStep(3000)).toBe(60_000);
+    expect(seekStep(5999)).toBe(60_000);
+    expect(seekStep(6000)).toBe(120_000);
   });
 });
 
-describe('pressSeek', () => {
+describe('pressScrub', () => {
   it('starts from the position', () => {
-    expect(pressSeek(undefined, 100_000, 600_000, 1, 10_000)).toEqual({ targetMs: 110_000, dir: 1 });
+    expect(pressScrub(undefined, 100_000, 600_000, 1, 10_000, 'keys')).toEqual({ targetMs: 110_000, fromMs: 100_000, source: 'keys' });
   });
-  it('accumulates from the marker', () => {
-    const a = pressSeek(undefined, 100_000, 600_000, 1, 10_000);
-    expect(pressSeek(a, 100_000, 600_000, 1, 30_000).targetMs).toBe(140_000);
+  it('accumulates from the target and keeps where it started', () => {
+    const a = pressScrub(undefined, 100_000, 600_000, 1, 10_000, 'keys');
+    expect(pressScrub(a, 105_000, 600_000, 1, 30_000, 'keys')).toEqual({ targetMs: 140_000, fromMs: 100_000, source: 'keys' });
   });
   it('clamps at both ends', () => {
-    expect(pressSeek(undefined, 595_000, 600_000, 1, 60_000).targetMs).toBe(599_000);
-    expect(pressSeek(undefined, 5_000, 600_000, -1, 60_000).targetMs).toBe(0);
-    expect(pressSeek(undefined, 0, 500, 1, 10_000).targetMs).toBe(0);
+    expect(pressScrub(undefined, 595_000, 600_000, 1, 60_000, 'keys').targetMs).toBe(599_000);
+    expect(pressScrub(undefined, 5_000, 600_000, -1, 60_000, 'keys').targetMs).toBe(0);
+    expect(pressScrub(undefined, 0, 500, 1, 10_000, 'keys').targetMs).toBe(0);
   });
-  it('changes direction from the marker', () => {
-    const a = pressSeek(undefined, 100_000, 600_000, 1, 10_000);
-    expect(pressSeek(a, 100_000, 600_000, -1, 10_000)).toEqual({ targetMs: 100_000, dir: -1 });
+  it('takes the latest source', () => {
+    const a = pressScrub(undefined, 100_000, 600_000, 1, 10_000, 'keys');
+    expect(pressScrub(a, 100_000, 600_000, -1, 10_000, 'skip')).toEqual({ targetMs: 100_000, fromMs: 100_000, source: 'skip' });
+  });
+});
+
+describe('dragScrub', () => {
+  it('places the target at the fraction and clamps it', () => {
+    expect(dragScrub(undefined, 50_000, 600_000, 0.5)).toEqual({ targetMs: 300_000, fromMs: 50_000, source: 'drag' });
+    expect(dragScrub(undefined, 50_000, 600_000, -0.2).targetMs).toBe(0);
+    expect(dragScrub(undefined, 50_000, 600_000, 1.4).targetMs).toBe(599_000);
+  });
+  it('keeps where a running scrub started', () => {
+    const a = pressScrub(undefined, 100_000, 600_000, 1, 10_000, 'keys');
+    expect(dragScrub(a, 120_000, 600_000, 0.25).fromMs).toBe(100_000);
+  });
+});
+
+describe('commitDelayMs', () => {
+  it('waits longer for key scrubs than for skips; a drag commits on release', () => {
+    expect(commitDelayMs('keys')).toBe(2000);
+    expect(commitDelayMs('skip')).toBe(700);
+    expect(commitDelayMs('drag')).toBeUndefined();
+  });
+});
+
+describe('jumpLabel', () => {
+  it('signs the jump', () => {
+    expect(jumpLabel(150_000)).toBe('+2:30');
+    expect(jumpLabel(-10_000)).toBe('−0:10');
+    expect(jumpLabel(0)).toBe('+0:00');
+    expect(jumpLabel(3_725_000)).toBe('+1:02:05');
   });
 });
 

@@ -1,12 +1,24 @@
-import { For, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { selectedIndex } from './actionBarLogic.ts';
 import { BUTTON_H } from './Button.tsx';
 
-export interface Action { id: string; label: string; width: number }
+export interface Action {
+  id: string;
+  /** The button's text; an icon button keeps it as its name and draws the icon instead. */
+  label: string;
+  width: number;
+  /** A white-on-transparent texture (e.g. `iconTexture`), drawn centred and tinted like the label. */
+  icon?: string;
+  /** A circle (or pill) instead of a rounded rectangle. */
+  round?: boolean;
+  /** A fixed x within the bar (for grouped rows); the buttons after it continue from there. */
+  x?: number;
+}
 const GAP = 16;
+const ICON = 44;
 
 /** A row of buttons behind one focusable node (Left/Right choose, Ok presses). Pointer: click presses, hover lightens. */
 export function ActionBar(props: {
@@ -19,17 +31,22 @@ export function ActionBar(props: {
   onUp?: () => boolean;
   onDown?: () => boolean;
   onFocusChanged?: (f: boolean) => void;
+  /** The action selected before the first Left/Right (default: the first one). */
+  initial?: string;
 }) {
   const [focused, setFocused] = createSignal(false);
   /** The selected action's id: the selection follows it when the list changes (by index only when it is gone). */
-  const [selId, setSelId] = createSignal<string | undefined>(undefined);
+  const [selId, setSelId] = createSignal<string | undefined>(props.initial);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
   const xs = () => {
     let x = 0;
-    return props.actions.map((a) => { const at = x; x += a.width + GAP; return at; });
+    return props.actions.map((a) => { const at = a.x ?? x; x = at + a.width + GAP; return at; });
   };
-  const width = () => props.actions.reduce((w, a) => w + a.width + GAP, -GAP);
+  const width = () => {
+    const last = props.actions.length - 1;
+    return last < 0 ? 0 : (xs()[last] ?? 0) + props.actions[last]!.width;
+  };
   const at = (px: number) => {
     const i = xs().findIndex((x, k) => px >= x && px < x + props.actions[k]!.width);
     return i >= 0 ? i : undefined;
@@ -57,10 +74,15 @@ export function ActionBar(props: {
         const lit = () => focused() && cur() === i();
         const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover : COLORS.surface);
         return (
-          <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={LAYOUT.radius} color={fill()}
-            border={{ width: 2, color: COLORS.focus }} scale={lit() ? 1.04 : 1}>
-            <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
-              fontSize={FONT.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+          <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={a.round ? BUTTON_H / 2 : LAYOUT.radius}
+            color={fill()} border={{ width: 2, color: COLORS.focus }} scale={lit() ? (a.round ? 1.1 : 1.04) : 1}>
+            <Show when={a.icon} fallback={
+              <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
+                fontSize={FONT.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+            }>
+              <View x={(a.width - ICON) / 2} y={(BUTTON_H - ICON) / 2} width={ICON} height={ICON} src={a.icon}
+                color={lit() ? COLORS.onFocus : COLORS.text} />
+            </Show>
           </View>
         );
       }}</For>
