@@ -2,7 +2,7 @@
  * Transport icons for the VOD player: white glyphs on a transparent canvas, used as image textures (a node's `color`
  * tints them). Drawn once per kind and cached as data URLs, like `scrim.ts`: no icon font, no glyphs a TV font lacks.
  */
-export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10';
+export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30';
 
 const SIZE = 96;
 const cache = new Map<IconKind, string>();
@@ -24,8 +24,9 @@ function draw(ctx: CanvasRenderingContext2D, kind: IconKind): void {
     ctx.fillRect(56, 18, 16, 60);
     return;
   }
-  // A circular arrow (back: counter-clockwise, arrowhead at the top left; forward: mirrored) around "10".
-  const fwd = kind === 'fwd10';
+  // A circular arrow (back: counter-clockwise, arrowhead at the top left; forward: mirrored) around "10" or "30".
+  const fwd = kind === 'fwd10' || kind === 'fwd30';
+  const seconds = kind.endsWith('30') ? '30' : '10';
   ctx.save();
   if (fwd) {
     ctx.translate(SIZE, 0);
@@ -51,7 +52,7 @@ function draw(ctx: CanvasRenderingContext2D, kind: IconKind): void {
   ctx.font = 'bold 30px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('10', 48, 52);
+  ctx.fillText(seconds, 48, 52);
 }
 
 /** The icon's texture URL; undefined without a DOM or 2D canvas. */

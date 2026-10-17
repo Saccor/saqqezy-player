@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOLD_GAP_MS, commitDelayMs, dragScrub, holdPress, jumpLabel, pressScrub, seekStep } from './seekLogic.ts';
+import { HOLD_GAP_MS, SKIP_LONG_MS, commitDelayMs, dragScrub, holdPress, jumpLabel, pressScrub, seekStep } from './seekLogic.ts';
 
 describe('seekStep', () => {
   it('accelerates with the hold time', () => {
@@ -25,6 +25,12 @@ describe('pressScrub', () => {
     expect(pressScrub(undefined, 595_000, 600_000, 1, 60_000, 'keys').targetMs).toBe(599_000);
     expect(pressScrub(undefined, 5_000, 600_000, -1, 60_000, 'keys').targetMs).toBe(0);
     expect(pressScrub(undefined, 0, 500, 1, 10_000, 'keys').targetMs).toBe(0);
+  });
+  it('mixed ±10 and ±30 skips add up into one target', () => {
+    let s = pressScrub(undefined, 100_000, 600_000, 1, SKIP_LONG_MS, 'skip');
+    s = pressScrub(s, 100_000, 600_000, 1, SKIP_LONG_MS, 'skip');
+    s = pressScrub(s, 100_000, 600_000, -1, 10_000, 'skip');
+    expect(s).toEqual({ targetMs: 150_000, fromMs: 100_000, source: 'skip' });
   });
   it('takes the latest source', () => {
     const a = pressScrub(undefined, 100_000, 600_000, 1, 10_000, 'keys');

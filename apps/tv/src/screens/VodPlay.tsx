@@ -1,4 +1,4 @@
-import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { VodPlayable, VodTracks } from '@iptv/app-api';
 import { api } from '../api.ts';
@@ -20,7 +20,7 @@ import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
-  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, type HoldRun, type Scrub,
+  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
@@ -49,6 +49,8 @@ const BACK_W = 180;
 const TRACKS_W = 320;
 const NEXT_W = 280;
 const SUB_LINE_H = 54;
+const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
+const SUB_OUTLINE_COLOR = 0x000000e6;
 const SUB_FONT = 40;
 const CARD_W = 1000;
 const CARD_H = 260;
@@ -410,9 +412,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const actions = (): Action[] => {
     const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
     const centre: Action[] = [
+      { id: 'back30', label: 'Back 30 seconds', width: ROUND_W, round: true, icon: iconTexture('back30') },
       { id: 'back10', label: 'Back 10 seconds', width: ROUND_W, round: true, icon: iconTexture('back10') },
       { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: ROUND_W, round: true, icon: iconTexture(paused() ? 'play' : 'pause') },
       { id: 'fwd10', label: 'Forward 10 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd10') },
+      { id: 'fwd30', label: 'Forward 30 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd30') },
     ];
     const right: Action[] = [
       { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
@@ -429,6 +433,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (id === 'toggle') togglePause();
     else if (id === 'back10') scrubPress(-1, SEEK_STEP_MS, 'skip');
     else if (id === 'fwd10') scrubPress(1, SEEK_STEP_MS, 'skip');
+    else if (id === 'back30') scrubPress(-1, SKIP_LONG_MS, 'skip');
+    else if (id === 'fwd30') scrubPress(1, SKIP_LONG_MS, 'skip');
     else if (id === 'tracks') openPicker();
     else if (id === 'next') nextNow();
   };
@@ -647,9 +653,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onChannelUp={nextNow} onChannelDown={prevNow}>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
+      {/* A dark outline (offset copies) keeps the text readable on bright pictures without a font shadow. */}
       <Show when={cue()}>
-        <Text zIndex={5} x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-          maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+        <View zIndex={5}>
+          <For each={SUB_OUTLINE}>{([dx, dy]) => (
+            <Text x={CONTENT_X + dx} y={subY() + dy} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
+              maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
+          )}</For>
+          <Text x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
+            maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+        </View>
       </Show>
 
       <Show when={visible()}>

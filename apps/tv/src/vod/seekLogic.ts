@@ -1,6 +1,8 @@
 import { clock } from './vodPlayerLogic.ts';
 
 export const SEEK_STEP_MS = 10_000;
+/** The control row's long skip (±30 s). */
+export const SKIP_LONG_MS = 30_000;
 
 /** Step for a press while the key has been held `heldMs`. */
 export function seekStep(heldMs: number): number {
