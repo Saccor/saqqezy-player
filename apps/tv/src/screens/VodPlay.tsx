@@ -1,4 +1,4 @@
-import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { VodPlayable, VodTracks } from '@iptv/app-api';
 import { api } from '../api.ts';
@@ -20,19 +20,20 @@ import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
-  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, type HoldRun, type Scrub,
+  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, trackKey, trackRows, tracksDue, tracksKeyId,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
-const BAND_H = 520;
+/** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
+const BAND_H = 620;
 const BAND_Y = LAYOUT.height - BAND_H;
 const CONTENT_X = LAYOUT.safeX;
 const CONTENT_W = LAYOUT.width - LAYOUT.safeX * 2;
@@ -49,6 +50,8 @@ const BACK_W = 180;
 const TRACKS_W = 320;
 const NEXT_W = 280;
 const SUB_LINE_H = 54;
+const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
+const SUB_OUTLINE_COLOR = 0x000000e6;
 const SUB_FONT = 40;
 const CARD_W = 1000;
 const CARD_H = 260;
@@ -104,6 +107,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
   let tracksAppliedAt: number | undefined;
+  /** The track lists' shape when they were last applied (`trackShape`): late tracks re-apply the choices. */
+  let tracksAppliedShape: string | undefined;
+  /** Ticks since the tracks were last applied (`shapeCheckDue`). */
+  let shapeTicks = 0;
   /**
    * Playhead saves wait until this attempt played near the start position (or the user seeked, or paused while it
    * played): see `progressSaveArmed`. A start at 0 is armed at once.
@@ -273,9 +280,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const applyTracks = () => {
     tracksAppliedAt = playback.startedAttempts();
-    const a = findTrack(playback.audioTracks(), chosen.audio);
-    if (a && !a.active) playback.selectAudioTrack(a.id);
+    const audios = playback.audioTracks();
     const texts = playback.textTracks();
+    tracksAppliedShape = trackShape(audios, texts);
+    shapeTicks = 0;
+    const a = findTrack(audios, chosen.audio);
+    if (a && !a.active) playback.selectAudioTrack(a.id);
     if (chosen.subtitle === SUBTITLE_KEY_OFF) {
       if (texts.some((t) => t.active)) playback.selectTextTrack(null);
     } else {
@@ -406,9 +416,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const actions = (): Action[] => {
     const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
     const centre: Action[] = [
+      { id: 'back30', label: 'Back 30 seconds', width: ROUND_W, round: true, icon: iconTexture('back30') },
       { id: 'back10', label: 'Back 10 seconds', width: ROUND_W, round: true, icon: iconTexture('back10') },
       { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: ROUND_W, round: true, icon: iconTexture(paused() ? 'play' : 'pause') },
       { id: 'fwd10', label: 'Forward 10 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd10') },
+      { id: 'fwd30', label: 'Forward 30 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd30') },
     ];
     const right: Action[] = [
       { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
@@ -425,6 +437,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (id === 'toggle') togglePause();
     else if (id === 'back10') scrubPress(-1, SEEK_STEP_MS, 'skip');
     else if (id === 'fwd10') scrubPress(1, SEEK_STEP_MS, 'skip');
+    else if (id === 'back30') scrubPress(-1, SKIP_LONG_MS, 'skip');
+    else if (id === 'fwd30') scrubPress(1, SKIP_LONG_MS, 'skip');
     else if (id === 'tracks') openPicker();
     else if (id === 'next') nextNow();
   };
@@ -563,7 +577,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       setBufEnd(d === undefined ? undefined : bufferedEndMs(at ?? pos(), playback.bufferedAheadMs(), d));
       setPaused(playback.paused());
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
-      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), status()?.kind === 'playing')) applyTracks();
+      const playing = status()?.kind === 'playing';
+      shapeTicks++;
+      const shape = playing && shapeCheckDue(shapeTicks) ? trackShape(playback.audioTracks(), playback.textTracks()) : tracksAppliedShape;
+      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
     }, TICK_MS);
@@ -641,14 +658,21 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onChannelUp={nextNow} onChannelDown={prevNow}>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
+      {/* A dark outline (offset copies) keeps the text readable on bright pictures without a font shadow. */}
       <Show when={cue()}>
-        <Text zIndex={5} x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-          maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+        <View zIndex={5}>
+          <For each={SUB_OUTLINE}>{([dx, dy]) => (
+            <Text x={CONTENT_X + dx} y={subY() + dy} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
+              maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
+          )}</For>
+          <Text x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
+            maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+        </View>
       </Show>
 
       <Show when={visible()}>
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
-          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('down', BACKGROUND_RGB)} />
+          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
             fontSize={FONT.title} color={COLORS.text}>{title}</Text>
           <Show when={label}>

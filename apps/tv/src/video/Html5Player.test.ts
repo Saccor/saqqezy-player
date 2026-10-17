@@ -783,10 +783,114 @@ describe('Html5Player – VOD', () => {
       { id: '2', label: 'sv', language: 'sv', active: true },
     ]);
     player.selectTextTrack('0');
-    expect(list.map((t) => t.mode)).toEqual(['showing', 'hidden', 'disabled']);
+    // Hidden, not showing: the app draws the cue (onSubtitle), clear of its overlay.
+    expect(list.map((t) => t.mode)).toEqual(['hidden', 'hidden', 'disabled']);
+    expect(player.textTracks()[0]!.active).toBe(true);
     player.selectTextTrack(null);
     expect(list.map((t) => t.mode)).toEqual(['disabled', 'hidden', 'disabled']);
+    expect(player.textTracks().some((t) => t.active)).toBe(false);
     player.destroy();
+  });
+
+  test('VOD HLS uses hls.js where native HLS cannot switch audio tracks; live and track-capable elements stay native', async () => {
+    const { player, video } = makePlayer();
+    (video as { canPlayType: (m: string) => string }).canPlayType = (m) => (m.includes('mpegurl') ? 'maybe' : '');
+    const before = created.hls.length;
+    await player.open('http://example.test/movie/1.m3u8', 1, { live: false });
+    expect(created.hls.length).toBe(before + 1);
+    await player.open('http://example.test/live/1.m3u8', 2);
+    expect(created.hls.length).toBe(before + 1);
+    (video as Record<string, unknown>).audioTracks = { length: 0 };
+    await player.open('http://example.test/movie/2.m3u8', 3, { live: false });
+    expect(created.hls.length).toBe(before + 1);
+    player.destroy();
+  });
+
+  test('hls.js leaves subtitle drawing to the app', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/movie/1.m3u8', 1, { live: false });
+    expect((created.hls.at(-1)! as unknown as { subtitleDisplay?: boolean }).subtitleDisplay).toBe(false);
+    player.destroy();
+  });
+
+  test('onSubtitle reports the selected track\'s active cue text, and null when it clears', async () => {
+    vi.useFakeTimers();
+    try {
+      const { player, video } = makePlayer();
+      await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+      const track = { kind: 'subtitles', label: 'English', language: 'en', mode: 'showing', activeCues: [{ text: '<i>Hello</i>' }] as { text: string }[] };
+      video.textTracks = [{ kind: 'metadata', label: '', language: '', mode: 'hidden', activeCues: [{ text: 'not a subtitle' }] }, track];
+      const seen: (string | null)[] = [];
+      const off = player.onSubtitle((t) => seen.push(t));
+      vi.advanceTimersByTime(300);
+      expect(seen).toEqual(['Hello']);
+      expect(track.mode).toBe('hidden'); // a track the element showed by itself is drawn by the app instead
+      vi.advanceTimersByTime(1000);
+      expect(seen).toEqual(['Hello']); // unchanged text is not repeated
+      track.activeCues = [];
+      vi.advanceTimersByTime(300);
+      expect(seen).toEqual(['Hello', null]);
+      off();
+      track.activeCues = [{ text: 'After' }];
+      vi.advanceTimersByTime(1000);
+      expect(seen).toEqual(['Hello', null]);
+      player.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('with hls.js only its selected subtitle track is read: embedded captions never show, Off shows nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      const { player, video } = makePlayer();
+      await player.open('http://example.test/movie/1.m3u8', 1, { live: false });
+      const hls = created.hls.at(-1)! as unknown as { subtitleTracks: { name: string; lang?: string }[]; subtitleTrack: number };
+      hls.subtitleTracks = [{ name: 'English', lang: 'en' }, { name: 'Svenska', lang: 'sv' }];
+      video.textTracks = [
+        { kind: 'captions', label: 'English', language: 'en', mode: 'hidden', activeCues: [{ text: 'CC1 caption' }] },
+        { kind: 'subtitles', label: 'English', language: 'en', mode: 'disabled', activeCues: [{ text: 'English cue' }] },
+        { kind: 'subtitles', label: 'Svenska', language: 'sv', mode: 'hidden', activeCues: [{ text: 'Svensk cue' }] },
+      ];
+      const seen: (string | null)[] = [];
+      player.onSubtitle((t) => seen.push(t));
+      hls.subtitleTrack = -1;
+      vi.advanceTimersByTime(300);
+      expect(seen).toEqual([]); // nothing to show (no cue was shown before either)
+      hls.subtitleTrack = 1;
+      vi.advanceTimersByTime(300);
+      expect(seen).toEqual(['Svensk cue']);
+      hls.subtitleTrack = -1;
+      vi.advanceTimersByTime(300);
+      expect(seen).toEqual(['Svensk cue', null]);
+      player.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('live hls.js keeps drawing its own subtitles (only VOD hands them to the app)', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/live/1.m3u8', 1);
+    expect((created.hls.at(-1)! as unknown as { subtitleDisplay?: boolean }).subtitleDisplay).toBeUndefined();
+    player.destroy();
+  });
+
+  test('a stop clears a shown cue', async () => {
+    vi.useFakeTimers();
+    try {
+      const { player, video } = makePlayer();
+      await player.open('http://example.test/movie/1.mp4', 1, { live: false });
+      video.textTracks = [{ kind: 'subtitles', label: 'A', language: 'en', mode: 'hidden', activeCues: [{ text: 'Cue' }] }];
+      const seen: (string | null)[] = [];
+      player.onSubtitle((t) => seen.push(t));
+      vi.advanceTimersByTime(300);
+      player.stop();
+      expect(seen).toEqual(['Cue', null]);
+      player.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('a start seek that cannot land yet (duration unknown) is retried on durationchange and lands once', async () => {

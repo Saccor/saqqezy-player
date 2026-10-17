@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { SourceService, SourceAuthError, VodService } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
@@ -46,6 +49,36 @@ describe('fake xtream + SourceService end to end', () => {
     const res = await fetch(`${server.url}/live/test/test/1.ts`, { redirect: 'manual' });
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+  });
+
+  test('movie 1 plays the generated multi-track title when present, served with its playlists and cues', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-media-'));
+    mkdirSync(join(dir, 'multitrack'));
+    writeFileSync(join(dir, 'multitrack', 'master.m3u8'), '#EXTM3U\n');
+    writeFileSync(join(dir, 'multitrack', 'subs_eng.vtt'), 'WEBVTT\n');
+    const withMedia = await startFakeXtream({ port: 0, channels: 1, mediaDir: dir, now: () => NOW });
+    try {
+      const movie1 = await fetch(`${withMedia.url}/movie/test/test/1.m3u8`, { redirect: 'manual' });
+      expect(movie1.headers.get('location')).toBe(`${withMedia.url}/media/multitrack/master.m3u8`);
+      const movie2 = await fetch(`${withMedia.url}/movie/test/test/2.m3u8`, { redirect: 'manual' });
+      expect(movie2.headers.get('location')).toBe('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+      const master = await fetch(`${withMedia.url}/media/multitrack/master.m3u8`);
+      expect(master.headers.get('content-type')).toBe('application/vnd.apple.mpegurl');
+      expect(master.headers.get('access-control-allow-origin')).toBe('*');
+      expect(await master.text()).toBe('#EXTM3U\n');
+      expect((await fetch(`${withMedia.url}/media/multitrack/subs_eng.vtt`)).headers.get('content-type')).toBe('text/vtt');
+      expect((await fetch(`${withMedia.url}/media/multitrack/missing.ts`)).status).toBe(404);
+      expect((await fetch(`${withMedia.url}/media/multitrack/..%2F..%2Fsecret`)).status).toBe(404);
+    } finally {
+      await withMedia.close();
+    }
+    const noMedia = await startFakeXtream({ port: 0, channels: 1, mediaDir: join(dir, 'none'), now: () => NOW });
+    try {
+      const movie1 = await fetch(`${noMedia.url}/movie/test/test/1.m3u8`, { redirect: 'manual' });
+      expect(movie1.headers.get('location')).toBe('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+    } finally {
+      await noMedia.close();
+    }
   });
 
   test('CORS headers on responses, redirects, 404s and OPTIONS', async () => {

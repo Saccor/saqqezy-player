@@ -3,3 +3,4 @@ node_modules/
 dist/
 coverage/
 dist-tizen/
+tools/fake-xtream/media/

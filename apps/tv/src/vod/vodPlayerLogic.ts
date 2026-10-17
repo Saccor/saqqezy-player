@@ -103,11 +103,42 @@ export function cueText(text: string | null): string {
 /** Picker row id for "Subtitles off": unprefixed, so no track row (`a:<id>`, `s:<id>`) can produce it. */
 export const SUBTITLES_OFF = 'off';
 
+/** English names for the language codes streams commonly carry (ISO 639-1 and 639-2, both 639-2 forms). */
+const LANGUAGE_NAMES: Record<string, string> = {
+  ar: 'Arabic', ara: 'Arabic', cs: 'Czech', ces: 'Czech', cze: 'Czech', da: 'Danish', dan: 'Danish', de: 'German',
+  deu: 'German', ger: 'German', el: 'Greek', ell: 'Greek', gre: 'Greek', en: 'English', eng: 'English', es: 'Spanish',
+  spa: 'Spanish', fa: 'Persian', fas: 'Persian', per: 'Persian', fi: 'Finnish', fin: 'Finnish', fr: 'French',
+  fra: 'French', fre: 'French', he: 'Hebrew', heb: 'Hebrew', hi: 'Hindi', hin: 'Hindi', hu: 'Hungarian',
+  hun: 'Hungarian', id: 'Indonesian', ind: 'Indonesian', it: 'Italian', ita: 'Italian', ja: 'Japanese', jpn: 'Japanese',
+  ko: 'Korean', kor: 'Korean', nb: 'Norwegian', nob: 'Norwegian', no: 'Norwegian', nor: 'Norwegian', nl: 'Dutch',
+  nld: 'Dutch', dut: 'Dutch', pl: 'Polish', pol: 'Polish', pt: 'Portuguese', por: 'Portuguese', ro: 'Romanian',
+  ron: 'Romanian', rum: 'Romanian', ru: 'Russian', rus: 'Russian', sv: 'Swedish', swe: 'Swedish', th: 'Thai',
+  tha: 'Thai', tr: 'Turkish', tur: 'Turkish', uk: 'Ukrainian', ukr: 'Ukrainian', vi: 'Vietnamese', vie: 'Vietnamese',
+  zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
+};
+
+/**
+ * A track's display label: a bare language code (AVPlay labels tracks by language only) becomes its English name;
+ * any other label is kept. Labels that repeat get " (2)", " (3)" in list order.
+ */
+function trackLabels(tracks: readonly TrackInfo[]): string[] {
+  const seen = new Map<string, number>();
+  return tracks.map((t) => {
+    const raw = oneSpace(t.label);
+    const base = LANGUAGE_NAMES[raw.toLowerCase()] ?? raw;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base} (${n})`;
+  });
+}
+
 /** "Audio & subtitles" picker rows: audio tracks, then subtitles, then "Subtitles off"; the active ones are checked. */
 export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[]): PickerRow[] {
+  const audioLabels = trackLabels(audio);
+  const textLabels = trackLabels(text);
   return [
-    ...audio.map((t): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: oneSpace(`Audio: ${t.label}`), checked: t.active })),
-    ...text.map((t): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: oneSpace(`Subtitles: ${t.label}`), checked: t.active })),
+    ...audio.map((t, i): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: `Audio: ${audioLabels[i]}`, checked: t.active })),
+    ...text.map((t, i): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: `Subtitles: ${textLabels[i]}`, checked: t.active })),
     { kind: 'list', id: SUBTITLES_OFF, label: 'Subtitles off', checked: !text.some((t) => t.active) },
   ];
 }
@@ -147,10 +178,32 @@ export function pauseOnHidden(s: { hidden: boolean; paused: boolean; problem: bo
 
 /**
  * The remembered tracks are due when an engine attempt plays that they were not applied to yet (`appliedAt`: the
- * `startedAttempts` value they were last applied for). Once per attempt, so applying never loops.
+ * `startedAttempts` value they were last applied for). Once per attempt, so applying never loops. Also due when the
+ * engine's track lists changed since (`shape`: "<audio count>/<subtitle count>"): native in-band tracks can appear
+ * after the first frame.
  */
-export function tracksDue(appliedAt: number | undefined, startedAttempts: number, playing: boolean): boolean {
-  return playing && startedAttempts > 0 && startedAttempts !== appliedAt;
+export function tracksDue(
+  appliedAt: number | undefined,
+  startedAttempts: number,
+  playing: boolean,
+  appliedShape?: string,
+  shape?: string,
+): boolean {
+  if (!playing || startedAttempts <= 0) return false;
+  return startedAttempts !== appliedAt || appliedShape !== shape;
+}
+
+/**
+ * Whether the player's 250 ms tick looks for late tracks now (`ticks`: ticks since the tracks were last applied): once
+ * a second for the first 10 s. Reading the track lists is a native call on AVPlay, so never on every tick for a whole film.
+ */
+export function shapeCheckDue(ticks: number): boolean {
+  return ticks > 0 && ticks <= 40 && ticks % 4 === 0;
+}
+
+/** The track lists' shape for `tracksDue`. */
+export function trackShape(audio: readonly unknown[], text: readonly unknown[]): string {
+  return `${audio.length}/${text.length}`;
 }
 
 /** The id the audio and subtitle choices are remembered under: the series for an episode, the item for a movie. */

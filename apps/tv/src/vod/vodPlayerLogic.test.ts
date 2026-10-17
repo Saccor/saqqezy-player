@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -107,6 +107,18 @@ describe('tracks', () => {
     ]);
   });
 
+  it('trackRows names bare language codes and numbers labels that repeat', () => {
+    const rows = trackRows([t('1', 'eng', 'eng', true), t('2', 'eng', 'eng'), t('3', 'swe', 'swe')], [t('4', 'Track 1')]);
+    expect(rows.map((r) => r.kind === 'list' && r.label)).toEqual([
+      'Audio: English', 'Audio: English (2)', 'Audio: Swedish', 'Subtitles: Track 1', 'Subtitles off',
+    ]);
+  });
+
+  it('trackRows keeps a label that is not a bare language code', () => {
+    const rows = trackRows([t('1', 'Director commentary', 'en')], []);
+    expect(rows[0]!.kind === 'list' && rows[0]!.label).toBe('Audio: Director commentary');
+  });
+
   it('trackRows checks a subtitle and leaves Off unchecked', () => {
     const rows = trackRows([], [t('s1', 'One', undefined, true)]);
     expect(rows.map((r) => r.kind === 'list' && r.checked)).toEqual([true, false]);
@@ -179,6 +191,24 @@ describe('pauseOnHidden', () => {
     expect(pauseOnHidden({ hidden: false, paused: false, problem: false })).toBe(false); // visible again: no auto-resume
     expect(pauseOnHidden({ hidden: true, paused: true, problem: false })).toBe(false);
     expect(pauseOnHidden({ hidden: true, paused: false, problem: true })).toBe(false); // ended or failed
+  });
+});
+
+describe('shapeCheckDue', () => {
+  it('looks for late tracks once a second, only in the first 10 s after the tracks were applied', () => {
+    expect(shapeCheckDue(0)).toBe(false);
+    expect(shapeCheckDue(4)).toBe(true);
+    expect(shapeCheckDue(5)).toBe(false);
+    expect(shapeCheckDue(40)).toBe(true);
+    expect(shapeCheckDue(44)).toBe(false);
+  });
+});
+
+describe('tracksDue (late tracks)', () => {
+  it('re-applies when the engine lists more tracks than when they were applied (tracks found after playing)', () => {
+    expect(tracksDue(1, 1, true, '1/0', '1/2')).toBe(true);
+    expect(tracksDue(1, 1, true, '1/2', '1/2')).toBe(false);
+    expect(tracksDue(1, 1, false, '1/0', '1/2')).toBe(false);
   });
 });
 

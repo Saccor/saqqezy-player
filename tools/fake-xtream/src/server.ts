@@ -1,5 +1,8 @@
+import { existsSync, readFile } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
 } from './data.ts';
@@ -13,7 +16,19 @@ export interface FakeXtreamOptions {
   movies?: number;
   series?: number;
   now?: () => number;
+  /**
+   * Generated test media (default: `tools/fake-xtream/media`). When `multitrack/master.m3u8` exists there
+   * (`scripts/make-multitrack.mjs`), movie 1 plays it: two audio and two subtitle tracks.
+   */
+  mediaDir?: string;
 }
+
+const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
+const MEDIA_TYPES: Record<string, string> = {
+  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt',
+};
+/** Movie stream id that plays the multi-track title when it was generated. */
+const MULTITRACK_MOVIE = 1;
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -32,6 +47,7 @@ const RETRY_USERS = ['refuse403', 'limit429', 'gone404', 'down500'];
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const chs = channels(opts.channels ?? 200);
   const now = opts.now ?? Date.now;
+  const mediaDir = opts.mediaDir ?? DEFAULT_MEDIA_DIR;
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
   const mvs = movies(opts.movies ?? 120, now());
   const srs = seriesList(opts.series ?? 12);
@@ -82,8 +98,21 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         res.writeHead(answer.status, { 'content-type': 'text/plain', ...answer.headers });
         return res.end();
       }
-      res.writeHead(302, { location: TEST_STREAM });
+      const multitrack = stream[1] === 'movie' && Number(stream[4]) === MULTITRACK_MOVIE
+        && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));
+      res.writeHead(302, { location: multitrack ? `${base}/media/multitrack/master.m3u8` : TEST_STREAM });
       return res.end();
+    }
+
+    // Generated test media: one folder level, plain file names only (no traversal).
+    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt)$/.exec(url.pathname);
+    if (media) {
+      const file = join(mediaDir, media[1]!, `${media[2]}.${media[3]}`);
+      return readFile(file, (err, body) => {
+        if (err) return send(res, 404, '');
+        res.writeHead(200, { 'content-type': MEDIA_TYPES[media[3]!]! });
+        res.end(body);
+      });
     }
 
     const poster = /^\/poster\/([a-z]\d+)\.svg$/.exec(url.pathname);

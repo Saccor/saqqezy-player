@@ -137,8 +137,8 @@ export interface Player {
   /** `null`: subtitles off. */
   selectTextTrack?(id: string | null): void;
   /**
-   * Subtitle cue text for engines that cannot render subtitles themselves (AVPlay); `null` clears the cue.
-   * Returns the unsubscribe function. Engines that render text tracks through the element do not implement it.
+   * The selected subtitle track's cue text, for the app to draw (AVPlay, and the HTML5 player, which keeps its text
+   * tracks hidden so cues never sit under the app's overlay); `null` clears the cue. Returns the unsubscribe function.
    */
   onSubtitle?(fn: (text: string | null) => void): () => void;
 }
