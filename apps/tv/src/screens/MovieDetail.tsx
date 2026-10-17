@@ -5,6 +5,7 @@ import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
+import { pointerMode } from '../input/pointer.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -23,7 +24,12 @@ const BIG_W = 320;
 const BIG_H = 480;
 const INFO_X = POSTER_X + BIG_W + 56;
 const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X;
-const MORE_LABEL_Y = 740;
+/**
+ * The More row's label: the row (44 + POSTER_H below it) ends at the safe bottom (1016). In pointer mode it sits 50 px
+ * higher, so the shell's Back button (978–1026, bottom left) never covers the first poster.
+ */
+const MORE_LABEL_Y = 690;
+const MORE_LABEL_Y_POINTER = 640;
 
 type Area = 'actions' | 'more';
 
@@ -38,6 +44,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const [catName, setCatName] = createSignal('');
   const [moreCol, setMoreCol] = createSignal(0);
   const [area, setArea] = createSignal<Area>('actions');
+  const moreY = () => (pointerMode() ? MORE_LABEL_Y_POINTER : MORE_LABEL_Y);
   let actionsNode: ElementNode | undefined;
   let moreNode: ElementNode | undefined;
   let alive = true;
@@ -203,14 +210,16 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
         <View x={INFO_X} y={POSTER_Y + 392 + 80} width={360} height={6} borderRadius={3} color={COLORS.surface}>
           <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.focus} />
         </View>
-        <Text x={INFO_X} y={POSTER_Y + 392 + 94} fontSize={FONT.small} color={COLORS.muted}>
+        {/* Beside the bar, not under it: under it the line would reach the More label. */}
+        <Text x={INFO_X + 376} y={POSTER_Y + 392 + 70} fontSize={FONT.small} color={COLORS.muted}>
           {minutesLeft(resumeMs(), durationMs())}
         </Text>
       </Show>
 
       <Show when={moreRow().items.length > 0}>
-        <Text x={LAYOUT.safeX} y={MORE_LABEL_Y} fontSize={FONT.heading} color={COLORS.text}>{catName() ? `More in ${catName()}` : 'More like this'}</Text>
-        <View ref={(el) => { moreNode = el; }} y={MORE_LABEL_Y + 44} width={LAYOUT.width} height={POSTER_H}
+        <Text x={LAYOUT.safeX} y={moreY()} width={LAYOUT.width - LAYOUT.safeX * 2} maxWidth={LAYOUT.width - LAYOUT.safeX * 2} contain="width"
+          maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{catName() ? `More in ${catName()}` : 'More like this'}</Text>
+        <View ref={(el) => { moreNode = el; }} y={moreY() + 44} width={LAYOUT.width} height={POSTER_H}
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}
           onEnter={openMore} onMenu={() => openMenu(moreCol())} onLongOk={() => openMenu(moreCol())}>

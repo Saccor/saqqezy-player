@@ -11,6 +11,7 @@ import { PosterTile } from '../components/PosterTile.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { createDebounce } from '../playback/debounce.ts';
+import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { initState } from '../state/appState.ts';
@@ -26,7 +27,8 @@ import { TAB_SWITCH_MS, type VodKind } from '../vod/tabLogic.ts';
 const RAIL_X = LAYOUT.safeX;
 const RAIL_Y = 158;
 const RAIL_W = 360;
-const RAIL_H = LAYOUT.height - RAIL_Y - LAYOUT.safeY;
+// Ends a gap above the bottom row: in pointer mode the shell's Back button (978–1026) would cover its last name.
+const RAIL_H = BOTTOM_ROW_Y - LAYOUT.gap - RAIL_Y;
 const GRID_X = RAIL_X + RAIL_W + 48;
 const GRID_W = LAYOUT.width - LAYOUT.safeX - GRID_X;
 const CELL_GAP = 24;
@@ -35,6 +37,9 @@ const CELL_H = Math.round(CELL_W * 1.5);
 const ROW_PITCH = CELL_H + 88;
 const GRID_Y = 246;
 const HEAD_Y = 158;
+const SORT_W = 300;
+/** The header's width: up to a gap before the Sort button. */
+const HEAD_W = LAYOUT.width - LAYOUT.safeX - SORT_W - LAYOUT.gap - GRID_X;
 /**
  * The grid node covers the grid only (not the whole screen), so its pointer target never overlaps the rail or the sort
  * button. It reaches PAD past the tiles on the left and top so a focused tile's scale and ring are not clipped.
@@ -382,7 +387,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         onRight={railRight}
         onFocusChanged={(f) => { if (f) setArea('rail'); }}
         onRowClick={(i) => { pickCat.cancel(); setRailSel(i); focusArea('rail'); void commitCat(i); }} />
-      <Text x={GRID_X} y={HEAD_Y} fontSize={FONT.heading} color={COLORS.text}>{cat()?.name ?? ''}</Text>
+      {/* Stops before the Sort button (long names such as "Movies | 4K | …" ran under it). */}
+      <Text x={GRID_X} y={HEAD_Y} width={HEAD_W} maxWidth={HEAD_W} contain="width" maxLines={1}
+        fontSize={FONT.heading} color={COLORS.text}>{cat()?.name ?? ''}</Text>
       <Text x={GRID_X} y={HEAD_Y + 44} fontSize={FONT.small} color={COLORS.muted}>{total() === 1 ? '1 title' : `${total()} titles`}</Text>
       <ActionBar ref={(el) => { sortNode = el; }} x={LAYOUT.width - LAYOUT.safeX - 300} y={HEAD_Y - 6}
         actions={[{ id: 'sort', label: `Sort: ${SORT_LABELS[sort()]}`, width: 300 }]} onAction={cycleSort}
