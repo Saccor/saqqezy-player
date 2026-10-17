@@ -13,7 +13,8 @@ import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/poin
 import type { GridHit } from '../input/pointerLogic.ts';
 import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
-import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../shell/logic.ts';
+import { BOTTOM_ROW_H, BOTTOM_ROW_Y, OFFLINE_BADGE_X, SCREEN_ROW_X } from '../shell/logic.ts';
+import { offline } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
@@ -36,6 +37,8 @@ const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X - 160;
  */
 const SIDE_X = WORDMARK_RIGHT - INFO_X;
 const SIDE_W = INFO_W - SIDE_X;
+/** While offline the shell's badge sits top right: the context and time lines end a gap before it. */
+const SIDE_W_OFFLINE = Math.min(SIDE_W, OFFLINE_BADGE_X - LAYOUT.gap - INFO_X - SIDE_X);
 const TITLE_TOP = WORDMARK_BOTTOM + 4 - MINI.y;
 const GRID_Y = MINI.y + MINI.h + LAYOUT.gap;
 const HINT_Y = LAYOUT.height - LAYOUT.safeY - 30;
@@ -53,6 +56,7 @@ const memory: { groupId?: string } = {};
  * 3-hour chunks, the visible 3 h first, then 3 h either side). Times are already shifted by the API.
  */
 export function GuideScreen(props: { entry: ScreenEntry }) {
+  const sideW = () => (offline() ? SIDE_W_OFFLINE : SIDE_W);
   const opened = Date.now();
   const win = guideWindow(opened);
   const target = guideOpenTarget(props.entry.params, opened, win);
@@ -368,13 +372,13 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
 
       {/* Focused programme: context and time beside the brand wordmark, title and description below it. */}
       <View x={INFO_X} y={MINI.y} width={INFO_W} height={MINI.h}>
-        <Text x={SIDE_X} y={8} width={SIDE_W} maxWidth={SIDE_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+        <Text x={SIDE_X} y={8} width={sideW()} maxWidth={sideW()} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
           {`TV guide${groupName() ? ` · ${groupName()}` : ''}${focusChannel() ? ` · ${focusChannel()!.number} ${focusChannel()!.name}` : ''}`}
         </Text>
         <Text y={TITLE_TOP} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
           {focusBlock()?.title ?? (ready() && total() === 0 ? 'No channels here yet.' : '')}
         </Text>
-        <Text x={SIDE_X} y={40} width={SIDE_W} maxWidth={SIDE_W} contain="width" maxLines={1} fontSize={FONT.body}
+        <Text x={SIDE_X} y={40} width={sideW()} maxWidth={sideW()} contain="width" maxLines={1} fontSize={FONT.body}
           color={focusBlock() && isOnAir(focusBlock()!, now()) ? COLORS.focus : COLORS.muted}>{whenLine()}</Text>
         <Text y={TITLE_TOP + 58} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={expanded() ? 4 : 2} fontSize={FONT.body}
           color={COLORS.text}>{descText()}</Text>

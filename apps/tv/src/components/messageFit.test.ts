@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { failureText } from '../playback/failureText.ts';
-import { MESSAGE_BOXES, fitsBox, messageLines, messageTop } from './messageFit.ts';
+import { COOLDOWN_TEXT } from '../state/cooldownLogic.ts';
+import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from './messageFit.ts';
+
+describe('stackedMessage', () => {
+  it('puts the hint under the last line of the text, the whole block centred and inside the box', () => {
+    // Home's preview: 588 × 331, text 524 wide at body size; the Player: 1100 × 240 at heading size.
+    for (const [w, h, size] of [[524, 331, 26], [1036, 240, 32]] as const) {
+      for (const text of ['Short.', COOLDOWN_TEXT, `${COOLDOWN_TEXT} ${COOLDOWN_TEXT}`]) {
+        const s = stackedMessage(text, { width: w, fontSize: size, maxLines: 3 }, h, 22);
+        expect(s.hintY, text).toBeGreaterThanOrEqual(s.textY + s.lines * s.lineH);
+        expect(s.textY).toBeGreaterThanOrEqual(0);
+        expect(s.hintY + 22 * 1.3).toBeLessThanOrEqual(h);
+      }
+    }
+  });
+
+  it("counts the cooldown copy as three lines in Home's preview (it wrapped into the hint before)", () => {
+    expect(stackedMessage(COOLDOWN_TEXT, { width: 524, fontSize: 26, maxLines: 3 }, 331, 22).lines).toBe(3);
+  });
+});
 
 /** The longest failure text: a refusal naming the account's limit. */
 const LONG = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'video');

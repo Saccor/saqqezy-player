@@ -6,14 +6,15 @@ import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
 import { onLogicalKey } from '../input/keys.ts';
-import { usePointerTarget } from '../input/pointer.ts';
+import { pointerMode, usePointerTarget } from '../input/pointer.ts';
+import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
 import { playback } from '../playback/playback.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
-import { showToast } from '../shell/Toast.tsx';
+import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
 import {
@@ -342,6 +343,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   // ---- overlay actions ----
 
   const actions = (): Action[] => [
+    // Pointer mode: Back is the bar's first button (the shell's Back pill would sit on Pause, so it is off here).
+    ...(pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: 180 }] : []),
     { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: 180 },
     { id: 'back10', label: '−10 s', width: 160 },
     { id: 'fwd10', label: '+10 s', width: 160 },
@@ -349,6 +352,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     ...(p.next ? [{ id: 'next', label: 'Next episode', width: 280 }] : []),
   ];
   const onAction = (id: string) => {
+    if (id === 'back') { onBack(); return; }
     bump();
     // Failed or ended: only the card's buttons act (Next episode still may).
     if ((failed() || ended()) && id !== 'next') return;
@@ -531,6 +535,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   });
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? BAND_Y + 40 : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
+  // Toasts end above the overlay's title and bar, or above a subtitle when the overlay is hidden.
+  useToastFloor(() => (visible() ? TITLE_Y - LAYOUT.gap : cue() ? subY() - LAYOUT.gap : undefined));
   const PILL_W = 420;
 
   return (

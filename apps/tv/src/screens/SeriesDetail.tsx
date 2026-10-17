@@ -9,6 +9,7 @@ import { moveFocus } from '../components/virtualWindow.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
 import { createFavToggle } from '../vod/favToggle.ts';
 import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
@@ -22,8 +23,10 @@ import { TAB_SWITCH_MS } from '../vod/tabLogic.ts';
 const BG = COLORS.background;
 const HERO_X = LAYOUT.safeX;
 const HERO_W = 1100;
-const TITLE_Y = 110;
-const ACTIONS_Y = 384;
+/** Below the wordmark: a long title at 64 px would otherwise run under it (it spans the screen centre). */
+const TITLE_Y = WORDMARK_BOTTOM + 8;
+/** Under a three-line plot (it ends about TITLE_Y + 228). */
+const ACTIONS_Y = TITLE_Y + 250;
 const TABS_Y = 500;
 const ROW_Y = 600;
 const ROW_W = LAYOUT.width - LAYOUT.safeX;

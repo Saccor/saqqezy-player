@@ -38,3 +38,23 @@ export function fitsBox(text: string, box: MessageBox): boolean {
 export function messageTop(text: string, box: MessageBox, height: number): number {
   return (height - messageLines(text, box) * box.lineH) / 2;
 }
+
+/**
+ * A message with a one-line hint under it (the cooldown notice): how many lines the message takes at `fontSize` in
+ * `width` (about 0.55 em a character, conservative), and where the message and the hint go so the block is centred in
+ * a box `height` tall and the hint always starts below the message's last line.
+ */
+export function stackedMessage(
+  text: string, opts: { width: number; fontSize: number; maxLines: number }, height: number, hintSize: number,
+): { lines: number; lineH: number; textY: number; hintY: number } {
+  const box: MessageBox = {
+    charsPerLine: Math.max(1, Math.floor(opts.width / (opts.fontSize * 0.55))),
+    maxLines: opts.maxLines,
+    lineH: Math.round(opts.fontSize * 1.25),
+  };
+  const lines = messageLines(text, box);
+  const gap = 12;
+  const hintH = Math.round(hintSize * 1.25);
+  const textY = Math.max(0, Math.round((height - (lines * box.lineH + gap + hintH)) / 2));
+  return { lines, lineH: box.lineH, textY, hintY: textY + lines * box.lineH + gap };
+}

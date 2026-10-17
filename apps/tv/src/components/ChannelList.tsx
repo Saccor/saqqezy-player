@@ -61,6 +61,7 @@ export function ChannelRowView(props: {
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
   const textSub = () => (props.lit ? 0xffffffcc : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
+  const numSize = () => (String(r()?.number ?? '').length >= 5 ? 20 : FONT.body);
   const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
   const nowLine = () => {
     const n = r()?.now;
@@ -70,8 +71,9 @@ export function ChannelRowView(props: {
   };
   return (
     <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={LAYOUT.radius}>
-      <Text x={12} y={(ROW_H - 6 - FONT.body) / 2 - 3} width={NUM_W - 16} maxWidth={NUM_W - 16} contain="width"
-        textAlign="right" fontSize={FONT.body} color={textSub()}>{`${r()?.number ?? ''}`}</Text>
+      {/* Five digits and more (lists of 10,000+ channels) at a smaller size: at body size they are wider than the column. */}
+      <Text x={12} y={(ROW_H - 6 - numSize()) / 2 - 3} width={NUM_W - 16} maxWidth={NUM_W - 16} contain="width" maxLines={1}
+        textAlign="right" fontSize={numSize()} color={textSub()}>{`${r()?.number ?? ''}`}</Text>
       <Show when={r()} keyed>
         {(row) => <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={row.logo} number={row.number} focused={props.lit} />}
       </Show>

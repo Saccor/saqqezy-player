@@ -42,7 +42,8 @@ export function ConfirmDialog(props: { message: string; yes?: string; no?: strin
     <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={50}>
       <View ref={(el) => { box = el; }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - HEIGHT) / 2} width={WIDTH} height={HEIGHT}
         color={COLORS.surface} borderRadius={LAYOUT.radius * 2}>
-        <Text x={0} y={64} width={WIDTH} maxWidth={WIDTH} contain="width" textAlign="center"
+        {/* At most three lines, ending above the buttons (a long list name used to wrap into them). */}
+        <Text x={24} y={40} width={WIDTH - 48} maxWidth={WIDTH - 48} contain="width" maxLines={3} lineHeight={40} textAlign="center"
           fontSize={FONT.heading} color={COLORS.text}>{props.message}</Text>
         <Row x={(WIDTH - rowW) / 2} y={HEIGHT - BTN_H - 56} width={rowW} height={BTN_H} gap={LAYOUT.gap}
           scroll="none" selected={1} autofocus>

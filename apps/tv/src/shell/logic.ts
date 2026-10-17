@@ -1,6 +1,7 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
+import { messageLines, type MessageBox } from '../components/messageFit.ts';
 import type { ScreenId } from './router.ts';
 import { LAYOUT } from './theme.ts';
 
@@ -102,6 +103,30 @@ export const SHELL_BACK_W = 200;
  */
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
+
+/**
+ * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the
+ * Guide narrows that line to end before it while offline.
+ */
+export const OFFLINE_BADGE_W = 280;
+export const OFFLINE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - OFFLINE_BADGE_W;
+
+/** The toast: 1100 wide, its text 1052 wide at body size (about 72 characters a line), at most two lines. */
+export const TOAST_W = 1100;
+const TOAST_BOX = { charsPerLine: 72, maxLines: 2, lineH: 32 } as const satisfies MessageBox;
+const TOAST_PAD_Y = 20;
+
+/**
+ * Where a toast goes for `text`: bottom-centre, its bottom edge a gap above the hint line / pointer button row (which
+ * it would otherwise cover), one line tall or two for a long message, the text centred inside the box.
+ */
+export function toastLayout(text: string, bottom = TOAST_BOTTOM): { y: number; height: number; textY: number; lines: number; lineH: number } {
+  const lines = messageLines(text, TOAST_BOX);
+  const height = lines * TOAST_BOX.lineH + TOAST_PAD_Y * 2;
+  return { y: Math.min(bottom, TOAST_BOTTOM) - height, height, textY: TOAST_PAD_Y, lines, lineH: TOAST_BOX.lineH };
+}
+/** A toast's lowest bottom edge: a gap above the bottom row. A screen with controls higher up passes a higher one. */
+export const TOAST_BOTTOM = BOTTOM_ROW_Y - LAYOUT.gap;
 /**
  * The shell Back's x: the row start, except on Search, whose full keyboard reaches down to just above the row there.
  * Search puts it at the start of its results column instead (keyboard x + width + two gaps), on the same row.
@@ -112,7 +137,10 @@ export function shellBackX(route: ScreenId | undefined): number {
 /** Where a screen's own bottom-row buttons start: after the shell's Back, one bar gap apart. */
 export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 
-/** Every screen except Home (Back there is the exit question) and the Player (its overlay has its own Back). */
+/**
+ * Every screen except Home (Back there is the exit question), the Player (its overlay has its own Back) and VodPlay
+ * (its action bar starts with Back in pointer mode; the pill would cover Pause).
+ */
 export function shellBackShown(route: ScreenId | undefined): boolean {
-  return route !== undefined && route !== 'home' && route !== 'player';
+  return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay';
 }

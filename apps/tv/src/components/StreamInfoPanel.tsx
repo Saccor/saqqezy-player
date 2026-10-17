@@ -1,9 +1,13 @@
 import { For, Text, View } from '@lightningtv/solid';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 
-const W = 640;
+/**
+ * Sized to stay clear of the Player's other top and centre boxes: with 7 lines it is 96–696 × 54–400, left of the
+ * "Reconnecting…" pill (from x 730) and above the cooldown and failure boxes (from y 420).
+ */
+const W = 600;
 const PAD = 28;
-const LINE_H = 40;
+const LINE_H = 34;
 const LABEL_W = 180;
 
 /**

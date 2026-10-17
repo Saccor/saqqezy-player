@@ -4,7 +4,7 @@ import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
-import { InfoBanner } from '../components/InfoBanner.tsx';
+import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
@@ -22,7 +22,7 @@ import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { showToast } from '../shell/Toast.tsx';
+import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
@@ -378,6 +378,10 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const [overButton, setOverButton] = createSignal(false);
   const overlayShown = () => playerOverlayShown(pointerMode(), modal());
+  // Toasts ("Added to favourites", guide refresh failures) end above the banner, which they would otherwise cover.
+  useToastFloor(() => (bannerOn() && shown()
+    ? LAYOUT.height - LAYOUT.safeY - BANNER_H - bannerLift(overlayShown()) - LAYOUT.gap
+    : undefined));
   /** `⛶ Window` and double click: back to Home with the small video (past a Guide or Search below the Player). */
   const toHome = () => {
     leave();
