@@ -27,6 +27,8 @@ export interface VodServiceDeps {
    * source's refusal cooldown like every other request (`SourceRefusedError`, nothing sent) and their answers feed it.
    */
   guard?: RefusalGuard;
+  /** Pacing of the per-category fallback (default `VOD_FALLBACK_GAP_MS`; tests use 0). */
+  fallbackGapMs?: number;
 }
 
 const vodAtKey = (kind: VodKind, sourceId: string) => `vodAt:${kind}:${sourceId}`;
@@ -38,6 +40,7 @@ export class VodService {
   private readonly now: () => number;
   private readonly bodyIdleMs: number;
   private readonly guard: RefusalGuard | undefined;
+  private readonly fallbackGapMs: number | undefined;
   private readonly locks = new Map<string, Promise<void>>();
 
   constructor(deps: VodServiceDeps) {
@@ -46,6 +49,7 @@ export class VodService {
     this.now = deps.now ?? Date.now;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
     this.guard = deps.guard;
+    this.fallbackGapMs = deps.fallbackGapMs;
   }
 
   async loadCatalog(sourceId: string, kind: VodKind): Promise<VodCatalog> {
@@ -101,6 +105,7 @@ export class VodService {
       }
       const server = normalizeServer(source.server);
       const { automatic: _automatic, ...fetchOpts } = opts;
+      if (fetchOpts.gap === undefined && this.fallbackGapMs !== undefined) fetchOpts.gap = this.fallbackGapMs;
       const list = await fetchXtreamCatalog(xtreamVodApi(this.client(source), sourceId, kind), kind, fetchOpts);
       // The account may have been removed or changed during the fetch: this list belongs to the old one.
       const now = await this.source(sourceId);

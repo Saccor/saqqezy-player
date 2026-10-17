@@ -2,7 +2,7 @@ import {
   VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
   buildVodSearchIndex, searchKey, searchVodIndex, vodIndexEntry,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
-  type VodUserRecord, type VodUserState,
+  type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type {
@@ -70,6 +70,8 @@ export class VodController {
   /** The user-state load in flight (one per epoch; concurrent callers join it). */
   private userLoad: { epoch: number; p: Promise<Map<string, VodUserState>> } | undefined;
   private readonly jobs = new Map<VodKind, Job>();
+  /** First loads that installed a snapshot as the resident catalogue: the titles so far, per kind. */
+  private readonly progress = new Map<VodKind, number>();
   private readonly details = new Map<string, MovieDetail | SeriesDetail>();
   /**
    * Detail fetches in flight, per item id: a concurrent request for the same item (the hero resting, then a quick
@@ -97,6 +99,7 @@ export class VodController {
   reset(sourceId: string | undefined): void {
     for (const job of this.jobs.values()) job.ac.abort();
     this.jobs.clear();
+    this.progress.clear();
     this.failures.clear();
     this.resident = undefined;
     this.loading = undefined;
@@ -122,6 +125,7 @@ export class VodController {
     if (this.sourceId !== sourceId) return;
     for (const job of this.jobs.values()) job.ac.abort();
     this.jobs.clear();
+    this.progress.clear();
     this.failures.clear();
     this.resident = undefined;
     this.loading = undefined;
@@ -172,7 +176,7 @@ export class VodController {
       const needs = await this.vod.needsRefresh(id, kind, { foreground: true });
       if (this.epoch !== epoch) return this.home(kind);
       if (needs) {
-        void this.startFetch(kind, id, epoch, true);
+        void this.startFetch(kind, id, epoch, true, true);
         return { status: 'loading', rows: [], truncated: false };
       }
       return { status: 'empty', rows: [], truncated: false };
@@ -181,7 +185,7 @@ export class VodController {
     if (!this.jobs.has(kind) && !this.failures.has(kind)) {
       const needs = await this.vod.needsRefresh(id, kind);
       if (this.epoch !== epoch) return this.home(kind);
-      if (needs) void this.startFetch(kind, id, epoch, true);
+      if (needs) void this.startFetch(kind, id, epoch, true, catalog.size === 0);
     }
     if (catalog.size === 0) {
       if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
@@ -189,7 +193,11 @@ export class VodController {
       if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
       return { status: 'empty', rows: [], truncated: catalog.truncated };
     }
-    return { status: 'ready', rows: await this.rows(kind, catalog), truncated: catalog.truncated };
+    const home: VodHome = { status: 'ready', rows: await this.rows(kind, catalog), truncated: catalog.truncated };
+    const so = this.progress.get(kind);
+    if (so !== undefined && this.jobs.has(kind)) home.progress = so;
+    if (catalog.partial) home.partial = true;
+    return home;
   }
 
   async categories(kind: VodKind): Promise<VodCategoryView[]> {
@@ -232,7 +240,9 @@ export class VodController {
     const id = this.sourceId;
     if (!id) return;
     this.failures.delete(kind);
-    await this.startFetch(kind, id, this.epoch);
+    // Try again comes from a screen with nothing to show: a first load, unless a list of this kind is resident.
+    const shown = this.resident?.kind === kind && this.resident.catalog.size > 0;
+    await this.startFetch(kind, id, this.epoch, false, !shown);
   }
 
   /** Idle-time warm-up: loads the stored catalogue only when nothing is resident. Never fetches. */
@@ -553,17 +563,32 @@ export class VodController {
     return null;
   }
 
-  /** `automatic`: started by `home` (a failure records the refresh backoff), not by the Try again button. */
-  private startFetch(kind: VodKind, id: string, epoch: number, automatic = false): Promise<void> {
+  /**
+   * `automatic`: started by `home` (a failure records the refresh backoff), not by the Try again button.
+   * `first`: nothing of this kind is on screen, so the titles so far are shown while the list downloads (snapshots
+   * become the resident catalogue, `vodProgress` tells the screen). A refresh behind a shown list keeps that list.
+   */
+  private startFetch(kind: VodKind, id: string, epoch: number, automatic = false, first = false): Promise<void> {
     if (this.epoch !== epoch) return Promise.resolve();
     const existing = this.jobs.get(kind);
     if (existing) return existing.done;
     const ac = new AbortController();
     this.emit({ type: 'vodLoading', sourceId: id, kind });
+    const onSnapshot = (list: VodList) => {
+      if (this.epoch !== epoch || ac.signal.aborted) return;
+      // Like the final swap: never next to (or instead of) a catalogue of the other kind.
+      if ((this.loading && this.loading.kind !== kind) || (this.resident && this.resident.kind !== kind)) return;
+      if (this.resident?.kind === kind && !this.progress.has(kind) && this.resident.catalog.size > 0) return;
+      this.resident = { kind, catalog: new VodCatalog(kind, list) };
+      this.loading = undefined;
+      this.progress.set(kind, list.items.length);
+      this.emit({ type: 'vodProgress', sourceId: id, kind, count: list.items.length });
+    };
     const done = (async () => {
       try {
-        const r = await this.vod.refresh(id, kind, { signal: ac.signal, automatic });
+        const r = await this.vod.refresh(id, kind, { signal: ac.signal, automatic, ...(first ? { onSnapshot } : {}) });
         if (this.epoch !== epoch) return;
+        this.progress.delete(kind);
         this.failures.delete(kind);
         // Swap the fresh list in without reading it back. It takes over from a stored read of the same kind (which
         // would be older), and never installs next to the other kind: a load or resident of the other kind wins.
@@ -579,7 +604,10 @@ export class VodController {
         this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: r.count, truncated: r.truncated });
         if (searched) this.emit({ type: 'searchReady', sourceId: id });
       } catch (err) {
-        if (err instanceof VodFetchCancelled || this.epoch !== epoch) return;
+        if (this.epoch !== epoch) return;
+        // The titles so far were never stored: a failed first load must not leave them looking like the catalogue.
+        if (this.progress.delete(kind) && this.resident?.kind === kind) this.resident = undefined;
+        if (err instanceof VodFetchCancelled) return;
         const out = this.record('refreshVod', err);
         const error = toRpcError(out);
         this.failures.set(kind, error);

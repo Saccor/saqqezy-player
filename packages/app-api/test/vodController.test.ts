@@ -17,18 +17,38 @@ afterAll(async () => { await server.close(); });
 
 let storage: MemoryStorage;
 let failVod: boolean;
+/** When set, the full movie list is 1500 synthetic titles: the first 1000 at once, the rest after `gate` (or an error). */
+let held: { gate: Promise<void>; fail?: boolean } | undefined;
 beforeEach(() => {
   storage = new MemoryStorage();
   failVod = false;
+  held = undefined;
 });
+
+const syntheticMovie = (i: number) => JSON.stringify({ stream_id: 9000 + i, name: `Synthetic Held ${i}`, category_id: String((i % 4) + 1), added: '1700000000' });
+
+function heldBody(h: NonNullable<typeof held>): Response {
+  const enc = new TextEncoder();
+  return new Response(new ReadableStream<Uint8Array>({
+    async start(ctl) {
+      ctl.enqueue(enc.encode(`[${Array.from({ length: 1000 }, (_, i) => syntheticMovie(i)).join(',')},`));
+      await h.gate;
+      if (h.fail) { ctl.error(new TypeError('connection reset')); return; }
+      ctl.enqueue(enc.encode(`${Array.from({ length: 500 }, (_, i) => syntheticMovie(1000 + i)).join(',')}]`));
+      ctl.close();
+    },
+  }), { status: 200 });
+}
 
 const fetchFn: FetchFn = async (u, i) => {
   if (failVod && /action=get_(vod|series)/.test(u)) throw new TypeError('fetch failed');
+  if (held && /action=get_vod_streams/.test(u) && !/category_id=/.test(u)) return heldBody(held);
+  if (held?.fail && /action=get_vod_streams/.test(u)) throw new TypeError('fetch failed');
   return fetch(u, i);
 };
 
 async function setup(kind: 'xtream' | 'm3u' = 'xtream', now: () => number = () => NOW) {
-  const deps = { storage, fetch: fetchFn, now };
+  const deps = { storage, fetch: fetchFn, now, fallbackGapMs: 0 };
   const sources = new SourceService(deps);
   const vod = new VodService(deps);
   const { source } = await sources.addSource(kind === 'xtream'
@@ -73,8 +93,9 @@ describe('VodController home', () => {
     const { c, events, sourceId } = await setup();
     expect(await c.home('movie')).toEqual({ status: 'loading', rows: [], truncated: false });
     await c.idle();
-    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodRefreshed']);
-    expect(events[1]).toMatchObject({ sourceId, kind: 'movie', count: 24, truncated: false });
+    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodProgress', 'vodRefreshed']);
+    expect(events[1]).toMatchObject({ sourceId, kind: 'movie', count: 24 });
+    expect(events[2]).toMatchObject({ sourceId, kind: 'movie', count: 24, truncated: false });
     const home = await c.home('movie');
     expect(home.status).toBe('ready');
     expect(home.rows.map((r) => [r.id, r.total])).toEqual([[VOD_ROW_RECENT, 24], ['1', 6], ['2', 6], ['3', 6], ['4', 6]]);
@@ -115,6 +136,88 @@ describe('VodController home', () => {
     failVod = false;
     await c.refresh('movie');
     expect((await c.home('movie')).status).toBe('ready');
+  });
+});
+
+describe('VodController first load in progress', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+
+  test('rows show while the list downloads, with the count so far; complete at the end', async () => {
+    let release!: () => void;
+    held = { gate: new Promise<void>((r) => { release = r; }) };
+    const { c, events, sourceId } = await setup();
+    expect((await c.home('movie')).status).toBe('loading');
+    await settle();
+    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodProgress']);
+    expect(events[1]).toEqual({ type: 'vodProgress', sourceId, kind: 'movie', count: 1000 });
+    const during = await c.home('movie');
+    expect(during.status).toBe('ready');
+    expect(during.progress).toBe(1000);
+    expect(during.rows.find((r) => r.id === '1')?.total).toBe(250);
+    expect(await storage.getVod(sourceId, 'movie')).toBeUndefined();
+    release();
+    await c.idle();
+    const after = await c.home('movie');
+    expect(after.progress).toBeUndefined();
+    expect(after.rows.find((r) => r.id === '1')?.total).toBe(375);
+    expect(events.at(-1)).toMatchObject({ type: 'vodRefreshed', count: 1500 });
+  });
+
+  test('a stream that breaks keeps what arrived, marked partial, when the fallback cannot add to it', async () => {
+    let release!: () => void;
+    held = { gate: new Promise<void>((r) => { release = r; }), fail: true };
+    const { c, sourceId } = await setup();
+    await c.home('movie');
+    await settle();
+    expect((await c.home('movie')).progress).toBe(1000);
+    release();
+    await c.idle();
+    const h = await c.home('movie');
+    expect(h.status).toBe('ready');
+    expect(h.progress).toBeUndefined();
+    expect(h.partial).toBe(true);
+    expect((await storage.getVod(sourceId, 'movie'))?.items).toHaveLength(1000);
+  });
+
+  test('a first load that fails after a snapshot drops it: error, not half a list', async () => {
+    const { c, vod, sourceId } = await setup();
+    vi.spyOn(vod, 'refresh').mockImplementation(async (_id, kind, opts) => {
+      opts?.onSnapshot?.({ items: [{ id: `${sourceId}:m1`, kind, title: 'Synthetic', categoryId: '1' }], categories: [{ id: '1', kind, name: 'Drama', count: 1 }] });
+      throw new Error('boom');
+    });
+    await c.home('movie');
+    await c.idle();
+    const h = await c.home('movie');
+    expect(h.status).toBe('error');
+    expect(h.rows).toEqual([]);
+  });
+
+  test('a refresh behind a stored catalogue never shows its snapshots', async () => {
+    const { c, events } = await setup();
+    await c.refresh('movie');
+    let release!: () => void;
+    held = { gate: new Promise<void>((r) => { release = r; }) };
+    events.length = 0;
+    const running = c.refresh('movie');
+    await settle();
+    expect(events.map((e) => e.type)).toEqual(['vodLoading']);
+    const h = await c.home('movie');
+    expect(h.progress).toBeUndefined();
+    expect(h.rows.find((r) => r.id === '1')?.total).toBe(6);
+    release();
+    await running;
+    expect((await c.home('movie')).rows.find((r) => r.id === '1')?.total).toBe(375);
+  });
+
+  test('a partial stored list is reported', async () => {
+    const { c, sourceId } = await setup();
+    await storage.replaceVod(sourceId, 'movie', {
+      items: [{ id: `${sourceId}:m1`, kind: 'movie', title: 'Synthetic', categoryId: '1' }],
+      categories: [{ id: '1', kind: 'movie', name: 'Drama', count: 1 }],
+      partial: true,
+    });
+    await storage.setMeta(`vodAt:movie:${sourceId}`, NOW);
+    expect((await c.home('movie')).partial).toBe(true);
   });
 });
 
@@ -1083,7 +1186,7 @@ describe('VodController search', () => {
     await c.idle();
     events.length = 0;
     await c.refresh('series');
-    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodRefreshed', 'searchReady']);
+    expect(events.map((e) => e.type)).toEqual(['vodLoading', 'vodProgress', 'vodRefreshed', 'searchReady']);
     // An invalidate while a build is in flight still tells Search (that build will never answer).
     events.length = 0;
     c.invalidate(sourceId);

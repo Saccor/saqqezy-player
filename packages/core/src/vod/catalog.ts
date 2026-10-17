@@ -23,6 +23,11 @@ export class VodCatalog {
     return this.list.truncated === true;
   }
 
+  /** Some categories could not be fetched. */
+  get partial(): boolean {
+    return this.list.partial === true;
+  }
+
   /** False for most M3U catalogues: "Recently added" has nothing to sort by. */
   get hasAddedDates(): boolean {
     return (this.added ??= this.list.items.some((i) => i.added !== undefined));
