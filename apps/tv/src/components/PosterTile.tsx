@@ -19,7 +19,7 @@ export function PosterTile(props: { x: number; y: number; w: number; h: number; 
   return (
     <View x={props.x} y={props.y} width={props.w} height={props.h} scale={props.lit ? 1.08 : 1} zIndex={props.lit ? 2 : 1}>
       <PosterArt w={props.w} h={props.h} title={t()?.title ?? ''} image={t()?.poster} progress={t()?.progress} watched={t()?.watched}
-        lit={props.lit} hover={props.hover} label={props.label}>
+        lit={props.lit} hover={props.hover} label={props.label} titleLines={t()?.badge ? 2 : undefined}>
         <Show when={t()?.badge}>
           <View x={8} y={props.h - BAR_H - 44} width={props.w - 16} height={36} zIndex={4} borderRadius={18} color={0x0b0d12cc}>
             <Text y={6} width={props.w - 16} maxWidth={props.w - 16} contain="width" textAlign="center" fontSize={FONT.small}

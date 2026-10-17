@@ -47,12 +47,14 @@ export function InfoBanner(props: {
   lift?: number;
 }) {
   const c = () => props.channel;
+  const numSize = () => (String(c().number).length >= 5 ? 36 : FONT.title);
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H - (props.lift ?? 0)} width={BANNER_W} height={BANNER_H}
       color={COLORS.osd} borderRadius={LAYOUT.radius * 2} zIndex={5}>
       <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.focus}>
-        <Text y={(LOGO_H - FONT.title) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="center"
-          fontSize={FONT.title} color={COLORS.onFocus}>{`${c().number}`}</Text>
+        {/* Five digits and more at 36 px: at 48 px they are wider than the box. */}
+        <Text y={(LOGO_H - numSize()) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" maxLines={1} textAlign="center"
+          fontSize={numSize()} color={COLORS.onFocus}>{`${c().number}`}</Text>
       </View>
       <Show when={c().logo} keyed>{(url) => <BannerLogo url={url} />}</Show>
       <Text x={TEXT_X} y={PAD} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}

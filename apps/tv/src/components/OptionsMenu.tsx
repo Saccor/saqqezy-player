@@ -13,6 +13,11 @@ const ITEM_GAP = 10;
 const HEAD = 64;
 const X = LAYOUT.width - LAYOUT.safeX - W;
 const Y = LAYOUT.safeY + 64;
+/** Items shown at once: the panel then ends inside the safe area (a long audio-track list ran off the screen). */
+const VISIBLE = Math.floor((LAYOUT.height - LAYOUT.safeY - Y - PAD * 2 - HEAD + ITEM_GAP) / (ITEM_H + ITEM_GAP));
+const VALUE_W = 240;
+/** A label beside a value stops before it; without a value it takes the whole row. */
+const LABEL_W_WITH_VALUE = W - PAD * 2 - 48 - VALUE_W - 16;
 
 /**
  * Player options panel on the right. One focusable node: Up/Down move, Ok calls `onChoose` (the menu stays
@@ -40,8 +45,15 @@ export function OptionsMenu(props: {
   const digitHandlers = Object.fromEntries(
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => [`onDigit${d}`, () => true]),
   );
-  const height = () => PAD * 2 + HEAD + props.items.length * (ITEM_H + ITEM_GAP);
-  const indexAt = (p: Point) => panelRowHit(p, W, PAD, PAD + HEAD, ITEM_H + ITEM_GAP, ITEM_GAP, props.items.length);
+  const shownCount = () => Math.min(props.items.length, VISIBLE);
+  /** The first item shown: the window follows the selection, keeping it near the middle. */
+  const top = () => Math.max(0, Math.min(sel() - Math.floor(VISIBLE / 2), props.items.length - VISIBLE));
+  const shown = () => props.items.slice(top(), top() + VISIBLE);
+  const height = () => PAD * 2 + HEAD + shownCount() * (ITEM_H + ITEM_GAP);
+  const indexAt = (p: Point) => {
+    const i = panelRowHit(p, W, PAD, PAD + HEAD, ITEM_H + ITEM_GAP, ITEM_GAP, shownCount());
+    return i === undefined ? undefined : i + top();
+  };
   // Backdrop first, then the panel: the panel wins where they overlap.
   usePointerBackdrop(() => backdrop);
   usePointerTarget({
@@ -70,17 +82,21 @@ export function OptionsMenu(props: {
       {/* The click-outside area: the whole screen. No colour: it draws nothing. */}
       <View ref={(el) => { backdrop = el; }} x={-X} y={-Y} width={LAYOUT.width} height={LAYOUT.height} />
       <Text x={PAD} y={PAD} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
-      <For each={props.items}>{(it, i) => (
-        <View x={PAD} y={PAD + HEAD + i() * (ITEM_H + ITEM_GAP)} width={W - PAD * 2} height={ITEM_H}
-          borderRadius={LAYOUT.radius}
-          color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}>
-          <Text x={24} y={(ITEM_H - FONT.body) / 2 - 4} width={W - PAD * 2 - 48} maxWidth={W - PAD * 2 - 48} contain="width"
-            maxLines={1} fontSize={FONT.body} color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
-          <Text x={W - PAD * 2 - 24 - 240} y={(ITEM_H - FONT.body) / 2 - 4} width={240} maxWidth={240} contain="width"
-            textAlign="right" maxLines={1} fontSize={FONT.body}
-            color={sel() === i() ? COLORS.onFocus : COLORS.muted}>{it.value ?? ''}</Text>
-        </View>
-      )}</For>
+      <For each={shown()}>{(it, v) => {
+        const i = () => v() + top();
+        const labelW = () => (it.value ? LABEL_W_WITH_VALUE : W - PAD * 2 - 48);
+        return (
+          <View x={PAD} y={PAD + HEAD + v() * (ITEM_H + ITEM_GAP)} width={W - PAD * 2} height={ITEM_H}
+            borderRadius={LAYOUT.radius}
+            color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}>
+            <Text x={24} y={(ITEM_H - FONT.body) / 2 - 4} width={labelW()} maxWidth={labelW()} contain="width"
+              maxLines={1} fontSize={FONT.body} color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
+            <Text x={W - PAD * 2 - 24 - VALUE_W} y={(ITEM_H - FONT.body) / 2 - 4} width={VALUE_W} maxWidth={VALUE_W} contain="width"
+              textAlign="right" maxLines={1} fontSize={FONT.body}
+              color={sel() === i() ? COLORS.onFocus : COLORS.muted}>{it.value ?? ''}</Text>
+          </View>
+        );
+      }}</For>
     </View>
   );
 }

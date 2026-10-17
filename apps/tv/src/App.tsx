@@ -164,9 +164,13 @@ export function App() {
       </Show>
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}
         defer={wordmarkDeferred()} />
-      <Show when={offline()}><OfflineBadge /></Show>
-      {/* Hidden until settings are loaded, so a disabled clock never flashes. */}
-      <Show when={settings()?.showClock === true}><Clock /></Show>
+      {/* Badge and clock are App-level, so they draw above everything a screen draws: off while a screen's modal is open. */}
+      <Show when={offline() && !screenOverlayOpen(overlayIds())}><OfflineBadge /></Show>
+      {/*
+        Hidden until settings are loaded, so a disabled clock never flashes. Not in the Player: its info banner has its
+        own clock (two clocks showed together).
+      */}
+      <Show when={settings()?.showClock === true && current()?.screen !== 'player' && !screenOverlayOpen(overlayIds())}><Clock /></Show>
       <Toast />
       <Show when={exitOpen()}>
         <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
