@@ -32,7 +32,8 @@ const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
-const BAND_H = 520;
+/** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
+const BAND_H = 620;
 const BAND_Y = LAYOUT.height - BAND_H;
 const CONTENT_X = LAYOUT.safeX;
 const CONTENT_W = LAYOUT.width - LAYOUT.safeX * 2;
@@ -671,7 +672,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={visible()}>
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
-          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('down', BACKGROUND_RGB)} />
+          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
             fontSize={FONT.title} color={COLORS.text}>{title}</Text>
           <Show when={label}>
