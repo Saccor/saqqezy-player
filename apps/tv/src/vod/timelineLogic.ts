@@ -25,6 +25,19 @@ export function remainingText(posMs: number, durMs: number, nowMs: number): stri
   return `−${clock(left)} · ends ${pad(end.getHours())}:${pad(end.getMinutes())}`;
 }
 
+/**
+ * The x of every button in a row `width` wide holding three groups (button widths, `gap` apart): the left group from
+ * 0, the centre group centred, the right group ending at `width`. In row order: left, centre, right.
+ */
+export function groupXs(width: number, gap: number, left: number[], centre: number[], right: number[]): number[] {
+  const run = (ws: number[], from: number) => {
+    let x = from;
+    return ws.map((w) => { const at = x; x += w + gap; return at; });
+  };
+  const span = (ws: number[]) => (ws.length === 0 ? 0 : ws.reduce((s, w) => s + w + gap, -gap));
+  return [...run(left, 0), ...run(centre, (width - span(centre)) / 2), ...run(right, width - span(right))];
+}
+
 /** The left x of a bubble `w` wide centred on `centreX`, kept within [min, max]. */
 export function bubbleX(centreX: number, w: number, min: number, max: number): number {
   return Math.max(min, Math.min(max - w, centreX - w / 2));

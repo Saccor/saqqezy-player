@@ -16,30 +16,38 @@ import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
-import { holdPress, pressSeek, SEEK_COMMIT_MS, SEEK_STEP_MS, seekStep, type HoldRun, type SeekMarker } from '../vod/seekLogic.ts';
+import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
+import { BUTTON_H } from '../components/Button.tsx';
+import { iconTexture } from '../vod/icons.ts';
 import {
-  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, cueText, findTrack, knownDuration, nextCardText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, remaining, trackKey, trackRows, tracksDue, tracksKeyId,
+  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, type HoldRun, type Scrub,
+} from '../vod/seekLogic.ts';
+import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
+import {
+  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
+  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, trackKey, trackRows, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
-const BAND_H = 420;
+const BAND_H = 520;
 const BAND_Y = LAYOUT.height - BAND_H;
 const CONTENT_X = LAYOUT.safeX;
 const CONTENT_W = LAYOUT.width - LAYOUT.safeX * 2;
-const TITLE_Y = 716;
-const LABEL_Y = 776;
-const BAR_Y = 866;
-const BAR_H = 8;
-const TIMES_Y = 888;
-const TIME_W = 300;
-const ACTIONS_Y = 944;
-const MARKER_W = 6;
-const MARKER_H = 28;
-const MARKER_LABEL_W = 160;
+const TITLE_Y = 596;
+const LABEL_Y = 654;
+/** The timeline's hit area; the scrub bubble (88 px) sits above it, clear of the label (ends ~690). */
+const TIMELINE_Y = 788;
+const TIMES_Y = TIMELINE_Y + TIMELINE_H + 6;
+const TIME_W = 600;
+const ACTIONS_Y = 916;
+/** Control row: the transport icons (round) and the text buttons. */
+const ROUND_W = BUTTON_H;
+const BACK_W = 180;
+const TRACKS_W = 320;
+const NEXT_W = 280;
 const SUB_LINE_H = 54;
 const SUB_FONT = 40;
 const CARD_W = 1000;
@@ -65,7 +73,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const [pos, setPos] = createSignal(startMs);
   const [dur, setDur] = createSignal<number | undefined>(knownDuration(undefined, p.durationMs));
   const [paused, setPaused] = createSignal(false);
-  const [marker, setMarker] = createSignal<SeekMarker | undefined>(undefined);
+  /** A pending seek (keys, ±10 or a drag): Ok or its idle timer commits it, Back cancels it. */
+  const [scrub, setScrub] = createSignal<Scrub | undefined>(undefined);
+  /** A pointer drag on the timeline is held (the overlay stays up). */
+  const [dragging, setDragging] = createSignal(false);
+  const [bufEnd, setBufEnd] = createSignal<number | undefined>(undefined);
   const [cue, setCue] = createSignal('');
   const [pickerOpen, setPickerOpen] = createSignal(false);
   const [rowsTick, setRowsTick] = createSignal(0);
@@ -73,9 +85,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   let root: ElementNode | undefined;
   let barNode: ElementNode | undefined;
+  let timelineNode: ElementNode | undefined;
   let pickerNode: ElementNode | undefined;
   let cardNode: ElementNode | undefined;
   let barFocused = false;
+  let timelineFocused = false;
   let alive = true;
   let lastPos: number | undefined = startMs;
   let commitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -108,7 +122,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const ended = () => status()?.kind === 'ended';
   const visible = () => overlayVisible({
     paused: paused(),
-    seeking: marker() !== undefined,
+    seeking: scrub() !== undefined || dragging(),
     problem: failed() !== undefined || ended(),
     lastKeyAt: lastKeyAt(),
     now: now(),
@@ -178,38 +192,80 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  const dropSeek = () => {
+  const clearCommit = () => {
     if (commitTimer !== undefined) clearTimeout(commitTimer);
     commitTimer = undefined;
-    setMarker(undefined);
+  };
+  /** Drops a pending seek without seeking (Back, a failure, the end). A held drag stops following the pointer. */
+  const dropSeek = () => {
+    clearCommit();
+    setScrub(undefined);
+    setDragging(false);
   };
 
   const commitSeek = () => {
-    commitTimer = undefined;
-    const m = marker();
-    setMarker(undefined);
-    if (!m || !alive) return;
+    const s = scrub();
+    dropSeek();
+    if (!s || !alive) return;
     arm({ userSeeked: true }); // the user chose this position
-    playback.seek(m.targetMs);
-    setPos(m.targetMs);
-    lastPos = m.targetMs;
+    playback.seek(s.targetMs);
+    setPos(s.targetMs);
+    lastPos = s.targetMs;
   };
 
-  /** One press of a seek burst: moves the marker; the seek itself fires SEEK_COMMIT_MS after the last press. */
-  const seekPress = (dir: 1 | -1, stepMs: number) => {
-    bump();
-    if (failed() || ended()) return true;
+  /** The duration a seek may use now; undefined while the title failed, ended or has no known length. */
+  const seekableDur = () => {
+    if (failed() || ended()) return undefined;
     const d = trustedDur();
-    if (d === undefined || !Number.isFinite(d) || d <= 0) return true;
-    setMarker(pressSeek(marker(), trustedPos() ?? pos(), d, dir, stepMs));
-    if (commitTimer !== undefined) clearTimeout(commitTimer);
-    commitTimer = setTimeout(commitSeek, SEEK_COMMIT_MS);
+    return d !== undefined && Number.isFinite(d) && d > 0 ? d : undefined;
+  };
+  const playhead = () => trustedPos() ?? pos();
+
+  /** One press of a scrub (Left/Right) or skip (±10): moves the target; it commits after its source's idle delay. */
+  const scrubPress = (dir: 1 | -1, stepMs: number, source: 'keys' | 'skip') => {
+    bump();
+    const d = seekableDur();
+    if (d === undefined || dragging()) return true;
+    const s = pressScrub(scrub(), playhead(), d, dir, stepMs, source);
+    setScrub(s);
+    clearCommit();
+    const wait = commitDelayMs(s.source);
+    if (wait !== undefined) commitTimer = setTimeout(commitSeek, wait);
     return true;
   };
-  const seekKey = (key: 'Left' | 'Right') => {
+  const scrubKey = (key: 'Left' | 'Right') => {
     const r = holdPress(hold, key, Date.now());
     hold = r.run;
-    return seekPress(key === 'Right' ? 1 : -1, seekStep(r.heldMs));
+    return scrubPress(key === 'Right' ? 1 : -1, seekStep(r.heldMs), 'keys');
+  };
+
+  /** A click on the timeline: seek there at once. */
+  const pointerSeek = (fraction: number) => {
+    bump();
+    const d = seekableDur();
+    if (d === undefined) return;
+    setScrub(dragScrub(scrub(), playhead(), d, fraction));
+    commitSeek();
+  };
+  /** A drag on the timeline moves the target live; the release commits it, Back (or a lost drag) drops it. */
+  const onDrag = (fraction: number, phase: 'start' | 'move' | 'end' | 'cancel') => {
+    bump();
+    if (phase === 'cancel') {
+      if (dragging()) dropSeek();
+      return;
+    }
+    if (phase !== 'start' && !dragging()) return; // Back cancelled this drag: ignore it until the release
+    const d = seekableDur();
+    if (d === undefined) {
+      dropSeek();
+      return;
+    }
+    if (phase === 'start') {
+      clearCommit();
+      setDragging(true);
+    }
+    setScrub(dragScrub(scrub(), playhead(), d, fraction));
+    if (phase === 'end') commitSeek();
   };
 
   // ---- tracks ----
@@ -342,25 +398,40 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // ---- overlay actions ----
 
-  const actions = (): Action[] => [
-    // Pointer mode: Back is the bar's first button (the shell's Back pill would sit on Pause, so it is off here).
-    ...(pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: 180 }] : []),
-    { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: 180 },
-    { id: 'back10', label: '−10 s', width: 160 },
-    { id: 'fwd10', label: '+10 s', width: 160 },
-    { id: 'tracks', label: 'Audio & subtitles', width: 320 },
-    ...(p.next ? [{ id: 'next', label: 'Next episode', width: 280 }] : []),
-  ];
+  /**
+   * The control row, one focus row in three groups: pointer Back on the left (the shell's Back pill would sit on the
+   * row, so it is off here), the transport icons centred, the track and episode buttons on the right.
+   */
+  const actions = (): Action[] => {
+    const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
+    const centre: Action[] = [
+      { id: 'back10', label: 'Back 10 seconds', width: ROUND_W, round: true, icon: iconTexture('back10') },
+      { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: ROUND_W, round: true, icon: iconTexture(paused() ? 'play' : 'pause') },
+      { id: 'fwd10', label: 'Forward 10 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd10') },
+    ];
+    const right: Action[] = [
+      { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
+      ...(p.next ? [{ id: 'next', label: 'Next episode', width: NEXT_W }] : []),
+    ];
+    const xs = groupXs(CONTENT_W, 16, left.map((a) => a.width), centre.map((a) => a.width), right.map((a) => a.width));
+    return [...left, ...centre, ...right].map((a, i) => ({ ...a, x: xs[i] }));
+  };
   const onAction = (id: string) => {
     if (id === 'back') { onBack(); return; }
     bump();
     // Failed or ended: only the card's buttons act (Next episode still may).
     if ((failed() || ended()) && id !== 'next') return;
     if (id === 'toggle') togglePause();
-    else if (id === 'back10') seekPress(-1, SEEK_STEP_MS);
-    else if (id === 'fwd10') seekPress(1, SEEK_STEP_MS);
+    else if (id === 'back10') scrubPress(-1, SEEK_STEP_MS, 'skip');
+    else if (id === 'fwd10') scrubPress(1, SEEK_STEP_MS, 'skip');
     else if (id === 'tracks') openPicker();
     else if (id === 'next') nextNow();
+  };
+  /** Shows the overlay and puts the focus on its timeline (the overlay's first row). */
+  const focusTimeline = () => {
+    bump();
+    queueMicrotask(() => { if (alive && visible()) timelineNode?.setFocus(); });
+    return true;
   };
   const focusBar = () => {
     bump();
@@ -393,17 +464,40 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // ---- keys ----
 
+  /** Ok on the root (the overlay hidden, or shown by a pause): pause, and the timeline takes the focus. */
   const onEnter = () => {
     if (failed() || ended()) return true;
     if (!visible()) {
       bump();
       if (!playback.paused()) togglePause();
+    } else {
+      togglePause();
+    }
+    return focusTimeline();
+  };
+  /** Ok on the timeline: commit a pending scrub at once, else play/pause. */
+  const onTimelineEnter = () => {
+    if (failed() || ended()) return true;
+    if (dragging()) return true;
+    if (scrub()) {
+      bump();
+      commitSeek();
       return true;
     }
     return togglePause();
   };
+  /** Left/Right on the root: the overlay shows with the timeline focused, and the press already scrubs. */
+  const rootScrub = (key: 'Left' | 'Right') => {
+    focusTimeline();
+    return scrubKey(key);
+  };
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the picker first
+    if (scrub() !== undefined || dragging()) {
+      bump();
+      dropSeek(); // Back cancels a pending scrub: nothing seeks
+      return true;
+    }
     stopCountdown();
     leave(!ended());
     return true;
@@ -446,7 +540,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // The overlay hid while its bar had the focus: give it back to the root (focus is never on a hidden node).
   createEffect(on(visible, (v) => {
-    if (!v && barFocused && !pickerOpen()) focusRoot();
+    if (!v && (barFocused || timelineFocused) && !pickerOpen()) focusRoot();
   }));
 
   // ---- lifecycle ----
@@ -463,7 +557,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         setPos(at);
         lastPos = at;
       }
-      setDur(knownDuration(trustedDur(), p.durationMs));
+      const d = knownDuration(trustedDur(), p.durationMs);
+      setDur(d);
+      setBufEnd(d === undefined ? undefined : bufferedEndMs(at ?? pos(), playback.bufferedAheadMs(), d));
       setPaused(playback.paused());
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), status()?.kind === 'playing')) applyTracks();
@@ -510,10 +606,6 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // ---- drawing ----
 
-  const fraction = (ms: number) => {
-    const d = dur();
-    return d === undefined ? 0 : Math.max(0, Math.min(1, ms / d));
-  };
   const title = oneSpace(p.title);
   const label = p.episodeLabel ? oneSpace(p.episodeLabel) : '';
   const statusText = () => {
@@ -542,8 +634,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   return (
     <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height}
       onBack={onBack} onEnter={onEnter}
-      onLeft={() => seekKey('Left')} onRight={() => seekKey('Right')}
-      onUp={focusBar} onDown={focusBar}
+      onLeft={() => rootScrub('Left')} onRight={() => rootScrub('Right')}
+      onUp={focusTimeline} onDown={focusTimeline}
       onPlayPause={() => (failed() || ended() ? true : togglePause())}
       onChannelUp={nextNow} onChannelDown={prevNow}>
 
@@ -559,32 +651,22 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
             fontSize={FONT.title} color={COLORS.text}>{title}</Text>
           <Show when={label}>
-            <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W - MARKER_LABEL_W} maxWidth={CONTENT_W - MARKER_LABEL_W} contain="width"
+            <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
               maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{label}</Text>
           </Show>
-          <View x={CONTENT_X} y={BAR_Y} width={CONTENT_W} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.surface} />
-          <View x={CONTENT_X} y={BAR_Y} width={Math.max(BAR_H, CONTENT_W * fraction(pos()))} height={BAR_H} borderRadius={BAR_H / 2}
-            color={COLORS.focus} />
-          <Show when={marker()}>{(m) => {
-            const mx = () => CONTENT_X + CONTENT_W * fraction(m().targetMs);
-            return (
-              <View>
-                <View x={mx() - MARKER_W / 2} y={BAR_Y + BAR_H / 2 - MARKER_H / 2} width={MARKER_W} height={MARKER_H}
-                  borderRadius={MARKER_W / 2} color={COLORS.text} />
-                <Text x={Math.max(CONTENT_X, Math.min(CONTENT_X + CONTENT_W - MARKER_LABEL_W, mx() - MARKER_LABEL_W / 2))}
-                  y={BAR_Y - 50} width={MARKER_LABEL_W} maxWidth={MARKER_LABEL_W} contain="width" textAlign="center" maxLines={1}
-                  fontSize={FONT.body} color={COLORS.text}>{clock(m().targetMs)}</Text>
-              </View>
-            );
-          }}</Show>
+          <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
+            posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
+            onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}
+            onDown={focusBar} onFocusChanged={(f) => { timelineFocused = f; }}
+            onPointerSeek={pointerSeek} onDrag={onDrag} onHover={bump} />
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
-            fontSize={FONT.small} color={COLORS.text}>{clock(pos())}</Text>
+            fontSize={FONT.body} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
           <Show when={dur() !== undefined}>
             <Text x={CONTENT_X + CONTENT_W - TIME_W} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" textAlign="right"
-              maxLines={1} fontSize={FONT.small} color={COLORS.text}>{remaining(pos(), dur() ?? 0)}</Text>
+              maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{remainingText(pos(), dur() ?? 0, now())}</Text>
           </Show>
           <ActionBar ref={(el) => { barNode = el; }} x={CONTENT_X} y={ACTIONS_Y} actions={actions()} onAction={onAction}
-            onUp={() => { root?.setFocus(); return true; }} onDown={() => true}
+            initial="toggle" onUp={focusTimeline} onDown={() => true}
             onFocusChanged={(f) => { barFocused = f; }} />
         </View>
       </Show>

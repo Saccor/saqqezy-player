@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bubbleX, bufferedEndMs, elapsedText, fractionAt, remainingText } from './timelineLogic.ts';
+import { bubbleX, bufferedEndMs, groupXs, elapsedText, fractionAt, remainingText } from './timelineLogic.ts';
 
 describe('fractionAt', () => {
   it('maps x across the width and clamps', () => {
@@ -37,6 +37,16 @@ describe('remainingText', () => {
   it('pads hours and minutes and wraps past midnight', () => {
     const now = new Date(2026, 9, 17, 23, 58, 0).getTime();
     expect(remainingText(0, 600_000, now)).toBe('−10:00 · ends 00:08');
+  });
+});
+
+describe('groupXs', () => {
+  it('puts the left group at 0, centres the middle group and right-aligns the last', () => {
+    // width 1000, gap 10: left [100], centre [50, 80, 50] (200 wide incl. gaps -> 400..600), right [120, 100] (230 -> 770..1000)
+    expect(groupXs(1000, 10, [100], [50, 80, 50], [120, 100])).toEqual([0, 400, 460, 550, 770, 900]);
+  });
+  it('works with empty groups', () => {
+    expect(groupXs(1000, 10, [], [50], [])).toEqual([475]);
   });
 });
 
