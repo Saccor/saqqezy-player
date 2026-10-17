@@ -17,6 +17,7 @@ function fakes() {
     paused: vi.fn(() => true),
     onSubtitle: vi.fn((_fn: (t: string | null) => void) => () => undefined),
     startedAttempts: vi.fn(() => 3),
+    liveInfo: vi.fn((): { targetS: number; stalls: number; reconnects: number; bufferAheadS?: number } => ({ targetS: 0, stalls: 0, reconnects: 0, bufferAheadS: 12.5 })),
   };
   const player = {
     setRect: vi.fn((_r: Rect | 'fullscreen') => undefined),
@@ -495,6 +496,22 @@ describe('playback controller', () => {
       pb.stop();
       expect(pb.positionMs()).toBeUndefined();
       expect(pb.durationMs()).toBeUndefined();
+    });
+
+    it('buffered ms ahead only for the opened VOD, and only when the engine reports it', () => {
+      const f = fakes();
+      let blocked = true;
+      const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', undefined, { blocked: () => blocked, refused: () => undefined, answered: () => undefined });
+      expect(pb.bufferedAheadMs()).toBeUndefined();
+      pb.playVod(vod, 0);
+      expect(pb.bufferedAheadMs()).toBeUndefined();
+      blocked = false;
+      pb.resumeHeld();
+      expect(pb.bufferedAheadMs()).toBe(12_500);
+      f.supervisor.liveInfo.mockReturnValue({ targetS: 0, stalls: 0, reconnects: 0 });
+      expect(pb.bufferedAheadMs()).toBeUndefined();
+      pb.stop();
+      expect(pb.bufferedAheadMs()).toBeUndefined();
     });
   });
 });
