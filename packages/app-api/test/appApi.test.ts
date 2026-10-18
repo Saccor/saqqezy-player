@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, RefusalGuard, SourceService, SourceAuthError, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, RefusalGuard, SourceService, SourceAuthError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -2041,5 +2041,32 @@ describe('AppApi source headers and refresh backoff', () => {
     await api.idle();
     expect((await api.getVodHome('movie')).status).toBe('ready');
     expect(await storage.getMeta(`refreshFail:${sourceId}:vod:movie`)).toBeFalsy();
+  });
+});
+
+describe('subtitles from a link or a file', () => {
+  const SRT = '1\n00:00:01,000 --> 00:00:02,000\nHello\n';
+
+  test('kept per title under the active source; without a source or the service they are unavailable', async () => {
+    const events: AppEvent[] = [];
+    const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const subtitles = new SubtitleService({ storage, fetch: async () => new Response(SRT) });
+    const api = new AppApi({ service, storage, subtitles, emit: (e) => events.push(e), now: () => NOW });
+    live.push(api);
+    await expect(api.loadSubtitle('m1', { url: 'http://example.test/a.srt' })).rejects.toThrow('Add a source first.');
+    expect(await api.getSubtitle('m1')).toBeUndefined();
+    await api.addSource(xt());
+    const got = await api.loadSubtitle('m1', { url: 'http://example.test/a.srt' });
+    expect(got).toEqual({ name: 'a.srt', cues: [{ startMs: 1000, endMs: 2000, text: 'Hello' }] });
+    expect(await api.getSubtitle('m1')).toEqual(got);
+    await api.loadSubtitle('m2', { bytes: new TextEncoder().encode(SRT), name: 'b.srt' });
+    await api.clearSubtitle('m1');
+    expect(await api.getSubtitle('m1')).toBeUndefined();
+    expect((await api.getSubtitle('m2'))?.name).toBe('b.srt');
+
+    const { api: bare } = make();
+    await bare.addSource(xt());
+    await expect(bare.loadSubtitle('m1', { url: 'http://example.test/a.srt' })).rejects.toThrow('Loading subtitles is not available.');
+    expect(await bare.getSubtitle('m1')).toBeUndefined();
   });
 });

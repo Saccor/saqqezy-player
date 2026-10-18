@@ -104,7 +104,7 @@ export function cueText(text: string | null): string {
 export const SUBTITLES_OFF = 'off';
 
 /** English names for the language codes streams commonly carry (ISO 639-1 and 639-2, both 639-2 forms). */
-const LANGUAGE_NAMES: Record<string, string> = {
+export const LANGUAGE_NAMES: Record<string, string> = {
   ar: 'Arabic', ara: 'Arabic', cs: 'Czech', ces: 'Czech', cze: 'Czech', da: 'Danish', dan: 'Danish', de: 'German',
   deu: 'German', ger: 'German', el: 'Greek', ell: 'Greek', gre: 'Greek', en: 'English', eng: 'English', es: 'Spanish',
   spa: 'Spanish', fa: 'Persian', fas: 'Persian', per: 'Persian', fi: 'Finnish', fin: 'Finnish', fr: 'French',

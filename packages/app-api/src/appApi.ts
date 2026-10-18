@@ -4,6 +4,7 @@ import {
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
+  type LoadedSubtitle, type SubtitleInput, type SubtitleService,
 } from '@iptv/core';
 import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
@@ -59,6 +60,8 @@ export interface AppApiDeps {
   companion?: (api: AppApi, onStatus: (status: CompanionStatus) => void) => CompanionControl;
   /** Movies and series. Without it, the VOD methods reject with "Movies and series are not available." */
   vod?: VodService;
+  /** Subtitles loaded from a link or a file. Without it, those methods reject with "Loading subtitles is not available." */
+  subtitles?: SubtitleService;
 }
 
 export class AppApi {
@@ -121,6 +124,7 @@ export class AppApi {
   private readonly companion: CompanionControl | undefined;
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
+  private readonly subtitles: SubtitleService | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -141,6 +145,7 @@ export class AppApi {
       deps.emit({ type: 'companion', status });
     });
     this.vod = deps.vod;
+    this.subtitles = deps.subtitles;
     this.vodc = deps.vod
       ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
       : undefined;
@@ -663,6 +668,38 @@ export class AppApi {
 
   setVodTracks(itemId: string, tracks: VodTracks): Promise<void> {
     return this.run('setVodTracks', () => this.vodOrThrow().setTracks(itemId, tracks));
+  }
+
+  /**
+   * Loads subtitles for one title (a movie or an episode) from a link or a file's bytes, and keeps them on this
+   * device for that title. Rejects with a message to show (a `SubtitleError`).
+   */
+  loadSubtitle(itemId: string, input: SubtitleInput): Promise<LoadedSubtitle> {
+    return this.run('loadSubtitle', () => {
+      const [svc, src] = this.subtitlesOrThrow();
+      return svc.load(src, itemId, input);
+    });
+  }
+
+  /** The subtitles loaded earlier for a title, if any. */
+  getSubtitle(itemId: string): Promise<LoadedSubtitle | undefined> {
+    return this.run('getSubtitle', async () => {
+      if (!this.subtitles || !this.activeId) return undefined;
+      return this.subtitles.get(this.activeId, itemId);
+    });
+  }
+
+  clearSubtitle(itemId: string): Promise<void> {
+    return this.run('clearSubtitle', () => {
+      const [svc, src] = this.subtitlesOrThrow();
+      return svc.clear(src, itemId);
+    });
+  }
+
+  private subtitlesOrThrow(): [SubtitleService, string] {
+    if (!this.subtitles) throw new Error('Loading subtitles is not available.');
+    if (!this.activeId) throw new Error('Add a source first.');
+    return [this.subtitles, this.activeId];
   }
 
   refreshVod(kind: VodKind): Promise<void> {
@@ -1478,7 +1515,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

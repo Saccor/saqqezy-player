@@ -40,7 +40,7 @@ export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';
-export { DEFAULT_SETTINGS, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
+export { DEFAULT_SETTINGS, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
@@ -54,3 +54,7 @@ export {
   MAX_TITLE_AIRINGS, TitleIndexBuilder, isTitleIndexData, queryTitles,
   type TitleAiring, type TitleIndexData, type TitleMatch,
 } from './search/titleIndex.ts';
+export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
+export {
+  SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
+} from './subtitles/service.ts';

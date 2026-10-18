@@ -8,6 +8,8 @@ export interface AppSettings {
   showClock: boolean;
   /** Closeness to live versus stall resistance (the player's live delay preset). */
   liveDelay: LiveDelaySetting;
+  /** Movies and series: the subtitle language turned on when a title has no choice of its own ('off': none). */
+  subtitleLanguage: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -17,7 +19,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sleepTimerMinutes: 0,
   showClock: true,
   liveDelay: 'balanced',
+  subtitleLanguage: 'off',
 };
+
+/** 'off', then ISO 639-1 codes in order of their English names. */
+export const SUBTITLE_LANGUAGES: readonly string[] = [
+  'off', 'ar', 'zh', 'cs', 'da', 'nl', 'en', 'fi', 'fr', 'de', 'el', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'no', 'fa',
+  'pl', 'pt', 'ro', 'ru', 'es', 'sv', 'th', 'tr', 'uk', 'vi',
+];
 
 const LIVE_DELAY_CHOICES: readonly LiveDelaySetting[] = ['low', 'balanced', 'stable'];
 
@@ -46,5 +55,8 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     liveDelay: LIVE_DELAY_CHOICES.includes(src.liveDelay as LiveDelaySetting)
       ? (src.liveDelay as LiveDelaySetting)
       : DEFAULT_SETTINGS.liveDelay,
+    subtitleLanguage: typeof src.subtitleLanguage === 'string' && SUBTITLE_LANGUAGES.includes(src.subtitleLanguage)
+      ? src.subtitleLanguage
+      : DEFAULT_SETTINGS.subtitleLanguage,
   };
 }

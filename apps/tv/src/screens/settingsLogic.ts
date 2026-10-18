@@ -3,6 +3,7 @@ import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { LiveInfo } from '@iptv/player';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings } from '@iptv/core';
+import { subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
 
 export type SettingsPageId =
   | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
@@ -163,6 +164,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
     ['Auto-refresh', autoRefreshLabel(st.autoRefreshHours)],
     ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
     ['Clock', onOff(st.showClock)],
+    ['Subtitle language', subtitleLanguageLabel(st.subtitleLanguage)],
   );
   return lines;
 }
