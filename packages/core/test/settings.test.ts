@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/settings.ts';
+import { DEFAULT_SETTINGS, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -9,8 +9,14 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced',
+      liveDelay: 'balanced', subtitleLanguage: 'off',
     });
+  });
+
+  test('subtitleLanguage keeps a listed language code, else off', () => {
+    expect(SUBTITLE_LANGUAGES[0]).toBe('off');
+    for (const v of ['en', 'sv', 'ar']) expect(sanitizeSettings({ subtitleLanguage: v }).subtitleLanguage).toBe(v);
+    for (const v of ['english', 'xx', 3, null, undefined]) expect(sanitizeSettings({ subtitleLanguage: v }).subtitleLanguage).toBe('off');
   });
 
   test('liveDelay keeps known values and falls back to balanced', () => {

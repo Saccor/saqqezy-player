@@ -1,4 +1,4 @@
-import { API_TIMEOUT_MS, SourceService, VodService, withTimeout } from '@iptv/core';
+import { API_TIMEOUT_MS, SourceService, SubtitleService, VodService, withTimeout } from '@iptv/core';
 import { IdbStorage } from '@iptv/storage';
 import { APP_API_METHODS, AppApi, CompanionHost, expose, type AppEvent, type PortLike } from '@iptv/app-api';
 import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-protocol';
@@ -12,6 +12,8 @@ const fetchFn = withTimeout(async (url, init) => unwrapDevProxyResponse(await fe
 const service = new SourceService({ storage, fetch: fetchFn });
 // Movies and series: same storage, network path and refusal cooldown; catalogues load lazily and one stays resident.
 const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard });
+// Subtitles the user loads from a link or a file: fetched and kept on this device only.
+const subtitles = new SubtitleService({ storage, fetch: fetchFn });
 
 // Phone companion. The relay only ever sees ciphertext; never log these URLs (they carry the session id).
 const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787').replace(/\/+$/, '');
@@ -23,6 +25,7 @@ const api = new AppApi({
   service,
   storage,
   vod,
+  subtitles,
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,
   companion: (appApi, onStatus) => new CompanionHost({

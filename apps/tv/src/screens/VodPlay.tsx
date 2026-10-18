@@ -1,8 +1,10 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { VodPlayable, VodTracks } from '@iptv/app-api';
+import { cueAt, type LoadedSubtitle, type SubtitleInput } from '@iptv/core';
 import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
+import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
 import { onLogicalKey } from '../input/keys.ts';
@@ -14,6 +16,8 @@ import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
+import { platformId, settings } from '../state/appState.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
@@ -27,9 +31,18 @@ import {
   NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
+import {
+  LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, pickSubtitle, subtitleExtraRows,
+} from '../vod/subtitleLogic.ts';
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
+const SUB_URL_ID = 'vodSubtitleLink';
+/** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
+const EXT_SUB_POLL_MS = 250;
+/** A file picker exists on computers only (TV engines have no file dialog). */
+const CAN_LOAD_FILE = !isTvPlatform(platformId);
+const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
 const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
 /** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
@@ -85,11 +98,20 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const [pickerOpen, setPickerOpen] = createSignal(false);
   const [rowsTick, setRowsTick] = createSignal(0);
   const [countdown, setCountdown] = createSignal<number | undefined>(undefined);
+  /** Subtitles the user loaded for this title (a link or a file), and whether they show instead of the stream's. */
+  const [external, setExternal] = createSignal<LoadedSubtitle | undefined>(undefined);
+  const [extOn, setExtOn] = createSignal(false);
+  /** The link being typed for "Load subtitles from a link…" (undefined: the keyboard is closed). */
+  const [linkText, setLinkText] = createSignal<string | undefined>(undefined);
+  const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
+  const [subBusy, setSubBusy] = createSignal(false);
 
   let root: ElementNode | undefined;
   let barNode: ElementNode | undefined;
   let timelineNode: ElementNode | undefined;
   let pickerNode: ElementNode | undefined;
+  let keyboardNode: ElementNode | undefined;
+  let removeLinkEntry: (() => void) | undefined;
   let cardNode: ElementNode | undefined;
   let barFocused = false;
   let timelineFocused = false;
@@ -178,6 +200,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const leave = (saveFirst = true) => {
     if (!alive) return;
     closePicker();
+    closeLinkEntry();
     if (saveFirst) save();
     stopOurs();
     alive = false;
@@ -286,17 +309,38 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     shapeTicks = 0;
     const a = findTrack(audios, chosen.audio);
     if (a && !a.active) playback.selectAudioTrack(a.id);
-    if (chosen.subtitle === SUBTITLE_KEY_OFF) {
+    applySubtitle(texts);
+  };
+
+  /** The remembered subtitle choice, else the preferred language from Settings (`pickSubtitle`). */
+  const applySubtitle = (texts = playback.textTracks()) => {
+    const pick = pickSubtitle({
+      chosen: chosen.subtitle, texts, hasExternal: external() !== undefined, preferred: settings()?.subtitleLanguage ?? 'off',
+    });
+    if (pick.kind === 'external' || pick.kind === 'off') {
       if (texts.some((t) => t.active)) playback.selectTextTrack(null);
-    } else {
-      const s = findTrack(texts, chosen.subtitle);
-      if (s && !s.active) playback.selectTextTrack(s.id);
+    } else if (pick.kind === 'track') {
+      const t = texts.find((x) => x.id === pick.id);
+      if (t && !t.active) playback.selectTextTrack(t.id);
     }
+    showExternal(pick.kind === 'external');
+  };
+
+  /** Shows (or stops showing) the loaded subtitle file; the cue on screen is cleared either way. */
+  const showExternal = (on: boolean) => {
+    if (on === extOn()) return;
+    setExtOn(on);
+    setCue('');
   };
 
   const rows = (): PickerRow[] => {
     rowsTick();
-    return trackRows(playback.audioTracks(), playback.textTracks());
+    const ext = external();
+    const on = extOn();
+    // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
+    const base = trackRows(playback.audioTracks(), playback.textTracks())
+      .map((r) => (r.kind === 'list' && r.id === SUBTITLES_OFF && on ? { ...r, checked: false } : r));
+    return [...base, ...subtitleExtraRows({ external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE })];
   };
   /** Engines may report the new active track a moment later: read the rows now and once more shortly after. */
   const refreshRows = () => {
@@ -312,8 +356,26 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const pickTrack = (row: PickerRow) => {
     if (row.kind !== 'list') return;
-    if (row.id === SUBTITLES_OFF) {
+    if (row.id === LOAD_URL_ROW) {
+      closePicker();
+      openLinkEntry();
+      return;
+    }
+    if (row.id === LOAD_FILE_ROW) {
+      closePicker();
+      pickFile();
+      return;
+    }
+    if (row.id === REMOVE_EXT_ROW) {
+      removeExternal();
+      refreshRows();
+      return;
+    }
+    if (row.id === SUBTITLE_EXT_ROW) {
+      useExternal();
+    } else if (row.id === SUBTITLES_OFF) {
       playback.selectTextTrack(null);
+      showExternal(false);
       chosen.subtitle = SUBTITLE_KEY_OFF;
       remember({ subtitle: SUBTITLE_KEY_OFF });
       setCue('');
@@ -327,10 +389,102 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       const t = playback.textTracks().find((x) => x.id === row.id.slice(2));
       if (!t) return;
       playback.selectTextTrack(t.id);
+      showExternal(false);
       chosen.subtitle = trackKey(t);
       remember({ subtitle: chosen.subtitle });
     }
     refreshRows();
+  };
+
+  // ---- subtitles from a link or a file ----
+
+  /** The loaded file on, the stream's subtitles off; remembered like any other subtitle choice. */
+  const useExternal = () => {
+    if (!external()) return;
+    if (playback.textTracks().some((t) => t.active)) playback.selectTextTrack(null);
+    showExternal(true);
+    chosen.subtitle = SUBTITLE_KEY_EXT;
+    remember({ subtitle: SUBTITLE_KEY_EXT });
+  };
+
+  const removeExternal = () => {
+    api.clearSubtitle(p.itemId).catch((err) => console.warn('Subtitle remove failed', errName(err)));
+    setExternal(undefined);
+    showExternal(false);
+    // It was the choice: the preferred language takes over (the choice stays for the series' other episodes).
+    if (chosen.subtitle === SUBTITLE_KEY_EXT) applySubtitle();
+  };
+
+  /** Loads, keeps and turns on a subtitle file; returns the error to show (a message meant for the user). */
+  const loadSubtitle = async (input: SubtitleInput): Promise<string | undefined> => {
+    if (subBusy()) return undefined;
+    setSubBusy(true);
+    try {
+      const loaded = await api.loadSubtitle(p.itemId, input);
+      if (!alive) return undefined;
+      setExternal(loaded);
+      useExternal();
+      showToast(`Subtitles on: ${oneSpace(loaded.name)}`);
+      return undefined;
+    } catch (err) {
+      console.warn('Subtitle load failed', errName(err));
+      return err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't load the subtitles.";
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  function closeLinkEntry() {
+    removeLinkEntry?.();
+    removeLinkEntry = undefined;
+    setLinkText(undefined);
+    setLinkError(undefined);
+  }
+  const openLinkEntry = () => {
+    setLinkText('');
+    setLinkError(undefined);
+    removeLinkEntry = router.pushOverlay(SUB_URL_ID, () => {
+      removeLinkEntry = undefined;
+      setLinkText(undefined);
+      setLinkError(undefined);
+      focusBarOrRoot();
+    });
+    queueMicrotask(() => { if (alive) keyboardNode?.setFocus(); });
+  };
+  /** Done on the keyboard: load the link; on failure the keyboard stays open with the error. */
+  const submitLink = async () => {
+    const url = (linkText() ?? '').trim();
+    if (!url || subBusy()) return;
+    setLinkError(undefined);
+    const error = await loadSubtitle({ url });
+    if (!alive || linkText() === undefined) return;
+    if (error) {
+      setLinkError(error);
+    } else {
+      closeLinkEntry();
+      focusBarOrRoot();
+    }
+  };
+
+  /** The computer's file dialog (opened from the key press or click itself, which the browser requires). */
+  const pickFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = SUBTITLE_FILE_TYPES;
+    input.style.display = 'none';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file || !alive) return;
+      void file.arrayBuffer().then(async (buf) => {
+        const error = await loadSubtitle({ bytes: new Uint8Array(buf), name: file.name });
+        if (error && alive) showToast(error);
+      }, () => showToast("Couldn't read that file."));
+    }, { once: true });
+    input.addEventListener('cancel', () => input.remove(), { once: true });
+    document.body.appendChild(input);
+    input.click();
+    focusBarOrRoot();
   };
 
   const openPicker = () => {
@@ -553,6 +707,19 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     else focusRoot();
   }));
 
+  // A loaded subtitle file showing: its cue is looked up from the playhead (no engine track carries it).
+  createEffect(() => {
+    const ext = external();
+    if (!extOn() || !ext) return;
+    const show = () => {
+      const at = trustedPos();
+      setCue(at === undefined || !Number.isFinite(at) ? '' : cueText(cueAt(ext.cues, at)));
+    };
+    show();
+    const timer = setInterval(show, EXT_SUB_POLL_MS);
+    onCleanup(() => clearInterval(timer));
+  });
+
   // The overlay hid while its bar had the focus: give it back to the root (focus is never on a hidden node).
   createEffect(on(visible, (v) => {
     if (!v && (barFocused || timelineFocused) && !pickerOpen()) focusRoot();
@@ -601,7 +768,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Left' || e.key === 'Right') hold = undefined; };
     document.addEventListener('keyup', onKeyUp);
     const offKeys = onLogicalKey(() => bump());
-    const offSubs = playback.onSubtitle((text) => { if (alive) setCue(cueText(text)); });
+    const offSubs = playback.onSubtitle((text) => { if (alive && !extOn()) setCue(cueText(text)); });
+    // The subtitles loaded earlier for this title: shown when chosen (the tracks may already have been applied).
+    api.getSubtitle(p.itemId).then((loaded) => {
+      if (!alive || !loaded) return;
+      setExternal(loaded);
+      if (chosen.subtitle === SUBTITLE_KEY_EXT) applySubtitle();
+    }, (err) => console.warn('Subtitle read failed', errName(err)));
     onCleanup(() => {
       clearInterval(tick);
       clearInterval(saver);
@@ -619,6 +792,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (countdownTimer !== undefined) clearInterval(countdownTimer);
     removePicker?.();
     router.removeOverlay(TRACKS_ID);
+    removeLinkEntry?.();
+    router.removeOverlay(SUB_URL_ID);
     stopOurs();
   });
 
@@ -722,6 +897,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <Show when={pickerOpen()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack}
           hint="Ok chooses · Back closes" />
+      </Show>
+
+      <Show when={linkText() !== undefined}>
+        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={0x000000b3}>
+          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
+            label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
+            onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}
+            hint={subBusy() ? 'Loading subtitles…' : 'Done loads the link · Back cancels'} error={linkError()} />
+        </View>
       </Show>
     </View>
   );
