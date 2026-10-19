@@ -7,6 +7,7 @@ import { rawViaDevProxy } from '../net/devProxy.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
+import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
 
 export const ROW_H = 84;
@@ -25,13 +26,13 @@ const DOTS_H = ROW_OPTIONS_H;
 const DOTS_PAD = ROW_OPTIONS_PAD;
 
 export function Logo(props: { x: number; y: number; url: string | undefined; number: number; focused: boolean }) {
-  // Re-evaluated when the row's channel changes; a failed load flips the row to the number tile.
-  const [failed, setFailed] = createSignal(false);
-  const usable = () => !failed() && logoCache.usable(props.url);
+  // The tile outlives the row it was mounted for (rows are re-used while scrolling and refetched on the tick), so a
+  // failed load is remembered by URL: that URL shows the number tile, the next channel's logo loads as usual.
+  const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   return (
     <View x={props.x} y={props.y} width={LOGO_W} height={LOGO_H} borderRadius={8}
       color={props.focused ? 0xffffff26 : COLORS.surface}>
-      <Show when={usable() ? props.url : undefined} keyed fallback={
+      <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed fallback={
         <Text y={(LOGO_H - FONT.small) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
           fontSize={FONT.small} color={COLORS.muted}>{`${props.number}`}</Text>
       }>
@@ -39,7 +40,7 @@ export function Logo(props: { x: number; y: number; url: string | undefined; num
           logoCache.touch(url);
           return (
             <View x={4} y={4} width={LOGO_W - 8} height={LOGO_H - 8} src={rawViaDevProxy(url)}
-              onEvent={{ failed: () => { logoCache.markFailed(url); setFailed(true); } }} />
+              onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
       </Show>
@@ -74,8 +75,9 @@ export function ChannelRowView(props: {
       {/* Five digits and more (lists of 10,000+ channels) at a smaller size: at body size they are wider than the column. */}
       <Text x={12} y={(ROW_H - 6 - numSize()) / 2 - 3} width={NUM_W - 16} maxWidth={NUM_W - 16} contain="width" maxLines={1}
         textAlign="right" fontSize={numSize()} color={textSub()}>{`${r()?.number ?? ''}`}</Text>
-      <Show when={r()} keyed>
-        {(row) => <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={row.logo} number={row.number} focused={props.lit} />}
+      {/* Not keyed on the row object: the logo is keyed on its URL inside, so a refetch of the same channel keeps the texture. */}
+      <Show when={r()}>
+        <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={r()?.logo} number={r()?.number ?? 0} focused={props.lit} />
       </Show>
       <Text x={textX} y={8} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={FONT.body} color={textMain()}>

@@ -8,6 +8,7 @@ import { PX_PER_HOUR, VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../
 import { formatClock } from '../shell/logic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
+import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
 
 export const EPG_ROW_H = 72;
@@ -40,11 +41,10 @@ const ROW_BG = 0x0f131aff;
 
 function Logo(props: { url: string | undefined }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
-  const usable = () => failedUrl() !== props.url && logoCache.usable(props.url);
   return (
     <View x={10} y={(CELL_H - LOGO_H) / 2} width={LOGO_W} height={LOGO_H} borderRadius={6} color={COLORS.background}>
       {/* Without a logo the tile stays empty: the number is already shown next to it. */}
-      <Show when={usable() ? props.url : undefined} keyed>
+      <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed>
         {(url) => {
           logoCache.touch(url);
           return (

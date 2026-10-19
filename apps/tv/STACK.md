@@ -121,6 +121,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - Use `<View width={64} height={64} src={url} />`. The renderer fetches the image and decodes it with `createImageBitmap`.
 - The spike uses a runtime-generated PNG `data:` URL. Remote images (channel logos) need CORS or the dev proxy on desktop. TVs fetch directly.
 - The renderer retries failed textures according to `maxRetryCount`.
+- Logo tiles (`components/logoKey.ts`) key their texture on the logo URL, never on the row object, so a refetched page, a re-used row while scrolling or a guide chunk load keeps the texture; a failed URL is remembered per tile and shows the fallback.
 
 ## Worker / RPC
 
