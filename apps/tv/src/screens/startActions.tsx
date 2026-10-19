@@ -33,12 +33,23 @@ export function createStartActions(deps: { alive: () => boolean; reload: () => v
   };
 
   /** One channel airs it: tune. Several: the picker. None left (the guide moved on): a toast and a reload. */
+  let opening = false;
   const openEvent = async (tile: SportsEventTile) => {
+    if (opening || event() || removeLayer) return;
+    opening = true;
+    try {
+      await openEventInner(tile);
+    } finally {
+      opening = false;
+    }
+  };
+  const openEventInner = async (tile: SportsEventTile) => {
     const rows = await api.getEventChannels(tile.key).catch(() => [] as ChannelRow[]);
     if (!deps.alive()) return;
     if (rows.length === 0) { showToast('This event is no longer in your guide'); deps.reload(); return; }
     if (rows.length === 1) { tune(rows[0]!.id); return; }
     setEvent({ tile, rows, now: Date.now() });
+    removeLayer?.();
     removeLayer = router.pushOverlay(EVENT_OVERLAY, () => { removeLayer = undefined; setEvent(undefined); deps.refocus(); });
   };
 

@@ -110,7 +110,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     const choice = await menu.choose('Teams I follow', sides.map((s) => ({ id: s, label: `${isOn(s) ? 'Unfollow' : 'Follow'} ${s}` })));
     if (!alive || !choice) return;
     const next = isOn(choice) ? followed.filter((f) => f.toLowerCase() !== choice.toLowerCase()) : [...followed, choice];
-    await saveSetting({ followedTeams: next });
+    try {
+      await saveSetting({ followedTeams: next });
+    } catch (err) {
+      console.warn('Follow failed', err instanceof Error ? err.name : 'Error');
+      showToast("Couldn't save your teams.");
+      return;
+    }
     void load();
   };
   /** Long Ok / Menu: favourite a channel; follow or unfollow a side of an event. */
@@ -160,7 +166,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       onEvent('refreshed', () => void load()),
       onEvent('layoutChanged', () => void load()),
       onEvent('vodRefreshed', () => void load()),
-      onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; void load(); }),
+      onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; memory.cols.clear(); void load(); }),
     ];
     const tick = setInterval(() => {
       setNow(Date.now());
