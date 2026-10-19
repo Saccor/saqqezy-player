@@ -10,9 +10,11 @@ const ALIASES_KEY = 'sportsAliases';
 const ALIASES_MAX = 2000;
 const BACK_MS = 3 * 3600_000;
 const AHEAD_MS = 24 * 3600_000;
+/** The now-3h..now+24h window is applied when grouping, so the cache is rebuilt at least this often to let new events enter it. */
+const REGROUP_MS = 30 * 60_000;
 
 export class SportsController {
-  private cache: { sourceId: string; built: number; gen: number; mapping: number; offset: number; events: SportsGroup<EventAiring>[] } | undefined;
+  private cache: { sourceId: string; builtAt: number; built: number; gen: number; mapping: number; offset: number; events: SportsGroup<EventAiring>[] } | undefined;
   private aliasMap: Map<string, string> | undefined;
 
   constructor(private readonly deps: { storage: Storage; now: () => number }) {}
@@ -45,7 +47,7 @@ export class SportsController {
     const aliases = await this.loadAliases();
     if (!rec) return [];
     const c = this.cache;
-    if (!c || c.sourceId !== sourceId || c.built !== rec.built || c.gen !== rec.gen || c.mapping !== mappingVersion || c.offset !== offsetHours) {
+    if (!c || c.sourceId !== sourceId || c.built !== rec.built || c.gen !== rec.gen || c.mapping !== mappingVersion || c.offset !== offsetHours || this.deps.now() - c.builtAt >= REGROUP_MS) {
       const now = this.deps.now();
       const items: GroupInput<EventAiring>[] = [];
       for (const cand of rec.candidates) {
@@ -64,7 +66,7 @@ export class SportsController {
         }
       }
       const { events, learned } = groupEvents(items, aliases, (a) => a.channelId);
-      this.cache = { sourceId, built: rec.built, gen: rec.gen, mapping: mappingVersion, offset: offsetHours, events };
+      this.cache = { sourceId, builtAt: now, built: rec.built, gen: rec.gen, mapping: mappingVersion, offset: offsetHours, events };
       await this.learn(learned);
     }
     const now = this.deps.now();

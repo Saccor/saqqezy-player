@@ -26,6 +26,20 @@ describe('SportsController', () => {
     expect(events[0]!.start).toBe(Date.UTC(2026, 9, 19, 19));
   });
 
+  test('regroups after 30 minutes so events entering the 24 h window appear', async () => {
+    const index = new ChannelIndex([ch(1, 'e1'), ch(2, 'e2')]);
+    let t = NOW;
+    const sc = new SportsController({ storage: new MemoryStorage(), now: () => t });
+    const r = rec([cand('e1', 'Northbridge FC', 'Eastport'), cand('e2', 'Lakeshore', 'Pinecrest', 26, 2)]);
+    const first = await sc.events('s', r, index, 0);
+    expect(first).toHaveLength(1);
+    t = NOW + 10 * 60_000;
+    expect(await sc.events('s', r, index, 0)).toStrictEqual(first);
+    t = NOW + 2 * H;
+    const later = await sc.events('s', r, index, 0);
+    expect(later.map((e) => e.title)).toEqual(['Lakeshore v Pinecrest']); // the first one has ended
+  });
+
   test('learned aliases are stored and used on the next grouping', async () => {
     const storage = new MemoryStorage();
     const index = new ChannelIndex([ch(1, 'e1'), ch(2, 'e2'), ch(3, 'e3')]);
