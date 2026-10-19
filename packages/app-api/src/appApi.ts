@@ -222,7 +222,8 @@ export class AppApi {
       this.shortCache.dropSource(id);
       this.formats.delete(id);
       this.titleRebuilds.delete(id);
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, formatMemoKey(id)]) {
+      if (this.startCache?.sourceId === id) this.startCache = undefined;
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -478,10 +479,10 @@ export class AppApi {
       if (series) parts.newSeries = { items: series.recent, total: series.recentTotal };
       const cached = this.startCache?.sourceId === id ? this.startCache.home : await this.getStartHomeCached();
       const home = assembleStartHome(parts, this.now(), cached);
-      if (this.activeId === id) {
-        this.startCache = { sourceId: id, home };
-        await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
-      }
+      // Switched away or deleted meanwhile: never mix sources, and persist nothing.
+      if (this.activeId !== id) return { rows: [], at: home.at };
+      this.startCache = { sourceId: id, home };
+      await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
       return home;
     });
   }
@@ -1107,10 +1108,6 @@ export class AppApi {
     this.nnCache = new Map();
   }
 
-  /**
-   * The title index of `id` when it is in memory. Otherwise undefined, after starting (or joining) its
-   * background load, unless a rebuild is running (it loads the index when done) or the index is known missing.
-   */
   private async sportsGroups() {
     const id = this.activeId;
     if (!id) return [];
@@ -1118,6 +1115,10 @@ export class AppApi {
     return this.sports.events(id, await this.service.sportsIndexFor(id), this.index, settings.epgOffsetHours);
   }
 
+  /**
+   * The title index of `id` when it is in memory. Otherwise undefined, after starting (or joining) its
+   * background load, unless a rebuild is running (it loads the index when done) or the index is known missing.
+   */
   private cachedTitles(id: string): TitleIndexData | undefined {
     if (this.titlesTimer !== undefined) clearTimeout(this.titlesTimer);
     this.titlesTimer = setTimeout(() => { this.titles = undefined; this.titlesTimer = undefined; }, TITLES_IDLE_MS);

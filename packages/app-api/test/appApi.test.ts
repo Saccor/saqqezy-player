@@ -2159,4 +2159,16 @@ describe('AppApi – sports in your guide', () => {
     const stored = JSON.stringify(await st.getMeta(`startHome:${(await api.init()).activeSourceId}`));
     expect(stored).not.toMatch(/"url"/);
   });
+
+  test('deleteSource clears the stored Start page and the cached answer', async () => {
+    const st = new MemoryStorage();
+    const { api } = make(st);
+    const { sourceId } = await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.getStartHome();
+    expect(await st.getMeta(`startHome:${sourceId}`)).toBeTruthy();
+    await api.deleteSource(sourceId);
+    expect(await st.getMeta(`startHome:${sourceId}`)).toBeNull();
+    expect(await api.getStartHomeCached()).toBeUndefined();
+  });
 });
