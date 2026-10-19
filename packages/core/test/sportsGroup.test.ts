@@ -23,7 +23,7 @@ describe('groupEvents', () => {
     const { events } = groupEvents(items, new Map(), id);
     expect(events).toHaveLength(1);
     const e = events[0]!;
-    expect(e.key).toBe('p:eastport|northbridge');
+    expect(e.key).toBe(`p:eastport|northbridge@${T0 - 10 * M}`);
     expect(e.airings.sort()).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
     expect(e.live).toBe(true);
     expect(e.start).toBe(T0 - 10 * M);
@@ -37,6 +37,15 @@ describe('groupEvents', () => {
       item('Northbridge v Eastport', 'Northbridge', 'Eastport', 'c3', 24 * 60),
     ], new Map(), id);
     expect(events).toHaveLength(3);
+    expect(new Set(events.map((e) => e.key)).size).toBe(3);
+  });
+
+  test('repeated title-only events hours apart have distinct keys', () => {
+    const t = (ch: string, startMin: number): GroupInput<string> =>
+      ({ nt: 'live: motorsport', title: 'LIVE: Motorsport', start: T0 + startMin * M, stop: T0 + (startMin + 60) * M, live: true, airing: ch });
+    const { events } = groupEvents([t('c1', 0), t('c2', 0), t('c1', 300)], new Map(), id);
+    expect(events).toHaveLength(2);
+    expect(events[0]!.key).not.toBe(events[1]!.key);
   });
 
   test('a fuzzy side groups, and is learned as an alias once two channels show it', () => {
@@ -80,8 +89,8 @@ describe('groupEvents', () => {
       start: T0, stop: T0 + 120 * M, live: false, airing: ch,
     });
     const { events } = groupEvents([e('Cup Final', 'c1'), e('Cup Final', 'c2'), e('Other Show', 'c3')], new Map(), id);
-    expect(events.map((g) => g.key).sort()).toEqual(['t:cup final', 't:other show']);
-    expect(events.find((g) => g.key === 't:cup final')!.airings).toEqual(['c1', 'c2']);
+    expect(events.map((g) => g.key).sort()).toEqual([`t:cup final@${T0}`, `t:other show@${T0}`]);
+    expect(events.find((g) => g.key === `t:cup final@${T0}`)!.airings).toEqual(['c1', 'c2']);
   });
 
   test('budget: 50k candidates group in under 300 ms', () => {

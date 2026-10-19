@@ -126,7 +126,7 @@ export function groupEvents<A>(
       if (!best || v.n > best.n || (v.n === best.n && title.length > best.item.title.length)) best = v;
     }
     const src = best!.item;
-    const e: SportsGroup<A> = { key: g.key, title: src.title, start: g.start, stop: g.stop, live: g.live, airings: g.airings };
+    const e: SportsGroup<A> = { key: `${g.key}@${g.first}`, title: src.title, start: g.start, stop: g.stop, live: g.live, airings: g.airings };
     if (src.sides) e.sides = src.sides;
     if (src.subTitle) e.subTitle = src.subTitle;
     const icon = [...g.titles.values()].find((v) => v.item.icon)?.item.icon;

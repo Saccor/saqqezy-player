@@ -2191,6 +2191,29 @@ describe('AppApi – sports in your guide', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  test('the later of two same-pairing events opens its own channels', async () => {
+    const st = new MemoryStorage();
+    const service = new SourceService({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const api = new AppApi({ service, storage: st, emit: () => {}, now: () => NOW, appVersion: '1.2.3' });
+    live.push(api);
+    const { sourceId } = await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const base = (await service.sportsIndexFor(sourceId))!;
+    const nbc = base.candidates.filter((c) => c.title.includes('Northbridge'));
+    expect(nbc.length).toBeGreaterThan(0);
+    const H = 3600_000;
+    // The same pairing 5 hours later, on one channel only.
+    const later = { ...nbc[0]!, start: nbc[0]!.start + 5 * H, stop: nbc[0]!.stop + 5 * H };
+    vi.spyOn(service, 'sportsIndexFor').mockResolvedValue({ ...base, candidates: [...base.candidates, later] });
+    const nbs = (await api.getSportsEvents()).filter((e) => e.title.includes('Northbridge')).sort((a, b) => a.start - b.start);
+    expect(nbs).toHaveLength(2);
+    expect(nbs[0]!.key).not.toBe(nbs[1]!.key);
+    expect((await api.getEventChannels(nbs[0]!.key)).length).toBe(nbs[0]!.channelCount);
+    const laterRows = await api.getEventChannels(nbs[1]!.key);
+    expect(laterRows.length).toBe(nbs[1]!.channelCount);
+    expect(nbs[1]!.channelCount).toBeLessThan(nbs[0]!.channelCount);
+  });
+
   test('a guide refresh re-reads the sports index', async () => {
     const { api, spy } = makeSpied();
     await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
