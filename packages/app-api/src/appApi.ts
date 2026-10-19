@@ -984,20 +984,22 @@ export class AppApi {
 
   private async initState(): Promise<InitState> {
     const id = this.activeId;
-    const state: InitState = {
-      sources: await this.summaries(),
-      groups: id ? this.index.groups() : [],
-      settings: await this.currentSettings(),
-      hasVod: false,
-    };
+    // Independent reads go out together: on a TV each IDB round trip costs more than the data.
+    const [sources, settings, stats, lastChannel, lastGroup, cooldown] = await Promise.all([
+      this.summaries(),
+      this.currentSettings(),
+      id ? this.storage.getMeta<IngestResult>(`parseStats:${id}`) : undefined,
+      id ? this.storage.getMeta<string>(`lastChannel:${id}`) : undefined,
+      id ? this.storage.getMeta<string>(`lastGroup:${id}`) : undefined,
+      id ? this.service.guard.status(id) : undefined,
+    ]);
+    const state: InitState = { sources, groups: id ? this.index.groups() : [], settings, hasVod: false };
     if (id) {
       state.activeSourceId = id;
-      state.hasVod = await this.hasVod(id);
-      const lastChannel = await this.storage.getMeta<string>(`lastChannel:${id}`);
-      const lastGroup = await this.storage.getMeta<string>(`lastGroup:${id}`);
+      state.hasVod = await this.hasVod(id, stats, sources);
       if (lastChannel) state.lastChannelId = lastChannel;
       if (lastGroup) state.lastGroupId = lastGroup;
-      state.cooldown = await this.service.guard.status(id);
+      state.cooldown = cooldown;
     }
     return state;
   }
@@ -1450,23 +1452,26 @@ export class AppApi {
    */
   private async expectsChannels(id: string): Promise<boolean> {
     const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
-    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id));
+    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id, stats));
   }
 
   /**
    * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U) or found the
    * categories of a live-empty account (Xtream), or a catalogue was fetched (Xtream). An M3U `vodAt` is not used:
    * every M3U ingest stamps it, with or without titles.
+   * `stats` and `sources` are passed by callers that already read them (one `parseStats` read per init).
    */
-  private async hasVod(id: string): Promise<boolean> {
-    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+  private async hasVod(
+    id: string, stats?: IngestResult | undefined, sources?: readonly { id: string; kind: SourceConfig['kind'] }[],
+  ): Promise<boolean> {
+    stats ??= await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
     if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0 || stats?.vodCatalogue === true) return true;
-    const source = (await this.service.listSources()).find((s) => s.id === id);
+    const source = (sources ?? await this.service.listSources()).find((s) => s.id === id);
     if (source?.kind !== 'xtream') return false;
-    for (const kind of ['movie', 'series'] as const) {
-      if (((await this.storage.getMeta<number>(`vodAt:${kind}:${id}`)) ?? 0) > 0) return true;
-    }
-    return false;
+    const [movieAt, seriesAt] = await Promise.all(
+      (['movie', 'series'] as const).map((kind) => this.storage.getMeta<number>(`vodAt:${kind}:${id}`)),
+    );
+    return (movieAt ?? 0) > 0 || (seriesAt ?? 0) > 0;
   }
 
   /** Every channel of the active source, hidden ones (and those in hidden groups or without a guide) included. */

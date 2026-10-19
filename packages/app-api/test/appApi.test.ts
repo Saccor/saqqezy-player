@@ -1100,6 +1100,49 @@ describe('AppApi – stream format memory', () => {
   });
 });
 
+describe('AppApi – init reads', () => {
+  /** Counts `getMeta` reads by key and the most reads in flight at once (serial awaits never overlap). */
+  class CountingStorage extends MemoryStorage {
+    reads = new Map<string, number>();
+    inFlight = 0;
+    peak = 0;
+    override async getMeta<T>(key: string) {
+      this.reads.set(key, (this.reads.get(key) ?? 0) + 1);
+      this.inFlight++;
+      this.peak = Math.max(this.peak, this.inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      try { return await super.getMeta<T>(key); } finally { this.inFlight--; }
+    }
+  }
+
+  test('init reads parseStats once and overlaps the independent state reads', async () => {
+    const st = new CountingStorage();
+    const { sourceId } = await seeded(st);
+    st.reads.clear();
+    st.peak = 0;
+    const { api } = make(st);
+    const state = await api.init();
+    await api.idle();
+    expect(state.activeSourceId).toBe(sourceId);
+    expect(st.reads.get(`parseStats:${sourceId}`)).toBe(1);
+    // parseStats, lastChannel, lastGroup and the cooldown status go out together (settings is already cached).
+    expect(st.peak).toBeGreaterThanOrEqual(4);
+  });
+
+  test('init with a lost channel cache reads parseStats once for the state and once for the refill decision', async () => {
+    const st = new CountingStorage();
+    const { sourceId } = await seeded(st);
+    await st.replaceChannels(sourceId, []);
+    st.reads.clear();
+    const { api } = make(st);
+    const state = await api.init();
+    await api.idle();
+    expect(state.activeSourceId).toBe(sourceId);
+    expect(st.reads.get(`parseStats:${sourceId}`)).toBe(2);
+    expect((await api.getGroups()).find((g) => g.id === 'all')?.count).toBe(40);
+  });
+});
+
 describe('AppApi – layout', () => {
   type Changed = Extract<AppEvent, { type: 'layoutChanged' }>;
   const changes = (events: AppEvent[]) => events.filter((e): e is Changed => e.type === 'layoutChanged');
