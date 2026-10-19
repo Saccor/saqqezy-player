@@ -114,18 +114,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     return true;
   };
   const followMenu = async (sides: [string, string]) => {
-    const followed = settings()?.followedTeams ?? [];
-    const isOn = (s: string) => followed.some((f) => f.toLowerCase() === s.toLowerCase());
-    const choice = await menu.choose('Teams I follow', sides.map((s) => ({ id: s, label: `${isOn(s) ? 'Unfollow' : 'Follow'} ${s}` })));
+    const isOn = (list: readonly string[], s: string) => list.some((f) => f.toLowerCase() === s.toLowerCase());
+    const choice = await menu.choose('Teams I follow', sides.map((s) => ({ id: s, label: `${isOn(settings()?.followedTeams ?? [], s) ? 'Unfollow' : 'Follow'} ${s}` })));
     if (!alive || !choice) return;
-    const next = isOn(choice) ? followed.filter((f) => f.toLowerCase() !== choice.toLowerCase()) : [...followed, choice];
-    try {
-      await saveSetting({ followedTeams: next });
-    } catch (err) {
-      console.warn('Follow failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't save your teams.");
-      return;
-    }
+    // Re-read: the list may have changed while the menu was open. saveSetting shows its own toast on failure.
+    const followed = settings()?.followedTeams ?? [];
+    const next = isOn(followed, choice) ? followed.filter((f) => f.toLowerCase() !== choice.toLowerCase()) : [...followed, choice];
+    await saveSetting({ followedTeams: next });
     void load();
   };
   /** Long Ok / Menu: favourite a channel; follow or unfollow a side of an event. */
