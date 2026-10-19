@@ -54,10 +54,10 @@ export function DisplayPage(props: PageProps) {
     if (onAdjust(id)) return;
     if (id === 'addTeam') { openKeyboard(); return; }
     if (id.startsWith('team:')) {
-      const i = Number(id.slice(5));
-      const name = teams()[i];
+      const name = teams()[Number(id.slice(5))];
       if (name !== undefined && await props.confirm(`Stop following ${name}?`, 'Remove')) {
-        void saveSetting({ followedTeams: teams().filter((_, j) => j !== i) });
+        // By name, captured before the dialog: the list may have changed while it was open.
+        void saveSetting({ followedTeams: teams().filter((t) => t !== name) });
       }
     }
   };
