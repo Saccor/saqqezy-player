@@ -1,9 +1,13 @@
 import type {
   AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { audioCodecOf, staticCaps } from '@iptv/player';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
+
+/** What the research documents for AVPlay on Tizen (DTS and TrueHD are `none` since 2018). */
+const TIZEN_CAPS = staticCaps('tizen', 'avplay');
 
 /** The part of Samsung's `webapis.avplay` this player uses (injected, so it is testable without a TV). */
 export interface AvplayLike {
@@ -399,12 +403,27 @@ export class AvplayPlayer implements Player {
     for (const t of all) {
       if (t.type !== 'AUDIO') continue;
       n++;
-      const language = str(parseExtra(t).language);
+      const x = parseExtra(t);
+      const language = str(x.language);
+      const codec = audioCodecOf(str(x.fourCC));
+      const channels = num(x.channels); // key name unverified against real firmware
       const info: TrackInfo = { id: String(t.index), label: language ?? `Track ${n}`, active: t.index === activeIndex };
       if (language) info.language = language;
+      if (codec) info.codec = codec;
+      if (channels) info.channels = channels;
+      if (codec && TIZEN_CAPS.audio[codec]?.value === 'none') info.supported = 'no';
       out.push(info);
     }
     return out;
+  }
+
+  /** The picture plays but no listed audio track is decodable here (DTS/TrueHD only), or none is listed at all. */
+  soundUndecodable(): boolean {
+    const s = this.session;
+    if (!s || !s.started) return false;
+    const tracks = this.audioTracks();
+    if (tracks.length === 0) return this.currentTracks().some((t) => t.type === 'VIDEO');
+    return tracks.every((t) => t.supported === 'no');
   }
 
   selectAudioTrack(id: string): void {

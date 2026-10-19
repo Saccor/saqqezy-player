@@ -228,7 +228,7 @@ describe('AvplayPlayer: position, tracks and stream info', () => {
     expect(p.audioTracks()).toEqual([]); // no stream yet
     await p.open(URL_A);
     expect(p.audioTracks()).toEqual([
-      { id: '1', label: 'eng', language: 'eng', active: false },
+      { id: '1', label: 'eng', language: 'eng', codec: 'aac', active: false },
       { id: '2', label: 'Track 2', active: true },
     ]);
     p.selectAudioTrack('1');
@@ -1071,5 +1071,59 @@ describe('AvplayPlayer: screensaver', () => {
     av.prepared[0]!.ok();
     p.suspend!();
     expect(saver.at(-1)).toBe('on');
+  });
+});
+
+describe('AvplayPlayer: audio track facts', () => {
+  async function withTracks(tracks: AvplayTrack[], activeIndex: number) {
+    const s = setup();
+    s.av.tracks = tracks;
+    s.av.current = tracks.filter((t) => t.index === activeIndex || t.type === 'VIDEO');
+    await s.p.open(URL_A, 1, { live: false });
+    s.av.prepared[0]!.ok();
+    return s;
+  }
+  const vid: AvplayTrack = { index: 0, type: 'VIDEO', extra_info: '{"fourCC":"H264","Width":"1920","Height":"1080"}' };
+  const dts: AvplayTrack = { index: 1, type: 'AUDIO', extra_info: '{"fourCC":"DTS","language":"eng","channels":"6"}' };
+  const aac: AvplayTrack = { index: 2, type: 'AUDIO', extra_info: '{"fourCC":"AAC","language":"eng","channels":"2"}' };
+
+  test('audioTracks carries codec, channels and supported', async () => {
+    const { p } = await withTracks([vid, dts, aac], 1);
+    expect(p.audioTracks()).toEqual([
+      expect.objectContaining({ id: '1', codec: 'dts', channels: 6, supported: 'no', active: true }),
+      expect.objectContaining({ id: '2', codec: 'aac', channels: 2, active: false }),
+    ]);
+    expect(p.audioTracks()[1]!.supported).not.toBe('no');
+  });
+  test('soundUndecodable: true when every audio track is none in the Tizen caps', async () => {
+    expect((await withTracks([vid, dts], 1)).p.soundUndecodable()).toBe(true);
+  });
+  test('soundUndecodable: false while a decodable or unknown track exists', async () => {
+    expect((await withTracks([vid, dts, aac], 1)).p.soundUndecodable()).toBe(false);
+    const odd: AvplayTrack = { index: 3, type: 'AUDIO', extra_info: '{"fourCC":"ZZZ"}' };
+    expect((await withTracks([vid, odd], 3)).p.soundUndecodable()).toBe(false);
+  });
+  test('soundUndecodable: true when the picture plays and AVPlay lists no audio at all', async () => {
+    expect((await withTracks([vid], 0)).p.soundUndecodable()).toBe(true);
+  });
+  test('soundUndecodable: false before the stream has started', async () => {
+    const s = setup();
+    s.av.tracks = [vid, dts];
+    await s.p.open(URL_A, 1, { live: false });
+    expect(s.p.soundUndecodable()).toBe(false);
+  });
+  test('soundUndecodable: false when nothing is open', () => {
+    expect(setup().p.soundUndecodable()).toBe(false);
+  });
+
+  // Spellings named by tizen.md section 4.1 and the codec golden vectors. UNVERIFIED against real firmware.
+  test.each([
+    ['DTS', 'dts'], ['DCA', 'dts'], ['dtsc', 'dts'], ['dtse', 'dtshd'], ['dtsh', 'dtshd'],
+    ['TRUEHD', 'truehd'], ['MLP', 'truehd'], ['AC3', 'ac3'], ['EAC3', 'eac3'],
+    ['AAC', 'aac'], ['MP3', 'mp3'], ['MPEG', 'mp2'], ['OPUS', 'opus'], ['AC-4', 'ac4'], ['LPCM', 'pcm'],
+  ])('fourCC %s gets codec %s', async (fourCC, codec) => {
+    const t: AvplayTrack = { index: 1, type: 'AUDIO', extra_info: JSON.stringify({ fourCC }) };
+    const { p } = await withTracks([vid, t], 1);
+    expect(p.audioTracks()[0]!.codec).toBe(codec);
   });
 });
