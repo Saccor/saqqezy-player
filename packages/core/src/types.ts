@@ -17,6 +17,10 @@ export interface Channel {
    * time; spec §8 allows +5 %). Equal records share one object.
    */
   cu?: ChannelCatchup;
+  /** A folded row (`ChannelIndex` fold mode) only: how many streams it has, set when more than one. */
+  sources?: number;
+  /** A folded row of several streams only: their best quality rank (0 = 4K … 4 = unknown). */
+  quality?: number;
 }
 
 export type CatchupMode = 'default' | 'append' | 'shift' | 'flussonic' | 'xc';
