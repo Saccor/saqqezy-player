@@ -111,7 +111,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] },
   };
 
   it('shows version, platform, sources, errors and settings', () => {

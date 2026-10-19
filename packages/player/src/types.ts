@@ -1,7 +1,8 @@
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'buffering' | 'error';
 export interface Rect { x: number; y: number; w: number; h: number } // in 1920x1080 design space
 export type AspectMode = 'auto' | '16:9' | '4:3' | 'zoom' | 'stretch';
-export interface TrackInfo { id: string; label: string; language?: string; active: boolean }
+/** One audio or subtitle track as the engine lists it. `codec`: the audio codec family where known ("AC-3", "AAC"). */
+export interface TrackInfo { id: string; label: string; language?: string; active: boolean; codec?: string }
 export interface StreamInfo { width?: number; height?: number; videoCodec?: string; audioCodec?: string; bitrate?: number; fps?: number }
 
 /**
