@@ -39,15 +39,18 @@ import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
 Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: 0xe8eaf0ff };
 const { render, renderer } = createRenderer({
   appWidth: 1920, appHeight: 1080,
-  deviceLogicalPixelRatio: designScale(),   // min(innerWidth/1920, innerHeight/1080)
+  deviceLogicalPixelRatio: ratios.logical,   // designScale(): min(innerWidth/1920, innerHeight/1080)
+  devicePhysicalPixelRatio: ratios.physical, // TVs: buffer capped at 1920x1080 (renderPixelRatios)
   clearColor: 0x00000000,                   // fully transparent: video shows through
   renderEngine: WebGlRenderer,
   fontEngines: [CanvasTextRenderer],
 }, document.getElementById('app')!);
 registerDefaultShaders((renderer as RendererMain).stage.shManager);   // needed for borderRadius / border / shadow
-window.addEventListener('resize', () => (renderer as RendererMain).setOptions({ deviceLogicalPixelRatio: designScale() }));
+window.addEventListener('resize', () => (renderer as RendererMain).setOptions({ /* renderPixelRatios(platformId) */ }));
 render(() => <App />);
 ```
+
+- Render resolution: `video/renderScale.ts` `renderPixelRatios(platform)`. The canvas always fills the viewport in CSS pixels. On TVs (Tizen, webOS) the drawing buffer is capped at 1920x1080 and the compositor upscales it; a smaller viewport is never supersampled. Desktop and browser keep `devicePixelRatio` for sharp text. Without the cap, a 1440p graphics plane (likely the Odyssey G9) or a 4K one fills 1.8x or 4x the pixels per frame and rasterises every text texture larger. Settings > Diagnostics (Render line) and the debug HUD show the buffer size. Research: `docs/research/g9-performance-2026-10.md`.
 
 - Without `registerDefaultShaders`, every `borderRadius` or `border` logs "ShaderType not found" and draws square corners.
 - `createRenderer` returns `RendererMain | DOMRendererMain`. Cast it to `RendererMain` for `stage` and `setOptions`.
@@ -151,6 +154,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - Extensionless URLs (e.g. the Xtream short form `/{user}/{pass}/{id}`): the element only when `canPlayType('video/mp2t')` is non-empty, switching to mpegts.js if it fails before metadata (`readyState 0`); otherwise mpegts.js. Pure choice in `video/engineChoice.ts` (unit-tested). Core's `alternateStreamUrl` maps the short form to the canonical live path in the other format (extensionless or `.ts` to `/live/{user}/{pass}/{id}.m3u8`, `.m3u8` to `.ts`).
   - mpegts.js → HLS retry: when mpegts.js rejects an extensionless URL with a format error (`MEDIA_FORMAT_ERROR` / `MEDIA_FORMAT_UNSUPPORTED`) before metadata, the same URL is retried once as HLS, natively when the element plays HLS, else through hls.js (`nextEngineAfterFailure`, unit-tested). The mpegts.js instance is detached from the session inside its ERROR callback (its later errors are ignored); the teardown and the engine switch run in a `setTimeout(0)` after the callback has returned, never inside mpegts.js's call stack. A `stop()` in between still tears the old instance down and starts nothing. If hls.js then cannot parse the manifest, the error is `UNSUPPORTED` (neither engine fits). Covered by unit tests only (`Html5Player.test.ts` with mocked engines); not verified end to end.
   - In dev, `?hlsjs` forces the hls.js path on browsers that have native HLS.
+- hls.js and mpegts.js live in their own chunk (`video/mseEngines.ts`, about 856 kB of minified code). `Html5Player` starts `loadMseEngines()` when it is created and `open()` waits for it before choosing an engine (later opens start synchronously), so AVPlay platforms never load it. A failed chunk load reports `MEDIA` (`detail: 'engineLoad'`) and the next `open()` retries.
 - Each `open()` creates a session. `stop()` kills it, removes its listeners, and destroys the hls.js or mpegts instance. It then calls `removeAttribute('src')` and `load()`. Events from a dead session are dropped, and `detail.attemptId` is echoed on every event.
 - Error mapping: `<video>` MediaError 4 is `NETWORK` (retryable) while `readyState === 0` (HAVE_NOTHING: the load itself failed, e.g. 404, refused, dropped) and `UNSUPPORTED` only once metadata has loaded (`readyState >= 1`). MediaError 2 is `NETWORK`, 3 is `DECODE`, the rest `MEDIA`. hls.js errors are reported only when fatal, or for `MANIFEST_INCOMPATIBLE_CODECS_ERROR`; codec errors map to `UNSUPPORTED`, other network errors to `NETWORK`. mpegts codec/format errors map to `UNSUPPORTED`.
 - Sound the device cannot decode: desktop Chrome plays a file with AC-3 / E-AC-3 sound (common in films) as a silent picture with no error. `soundUndecodable()` is true when mpegts.js was refused the audio codec, or (computers only, never TVs, whose hardware decoders may not count) when the element decoded 0 audio bytes during 3 s of played picture (`webkitAudioDecodedByteCount`). VodPlay then shows "No sound: this device can't play this video's audio format." once. The real fix is a player that decodes it (TVs, Media3, libmpv). Test title: `node tools/fake-xtream/scripts/make-ac3.mjs` makes fake movie 2 an `.mkv` with AC-3 sound.
