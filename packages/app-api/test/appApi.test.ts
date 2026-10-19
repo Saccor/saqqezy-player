@@ -2146,4 +2146,17 @@ describe('AppApi – sports in your guide', () => {
     expect(events[0]!.title).toBe('Lakeshore v Pinecrest');
     expect(events[0]!.followed).toBe(true);
   });
+
+  test('getStartHome: live now and sports rows; the cached call answers the last value; no stream URLs are kept', async () => {
+    const st = new MemoryStorage();
+    const { api } = make(st);
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    expect(await api.getStartHomeCached()).toBeUndefined();
+    const h = await api.getStartHome();
+    expect(h.rows.map((r) => r.id)).toContain('sports');
+    expect(await api.getStartHomeCached()).toEqual(h);
+    const stored = JSON.stringify(await st.getMeta(`startHome:${(await api.init()).activeSourceId}`));
+    expect(stored).not.toMatch(/"url"/);
+  });
 });

@@ -253,3 +253,12 @@ export interface SportsEventTile {
   key: string; title: string; sides?: [string, string]; subTitle?: string; icon?: string;
   start: number; stop: number; channelCount: number; followed: boolean;
 }
+
+export type StartRowId = 'continue' | 'live' | 'sports' | 'newMovies' | 'newSeries';
+export type StartCell =
+  | { type: 'vod'; tile: VodTile }
+  | { type: 'channel'; channel: ChannelRow; last?: true }
+  | { type: 'event'; event: SportsEventTile }
+  | { type: 'viewAll'; target: 'sports' | 'movie' | 'series'; total: number };
+export interface StartRow { id: StartRowId; title: string; cells: StartCell[] }
+export interface StartHome { rows: StartRow[]; at: number }
