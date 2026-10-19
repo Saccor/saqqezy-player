@@ -62,7 +62,8 @@ describe('TIZEN_KEYS_TO_REGISTER', () => {
   it('lists the keys to register', () => {
     expect(TIZEN_KEYS_TO_REGISTER).toEqual([
       'ChannelUp', 'ChannelDown', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue',
-      'Info', 'MediaPlayPause', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+      'Info', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
+      'MediaTrackPrevious', 'MediaTrackNext', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
     ]);
   });
 });

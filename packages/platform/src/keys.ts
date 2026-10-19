@@ -1,13 +1,8 @@
+import type { PlatformId } from './host.ts';
+
 export type LogicalKey =
   | 'Up' | 'Down' | 'Left' | 'Right' | 'Ok' | 'Back' | 'Menu' | 'Info' | 'ChannelUp' | 'ChannelDown'
   | 'PlayPause' | 'Red' | 'Green' | 'Yellow' | 'Blue' | `Digit${0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
-export type PlatformId = 'browser' | 'tizen' | 'webos';
-
-export function detectPlatform(ua: string, globals: { tizen?: unknown; webOS?: unknown }): PlatformId {
-  if (globals.tizen !== undefined || /tizen/i.test(ua)) return 'tizen';
-  if (globals.webOS !== undefined || /web0s|webos/i.test(ua)) return 'webos';
-  return 'browser';
-}
 
 const BROWSER_KEYS: Record<string, LogicalKey> = {
   ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
@@ -48,7 +43,13 @@ export function mapKey(platform: PlatformId, e: { key: string; keyCode: number }
   return (platform === 'tizen' ? TIZEN_CODES : WEBOS_CODES)[e.keyCode];
 }
 
-export const TIZEN_KEYS_TO_REGISTER: string[] = [
+export const TIZEN_KEYS_TO_REGISTER: readonly string[] = [
   'ChannelUp', 'ChannelDown', 'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue',
-  'Info', 'MediaPlayPause', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+  'Info', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
+  'MediaTrackPrevious', 'MediaTrackNext', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
+
+export type KeyTable = { by: 'key'; names: Readonly<Record<string, LogicalKey>> } | { by: 'code'; codes: Readonly<Record<number, LogicalKey>> };
+export function keyTableFor(id: PlatformId): KeyTable {
+  return id === 'tizen' ? { by: 'code', codes: TIZEN_CODES } : id === 'webos' ? { by: 'code', codes: WEBOS_CODES } : { by: 'key', names: BROWSER_KEYS };
+}
