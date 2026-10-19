@@ -43,7 +43,7 @@ export {
 export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
-export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
+export { parseXmltv, type ProgrammeExtra, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from './epg/window.ts';
 export {
   SourceService,
