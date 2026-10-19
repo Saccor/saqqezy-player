@@ -339,3 +339,34 @@ describe('VodService refresh backoff', () => {
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
   });
 });
+
+describe('VodService versions', () => {
+  test('splits: add, remove, per kind, gone with the source', async () => {
+    expect(await svc.getVodSplits('x', 'movie')).toEqual(new Set());
+    expect(await svc.setVodSplit('x', 'movie', 'y:synthetic film|2021', true)).toEqual(new Set(['y:synthetic film|2021']));
+    expect(await svc.getVodSplits('x', 'series')).toEqual(new Set());
+    expect(await svc.setVodSplit('x', 'movie', 'y:synthetic film|2021', false)).toEqual(new Set());
+    await svc.setVodSplit('x', 'movie', 'n:example', true);
+    await storage.deleteSource('x');
+    expect(await svc.getVodSplits('x', 'movie')).toEqual(new Set());
+  });
+
+  test('picks: stored per title key, newest kept when over the cap', async () => {
+    await svc.setVodPick('x', 'movie', 'y:a|2021', 'x:m1');
+    await svc.setVodPick('x', 'movie', 'y:b|2021', 'x:m2');
+    await svc.setVodPick('x', 'movie', 'y:a|2021', 'x:m3');
+    expect(await svc.getVodPicks('x', 'movie')).toEqual({ 'y:b|2021': 'x:m2', 'y:a|2021': 'x:m3' });
+    for (let i = 0; i < 2001; i++) await svc.setVodPick('x', 'series', `k${i}`, `x:s${i}`);
+    const picks = await svc.getVodPicks('x', 'series');
+    expect(Object.keys(picks)).toHaveLength(2000);
+    expect(picks.k0).toBeUndefined();
+    expect(picks.k2000).toBe('x:s2000');
+  });
+
+  test('junk in storage reads as empty', async () => {
+    await storage.setMeta('vodSplit:movie:x', 'junk');
+    await storage.setMeta('vodPick:movie:x', [1]);
+    expect(await svc.getVodSplits('x', 'movie')).toEqual(new Set());
+    expect(await svc.getVodPicks('x', 'movie')).toEqual({});
+  });
+});

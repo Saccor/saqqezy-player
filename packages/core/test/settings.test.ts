@@ -10,6 +10,7 @@ describe('sanitizeSettings', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
+      combineDuplicates: true, preferredLanguages: [],
     });
   });
 
@@ -22,6 +23,18 @@ describe('sanitizeSettings', () => {
   test('subtitleExactMatch is a boolean, off by default (it reads a little of the video from the provider)', () => {
     expect(sanitizeSettings({ subtitleExactMatch: true }).subtitleExactMatch).toBe(true);
     for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ subtitleExactMatch: v }).subtitleExactMatch).toBe(false);
+  });
+
+  test('combineDuplicates is a boolean, on by default', () => {
+    expect(sanitizeSettings({ combineDuplicates: false }).combineDuplicates).toBe(false);
+    for (const v of ['no', 0, null, undefined]) expect(sanitizeSettings({ combineDuplicates: v }).combineDuplicates).toBe(true);
+  });
+
+  test('preferredLanguages keeps listed codes in order, deduped, at most 5', () => {
+    expect(sanitizeSettings({ preferredLanguages: ['sv', 'en'] }).preferredLanguages).toEqual(['sv', 'en']);
+    expect(sanitizeSettings({ preferredLanguages: ['sv', 'off', 'xx', 3, 'sv', 'en'] }).preferredLanguages).toEqual(['sv', 'en']);
+    expect(sanitizeSettings({ preferredLanguages: ['en', 'sv', 'da', 'no', 'fi', 'de'] }).preferredLanguages).toHaveLength(5);
+    for (const v of ['sv', null, undefined, {}]) expect(sanitizeSettings({ preferredLanguages: v }).preferredLanguages).toEqual([]);
   });
 
   test('liveDelay keeps known values and falls back to balanced', () => {

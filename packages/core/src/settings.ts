@@ -15,6 +15,10 @@ export interface AppSettings {
    * request while the title plays, which one-connection accounts may refuse). Off by default.
    */
   subtitleExactMatch: boolean;
+  /** Movies and series: one card per title, its language and quality versions behind a Versions list. */
+  combineDuplicates: boolean;
+  /** Movies and series: which version Play starts, most preferred first (ISO 639-1). Empty: the TV's language, then English. */
+  preferredLanguages: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -26,7 +30,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   liveDelay: 'balanced',
   subtitleLanguage: 'off',
   subtitleExactMatch: false,
+  combineDuplicates: true,
+  preferredLanguages: [],
 };
+
+/** Most entries in `preferredLanguages`. */
+export const PREFERRED_LANGUAGES_MAX = 5;
 
 /** 'off', then ISO 639-1 codes in order of their English names. */
 export const SUBTITLE_LANGUAGES: readonly string[] = [
@@ -65,5 +74,18 @@ export function sanitizeSettings(partial: unknown): AppSettings {
       ? src.subtitleLanguage
       : DEFAULT_SETTINGS.subtitleLanguage,
     subtitleExactMatch: typeof src.subtitleExactMatch === 'boolean' ? src.subtitleExactMatch : DEFAULT_SETTINGS.subtitleExactMatch,
+    combineDuplicates: typeof src.combineDuplicates === 'boolean' ? src.combineDuplicates : DEFAULT_SETTINGS.combineDuplicates,
+    preferredLanguages: languageList(src.preferredLanguages),
   };
+}
+
+function languageList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const code of v) {
+    if (typeof code !== 'string' || code === 'off' || !SUBTITLE_LANGUAGES.includes(code) || out.includes(code)) continue;
+    out.push(code);
+    if (out.length === PREFERRED_LANGUAGES_MAX) break;
+  }
+  return out;
 }

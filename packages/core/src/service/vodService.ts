@@ -32,6 +32,11 @@ export interface VodServiceDeps {
 }
 
 const vodAtKey = (kind: VodKind, sourceId: string) => `vodAt:${kind}:${sourceId}`;
+// Keys end in the source id, so storage's per-source cleanup removes them with the source.
+const vodSplitKey = (kind: VodKind, sourceId: string) => `vodSplit:${kind}:${sourceId}`;
+const vodPickKey = (kind: VodKind, sourceId: string) => `vodPick:${kind}:${sourceId}`;
+/** Remembered version picks kept per source and kind. */
+export const VOD_PICKS_MAX = 2000;
 
 /** Movies and series for one app: catalogue refresh, details, stream URLs and local user state. */
 export class VodService {
@@ -202,6 +207,46 @@ export class VodService {
       const next = fn(await this.storage.getVodUser(sourceId, itemId));
       await this.storage.putVodUser(sourceId, itemId, next);
       return next;
+    });
+  }
+
+  /** Title keys the user shows separately ("Show separately"), per source and kind. */
+  async getVodSplits(sourceId: string, kind: VodKind): Promise<Set<string>> {
+    const v = await this.storage.getMeta<unknown>(vodSplitKey(kind, sourceId));
+    return new Set(Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : []);
+  }
+
+  setVodSplit(sourceId: string, kind: VodKind, key: string, on: boolean): Promise<Set<string>> {
+    const meta = vodSplitKey(kind, sourceId);
+    return this.withLock(meta, async () => {
+      const keys = await this.getVodSplits(sourceId, kind);
+      if (on) keys.add(key);
+      else keys.delete(key);
+      await this.storage.setMeta(meta, keys.size ? [...keys] : null);
+      return keys;
+    });
+  }
+
+  /** The version the user picked per title key (item id), per source and kind. */
+  async getVodPicks(sourceId: string, kind: VodKind): Promise<Record<string, string>> {
+    const v = await this.storage.getMeta<unknown>(vodPickKey(kind, sourceId));
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, id] of Object.entries(v)) if (typeof id === 'string') out[k] = id;
+    return out;
+  }
+
+  /** Remembers a pick; past `VOD_PICKS_MAX` titles the oldest pick goes. */
+  setVodPick(sourceId: string, kind: VodKind, key: string, itemId: string): Promise<void> {
+    const meta = vodPickKey(kind, sourceId);
+    return this.withLock(meta, async () => {
+      const picks = await this.getVodPicks(sourceId, kind);
+      // Re-inserted last, so key order is oldest pick first.
+      delete picks[key];
+      picks[key] = itemId;
+      const keys = Object.keys(picks);
+      for (const old of keys.slice(0, Math.max(0, keys.length - VOD_PICKS_MAX))) delete picks[old];
+      await this.storage.setMeta(meta, picks);
     });
   }
 

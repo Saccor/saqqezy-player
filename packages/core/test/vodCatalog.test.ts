@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { searchKey } from '../src/text/searchKey.ts';
 import { VodCatalog } from '../src/vod/catalog.ts';
+import { groupVod } from '../src/vod/grouping.ts';
 import { VOD_ALL, type VodItem, type VodList } from '../src/vod/types.ts';
 
 const it = (n: number, title: string, extra: Partial<VodItem> = {}): VodItem => ({ id: `s:m${n}`, kind: 'movie', title, categoryId: '1', ...extra });
@@ -91,5 +92,62 @@ describe('VodCatalog', () => {
     expect(cat.slice('a', 'title', 0, 10).rows.map((r) => r.id)).toEqual(['s:m1', 's:m3']);
     expect(cat.slice('b', 'added', 0, 10).rows.map((r) => r.id)).toEqual(['s:m2']);
     expect(cat.slice('c', 'title', 0, 10)).toEqual({ total: 0, rows: [] });
+  });
+});
+
+describe('VodCatalog grouped', () => {
+  const gl: VodList = {
+    items: [
+      it(1, 'EN - Synthetic Film (2021) HD', { added: 100, rating: 6, categoryId: 'a' }),
+      it(2, 'SE - Synthetic Film (2021) 4K', { added: 400, rating: 8, categoryId: 'b', poster: 'p2.jpg' }),
+      it(3, 'Example Story (2020)', { added: 200, categoryId: 'a' }),
+      it(4, 'EN - Other Tale (2019)', { added: 300, categoryId: 'c' }),
+    ],
+    categories: [
+      { id: 'a', kind: 'movie', name: 'EN | Action', count: 2 },
+      { id: 'b', kind: 'movie', name: 'SE | Action', count: 1 },
+      { id: 'c', kind: 'movie', name: 'Drama', count: 1 },
+    ],
+  };
+  const g = new VodCatalog('movie', gl).withGroups(groupVod(gl));
+
+  test('one row per title, with the lead id, display title, newest added and best rating', () => {
+    expect(g.grouped).toBe(true);
+    expect(g.size).toBe(3);
+    const rows = g.slice(VOD_ALL, 'added', 0, 10).rows;
+    expect(rows.map((r) => [r.id, r.title, r.added, r.rating])).toEqual([
+      ['s:m2', 'Synthetic Film', 400, 8], ['s:m4', 'Other Tale', 300, undefined], ['s:m3', 'Example Story', 200, undefined],
+    ]);
+    expect(rows[0]!.poster).toBe('p2.jpg');
+  });
+
+  test('merged categories; a group is in each of its categories', () => {
+    expect(g.categories()).toEqual([
+      { id: 'c:action', kind: 'movie', name: 'Action', count: 2 },
+      { id: 'c:drama', kind: 'movie', name: 'Drama', count: 1 },
+    ]);
+    expect(titles(g.slice('c:action', 'title', 0, 10).rows)).toEqual(['Example Story', 'Synthetic Film']);
+    expect(g.slice('a', 'title', 0, 10).total).toBe(0);
+  });
+
+  test('byId finds every version; groupOf and rowOf resolve any member', () => {
+    expect(g.byId('s:m1')?.title).toBe('EN - Synthetic Film (2021) HD');
+    expect(g.rowOf('s:m1')?.id).toBe('s:m2');
+    expect(g.groupOf('s:m1')?.key).toBe('y:synthetic film|2021');
+    expect(g.members('s:m2').map((m) => [m.item.id, m.lang, m.quality])).toEqual([['s:m1', 'en', 2], ['s:m2', 'sv', 0]]);
+    expect(g.groupOf('missing')).toBeUndefined();
+  });
+
+  test('search finds a title once', () => {
+    expect(g.search('synthetic', 10).map((r) => r.id)).toEqual(['s:m2']);
+    expect(g.searchIndex().size).toBe(3);
+  });
+
+  test('withGroups(undefined) is the plain catalogue', () => {
+    const plain = g.withGroups(undefined);
+    expect(plain.grouped).toBe(false);
+    expect(plain.size).toBe(4);
+    expect(plain.rowOf('s:m1')?.id).toBe('s:m1');
+    expect(plain.members('s:m1').map((m) => m.item.id)).toEqual(['s:m1']);
   });
 });
