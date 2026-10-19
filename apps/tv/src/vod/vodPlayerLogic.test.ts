@@ -144,6 +144,10 @@ describe('cueText', () => {
     expect(cueText('  One  line ')).toBe('One line');
     expect(cueText('First\r\n\n  Second   part')).toBe('First\nSecond part');
   });
+  it('turns markup that reached it into plain lines (one sanitiser for every path)', () => {
+    expect(cueText('<i>One</i><BR>Two&nbsp;too<BR')).toBe('One\nTwo too');
+    expect(cueText('{\\an8}<br/>')).toBe('');
+  });
 });
 
 describe('titleLengthMs', () => {

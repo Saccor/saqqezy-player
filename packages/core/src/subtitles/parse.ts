@@ -1,3 +1,5 @@
+import { subtitleText } from './markup.ts';
+
 /** One subtitle cue: plain text (tags stripped), lines separated by '\n'. */
 export interface SubtitleCue {
   startMs: number;
@@ -15,20 +17,6 @@ const TIMING = new RegExp(String.raw`^\s*${TIME}\s*-->\s*${TIME}`);
 function ms(h: string | undefined, m: string, s: string, f: string | undefined): number {
   const frac = f ? Number(f.padEnd(3, '0')) : 0;
   return ((Number(h ?? 0) * 60 + Number(m)) * 60 + Number(s)) * 1000 + frac;
-}
-
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', lrm: '', rlm: '' };
-
-/** Markup out: HTML-like tags (<i>, <font>, <v Name>), SSA overrides ({\an8}), entities decoded. */
-function plain(line: string): string {
-  return line
-    .replace(/<[^>]*>/g, '')
-    .replace(/\{\\[^}]*\}/g, '')
-    .replace(/&(#\d+|[a-z]+);/gi, (all, name: string) => {
-      if (name.startsWith('#')) return String.fromCodePoint(Number(name.slice(1)));
-      return ENTITIES[name.toLowerCase()] ?? all;
-    })
-    .trim();
 }
 
 /**
@@ -50,11 +38,11 @@ export function parseSubtitles(text: string): SubtitleCue[] {
     while (i < lines.length && (lines[i] ?? '').trim() !== '') {
       // A missing blank line before the next cue: stop at its timing line.
       if (TIMING.test(lines[i] ?? '')) break;
-      const p = plain(lines[i] ?? '');
-      if (p) body.push(p);
+      body.push(lines[i] ?? '');
       i++;
     }
-    if (body.length > 0 && endMs > startMs) cues.push({ startMs, endMs, text: body.join('\n') });
+    const cueText = subtitleText(body.join('\n'));
+    if (cueText && endMs > startMs) cues.push({ startMs, endMs, text: cueText });
   }
   return cues.sort((a, b) => a.startMs - b.startMs);
 }

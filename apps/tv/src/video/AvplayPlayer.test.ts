@@ -775,6 +775,17 @@ describe('AvplayPlayer: VOD controls', () => {
     expect(av.calls.filter((c) => c === 'play')).toHaveLength(1);
   });
 
+  test('subtitle cues: AVPlay markup becomes plain lines; a cue of only markup clears', async () => {
+    const { av, p } = setup();
+    const cues: (string | null)[] = [];
+    p.onSubtitle((t) => cues.push(t));
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    av.listener!.onsubtitlechange?.(2000, '<SYNC Start=1000><P Class=ENCC><i>Hello</i><BR>there&nbsp;you<BR', 0, 0);
+    av.listener!.onsubtitlechange?.(2000, '<br>', 0, 0);
+    expect(cues).toEqual(['Hello\nthere you', null]);
+  });
+
   test('subtitle cues: emitted for the current session, cleared on select, Off, seek, stop and a new open', async () => {
     const { av, p } = setup();
     av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];

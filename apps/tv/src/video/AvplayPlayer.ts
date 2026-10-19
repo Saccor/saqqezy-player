@@ -1,6 +1,7 @@
 import type {
   AspectMode, LiveProfile, MediaCapsProbe, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { subtitleText } from '@iptv/core';
 import { audioCodecOf, staticCaps } from '@iptv/player';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
 import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
@@ -269,10 +270,11 @@ export class AvplayPlayer implements Player {
           clearTimeout(s.restoreWatchdog);
         },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
-        // A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
+        // AVPlay passes the source's markup through (SAMI <BR>, <i>, <font>, entities): plain lines out, and a cue
+        // of only markup clears the line. A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
         onsubtitlechange: (duration, text) => {
           if (s.dead || s !== this.session || s.textOff) return;
-          this.showCue(typeof text === 'string' && text !== '' ? text : null, Number(duration));
+          this.showCue((typeof text === 'string' && subtitleText(text)) || null, Number(duration));
         },
         // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.

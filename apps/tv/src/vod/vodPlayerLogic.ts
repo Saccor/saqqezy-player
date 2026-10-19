@@ -1,3 +1,4 @@
+import { subtitleText } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
@@ -94,10 +95,13 @@ export function oneSpace(s: string): string {
 /** What a remembered subtitle choice stores for "Subtitles off" (`trackKey` always contains ':', so never this). */
 export const SUBTITLE_KEY_OFF = 'off';
 
-/** A subtitle cue for display: whitespace runs collapsed per line, blank lines dropped; '' when nothing is left. */
+/**
+ * A subtitle cue for display: markup removed and line breaks kept (`subtitleText`, also applied where each engine
+ * hands its text over), whitespace runs collapsed per line, blank lines dropped; '' when nothing is left.
+ */
 export function cueText(text: string | null): string {
   if (!text) return '';
-  return text.split(/\r?\n/).map(oneSpace).filter(Boolean).join('\n');
+  return subtitleText(text);
 }
 
 /** Picker row id for "Subtitles off": unprefixed, so no track row (`a:<id>`, `s:<id>`) can produce it. */
