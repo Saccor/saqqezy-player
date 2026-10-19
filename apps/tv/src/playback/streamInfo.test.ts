@@ -58,6 +58,20 @@ describe('streamInfoLines', () => {
     ]);
   });
 
+  it('adds an HDR row when the player or the source knows the range', () => {
+    const hdr = (...a: Parameters<typeof streamInfoLines>) => streamInfoLines(...a).find((l) => l[0] === 'HDR')?.[1];
+    expect(hdr({}, undefined, undefined)).toBeUndefined();
+    expect(hdr({ hdr: 'hdr10' }, undefined, undefined)).toBe('HDR10');
+    expect(hdr({}, undefined, undefined, { hdr: 'hlg' })).toBe('HLG');
+    expect(hdr({}, undefined, undefined, { hdr: 'dv', dvProfile: 5, dvFallback: 'none' })).toBe('Dolby Vision 5 (no HDR10 base)');
+    expect(hdr({}, undefined, undefined, { hdr: 'dv', dvProfile: 8, dvFallback: 'hdr10' })).toBe('Dolby Vision 8 (HDR10 base)');
+    expect(hdr({}, undefined, undefined, { hdr: 'dv' })).toBe('Dolby Vision (title)');
+    // The player's own DV reading wins over the source's HDR10.
+    expect(hdr({ hdr: 'dv' }, undefined, undefined, { hdr: 'hdr10' })).toBe('Dolby Vision');
+    const lines = streamInfoLines({ videoCodec: 'HEVC' }, undefined, undefined, { hdr: 'sdr' });
+    expect(lines.slice(0, 3)).toEqual([['Resolution', '–'], ['Video', 'HEVC'], ['HDR', 'SDR']]);
+  });
+
   it('names failures without detail', () => {
     const lines = streamInfoLines({}, undefined, { kind: 'failed', reason: 'unsupported' });
     expect(lines.at(-1)).toEqual(['Status', 'Failed (unsupported)']);

@@ -1,5 +1,6 @@
 import { seasonsOf } from '../vod/list.ts';
 import { parseEpisodeMarker, splitYear } from '../vod/title.ts';
+import { videoRangeOf } from '../vod/videoRange.ts';
 import {
   VOD_UNCATEGORIZED,
   type Episode, type MovieDetail, type SeriesDetail, type VodCategory, type VodItem, type VodKind,
@@ -133,9 +134,16 @@ function detailFields(info: Record<string, unknown>): MovieDetail {
   return d;
 }
 
+function movieFields(info: Record<string, unknown>): MovieDetail {
+  const d = detailFields(info);
+  const video = videoRangeOf(info.video);
+  if (video) d.video = video;
+  return d;
+}
+
 export function parseVodInfo(data: unknown): MovieDetail {
   const info = isObj(data) && isObj(data.info) ? data.info : {};
-  const d = detailFields(info);
+  const d = movieFields(info);
   const rt = runtimeMin(info);
   if (rt) d.runtimeMin = rt;
   return d;
@@ -182,6 +190,8 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
       if (still) ep.still = still;
       const ext = str(e.container_extension);
       if (ext) ep.ext = ext;
+      const video = videoRangeOf(ei.video);
+      if (video) ep.video = video;
       episodes.push(ep);
     });
   }

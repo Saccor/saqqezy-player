@@ -1,6 +1,7 @@
 import type {
   AspectMode, LiveProfile, MediaCapsProbe, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { dvFromFourCC } from '@iptv/core';
 import { audioCodecOf, staticCaps } from '@iptv/player';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
 import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
@@ -481,6 +482,8 @@ export class AvplayPlayer implements Player {
         if (w) info.width = w;
         if (h) info.height = h;
         if (codec) info.videoCodec = codec;
+        // dvh1/dvhe: a Dolby Vision stream with no base layer, which Samsung panels show with wrong colours.
+        if (dvFromFourCC(codec)) info.hdr = 'dv';
         if (bitrate) info.bitrate = bitrate;
       } else if (t.type === 'AUDIO') {
         const codec = str(x.fourCC);
