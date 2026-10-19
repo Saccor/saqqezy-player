@@ -8,41 +8,37 @@ import { fractionAt } from '../vod/timelineLogic.ts';
 import { volume, volumeRecent, volumeSet, volumeStep, volumeSupported, volumeToggleMute } from '../video/volume.ts';
 import { volumeKeyStep, volumePercent } from '../video/volumeLogic.ts';
 
-const W = 400;
-const H = 64;
-const ICON = 40;
-const ICON_HIT_W = 72;
-const BAR_X = 80;
-const BAR_W = 220;
 const BAR_H = 8;
 const KNOB = 20;
-const PCT_X = BAR_X + BAR_W + 16;
+const PCT_W = 64;
+const OSD_W = 340;
+const OSD_H = 64;
 /** Below the shell's clock (top right, one heading line). */
-const Y = LAYOUT.safeY + 56;
+const OSD_Y = LAYOUT.safeY + 56;
 
 /**
- * The fullscreen players' volume (the app owns the sound only off TVs; elsewhere this renders nothing): a top-right
- * pill (under the clock) with a speaker, a slider and the level. The keyboard's + and - step it; it shows for 2 s after a change, while
- * `pinned` (the VOD overlay is up) and while the pointer is over it. Pointer: the speaker mutes, a click or drag on
- * the slider sets the level, the wheel steps it.
+ * The volume control: a pill with a speaker (click: mute), a slider (click or drag: set) and the level; the wheel over
+ * it steps the volume. Pointer-only (never focused): the keyboard's + and - set the volume anywhere in the players.
  */
-export function VolumeOsd(props: {
-  /** Keep it shown (the screen's own controls are up, so the slider can be reached with the pointer). */
-  pinned?: boolean;
-  /** The pointer moved over it (keeps the screen's overlay up). */
-  onHover?: () => void;
+export function VolumeControl(props: {
+  x: number; y: number; width: number; height: number;
+  /** Pill fill and border: the bar it sits in decides (VOD buttons: surface; pointer bars: panel with a focus ring). */
+  fill?: number;
+  border?: boolean;
   onHoverChange?: (over: boolean) => void;
+  /** Every pointer move, drag step and wheel step over it (keeps the screen's controls up). */
+  onActive?: () => void;
 }) {
-  if (!volumeSupported) return null;
   const [hovered, setHovered] = createSignal(false);
   const [dragging, setDragging] = createSignal(false);
   let node: ElementNode | undefined;
-
-  const shown = () => volumeRecent() || hovered() || dragging() || props.pinned === true;
-  const level = () => volume().level;
+  const icon = () => Math.round(props.height * 0.55);
+  const iconX = () => Math.round(props.height * 0.3);
+  const barX = () => iconX() + icon() + 14;
+  const barW = () => Math.max(40, props.width - barX() - PCT_W - 16);
   const silent = () => volumePercent(volume()) === 0;
-  const fill = () => (volume().muted ? 0 : level()) * BAR_W;
-  const barFraction = (x: number) => fractionAt(x - BAR_X, BAR_W);
+  const fill = () => (volume().muted ? 0 : volume().level) * barW();
+  const lit = () => hovered() || dragging();
 
   usePointerTarget({
     node: () => node,
@@ -50,22 +46,57 @@ export function VolumeOsd(props: {
       const over = p !== undefined;
       if (over !== hovered()) props.onHoverChange?.(over);
       setHovered(over);
-      if (over) props.onHover?.();
+      if (over) props.onActive?.();
     },
     onClick: (p) => {
-      if (p.x < ICON_HIT_W) volumeToggleMute();
-      else volumeSet(barFraction(p.x));
+      props.onActive?.();
+      if (p.x < barX() - 6) volumeToggleMute();
+      else volumeSet(fractionAt(p.x - barX(), barW()));
     },
     onDrag: (p, phase) => {
       if (phase === 'cancel') { setDragging(false); return; }
       setDragging(phase !== 'end');
-      volumeSet(barFraction(p.x));
+      props.onActive?.();
+      volumeSet(fractionAt(p.x - barX(), barW()));
     },
     onWheel: (dy) => {
+      props.onActive?.();
       if (dy !== 0) volumeStep(dy < 0 ? 1 : -1);
       return true;
     },
   });
+  onCleanup(() => { if (hovered()) props.onHoverChange?.(false); });
+
+  return (
+    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={props.height}
+      color={props.fill ?? COLORS.panel} borderRadius={props.height / 2}
+      border={props.border ? { width: 2, color: lit() ? COLORS.focus : COLORS.muted } : undefined}>
+      <View x={iconX()} y={(props.height - icon()) / 2} width={icon()} height={icon()} src={iconTexture(silent() ? 'mute' : 'volume')}
+        color={lit() ? COLORS.text : COLORS.muted} />
+      <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.background} />
+      <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
+        color={silent() ? COLORS.muted : COLORS.focus} />
+      <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
+        color={COLORS.text} scale={lit() ? 1.15 : 1} />
+      <Text x={props.width - PCT_W - 16} y={(props.height - FONT.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
+        textAlign="right" maxLines={1} fontSize={FONT.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
+    </View>
+  );
+}
+
+/**
+ * The fullscreen players' volume keys (+ and -) and the top-right pill that confirms a change for 2 s. The pill stays
+ * away while `inBar` (the screen's own bar shows the volume control); the pointer over it keeps it up. Off TVs only
+ * (the app owns the sound there); elsewhere it renders nothing.
+ */
+export function VolumeOsd(props: {
+  /** The screen's bar with its own volume control is up: no pill. */
+  inBar?: boolean;
+  onHoverChange?: (over: boolean) => void;
+}) {
+  if (!volumeSupported) return null;
+  const [hovered, setHovered] = createSignal(false);
+  const shown = () => props.inBar !== true && (volumeRecent() || hovered());
 
   onMount(() => {
     const off = onUnmappedKey((e) => {
@@ -76,23 +107,12 @@ export function VolumeOsd(props: {
     });
     onCleanup(off);
   });
-  onCleanup(() => {
-    if (hovered()) props.onHoverChange?.(false);
-  });
 
   return (
     <Show when={shown()}>
-      <View ref={(el) => { node = el; }} zIndex={42} x={LAYOUT.width - LAYOUT.safeX - W} y={Y} width={W} height={H}
-        color={COLORS.panel} borderRadius={H / 2}>
-        <View x={24} y={(H - ICON) / 2} width={ICON} height={ICON} src={iconTexture(silent() ? 'mute' : 'volume')}
-          color={hovered() ? COLORS.text : COLORS.muted} />
-        <View x={BAR_X} y={(H - BAR_H) / 2} width={BAR_W} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.surface} />
-        <View x={BAR_X} y={(H - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
-          color={silent() ? COLORS.muted : COLORS.focus} />
-        <View x={BAR_X + fill() - KNOB / 2} y={(H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
-          color={COLORS.text} />
-        <Text x={PCT_X} y={(H - FONT.body) / 2 - 4} width={W - PCT_X - 20} maxWidth={W - PCT_X - 20} contain="width"
-          textAlign="right" maxLines={1} fontSize={FONT.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
+      <View zIndex={42}>
+        <VolumeControl x={LAYOUT.width - LAYOUT.safeX - OSD_W} y={OSD_Y} width={OSD_W} height={OSD_H}
+          onHoverChange={(v) => { setHovered(v); props.onHoverChange?.(v); }} />
       </View>
     </Show>
   );

@@ -1,16 +1,21 @@
-import { Show } from '@lightningtv/solid';
+import { Show, View } from '@lightningtv/solid';
 import { POINTER_BAR_H, barLayout } from '../input/pointerLogic.ts';
 import { PLAYER_POINTER_LABELS as L } from '../screens/playerLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
+import { volumeSupported } from '../video/volume.ts';
 import { PointerBar, type PointerBarItem } from './PointerBar.tsx';
+import { VolumeControl } from './VolumeOsd.tsx';
 
 const GAP = LAYOUT.gap / 2;
 const SIDE_W = 160;
 const BOTTOM_W = { back: 180, previous: 210, info: 160, options: 200, guide: 170, window: 190 } as const;
+/** The volume control at the bottom row's right end (desktop only: TVs keep their remote's volume). */
+const VOLUME_W = 300;
 
 /**
  * The Player's pointer overlay: `▲ Ch+` / `▼ Ch−` on the right edge, and a centred bottom row with `← Back`,
- * `⟲ Previous`, `ⓘ Info`, `☰ Options`, `▦ Guide` and `⛶ Window`; there, Back is never under the stream info panel.
+ * `⟲ Previous`, `ⓘ Info`, `☰ Options`, `▦ Guide` and `⛶ Window`, then the volume (desktop); there, Back is never under
+ * the stream info panel.
  * The Player decides when it is `visible` (pointer mode, no modal open, not idle for 3 s); `onHoverChange` tells it
  * whether the pointer is over a button.
  *
@@ -33,10 +38,10 @@ export function PlayerPointerOverlay(props: {
   onWheel: (dy: number) => boolean;
   onContextMenu: () => void;
 }) {
-  const over = { side: false, bottom: false };
+  const over = { side: false, bottom: false, volume: false };
   const report = (part: keyof typeof over, v: boolean) => {
     over[part] = v;
-    props.onHoverChange(over.side || over.bottom);
+    props.onHoverChange(over.side || over.bottom || over.volume);
   };
   const side: PointerBarItem[] = [
     { id: 'chUp', label: L.channelUp, width: SIDE_W, onPress: () => props.onChannelUp() },
@@ -53,13 +58,22 @@ export function PlayerPointerOverlay(props: {
   const wheel = (dy: number) => props.onWheel(dy);
   const context = () => props.onContextMenu();
   const sideH = barLayout(side.map(() => POINTER_BAR_H), GAP).total;
-  const bottomW = barLayout(bottom.map((b) => b.width ?? 0), GAP).total;
+  const buttonsW = barLayout(bottom.map((b) => b.width ?? 0), GAP).total;
+  const bottomW = buttonsW + (volumeSupported ? GAP + VOLUME_W : 0);
+  const bottomX = (LAYOUT.width - bottomW) / 2;
+  const bottomY = LAYOUT.height - LAYOUT.safeY - POINTER_BAR_H;
   return (
     <Show when={props.visible}>
       <PointerBar x={LAYOUT.width - LAYOUT.safeX - SIDE_W} y={(LAYOUT.height - sideH) / 2} items={side} gap={GAP} vertical
         layer="screen" zIndex={40} onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('side', v)} />
-      <PointerBar x={(LAYOUT.width - bottomW) / 2} y={LAYOUT.height - LAYOUT.safeY - POINTER_BAR_H} items={bottom} gap={GAP}
+      <PointerBar x={bottomX} y={bottomY} items={bottom} gap={GAP}
         layer="screen" zIndex={40} onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('bottom', v)} />
+      <Show when={volumeSupported}>
+        <View zIndex={40}>
+          <VolumeControl x={bottomX + buttonsW + GAP} y={bottomY} width={VOLUME_W} height={POINTER_BAR_H} border
+            onHoverChange={(v) => report('volume', v)} />
+        </View>
+      </Show>
     </Show>
   );
 }

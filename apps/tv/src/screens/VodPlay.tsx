@@ -21,8 +21,8 @@ import { isTvPlatform } from '../video/engineConfig.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
-import { VolumeOsd } from '../components/VolumeOsd.tsx';
-import { volumeStep } from '../video/volume.ts';
+import { VolumeControl, VolumeOsd } from '../components/VolumeOsd.tsx';
+import { volumeStep, volumeSupported } from '../video/volume.ts';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
@@ -68,6 +68,8 @@ const ROUND_W = BUTTON_H;
 const BACK_W = 180;
 const TRACKS_W = 320;
 const NEXT_W = 280;
+/** The volume control at the row's left end (desktop only: TVs keep their remote's volume). */
+const VOLUME_W = 300;
 const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
 const SUB_OUTLINE_COLOR = 0x000000e6;
@@ -641,10 +643,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   // ---- overlay actions ----
 
   /**
-   * The control row, one focus row in three groups: pointer Back on the left (the shell's Back pill would sit on the
-   * row, so it is off here), the transport icons centred, the track and episode buttons on the right.
+   * The control row, one focus row in three groups: pointer Back and the volume on the left (the shell's Back pill would
+   * sit on the row, so it is off here), the transport icons centred, the track and episode buttons on the right. The
+   * volume is pointer-only (the keyboard has + and -): it takes its place in the left group but is no focus stop.
    */
-  const actions = (): Action[] => {
+  const row = createMemo(() => {
     const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
     const centre: Action[] = [
       { id: 'back30', label: 'Back 30 seconds', width: ROUND_W, round: true, icon: iconTexture('back30') },
@@ -657,9 +660,17 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
       ...(p.next ? [{ id: 'next', label: 'Next episode', width: NEXT_W }] : []),
     ];
-    const xs = groupXs(CONTENT_W, 16, left.map((a) => a.width), centre.map((a) => a.width), right.map((a) => a.width));
-    return [...left, ...centre, ...right].map((a, i) => ({ ...a, x: xs[i] }));
-  };
+    const leftWs = [...left.map((a) => a.width), ...(volumeSupported ? [VOLUME_W] : [])];
+    const xs = groupXs(CONTENT_W, 16, leftWs, centre.map((a) => a.width), right.map((a) => a.width));
+    const volumeX = volumeSupported ? xs[left.length] : undefined;
+    const rest = xs.slice(leftWs.length);
+    const actions: Action[] = [
+      ...left.map((a, i) => ({ ...a, x: xs[i] })),
+      ...[...centre, ...right].map((a, i) => ({ ...a, x: rest[i] })),
+    ];
+    return { actions, volumeX };
+  });
+  const actions = () => row().actions;
   const onAction = (id: string) => {
     if (id === 'back') { onBack(); return; }
     bump();
@@ -957,6 +968,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           <ActionBar ref={(el) => { barNode = el; }} x={CONTENT_X} y={ACTIONS_Y} actions={actions()} onAction={onAction}
             initial="toggle" onUp={focusTimeline} onDown={() => true}
             onFocusChanged={(f) => { barFocused = f; }} />
+          {/* After the bar: its hit area spans the row, and the later target wins where they overlap. */}
+          <Show when={row().volumeX !== undefined}>
+            <VolumeControl x={CONTENT_X + (row().volumeX ?? 0)} y={ACTIONS_Y} width={VOLUME_W} height={BUTTON_H} fill={COLORS.surface}
+              onActive={bump} />
+          </Show>
         </View>
       </Show>
 
@@ -983,8 +999,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         </View>
       </Show>
 
-      {/* Desktop volume: + and - keys and the wheel; shown with the overlay so the slider can be clicked. */}
-      <VolumeOsd pinned={visible()} onHover={bump} />
+      {/* Desktop volume: + and - keys and the wheel; with the controls hidden a change shows a short top-right pill. */}
+      <VolumeOsd inBar={visible()} />
 
       <Show when={pickerOpen()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack}
