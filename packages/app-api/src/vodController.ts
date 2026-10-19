@@ -173,17 +173,20 @@ export class VodController {
   async startRows(kind: VodKind): Promise<{ continue: VodTile[]; recent: VodTile[]; recentTotal: number } | undefined> {
     const r = this.resident;
     if (!this.sourceId || !r || r.kind !== kind) return this.startSnaps.get(kind);
-    return this.snapStart(kind, r.catalog);
+    const epoch = this.epoch;
+    const snap = await this.snapStart(kind, r.catalog);
+    return this.epoch === epoch ? snap : this.startSnaps.get(kind);
   }
 
   private async snapStart(kind: VodKind, catalog: VodCatalog) {
+    const epoch = this.epoch;
     const records = await this.records();
     const snap = {
       continue: this.continueItems(kind, catalog, records).slice(0, START_ITEMS),
       recent: catalog.hasAddedDates ? catalog.recentlyAdded(START_ITEMS).map((item) => this.tile(item)) : [],
       recentTotal: catalog.hasAddedDates ? Math.min(catalog.size, VOD_RECENT_MAX) : 0,
     };
-    this.startSnaps.set(kind, snap);
+    if (this.epoch === epoch) this.startSnaps.set(kind, snap);
     return snap;
   }
 

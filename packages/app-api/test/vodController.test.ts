@@ -1311,4 +1311,15 @@ describe('VodController.startRows', () => {
     expect(await c.startRows('movie')).toBeUndefined();
     expect(await c.startRows('series')).toBeUndefined();
   });
+
+  test('a source change while snapping never leaves the old rows behind', async () => {
+    const { c, sourceId } = await setup();
+    await c.home('movie');
+    await c.idle();
+    expect((await c.home('movie')).status).toBe('ready');
+    const p = c.startRows('movie');
+    c.reset(sourceId);
+    expect(await p).toBeUndefined();
+    expect(await c.startRows('movie')).toBeUndefined();
+  });
 });
