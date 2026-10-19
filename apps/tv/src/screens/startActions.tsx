@@ -32,8 +32,8 @@ export function createStartActions(deps: { alive: () => boolean; reload: () => v
     })();
   };
 
-  /** One channel airs it: tune. Several: the picker. None left (the guide moved on): a toast and a reload. */
   let opening = false;
+  /** One channel airs it: tune. Several: the picker. None left (the guide moved on): a toast and a reload. */
   const openEvent = async (tile: SportsEventTile) => {
     if (opening || event() || removeLayer) return;
     opening = true;
