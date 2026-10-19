@@ -3,6 +3,7 @@ import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
+import { ListPicker } from '../components/ListPicker.tsx';
 import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { pointerMode } from '../input/pointer.ts';
@@ -16,6 +17,10 @@ import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
 import { createFavToggle } from '../vod/favToggle.ts';
+import { versionRows, versionsBadge } from '../vod/versionsLogic.ts';
+import type { PickerRow } from './homeMenuLogic.ts';
+
+const VERSIONS_ID = 'movie-versions';
 
 const BG = COLORS.background;
 const POSTER_X = LAYOUT.safeX;
@@ -54,7 +59,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const launcher = createVodLauncher({
     alive: () => alive,
     topOverlay: () => router.topOverlay(),
-    getPlayable: (id) => api.getVodPlayable(id),
+    // Once the view is loaded, Play and the Versions list name the exact version; before, the card plays Play's pick.
+    getPlayable: (id) => api.getVodPlayable(id, undefined, view() !== undefined),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
   });
@@ -127,18 +133,26 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]
       : [{ id: 'play', label: 'Play', width: 220 }]),
     { id: 'fav', label: tile()?.favourite ? 'In favourites' : 'Add to favourites', width: 320 },
+    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `Versions (${view()!.versions.length})`, width: 240 }] : []),
+    ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
   ];
   const onAction = async (id: string) => {
     const t = tile();
     if (!t || busy || !free()) return;
     busy = true;
     try {
+      const playId = view()?.playId ?? t.id;
       if (id === 'play') {
-        await launcher.play(t.id);
+        await launcher.play(playId);
       } else if (id === 'start') {
-        await launcher.play(t.id, { fromStart: true });
+        await launcher.play(playId, { fromStart: true });
       } else if (id === 'fav') {
         await fav.toggle(t);
+      } else if (id === 'versions') {
+        openVersions();
+      } else if (id === 'combine') {
+        await api.setVodSplit(t.id, false).catch((err: unknown) => console.warn('Combine failed', errName(err)));
+        if (alive) await load(false);
       }
     } finally {
       busy = false;
@@ -171,11 +185,49 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
+  // ---- Versions list ----
+  const [picking, setPicking] = createSignal(false);
+  let pickerNode: ElementNode | undefined;
+  let removePicker: (() => void) | undefined;
+  const openVersions = () => {
+    if ((view()?.versions.length ?? 0) < 2) return;
+    setPicking(true);
+    removePicker = router.pushOverlay(VERSIONS_ID, closeVersions);
+    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
+  };
+  function closeVersions() {
+    removePicker = undefined;
+    setPicking(false);
+    queueMicrotask(() => { if (alive) focusArea('actions'); });
+  }
+  const dismissVersions = () => {
+    removePicker?.();
+    closeVersions();
+  };
+  const pickVersion = async (row: PickerRow) => {
+    const t = tile();
+    dismissVersions();
+    if (!t) return;
+    if (row.kind === 'new') {
+      await api.setVodSplit(t.id, true).catch((err: unknown) => console.warn('Split failed', errName(err)));
+      if (alive) await load(false);
+      return;
+    }
+    // Remembered first, so Play and the card pick this version from now on.
+    await api.pickVodVersion(t.id, row.id).catch((err: unknown) => console.warn('Pick failed', errName(err)));
+    if (!alive) return;
+    await launcher.play(row.id);
+    if (alive) void load(false);
+  };
+
   onMount(() => {
     void load(true);
     actionsNode?.setFocus();
   });
-  onCleanup(() => { alive = false; });
+  onCleanup(() => {
+    alive = false;
+    removePicker?.();
+  });
 
   const backdrop = () => detail()?.backdrop;
   const notAvailable = () => loaded() && (loadFailed() || (view() !== undefined && view()!.detail === null));
@@ -188,7 +240,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       <PosterTile x={POSTER_X} y={POSTER_Y} w={BIG_W} h={BIG_H} tile={tile()} lit={false} />
       <Text x={INFO_X} y={POSTER_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>
       <Text x={INFO_X} y={POSTER_Y + 86} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
-        {metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating })}
+        {[
+          metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }),
+          versionsBadge(tile()?.quality, view()?.versions ?? []),
+        ].filter(Boolean).join(' · ')}
       </Text>
       <Text x={INFO_X} y={POSTER_Y + 136} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={4} fontSize={FONT.body} color={COLORS.muted}>
         {notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}
@@ -229,6 +284,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
+      <Show when={picking()}>
+        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.playId)}
+          onPick={(row) => void pickVersion(row)} hint="Ok plays · Back closes" />
+      </Show>
     </View>
   );
 }

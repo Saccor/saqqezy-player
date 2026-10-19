@@ -79,6 +79,7 @@ export async function playSeriesPrimary(d: SeriesPlayDeps): Promise<void> {
     if (!d.still() || d.launcher.busy()) return;
   }
   const p = v?.primary;
-  if (p) await d.launcher.play(p.episodeId, { seriesId: d.seriesId });
+  // A combined series shows one version's episodes: they play under that version's id.
+  if (p) await d.launcher.play(p.episodeId, { seriesId: v?.versionId || d.seriesId });
   else d.noPrimary();
 }

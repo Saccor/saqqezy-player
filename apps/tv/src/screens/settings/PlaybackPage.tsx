@@ -6,9 +6,15 @@ import {
   FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel, onOff, sleepDefaultLabel,
 } from '../settingsLogic.ts';
 import { SUBTITLE_LANGUAGE_OPTIONS, subtitleLanguageLabel } from '../../vod/subtitleLogic.ts';
+import {
+  PREFERRED_LANGUAGE_OPTIONS, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor,
+} from '../../vod/versionsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
-/** Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle language and exact-match subtitles. */
+/**
+ * Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle language, exact-match subtitles,
+ * and for movies and series: combine duplicates and the preferred language.
+ */
 export function PlaybackPage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
   const format = () => settings()?.preferredFormat ?? 'ts';
@@ -16,6 +22,8 @@ export function PlaybackPage(props: PageProps) {
   const sleep = (): number => settings()?.sleepTimerMinutes ?? 0;
   const subLang = () => settings()?.subtitleLanguage ?? 'off';
   const exact = () => settings()?.subtitleExactMatch ?? false;
+  const combine = () => settings()?.combineDuplicates ?? true;
+  const prefLang = () => preferredLanguageOption(settings()?.preferredLanguages);
   const items = (): SettingItem[] => [
     { id: 'format', label: 'Preferred stream format', value: formatLabel(format()), adjustable: true,
       help: "If channels don't start, try the other format." },
@@ -27,6 +35,10 @@ export function PlaybackPage(props: PageProps) {
       help: 'Movies and series start with subtitles in this language when they have them' },
     { id: 'subtitleExactMatch', label: 'Exact-match subtitles', value: onOff(exact()), adjustable: true,
       help: 'Online subtitles timed for your exact file. Reads a little of it: one extra connection.' },
+    { id: 'combineDuplicates', label: 'Combine duplicates', value: onOff(combine()), adjustable: true,
+      help: 'Movies and series: one card per title. Languages and qualities are under Versions.' },
+    { id: 'preferredLanguage', label: 'Preferred language', value: preferredLanguageLabel(prefLang()), adjustable: true,
+      help: 'Which version of a title Play starts' },
   ];
   const change = (id: string, dir: 1 | -1) => {
     if (id === 'format') {
@@ -46,6 +58,14 @@ export function PlaybackPage(props: PageProps) {
     }
     if (id === 'subtitleExactMatch') {
       void saveSetting({ subtitleExactMatch: !exact() });
+      return true;
+    }
+    if (id === 'combineDuplicates') {
+      void saveSetting({ combineDuplicates: !combine() });
+      return true;
+    }
+    if (id === 'preferredLanguage') {
+      void saveSetting({ preferredLanguages: preferredLanguagesFor(cycleOption(PREFERRED_LANGUAGE_OPTIONS, prefLang(), dir)) });
       return true;
     }
     if (id === 'subtitleLanguage') {
