@@ -67,7 +67,7 @@ const STREAM_STATUS: Record<string, { status: number; headers?: Record<string, s
 const RETRY_USERS = ['refuse403', 'limit429', 'gone404', 'down500'];
 
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
-  const chs = channels(opts.channels ?? 200);
+  const chs = channels(opts.channels ?? 200, opts.versions === true);
   const now = opts.now ?? Date.now;
   const mediaDir = opts.mediaDir ?? DEFAULT_MEDIA_DIR;
   const ac3File = () => existsSync(join(mediaDir, 'ac3', 'film.mkv'));
