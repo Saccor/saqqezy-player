@@ -1,7 +1,7 @@
 import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
-import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, setScreenSaver } from '../platform/tizen.ts';
+import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
@@ -40,6 +40,7 @@ function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(
     const player = new AvplayPlayer(avplay, {
       displaySpace: AVPLAY_DISPLAY_SPACE,
       screenSaver: (s) => { setScreenSaver(s); },
+      panel: readPanelCaps(),
     });
     // The app is going away: hand the screensaver back to the TV.
     window.addEventListener('pagehide', () => { setScreenSaver('on'); });

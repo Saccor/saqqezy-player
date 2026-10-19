@@ -1127,3 +1127,38 @@ describe('AvplayPlayer: audio track facts', () => {
     expect(p.audioTracks()[0]!.codec).toBe(codec);
   });
 });
+
+describe('AvplayPlayer: panel caps', () => {
+  test('UHD panel: ADAPTIVE_INFO carries FIXED_MAX_RESOLUTION in one call', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: true, eightK: false, hdrTv: true } });
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=3840X2160']]);
+  });
+  test("no panel info: today's STARTBITRATE=LOWEST", async () => {
+    const { av, p } = setup();
+    await p.open(URL_B, 1);
+    expect(av.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']);
+  });
+  test('capsProbe: max height and HDR from the panel', () => {
+    const p = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: true } });
+    expect(p.capsProbe()).toEqual({
+      display: {
+        maxHeight: { value: 2160, evidence: 'probe' },
+        hdr: {
+          hdr10: { value: 'decode', evidence: 'probe' },
+          hdr10plus: { value: 'decode', evidence: 'probe' },
+          hlg: { value: 'decode', evidence: 'probe' },
+        },
+      },
+    });
+    expect(new AvplayPlayer(new FakeAvplay()).capsProbe()).toEqual({});
+  });
+  test('panelCaps returns a copy, undefined without panel facts', () => {
+    const panel = { uhd: true, eightK: false, hdrTv: false };
+    const p = new AvplayPlayer(new FakeAvplay(), { panel });
+    expect(p.panelCaps()).toEqual(panel);
+    expect(p.panelCaps()).not.toBe(panel);
+    expect(new AvplayPlayer(new FakeAvplay()).panelCaps()).toBeUndefined();
+  });
+});

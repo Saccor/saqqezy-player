@@ -1,4 +1,5 @@
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
+import type { PanelCaps } from '../video/adaptiveInfo.ts';
 import type { AvplayLike, Size } from '../video/AvplayPlayer.ts';
 
 /** The part of the `tizen` global this app uses. */
@@ -12,7 +13,9 @@ export interface TizenLike {
 
 /** The part of the `webapis` global this app uses. */
 export interface WebapisLike {
-  avplay?: AvplayLike;
+  avplay?: AvplayLike & { getVersion?(): string };
+  productinfo?: { isUdPanelSupported?(): boolean; is8KPanelSupported?(): boolean };
+  avinfo?: { isHdrTvSupport?(): boolean };
   appcommon?: {
     AppCommonScreenSaverState?: { SCREEN_SAVER_OFF: unknown; SCREEN_SAVER_ON: unknown };
     setScreenSaver(state: unknown, success?: () => void, error?: (e: unknown) => void): void;
@@ -71,6 +74,34 @@ export function exit(g: TizenGlobals = globals()): void {
 /** `webapis.avplay` when running as a Tizen app with the AVPlay privilege, else undefined. */
 export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
   return g.webapis?.avplay;
+}
+
+/**
+ * What the panel can show, read once and synchronously: UHD, 8K, HDR TV and the AVPlay version. Every call is
+ * feature-detected and tried on its own; a boolean is true only when the call returned `true`, so a missing API,
+ * a throw or a monitor-class display all read as Full HD (today's behaviour). Never throws.
+ */
+export function readPanelCaps(g: TizenGlobals = globals()): PanelCaps {
+  const ask = (fn: () => unknown): boolean => {
+    try {
+      return fn() === true;
+    } catch {
+      return false;
+    }
+  };
+  const w = g.webapis;
+  const caps: PanelCaps = {
+    uhd: ask(() => w?.productinfo?.isUdPanelSupported?.()),
+    eightK: ask(() => w?.productinfo?.is8KPanelSupported?.()),
+    hdrTv: ask(() => w?.avinfo?.isHdrTvSupport?.()),
+  };
+  try {
+    const v = w?.avplay?.getVersion?.();
+    if (typeof v === 'string' && v) caps.avplayVersion = v;
+  } catch {
+    // version stays unknown
+  }
+  return caps;
 }
 
 /** Turns the TV's screensaver off (fullscreen video) or back on. False when the API is missing or refused. */

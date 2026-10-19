@@ -1,8 +1,9 @@
 import type {
-  AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, MediaCapsProbe, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { audioCodecOf, staticCaps } from '@iptv/player';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
+import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
@@ -214,13 +215,34 @@ export class AvplayPlayer implements Player {
   private video = false;
   private userPaused = false;
 
+  private readonly panel: PanelCaps | undefined;
+
   constructor(
     private readonly avplay: AvplayLike,
-    opts: { displaySpace?: Size; prepareTimeoutMs?: number; screenSaver?: (s: 'on' | 'off') => void } = {},
+    opts: { displaySpace?: Size; prepareTimeoutMs?: number; screenSaver?: (s: 'on' | 'off') => void; panel?: PanelCaps } = {},
   ) {
+    this.panel = opts.panel;
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
     this.space = opts.displaySpace ?? DESIGN;
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
+  }
+
+  /** What the panel adds to the static Tizen caps (spec §3.3 item 4); empty without panel facts. */
+  capsProbe(): MediaCapsProbe {
+    const p = this.panel;
+    if (!p) return {};
+    const cap = <T>(value: T) => ({ value, evidence: 'probe' as const });
+    const hdr = p.hdrTv ? 'decode' : 'none';
+    return {
+      display: {
+        maxHeight: cap(p.eightK ? 4320 : p.uhd ? 2160 : 1080),
+        hdr: { hdr10: cap(hdr), hdr10plus: cap(hdr), hlg: cap(hdr) },
+      },
+    };
+  }
+
+  panelCaps(): PanelCaps | undefined {
+    return this.panel ? { ...this.panel } : undefined;
   }
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
@@ -705,7 +727,7 @@ export class AvplayPlayer implements Player {
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.play));
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.resume));
     attempt(() => av.setTimeoutForBuffering?.(b.timeout));
-    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', 'STARTBITRATE=LOWEST'));
+    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', adaptiveInfo(this.panel ?? { uhd: false, eightK: false, hdrTv: false })));
     if (userAgent) attempt(() => av.setStreamingProperty?.('USER_AGENT', userAgent));
   }
 
