@@ -1,0 +1,46 @@
+import { describe, expect, test } from 'vitest';
+import type { StartRow, VodTile } from '@iptv/app-api';
+import { cellId, channelsLabel, eventWhen, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
+
+const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
+const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
+const rows: StartRow[] = [
+  { id: 'continue', title: 'Continue watching', cells: [vod(1), vod(2), vod(3)] },
+  { id: 'live', title: 'Live now', cells: [chan(1), chan(2)] },
+  { id: 'newMovies', title: 'Recently added movies', cells: [vod(4), { type: 'viewAll', target: 'movie', total: 40 }] },
+];
+
+describe('startLogic', () => {
+  test('row kinds and cell ids', () => {
+    expect(rows.map(rowKind)).toEqual(['poster', 'wide', 'poster']);
+    expect(cellId(rows[1]!.cells[0]!)).toBe('c:c1');
+    expect(cellId(rows[2]!.cells[1]!)).toBe('all:movie');
+  });
+  test('moves: clamp in a row, top edge, remembered column per row', () => {
+    const cols = new Map<string, number>();
+    expect(moveStart(rows, { row: 0, col: 0 }, 'up', cols)).toEqual({ edge: 'top' });
+    expect(moveStart(rows, { row: 0, col: 2 }, 'right', cols)).toEqual({ focus: { row: 0, col: 2 } });
+    expect(moveStart(rows, { row: 0, col: 2 }, 'down', cols)).toEqual({ focus: { row: 1, col: 1 } });
+    expect(moveStart(rows, { row: 1, col: 1 }, 'up', cols)).toEqual({ focus: { row: 0, col: 2 } });
+    expect(moveStart(rows, { row: 2, col: 0 }, 'down', cols)).toEqual({ focus: { row: 2, col: 0 } });
+  });
+  test('locate by row id and cell id after rows change', () => {
+    const fewer = rows.slice(1);
+    expect(locateStart(fewer, { row: 1, col: 1, rowId: 'live', cellId: 'c:c2' })).toEqual({ row: 0, col: 1 });
+    expect(locateStart(fewer, { row: 5, col: 9, rowId: 'gone' })).toEqual({ row: 1, col: 1 });
+    expect(locateStart([], { row: 0, col: 0 })).toEqual({ row: 0, col: 0 });
+  });
+  test('event time labels', () => {
+    const now = new Date(2026, 9, 19, 18, 10).getTime();
+    expect(eventWhen({ start: now - 60_000, stop: now + 60_000 }, now)).toBe('Live');
+    expect(eventWhen({ start: new Date(2026, 9, 19, 20, 0).getTime(), stop: now + 9e6 }, now)).toBe('20:00');
+    expect(eventWhen({ start: new Date(2026, 9, 20, 1, 30).getTime(), stop: now + 9e7 }, now)).toBe('Tomorrow 01:30');
+    expect(channelsLabel(1)).toBe('1 channel');
+    expect(channelsLabel(4)).toBe('4 channels');
+  });
+  test('poster row model for PosterRow', () => {
+    const m = toPosterRow(rows[2]!);
+    expect(m).toMatchObject({ id: 'newMovies', total: 40, loaded: true });
+    expect(m.items.map((t) => t.id)).toEqual(['v4']);
+  });
+});

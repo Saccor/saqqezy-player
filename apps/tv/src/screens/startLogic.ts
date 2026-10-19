@@ -1,0 +1,62 @@
+/** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
+import type { SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
+import { formatClock } from '../shell/logic.ts';
+import type { RowModel } from '../vod/browseLogic.ts';
+
+export type StartRowKind = 'poster' | 'wide';
+export interface StartFocus { row: number; col: number }
+export interface StartMemory extends StartFocus { rowId?: string; cellId?: string }
+
+export const rowKind = (r: StartRow): StartRowKind => (r.cells[0]?.type === 'vod' ? 'poster' : 'wide');
+
+export function cellId(c: StartCell): string {
+  switch (c.type) {
+    case 'vod': return `v:${c.tile.id}`;
+    case 'channel': return `c:${c.channel.id}`;
+    case 'event': return `e:${c.event.key}`;
+    case 'viewAll': return `all:${c.target}`;
+  }
+}
+
+const clampCol = (r: StartRow | undefined, col: number) => (r ? Math.max(0, Math.min(col, r.cells.length - 1)) : 0);
+
+export function moveStart(rows: StartRow[], f: StartFocus, key: 'up' | 'down' | 'left' | 'right', cols: Map<string, number>): { focus: StartFocus } | { edge: 'top' } {
+  const r = rows[f.row];
+  if (!r) return { focus: { row: 0, col: 0 } };
+  if (key === 'left') return { focus: { row: f.row, col: clampCol(r, f.col - 1) } };
+  if (key === 'right') return { focus: { row: f.row, col: clampCol(r, f.col + 1) } };
+  if (key === 'up' && f.row === 0) return { edge: 'top' };
+  if (key === 'down' && f.row === rows.length - 1) return { focus: f };
+  cols.set(r.id, f.col);
+  const next = f.row + (key === 'up' ? -1 : 1);
+  const target = rows[next]!;
+  return { focus: { row: next, col: clampCol(target, cols.get(target.id) ?? f.col) } };
+}
+
+export function locateStart(rows: StartRow[], mem: StartMemory): StartFocus {
+  if (rows.length === 0) return { row: 0, col: 0 };
+  const row = mem.rowId === undefined ? -1 : rows.findIndex((r) => r.id === mem.rowId);
+  if (row < 0) {
+    const r = Math.max(0, Math.min(mem.row, rows.length - 1));
+    return { row: r, col: clampCol(rows[r], mem.col) };
+  }
+  const col = mem.cellId === undefined ? -1 : rows[row]!.cells.findIndex((c) => cellId(c) === mem.cellId);
+  return { row, col: col >= 0 ? col : clampCol(rows[row], mem.col) };
+}
+
+export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: number): string {
+  if (e.start <= now && now < e.stop) return 'Live';
+  const d = new Date(e.start);
+  const today = new Date(now);
+  const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  return sameDay ? formatClock(d) : `Tomorrow ${formatClock(d)}`;
+}
+
+export const channelsLabel = (n: number) => (n === 1 ? '1 channel' : `${n} channels`);
+export const emptyStartText = () => 'Your start page fills up as you watch.';
+
+export function toPosterRow(r: StartRow): RowModel {
+  const items = r.cells.flatMap((c) => (c.type === 'vod' ? [c.tile as VodTile] : []));
+  const all = r.cells.find((c) => c.type === 'viewAll');
+  return { id: r.id, title: r.title, total: all?.type === 'viewAll' ? all.total : items.length, items, loaded: true };
+}
