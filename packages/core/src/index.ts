@@ -31,6 +31,9 @@ export {
   type TrendingCandidate, type TrendingFeed, type TrendingFeedItem, type TrendingIndex,
 } from './vod/trending.ts';
 export { orderVersions, preferredLanguages, type VersionCandidate, type VersionContext } from './vod/versions.ts';
+export { parseChannelName, type ParsedChannelName } from './live/channelName.ts';
+export { foldChannels, type ChannelFold, type ChannelFolds } from './live/fold.ts';
+export { orderLiveSources, type LiveSourceCandidate, type LiveSourceContext } from './live/sources.ts';
 export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
 export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi } from './vod/fetchXtream.ts';
 export {
