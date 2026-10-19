@@ -1,12 +1,13 @@
-/** The top tab bar shared by Home (Live TV) and the Movies and Series screens. Pure: no Solid, no Lightning. */
+/** The top tab bar shared by Start, Home (Live TV), Movies and Series. Pure: no Solid, no Lightning. */
 import type { VodKind } from '@iptv/core';
 
 export type { VodKind };
-export type TabId = 'live' | 'movies' | 'series';
+export type TabId = 'start' | 'live' | 'movies' | 'series';
 
-export const TABS: readonly TabId[] = ['live', 'movies', 'series'];
-export const TAB_LABELS: Record<TabId, string> = { live: 'Live TV', movies: 'Movies', series: 'Series' };
-export const TAB_W = 132;
+export const TABS: readonly TabId[] = ['start', 'live', 'movies', 'series'];
+export const TAB_LABELS: Record<TabId, string> = { start: 'Start', live: 'Live TV', movies: 'Movies', series: 'Series' };
+/** 124: four tabs end left of the phone badge, which must stay clear of the wordmark (x 810). */
+export const TAB_W = 124;
 export const TAB_H = 52;
 export const TAB_GAP = 8;
 export const TABS_W = TABS.length * TAB_W + (TABS.length - 1) * TAB_GAP;
@@ -25,7 +26,6 @@ export function tabAt(x: number): TabId | undefined {
   return x - i * (TAB_W + TAB_GAP) < TAB_W ? TABS[i] : undefined;
 }
 
-export type TabNav = { action: 'none' } | { action: 'back' } | { action: 'push'; kind: VodKind } | { action: 'replace'; kind: VodKind };
 
 export function tabOfKind(kind: VodKind): TabId {
   return kind === 'series' ? 'series' : 'movies';
@@ -35,13 +35,20 @@ export function kindOfTab(tab: TabId): VodKind | undefined {
   return tab === 'movies' ? 'movie' : tab === 'series' ? 'series' : undefined;
 }
 
+export type OverTab = { screen: 'vod'; kind: VodKind } | { screen: 'start' };
+export type TabNav = { action: 'none' } | { action: 'back' } | { action: 'push' | 'replace'; to: OverTab };
+
 /**
- * Live TV is Home (the screen below); a VOD tab is the `vod` screen pushed over it. Moving between VOD tabs replaces
- * that screen, so the stack never grows.
+ * Live TV is Home (the screen below); Start, Movies and Series are screens pushed over it. Moving between those
+ * replaces the top screen, so the stack never grows.
  */
 export function tabNavigation(from: TabId, to: TabId): TabNav {
   if (from === to) return { action: 'none' };
-  const kind = kindOfTab(to);
-  if (!kind) return { action: 'back' };
-  return from === 'live' ? { action: 'push', kind } : { action: 'replace', kind };
+  if (to === 'live') return { action: 'back' };
+  const target: OverTab = to === 'start' ? { screen: 'start' } : { screen: 'vod', kind: kindOfTab(to)! };
+  return { action: from === 'live' ? 'push' : 'replace', to: target };
+}
+
+export function tabParams(to: OverTab): Record<string, unknown> {
+  return to.screen === 'vod' ? { kind: to.kind, focus: 'tabs' } : { focus: 'tabs' };
 }

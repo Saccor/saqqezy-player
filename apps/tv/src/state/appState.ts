@@ -5,7 +5,7 @@ import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
 import { detectPlatform, type PlatformId } from '@iptv/platform';
 import type { Router } from '../shell/router.ts';
-import { initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority, type SourcesChanged } from './events.ts';
+import { bootRoutes, initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority, type SourcesChanged } from './events.ts';
 
 /** App-wide state shared by the shell and the screens. */
 const [initState, setInitState] = createSignal<InitState | undefined>(undefined);
@@ -112,7 +112,7 @@ let bootAttempt = 0;
  */
 export async function bootstrap(
   api: { init(): Promise<InitState> },
-  router: Pick<Router, 'reset'>,
+  router: Pick<Router, 'reset' | 'push'>,
   timeoutMs: number = INIT_TIMEOUT_MS,
 ): Promise<void> {
   const attempt = ++bootAttempt;
@@ -127,8 +127,9 @@ export async function bootstrap(
     ]);
     if (attempt !== bootAttempt) return;
     setInitState(s);
-    const root = initialRoute(s);
-    router.reset(root.screen, root.params);
+    const [root, ...over] = bootRoutes(s);
+    router.reset(root!.screen, root!.params);
+    for (const e of over) router.push(e.screen, e.params);
   } catch (err) {
     if (attempt !== bootAttempt) return;
     console.error('Startup failed', err instanceof Error ? err.message === 'Timed out' ? 'timeout' : err.name : 'Error');

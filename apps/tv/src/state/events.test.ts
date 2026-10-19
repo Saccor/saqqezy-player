@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
+import { bootRoutes, initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
 
 const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS, hasVod: false };
 
@@ -120,5 +120,19 @@ describe('sourcesReaction', () => {
   it('the first source arriving while Add source is the empty root opens Home', () => {
     expect(sourcesReaction(remote('s1'), none, 'addSource', false)).toEqual({ ...off, applyState: true, openHome: true });
     expect(sourcesReaction(remote('s2'), one, 'addSource', false)).toEqual({ ...off, applyState: true });
+  });
+});
+
+describe('bootRoutes', () => {
+  const one: InitState = { ...base, sources: [{ id: 's1', name: 'Mine', kind: 'm3u', active: true }], lastChannelId: 'c9' };
+  it('is just the initial route by default', () => {
+    expect(bootRoutes(one)).toEqual([{ screen: 'home', params: { lastChannelId: 'c9' } }]);
+  });
+  it('adds Start over Home when Open on is the Start page', () => {
+    expect(bootRoutes({ ...one, settings: { ...DEFAULT_SETTINGS, openOn: 'start' } }))
+      .toEqual([{ screen: 'home', params: { lastChannelId: 'c9' } }, { screen: 'start', params: {} }]);
+  });
+  it('never adds Start over Add source', () => {
+    expect(bootRoutes({ ...base, settings: { ...DEFAULT_SETTINGS, openOn: 'start' } })).toEqual([{ screen: 'addSource', params: {} }]);
   });
 });
