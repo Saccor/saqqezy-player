@@ -357,6 +357,8 @@ export class AvplayPlayer implements Player {
     const s = this.session;
     if (!s || s.live || !this.avplay.suspend) return;
     this.suspended = { url: s.url, positionMs: this.position(), wasPaused: this.paused() };
+    this.releaseLastFrame();
+    clearTimeout(s.watchdog);
     try {
       this.avplay.suspend();
     } catch {
@@ -388,6 +390,11 @@ export class AvplayPlayer implements Player {
     }
     clearTimeout(s.restoreWatchdog);
     s.restoreWatchdog = setTimeout(() => {
+      if (s.dead || s !== this.session) return;
+      // `oncurrentplaytime` is not guaranteed after `restore()`: PLAYING or a moved position also prove it worked.
+      let playing = false;
+      try { playing = this.avplay.getState?.() === 'PLAYING'; } catch { /* unknown */ }
+      if (playing || this.position() > sp.positionMs) return;
       this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'restoreTimeout' });
     }, RESTORE_TIMEOUT_MS);
     return true;
@@ -644,6 +651,7 @@ export class AvplayPlayer implements Player {
 
   holdLastFrame(): void {
     if (!this.avplay.setVideoStillMode) return;
+    if (this.stillOn) return; // a hold is already running: its 30 s cap must not be re-armed
     try {
       this.avplay.setVideoStillMode('true');
       this.stillOn = true;

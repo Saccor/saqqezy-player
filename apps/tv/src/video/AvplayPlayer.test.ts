@@ -981,6 +981,47 @@ describe('AvplayPlayer: suspend / resume', () => {
     expect(events.at(-1)?.[1]?.detail).toBe('restoreTimeout');
     vi.useRealTimers();
   });
+  test('restore watchdog: polled position moving past the saved one counts as success (no oncurrentplaytime)', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.time = 92_000;
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: state PLAYING counts as success', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.state = 'PLAYING';
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: a throwing getState with a stuck position still errors', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.throwOn.add('getState');
+    vi.advanceTimersByTime(5_001);
+    expect(events.at(-1)?.[1]?.detail).toBe('restoreTimeout');
+    vi.useRealTimers();
+  });
+  test('suspend() releases a held frame and clears a pending prepare watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = setup();
+    await p.open(URL_A, 1, { live: false });
+    p.holdLastFrame!();
+    p.suspend!();
+    expect(av.still.at(-1)).toBe('false');
+    vi.advanceTimersByTime(120_000);
+    expect(events.some(([, d]) => d?.detail === 'prepareTimeout')).toBe(false);
+    vi.useRealTimers();
+  });
   test('oncurrentplaytime clears the restore watchdog', async () => {
     vi.useFakeTimers();
     const { av, p, events } = await vodPlaying();
@@ -1043,6 +1084,22 @@ describe('AvplayPlayer: screensaver', () => {
       expect(saver.at(-1)).toBe('off');
       vi.advanceTimersByTime(30_000);
       expect(saver.at(-1)).toBe('on');
+      expect(av.still.at(-1)).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test('a second hold does not extend the 30 s cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      vi.advanceTimersByTime(20_000);
+      p.holdLastFrame!();
+      vi.advanceTimersByTime(10_001);
       expect(av.still.at(-1)).toBe('false');
     } finally {
       vi.useRealTimers();
