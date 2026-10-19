@@ -126,6 +126,7 @@ describe('diagnosticsLines', () => {
     expect(text).toContain('Sleep timer: 30 min');
     expect(text).toContain('Clock: Off');
     expect(text).toContain('Subtitle language: Swedish');
+    expect(text).toContain('Audio language: Stream default');
     expect(text).toContain('Exact-match subtitles: On');
   });
 

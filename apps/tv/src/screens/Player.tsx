@@ -28,6 +28,7 @@ import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
+import { pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
   playerStatusText, sleepLabel, wheelZapAllowed,
@@ -44,9 +45,13 @@ const SLEEP_ID = 'stillWatching';
 /** DEV-only (`?sleepTest=1`): sleep choices run in seconds-scale (x0.05) so the dialog can be reached quickly. */
 const SLEEP_SCALE = import.meta.env.DEV && new URLSearchParams(location.search).has('sleepTest') ? 0.05 : 1;
 
-/** Session-only choices (not persisted): aspect for every channel, audio track per channel. */
+/** Session-only choice (not persisted): aspect for every channel. */
 let sessionAspect: AspectMode = 'auto';
-const audioChoice = new Map<string, string>();
+/**
+ * The audio track chosen per channel (a `trackKey`), read from the worker once per channel and kept here for the
+ * session: `has` means the worker was asked, an undefined value means it remembers nothing.
+ */
+const audioChoice = new Map<string, string | undefined>();
 
 /** Wraps channel lookups; in DEV, `?failTest=1` turns channel 1 into an unreachable stream. */
 function lookup(p: Promise<PlayableChannel | undefined>): Promise<PlayableChannel | undefined> {
@@ -199,10 +204,24 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   // ---- audio track memory ----
 
+  /**
+   * Once a channel plays: the remembered track for it, else the preferred language from Settings (`pickAudioTrack`;
+   * a language pick is applied but not remembered as the user's choice). The memory is read from the worker the first
+   * time a channel plays this session.
+   */
+  const applyAudio = async (id: string) => {
+    if (!audioChoice.has(id)) {
+      const key = await api.getLiveAudio(id).catch(() => undefined);
+      if (!audioChoice.has(id)) audioChoice.set(id, key);
+    }
+    if (!alive || playback.current()?.id !== id || playback.status()?.kind !== 'playing') return;
+    const t = pickAudioTrack(player.audioTracks(), audioChoice.get(id), settings()?.audioLanguage ?? 'auto');
+    if (t && !t.active) player.selectAudioTrack(t.id);
+  };
+
   createEffect(on(() => [playback.status()?.kind, playback.current()?.id] as const, ([kind, id]) => {
     if (kind !== 'playing' || !id) return;
-    const want = audioChoice.get(id);
-    if (want !== undefined && player.audioTracks().some((t) => t.id === want && !t.active)) player.selectAudioTrack(want);
+    void applyAudio(id);
   }));
 
   // ---- sleep timer ----
@@ -284,15 +303,18 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const page = menuPage();
     if (page === 'audio') {
       const tracks = player.audioTracks();
-      if (tracks.length === 0) return [{ id: 'back', label: 'No other audio tracks' }];
+      if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this stream' }];
+      if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
+      const labels = trackLabels(tracks);
       return [
-        ...tracks.map((t) => ({ id: `track:${t.id}`, label: t.label, value: t.active ? 'Selected' : '' })),
+        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
         { id: 'back', label: 'Back' },
       ];
     }
-    const active = player.audioTracks().find((t) => t.active);
+    const tracks = player.audioTracks();
+    const activeAt = tracks.findIndex((t) => t.active);
     return [
-      { id: 'audio', label: 'Audio track', value: active?.label ?? 'Default' },
+      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks)[activeAt] ?? 'Default' : 'Default' },
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
@@ -309,9 +331,14 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       queueMicrotask(() => menuNode?.setFocus());
     } else if (id.startsWith('track:')) {
       const trackId = id.slice('track:'.length);
+      const t = player.audioTracks().find((x) => x.id === trackId);
       player.selectAudioTrack(trackId);
       const cur = playback.current();
-      if (cur) audioChoice.set(cur.id, trackId);
+      if (cur && t) {
+        const key = trackKey(t);
+        audioChoice.set(cur.id, key);
+        api.setLiveAudio(cur.id, key).catch((err) => console.warn('Audio choice save failed', err));
+      }
       setMenuPage('main');
       queueMicrotask(() => menuNode?.setFocus());
     } else if (id === 'aspect') {

@@ -17,6 +17,11 @@ export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = [
 
 export const subtitleLanguageLabel = (code: string): string => (code === 'off' ? 'Off' : languageName(code) ?? code);
 
+/** The Settings choices for the audio language: 'auto' (the stream's default track), then the subtitle languages. */
+export const AUDIO_LANGUAGE_OPTIONS: readonly string[] = ['auto', ...SUBTITLE_LANGUAGE_OPTIONS.filter((c) => c !== 'off')];
+
+export const audioLanguageLabel = (code: string): string => (code === 'auto' ? 'Stream default' : languageName(code) ?? code);
+
 /** What a remembered subtitle choice stores for "the file the user loaded" (`trackKey` always contains ':'). */
 export const SUBTITLE_KEY_EXT = 'ext';
 

@@ -4,7 +4,7 @@ import type { LiveInfo } from '@iptv/player';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings, OpenOn } from '@iptv/core';
 import type { SettingItem } from '../components/SettingsList.tsx';
-import { subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
+import { audioLanguageLabel, subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
 
 export type SettingsPageId =
   | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
@@ -166,6 +166,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
     ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
     ['Clock', onOff(st.showClock)],
     ['Subtitle language', subtitleLanguageLabel(st.subtitleLanguage)],
+    ['Audio language', audioLanguageLabel(st.audioLanguage)],
     ['Exact-match subtitles', onOff(st.subtitleExactMatch)],
   );
   return lines;

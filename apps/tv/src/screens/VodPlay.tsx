@@ -30,9 +30,10 @@ import {
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
-  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText, noSoundText,
+  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
+import { pickAudioTrack } from '../vod/tracks.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
   REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, stepDelay, type OnlineLanguage,
@@ -334,7 +335,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const texts = playback.textTracks();
     tracksAppliedShape = trackShape(audios, texts);
     shapeTicks = 0;
-    const a = findTrack(audios, chosen.audio);
+    // The remembered choice, else the preferred language from Settings (applied, never remembered as the user's choice).
+    const a = pickAudioTrack(audios, chosen.audio, settings()?.audioLanguage ?? 'auto');
     if (a && !a.active) playback.selectAudioTrack(a.id);
     applySubtitle(texts);
   };

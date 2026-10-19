@@ -3,7 +3,7 @@ import type { TrackInfo } from '@iptv/player';
 import { SUBTITLE_LANGUAGES, sanitizeSettings } from '@iptv/core';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW,
-  SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, delayLabel, languageName, stepDelay,
+  SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, languageName, stepDelay,
   onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
 } from './subtitleLogic.ts';
 
@@ -16,6 +16,10 @@ const t = (id: string, label: string, language?: string, active = false): TrackI
 describe('subtitle language setting', () => {
   it('offers exactly the languages core accepts', () => {
     expect(SUBTITLE_LANGUAGE_OPTIONS).toEqual(SUBTITLE_LANGUAGES);
+    expect(AUDIO_LANGUAGE_OPTIONS).toEqual(['auto', ...SUBTITLE_LANGUAGES.filter((c) => c !== 'off')]);
+    for (const c of AUDIO_LANGUAGE_OPTIONS) expect(sanitizeSettings({ audioLanguage: c }).audioLanguage).toBe(c);
+    expect(audioLanguageLabel('auto')).toBe('Stream default');
+    expect(audioLanguageLabel('sv')).toBe('Swedish');
     for (const code of SUBTITLE_LANGUAGE_OPTIONS) expect(sanitizeSettings({ subtitleLanguage: code }).subtitleLanguage).toBe(code);
   });
 
