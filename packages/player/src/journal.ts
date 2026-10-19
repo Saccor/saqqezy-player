@@ -5,7 +5,7 @@ export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'dri
 
 /** One thing the player did. Never a URL or credentials (CLAUDE.md rules 6-7); `t` is clock ms (Date.now). */
 export type JournalEvent =
-  | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible' | 'resume-restore' | 'resume-reopen'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
+  | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible' | 'resume_restore' | 'resume_reopen'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
   | { k: 'play'; t: number; channel?: string; preset: LivePreset; urls: number }
   | { k: 'open'; t: number; attempt: number; urlIndex: number }
   | { k: 'playing'; t: number; attempt: number; firstFrameMs?: number; engine?: EngineName }
@@ -40,7 +40,7 @@ const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
-const TOKEN_RE = /^[A-Za-z0-9_.-]{1,40}$/;
+const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;
 const CHANNEL_MAX = 60;
 const VERSION = 1;
 

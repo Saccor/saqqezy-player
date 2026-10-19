@@ -532,14 +532,16 @@ describe('playback controller', () => {
 
 describe('background', () => {
   /** Plays a channel or a VOD title through the controller and marks it opened and playing. */
-  function setupPlaying(kind: 'live' | 'vod', o: { positionMs?: number; resumeResult?: boolean } = {}) {
+  function setupPlaying(kind: 'live' | 'vod', o: { positionMs?: number; resumeResult?: boolean; blocked?: () => boolean } = {}) {
     const f = fakes();
     const suspend = vi.fn();
     const resume = vi.fn(() => o.resumeResult ?? false);
     const player = { ...f.player, suspend, resume, get suspended() { return suspend.mock.calls.length; } };
     f.supervisor.positionMs.mockReturnValue(o.positionMs ?? 0);
     const journal = vi.fn();
-    const ctl = createPlaybackController(player, f.supervisor, undefined, 'AVPlay', undefined, undefined, journal);
+    const gate = o.blocked ? { blocked: o.blocked, refused: () => undefined, answered: () => undefined } : undefined;
+    const statuses: (SupervisorStatus | undefined)[] = [];
+    const ctl = createPlaybackController(player, f.supervisor, (st) => statuses.push(st), 'AVPlay', undefined, gate, journal);
     const channel = ch('1');
     if (kind === 'live') {
       ctl.playChannel(channel);
@@ -548,7 +550,7 @@ describe('background', () => {
     }
     f.emit({ kind: 'playing' });
     const plays = () => f.supervisor.play.mock.calls.map((c) => ({ url: c[0], opts: c[2] as { startMs?: number } | undefined }));
-    return { ctl, player, journal, ch: channel, supervisor: { stopped: () => f.supervisor.stop.mock.calls.length, plays } };
+    return { ctl, player, journal, statuses, f, ch: channel, supervisor: { stopped: () => f.supervisor.stop.mock.calls.length, plays } };
   }
 
   it('live: suspendForBackground stops the stream but keeps the channel; resume reopens it', () => {
@@ -558,7 +560,7 @@ describe('background', () => {
     expect(ctl.current()).toBe(channel);
     ctl.resumeFromBackground({ networkUp: true });
     expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
-    expect(journal).toHaveBeenCalledWith('resume-reopen');
+    expect(journal).toHaveBeenCalledWith('resume_reopen');
   });
   it('live with the network down: reopens only on networkBack()', () => {
     const { ctl, supervisor, ch: channel } = setupPlaying('live');
@@ -587,13 +589,76 @@ describe('background', () => {
     const plays = supervisor.plays().length;
     ctl.resumeFromBackground({ networkUp: true });
     expect(supervisor.plays().length).toBe(plays);
-    expect(journal).toHaveBeenCalledWith('resume-restore');
+    expect(journal).toHaveBeenCalledWith('resume_restore');
   });
   it('vod: resume false → playVod at the saved position', () => {
     const { ctl, supervisor, journal } = setupPlaying('vod', { positionMs: 42_000, resumeResult: false });
     ctl.suspendForBackground();
     ctl.resumeFromBackground({ networkUp: true });
     expect(supervisor.plays().at(-1)?.opts?.startMs).toBe(42_000);
-    expect(journal).toHaveBeenCalledWith('resume-reopen');
+    expect(journal).toHaveBeenCalledWith('resume_reopen');
+  });
+
+  it('the reopen after resume is an automatic open (open rate, budget and fail count kept)', () => {
+    const { ctl, f } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ automatic: true });
+  });
+  it('hidden, back with the network down, hidden again, network returns: no open while hidden, one on visible', () => {
+    const { ctl, supervisor, ch: channel } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: false });
+    ctl.suspendForBackground();
+    const before = supervisor.plays().length;
+    ctl.networkBack();
+    expect(supervisor.plays().length).toBe(before);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(before + 1);
+    expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
+    ctl.networkBack();
+    expect(supervisor.plays().length).toBe(before + 1);
+  });
+  it('after the live close the status is not playing, and a second hide does not close again', () => {
+    const { ctl, statuses, supervisor } = setupPlaying('live');
+    ctl.suspendForBackground();
+    expect(statuses.at(-1)).toBeUndefined();
+    expect(ctl.status()).toBeUndefined();
+    ctl.resumeFromBackground({ networkUp: false });
+    ctl.suspendForBackground();
+    expect(supervisor.stopped()).toBe(1);
+  });
+  it('a channel held by the cooldown is not closed or reopened by the background', () => {
+    const { ctl, supervisor } = setupPlaying('live', { blocked: () => true }); // held at once (one stop by the hold)
+    const stops = supervisor.stopped();
+    const plays = supervisor.plays().length;
+    ctl.suspendForBackground();
+    expect(supervisor.stopped()).toBe(stops);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays);
+  });
+  it('reopen after resume holds instead of opening while the cooldown blocks', () => {
+    let blocked = false;
+    const { ctl, supervisor } = setupPlaying('live', { blocked: () => blocked });
+    ctl.suspendForBackground();
+    blocked = true;
+    const before = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(before);
+    blocked = false;
+    ctl.resumeHeld();
+    expect(supervisor.plays().length).toBe(before + 1);
+  });
+  it('vod fallback reopen keeps a user pause', () => {
+    const { ctl, f } = setupPlaying('vod', { positionMs: 42_000, resumeResult: false });
+    f.supervisor.paused.mockReturnValue(true);
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(f.supervisor.pause).toHaveBeenCalled();
+    f.supervisor.pause.mockClear();
+    f.supervisor.paused.mockReturnValue(false);
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(f.supervisor.pause).not.toHaveBeenCalled();
   });
 });

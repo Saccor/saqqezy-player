@@ -18,8 +18,8 @@ afterEach(() => { vi.useRealTimers(); });
 
 describe('sanitizeEvent', () => {
   it('keeps the background-return page events', () => {
-    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume-restore' })).toEqual({ k: 'page', t: 1, what: 'resume-restore' });
-    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume-reopen' })).toEqual({ k: 'page', t: 1, what: 'resume-reopen' });
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume_restore' })).toEqual({ k: 'page', t: 1, what: 'resume_restore' });
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume_reopen' })).toEqual({ k: 'page', t: 1, what: 'resume_reopen' });
   });
 
   it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {

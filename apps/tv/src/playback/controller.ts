@@ -117,7 +117,7 @@ export function createPlaybackController(
   sourceKey: () => string | undefined = () => undefined,
   gate?: CooldownGate,
   /** Told how a return from the background was handled (the playback journal). */
-  onResumed: (what: 'resume-restore' | 'resume-reopen') => void = () => { /* no listener */ },
+  onResumed: (what: 'resume_restore' | 'resume_reopen') => void = () => { /* no listener */ },
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -171,7 +171,7 @@ export function createPlaybackController(
     if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
   };
   const startPlay = (
-    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }, headers?: StreamHeaders,
+    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number; automatic?: boolean }, headers?: StreamHeaders,
   ) => {
     held = false;
     const key = sourceKey();
@@ -194,6 +194,10 @@ export function createPlaybackController(
 
   let away: BackgroundAction = { kind: 'none' };
   let waitingNetwork = false;
+  /** Between `suspendForBackground` and `resumeFromBackground`: nothing opens by itself. */
+  let inBackground = false;
+  /** The VOD title was paused by the user when the app went away. */
+  let vodWasPaused = false;
   /** Opens the current live channel again, through the same hold/cooldown decision as `playChannel`. */
   const reopenLive = () => {
     const cur = current();
@@ -202,8 +206,9 @@ export function createPlaybackController(
       hold();
       return;
     }
-    startPlay(cur.url, cur.alternateUrl, { channel: cur.name }, cur.headers);
-    onResumed('resume-reopen');
+    // Not the user's open: it waits for room under the source's open rate and counts against it.
+    startPlay(cur.url, cur.alternateUrl, { channel: cur.name, automatic: true }, cur.headers);
+    onResumed('resume_reopen');
   };
 
   return {
@@ -287,13 +292,28 @@ export function createPlaybackController(
       if (cur) this.playChannel(cur);
     },
     suspendForBackground() {
+      inBackground = true;
+      if (waitingNetwork) {
+        // Closed already and waiting for the network: still closed, and it reopens only after coming back.
+        waitingNetwork = false;
+        away = { kind: 'close-live' };
+        return;
+      }
       const kind = status()?.kind;
-      const playing = held ? 'none' : pendingVod ? (vodOpened ? 'vod' : 'none') : current() && kind !== 'failed' ? 'live' : 'none';
+      const live = !pendingVod && current() !== undefined && kind !== undefined && kind !== 'failed';
+      const playing = held ? 'none' : pendingVod ? (vodOpened ? 'vod' : 'none') : live ? 'live' : 'none';
       away = onHidden({ playing, positionMs: supervisor.positionMs() });
-      if (away.kind === 'close-live') supervisor.stop();
-      else if (away.kind === 'suspend-vod') player.suspend?.();
+      if (away.kind === 'close-live') {
+        supervisor.stop();
+        playKey = undefined;
+        report(undefined); // nothing plays now: the UI must not show "playing" over a black plane
+      } else if (away.kind === 'suspend-vod') {
+        vodWasPaused = supervisor.paused();
+        player.suspend?.();
+      }
     },
     resumeFromBackground(s) {
+      inBackground = false;
       const next = onVisible(away, s);
       away = { kind: 'none' };
       if (next.kind === 'reopen-live') {
@@ -302,21 +322,24 @@ export function createPlaybackController(
         waitingNetwork = true;
       } else if (next.kind === 'resume-vod') {
         if (player.resume?.() ?? false) {
-          onResumed('resume-restore');
+          onResumed('resume_restore');
         } else if (pendingVod) {
-          onResumed('resume-reopen');
+          onResumed('resume_reopen');
           this.playVod(pendingVod.p, next.positionMs);
+          // A paused title stays paused: the supervisor pauses it at its first frame.
+          if (vodWasPaused) supervisor.pause();
         }
       }
     },
     networkBack() {
-      if (!waitingNetwork) return;
+      if (!waitingNetwork || inBackground) return;
       waitingNetwork = false;
       reopenLive();
     },
     stop() {
       token++;
       waitingNetwork = false;
+      inBackground = false;
       away = { kind: 'none' };
       held = false;
       pendingVod = undefined;
