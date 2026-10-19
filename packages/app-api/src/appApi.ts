@@ -216,7 +216,7 @@ export class AppApi {
       this.shortCache.dropSource(id);
       this.formats.delete(id);
       this.titleRebuilds.delete(id);
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, formatMemoKey(id)]) {
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, formatMemoKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();

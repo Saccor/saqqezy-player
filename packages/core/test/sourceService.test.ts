@@ -1333,3 +1333,28 @@ describe('SourceService – refresh backoff', () => {
     }
   });
 });
+
+describe('SourceService – sports index', () => {
+  const sportsXml = (start: string, stop: string) => '<tv><channel id="ch1.test"><display-name>Channel 001</display-name></channel>'
+    + `<programme start="${start}" stop="${stop}" channel="ch1.test"><title>Northbridge FC v Eastport</title><category>Sports</category></programme>`
+    + `<programme start="${start}" stop="${stop}" channel="ch2.test"><title>Evening Bulletin</title></programme></tv>`;
+
+  test('refreshEpg stores sports candidates for the new generation', async () => {
+    routes['/epg.xml'] = () => new Response(sportsXml('20261013170000 +0000', '20261013190000 +0000'));
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await service.sportsIndexFor(source.id))!;
+    expect(rec.gen).toBe(await storage.getMeta(`epgGen:${source.id}`));
+    expect(rec.candidates.map((c) => [c.epgKey, c.title])).toEqual([['ch1.test', 'Northbridge FC v Eastport']]);
+  });
+
+  test('a record from another generation reads as missing; clearing the guide clears it', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await storage.getMeta<{ gen: number }>(`sportsIndex:${source.id}`))!;
+    await storage.setMeta(`sportsIndex:${source.id}`, { ...rec, gen: rec.gen + 1 });
+    expect(await service.sportsIndexFor(source.id)).toBeUndefined();
+    await service.clearCachedData(source.id);
+    expect(await storage.getMeta(`sportsIndex:${source.id}`)).toBeNull();
+  });
+});

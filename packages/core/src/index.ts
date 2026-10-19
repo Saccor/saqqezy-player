@@ -62,3 +62,9 @@ export {
   OpenSubtitlesClient, bestSubtitle, languageChoices, searchParams, searchTitle,
   type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
 } from './subtitles/openSubtitles.ts';
+export { scoreProgramme, EVENT_THRESHOLD, type Detection } from './sports/detect.ts';
+export { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from './sports/match.ts';
+export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from './sports/quality.ts';
+export { groupEvents, type GroupInput, type SportsGroup } from './sports/group.ts';
+export { isFollowed } from './sports/follow.ts';
+export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
