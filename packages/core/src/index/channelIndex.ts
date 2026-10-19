@@ -584,6 +584,20 @@ export class ChannelIndex {
     return (cands.length ? cands : members.filter((m) => !this.hiddenCh.has(m.id))).map((m) => this.display(m));
   }
 
+  /** `id`'s row as lists show it (its lead named for the row), even when hidden; the channel itself when not folding. */
+  rowChannel(id: string): Channel | undefined {
+    const fi = this.fb?.foldIndexOf.get(id);
+    if (fi === undefined) return this.get(id);
+    return this.row(fi) ?? this.display(this.fb!.leads[fi]!);
+  }
+
+  /** Every channel id of `id`'s row, hidden ones included, playlist order (`[id]` when not folding). */
+  memberIds(id: string): string[] {
+    const fi = this.fb?.foldIndexOf.get(id);
+    if (fi === undefined) return this.base.byId.has(id) ? [id] : [];
+    return this.fb!.members[fi]!.map((m) => m.id);
+  }
+
   /** The fold key of `id`'s row (stable across refreshes; for remembered sources). Undefined when not folding. */
   foldKey(id: string): string | undefined {
     const fi = this.fb?.foldIndexOf.get(id);

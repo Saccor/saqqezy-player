@@ -1,5 +1,6 @@
 import {
-  ChannelIndex, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
+  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
+  applyShift, emptyLayout, orderLiveSources,
   compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
@@ -8,6 +9,7 @@ import {
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
+import { LiveSourceMemory, livePickKey } from './liveSources.ts';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
@@ -21,7 +23,7 @@ import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
+  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
   OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
@@ -103,8 +105,8 @@ export class AppApi {
   private shifts: ShiftSpan = { min: 0, max: 0 };
   /** epgKeys with stored guide data for the active source; undefined until a guide was loaded. */
   private coverage: Set<string> | undefined;
-  /** Lazily built: `channels` by id, to look renamed channels' guide up under their playlist name. */
-  private originalById: Map<string, Channel> | undefined;
+  /** Combined channels: the source that played last per row, and streams that failed recently. */
+  private readonly liveMem: LiveSourceMemory;
   private favSet: Set<string> | undefined;
   private settings: AppSettings | undefined;
   private nnCache = new Map<string, { at: number; nn: NowNext }>();
@@ -172,6 +174,7 @@ export class AppApi {
     this.now = deps.now ?? Date.now;
     this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
+    this.liveMem = new LiveSourceMemory(deps.storage, this.now);
     this.companion = deps.companion?.(this, (status) => {
       // Why a session ended, for diagnostics (relay close reasons carry no secrets).
       if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
@@ -268,7 +271,8 @@ export class AppApi {
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `epgLongest:${id}`, `startHome:${id}`, formatMemoKey(id), liveAudioKey(id)]) {
+      this.liveMem.forget(id);
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `epgLongest:${id}`, `startHome:${id}`, formatMemoKey(id), liveAudioKey(id), livePickKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -390,16 +394,52 @@ export class AppApi {
     return this.run('indexOf', async () => this.index.indexOf(groupId, channelId));
   }
 
-  getPlayable(channelId: string): Promise<PlayableChannel | undefined> {
-    return this.run('getPlayable', () => this.playable(this.index.get(channelId)));
+  /**
+   * The stream to play for `channelId`. A combined channel plays its best source (spec 2026-10-19-live-grouping §4),
+   * or with `exact` the given stream; either way the answer carries the row's name, number and id, and the ordered
+   * sources for failover and Choose source.
+   */
+  getPlayable(channelId: string, opts?: { exact?: boolean }): Promise<PlayableChannel | undefined> {
+    return this.run('getPlayable', () => this.livePlayable(channelId, opts?.exact === true));
   }
 
   neighbour(groupId: string, channelId: string, delta: number): Promise<PlayableChannel | undefined> {
-    return this.run('neighbour', () => this.playable(this.index.neighbour(groupId, channelId, delta)));
+    return this.run('neighbour', async () => {
+      const c = this.index.neighbour(groupId, channelId, delta);
+      return c && this.livePlayable(c.id, false);
+    });
   }
 
   byNumber(n: number): Promise<PlayableChannel | undefined> {
-    return this.run('byNumber', () => this.playable(this.index.byNumber(n)));
+    return this.run('byNumber', async () => {
+      const c = this.index.byNumber(n);
+      return c && this.livePlayable(c.id, false);
+    });
+  }
+
+  /** A combined channel's streams, best first (Choose source). One element for a single channel. */
+  liveSources(channelId: string): Promise<LiveSourceView[]> {
+    return this.run('liveSources', async () => {
+      const rowId = this.index.rowOf(channelId);
+      return rowId ? this.orderedSources(rowId) : [];
+    });
+  }
+
+  /** The user chose `channelId` for its row in Choose source: it plays first from now on. */
+  pickLiveSource(rowId: string, channelId: string): Promise<void> {
+    return this.run('pickLiveSource', async () => {
+      const id = this.activeId;
+      const key = this.index.foldKey(channelId);
+      if (!id || key === undefined || this.index.rowOf(channelId) !== this.index.rowOf(rowId)) return;
+      await this.liveMem.remember(id, key, channelId);
+    });
+  }
+
+  /** A stream of a combined channel failed to play: it is tried last for ten minutes (memory only). */
+  reportSourceFailed(channelId: string): Promise<void> {
+    return this.run('reportSourceFailed', async () => {
+      if (this.index.get(channelId)) this.liveMem.failed(channelId);
+    });
   }
 
   /**
@@ -410,7 +450,7 @@ export class AppApi {
   focusChannel(channelId: string | undefined): Promise<void> {
     return this.run('focusChannel', async () => {
       this.focusedId = channelId;
-      const c = channelId === undefined ? undefined : this.index.get(channelId);
+      const c = channelId === undefined ? undefined : this.index.rowChannel(channelId);
       if (c) await this.wantShortEpg(c);
     });
   }
@@ -425,6 +465,7 @@ export class AppApi {
     return this.run('notePlayed', async () => {
       const id = this.activeId;
       const c = this.index.get(channelId);
+      if (id && c) await this.notePlayedSource(id, c);
       if (!id || !c || !isStreamFormat(format) || alternateStreamUrl(c.url) === undefined) return;
       const memo: FormatMemo = { format, pref: (await this.currentSettings()).preferredFormat };
       const old = await this.lastFormat(id);
@@ -695,8 +736,11 @@ export class AppApi {
 
   /** Ids of the lists that contain `channelId` (for the context menu). */
   channelLists(channelId: string): Promise<string[]> {
-    return this.run('channelLists', async () =>
-      this.index.layout().lists.filter((l) => l.channelIds.includes(channelId)).map((l) => l.id));
+    return this.run('channelLists', async () => {
+      const ids = this.index.memberIds(channelId);
+      const of = ids.length ? ids : [channelId];
+      return this.index.layout().lists.filter((l) => of.some((m) => l.channelIds.includes(m))).map((l) => l.id);
+    });
   }
 
   hiddenGroups(): Promise<GroupInfo[]> {
@@ -750,12 +794,16 @@ export class AppApi {
 
   toggleFavourite(channelId: string): Promise<boolean> {
     return this.run('toggleFavourite', () => this.withIndex(async () => {
-      if (!this.index.get(channelId)) return false;
-      const on = !this.favourites().has(channelId);
+      const rowId = this.index.rowOf(channelId);
+      if (!rowId) return false;
+      // A combined channel is a favourite when any of its streams is; on adds the row, off clears every stream.
+      const members = this.index.memberIds(rowId);
+      const isFav = () => members.some((m) => this.favourites().has(m));
+      const on = !isFav();
       await this.applyLayoutLocked([on
-        ? { op: 'addToList', listId: FAV_LIST_ID, channelIds: [channelId] }
-        : { op: 'removeFromList', listId: FAV_LIST_ID, channelIds: [channelId] }], 'local');
-      return this.favourites().has(channelId); // the real state: false if the change was refused
+        ? { op: 'addToList', listId: FAV_LIST_ID, channelIds: [rowId] }
+        : { op: 'removeFromList', listId: FAV_LIST_ID, channelIds: members }], 'local');
+      return isFav(); // the real state: false if the change was refused
     }));
   }
 
@@ -763,7 +811,8 @@ export class AppApi {
     return this.run('toggleHidden', () => this.withIndex(async () => {
       if (!this.index.get(channelId)) return false;
       const on = !this.index.layout().hiddenChannels.includes(channelId);
-      await this.applyLayoutLocked([{ op: on ? 'hideChannels' : 'unhideChannels', ids: [channelId] }], 'local');
+      // A combined channel hides and shows with all its streams.
+      await this.applyLayoutLocked([{ op: on ? 'hideChannels' : 'unhideChannels', ids: this.index.memberIds(channelId) }], 'local');
       return this.index.layout().hiddenChannels.includes(channelId); // the real state, even if refused
     }));
   }
@@ -1019,6 +1068,7 @@ export class AppApi {
       this.settings = await this.service.saveSettings(partial);
       // Cached now/next was picked on the old offset's timeline.
       this.invalidateNowNext();
+      if (before.combineChannels !== this.settings.combineChannels) await this.refold();
       const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
       if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
       return this.settings;
@@ -1173,9 +1223,20 @@ export class AppApi {
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.catchup.reset();
+      await this.currentSettings();
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
+  }
+
+  /** Combine duplicate channels was switched: the same channels, layout and guide, folded or not. */
+  private async refold(): Promise<void> {
+    await this.withIndex(async () => {
+      this.setIndex(this.channels, this.index.layout(), this.coverage);
+      this.invalidateNowNext();
+    });
+    const version = this.index.layout().version;
+    this.emit({ type: 'layoutChanged', version, origin: 'local' });
   }
 
   /** After a playlist refresh: rebuild the active index from the new channels, keeping the in-memory layout. */
@@ -1204,8 +1265,8 @@ export class AppApi {
     this.channels = channels;
     this.shifts = shiftSpan(channels);
     this.coverage = coverage;
-    this.originalById = undefined;
-    this.index = new ChannelIndex(channels, layout, coverage);
+    const fold = (this.settings ?? DEFAULT_SETTINGS).combineChannels;
+    this.index = new ChannelIndex(channels, layout, coverage, { fold });
     this.favSet = undefined;
     this.companionStale();
     this.titles = undefined;
@@ -1267,6 +1328,9 @@ export class AppApi {
       });
       at = positions;
     }
+    // On the TV a combined channel's row stands for all its streams: removing it from a list, hiding or showing it
+    // covers every one. The phone edits single channels and stays exact.
+    if (origin === 'local' && this.index.folding()) valid.splice(0, valid.length, ...valid.map((op) => this.forRow(op)));
     const res = applyOps(before, valid);
     for (const r of res.rejected) rejected.push({ index: at ? at[r.index]! : r.index, reason: r.reason });
     rejected.sort((a, b) => a.index - b.index);
@@ -1283,12 +1347,28 @@ export class AppApi {
     return { version: res.layout.version, rejected };
   }
 
-  /** The playlist originals of renamed channels, so guide lookups use the playlist name (and its epgKey). */
+  /** `op` with a combined channel's row id widened to every stream of the row (list removal, hide, show). */
+  private forRow(op: LayoutOp): LayoutOp {
+    const widen = (ids: readonly string[]) => [...new Set(ids.flatMap((id) => {
+      const m = this.index.memberIds(id);
+      return m.length ? m : [id];
+    }))];
+    switch (op.op) {
+      case 'removeFromList': return { ...op, channelIds: widen(op.channelIds) };
+      case 'hideChannels':
+      case 'unhideChannels': return { ...op, ids: widen(op.ids) };
+      default: return op;
+    }
+  }
+
+  /**
+   * The channels guide lookups use, under the same ids: a renamed channel's playlist original (its name and epgKey),
+   * and for a combined channel the stream that carries its guide id.
+   */
   private originals(channels: Channel[]): Channel[] {
     const names = this.index.layout().channelNames;
-    if (!channels.some((c) => HAS.call(names, c.id))) return channels;
-    const byId = (this.originalById ??= new Map(this.channels.map((c) => [c.id, c])));
-    return channels.map((c) => (HAS.call(names, c.id) ? byId.get(c.id) ?? c : c));
+    if (!this.index.folding() && !channels.some((c) => HAS.call(names, c.id))) return channels;
+    return channels.map((c) => this.index.guideChannel(c));
   }
 
   /** Small mutex around the active index: swaps and flag mutations never interleave. */
@@ -1776,35 +1856,90 @@ export class AppApi {
     const favs = this.favourites();
     return channels.map((c) => {
       const pair = nn.get(c.id);
-      const row: ChannelRow = {
-        id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id),
-      };
+      // A combined channel is a favourite when any of its streams is.
+      const favourite = favs.has(c.id) || (c.quality !== undefined && this.index.memberIds(c.id).some((m) => favs.has(m)));
+      const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite };
       if (c.logo) row.logo = c.logo;
       if (c.cu) row.archiveDays = c.cu.days;
+      if (c.sources !== undefined) row.sourceCount = c.sources;
+      const q = c.quality === undefined ? '' : QUALITY_LABELS[c.quality] ?? '';
+      if (q) row.quality = q;
       if (pair?.now) row.now = toLite(pair.now);
       if (pair?.next) row.next = toLite(pair.next);
       return row;
     });
   }
 
-  private async playable(channel: Channel | undefined): Promise<PlayableChannel | undefined> {
-    if (!channel) return undefined;
-    // The channel about to play (or being re-read while it plays): the only row, with the focused one, that may
-    // ask the short EPG.
-    this.playingId = channel.id;
+  /**
+   * `channel`'s stream, shown as `shown` (a combined channel's row: its name, number and guide; else the channel).
+   */
+  private async playable(channel: Channel | undefined, shown: Channel | undefined = channel): Promise<PlayableChannel | undefined> {
+    if (!channel || !shown) return undefined;
+    // The row about to play (or being re-read while it plays): the only row, with the focused one, that may ask the
+    // short EPG.
+    this.playingId = shown.id;
     // The host's cooldown read starts now, beside the row (an alternate format keeps the host).
     const early = this.streamCooldown(channel.url);
-    const [row] = await this.toRows([channel]);
+    const [row] = await this.toRows([shown]);
     // Never on the zap path's clock: the lookup's local guide read runs in the background.
-    if (!row!.now && !row!.next) this.backgroundShortEpg(channel);
+    if (!row!.now && !row!.next) this.backgroundShortEpg(shown);
     const { url, alternateUrl } = await this.streamUrls(channel);
-    const out: PlayableChannel = { ...row!, url };
+    const out: PlayableChannel = { ...row!, id: channel.id, url };
     if (alternateUrl) out.alternateUrl = alternateUrl;
     // The channel's own headers (from the playlist) win over the source's settings, field by field.
     const headers = mergeHeaders(this.sourceHeaders, channel.headers);
     if (headers) out.headers = headers;
     await this.addStreamCooldown(out, early);
     return out;
+  }
+
+  /** `getPlayable` body: a combined channel's best (or exact) stream, under its row. */
+  private async livePlayable(channelId: string, exact: boolean): Promise<PlayableChannel | undefined> {
+    const rowId = this.index.rowOf(channelId);
+    if (!rowId) return undefined;
+    if (!this.index.folding() || this.index.memberIds(rowId).length < 2) return this.playable(this.index.get(channelId));
+    const sources = await this.orderedSources(rowId);
+    if (sources.length < 2) return this.playable(this.index.get(exact ? channelId : sources[0]?.id ?? channelId));
+    const target = exact ? channelId : sources[0]!.id;
+    const out = await this.playable(this.index.get(target), this.index.rowChannel(rowId));
+    if (!out) return undefined;
+    out.rowId = rowId;
+    const at = sources.findIndex((s) => s.id === target);
+    out.sources = at > 0 ? [sources[at]!, ...sources.slice(0, at), ...sources.slice(at + 1)] : sources;
+    return out;
+  }
+
+  /** A row's streams best first (spec 2026-10-19-live-grouping §4). */
+  private async orderedSources(rowId: string): Promise<LiveSourceView[]> {
+    const id = this.activeId;
+    const members = this.index.sources(rowId);
+    if (!id || members.length === 0) return [];
+    const key = this.index.foldKey(rowId);
+    const last = key === undefined ? undefined : await this.liveMem.pick(id, key);
+    const cands = await Promise.all(members.map(async (c) => {
+      const info = this.index.memberInfo(c.id) ?? { quality: 4, backup: false };
+      const blocked = (await this.service.guard.status(streamCooldownKey(id, c.url))).state !== 'clear';
+      return { c, id: c.id, quality: info.quality, backup: info.backup, blocked, bad: blocked || this.liveMem.isBad(c.id) };
+    }));
+    const dupName = new Set<string>();
+    const seen = new Set<string>();
+    for (const x of cands) (seen.has(x.c.name) ? dupName : seen).add(x.c.name);
+    return orderLiveSources(cands, last === undefined ? {} : { last }).map((x) => {
+      const v: LiveSourceView = {
+        id: x.id, label: dupName.has(x.c.name) ? `${x.c.name} · ${x.c.group}` : x.c.name, bad: x.bad, blocked: x.blocked,
+      };
+      const q = QUALITY_LABELS[x.quality];
+      if (q) v.quality = q;
+      return v;
+    });
+  }
+
+  /** A stream showed its first frame: remembered for its row when the row has several, and no longer known-bad. */
+  private async notePlayedSource(sourceId: string, c: Channel): Promise<void> {
+    this.liveMem.played(c.id);
+    if (!this.index.folding() || this.index.memberIds(c.id).length < 2) return;
+    const key = this.index.foldKey(c.id);
+    if (key !== undefined) await this.liveMem.remember(sourceId, key, c.id);
   }
 
   /** Starts reading the cooldown of `url`'s host (loaded from storage if needed). */
@@ -1904,7 +2039,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
-  'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
+  'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',

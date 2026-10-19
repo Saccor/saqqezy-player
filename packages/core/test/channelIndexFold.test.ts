@@ -118,6 +118,16 @@ describe('ChannelIndex fold mode', () => {
     const idx = new ChannelIndex(channels, undefined, undefined, fold);
     expect(ids(idx.channelsForEpgKey('one.se'))).toEqual(['s:1', 's:6']);
   });
+  test('rowChannel and memberIds', () => {
+    const idx = new ChannelIndex(channels, lay({ op: 'hideChannels', ids: ['s:4'] }), undefined, fold);
+    expect(idx.rowChannel('s:5')).toMatchObject({ id: 's:1', name: 'Channel One', sources: 3 });
+    expect(idx.memberIds('s:5')).toEqual(['s:1', 's:3', 's:4', 's:5']);
+    expect(idx.rowChannel('s:2')!.name).toBe('Example News');
+    const off = new ChannelIndex(channels);
+    expect(off.rowChannel('s:5')!.name).toBe('Channel One 4K');
+    expect(off.memberIds('s:5')).toEqual(['s:5']);
+    expect(off.memberIds('nope')).toEqual([]);
+  });
   test('withLayout keeps the folds', () => {
     const idx = new ChannelIndex(channels, undefined, undefined, fold);
     idx.slice('all', 0, 10);
