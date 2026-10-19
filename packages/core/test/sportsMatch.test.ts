@@ -25,6 +25,9 @@ describe('sports match', () => {
     expect(sideMatch('eastport', 'eastport')).toBe('exact');
     expect(sideMatch('westvale united', 'westvale untied')).toBe('fuzzy');
     expect(sideMatch('northbridge', 'eastport')).toBeUndefined();
+    expect(sideMatch('', '')).toBeUndefined();
+    expect(sideMatch('', 'eastport')).toBeUndefined();
+    expect(normSide('FC')).toBe('');
   });
   test('resolveAlias follows one step', () => {
     const aliases = new Map([['man b', 'manor bridge']]);

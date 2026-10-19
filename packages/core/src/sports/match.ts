@@ -52,8 +52,9 @@ export function resolveAlias(s: string, aliases: ReadonlyMap<string, string>): s
   return aliases.get(s) ?? s;
 }
 
-/** Both sides normalised (and alias-resolved) already. */
+/** Both sides normalised (and alias-resolved) already. Empty sides never match. */
 export function sideMatch(a: string, b: string): 'exact' | 'fuzzy' | undefined {
+  if (a === '' || b === '') return undefined;
   if (a === b) return 'exact';
   return jaroWinkler(a, b) >= SIDE_MATCH ? 'fuzzy' : undefined;
 }
