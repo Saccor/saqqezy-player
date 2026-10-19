@@ -252,6 +252,15 @@ describe('AvplayPlayer: position, tracks and stream info', () => {
     expect(p.streamInfo()).toEqual({});
   });
 
+  test('streamInfo: a Dolby Vision-only fourCC reads as DV', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.current = [{ index: 0, type: 'VIDEO', extra_info: '{"fourCC":"dvh1","Width":"3840","Height":"2160"}' }];
+    expect(p.streamInfo()).toEqual({ width: 3840, height: 2160, videoCodec: 'dvh1', hdr: 'dv' });
+    av.current = [{ index: 0, type: 'VIDEO', extra_info: '{"fourCC":"HEVC","Width":"3840","Height":"2160"}' }];
+    expect(p.streamInfo().hdr).toBeUndefined();
+  });
+
   test('currentUrl() is the URL in flight, gone after stop', async () => {
     const { p } = setup();
     await p.open(URL_A);

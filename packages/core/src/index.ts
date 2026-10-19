@@ -12,6 +12,7 @@ export { ChannelIndex, type ProviderGroupInfo } from './index/channelIndex.ts';
 export { orderGroupChannels } from './index/order.ts';
 export { type Storage, MAX_PROGRAMME_MS } from './storage.ts';
 export * from './vod/types.ts';
+export { dvFromFourCC, dvFromTitle, videoRangeOf, wrongColoursWithoutDv } from './vod/videoRange.ts';
 export { splitYear, parseEpisodeMarker } from './vod/title.ts';
 export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';
 export { VodCatalog } from './vod/catalog.ts';
