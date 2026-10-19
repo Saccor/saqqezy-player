@@ -238,7 +238,7 @@ export class AppApi {
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id)]) {
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id), liveAudioKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -867,6 +867,40 @@ export class AppApi {
   /** Idle-time warm-up after live playback starts: loads the stored catalogue into memory; never fetches. */
   preloadVod(kind: VodKind): Promise<void> {
     return this.run('preloadVod', () => this.vodFor(kind).preload(kind));
+  }
+
+  // ---- live audio memory ----
+
+  /** The remembered live audio track (a track key) for a channel of the active source; undefined when none. */
+  getLiveAudio(channelId: string): Promise<string | undefined> {
+    return this.run('getLiveAudio', async () => {
+      const id = this.activeId;
+      if (!id) return undefined;
+      return (await this.liveAudio(id)).find((e) => e.id === channelId)?.key;
+    });
+  }
+
+  /**
+   * Remembers (or with `undefined` forgets) the live audio track for a channel of the active source. Kept per source
+   * under `liveAudio:<sourceId>`, the latest LIVE_AUDIO_MAX channels.
+   */
+  setLiveAudio(channelId: string, key: string | undefined): Promise<void> {
+    return this.run('setLiveAudio', async () => {
+      const id = this.activeId;
+      if (!id) return;
+      const kept = (await this.liveAudio(id)).filter((e) => e.id !== channelId);
+      if (key !== undefined) kept.push({ id: channelId, key });
+      const next = kept.slice(Math.max(0, kept.length - LIVE_AUDIO_MAX));
+      if (this.activeId !== id) return; // switched away meanwhile: no orphan key
+      await this.storage.setMeta(liveAudioKey(id), next.length > 0 ? next : null);
+    });
+  }
+
+  private async liveAudio(sourceId: string): Promise<LiveAudioEntry[]> {
+    const v = await this.storage.getMeta<unknown>(liveAudioKey(sourceId)).catch(() => undefined);
+    if (!Array.isArray(v)) return [];
+    return v.filter((e): e is LiveAudioEntry =>
+      !!e && typeof e === 'object' && typeof (e as LiveAudioEntry).id === 'string' && typeof (e as LiveAudioEntry).key === 'string');
   }
 
   // ---- settings, cache, diagnostics ----
@@ -1693,6 +1727,12 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
   return true;
 }
 
+/** How many channels' live audio choices a source remembers. */
+export const LIVE_AUDIO_MAX = 200;
+/** One remembered live audio choice: the channel and its track key (`<language>:<label>`), oldest first. */
+interface LiveAudioEntry { id: string; key: string }
+const liveAudioKey = (sourceId: string) => `liveAudio:${sourceId}`;
+
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
@@ -1702,6 +1742,7 @@ export const APP_API_METHODS = [
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
+  'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

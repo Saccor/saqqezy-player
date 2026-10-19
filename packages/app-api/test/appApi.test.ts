@@ -4,7 +4,7 @@ import {
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
-import { APP_API_METHODS, AppApi, scrub } from '../src/appApi.ts';
+import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, scrub } from '../src/appApi.ts';
 import { worseCooldown } from '../src/index.ts';
 import type { AppEvent } from '../src/types.ts';
 
@@ -250,6 +250,40 @@ describe('AppApi', () => {
     spy.mockRestore();
     expect(await api.toggleFavourite(id)).toBe(true);
     expect(await api.toggleHidden(id)).toBe(true);
+  });
+
+  test('live audio choice: remembered per channel of the active source, survives a restart, cleared with undefined', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const [a, b] = (await api.getChannelSlice('g:Movies', 0, 2)).rows.map((r) => r.id);
+    expect(await api.getLiveAudio(a!)).toBeUndefined();
+    await api.setLiveAudio(a!, 'swe:Svenska');
+    await api.setLiveAudio(b!, 'eng:English');
+    expect(await api.getLiveAudio(a!)).toBe('swe:Svenska');
+    expect(await api.getLiveAudio(b!)).toBe('eng:English');
+    await api.idle();
+    const again = make().api;
+    await again.init();
+    expect(await again.getLiveAudio(a!)).toBe('swe:Svenska');
+    await again.setLiveAudio(a!, undefined);
+    expect(await again.getLiveAudio(a!)).toBeUndefined();
+    expect(await again.getLiveAudio(b!)).toBe('eng:English');
+  });
+
+  test('live audio choice keeps the latest LIVE_AUDIO_MAX channels and nothing without an active source', async () => {
+    expect(await make().api.getLiveAudio('c1')).toBeUndefined();
+    const { api } = make();
+    await api.addSource(xt());
+    for (let i = 0; i < LIVE_AUDIO_MAX + 5; i++) await api.setLiveAudio(`c${i}`, 'eng:English');
+    expect(await api.getLiveAudio('c0')).toBeUndefined();
+    expect(await api.getLiveAudio('c4')).toBeUndefined();
+    expect(await api.getLiveAudio('c5')).toBe('eng:English');
+    expect(await api.getLiveAudio(`c${LIVE_AUDIO_MAX + 4}`)).toBe('eng:English');
+    // Setting a known channel again moves it to the newest end rather than adding a copy.
+    await api.setLiveAudio('c5', 'swe:Svenska');
+    await api.setLiveAudio('new', 'eng:English');
+    expect(await api.getLiveAudio('c5')).toBe('swe:Svenska');
+    expect(await api.getLiveAudio('c6')).toBeUndefined();
   });
 
   test('markWatched creates recent group and sets last channel on next init', async () => {
