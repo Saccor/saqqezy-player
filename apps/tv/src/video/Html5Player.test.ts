@@ -808,6 +808,26 @@ describe('Html5Player – VOD', () => {
     player.destroy();
   });
 
+  test('audio tracks with hls.js carry the codec family where the rendition names one', async () => {
+    const { player } = makePlayer();
+    await player.open('http://example.test/movie/1.m3u8', 1, { live: false });
+    const hls = created.hls.at(-1)! as unknown as { audioTracks: { name: string; lang?: string; audioCodec?: string }[]; audioTrack: number };
+    hls.audioTracks = [
+      { name: 'English', lang: 'en', audioCodec: 'mp4a.40.2' },
+      { name: 'Svenska', lang: 'sv', audioCodec: 'ac-3' },
+      { name: '', lang: 'de', audioCodec: 'something-else' },
+      { name: 'Commentary' },
+    ];
+    hls.audioTrack = 0;
+    expect(player.audioTracks()).toEqual([
+      { id: '0', label: 'English', language: 'en', active: true, codec: 'AAC' },
+      { id: '1', label: 'Svenska', language: 'sv', active: false, codec: 'AC-3' },
+      { id: '2', label: 'de', language: 'de', active: false },
+      { id: '3', label: 'Commentary', active: false },
+    ]);
+    player.destroy();
+  });
+
   test('text tracks with hls.js: list, select and off', async () => {
     const { player } = makePlayer();
     await player.open('http://example.test/movie/1.m3u8', 1, { live: false });

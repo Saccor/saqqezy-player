@@ -220,13 +220,17 @@ describe('AvplayPlayer: position, tracks and stream info', () => {
       { index: 0, type: 'VIDEO', extra_info: '{"fourCC":"H264","Width":"1920","Height":"1080"}' },
       { index: 1, type: 'AUDIO', extra_info: '{"language":"eng","fourCC":"AAC"}' },
       { index: 2, type: 'AUDIO', extra_info: 'not json' },
+      { index: 3, type: 'AUDIO', extra_info: '{"language":"swe","fourCC":"EAC3"}' },
+      { index: 4, type: 'AUDIO', extra_info: '{"language":"deu","fourCC":"XYZ1"}' },
     ];
     av.current = [{ index: 2, type: 'AUDIO', extra_info: '' }];
     expect(p.audioTracks()).toEqual([]); // no stream yet
     await p.open(URL_A);
     expect(p.audioTracks()).toEqual([
-      { id: '1', label: 'eng', language: 'eng', active: false },
+      { id: '1', label: 'eng', language: 'eng', active: false, codec: 'AAC' },
       { id: '2', label: 'Track 2', active: true },
+      { id: '3', label: 'swe', language: 'swe', active: false, codec: 'E-AC-3' },
+      { id: '4', label: 'deu', language: 'deu', active: false },
     ]);
     p.selectAudioTrack('1');
     expect(av.selected).toEqual([['AUDIO', 1]]);
