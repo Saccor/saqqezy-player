@@ -1141,7 +1141,7 @@ describe('AvplayPlayer: panel caps', () => {
     expect(av.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']);
   });
   test('capsProbe: max height and HDR from the panel', () => {
-    const p = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: true } });
+    const p = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: true, answered: { uhd: true, eightK: true, hdrTv: true } } });
     expect(p.capsProbe()).toEqual({
       display: {
         maxHeight: { value: 2160, evidence: 'probe' },
@@ -1153,6 +1153,35 @@ describe('AvplayPlayer: panel caps', () => {
       },
     });
     expect(new AvplayPlayer(new FakeAvplay()).capsProbe()).toEqual({});
+  });
+  test('no API answered (monitor, throwing or missing APIs): capsProbe is empty, ADAPTIVE_INFO unchanged', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: false, eightK: false, hdrTv: false } });
+    expect(p.capsProbe()).toEqual({});
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']]);
+  });
+  test('answered-false panel still reports 1080p and no HDR', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: false, eightK: false, hdrTv: false, answered: { uhd: true, eightK: true, hdrTv: true } } });
+    expect(p.capsProbe()).toEqual({
+      display: {
+        maxHeight: { value: 1080, evidence: 'probe' },
+        hdr: {
+          hdr10: { value: 'none', evidence: 'probe' },
+          hdr10plus: { value: 'none', evidence: 'probe' },
+          hlg: { value: 'none', evidence: 'probe' },
+        },
+      },
+    });
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']]);
+  });
+  test('partial answers: only answered facts are reported', () => {
+    const hdrOnly = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: false, eightK: false, hdrTv: true, answered: { hdrTv: true } } });
+    expect(Object.keys(hdrOnly.capsProbe().display ?? {})).toEqual(['hdr']);
+    const uhdOnly = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: false, answered: { uhd: true } } });
+    expect(uhdOnly.capsProbe()).toEqual({ display: { maxHeight: { value: 2160, evidence: 'probe' } } });
   });
   test('panelCaps returns a copy, undefined without panel facts', () => {
     const panel = { uhd: true, eightK: false, hdrTv: false };

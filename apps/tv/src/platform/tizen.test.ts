@@ -87,7 +87,7 @@ describe('readPanelCaps', () => {
       avinfo: { isHdrTvSupport: () => true },
       avplay: { getVersion: () => '6.0.1' },
     } };
-    expect(readPanelCaps(g as never)).toEqual({ uhd: true, eightK: false, hdrTv: true, avplayVersion: '6.0.1' });
+    expect(readPanelCaps(g as never)).toEqual({ uhd: true, eightK: false, hdrTv: true, avplayVersion: '6.0.1', answered: { uhd: true, hdrTv: true } });
   });
   test('nothing available → all false', () => {
     expect(readPanelCaps({})).toEqual({ uhd: false, eightK: false, hdrTv: false });
@@ -101,5 +101,9 @@ describe('readPanelCaps', () => {
     expect(readPanelCaps(g as never)).toEqual({ uhd: false, eightK: false, hdrTv: false });
     expect(readPanelCaps({ webapis: { productinfo: {}, avinfo: {}, avplay: {} } } as never)).toEqual({ uhd: false, eightK: false, hdrTv: false });
     expect(readPanelCaps({ webapis: { productinfo: null } } as never)).toEqual({ uhd: false, eightK: false, hdrTv: false });
+  });
+  test('answered false is recorded as answered', () => {
+    const g = { webapis: { productinfo: { isUdPanelSupported: () => false, is8KPanelSupported: () => false }, avinfo: { isHdrTvSupport: () => false } } };
+    expect(readPanelCaps(g as never)).toEqual({ uhd: false, eightK: false, hdrTv: false, answered: { uhd: true, eightK: true, hdrTv: true } });
   });
 });

@@ -1,4 +1,11 @@
-export interface PanelCaps { uhd: boolean; eightK: boolean; hdrTv: boolean; avplayVersion?: string }
+export interface PanelCaps {
+  uhd: boolean;
+  eightK: boolean;
+  hdrTv: boolean;
+  avplayVersion?: string;
+  /** Which of the booleans above an API actually answered (true or false); absent = nothing is known. */
+  answered?: { uhd?: boolean; eightK?: boolean; hdrTv?: boolean };
+}
 
 /** AVPlay ADAPTIVE_INFO (IDLE only, one call: a second call may overwrite the first). */
 export function adaptiveInfo(p: PanelCaps): string {

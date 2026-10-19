@@ -230,15 +230,18 @@ export class AvplayPlayer implements Player {
   /** What the panel adds to the static Tizen caps (spec §3.3 item 4); empty without panel facts. */
   capsProbe(): MediaCapsProbe {
     const p = this.panel;
-    if (!p) return {};
+    const a = p?.answered;
+    if (!p || !a) return {};
     const cap = <T>(value: T) => ({ value, evidence: 'probe' as const });
-    const hdr = p.hdrTv ? 'decode' : 'none';
-    return {
-      display: {
-        maxHeight: cap(p.eightK ? 4320 : p.uhd ? 2160 : 1080),
-        hdr: { hdr10: cap(hdr), hdr10plus: cap(hdr), hlg: cap(hdr) },
-      },
-    };
+    const display: NonNullable<MediaCapsProbe['display']> = {};
+    // Only facts an API answered: an unanswered query must never cap a display at 1080p or claim no HDR.
+    if (a.eightK && p.eightK) display.maxHeight = cap(4320);
+    else if (a.uhd) display.maxHeight = cap(p.uhd ? 2160 : 1080);
+    if (a.hdrTv) {
+      const hdr = p.hdrTv ? 'decode' : 'none';
+      display.hdr = { hdr10: cap(hdr), hdr10plus: cap(hdr), hlg: cap(hdr) };
+    }
+    return Object.keys(display).length > 0 ? { display } : {};
   }
 
   panelCaps(): PanelCaps | undefined {

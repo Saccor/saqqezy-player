@@ -79,22 +79,28 @@ export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
 /**
  * What the panel can show, read once and synchronously: UHD, 8K, HDR TV and the AVPlay version. Every call is
  * feature-detected and tried on its own; a boolean is true only when the call returned `true`, so a missing API,
- * a throw or a monitor-class display all read as Full HD (today's behaviour). Never throws.
+ * a throw or a monitor-class display all read as Full HD (today's behaviour); `answered` records which calls gave a real answer. Never throws.
  */
 export function readPanelCaps(g: TizenGlobals = globals()): PanelCaps {
-  const ask = (fn: () => unknown): boolean => {
+  /** undefined = no answer (missing, threw, or not a boolean). */
+  const ask = (fn: () => unknown): boolean | undefined => {
     try {
-      return fn() === true;
+      const v = fn();
+      return typeof v === 'boolean' ? v : undefined;
     } catch {
-      return false;
+      return undefined;
     }
   };
   const w = g.webapis;
-  const caps: PanelCaps = {
-    uhd: ask(() => w?.productinfo?.isUdPanelSupported?.()),
-    eightK: ask(() => w?.productinfo?.is8KPanelSupported?.()),
-    hdrTv: ask(() => w?.avinfo?.isHdrTvSupport?.()),
-  };
+  const uhd = ask(() => w?.productinfo?.isUdPanelSupported?.());
+  const eightK = ask(() => w?.productinfo?.is8KPanelSupported?.());
+  const hdrTv = ask(() => w?.avinfo?.isHdrTvSupport?.());
+  const caps: PanelCaps = { uhd: uhd === true, eightK: eightK === true, hdrTv: hdrTv === true };
+  const answered: NonNullable<PanelCaps['answered']> = {};
+  if (uhd !== undefined) answered.uhd = true;
+  if (eightK !== undefined) answered.eightK = true;
+  if (hdrTv !== undefined) answered.hdrTv = true;
+  if (Object.keys(answered).length > 0) caps.answered = answered;
   try {
     const v = w?.avplay?.getVersion?.();
     if (typeof v === 'string' && v) caps.avplayVersion = v;
