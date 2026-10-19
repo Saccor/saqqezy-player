@@ -39,9 +39,9 @@ function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(
     return { player: new AvplayPlayer(avplay, { displaySpace: AVPLAY_DISPLAY_SPACE }), layer: { relayout: () => {} } };
   }
   const layer = createVideoLayer(root);
-  // Dev-only switch to exercise the hls.js path on browsers that also have native HLS: `?hlsjs`.
-  const forceHlsJs = import.meta.env.DEV && new URLSearchParams(location.search).has('hlsjs');
-  return { player: new Html5Player(layer, { preferNativeHls: !forceHlsJs, isTv }), layer };
+  // Native HLS only on TVs. Desktop Chrome reports native HLS too, but its built-in player cannot decode HEVC in
+  // TS segments (UHD channels): sound over a black picture, with no error. hls.js plays them, so desktop uses it.
+  return { player: new Html5Player(layer, { preferNativeHls: isTv, isTv }), layer };
 }
 
 const stack = createStack(videoRoot);

@@ -13,6 +13,10 @@ describe('chooseEngine', () => {
     expect(chooseEngine('/live/u/p/1.m3u8', { ...chrome, hlsJs: false })).toEqual({ engine: 'none', reason: 'hls' });
   });
 
+  test('.m3u8: native HLS not preferred still beats nothing when hls.js is unsupported', () => {
+    expect(chooseEngine('/live/u/p/1.m3u8', { ...safari, preferNativeHls: false, hlsJs: false })).toEqual({ engine: 'native' });
+  });
+
   test('.ts: mpegts.js, else none', () => {
     expect(chooseEngine('/live/u/p/1.ts', chrome)).toEqual({ engine: 'mpegts' });
     expect(chooseEngine('/live/u/p/1.ts', { ...chrome, mpegtsJs: false })).toEqual({ engine: 'none', reason: 'mpegts' });

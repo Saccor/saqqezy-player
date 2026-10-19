@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { upstreamHeaders } from './src/dev/proxyHeaders.ts';
+import { maskUrl } from './src/dev/maskUrl.ts';
 import { rewriteHls } from './src/dev/rewriteHls.ts';
 import { UNREACHABLE_HEADER } from './src/net/devProxy.ts';
 
@@ -54,6 +55,19 @@ function isSameOrigin(req: IncomingMessage): boolean {
     if (host !== req.headers.host) return false;
   }
   return true;
+}
+
+/** Dev-only diagnostics: stream playlists and every refused request, credentials masked. */
+function logUpstream(route: string, target: URL, upstream: Response): void {
+  const playlist = /\.m3u8?$/i.test(target.pathname) || /mpegurl/i.test(upstream.headers.get('content-type') ?? '');
+  const live = route === 'hls' || /\/(live|movie|series)\//.test(target.pathname);
+  if (upstream.status < 400 && !(live && playlist) && !(route === 'hls' && !playlist && upstream.status !== 200 && upstream.status !== 206)) return;
+  let final = '';
+  try {
+    const f = new URL(upstream.url);
+    if (f.toString() !== target.toString()) final = ` -> ${maskUrl(f)}`;
+  } catch { /* no final URL */ }
+  console.log(`[proxy] ${upstream.status} ${route} ${maskUrl(target)}${final}`);
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -105,6 +119,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   const contentType = upstream.headers.get('content-type') ?? '';
+  logUpstream(route, target, upstream);
   res.statusCode = upstream.status;
   res.setHeader('Cache-Control', 'no-store');
 

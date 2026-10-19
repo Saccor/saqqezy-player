@@ -26,7 +26,8 @@ export type EngineChoice =
 export function chooseEngine(path: string, caps: EngineCaps): EngineChoice {
   if (path.endsWith('.m3u8')) {
     if (caps.preferNativeHls && caps.nativeHls) return { engine: 'native' };
-    return caps.hlsJs ? { engine: 'hls' } : { engine: 'none', reason: 'hls' };
+    if (caps.hlsJs) return { engine: 'hls' };
+    return caps.nativeHls ? { engine: 'native' } : { engine: 'none', reason: 'hls' };
   }
   if (path.endsWith('.ts')) return caps.mpegtsJs ? { engine: 'mpegts' } : { engine: 'none', reason: 'mpegts' };
   const last = path.slice(path.lastIndexOf('/') + 1);
