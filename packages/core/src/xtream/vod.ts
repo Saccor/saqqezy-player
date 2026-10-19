@@ -69,6 +69,8 @@ function baseItem(s: Record<string, unknown>, kind: VodKind, sourceId: string, x
   const item: VodItem = { id: `${sourceId}:${prefix}${xid}`, kind, title, categoryId: str(s.category_id) ?? VOD_UNCATEGORIZED, xid };
   const year = yearOf(s.year, s.releaseDate, s.release_date) ?? nameYear;
   if (year) item.year = year;
+  const tmdb = posInt(s.tmdb) ?? posInt(s.tmdb_id);
+  if (tmdb) item.tmdbId = tmdb;
   return item;
 }
 

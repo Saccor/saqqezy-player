@@ -34,6 +34,14 @@ describe('Xtream VOD parsers', () => {
     ]);
   });
 
+  test('list items keep a TMDB id when the panel sends one (groups versions of a title)', () => {
+    const [movie] = parseVodStreams([{ stream_id: 21, name: 'Synthetic Film', tmdb: '603' }], 'src');
+    expect(movie!.tmdbId).toBe(603);
+    const [show] = parseSeriesList([{ series_id: 22, name: 'Synthetic Series', tmdb_id: 77 }], 'src');
+    expect(show!.tmdbId).toBe(77);
+    expect(parseVodStreams([{ stream_id: 23, name: 'Synthetic Film', tmdb: '0' }], 'src')[0]!.tmdbId).toBeUndefined();
+  });
+
   test('series list', () => {
     expect(parseSeriesList([
       { series_id: 5, name: 'Synthetic Series 01', cover: 'http://img.test/s.jpg', rating: '8.1', last_modified: '1760000500', category_id: '3', releaseDate: '2021' },
