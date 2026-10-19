@@ -372,14 +372,18 @@ export class VodController {
       if (!item || this.epoch !== epoch) return undefined;
       const url = await this.vod.streamUrl(src, item);
       if (this.epoch !== epoch) return undefined;
-      const movie: VodPlayable = { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
+      // A combined title shows its clean name ("Synthetic Film", not "EN - Synthetic Film 4K").
+      const title = catalog?.grouped ? catalog.rowOf(itemId)?.title ?? item.title : item.title;
+      const movie: VodPlayable = { kind: 'movie', itemId, url, title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
       // M3U: the playlist entry's own headers (AppApi merges them over the source's settings).
       if (item.headers) movie.headers = { ...item.headers };
       return movie;
     }
     const s = user.get(itemId);
-    const show = (await this.catalog('series'))?.byId(seriesId);
+    const shows = await this.catalog('series');
+    const show = shows?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
+    const showTitle = shows?.grouped ? shows.rowOf(seriesId)?.title ?? show.title : show.title;
     // A failure is recorded once (as getVodDetail) by the shared fetch, and that same Error is rethrown (AppApi does not record it again).
     const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show), true);
     if (this.epoch !== epoch || !detail) return undefined;
@@ -393,7 +397,7 @@ export class VodController {
     const fromSeries = tracksOf(user.get(seriesId));
     const seriesTracks = fromSeries.audio || fromSeries.subtitle ? fromSeries : tracksOf(s);
     const out: VodPlayable = {
-      kind: 'episode', itemId, url, title: show.title, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
+      kind: 'episode', itemId, url, title: showTitle, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
       resumeMs: resumeMs(s), tracks: seriesTracks, series,
     };
     if (ep.runtimeMin) out.durationMs = ep.runtimeMin * 60_000;
@@ -422,8 +426,10 @@ export class VodController {
       const year = item.year ?? t.year;
       return year ? { query: t.title, year } : { query: t.title };
     }
-    const show = (await this.catalog('series'))?.byId(seriesId);
+    const shows = await this.catalog('series');
+    const show = shows?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
+    const showTitle = shows?.grouped ? shows.rowOf(seriesId)?.title ?? show.title : show.title;
     const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show));
     if (this.epoch !== epoch || !detail) return undefined;
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);

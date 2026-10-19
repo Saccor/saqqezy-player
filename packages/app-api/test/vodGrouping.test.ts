@@ -80,8 +80,8 @@ describe('VodController with combined titles', () => {
 
   test('a card id plays the picked version; exact plays the given one', async () => {
     const { c, m } = await setup();
-    expect((await c.playable(m(3)))!.itemId).toBe(m(2));
-    expect((await c.playable(m(3), undefined, true))!.itemId).toBe(m(3));
+    expect((await c.playable(m(3)))!).toMatchObject({ itemId: m(2), title: 'Synthetic Film' });
+    expect((await c.playable(m(3), undefined, true))!).toMatchObject({ itemId: m(3), title: 'Synthetic Film' });
   });
 
   test('a version in progress is what Play resumes, and Continue shows the title once', async () => {
