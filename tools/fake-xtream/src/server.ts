@@ -11,6 +11,8 @@ import { handleOpenSubtitles } from './openSubtitles.ts';
 export interface FakeXtreamOptions {
   port?: number;
   channels?: number;
+  /** Adds the synthetic sports guide, `SPORT_MATCHES`. */
+  sports?: boolean;
   /** Only the first N channels get guide data in the XMLTV (default: all). */
   epgChannels?: number;
   /** Synthetic movies (default 120) and series (default 12). */
@@ -218,7 +220,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     if (url.pathname === '/xmltv.php') {
       if (!valid) return send(res, 401, '');
       res.writeHead(200, { 'content-type': 'application/xml' });
-      for (const part of xmltv(guided, now())) res.write(part);
+      for (const part of xmltv(guided, now(), opts.sports === true)) res.write(part);
       return res.end();
     }
 

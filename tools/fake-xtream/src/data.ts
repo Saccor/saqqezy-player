@@ -26,13 +26,42 @@ const xmlDate = (ms: number) => {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 +0000`;
 };
 
-export function* xmltv(chs: FakeChannel[], now: number): Generator<string> {
+/** Invented teams only (CLAUDE.md rule 1). `ch`: channel numbers; `at`: slots after the slot holding now; `len`: slots. */
+export interface SportMatch { titles: string[]; ch: number[]; at: number; len: number; cat: string; live?: number[]; rerun?: true; sub?: string }
+export const SPORT_MATCHES: readonly SportMatch[] = [
+  { titles: ['LIVE: Northbridge FC v Eastport', 'Northbridge v Eastport', 'Eastport - Northbridge FC', 'Northbridge FC vs Eastport', 'Northbridge FC – Eastport'],
+    ch: [1, 2, 3, 4, 5], at: 0, len: 4, cat: 'Sports', live: [1, 2] },
+  { titles: ['Harbour City v Westvale United', 'Harbour City v Westvale Utd'], ch: [6, 7], at: 4, len: 4, cat: 'Football' },
+  { titles: ['Rivermouth Rovers vs Kingsgate'], ch: [9], at: 2, len: 4, cat: 'Sports' },
+  { titles: ['Northbridge FC v Eastport Highlights'], ch: [10], at: 6, len: 2, cat: 'Sports' },
+  { titles: ['Northbridge FC v Eastport'], ch: [11], at: 8, len: 4, cat: 'Sports', rerun: true },
+  { titles: ['Hollis vs Hollis'], ch: [12], at: 0, len: 4, cat: 'Film' },
+  { titles: ['Lakeshore v Pinecrest'], ch: [13, 14, 15, 16], at: 10, len: 4, cat: 'Sports', sub: 'Test Cup: Round 3' },
+  { titles: ['Final: A. Marlow - J. Okafor'], ch: [17, 18], at: 12, len: 6, cat: 'Tennis' },
+];
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+export function* xmltv(chs: FakeChannel[], now: number, sports = false): Generator<string> {
   yield '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="fake-xtream">\n';
   for (const c of chs) yield `<channel id="${c.epgId}"><display-name>${c.name}</display-name></channel>\n`;
   const s = slots(now);
+  const nowSlot = s.findIndex((x) => x.start <= now && now < x.stop);
   for (const c of chs) {
     let buf = '';
-    for (const slot of s) {
+    for (let i = 0; i < s.length; i++) {
+      const slot = s[i]!;
+      const m = sports ? SPORT_MATCHES.find((x) => x.ch.includes(c.n) && nowSlot + x.at === i) : undefined;
+      if (m) {
+        const end = s[Math.min(s.length - 1, i + m.len - 1)]!.stop;
+        const title = m.titles[m.ch.indexOf(c.n) % m.titles.length]!;
+        buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(end)}" channel="${c.epgId}"><title>${esc(title)}</title>`
+          + (m.sub ? `<sub-title>${esc(m.sub)}</sub-title>` : '')
+          + `<category lang="en">${m.cat}</category>`
+          + (m.live?.includes(c.n) ? '<live/>' : '') + (m.rerun ? '<previously-shown/>' : '') + '</programme>\n';
+        i += m.len - 1;
+        continue;
+      }
       buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(slot.stop)}" channel="${c.epgId}"><title>Programme ${slot.index}</title><desc>Synthetic listing for ${c.name}.</desc></programme>\n`;
     }
     yield buf;
