@@ -1,4 +1,7 @@
 export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
+export type OpenOn = 'lastChannel' | 'start';
+export const FOLLOWED_TEAMS_MAX = 50;
+export const FOLLOWED_TEAM_LEN = 40;
 
 export interface AppSettings {
   epgOffsetHours: number;
@@ -10,6 +13,10 @@ export interface AppSettings {
   liveDelay: LiveDelaySetting;
   /** Movies and series: the subtitle language turned on when a title has no choice of its own ('off': none). */
   subtitleLanguage: string;
+  /** Where a cold start lands: Live TV with the last channel (default), or the Start page over it. */
+  openOn: OpenOn;
+  /** Sides the user follows (EPG text as shown); events with a followed side are pinned on Start. On-device only. */
+  followedTeams: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -20,6 +27,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showClock: true,
   liveDelay: 'balanced',
   subtitleLanguage: 'off',
+  openOn: 'lastChannel',
+  followedTeams: [],
 };
 
 /** 'off', then ISO 639-1 codes in order of their English names. */
@@ -32,6 +41,25 @@ const LIVE_DELAY_CHOICES: readonly LiveDelaySetting[] = ['low', 'balanced', 'sta
 
 const AUTO_REFRESH_CHOICES = [0, 6, 12, 24];
 const SLEEP_CHOICES = [0, 15, 30, 60, 90, 120];
+
+const OPEN_ON_CHOICES: readonly OpenOn[] = ['lastChannel', 'start'];
+
+function sanitizeTeams(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of value) {
+    if (typeof v !== 'string') continue;
+    const t = v.trim().slice(0, FOLLOWED_TEAM_LEN).trim();
+    if (!t) continue;
+    const k = t.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+    if (out.length >= FOLLOWED_TEAMS_MAX) break;
+  }
+  return out;
+}
 
 function oneOf(value: unknown, choices: number[], fallback: number): number {
   return typeof value === 'number' && choices.includes(value) ? value + 0 : fallback;
@@ -58,5 +86,7 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     subtitleLanguage: typeof src.subtitleLanguage === 'string' && SUBTITLE_LANGUAGES.includes(src.subtitleLanguage)
       ? src.subtitleLanguage
       : DEFAULT_SETTINGS.subtitleLanguage,
+    openOn: OPEN_ON_CHOICES.includes(src.openOn as OpenOn) ? (src.openOn as OpenOn) : DEFAULT_SETTINGS.openOn,
+    followedTeams: sanitizeTeams(src.followedTeams),
   };
 }

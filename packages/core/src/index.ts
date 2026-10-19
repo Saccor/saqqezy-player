@@ -40,7 +40,7 @@ export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';
-export { DEFAULT_SETTINGS, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
+export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';

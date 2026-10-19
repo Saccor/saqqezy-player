@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
+import { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -9,8 +9,22 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced', subtitleLanguage: 'off',
+      liveDelay: 'balanced', subtitleLanguage: 'off', openOn: 'lastChannel', followedTeams: [],
     });
+  });
+
+  test('openOn keeps known values and falls back to lastChannel', () => {
+    for (const v of ['lastChannel', 'start'] as const) expect(sanitizeSettings({ openOn: v }).openOn).toBe(v);
+    for (const v of ['home', 1, null, undefined]) expect(sanitizeSettings({ openOn: v }).openOn).toBe('lastChannel');
+  });
+
+  test('followedTeams: strings only, trimmed, 1-40 chars, deduped ignoring case and accents, at most 50', () => {
+    expect(sanitizeSettings({ followedTeams: ['  Northbridge FC ', 'northbridge fc', 'Éastport', 'Eastport', '', 3, null] }).followedTeams)
+      .toEqual(['Northbridge FC', 'Éastport']);
+    expect(sanitizeSettings({ followedTeams: ['x'.repeat(60)] }).followedTeams).toEqual(['x'.repeat(40)]);
+    const many = Array.from({ length: 80 }, (_, i) => `Team ${i}`);
+    expect(sanitizeSettings({ followedTeams: many }).followedTeams).toHaveLength(FOLLOWED_TEAMS_MAX);
+    for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ followedTeams: v }).followedTeams).toEqual([]);
   });
 
   test('subtitleLanguage keeps a listed language code, else off', () => {
