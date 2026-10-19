@@ -35,6 +35,8 @@ describe('startLogic', () => {
     expect(eventWhen({ start: now - 60_000, stop: now + 60_000 }, now)).toBe('Live');
     expect(eventWhen({ start: new Date(2026, 9, 19, 20, 0).getTime(), stop: now + 9e6 }, now)).toBe('20:00');
     expect(eventWhen({ start: new Date(2026, 9, 20, 1, 30).getTime(), stop: now + 9e7 }, now)).toBe('Tomorrow 01:30');
+    // Started yesterday, not live any more: no "Tomorrow".
+    expect(eventWhen({ start: new Date(2026, 9, 18, 22, 0).getTime(), stop: new Date(2026, 9, 18, 23, 0).getTime() }, now)).toBe('22:00');
     expect(channelsLabel(1)).toBe('1 channel');
     expect(channelsLabel(4)).toBe('4 channels');
   });

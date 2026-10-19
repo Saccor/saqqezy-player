@@ -49,7 +49,8 @@ export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: numbe
   const d = new Date(e.start);
   const today = new Date(now);
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-  return sameDay ? formatClock(d) : `Tomorrow ${formatClock(d)}`;
+  // A past start on another day (still running tiles are 'Live' above; a stale one) shows just the time.
+  return sameDay || e.start <= now ? formatClock(d) : `Tomorrow ${formatClock(d)}`;
 }
 
 /**
