@@ -1,3 +1,4 @@
+import { sendKey } from '../input/keys.ts';
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { PlayableChannel } from '@iptv/app-api';
@@ -483,7 +484,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
-      onStop={() => (onBack() ? true : (leave(), true))} onPlay={() => true} onPause={() => true}
+      onStop={() => { sendKey('Back'); return true; }} onPlay={() => true} onPause={() => true}
       onUp={unlessModal(() => zap(1))} onDown={unlessModal(() => zap(-1))}
       onChannelUp={unlessModal(() => zap(1))} onChannelDown={unlessModal(() => zap(-1))}
       onLeft={() => true} onRight={() => true}

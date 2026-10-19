@@ -7,7 +7,7 @@ import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
-import { onLogicalKey } from '../input/keys.ts';
+import { onLogicalKey, sendKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
@@ -751,7 +751,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   /** Play, Pause, Stop, Fast-forward and Rewind (remote media keys); Stop is Back. */
   const mediaKey = (key: 'Play' | 'Pause' | 'Stop' | 'FastForward' | 'Rewind') => {
     const act = mediaKeyAction(key, { paused: playback.paused(), blocked: failed() !== undefined || ended() });
-    if (act === 'stop') return onBack();
+    if (act === 'stop') { sendKey('Back'); return true; } // the same path as a Back press (layers close first)
     if (act === 'toggle') togglePause();
     else if (act === 'forward') scrubPress(1, SKIP_LONG_MS, 'skip');
     else if (act === 'back') scrubPress(-1, SKIP_LONG_MS, 'skip');
