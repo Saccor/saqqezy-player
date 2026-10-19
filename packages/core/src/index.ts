@@ -54,6 +54,7 @@ export {
   MAX_TITLE_AIRINGS, TitleIndexBuilder, isTitleIndexData, queryTitles,
   type TitleAiring, type TitleIndexData, type TitleMatch,
 } from './search/titleIndex.ts';
+export { subtitleText } from './subtitles/markup.ts';
 export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
 export {
   SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
