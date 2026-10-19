@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
-import { AVPLAY_DISPLAY_SPACE, exit, registerKeys, type TizenLike } from './tizen.ts';
+import { AVPLAY_DISPLAY_SPACE, exit, registerKeys, setScreenSaver, type TizenLike } from './tizen.ts';
 
 function fakeTizen(opts: { batch?: boolean; batchThrows?: boolean } = {}) {
   const calls: { batch: string[][]; single: string[]; exits: number } = { batch: [], single: [], exits: 0 };
@@ -60,5 +60,22 @@ describe('tizen platform', () => {
 
   test('AVPlay display coordinates are the 1920x1080 design space', () => {
     expect(AVPLAY_DISPLAY_SPACE).toEqual({ w: 1920, h: 1080 });
+  });
+});
+
+describe('setScreenSaver', () => {
+  const ac = (fn: (s: unknown) => void) => ({ webapis: { appcommon: {
+    AppCommonScreenSaverState: { SCREEN_SAVER_OFF: 0, SCREEN_SAVER_ON: 1 }, setScreenSaver: fn,
+  } } });
+  test('maps on/off to AppCommon states', () => {
+    const got: unknown[] = [];
+    const g = ac((s) => { got.push(s); });
+    expect(setScreenSaver('off', g)).toBe(true);
+    expect(setScreenSaver('on', g)).toBe(true);
+    expect(got).toEqual([0, 1]);
+  });
+  test('false without appcommon, and when the call throws', () => {
+    expect(setScreenSaver('off', {})).toBe(false);
+    expect(setScreenSaver('off', ac(() => { throw new Error('x'); }))).toBe(false);
   });
 });

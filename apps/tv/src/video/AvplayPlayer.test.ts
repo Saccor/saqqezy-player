@@ -992,3 +992,51 @@ describe('AvplayPlayer: suspend / resume', () => {
     vi.useRealTimers();
   });
 });
+
+describe('AvplayPlayer: screensaver', () => {
+  function withSaver() {
+    const av = new FakeAvplay();
+    const saver: string[] = [];
+    const p = new AvplayPlayer(av, { screenSaver: (s) => saver.push(s) });
+    return { av, p, saver };
+  }
+  test('fullscreen playing → off; pause → on; play → off; stop → on', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    expect(saver.at(-1)).toBe('off');
+    p.pause!();
+    expect(saver.at(-1)).toBe('on');
+    p.play!();
+    expect(saver.at(-1)).toBe('off');
+    p.stop();
+    expect(saver.at(-1)).toBe('on');
+  });
+  test('preview rect never turns it off', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect({ x: 100, y: 100, w: 640, h: 360 });
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    expect(saver).not.toContain('off');
+  });
+  test('error → on, but a held last frame keeps it off until the reopen', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    p.holdLastFrame!();
+    av.listener!.onerror!('PLAYER_ERROR_CONNECTION_FAILED');
+    expect(saver.at(-1)).toBe('off');
+    p.releaseLastFrame!();
+    expect(saver.at(-1)).toBe('on');
+  });
+  test('suspend → on', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    p.suspend!();
+    expect(saver.at(-1)).toBe('on');
+  });
+});

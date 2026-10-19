@@ -13,6 +13,10 @@ export interface TizenLike {
 /** The part of the `webapis` global this app uses. */
 export interface WebapisLike {
   avplay?: AvplayLike;
+  appcommon?: {
+    AppCommonScreenSaverState?: { SCREEN_SAVER_OFF: unknown; SCREEN_SAVER_ON: unknown };
+    setScreenSaver(state: unknown, success?: () => void, error?: (e: unknown) => void): void;
+  };
 }
 
 interface TizenGlobals { tizen?: TizenLike; webapis?: WebapisLike }
@@ -67,6 +71,19 @@ export function exit(g: TizenGlobals = globals()): void {
 /** `webapis.avplay` when running as a Tizen app with the AVPlay privilege, else undefined. */
 export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
   return g.webapis?.avplay;
+}
+
+/** Turns the TV's screensaver off (fullscreen video) or back on. False when the API is missing or refused. */
+export function setScreenSaver(state: 'on' | 'off', g: TizenGlobals = globals()): boolean {
+  const ac = g.webapis?.appcommon;
+  const states = ac?.AppCommonScreenSaverState;
+  if (!ac || !states) return false;
+  try {
+    ac.setScreenSaver(state === 'off' ? states.SCREEN_SAVER_OFF : states.SCREEN_SAVER_ON);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

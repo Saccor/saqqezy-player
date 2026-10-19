@@ -1,6 +1,7 @@
 import type {
   AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
@@ -201,8 +202,15 @@ export class AvplayPlayer implements Player {
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
   private suspended: { url: string; positionMs: number; wasPaused: boolean } | undefined;
+  private readonly saver: { update(i: { fullscreen: boolean; video: boolean; paused: boolean }): void } | undefined;
+  private video = false;
+  private userPaused = false;
 
-  constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size; prepareTimeoutMs?: number } = {}) {
+  constructor(
+    private readonly avplay: AvplayLike,
+    opts: { displaySpace?: Size; prepareTimeoutMs?: number; screenSaver?: (s: 'on' | 'off') => void } = {},
+  ) {
+    this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
     this.space = opts.displaySpace ?? DESIGN;
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
   }
@@ -212,6 +220,7 @@ export class AvplayPlayer implements Player {
     const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
+    this.userPaused = false;
     this.lastPosition = 0;
     this.windowCache = undefined;
     this.emit(s, 'loading');
@@ -284,7 +293,8 @@ export class AvplayPlayer implements Player {
     try {
       this.avplay.play();
       s.started = true;
-      this.releaseLastFrame();
+      this.video = true;
+      this.releaseLastFrame(); // also refreshes the screensaver
       this.emit(s, 'playing');
     } catch (e) {
       this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
@@ -302,9 +312,11 @@ export class AvplayPlayer implements Player {
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
+    this.video = false;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
     try { this.avplay.close(); } catch { /* ignore */ }
+    this.updateSaver();
   }
 
   /** VOD only: live sessions are closed and reopened by the controller instead. */
@@ -316,7 +328,10 @@ export class AvplayPlayer implements Player {
       this.avplay.suspend();
     } catch {
       this.suspended = undefined;
+      return;
     }
+    this.video = false;
+    this.updateSaver();
   }
 
   /** True when AVPlay restored the session; false means the caller reopens it. */
@@ -331,6 +346,9 @@ export class AvplayPlayer implements Player {
       return false;
     }
     this.applyDisplay();
+    this.video = true;
+    this.userPaused = sp.wasPaused;
+    this.updateSaver();
     if (sp.wasPaused) {
       try { this.avplay.pause?.(); } catch { /* stays playing */ }
       return true;
@@ -350,6 +368,7 @@ export class AvplayPlayer implements Player {
   setRect(rect: Rect | 'fullscreen'): void {
     this.rect = rect === 'fullscreen' ? FULL : { ...rect };
     if (this.session) this.applyDisplay();
+    this.updateSaver();
   }
 
   setAspect(mode: AspectMode): void {
@@ -471,6 +490,8 @@ export class AvplayPlayer implements Player {
     } catch {
       // ignore: keeps playing
     }
+    this.userPaused = true;
+    this.updateSaver();
   }
 
   play(): void {
@@ -481,6 +502,8 @@ export class AvplayPlayer implements Player {
     } catch {
       // ignore: stays paused
     }
+    this.userPaused = false;
+    this.updateSaver();
   }
 
   paused(): boolean {
@@ -579,16 +602,21 @@ export class AvplayPlayer implements Player {
     } catch {
       // not supported here: a black frame during the reconnect, as before
     }
+    this.updateSaver();
   }
 
   releaseLastFrame(): void {
-    if (!this.stillOn) return;
+    if (!this.stillOn) {
+      this.updateSaver();
+      return;
+    }
     this.stillOn = false;
     try {
       this.avplay.setVideoStillMode?.('false');
     } catch {
       // ignore
     }
+    this.updateSaver();
   }
 
   onState(fn: (s: PlayerState, detail?: StateDetail) => void): () => void {
@@ -724,8 +752,19 @@ export class AvplayPlayer implements Player {
     }
   }
 
+  /** Screensaver off only while a picture plays fullscreen (see `desiredScreenSaver`). */
+  private updateSaver(): void {
+    this.saver?.update({
+      fullscreen: isFullscreen(this.rect), video: this.video || this.stillOn, paused: this.userPaused,
+    });
+  }
+
   private emit(s: Session, state: PlayerState, detail: StateDetail = {}): void {
     if (s.dead || s !== this.session) return;
+    if (state === 'error' || state === 'idle') {
+      this.video = false;
+      this.updateSaver();
+    }
     if (state === 'error') clearTimeout(s.watchdog); // one error per attempt: the prepare watchdog must not add another
     const d: StateDetail = s.attemptId === undefined ? detail : { ...detail, attemptId: s.attemptId };
     for (const fn of [...this.listeners]) {
