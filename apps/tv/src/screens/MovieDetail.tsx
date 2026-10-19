@@ -2,6 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
+import { FAV_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
@@ -133,7 +134,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     ...(resumeMs() > 0
       ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]
       : [{ id: 'play', label: 'Play', width: 220 }]),
-    { id: 'fav', label: tile()?.favourite ? 'In favourites' : 'Add to favourites', width: 320 },
+    { id: 'fav', label: tile()?.favourite ? FAV_COPY.in : FAV_COPY.add, width: 320 },
     ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `Versions (${view()!.versions.length})`, width: 240 }] : []),
     ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
   ];

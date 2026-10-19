@@ -6,6 +6,8 @@
  * asserts they are equal to core's.
  */
 
+import { favToggleLabel } from '../copy.ts';
+
 export const NAME_MAX = 60;
 export const MAX_LISTS = 50;
 
@@ -28,7 +30,7 @@ export function buildChannelMenu(o: {
   inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[];
 }): MenuItem[] {
   const items: MenuItem[] = [
-    { action: 'toggleFavourite', label: o.isFavourite ? 'Remove from Favourites' : 'Add to Favourites' },
+    { action: 'toggleFavourite', label: favToggleLabel(o.isFavourite) },
     { action: 'addToList', label: 'Add to list…' },
   ];
   const list = o.inListId === undefined || o.inListId === FAV_LIST_ID ? undefined

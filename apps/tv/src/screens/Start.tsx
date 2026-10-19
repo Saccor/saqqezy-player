@@ -2,6 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createSignal, onCleanup, onMount } from 'solid-js';
 import { VOD_ROW_RECENT, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY, favChangedToast } from '../copy.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
@@ -128,8 +129,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     if (screenOverlayOpen()) return true;
     if (c?.type === 'channel') {
       void api.toggleFavourite(c.channel.id)
-        .then((on) => { showToast(on ? 'Added to favourites' : 'Removed from favourites'); void load(); })
-        .catch(() => showToast("Couldn't change favourites."));
+        .then((on) => { showToast(favChangedToast(on)); void load(); })
+        .catch(() => showToast(FAV_COPY.failed));
     } else if (c?.type === 'event' && c.event.sides) {
       void followMenu(c.event.sides);
     }

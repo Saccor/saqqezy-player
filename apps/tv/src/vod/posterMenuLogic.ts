@@ -1,12 +1,13 @@
 import type { EpisodeView, VodTile } from '@iptv/app-api';
 import type { SeriesPointer } from '@iptv/core';
+import { favToggleLabel } from '../copy.ts';
 
 /** The poster options menu. Pure: no Solid, no Lightning. */
 export type PosterAction = 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
 
 export function buildPosterMenu(tile: VodTile, inContinue: boolean): { action: PosterAction; label: string }[] {
   const items: { action: PosterAction; label: string }[] = [
-    tile.favourite ? { action: 'favRemove', label: 'Remove from favourites' } : { action: 'favAdd', label: 'Add to favourites' },
+    { action: tile.favourite ? 'favRemove' : 'favAdd', label: favToggleLabel(tile.favourite) },
   ];
   // Series are marked watched per episode (Plan 5).
   if (tile.kind === 'movie') items.push(tile.watched ? { action: 'unwatched', label: 'Mark as unwatched' } : { action: 'watched', label: 'Mark as watched' });

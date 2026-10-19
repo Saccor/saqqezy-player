@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
@@ -296,7 +297,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
-      { id: 'favourite', label: shown()?.favourite ? 'Remove from favourites' : 'Add to favourites' },
+      { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
     ];
   });
 
@@ -332,8 +333,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       api.toggleFavourite(ch.id).then((on) => {
         if (!alive) return;
         if (shown()?.id === ch.id) setShown({ ...ch, favourite: on });
-        showToast(on ? 'Added to favourites' : 'Removed from favourites');
-      }).catch(() => showToast("Couldn't change this channel."));
+        showToast(favChangedToast(on));
+      }).catch(() => showToast(FAV_COPY.failed));
     }
   };
 

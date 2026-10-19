@@ -25,12 +25,12 @@ describe('buildChannelMenu', () => {
     const m = buildChannelMenu(base);
     expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'hide', 'rename', 'cancel']);
     expect(m.map((i) => i.label))
-      .toEqual(['Add to Favourites', 'Add to list…', 'Hide channel', 'Rename…', 'Cancel']);
+      .toEqual(['Add to favourites', 'Add to list…', 'Hide channel', 'Rename…', 'Cancel']);
   });
 
-  it('a favourite offers "Remove from Favourites" as the first item', () => {
+  it('a favourite offers "Remove from favourites" as the first item', () => {
     const m = buildChannelMenu({ ...base, isFavourite: true });
-    expect(m[0]).toEqual({ action: 'toggleFavourite', label: 'Remove from Favourites' });
+    expect(m[0]).toEqual({ action: 'toggleFavourite', label: 'Remove from favourites' });
   });
 
   it('inside a list: adds "Remove from" with the list name after Add to list', () => {
@@ -42,7 +42,7 @@ describe('buildChannelMenu', () => {
   it('inside Favourites the quick item already removes it: no second "Remove from"', () => {
     const m = buildChannelMenu({ ...base, inListId: 'fav', isFavourite: true });
     expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'hide', 'rename', 'cancel']);
-    expect(m[0]?.label).toBe('Remove from Favourites');
+    expect(m[0]?.label).toBe('Remove from favourites');
   });
 
   it('a hidden channel offers Show instead of Hide', () => {

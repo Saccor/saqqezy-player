@@ -4,6 +4,7 @@ import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
+import { favChangedToast } from '../copy.ts';
 import { ChannelList, ROW_H } from '../components/ChannelList.tsx';
 import { PointerBar, type PointerBarItem } from '../components/PointerBar.tsx';
 import { ContextMenu } from '../components/ContextMenu.tsx';
@@ -762,7 +763,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (action === 'toggleFavourite') {
       const isFav = m.isFavourite;
       ok = await applyOps([{ op: isFav ? 'removeFromList' : 'addToList', listId: FAV_LIST_ID, channelIds: [r.id] }]);
-      if (ok) showToast(isFav ? 'Removed from Favourites' : 'Added to Favourites');
+      if (ok) showToast(favChangedToast(!isFav));
     } else if (action === 'removeFromList' && m.inListId !== undefined) {
       ok = await applyOps([{ op: 'removeFromList', listId: m.inListId, channelIds: [r.id] }]);
       const name = listsFromGroups().find((l) => l.id === m.inListId)?.name;

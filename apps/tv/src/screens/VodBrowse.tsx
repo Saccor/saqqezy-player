@@ -3,6 +3,7 @@ import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, SeriesView, VodHome, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
@@ -39,6 +40,8 @@ const HERO_X = LAYOUT.safeX;
 const HERO_Y = 200;
 const HERO_W = 860;
 const ROW_LABEL_Y = 610;
+/** A row's title line: a long category name (fed by the source's own names) ends inside the safe area. */
+const ROW_TITLE_W = LAYOUT.width - LAYOUT.safeX * 2;
 const NEXT_LABEL_Y = ROW_LABEL_Y + 44 + POSTER_H + 36;
 const HERO_SETTLE_MS = 400;
 const ART_X = 640;
@@ -59,8 +62,8 @@ const memories = new Map<string, BrowseMemory>();
 const memoryFor = (key: string): BrowseMemory => lruGet(memories, key, () => ({ focus: { row: 0, col: 0 }, cols: new Map() }), MEMORY_MAX);
 
 const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
-const FAV_ADD_ACTION = { id: 'fav', label: 'Add to favourites', width: 300 };
-const FAV_ON_ACTION = { id: 'fav', label: 'In favourites', width: 300 };
+const FAV_ADD_ACTION = { id: 'fav', label: FAV_COPY.add, width: 300 };
+const FAV_ON_ACTION = { id: 'fav', label: FAV_COPY.in, width: 300 };
 
 /**
  * Movies or Series browse (`params.kind`): the tab bar, a hero for the focused title, and poster rows (Continue watching,
@@ -513,7 +516,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
             const y = () => (i === focus().row ? ROW_LABEL_Y : NEXT_LABEL_Y);
             return (
               <View y={y()}>
-                <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
+                <Text x={LAYOUT.safeX} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
                 <PosterRow x={LAYOUT.safeX} y={44} width={LAYOUT.width - LAYOUT.safeX} row={r()}
                   focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                   onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
