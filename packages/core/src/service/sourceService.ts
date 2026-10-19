@@ -392,6 +392,7 @@ export class SourceService {
     const coverage = new Set<string>();
     const titles = new TitleIndexBuilder();
     const sports = new SportsIndexBuilder(now);
+    let sportsOk = true;
     let storageFailure: { error: unknown } | undefined;
     const store = async (rows: Programme[]) => {
       try {
@@ -411,7 +412,14 @@ export class SourceService {
         if (!key || !inWindow(item.programme, now)) continue;
         batch.push({ ...item.programme, epgId: key });
         titles.add(item.programme.title, key, item.programme.start, item.programme.stop);
-        sports.add(item.programme, item.extra, key);
+        if (sportsOk) {
+          try {
+            sports.add(item.programme, item.extra, key);
+          } catch {
+            // Sports is optional: stop adding and store no record; the guide import goes on.
+            sportsOk = false;
+          }
+        }
         coverage.add(key);
         if (batch.length >= EPG_BATCH) {
           await store(batch);
@@ -455,7 +463,7 @@ export class SourceService {
     }
     // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
     try {
-      await this.storage.setMeta(sportsIndexKey(id), { gen: newGen, built: now, candidates: sports.build(), truncated: sports.truncated } satisfies SportsIndexRecord);
+      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? { gen: newGen, built: now, candidates: sports.build(), truncated: sports.truncated } satisfies SportsIndexRecord : null);
     } catch {
       try {
         await this.storage.setMeta(sportsIndexKey(id), null);

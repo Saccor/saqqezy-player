@@ -1,11 +1,17 @@
 import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceService, emptyIfUnsupported } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
+
+const detectFlags = vi.hoisted(() => ({ throwOnScore: false }));
+vi.mock('../src/sports/detect.ts', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/sports/detect.ts')>();
+  return { ...real, scoreProgramme: (...a: Parameters<typeof real.scoreProgramme>) => { if (detectFlags.throwOnScore) throw new Error('boom'); return real.scoreProgramme(...a); } };
+});
 
 const m3u = readFileSync(new URL('./fixtures/basic.m3u', import.meta.url), 'utf8');
 const xml = readFileSync(new URL('./fixtures/basic.xml', import.meta.url), 'utf8');
@@ -1346,6 +1352,19 @@ describe('SourceService – sports index', () => {
     const rec = (await service.sportsIndexFor(source.id))!;
     expect(rec.gen).toBe(await storage.getMeta(`epgGen:${source.id}`));
     expect(rec.candidates.map((c) => [c.epgKey, c.title])).toEqual([['ch1.test', 'Northbridge FC v Eastport']]);
+  });
+
+  test('a throwing sports scorer never fails the guide import and leaves no sports record', async () => {
+    routes['/epg.xml'] = () => new Response(sportsXml('20261013170000 +0000', '20261013190000 +0000'));
+    const { source } = await service.addSource(m3uInput);
+    detectFlags.throwOnScore = true;
+    try {
+      await expect(service.refreshEpg(source.id)).resolves.toMatchObject({ programmes: 2 });
+    } finally {
+      detectFlags.throwOnScore = false;
+    }
+    expect(await service.sportsIndexFor(source.id)).toBeUndefined();
+    expect(await storage.getMeta(`sportsIndex:${source.id}`)).toBeNull();
   });
 
   test('a record from another generation reads as missing; clearing the guide clears it', async () => {

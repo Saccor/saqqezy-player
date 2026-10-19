@@ -39,7 +39,7 @@ export class SportsIndexBuilder {
     const c: SportsCandidate = { epgKey: copyString(epgKey), start: p.start, stop: p.stop, title, nt: foldText(title), live: d.live };
     if (d.sides) {
       c.sides = [copyString(d.sides[0]), copyString(d.sides[1])];
-      c.ns = [normSide(d.sides[0]), normSide(d.sides[1])];
+      c.ns = [normSide(c.sides[0]), normSide(c.sides[1])];
     }
     if (extra?.subTitle) c.subTitle = copyString(extra.subTitle);
     if (extra?.icon) c.icon = copyString(extra.icon);
