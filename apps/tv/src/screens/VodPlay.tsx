@@ -34,12 +34,16 @@ import {
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import {
-  LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, pickSubtitle, subtitleExtraRows,
+  FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageRows,
+  pickSubtitle, subtitleExtraRows,
 } from '../vod/subtitleLogic.ts';
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const SUB_URL_ID = 'vodSubtitleLink';
+const SUB_ONLINE_ID = 'vodSubtitleOnline';
+/** OpenSubtitles' free plan asks for this line wherever its subtitles are picked. */
+const ONLINE_ATTRIBUTION = 'Subtitles provided by OpenSubtitles.com';
 /** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
 const EXT_SUB_POLL_MS = 250;
 /** A file picker exists on computers only (TV engines have no file dialog). */
@@ -107,6 +111,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const [linkText, setLinkText] = createSignal<string | undefined>(undefined);
   const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
   const [subBusy, setSubBusy] = createSignal(false);
+  /** "Find subtitles online" is set up (the worker has the service's key). */
+  const [onlineOk, setOnlineOk] = createSignal(false);
+  /** The "Subtitles online" picker's rows (undefined: closed). */
+  const [onlineRows, setOnlineRows] = createSignal<PickerRow[] | undefined>(undefined);
 
   let root: ElementNode | undefined;
   let barNode: ElementNode | undefined;
@@ -114,6 +122,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let pickerNode: ElementNode | undefined;
   let keyboardNode: ElementNode | undefined;
   let removeLinkEntry: (() => void) | undefined;
+  let onlineNode: ElementNode | undefined;
+  let removeOnline: (() => void) | undefined;
+  /** Bumped per search, so a search answered after its picker closed changes nothing. */
+  let onlineSearch = 0;
   let cardNode: ElementNode | undefined;
   let barFocused = false;
   let timelineFocused = false;
@@ -205,6 +217,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!alive) return;
     closePicker();
     closeLinkEntry();
+    closeOnline();
     if (saveFirst) save();
     stopOurs();
     alive = false;
@@ -344,7 +357,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
     const base = trackRows(playback.audioTracks(), playback.textTracks())
       .map((r) => (r.kind === 'list' && r.id === SUBTITLES_OFF && on ? { ...r, checked: false } : r));
-    return [...base, ...subtitleExtraRows({ external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE })];
+    return [...base, ...subtitleExtraRows({
+      external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
+    })];
   };
   /** Engines may report the new active track a moment later: read the rows now and once more shortly after. */
   const refreshRows = () => {
@@ -360,6 +375,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const pickTrack = (row: PickerRow) => {
     if (row.kind !== 'list') return;
+    if (row.id === FIND_ONLINE_ROW) {
+      closePicker();
+      openOnline();
+      return;
+    }
     if (row.id === LOAD_URL_ROW) {
       closePicker();
       openLinkEntry();
@@ -420,11 +440,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
 
   /** Loads, keeps and turns on a subtitle file; returns the error to show (a message meant for the user). */
-  const loadSubtitle = async (input: SubtitleInput): Promise<string | undefined> => {
+  const loadSubtitle = (input: SubtitleInput) => loadWith(() => api.loadSubtitle(p.itemId, input));
+
+  const loadWith = async (load: () => Promise<LoadedSubtitle>): Promise<string | undefined> => {
     if (subBusy()) return undefined;
     setSubBusy(true);
     try {
-      const loaded = await api.loadSubtitle(p.itemId, input);
+      const loaded = await load();
       if (!alive) return undefined;
       setExternal(loaded);
       useExternal();
@@ -436,6 +458,57 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     } finally {
       setSubBusy(false);
     }
+  };
+
+  // ---- subtitles found online ----
+
+  function closeOnline() {
+    onlineSearch++;
+    removeOnline?.();
+    removeOnline = undefined;
+    setOnlineRows(undefined);
+  }
+
+  /** The "Subtitles online" picker: a searching row at once, then one row per language found for this title. */
+  const openOnline = () => {
+    const search = ++onlineSearch;
+    setOnlineRows([{ kind: 'list', id: 'searching', label: 'Searching…', checked: false }]);
+    removeOnline = router.pushOverlay(SUB_ONLINE_ID, () => {
+      onlineSearch++;
+      removeOnline = undefined;
+      setOnlineRows(undefined);
+      focusBarOrRoot();
+    });
+    queueMicrotask(() => { if (alive) onlineNode?.setFocus(); });
+    api.findSubtitlesOnline(p.itemId, p.series?.id).then((langs) => {
+      if (!alive || search !== onlineSearch) return;
+      if (langs.length === 0) {
+        closeOnline();
+        focusBarOrRoot();
+        showToast('No subtitles found online for this title.');
+        return;
+      }
+      setOnlineRows(onlineLanguageRows(langs));
+    }, (err) => {
+      console.warn('Subtitle search failed', errName(err));
+      if (!alive || search !== onlineSearch) return;
+      closeOnline();
+      focusBarOrRoot();
+      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't search for subtitles.");
+    });
+  };
+
+  /** A language picked: download its best file and turn it on. */
+  const pickOnline = (row: PickerRow) => {
+    if (row.kind !== 'list') return;
+    const fileId = onlineFileId(row.id);
+    if (fileId === undefined || subBusy()) return;
+    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, row.label)).then((error) => {
+      if (!alive) return;
+      closeOnline();
+      focusBarOrRoot();
+      if (error) showToast(error);
+    });
   };
 
   function closeLinkEntry() {
@@ -783,6 +856,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const offKeys = onLogicalKey(() => bump());
     const offSubs = playback.onSubtitle((text) => { if (alive && !extOn()) setCue(cueText(text)); });
     // The subtitles loaded earlier for this title: shown when chosen (the tracks may already have been applied).
+    api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });
     api.getSubtitle(p.itemId).then((loaded) => {
       if (!alive || !loaded) return;
       setExternal(loaded);
@@ -807,6 +881,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     router.removeOverlay(TRACKS_ID);
     removeLinkEntry?.();
     router.removeOverlay(SUB_URL_ID);
+    removeOnline?.();
+    router.removeOverlay(SUB_ONLINE_ID);
     stopOurs();
   });
 
@@ -914,6 +990,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack}
           hint="Ok chooses · Back closes" />
       </Show>
+
+      <Show when={onlineRows()}>{(list) => (
+        <ListPicker ref={(el) => { onlineNode = el; }} title="Subtitles online" rows={list()} onPick={pickOnline}
+          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
+      )}</Show>
 
       <Show when={linkText() !== undefined}>
         <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={0x000000b3}>

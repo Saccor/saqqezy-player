@@ -79,6 +79,8 @@ export interface MovieDetail {
   cast?: string;
   ageRating?: string;
   backdrop?: string;
+  /** The Movie Database id (Xtream `tmdb_id` / `tmdb`): finds this title's subtitles online. */
+  tmdbId?: number;
 }
 
 export interface SeriesDetail extends Omit<MovieDetail, 'runtimeMin'> {

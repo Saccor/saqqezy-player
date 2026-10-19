@@ -1,4 +1,4 @@
-import { API_TIMEOUT_MS, SourceService, SubtitleService, VodService, withTimeout } from '@iptv/core';
+import { API_TIMEOUT_MS, OpenSubtitlesClient, SourceService, SubtitleService, VodService, withTimeout } from '@iptv/core';
 import { IdbStorage } from '@iptv/storage';
 import { APP_API_METHODS, AppApi, CompanionHost, expose, type AppEvent, type PortLike } from '@iptv/app-api';
 import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-protocol';
@@ -14,6 +14,21 @@ const service = new SourceService({ storage, fetch: fetchFn });
 const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard });
 // Subtitles the user loads from a link or a file: fetched and kept on this device only.
 const subtitles = new SubtitleService({ storage, fetch: fetchFn });
+// Subtitles found online (OpenSubtitles.com), straight from the device. The app's key comes from
+// apps/tv/.env.local (git-ignored); without it "Find subtitles online" is not offered. VITE_OPENSUBTITLES_URL
+// points at another server with the same API (the fake provider's: http://127.0.0.1:8899/opensubtitles/api/v1).
+const OPENSUBTITLES_KEY = ((import.meta.env.VITE_OPENSUBTITLES_API_KEY as string | undefined) ?? '').trim();
+const OPENSUBTITLES_URL = ((import.meta.env.VITE_OPENSUBTITLES_URL as string | undefined) ?? '').trim();
+const onlineSubtitles = OPENSUBTITLES_KEY
+  ? new OpenSubtitlesClient({
+    // The API answers CORS itself, and the dev proxy forwards GET only (download links are POST).
+    apiFetch: withTimeout((url, init) => fetch(url, init), API_TIMEOUT_MS),
+    fileFetch: fetchFn,
+    apiKey: OPENSUBTITLES_KEY,
+    ...(OPENSUBTITLES_URL ? { baseUrl: OPENSUBTITLES_URL } : {}),
+    appName: 'SaqqezyPlayer v0.0.0',
+  })
+  : undefined;
 
 // Phone companion. The relay only ever sees ciphertext; never log these URLs (they carry the session id).
 const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787').replace(/\/+$/, '');
@@ -26,6 +41,7 @@ const api = new AppApi({
   storage,
   vod,
   subtitles,
+  onlineSubtitles,
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,
   companion: (appApi, onStatus) => new CompanionHost({

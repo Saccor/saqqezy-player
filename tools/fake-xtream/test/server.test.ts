@@ -114,7 +114,7 @@ describe('fake xtream + SourceService end to end', () => {
     const opts = await fetch(`${server.url}/player_api.php`, { method: 'OPTIONS' });
     expect(opts.status).toBe(204);
     expect(opts.headers.get('access-control-allow-origin')).toBe('*');
-    expect(opts.headers.get('access-control-allow-methods')).toBe('GET, OPTIONS');
+    expect(opts.headers.get('access-control-allow-methods')).toBe('GET, POST, OPTIONS');
     expect(opts.headers.get('access-control-allow-headers')).toBe('*');
   });
 });
@@ -219,5 +219,43 @@ describe('fake xtream VOD end to end', () => {
     expect(result).toEqual({ channelCount: 40, skipped: 0, movieCount: 6, seriesCount: 1 });
     const show = (await vod.loadCatalog(source.id, 'series')).slice('all', 'title', 0, 1).rows[0]!;
     expect((await vod.seriesDetail(source.id, show)).seasons.map((s) => s.episodes.length)).toEqual([3, 3]);
+  });
+});
+
+describe('fake OpenSubtitles service', () => {
+  const OS = () => `${server.url}/opensubtitles/api/v1`;
+  const key = { 'Api-Key': 'fake-key', 'X-User-Agent': 'Test v0' };
+
+  test('movies and series carry synthetic TMDB ids', async () => {
+    const api = (q: string) => fetch(`${server.url}/player_api.php?username=test&password=test&${q}`).then((r) => r.json());
+    expect((await api('action=get_vod_info&vod_id=3')).info.tmdb_id).toBe('900003');
+    expect((await api('action=get_series_info&series_id=2')).info.tmdb).toBe('800002');
+  });
+
+  test('search lists synthetic subtitles in several languages for any title; languages filter them', async () => {
+    const all = await (await fetch(`${OS()}/subtitles?tmdb_id=900003`, { headers: key })).json();
+    const langs = all.data.map((d: { attributes: { language: string } }) => d.attributes.language);
+    expect(new Set(langs)).toEqual(new Set(['en', 'sv', 'de', 'fr', 'es']));
+    expect(all.data[0].attributes.files[0].file_id).toEqual(expect.any(Number));
+    const sv = await (await fetch(`${OS()}/subtitles?languages=sv&tmdb_id=900003`, { headers: key })).json();
+    expect(sv.data.every((d: { attributes: { language: string } }) => d.attributes.language === 'sv')).toBe(true);
+  });
+
+  test('download gives a link to a synthetic SRT; a wrong key is 401; file id 999 is over the quota', async () => {
+    const res = await fetch(`${OS()}/download`, { method: 'POST', headers: { ...key, 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: 3002 }) });
+    const body = await res.json();
+    expect(body.link).toBe(`${server.url}/opensubtitles/file/3002.srt`);
+    const file = await (await fetch(body.link)).text();
+    expect(file).toMatch(/^1\n00:00:01,000 --> /);
+    expect(file).toContain('Synthetic subtitle');
+    expect((await fetch(`${OS()}/subtitles?tmdb_id=1`, { headers: { 'Api-Key': 'wrong' } })).status).toBe(401);
+    const over = await fetch(`${OS()}/download`, { method: 'POST', headers: { ...key, 'Content-Type': 'application/json' }, body: JSON.stringify({ file_id: 999 }) });
+    expect(over.status).toBe(406);
+  });
+
+  test('preflight allows POST and the key headers', async () => {
+    const pre = await fetch(`${OS()}/download`, { method: 'OPTIONS' });
+    expect(pre.headers.get('access-control-allow-methods')).toContain('POST');
+    expect(pre.headers.get('access-control-allow-headers')).toBe('*');
   });
 });

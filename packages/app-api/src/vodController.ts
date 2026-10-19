@@ -1,8 +1,8 @@
 import {
   VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  buildVodSearchIndex, searchKey, searchVodIndex, vodIndexEntry,
+  buildVodSearchIndex, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
-  type VodList, type VodUserRecord, type VodUserState,
+  type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type {
@@ -336,6 +336,34 @@ export class VodController {
     const prev = prevEpisode(detail.seasons, itemId);
     if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };
     return out;
+  }
+
+  /**
+   * What finds this movie's or episode's subtitles online: the TMDB id when the provider sends one (an episode: its
+   * series' id plus season and episode), else the cleaned title (with the year, or season and episode).
+   */
+  async subtitleSearch(itemId: string, seriesId?: string): Promise<SubtitleSearch | undefined> {
+    const src = this.sourceId;
+    if (!src) return undefined;
+    const epoch = this.epoch;
+    if (seriesId === undefined) {
+      const item = (await this.catalog('movie'))?.byId(itemId);
+      if (!item || this.epoch !== epoch) return undefined;
+      const detail = await this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item));
+      if (this.epoch !== epoch) return undefined;
+      if (detail?.tmdbId) return { tmdbId: detail.tmdbId };
+      const t = searchTitle(item.title);
+      const year = item.year ?? t.year;
+      return year ? { query: t.title, year } : { query: t.title };
+    }
+    const show = (await this.catalog('series'))?.byId(seriesId);
+    if (!show || this.epoch !== epoch) return undefined;
+    const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show));
+    if (this.epoch !== epoch || !detail) return undefined;
+    const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
+    if (!ep) return undefined;
+    if (detail.tmdbId) return { parentTmdbId: detail.tmdbId, season: ep.season, episode: ep.episode };
+    return { query: searchTitle(show.title).title, season: ep.season, episode: ep.episode };
   }
 
   saveProgress(itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<void> {

@@ -182,6 +182,14 @@ export interface VodCategoryView { id: string; name: string; count: number }
 
 export interface VodTracks { audio?: string; subtitle?: string }
 
+/** One language a title has subtitles in online: how many files, and the file a click loads. */
+export interface OnlineSubtitleLanguage {
+  /** ISO 639-1, sometimes with a region ("pt-BR"). */
+  language: string;
+  count: number;
+  fileId: number;
+}
+
 export interface MovieView {
   tile: VodTile;
   /** `null` when the detail could not be loaded (the list fields still show, Play still works). */

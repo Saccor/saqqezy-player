@@ -58,3 +58,7 @@ export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type Subtitl
 export {
   SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';
+export {
+  OpenSubtitlesClient, bestSubtitle, languageChoices, searchParams, searchTitle,
+  type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
+} from './subtitles/openSubtitles.ts';

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import { SUBTITLE_LANGUAGES, sanitizeSettings } from '@iptv/core';
 import {
-  LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, languageName,
-  pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
+  FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, languageName,
+  onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
 } from './subtitleLogic.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
@@ -79,6 +79,33 @@ describe('pickSubtitle', () => {
 
   it('the loaded file chosen for a series but missing for this episode: the preferred language', () => {
     expect(pickSubtitle({ chosen: SUBTITLE_KEY_EXT, texts, hasExternal: false, preferred: 'sv' })).toEqual({ kind: 'track', id: '2' });
+  });
+});
+
+describe('online subtitles', () => {
+  it('one row per language, named, with an id that carries the file to load', () => {
+    expect(onlineLanguageRows([{ language: 'sv', count: 2, fileId: 2001 }, { language: 'en', count: 3, fileId: 1001 }])).toEqual([
+      { kind: 'list', id: 'os:2001', label: 'Swedish', checked: false },
+      { kind: 'list', id: 'os:1001', label: 'English', checked: false },
+    ]);
+  });
+
+  it('regional variants keep their region; unknown codes show the code', () => {
+    expect(onlineLanguageRows([{ language: 'pt-BR', count: 1, fileId: 1 }, { language: 'pt-PT', count: 1, fileId: 2 }, { language: 'zz', count: 1, fileId: 3 }])
+      .map((r) => r.kind === 'list' && r.label)).toEqual(['Portuguese (BR)', 'Portuguese (PT)', 'ZZ']);
+  });
+
+  it('the file id back from a row id, else undefined', () => {
+    expect(onlineFileId('os:2001')).toBe(2001);
+    expect(onlineFileId('s:1')).toBeUndefined();
+    expect(onlineFileId('os:x')).toBeUndefined();
+  });
+
+  it('the find row comes first among the extra rows when the service is set up', () => {
+    expect(subtitleExtraRows({ canLoadFile: false, canSearchOnline: true })[0]).toEqual(
+      { kind: 'list', id: FIND_ONLINE_ROW, label: 'Find subtitles online…', checked: false },
+    );
+    expect(FIND_ONLINE_ROW).not.toMatch(/^(a|s|os):/);
   });
 });
 

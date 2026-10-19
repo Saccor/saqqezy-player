@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
 } from './data.ts';
+import { handleOpenSubtitles } from './openSubtitles.ts';
 
 export interface FakeXtreamOptions {
   port?: number;
@@ -73,7 +74,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     // The player's status probe reads Retry-After cross-origin.
     res.setHeader('access-control-expose-headers', 'Retry-After');
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, { 'access-control-allow-methods': 'GET, OPTIONS', 'access-control-allow-headers': '*' });
+      res.writeHead(204, { 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': '*' });
       return res.end();
     }
 
@@ -86,6 +87,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       return send(res, 200, JSON.stringify({ refusing, refused: refusedCount }));
     }
+    if (await handleOpenSubtitles(req, res, url, base)) return;
     if (refusing) {
       refusedCount++;
       return send(res, 403, '');
@@ -175,7 +177,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
           info: {
             plot: `Synthetic plot for ${m.name}.`, duration_secs: String(5400 + m.n * 60), genre: MOVIE_GROUPS[Number(m.categoryId) - 1],
             director: 'Synthetic Director', cast: 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
-            backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`,
+            backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`, tmdb_id: String(900000 + m.n),
           },
           movie_data: { stream_id: m.n, name: m.name, container_extension: movieExt(m.n) },
         }));
@@ -203,7 +205,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         }
         return send(res, 200, JSON.stringify({
           seasons: Array.from({ length: s.seasons }, (_, i) => ({ season_number: i + 1, name: `Season ${i + 1}` })),
-          info: { name: s.name, plot: `Synthetic plot for ${s.name}.`, genre: SERIES_GROUPS[Number(s.categoryId) - 1], backdrop_path: [`${base}/poster/b${s.n}.svg`] },
+          info: {
+            name: s.name, plot: `Synthetic plot for ${s.name}.`, genre: SERIES_GROUPS[Number(s.categoryId) - 1], backdrop_path: [`${base}/poster/b${s.n}.svg`],
+            tmdb: String(800000 + s.n),
+          },
           episodes,
         }));
       }

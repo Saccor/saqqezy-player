@@ -477,6 +477,32 @@ describe('VodController detail views and playable', () => {
     expect(e.series?.next).toMatchObject({ season: 1, episode: 2 });
     expect(await c.playable('nope', showId)).toBeUndefined();
   });
+
+  test('subtitleSearch: the TMDB id from the detail (the series id plus season and episode for episodes)', async () => {
+    const { c } = await setup();
+    await c.refresh('movie');
+    const movieId = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!.id;
+    const n = Number(movieId.split(':m')[1]);
+    expect(await c.subtitleSearch(movieId)).toEqual({ tmdbId: 900000 + n });
+
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const s = Number(showId.split(':s')[1]);
+    const second = (await c.series(showId))!.seasons[0]!.episodes[1]!;
+    expect(await c.subtitleSearch(second.id, showId)).toEqual({ parentTmdbId: 800000 + s, season: 1, episode: 2 });
+    expect(await c.subtitleSearch('nope')).toBeUndefined();
+    expect(await c.subtitleSearch('nope', showId)).toBeUndefined();
+  });
+
+  test('subtitleSearch without ids (M3U): the cleaned title and year; episodes add season and episode', async () => {
+    const { c } = await setup('m3u');
+    await c.refresh('movie');
+    const movie = (await c.slice('movie', 'all', 'title', 0, 1)).rows[0]!;
+    const q = (await c.subtitleSearch(movie.id))!;
+    expect(q.tmdbId).toBeUndefined();
+    expect(q.query).toMatch(/^Synthetic Film \d+$/);
+    expect(q.year).toBe(movie.year);
+  });
 });
 
 const range = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
