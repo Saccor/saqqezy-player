@@ -10,7 +10,8 @@ import { installKeys, onUserGesture } from './input/keys.ts';
 import { installPointer } from './input/pointer.ts';
 import { installFormatReport } from './playback/formatReport.ts';
 import { playback, player, supervisor, videoLayer as layer } from './playback/playback.ts';
-import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
+import { DESIGN_HEIGHT, DESIGN_WIDTH } from './video/videoLayer.ts';
+import { renderPixelRatios } from './video/renderScale.ts';
 // Applies the saved volume to the player before anything plays (Home's preview too).
 import './video/volume.ts';
 import { platformId } from './state/appState.ts';
@@ -24,11 +25,14 @@ Config.animationsEnabled = true;
 const appRoot = document.getElementById('app');
 if (!appRoot) throw new Error('index.html is missing #app');
 
+// TVs draw a 1920×1080 buffer whatever their graphics plane (see renderScale.ts); the canvas still fills the viewport.
+const ratios = renderPixelRatios(platformId);
 const { render, renderer } = createRenderer(
   {
     appWidth: DESIGN_WIDTH,
     appHeight: DESIGN_HEIGHT,
-    deviceLogicalPixelRatio: designScale(),
+    deviceLogicalPixelRatio: ratios.logical,
+    devicePhysicalPixelRatio: ratios.physical,
     // Fully transparent: the <video> beneath shows wherever nothing is drawn.
     clearColor: 0x00000000,
     renderEngine: WebGlRenderer,
@@ -50,7 +54,8 @@ const { render, renderer } = createRenderer(
 registerDefaultShaders((renderer as RendererMain).stage.shManager);
 
 window.addEventListener('resize', () => {
-  (renderer as RendererMain).setOptions({ deviceLogicalPixelRatio: designScale() });
+  const next = renderPixelRatios(platformId);
+  (renderer as RendererMain).setOptions({ deviceLogicalPixelRatio: next.logical, devicePhysicalPixelRatio: next.physical });
   layer.relayout();
 });
 
