@@ -26,7 +26,7 @@ import { volumeStep, volumeSupported } from '../video/volume.ts';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
-  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
+  commitDelayMs, dragScrub, holdPress, mediaKeyAction, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
@@ -748,6 +748,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     focusTimeline();
     return scrubKey(key);
   };
+  /** Play, Pause, Stop, Fast-forward and Rewind (remote media keys); Stop is Back. */
+  const mediaKey = (key: 'Play' | 'Pause' | 'Stop' | 'FastForward' | 'Rewind') => {
+    const act = mediaKeyAction(key, { paused: playback.paused(), blocked: failed() !== undefined || ended() });
+    if (act === 'stop') return onBack();
+    if (act === 'toggle') togglePause();
+    else if (act === 'forward') scrubPress(1, SKIP_LONG_MS, 'skip');
+    else if (act === 'back') scrubPress(-1, SKIP_LONG_MS, 'skip');
+    return true;
+  };
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the picker first
     if (scrub() !== undefined || dragging()) {
@@ -930,6 +939,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onLeft={() => rootScrub('Left')} onRight={() => rootScrub('Right')}
       onUp={focusTimeline} onDown={focusTimeline}
       onPlayPause={() => (failed() || ended() ? true : togglePause())}
+      onPlay={() => mediaKey('Play')} onPause={() => mediaKey('Pause')} onStop={() => mediaKey('Stop')}
+      onFastForward={() => mediaKey('FastForward')} onRewind={() => mediaKey('Rewind')}
       onChannelUp={nextNow} onChannelDown={prevNow}>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}

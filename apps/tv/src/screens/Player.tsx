@@ -483,6 +483,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View ref={root} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
+      onStop={() => (onBack() ? true : (leave(), true))} onPlay={() => true} onPause={() => true}
       onUp={unlessModal(() => zap(1))} onDown={unlessModal(() => zap(-1))}
       onChannelUp={unlessModal(() => zap(1))} onChannelDown={unlessModal(() => zap(-1))}
       onLeft={() => true} onRight={() => true}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HOLD_GAP_MS, SKIP_LONG_MS, commitDelayMs, dragScrub, holdPress, jumpLabel, pressScrub, seekStep } from './seekLogic.ts';
+import { HOLD_GAP_MS, SKIP_LONG_MS, mediaKeyAction, commitDelayMs, dragScrub, holdPress, jumpLabel, pressScrub, seekStep } from './seekLogic.ts';
 
 describe('seekStep', () => {
   it('accelerates with the hold time', () => {
@@ -85,5 +85,27 @@ describe('holdPress', () => {
     expect(holdPress(a.run, 'Left', 1100).heldMs).toBe(0);
     expect(holdPress(a.run, 'Right', 1000 + HOLD_GAP_MS + 1).heldMs).toBe(0);
     expect(holdPress(a.run, 'Right', 1000 + HOLD_GAP_MS).heldMs).toBe(HOLD_GAP_MS);
+  });
+});
+
+describe('mediaKeyAction', () => {
+  const run = { paused: false, blocked: false };
+  const held = { paused: true, blocked: false };
+  it('Play only resumes; Pause only pauses', () => {
+    expect(mediaKeyAction('Play', held)).toBe('toggle');
+    expect(mediaKeyAction('Play', run)).toBe('none');
+    expect(mediaKeyAction('Pause', run)).toBe('toggle');
+    expect(mediaKeyAction('Pause', held)).toBe('none');
+  });
+  it('does nothing to playback when failed or ended', () => {
+    expect(mediaKeyAction('Play', { paused: true, blocked: true })).toBe('none');
+    expect(mediaKeyAction('Pause', { paused: false, blocked: true })).toBe('none');
+    expect(mediaKeyAction('FastForward', { paused: false, blocked: true })).toBe('none');
+    expect(mediaKeyAction('Rewind', { paused: false, blocked: true })).toBe('none');
+  });
+  it('steps 30 s and stops like Back', () => {
+    expect(mediaKeyAction('FastForward', run)).toBe('forward');
+    expect(mediaKeyAction('Rewind', held)).toBe('back');
+    expect(mediaKeyAction('Stop', { paused: false, blocked: true })).toBe('stop');
   });
 });
