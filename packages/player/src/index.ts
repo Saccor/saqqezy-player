@@ -6,3 +6,4 @@ export * from './presets.ts';
 export * from './recovery.ts';
 export * from './liveDelay.ts';
 export * from './journal.ts';
+export * from './caps/index.ts';

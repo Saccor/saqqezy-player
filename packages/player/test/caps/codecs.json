@@ -1,0 +1,18 @@
+{
+  "audio": [
+    ["mp4a.40.2", "aac"], ["mp4a.40.5", "aac"], ["AAC", "aac"], ["aac", "aac"], ["audio/mp4a-latm", "aac"],
+    ["ac-3", "ac3"], ["AC3", "ac3"], ["audio/ac3", "ac3"], ["A_AC3", "ac3"],
+    ["ec-3", "eac3"], ["EAC3", "eac3"], ["eac3", "eac3"], ["audio/eac3", "eac3"], ["A_EAC3", "eac3"],
+    ["audio/eac3-joc", "eac3joc"], ["ec+3", "eac3joc"],
+    ["mlpa", "truehd"], ["TRUEHD", "truehd"], ["truehd", "truehd"], ["MLP", "truehd"], ["audio/true-hd", "truehd"], ["A_TRUEHD", "truehd"],
+    ["dtsc", "dts"], ["DTS", "dts"], ["DCA", "dts"], ["dts", "dts"], ["audio/vnd.dts", "dts"], ["A_DTS", "dts"],
+    ["dtse", "dtshd"], ["dtsh", "dtshd"], ["dtsl", "dtshd"], ["audio/vnd.dts.hd", "dtshd"], ["dtsx", "dtshd"],
+    ["mp2", "mp2"], ["MPEG", "mp2"], ["mp4a.40.34", "mp2"], ["mp3", "mp3"], ["MP3", "mp3"], ["mp4a.6B", "mp3"], ["mp4a.69", "mp3"],
+    ["opus", "opus"], ["Opus", "opus"], ["flac", "flac"], ["fLaC", "flac"], ["ac-4", "ac4"], ["pcm_s16le", "pcm"], ["lpcm", "pcm"]
+  ],
+  "audioUnknown": ["", "xyz", "mp4a", "vorbis2"],
+  "video": [
+    ["avc1.640028", "h264"], ["H264", "h264"], ["h264", "h264"], ["hvc1.1.6.L120.90", "hevc"], ["hev1.2.4.L153.B0", "hevc10"],
+    ["HEVC", "hevc"], ["hevc", "hevc"], ["av01.0.08M.10", "av1"], ["vp09.02.40.10", "vp9"], ["mpeg2video", "mpeg2"], ["MPEG2", "mpeg2"]
+  ]
+}
