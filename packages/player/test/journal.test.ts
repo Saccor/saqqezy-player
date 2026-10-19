@@ -134,3 +134,16 @@ describe('PlaybackJournal', () => {
     expect(j.entries()).toEqual([stop(2)]);
   });
 });
+
+describe('new kinds', () => {
+  it.each([
+    { k: 'app', t: 1, what: 'workerCrash' },
+    { k: 'app', t: 1, what: 'error', name: 'TypeError' },
+    { k: 'audio', t: 1, action: 'switch', from: 'dts', to: 'aac', because: 'codec' },
+    { k: 'engineSwitch', t: 1, from: 'mpegts.js', to: 'native', reason: 'noAudio' },
+    { k: 'beta', t: 1, what: 'manifestOk' },
+  ])('keeps %j', (e) => expect(sanitizeEvent(e)).toEqual(e));
+  it('drops a name that is free text', () => {
+    expect(sanitizeEvent({ k: 'app', t: 1, what: 'error', name: 'http://x/y' })).toEqual({ k: 'app', t: 1, what: 'error' });
+  });
+});

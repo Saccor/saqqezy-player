@@ -20,7 +20,12 @@ export type JournalEvent =
   | { k: 'drift'; t: number; action: 'seek' | 'reopen' | 'rate'; behindS?: number; targetS: number; rate?: number }
   | { k: 'failed'; t: number; reason: 'unavailable' | 'unsupported' | 'refused' | 'gone' }
   | { k: 'giveUpRetry'; t: number }
-  | { k: 'stop'; t: number };
+  | { k: 'stop'; t: number }
+  /** An app-level fault. `name` is an error class name (a token), never a message. */
+  | { k: 'app'; t: number; what: 'error' | 'rejection' | 'workerError' | 'workerCrash' | 'workerRestart' | 'workerGaveUp'; name?: string }
+  | { k: 'audio'; t: number; action: 'switch' | 'none'; from?: string; to?: string; because?: 'codec' | 'language' }
+  | { k: 'engineSwitch'; t: number; from: EngineName; to: EngineName; reason: string }
+  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 /** A journal event before its time stamp is added. */
@@ -38,6 +43,7 @@ export interface JournalOptions {
 
 const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop',
+  'app', 'audio', 'engineSwitch', 'beta',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
 const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;

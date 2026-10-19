@@ -1,8 +1,48 @@
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'buffering' | 'error';
 export interface Rect { x: number; y: number; w: number; h: number } // in 1920x1080 design space
 export type AspectMode = 'auto' | '16:9' | '4:3' | 'zoom' | 'stretch';
-export interface TrackInfo { id: string; label: string; language?: string; active: boolean }
-export interface StreamInfo { width?: number; height?: number; videoCodec?: string; audioCodec?: string; bitrate?: number; fps?: number }
+export interface TrackInfo {
+  id: string;
+  label: string;
+  language?: string;
+  active: boolean;
+  /** Normalised AudioCodec or SubFormat (caps/); absent = unknown. */
+  codec?: string;
+  /** Channel count, when the engine knows it. */
+  channels?: number;
+  /** Dolby Atmos (E-AC-3 JOC or TrueHD Atmos). */
+  atmos?: boolean;
+  /** The stream marks this track as the default. */
+  default?: boolean;
+  /** A forced track (foreign-language parts only). */
+  forced?: boolean;
+  /** Made for the hearing impaired (SDH, descriptive). */
+  hearingImpaired?: boolean;
+  /** A commentary track. */
+  commentary?: boolean;
+  /** Can this device play it? Set by the engine or by caps ranking. */
+  supported?: 'yes' | 'no' | 'unknown';
+}
+export interface StreamInfo {
+  width?: number;
+  height?: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  bitrate?: number;
+  fps?: number;
+  /** Dynamic range of the picture, when known. */
+  hdr?: 'sdr' | 'hdr10' | 'hdr10plus' | 'hlg' | 'dv';
+  /** Progressive or interlaced source. */
+  scan?: 'progressive' | 'interlaced';
+  /** Channel count of the playing audio. */
+  audioChannels?: number;
+  /** Whether the audio is decoded to PCM here or sent to the sink as a bitstream. */
+  audioOutput?: 'decoded' | 'bitstream';
+  /** Monotonic count of frames the decoder dropped. */
+  droppedFrames?: number;
+  /** The engine playing this stream. */
+  engine?: EngineName;
+}
 
 /**
  * Why a stream failed. `EOS`: a live stream ended (the server closed it), reconnect at once. `AUTH`: the source
@@ -19,7 +59,7 @@ export interface StateDetail {
 }
 
 /** The engine behind a session, for diagnostics. */
-export type EngineName = 'native' | 'hls.js' | 'mpegts.js' | 'avplay';
+export type EngineName = 'native' | 'hls.js' | 'mpegts.js' | 'avplay' | 'mpv' | 'media3';
 
 /**
  * Where `behindLiveS` comes from: the distance to the live edge (what the client can steer), or (raw TS) only the

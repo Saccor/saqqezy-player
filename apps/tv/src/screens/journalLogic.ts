@@ -77,6 +77,14 @@ export function eventText(e: JournalEvent): string {
       return 'Retrying in the background';
     case 'stop':
       return 'Stopped';
+    case 'app':
+      return join('App fault', e.what, e.name);
+    case 'audio':
+      return e.action === 'switch' ? join('Audio switched', e.from, e.to, e.because) : 'No playable audio track';
+    case 'engineSwitch':
+      return join('Player switched', `${e.from} to ${e.to}`, e.reason);
+    case 'beta':
+      return join('Beta', e.what);
   }
 }
 
