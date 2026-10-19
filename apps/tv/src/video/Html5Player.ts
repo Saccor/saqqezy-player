@@ -91,6 +91,8 @@ interface NativeAudioTrackList { length: number; [i: number]: NativeAudioTrack }
 interface NativeTextTrack { kind: string; label: string; language: string; mode: string; activeCues?: ArrayLike<{ text?: string }> | null }
 /** How often the selected subtitle track's active cues are read (cuechange is unreliable on older TV engines). */
 const SUBTITLE_POLL_MS = 250;
+/** Seconds of played picture with no decoded audio before the sound counts as undecodable (`soundUndecodable`). */
+const SILENT_AFTER_S = 3;
 interface NativeTextTrackList { length: number; [i: number]: NativeTextTrack }
 const isSubtitleKind = (t: NativeTextTrack | undefined): t is NativeTextTrack => t?.kind === 'subtitles' || t?.kind === 'captions';
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
@@ -139,6 +141,25 @@ export class Html5Player implements Player {
     this.preferNativeHls = opts.preferNativeHls ?? true;
     this.isTv = opts.isTv ?? false;
     this.autoMute = new AutoMute(this.video);
+  }
+
+  /**
+   * The picture plays but the browser decodes no sound: mpegts.js was refused the audio codec, or (computers only)
+   * the element decoded no audio bytes during SILENT_AFTER_S of played picture. Desktop Chrome plays files with
+   * AC-3 / E-AC-3 sound that way, silently and with no error. TVs skip the counters: hardware decoders may not
+   * count.
+   */
+  soundUndecodable(): boolean {
+    const s = this.session;
+    if (!s || s.dead) return false;
+    if (s.audioUnsupported) return true;
+    if (this.isTv) return false;
+    const v = this.video as HTMLVideoElement & { webkitAudioDecodedByteCount?: number; webkitVideoDecodedByteCount?: number };
+    if (v.webkitAudioDecodedByteCount !== 0 || !v.webkitVideoDecodedByteCount) return false;
+    const played = v.played;
+    let playedS = 0;
+    for (let i = 0; i < (played?.length ?? 0); i++) playedS += played.end(i) - played.start(i);
+    return playedS >= SILENT_AFTER_S;
   }
 
   /**

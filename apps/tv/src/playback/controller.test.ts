@@ -382,6 +382,20 @@ describe('playback controller', () => {
       expect(f.supervisor.onSubtitle).toHaveBeenCalledWith(fn);
     });
 
+    it('soundUndecodable: the player\'s answer for an opened VOD title only; false when the player has none', () => {
+      const f = fakes();
+      const undecodable = vi.fn(() => true);
+      const pb = createPlaybackController({ ...f.player, soundUndecodable: undecodable }, f.supervisor);
+      expect(pb.soundUndecodable()).toBe(false);
+      pb.playVod(vod, 0);
+      expect(pb.soundUndecodable()).toBe(true);
+      pb.stop();
+      expect(pb.soundUndecodable()).toBe(false);
+      const bare = createPlaybackController(f.player, f.supervisor);
+      bare.playVod(vod, 0);
+      expect(bare.soundUndecodable()).toBe(false);
+    });
+
     it('exposes audio and text tracks through the player', () => {
       const f = fakes();
       const pb = createPlaybackController(f.player, f.supervisor);

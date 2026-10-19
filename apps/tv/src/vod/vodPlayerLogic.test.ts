@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -244,5 +244,13 @@ describe('resumeBarShown', () => {
     expect(resumeBarShown(0, 600_000)).toBe(false);
     expect(resumeBarShown(60_000, 0)).toBe(false);
     expect(resumeBarShown(60_000, Number.NaN)).toBe(false);
+  });
+});
+
+describe('noSoundText', () => {
+  it('says why there is no sound, and suggests another track when there is one', () => {
+    expect(noSoundText(1)).toBe("No sound: this device can't play this video's audio format.");
+    expect(noSoundText(0)).toBe("No sound: this device can't play this video's audio format.");
+    expect(noSoundText(2)).toBe("No sound: this device can't play this video's audio format. Try another track in Audio & subtitles.");
   });
 });

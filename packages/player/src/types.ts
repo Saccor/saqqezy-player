@@ -133,6 +133,8 @@ export interface Player {
   /** Duration in ms of a finite stream; undefined while unknown or for live. */
   duration?(): number | undefined;
   paused?(): boolean;
+  /** The picture plays but this device decodes none of the sound (a codec it lacks). Optional: false when absent. */
+  soundUndecodable?(): boolean;
   textTracks?(): TrackInfo[];
   /** `null`: subtitles off. */
   selectTextTrack?(id: string | null): void;

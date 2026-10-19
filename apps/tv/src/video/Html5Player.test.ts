@@ -623,6 +623,14 @@ describe('Html5Player – mpegts.js audio the browser cannot decode', () => {
     expect(player.streamInfo().audioCodec).toBe('ec-3 (not supported here)');
   });
 
+  test('soundUndecodable: the refused audio codec counts, on TVs too', async () => {
+    const { player } = makePlayer({ isTv: true });
+    await player.open('http://example.test/live/u/p/1.ts');
+    expect(player.soundUndecodable()).toBe(false);
+    created.mpegts.at(-1)!.error!('MediaError', 'MediaMSEError', ec3);
+    expect(player.soundUndecodable()).toBe(true);
+  });
+
   test('an MSE error that is not about audio still fails the stream', async () => {
     const { player, events } = makePlayer();
     await player.open('http://example.test/live/u/p/1.ts');
@@ -631,6 +639,42 @@ describe('Html5Player – mpegts.js audio the browser cannot decode', () => {
     ts.error!('MediaError', 'MediaMSEError', { code: 9, msg: "The type provided ('video/mp4;codecs=hvc1.1.1.L150.B0') is unsupported." });
 
     expect(events.filter(([s]) => s === 'error').map(([, d]) => d?.code)).toEqual(['MEDIA']);
+  });
+});
+
+describe('Html5Player – sound the element plays without (a file with audio the browser cannot decode)', () => {
+  // Desktop Chrome plays a file with AC-3 / E-AC-3 sound as a silent picture with no error: only its decoded-byte
+  // counters show it. Measured with synthetic .mkv files: AAC decodes, AC-3 and E-AC-3 stay at 0 audio bytes.
+  const setDecoded = (video: ReturnType<typeof fakeVideo>, audio: number | undefined, videoBytes: number, playedS: number) => {
+    Object.assign(video, { webkitAudioDecodedByteCount: audio, webkitVideoDecodedByteCount: videoBytes, played: ranges(playedS > 0 ? [[100, 100 + playedS]] : []) });
+  };
+
+  test('no audio decoded after 3 s of picture: undecodable', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/u/p/1.mkv', 1, { live: false });
+    setDecoded(video, 0, 900_000, 3.5);
+    expect(player.soundUndecodable()).toBe(true);
+  });
+
+  test('not before 3 s have played, not with decoded audio, not without the counters', async () => {
+    const { player, video } = makePlayer();
+    await player.open('http://example.test/movie/u/p/1.mkv', 1, { live: false });
+    setDecoded(video, 0, 900_000, 2);
+    expect(player.soundUndecodable()).toBe(false);
+    setDecoded(video, 50_000, 900_000, 10);
+    expect(player.soundUndecodable()).toBe(false);
+    setDecoded(video, undefined, 900_000, 10);
+    expect(player.soundUndecodable()).toBe(false);
+    setDecoded(video, 0, 0, 10);
+    expect(player.soundUndecodable()).toBe(false);
+  });
+
+  test('never from the counters on a TV (hardware decoders may not count) or with no session', async () => {
+    const { player, video } = makePlayer({ isTv: true });
+    setDecoded(video, 0, 900_000, 10);
+    expect(player.soundUndecodable()).toBe(false);
+    await player.open('http://example.test/movie/u/p/1.mkv', 1, { live: false });
+    expect(player.soundUndecodable()).toBe(false);
   });
 });
 

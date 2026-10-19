@@ -30,7 +30,7 @@ import {
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
-  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText,
+  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText, noSoundText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import {
@@ -127,6 +127,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let endedHandled = false;
   /** One episode switch (next or previous) in flight at a time. */
   let switchBusy = false;
+  /** The no-sound toast was shown (once per title). */
+  let soundWarned = false;
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
@@ -756,6 +758,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
+      // A silent picture (a sound format this device cannot decode): say so once instead of playing on in silence.
+      if (!soundWarned && playing && !playback.paused() && playback.soundUndecodable()) {
+        soundWarned = true;
+        showToast(noSoundText(playback.audioTracks().length));
+      }
     }, TICK_MS);
     const saver = setInterval(() => {
       if (status()?.kind === 'playing' && !playback.paused()) save();
