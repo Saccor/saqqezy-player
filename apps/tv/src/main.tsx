@@ -11,6 +11,8 @@ import { installPointer } from './input/pointer.ts';
 import { installFormatReport } from './playback/formatReport.ts';
 import { playback, player, supervisor, videoLayer as layer } from './playback/playback.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, designScale } from './video/videoLayer.ts';
+// Applies the saved volume to the player before anything plays (Home's preview too).
+import './video/volume.ts';
 import { platformId } from './state/appState.ts';
 import { registerKeys } from './platform/tizen.ts';
 import { devPairing } from './screens/settings/ManageOnPhonePage.tsx';

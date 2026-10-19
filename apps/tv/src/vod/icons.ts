@@ -2,7 +2,7 @@
  * Transport icons for the VOD player: white glyphs on a transparent canvas, used as image textures (a node's `color`
  * tints them). Drawn once per kind and cached as data URLs, like `scrim.ts`: no icon font, no glyphs a TV font lacks.
  */
-export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30';
+export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30' | 'volume' | 'mute';
 
 const SIZE = 96;
 const cache = new Map<IconKind, string>();
@@ -22,6 +22,35 @@ function draw(ctx: CanvasRenderingContext2D, kind: IconKind): void {
   if (kind === 'pause') {
     ctx.fillRect(24, 18, 16, 60);
     ctx.fillRect(56, 18, 16, 60);
+    return;
+  }
+  if (kind === 'volume' || kind === 'mute') {
+    // A speaker; with sound, two arcs; muted, a cross.
+    ctx.beginPath();
+    ctx.moveTo(14, 36);
+    ctx.lineTo(32, 36);
+    ctx.lineTo(54, 16);
+    ctx.lineTo(54, 80);
+    ctx.lineTo(32, 60);
+    ctx.lineTo(14, 60);
+    ctx.closePath();
+    ctx.fill();
+    ctx.lineWidth = 7;
+    ctx.lineCap = 'round';
+    if (kind === 'mute') {
+      ctx.beginPath();
+      ctx.moveTo(64, 34);
+      ctx.lineTo(86, 62);
+      ctx.moveTo(86, 34);
+      ctx.lineTo(64, 62);
+      ctx.stroke();
+      return;
+    }
+    for (const r of [14, 28]) {
+      ctx.beginPath();
+      ctx.arc(56, 48, r, -Math.PI / 3.2, Math.PI / 3.2, false);
+      ctx.stroke();
+    }
     return;
   }
   // A circular arrow (back: counter-clockwise, arrowhead at the top left; forward: mirrored) around "10" or "30".

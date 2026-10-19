@@ -149,6 +149,11 @@ export class Html5Player implements Player {
     this.autoMute.releaseOnGesture(userActivation());
   }
 
+  /** The app's volume, 0..1 (the user's mute arrives as 0, so it never touches the autoplay mute). */
+  setVolume(level: number): void {
+    this.video.volume = Math.max(0, Math.min(1, level));
+  }
+
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
     this.stop();
     // Once the page has had a user gesture, playback with sound is allowed again.
