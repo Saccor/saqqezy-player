@@ -1286,3 +1286,29 @@ describe('VodController search', () => {
     expect(r.series).toHaveLength(1);
   });
 });
+
+describe('VodController.startRows', () => {
+  test('resident kind: fresh rows; other kind: last snapshot or undefined; never loads a catalogue', async () => {
+    const { c, sourceId } = await setup();
+    await c.home('movie');
+    await c.idle();
+    expect((await c.home('movie')).status).toBe('ready');
+    expect(await c.startRows('series')).toBeUndefined();
+    const rows = (await c.startRows('movie'))!;
+    expect(rows.recent.length).toBeGreaterThan(0);
+    expect(rows.recent.length).toBeLessThanOrEqual(20);
+    expect(c.residentKind()).toBe('movie');
+
+    // Another kind becoming resident evicts movies; the movie snapshot survives and series is never loaded by startRows.
+    await c.home('series');
+    await c.idle();
+    await c.home('series');
+    expect(c.residentKind()).toBe('series');
+    expect(await c.startRows('movie')).toEqual(rows);
+    expect(c.residentKind()).toBe('series');
+
+    c.reset(sourceId);
+    expect(await c.startRows('movie')).toBeUndefined();
+    expect(await c.startRows('series')).toBeUndefined();
+  });
+});

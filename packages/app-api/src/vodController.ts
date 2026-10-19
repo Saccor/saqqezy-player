@@ -18,6 +18,8 @@ export const VOD_ROW_ITEMS = 30;
 export const VOD_HOME_ROWS_WITH_ITEMS = 6;
 /** The "Recently added" grid shows at most this many titles. */
 export const VOD_RECENT_MAX = 200;
+/** Titles per Start page row. */
+const START_ITEMS = 20;
 /** Movie and series details kept in memory (most recently used). */
 export const VOD_DETAIL_CACHE = 50;
 /** "More in <category>" on the movie detail. */
@@ -64,6 +66,7 @@ export class VodController {
   protected epoch = 0;
   /** Bumped by `reset` only (not `invalidate`): the user's own state survives an invalidate but never crosses a source change. */
   private sourceEpoch = 0;
+  private readonly startSnaps = new Map<VodKind, { continue: VodTile[]; recent: VodTile[]; recentTotal: number }>();
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
@@ -103,6 +106,7 @@ export class VodController {
     this.jobs.clear();
     this.progress.clear();
     this.failures.clear();
+    this.startSnaps.clear();
     this.resident = undefined;
     this.loading = undefined;
     this.user = undefined;
@@ -165,6 +169,24 @@ export class VodController {
     return { movies: movies.map((item) => this.tile(item)), series: series.map((item) => this.tile(item)), pending };
   }
 
+  /** Start page rows (spec §2): from the resident catalogue when it is this kind, else the last snapshot. Never loads. */
+  async startRows(kind: VodKind): Promise<{ continue: VodTile[]; recent: VodTile[]; recentTotal: number } | undefined> {
+    const r = this.resident;
+    if (!this.sourceId || !r || r.kind !== kind) return this.startSnaps.get(kind);
+    return this.snapStart(kind, r.catalog);
+  }
+
+  private async snapStart(kind: VodKind, catalog: VodCatalog) {
+    const records = await this.records();
+    const snap = {
+      continue: this.continueItems(kind, catalog, records).slice(0, START_ITEMS),
+      recent: catalog.hasAddedDates ? catalog.recentlyAdded(START_ITEMS).map((item) => this.tile(item)) : [],
+      recentTotal: catalog.hasAddedDates ? Math.min(catalog.size, VOD_RECENT_MAX) : 0,
+    };
+    this.startSnaps.set(kind, snap);
+    return snap;
+  }
+
   async home(kind: VodKind): Promise<VodHome> {
     const id = this.sourceId;
     if (!id) return { status: 'empty', rows: [], truncated: false };
@@ -196,6 +218,7 @@ export class VodController {
       if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
       return { status: 'empty', rows: [], truncated: catalog.truncated };
     }
+    await this.snapStart(kind, catalog);
     const home: VodHome = { status: 'ready', rows: await this.rows(kind, catalog), truncated: catalog.truncated };
     const so = this.progress.get(kind);
     if (so !== undefined && this.jobs.has(kind)) home.progress = so;
