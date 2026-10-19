@@ -1,5 +1,21 @@
 # Backlog (after v1.1)
 
+## Now: beta platforms, then the review's roadmap
+
+The beta platform plans (`superpowers/plans/2026-10-19-beta-*.md`, foundations first) come before the mobile app
+below. The 2026-10-20 review, [research/health-and-roadmap-2026-10-20.md](research/health-and-roadmap-2026-10-20.md),
+ranks what follows: catch-up/archive and custom headers (both "must"), the PC app with libmpv (the desktop answer to
+audio-track choice in MKV/MP4), then "Follow a show", the phone digest and second screen, HDHomeRun, Watch Together
+and a dual-view prototype.
+
+## Done after v1.1
+
+- **Movies and series** (VOD): browse, details, resume, duplicate versions folded into one title, player controls,
+  ±30 s, audio and subtitle tracks, subtitles from a file, a link or OpenSubtitles with sync and delay, volume.
+- **Start tab**: Continue watching, Live now, Sports in your guide (Teams I follow), Recently added; Open on setting.
+- **Home search bar**, **pointer/mouse** support, **gentle source retry** and **refusal cooldown**, **live delay and
+  recovery**, **playback journal and stable dev server**.
+
 ## Next: mobile app (sub-project, approved)
 
 The next piece of work after v1.1, approved by the user. Start with a brainstorm and a spec
@@ -47,7 +63,6 @@ credentials stay on the device.
 | **Timeshift** (pause / restart live) | Frequently asked for | Research §1 #16, §3; [Kodi pvr.iptvsimple issues](https://github.com/kodi-pvr/pvr.iptvsimple/issues?q=is%3Aissue+sort%3Acomments-desc) | Tizen AVPlay cannot pause live ([note](https://github.com/muratcode/iptv-player-tizen)) |
 | **Recording** | Asked for; competitors' versions are unreliable | Research §3 | Hard in TV web apps (storage, background) |
 | **Multiview** | Premium feature in competitors | Research §3 (low confidence) | One-stream-at-a-time rule must be revisited |
-| **VOD / series** | Dominant in competitor changelogs | Research §3 | Off-scope for v1 by design |
 | **Sync** between devices | Same sources on every TV | Research §3 | End-to-end encrypted only (guardrail 7). The companion's pairing and `SecureChannel` are a starting point |
 | **Profiles** | Separate favourites / history per person | Research §3; OTT Navigator changelog (no link) | |
 

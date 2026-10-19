@@ -73,8 +73,8 @@ The app is made for a TV remote. On a computer these keys stand in for the remot
 While the on-screen keyboard is open you can also type on your real keyboard. Letters, digits and
 Backspace go into the field; Esc closes the keyboard and keeps the text.
 
-Debug overlay (start-up time, frame rate, player state): press **I three times** within 2 seconds, or turn it on
-in Settings → Diagnostics.
+Debug overlay (start-up time, frame rate, player state): press **I three times** within 2 seconds, press **F12**
+(in a desktop browser), or turn it on in Settings → Diagnostics.
 
 ## 4. Log in with the fake provider
 
@@ -178,8 +178,9 @@ about an hour the first time.
 
 ## 8. What is not in v1
 
-Catch-up, timeshift, recording, VOD, parental PIN, profiles, LG TVs and more are planned for later. See the
-[backlog](backlog.md).
+Catch-up, timeshift, recording, parental PIN, profiles, LG TVs and more are planned for later. See the
+[backlog](backlog.md) and the review in
+[research/health-and-roadmap-2026-10-20.md](research/health-and-roadmap-2026-10-20.md).
 
 ## 9. Troubleshooting
 

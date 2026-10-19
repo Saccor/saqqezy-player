@@ -13,6 +13,12 @@ and sorting, "hide channels without TV guide", and **Manage on phone or computer
 on the TV and manage sources, lists and groups from a web page. The TV and the page talk through an end-to-end
 encrypted relay that only passes ciphertext along and stores nothing.
 
+After v1.1 (October 2026): a **Start** tab (Continue watching, Live now, Sports in your guide with Teams I follow,
+Recently added); **Movies and series** from Xtream sources with resume, duplicate versions folded into one title,
+audio and subtitle tracks, subtitles from a file, a link or OpenSubtitles with sync and delay, and a volume control;
+a **search bar** on the Channels screen; **mouse and pointer** support on computers; gentle source retry with
+refusal cooldowns; live delay and recovery; and a dev proxy that logs with credentials masked.
+
 - **Try it:** [docs/try-v1.md](docs/try-v1.md) (install, start, keyboard map, test login)
 - **Manage from your phone, local test:** [docs/try-v1.md](docs/try-v1.md#6-manage-from-your-phone-local-test)
 - **Deploy the relay and the companion web app (Cloudflare):** [docs/deploy-companion.md](docs/deploy-companion.md)
