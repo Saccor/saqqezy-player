@@ -52,6 +52,14 @@ export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: numbe
   return sameDay ? formatClock(d) : `Tomorrow ${formatClock(d)}`;
 }
 
+/**
+ * Where focus should go when a load finishes: the rows, once they have just appeared and the user wants them
+ * (and no overlay owns focus). `undefined` leaves focus alone.
+ */
+export function focusAfterLoad(prev: { hadRows: boolean }, next: { hasRows: boolean }, preferred: 'tabs' | 'rows', overlayOpen: boolean): 'tabs' | 'rows' | undefined {
+  return !prev.hadRows && next.hasRows && preferred === 'rows' && !overlayOpen ? 'rows' : undefined;
+}
+
 export const channelsLabel = (n: number) => (n === 1 ? '1 channel' : `${n} channels`);
 export const emptyStartText = () => 'Your start page fills up as you watch.';
 

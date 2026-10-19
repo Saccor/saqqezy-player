@@ -21,7 +21,7 @@ import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelsLabel, emptyStartText, eventWhen, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
+  cellId, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
@@ -55,6 +55,9 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   let alive = true;
   let gen = 0;
   let lastLoad = 0;
+  /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). */
+  let preferredArea: 'tabs' | 'rows' = startOnTabs ? 'tabs' : 'rows';
+  let fallingBack = false;
 
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
@@ -66,18 +69,26 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   const focusArea = (a: 'tabs' | 'rows') => {
     const target = a === 'rows' && rows().length === 0 ? 'tabs' : a;
+    fallingBack = target !== a;
+    if (!fallingBack) preferredArea = a;
     setArea(target);
     (target === 'tabs' ? tabsNode : rowsNode)?.setFocus();
+    fallingBack = false;
     return true;
   };
 
   const apply = (h: StartHome | undefined) => {
     if (!h) return;
+    const hadRows = rows().length > 0;
     batch(() => {
       setHome(h);
       setFocus(locateStart(h.rows, memory.focus));
     });
     if (h.rows.length === 0 && area() === 'rows') focusArea('tabs');
+    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, router.topOverlay() !== undefined) === 'rows') {
+      // The rows node mounts with the rows; focus it once it exists.
+      queueMicrotask(() => { if (alive && router.topOverlay() === undefined) focusArea('rows'); });
+    }
   };
   const load = async () => {
     const g = ++gen;
@@ -201,7 +212,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
       <TabBar ref={(el) => { tabsNode = el; }} active="start" onSelect={goTab} onDown={() => focusArea('rows')}
-        onFocusChanged={(f) => { if (f) setArea('tabs'); }} />
+        onFocusChanged={(f) => { if (f) { setArea('tabs'); if (!fallingBack) preferredArea = 'tabs'; } }} />
       <Show when={home() !== undefined && rows().length === 0}>
         <Text x={HERO_X} y={HERO_Y + 60} fontSize={FONT.heading} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
@@ -212,7 +223,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
         <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTitle()}</Text>
         <Text x={HERO_X} y={HERO_Y + 116} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={2} fontSize={FONT.body} color={COLORS.muted}>{heroLine()}</Text>
         <View ref={(el) => { rowsNode = el; }} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
-          onFocusChanged={(f: boolean) => { if (f) setArea('rows'); }}
+          onFocusChanged={(f: boolean) => { if (f) { setArea('rows'); preferredArea = 'rows'; } }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />

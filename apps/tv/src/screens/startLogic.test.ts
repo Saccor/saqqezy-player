@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
-import { cellId, channelsLabel, eventWhen, gridMove, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
+import { cellId, channelsLabel, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
 const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
@@ -52,5 +52,17 @@ describe('startLogic', () => {
     expect(gridMove(12, 5, 11, 'down')).toBe(11);
     expect(gridMove(12, 5, 7, 'up')).toBe(2);
     expect(gridMove(12, 5, 5, 'left')).toBe(5);
+  });
+});
+
+describe('focusAfterLoad', () => {
+  test('focuses the rows when they first appear and the user wants them', () => {
+    expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rows', false)).toBe('rows');
+  });
+  test('leaves focus alone otherwise', () => {
+    expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'tabs', false)).toBeUndefined();
+    expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rows', true)).toBeUndefined();
+    expect(focusAfterLoad({ hadRows: true }, { hasRows: true }, 'rows', false)).toBeUndefined();
+    expect(focusAfterLoad({ hadRows: false }, { hasRows: false }, 'rows', false)).toBeUndefined();
   });
 });
