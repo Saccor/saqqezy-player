@@ -8,7 +8,7 @@ export const WIDE_W = 282;
 export const WIDE_H = 159;
 export const WIDE_GAP = 24;
 const PAD = 16;
-const LOGO_H = 64;
+const LOGO_H = 56; // ends above the title text (y = WIDE_H - PAD - 64)
 
 /** A landscape tile for a channel or a sports event (Start page). Logos and icons come only from the user's own data. */
 export function WideTile(props: { x: number; y: number; cell: StartCell; lit: boolean; hover?: boolean; now: number }) {
@@ -19,7 +19,7 @@ export function WideTile(props: { x: number; y: number; cell: StartCell; lit: bo
     const c = props.cell;
     if (c.type === 'channel') return c.channel.name;
     if (c.type === 'event') return c.event.title;
-    return c.type === 'viewAll' ? `See all (${c.total})` : '';
+    return c.type === 'viewAll' ? `View all (${c.total})` : '';
   };
   const line2 = () => {
     const c = props.cell;
