@@ -1,10 +1,10 @@
 import {
-  ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
+  epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
-  type LoadedSubtitle, type SubtitleInput, type SubtitleService,
+  type LoadedSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
 } from '@iptv/core';
 import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
@@ -16,7 +16,7 @@ import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
-  VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
+  OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -62,6 +62,8 @@ export interface AppApiDeps {
   vod?: VodService;
   /** Subtitles loaded from a link or a file. Without it, those methods reject with "Loading subtitles is not available." */
   subtitles?: SubtitleService;
+  /** Subtitles found online for a title. Without it, "Find subtitles online" is not offered. */
+  onlineSubtitles?: OpenSubtitlesClient;
 }
 
 export class AppApi {
@@ -125,6 +127,7 @@ export class AppApi {
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
   private readonly subtitles: SubtitleService | undefined;
+  private readonly onlineSubtitles: OpenSubtitlesClient | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -146,6 +149,7 @@ export class AppApi {
     });
     this.vod = deps.vod;
     this.subtitles = deps.subtitles;
+    this.onlineSubtitles = deps.onlineSubtitles;
     this.vodc = deps.vod
       ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
       : undefined;
@@ -694,6 +698,41 @@ export class AppApi {
       const [svc, src] = this.subtitlesOrThrow();
       return svc.clear(src, itemId);
     });
+  }
+
+  /** Whether "Find subtitles online" can be offered (an app key is configured). */
+  onlineSubtitlesAvailable(): Promise<boolean> {
+    return Promise.resolve(this.onlineSubtitles !== undefined && this.subtitles !== undefined);
+  }
+
+  /**
+   * The languages this movie (or episode, with `seriesId`) has subtitles in online: one row per language, the
+   * preferred language from Settings first, each with the file a click loads.
+   */
+  findSubtitlesOnline(itemId: string, seriesId?: string): Promise<OnlineSubtitleLanguage[]> {
+    return this.run('findSubtitlesOnline', async () => {
+      const client = this.onlineOrThrow();
+      const query = await this.vodOrThrow().subtitleSearch(itemId, seriesId);
+      if (!query) throw new SubtitleError("This title can't be found right now.");
+      const found = await client.search(query);
+      const preferred = (await this.currentSettings()).subtitleLanguage;
+      return languageChoices(found, preferred).map((c) => ({ language: c.language, count: c.count, fileId: c.best.fileId }));
+    });
+  }
+
+  /** Downloads one file found online and keeps it for the title, like a loaded file, under `name` ("Swedish"). */
+  loadOnlineSubtitle(itemId: string, fileId: number, name: string): Promise<LoadedSubtitle> {
+    return this.run('loadOnlineSubtitle', async () => {
+      const client = this.onlineOrThrow();
+      const [svc, src] = this.subtitlesOrThrow();
+      const file = await client.download(fileId);
+      return svc.load(src, itemId, { bytes: file.bytes, name });
+    });
+  }
+
+  private onlineOrThrow(): OpenSubtitlesClient {
+    if (!this.onlineSubtitles) throw new Error('Online subtitles are not available.');
+    return this.onlineSubtitles;
   }
 
   private subtitlesOrThrow(): [SubtitleService, string] {
@@ -1515,7 +1554,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

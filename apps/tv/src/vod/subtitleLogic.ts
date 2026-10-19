@@ -64,13 +64,44 @@ export const SUBTITLE_EXT_ROW = 'ext';
 export const LOAD_URL_ROW = 'loadUrl';
 export const LOAD_FILE_ROW = 'loadFile';
 export const REMOVE_EXT_ROW = 'removeExt';
+export const FIND_ONLINE_ROW = 'findOnline';
 
-/** The "Audio & subtitles" rows after the tracks: the loaded file, the load actions, and remove. */
-export function subtitleExtraRows(s: { external?: { name: string; active: boolean }; canLoadFile: boolean }): PickerRow[] {
+/** The "Audio & subtitles" rows after the tracks: the loaded file, find online, the load actions, and remove. */
+export function subtitleExtraRows(s: {
+  external?: { name: string; active: boolean };
+  canLoadFile: boolean;
+  canSearchOnline?: boolean;
+}): PickerRow[] {
   const rows: PickerRow[] = [];
   if (s.external) rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${s.external.name} (loaded)`, checked: s.external.active });
+  if (s.canSearchOnline) rows.push({ kind: 'list', id: FIND_ONLINE_ROW, label: 'Find subtitles online…', checked: false });
   rows.push({ kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false });
   if (s.canLoadFile) rows.push({ kind: 'list', id: LOAD_FILE_ROW, label: 'Load subtitles from a file…', checked: false });
   if (s.external) rows.push({ kind: 'list', id: REMOVE_EXT_ROW, label: 'Remove loaded subtitles', checked: false });
   return rows;
+}
+
+/** One language found online, as the worker lists it. */
+export interface OnlineLanguage { language: string; count: number; fileId: number }
+
+const ONLINE_PREFIX = 'os:';
+
+/** A language code's display name: "Swedish", "Portuguese (BR)" for a regional variant, the code itself when unknown. */
+function onlineLanguageLabel(code: string): string {
+  const [lang = '', region] = code.split(/[-_]/);
+  const name = languageName(lang);
+  if (!name) return code.toUpperCase();
+  return region ? `${name} (${region.toUpperCase()})` : name;
+}
+
+/** The "Subtitles online" picker: one row per language, its id carrying the file a click loads. */
+export function onlineLanguageRows(langs: readonly OnlineLanguage[]): PickerRow[] {
+  return langs.map((l) => ({ kind: 'list', id: `${ONLINE_PREFIX}${l.fileId}`, label: onlineLanguageLabel(l.language), checked: false }));
+}
+
+/** The file id a "Subtitles online" row loads; undefined for any other row. */
+export function onlineFileId(rowId: string): number | undefined {
+  if (!rowId.startsWith(ONLINE_PREFIX)) return undefined;
+  const n = Number(rowId.slice(ONLINE_PREFIX.length));
+  return Number.isInteger(n) && n > 0 ? n : undefined;
 }

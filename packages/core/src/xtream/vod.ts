@@ -128,6 +128,8 @@ function detailFields(info: Record<string, unknown>): MovieDetail {
   if (age) d.ageRating = age;
   const backdrop = firstUrl(info.backdrop_path);
   if (backdrop) d.backdrop = backdrop;
+  const tmdb = posInt(info.tmdb_id) ?? posInt(info.tmdb);
+  if (tmdb) d.tmdbId = tmdb;
   return d;
 }
 

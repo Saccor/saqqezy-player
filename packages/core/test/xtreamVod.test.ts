@@ -48,7 +48,11 @@ describe('Xtream VOD parsers', () => {
       cast: 'A, B', mpaa_rating: '12', backdrop_path: ['http://img.test/b.jpg'], youtube_trailer: 'ignored', tmdb_id: '1',
     } })).toEqual({
       plot: 'A synthetic plot.', runtimeMin: 114, genre: 'Drama', director: 'Synthetic Person', cast: 'A, B', ageRating: '12', backdrop: 'http://img.test/b.jpg',
+      tmdbId: 1,
     });
+    // The TMDB id finds the title's subtitles online: `tmdb_id` or `tmdb`, a number or a numeric string; junk is dropped.
+    expect(parseVodInfo({ info: { tmdb: 603 } }).tmdbId).toBe(603);
+    for (const junk of ['', '0', 'abc', -4, null]) expect(parseVodInfo({ info: { tmdb_id: junk } }).tmdbId).toBeUndefined();
     expect(parseVodInfo({ info: { description: 'Desc', duration: '01:54:00', actors: 'C', age: '15', backdrop_path: 'http://img.test/c.jpg' } }))
       .toEqual({ plot: 'Desc', runtimeMin: 114, cast: 'C', ageRating: '15', backdrop: 'http://img.test/c.jpg' });
     expect(parseVodInfo([])).toEqual({});
@@ -57,7 +61,7 @@ describe('Xtream VOD parsers', () => {
   test('series info: episodes keyed by season, names, marker titles, junk', () => {
     const d = parseSeriesInfo({
       seasons: [{ season_number: 2, name: 'Second' }],
-      info: { plot: 'Night shifts.', genre: 'Drama', backdrop_path: ['http://img.test/sb.jpg'] },
+      info: { plot: 'Night shifts.', genre: 'Drama', backdrop_path: ['http://img.test/sb.jpg'], tmdb: '77' },
       episodes: {
         '2': [{ id: '202', episode_num: 2, title: 'Synthetic Series 01 - S02E02 - Dead Air', container_extension: 'mp4', info: { duration_secs: 3060, movie_image: 'http://img.test/e.jpg', plot: 'P' } }],
         '1': [
@@ -68,6 +72,7 @@ describe('Xtream VOD parsers', () => {
       },
     }, 'src');
     expect(d.plot).toBe('Night shifts.');
+    expect(d.tmdbId).toBe(77);
     expect(d.backdrop).toBe('http://img.test/sb.jpg');
     expect(d.seasons.map((s) => [s.number, s.name, s.episodes.map((e) => [e.id, e.episode, e.title])])).toEqual([
       [1, 'Season 1', [['src:e101', 1, 'Episode 1'], ['src:e102', 2, 'Second']]],

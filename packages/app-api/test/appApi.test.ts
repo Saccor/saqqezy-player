@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, RefusalGuard, SourceService, SourceAuthError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, OpenSubtitlesClient, RefusalGuard, SourceService, SourceAuthError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -2068,5 +2068,49 @@ describe('subtitles from a link or a file', () => {
     await bare.addSource(xt());
     await expect(bare.loadSubtitle('m1', { url: 'http://example.test/a.srt' })).rejects.toThrow('Loading subtitles is not available.');
     expect(await bare.getSubtitle('m1')).toBeUndefined();
+  });
+});
+
+describe('subtitles found online (fake OpenSubtitles service)', () => {
+  const makeOnline = (apiKey = 'fake-key') => {
+    const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+    const service = new SourceService(deps);
+    const vod = new VodService(deps);
+    const subtitles = new SubtitleService(deps);
+    const onlineSubtitles = new OpenSubtitlesClient({
+      apiFetch: deps.fetch, fileFetch: deps.fetch, apiKey, baseUrl: `${server.url}/opensubtitles/api/v1`, appName: 'Test v0',
+    });
+    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, emit: () => {}, now: () => NOW });
+    live.push(api);
+    return api;
+  };
+
+  test('a movie: one row per language, the preferred language first; a click loads and keeps it for that title', async () => {
+    const api = makeOnline();
+    expect(await api.onlineSubtitlesAvailable()).toBe(true);
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleLanguage: 'sv' });
+    await api.refreshVod('movie');
+    const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+    const langs = await api.findSubtitlesOnline(movieId);
+    expect(langs.map((l) => [l.language, l.count])).toEqual([['sv', 2], ['en', 3], ['de', 1], ['es', 1], ['fr', 1]]);
+    // The best Swedish file: the trusted one.
+    expect(langs[0]!.fileId).toBe(2001);
+    const loaded = await api.loadOnlineSubtitle(movieId, langs[0]!.fileId, 'Swedish');
+    expect(loaded.name).toBe('Swedish');
+    expect(loaded.cues[0]).toEqual({ startMs: 1000, endMs: 4000, text: 'Synthetic subtitle 1 (sv)' });
+    expect((await api.getSubtitle(movieId))?.name).toBe('Swedish');
+    await expect(api.loadOnlineSubtitle(movieId, 999, 'English')).rejects.toThrow('Daily subtitle download limit reached. Try again tomorrow.');
+  });
+
+  test('not set up (no client): unavailable and rejects; the service\'s own errors come through', async () => {
+    const { api: bare } = make();
+    expect(await bare.onlineSubtitlesAvailable()).toBe(false);
+    await expect(bare.findSubtitlesOnline('x')).rejects.toThrow('Online subtitles are not available.');
+    const wrong = makeOnline('wrong');
+    await wrong.addSource(xt());
+    await wrong.refreshVod('movie');
+    const movieId = (await wrong.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+    await expect(wrong.findSubtitlesOnline(movieId)).rejects.toThrow('Online subtitles are not set up correctly.');
   });
 });

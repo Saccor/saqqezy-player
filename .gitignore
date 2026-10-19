@@ -4,3 +4,5 @@ dist/
 coverage/
 dist-tizen/
 tools/fake-xtream/media/
+# Local settings and keys (e.g. VITE_OPENSUBTITLES_API_KEY), never committed.
+*.local
