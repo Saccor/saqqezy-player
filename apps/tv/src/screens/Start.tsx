@@ -55,9 +55,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   let alive = true;
   let gen = 0;
   let lastLoad = 0;
-  /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). */
+  /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). Only user moves change it. */
   let preferredArea: 'tabs' | 'rows' = startOnTabs ? 'tabs' : 'rows';
-  let fallingBack = false;
 
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
@@ -67,13 +66,12 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     const c = focusedCell();
     memory.focus = { ...f, ...(r ? { rowId: r.id } : {}), ...(c ? { cellId: cellId(c) } : {}) };
   };
-  const focusArea = (a: 'tabs' | 'rows') => {
+  /** `user`: a key or pointer move (it becomes the preference); false for focus the screen moves by itself. */
+  const focusArea = (a: 'tabs' | 'rows', user = true) => {
+    if (user) preferredArea = a;
     const target = a === 'rows' && rows().length === 0 ? 'tabs' : a;
-    fallingBack = target !== a;
-    if (!fallingBack) preferredArea = a;
     setArea(target);
     (target === 'tabs' ? tabsNode : rowsNode)?.setFocus();
-    fallingBack = false;
     return true;
   };
 
@@ -84,10 +82,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       setHome(h);
       setFocus(locateStart(h.rows, memory.focus));
     });
-    if (h.rows.length === 0 && area() === 'rows') focusArea('tabs');
+    if (h.rows.length === 0 && area() === 'rows') focusArea('tabs', false);
     else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, router.topOverlay() !== undefined) === 'rows') {
       // The rows node mounts with the rows; focus it once it exists.
-      queueMicrotask(() => { if (alive && router.topOverlay() === undefined) focusArea('rows'); });
+      queueMicrotask(() => { if (alive && router.topOverlay() === undefined) focusArea('rows', false); });
     }
   };
   const load = async () => {
@@ -101,7 +99,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     }
   };
 
-  const refocusRows = () => queueMicrotask(() => { if (alive) focusArea('rows'); });
+  const refocusRows = () => queueMicrotask(() => { if (alive) focusArea('rows', false); });
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: refocusRows });
   const menu = createChoiceMenu('startMenu', refocusRows);
 
@@ -184,7 +182,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       if (Date.now() - lastLoad > REVALIDATE_MS) void load();
     }, 60_000);
     onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });
-    queueMicrotask(() => focusArea(startOnTabs ? 'tabs' : 'rows'));
+    queueMicrotask(() => focusArea(startOnTabs ? 'tabs' : 'rows', false));
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
 
@@ -212,7 +210,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
       <TabBar ref={(el) => { tabsNode = el; }} active="start" onSelect={goTab} onDown={() => focusArea('rows')}
-        onFocusChanged={(f) => { if (f) { setArea('tabs'); if (!fallingBack) preferredArea = 'tabs'; } }} />
+        onFocusChanged={(f) => { if (f) setArea('tabs'); }} />
       <Show when={home() !== undefined && rows().length === 0}>
         <Text x={HERO_X} y={HERO_Y + 60} fontSize={FONT.heading} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
