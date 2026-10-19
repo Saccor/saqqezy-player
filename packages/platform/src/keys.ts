@@ -19,8 +19,9 @@ const BROWSER_KEYS: Record<string, LogicalKey> = {
   Enter: 'Ok', Backspace: 'Back', Escape: 'Back', m: 'Menu', i: 'Info',
   PageUp: 'ChannelUp', PageDown: 'ChannelDown', ' ': 'PlayPause',
   F1: 'Red', F2: 'Green', F3: 'Yellow', F4: 'Blue',
-  // Desktop only: on TVs the remote owns volume.
-  AudioVolumeUp: 'VolumeUp', AudioVolumeDown: 'VolumeDown', AudioVolumeMute: 'Mute',
+  // AudioVolumeUp/Down/Mute are deliberately NOT mapped here. A mapped key is preventDefault'ed and notifies
+  // `onLogicalKey`, and nothing handles volume yet, so it would flip pointer mode and bump the VOD overlay on
+  // the desktop dev path. The `LogicalKey` members stay; the PC plan maps them when app volume is wired.
   ...MEDIA_KEY_NAMES,
 };
 /** Android TV WebView `KeyboardEvent.key` values (Chromium's Android key-code mapping); verified on device by the Android plan. */

@@ -82,6 +82,7 @@ import { createSignal, onMount, onCleanup } from 'solid-js';      // Solid primi
   - `onUp`, `onDown`, `onLeft`, `onRight`
   - `onEnter` (Ok), `onLongOk`, `onBack`, `onMenu`, `onInfo`
   - `onChannelUp`, `onChannelDown`, `onPlayPause`
+  - `onPlay`, `onPause`, `onStop`, `onFastForward`, `onRewind` (media keys). A handler that treats Stop as leaving the player does it through `sendKey('Back')`, so the layered Back logic runs.
   - `onRed`, `onGreen`, `onYellow`, `onBlue`
   - `onDigit0` through `onDigit9`
   - `on<Key>Release` for key-up

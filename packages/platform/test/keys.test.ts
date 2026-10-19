@@ -92,11 +92,11 @@ describe('media keys', () => {
   it('androidtv has no keyboard-only keys (Backspace, m, F1) and no volume keys', () => {
     for (const key of ['Backspace', 'm', 'F1', ' ', 'AudioVolumeUp']) expect(mapKey(keyTableFor('androidtv'), { key, keyCode: 0 })).toBeUndefined();
   });
-  it('browser and desktop map the volume keys', () => {
+  it('browser and desktop leave the volume keys unmapped until the app owns volume', () => {
     for (const id of ['browser', 'desktop'] as PlatformId[]) {
-      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeUp', keyCode: 0 })).toBe('VolumeUp');
-      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeDown', keyCode: 0 })).toBe('VolumeDown');
-      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeMute', keyCode: 0 })).toBe('Mute');
+      for (const key of ['AudioVolumeUp', 'AudioVolumeDown', 'AudioVolumeMute']) {
+        expect(mapKey(keyTableFor(id), { key, keyCode: 0 })).toBeUndefined();
+      }
     }
   });
   it.each(tvMediaCodes)('tizen and webos code %i -> %s', (keyCode, expected) => {
