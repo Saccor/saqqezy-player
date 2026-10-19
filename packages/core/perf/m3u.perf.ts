@@ -80,3 +80,26 @@ test('50k channels: markWatched -> withLayout -> neighbour(all) under 20 ms (med
   console.log(`50k markWatched rebuild + neighbour: median ${median.toFixed(2)} ms, max ${times[19]!.toFixed(2)} ms`);
   expect(median).toBeLessThan(20);
 });
+
+test('50k channels: index build + groups without search (search keys are lazy) under 20 ms (best of 5)', async () => {
+  const entries: M3uEntry[] = [];
+  for await (const e of parseM3u(splitLines(m3uChunks(50_000)))) entries.push(e);
+  const channels = m3uEntriesToChannels('s', entries);
+  const build: number[] = [];
+  const first: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const t0 = performance.now();
+    const idx = new ChannelIndex(channels);
+    idx.groups();
+    const t1 = performance.now();
+    const hits = idx.search('channel 4999', 50);
+    const t2 = performance.now();
+    build.push(t1 - t0);
+    first.push(t2 - t1);
+    expect(hits.length).toBeGreaterThan(0);
+  }
+  build.sort((a, b) => a - b);
+  first.sort((a, b) => a - b);
+  console.log(`50k index build (no search): best ${build[0]!.toFixed(1)} ms, median ${build[2]!.toFixed(1)} ms; first search (builds the keys): median ${first[2]!.toFixed(1)} ms`);
+  expect(build[0]!).toBeLessThan(20);
+});
