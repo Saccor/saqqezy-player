@@ -17,6 +17,7 @@ import { SearchScreen } from './screens/Search.tsx';
 import { SettingsScreen } from './screens/Settings.tsx';
 import { VodBrowseScreen } from './screens/VodBrowse.tsx';
 import { StartScreen } from './screens/Start.tsx';
+import { StartSportsScreen } from './screens/StartSports.tsx';
 import { VodGridScreen } from './screens/VodGrid.tsx';
 import { VodPlayScreen } from './screens/VodPlay.tsx';
 import { Clock } from './shell/Clock.tsx';
@@ -149,6 +150,7 @@ export function App() {
             : entry.screen === 'search' ? <SearchScreen />
             : entry.screen === 'settings' ? <SettingsScreen />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
+            : entry.screen === 'startSports' ? <StartSportsScreen />
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />

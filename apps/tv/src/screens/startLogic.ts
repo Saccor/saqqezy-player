@@ -60,3 +60,15 @@ export function toPosterRow(r: StartRow): RowModel {
   const all = r.cells.find((c) => c.type === 'viewAll');
   return { id: r.id, title: r.title, total: all?.type === 'viewAll' ? all.total : items.length, items, loaded: true };
 }
+
+/** A grid of `count` cells in rows of `cols`: the index after a key, or 'top' above the first row. */
+export function gridMove(count: number, cols: number, index: number, key: 'up' | 'down' | 'left' | 'right'): number | 'top' {
+  const col = index % cols;
+  if (key === 'left') return col === 0 ? index : index - 1;
+  if (key === 'right') return col === cols - 1 || index === count - 1 ? index : index + 1;
+  if (key === 'up') return index < cols ? 'top' : index - cols;
+  const below = index + cols;
+  if (below < count) return below;
+  const lastRowStart = Math.floor((count - 1) / cols) * cols;
+  return index >= lastRowStart ? index : count - 1;
+}

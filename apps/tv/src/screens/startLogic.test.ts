@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
-import { cellId, channelsLabel, eventWhen, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
+import { cellId, channelsLabel, eventWhen, gridMove, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
 const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
@@ -42,5 +42,15 @@ describe('startLogic', () => {
     const m = toPosterRow(rows[2]!);
     expect(m).toMatchObject({ id: 'newMovies', total: 40, loaded: true });
     expect(m.items.map((t) => t.id)).toEqual(['v4']);
+  });
+  test('gridMove: 5 columns, clamps, top edge', () => {
+    expect(gridMove(12, 5, 0, 'up')).toBe('top');
+    expect(gridMove(12, 5, 0, 'right')).toBe(1);
+    expect(gridMove(12, 5, 4, 'right')).toBe(4);
+    expect(gridMove(12, 5, 3, 'down')).toBe(8);
+    expect(gridMove(12, 5, 8, 'down')).toBe(11);
+    expect(gridMove(12, 5, 11, 'down')).toBe(11);
+    expect(gridMove(12, 5, 7, 'up')).toBe(2);
+    expect(gridMove(12, 5, 5, 'left')).toBe(5);
   });
 });
