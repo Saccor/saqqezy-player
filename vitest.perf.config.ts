@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 120_000,
     pool: 'forks',
-    poolOptions: { forks: { execArgv: ['--expose-gc'] } },
+    // Vitest 4+: pool options live on the pool itself. The heap tests need `gc()`.
+    execArgv: ['--expose-gc'],
   },
 });
