@@ -382,6 +382,25 @@ describe('VodController races', () => {
     expect(calls.refresh).toBe(0);
   });
 
+  test('a resident catalogue answers home before needsRefresh resolves; the refresh starts after', async () => {
+    const { c, fake, calls, events } = fakeController();
+    fake.storedCatalog = async () => new VodCatalog('movie', listOf('movie', 1, 2));
+    const gate = deferred<boolean>();
+    let asked = 0;
+    fake.needsRefresh = () => { asked++; return gate.promise; };
+    const home = await Promise.race([c.home('movie'), new Promise<'waiting'>((r) => setTimeout(() => r('waiting'), 50))]);
+    expect(home).not.toBe('waiting');
+    expect((home as { status: string }).status).toBe('ready');
+    expect(calls.refresh).toBe(0);
+    // A second open while the question is still out asks nothing more.
+    expect((await c.home('movie')).status).toBe('ready');
+    expect(asked).toBe(1);
+    gate.resolve(true);
+    await c.idle();
+    expect(calls.refresh).toBe(1);
+    expect(events.map((e) => e.type)).toContain('vodLoading');
+  });
+
   test('a finished fetch wins over an older stored read of the same kind', async () => {
     const { c, fake } = fakeController();
     const fetchGate = deferred<{ count: number; truncated: boolean; list: VodList }>();

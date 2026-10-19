@@ -105,6 +105,8 @@ export class VodController {
   /** Every fetch ever started and not yet finished, including ones `reset` aborted (so `idle` can wait for them). */
   private readonly pending = new Set<Promise<void>>();
   private readonly failures = new Map<VodKind, RpcError>();
+  /** Kinds whose stale-while-revalidate staleness question is out (see `revalidate`). */
+  private readonly revalidating = new Set<VodKind>();
   /**
    * Search: a compact title index per kind (null when nothing is stored or the read failed), built in the
    * background from the resident catalogue or one stored read, never a fetch. Dropped by `reset` and `invalidate`;
@@ -250,18 +252,21 @@ export class VodController {
       }
       return { status: 'empty', rows: [], truncated: false };
     }
-    // Stale-while-revalidate: show what is stored, refresh behind it (once; a failure stops it until refreshVod).
-    if (!this.jobs.has(kind) && !this.failures.has(kind)) {
-      const needs = await this.vod.needsRefresh(id, kind);
-      if (this.epoch !== epoch) return this.home(kind);
-      if (needs) void this.startFetch(kind, id, epoch, true, catalog.size === 0);
-    }
     if (catalog.size === 0) {
+      // An empty stored list: the staleness answer decides what the screen shows, so it is awaited here.
+      if (!this.jobs.has(kind) && !this.failures.has(kind)) {
+        const needs = await this.vod.needsRefresh(id, kind);
+        if (this.epoch !== epoch) return this.home(kind);
+        if (needs) void this.startFetch(kind, id, epoch, true, true);
+      }
       if (this.jobs.has(kind)) return { status: 'loading', rows: [], truncated: false };
       const failure = this.failures.get(kind);
       if (failure) return { status: 'error', rows: [], truncated: false, error: failure };
       return { status: 'empty', rows: [], truncated: catalog.truncated };
     }
+    // Stale-while-revalidate: the resident catalogue answers now; the staleness reads (3-4 IDB round trips) and any
+    // refresh run behind the answer (once; a failure stops it until refreshVod).
+    if (!this.jobs.has(kind) && !this.failures.has(kind)) this.revalidate(kind, id, epoch);
     await this.snapStart(kind, catalog);
     const home: VodHome = { status: 'ready', rows: await this.rows(kind, catalog), truncated: catalog.truncated };
     const so = this.progress.get(kind);
@@ -845,6 +850,23 @@ export class VodController {
    * `first`: nothing of this kind is on screen, so the titles so far are shown while the list downloads (snapshots
    * become the resident catalogue, `vodProgress` tells the screen). A refresh behind a shown list keeps that list.
    */
+  /**
+   * Asks whether the stored list of `kind` is stale and, if so, starts the background refresh. One question per kind
+   * at a time (a second open joins it); nothing starts once the source changed. Tracked for `idle`.
+   */
+  private revalidate(kind: VodKind, id: string, epoch: number): void {
+    if (this.revalidating.has(kind)) return;
+    this.revalidating.add(kind);
+    const p = this.vod.needsRefresh(id, kind).then((needs) => {
+      if (this.epoch !== epoch || !needs || this.jobs.has(kind) || this.failures.has(kind)) return;
+      void this.startFetch(kind, id, epoch, true, false);
+    }, (err: unknown) => { this.record('getVodHome', err); }).finally(() => {
+      this.revalidating.delete(kind);
+      this.pending.delete(p);
+    });
+    this.pending.add(p);
+  }
+
   private startFetch(kind: VodKind, id: string, epoch: number, automatic = false, first = false): Promise<void> {
     if (this.epoch !== epoch) return Promise.resolve();
     const existing = this.jobs.get(kind);
