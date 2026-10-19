@@ -3,6 +3,7 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { SportsEventTile } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { WIDE_GAP, WIDE_H, WIDE_W, WideTile } from '../components/WideTile.tsx';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -45,6 +46,8 @@ export function StartSportsScreen() {
     return true;
   };
   onMount(() => {
+    // A full screen like Start: Back from a Player opened here must not leave the stream playing fullscreen behind it.
+    parkLiveForScreen('stop');
     void load();
     const off = onEvent('refreshed', () => void load());
     const tick = setInterval(() => setNow(Date.now()), 60_000);

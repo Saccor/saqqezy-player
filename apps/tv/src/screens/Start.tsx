@@ -9,14 +9,13 @@ import { TabBar } from '../components/TabBar.tsx';
 import { WIDE_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { playback } from '../playback/playback.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
-import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
@@ -162,8 +161,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     // Like Movies and Series: a full screen over Home; Back to Live TV resumes the channel that was playing.
-    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
-    playback.stop();
+    parkLiveForScreen('stop');
     void api.getStartHomeCached().then((h) => { if (alive && !home()) apply(h); }).catch(() => undefined);
     void load();
     const offs = [

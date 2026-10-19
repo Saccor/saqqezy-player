@@ -10,8 +10,7 @@ import { PosterRow } from '../components/PosterRow.tsx';
 import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
-import { playback } from '../playback/playback.ts';
-import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -359,10 +358,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   // ---- lifecycle ----
 
   onMount(() => {
-    // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
-    // A live channel that plays (or loads or reconnects) is remembered first: Home resumes it on the way back to Live TV.
-    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
-    playback.stop();
+    // The live stream stops here (a full screen); a live channel that plays is remembered so Home resumes it on the way back.
+    parkLiveForScreen('stop');
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };
       return ev.sourceId === sourceId() && ev.kind === kind;

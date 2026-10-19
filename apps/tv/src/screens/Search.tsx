@@ -7,6 +7,7 @@ import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
 import { devResume } from '../playback/devResume.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
@@ -133,9 +134,8 @@ export function SearchScreen() {
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
     onCleanup(onEvent('searchReady', rerun));
     onCleanup(onEvent('refreshed', rerun));
-    // Back from the Player leaves the video fullscreen behind this opaque screen; park it where Home shows it, so
-    // the shell's wordmark (hidden while the video is fullscreen) returns and Home needs no visible move.
-    if (playback.rectIsFullscreen()) playback.setRect(PREVIEW_RECT);
+    // Back from the Player leaves the video fullscreen behind this opaque screen: park it where Home shows it.
+    parkLiveForScreen({ preview: PREVIEW_RECT });
     kbNode?.setFocus();
     if (memory.query !== '') searcher.setQuery(memory.query);
     else memory.returning = false;
