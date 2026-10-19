@@ -65,6 +65,8 @@ describe('groupVod', () => {
     const g = groupVod(list(items), new Set(['y:synthetic film|2021']));
     expect(g.groups.map((x) => x.key)).toEqual([`i:${items[0]!.id}`, `i:${items[1]!.id}`]);
     expect(g.groups.map((x) => x.display)).toEqual(['Synthetic Film', 'Synthetic Film']);
+    expect(g.groups.map((x) => x.splitFrom)).toEqual(['y:synthetic film|2021', 'y:synthetic film|2021']);
+    expect(groupVod(list(items)).groups[0]!.splitFrom).toBeUndefined();
   });
 
   test('categories merge by name without language or quality', () => {

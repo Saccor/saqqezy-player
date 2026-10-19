@@ -18,6 +18,8 @@ export interface VodGroup {
   langs: string[];
   /** Merged category ids (`c:<base>`), in member order. */
   categoryIds: string[];
+  /** A version shown separately: the key of the title it was split from ("Combine again" removes that split). */
+  splitFrom?: string;
 }
 
 export interface VodGroups {
@@ -93,13 +95,16 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
   const groups: VodGroup[] = [];
   const byKey = new Map<string, number>();
   for (let i = 0; i < items.length; i++) {
-    let key = keys[i]!;
-    if (splits.has(key)) key = `i:${items[i]!.id}`;
+    const natural = keys[i]!;
+    const split = splits.has(natural);
+    const key = split ? `i:${items[i]!.id}` : natural;
     let gi = byKey.get(key);
     if (gi === undefined) {
       gi = groups.length;
       byKey.set(key, gi);
-      groups.push({ key, members: [], lead: i, display: '', quality: 4, langs: [], categoryIds: [] });
+      const g: VodGroup = { key, members: [], lead: i, display: '', quality: 4, langs: [], categoryIds: [] };
+      if (split) g.splitFrom = natural;
+      groups.push(g);
     }
     groupOf[i] = gi;
     const g = groups[gi]!;

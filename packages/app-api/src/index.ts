@@ -13,5 +13,5 @@ export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } f
 export type {
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, TitleHit,
-  EpisodeView, MovieView, OnlineSubtitleLanguage, SeasonView, SeriesPrimary, SeriesView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
+  EpisodeView, MovieView, OnlineSubtitleLanguage, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
 } from './types.ts';

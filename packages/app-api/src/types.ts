@@ -159,6 +159,24 @@ export interface VodTile {
   progress?: number;
   /** Series in Continue watching: "S2 · E4". */
   badge?: string;
+  /** Versions of this title (language and quality), when more than one. */
+  versions?: number;
+  /** Best quality among the versions ("4K", "FHD", "HD", "SD"), when known. */
+  quality?: string;
+}
+
+/** One version of a title in the Versions list. The TV names it ("Swedish · 4K"). */
+export interface VersionView {
+  /** The movie or series item id to play or show. */
+  id: string;
+  /** ISO 639-1, when detected. */
+  lang?: string;
+  /** "4K", "FHD", "HD", "SD", when known. */
+  quality?: string;
+  /** Extra labels ("HDR", "MULTI", …). */
+  tags: string[];
+  /** What Play picks on its own. */
+  auto: boolean;
 }
 
 /** A home row. `items` is empty past the first rows: fetch them with `getVodSlice(kind, id, …)`. */
@@ -203,6 +221,12 @@ export interface MovieView {
   tracks: VodTracks;
   /** "More in <category>", without this movie. */
   more: VodTile[];
+  /** Every version, Play's pick first; empty when the title has one. */
+  versions: VersionView[];
+  /** The version Play plays (its detail, resume and tracks are the ones above). */
+  playId: string;
+  /** Shown separately by the user ("Combine again" undoes it). */
+  split?: boolean;
 }
 
 export interface EpisodeView {
@@ -227,6 +251,12 @@ export interface SeriesView {
   detail: Omit<SeriesDetail, 'seasons'> | null;
   seasons: SeasonView[];
   primary?: SeriesPrimary;
+  /** Every version, the shown one first when it is the automatic pick; empty when the series has one. */
+  versions: VersionView[];
+  /** The version whose seasons are shown: pass it as `seriesId` when playing its episodes. */
+  versionId: string;
+  /** Shown separately by the user ("Combine again" undoes it). */
+  split?: boolean;
 }
 
 export interface VodPlayable {
