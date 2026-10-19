@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPlatform, mapKey, TIZEN_KEYS_TO_REGISTER, type LogicalKey, type PlatformId } from '../src/index.ts';
+import { detectPlatform, keyTableFor, mapKey, TIZEN_KEY_NAMES, TIZEN_KEYS_TO_REGISTER, withCodes, type LogicalKey, type PlatformId } from '../src/index.ts';
 
 const browserCases: Array<[string, LogicalKey]> = [
   ['ArrowUp', 'Up'], ['ArrowDown', 'Down'], ['ArrowLeft', 'Left'], ['ArrowRight', 'Right'],
@@ -23,22 +23,22 @@ const webosCases: Array<[number, LogicalKey]> = [
 
 describe('mapKey', () => {
   it.each(browserCases)('browser key %j -> %s', (key, expected) => {
-    expect(mapKey('browser', { key, keyCode: 0 })).toBe(expected);
+    expect(mapKey(keyTableFor('browser'), { key, keyCode: 0 })).toBe(expected);
   });
   it('browser letter keys are case-insensitive (M, I) and ignore inherited property names', () => {
-    expect(mapKey('browser', { key: 'M', keyCode: 0 })).toBe('Menu');
-    expect(mapKey('browser', { key: 'I', keyCode: 0 })).toBe('Info');
-    expect(mapKey('browser', { key: 'constructor', keyCode: 0 })).toBeUndefined();
-    expect(mapKey('browser', { key: '__proto__', keyCode: 0 })).toBeUndefined();
+    expect(mapKey(keyTableFor('browser'), { key: 'M', keyCode: 0 })).toBe('Menu');
+    expect(mapKey(keyTableFor('browser'), { key: 'I', keyCode: 0 })).toBe('Info');
+    expect(mapKey(keyTableFor('browser'), { key: 'constructor', keyCode: 0 })).toBeUndefined();
+    expect(mapKey(keyTableFor('browser'), { key: '__proto__', keyCode: 0 })).toBeUndefined();
   });
   it.each(tizenCases)('tizen keyCode %i -> %s', (keyCode, expected) => {
-    expect(mapKey('tizen', { key: '', keyCode })).toBe(expected);
+    expect(mapKey(keyTableFor('tizen'), { key: '', keyCode })).toBe(expected);
   });
   it.each(webosCases)('webos keyCode %i -> %s', (keyCode, expected) => {
-    expect(mapKey('webos', { key: '', keyCode })).toBe(expected);
+    expect(mapKey(keyTableFor('webos'), { key: '', keyCode })).toBe(expected);
   });
   it.each(['browser', 'tizen', 'webos'] as PlatformId[])('%s returns undefined for unknown keys', (p) => {
-    expect(mapKey(p, { key: 'q', keyCode: 81 })).toBeUndefined();
+    expect(mapKey(keyTableFor(p), { key: 'q', keyCode: 81 })).toBeUndefined();
   });
 });
 
@@ -65,5 +65,63 @@ describe('TIZEN_KEYS_TO_REGISTER', () => {
       'Info', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
       'MediaTrackPrevious', 'MediaTrackNext', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
     ]);
+  });
+});
+
+const mediaKeyNames: Array<[string, LogicalKey]> = [
+  ['MediaPlayPause', 'PlayPause'], ['MediaPlay', 'Play'], ['MediaPause', 'Pause'], ['MediaStop', 'Stop'],
+  ['MediaFastForward', 'FastForward'], ['MediaRewind', 'Rewind'], ['MediaTrackNext', 'ChannelUp'], ['MediaTrackPrevious', 'ChannelDown'],
+];
+const androidCases: Array<[string, LogicalKey]> = [
+  ...mediaKeyNames,
+  ['ArrowUp', 'Up'], ['Enter', 'Ok'], ['GoBack', 'Back'], ['BrowserBack', 'Back'], ['Escape', 'Back'],
+  ['ContextMenu', 'Menu'], ['Info', 'Info'], ['ChannelUp', 'ChannelUp'], ['ChannelDown', 'ChannelDown'],
+  ['ColorF0Red', 'Red'], ['ColorF1Green', 'Green'], ['ColorF2Yellow', 'Yellow'], ['ColorF3Blue', 'Blue'], ['Guide', 'Green'],
+  ['0', 'Digit0'], ['7', 'Digit7'],
+];
+const tvMediaCodes: Array<[number, LogicalKey]> = [[415, 'Play'], [19, 'Pause'], [413, 'Stop'], [417, 'FastForward'], [412, 'Rewind']];
+
+describe('media keys', () => {
+  it.each(mediaKeyNames)('browser/desktop %s -> %s', (key, expected) => {
+    expect(mapKey(keyTableFor('browser'), { key, keyCode: 0 })).toBe(expected);
+    expect(mapKey(keyTableFor('desktop'), { key, keyCode: 0 })).toBe(expected);
+  });
+  it.each(androidCases)('androidtv %s -> %s', (key, expected) => {
+    expect(mapKey(keyTableFor('androidtv'), { key, keyCode: 0 })).toBe(expected);
+  });
+  it('androidtv has no keyboard-only keys (Backspace, m, F1) and no volume keys', () => {
+    for (const key of ['Backspace', 'm', 'F1', ' ', 'AudioVolumeUp']) expect(mapKey(keyTableFor('androidtv'), { key, keyCode: 0 })).toBeUndefined();
+  });
+  it('browser and desktop map the volume keys', () => {
+    for (const id of ['browser', 'desktop'] as PlatformId[]) {
+      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeUp', keyCode: 0 })).toBe('VolumeUp');
+      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeDown', keyCode: 0 })).toBe('VolumeDown');
+      expect(mapKey(keyTableFor(id), { key: 'AudioVolumeMute', keyCode: 0 })).toBe('Mute');
+    }
+  });
+  it.each(tvMediaCodes)('tizen and webos code %i -> %s', (keyCode, expected) => {
+    expect(mapKey(keyTableFor('tizen'), { key: '', keyCode })).toBe(expected);
+    expect(mapKey(keyTableFor('webos'), { key: '', keyCode })).toBe(expected);
+  });
+  it('tizen track keys zap', () => {
+    expect(mapKey(keyTableFor('tizen'), { key: '', keyCode: 10233 })).toBe('ChannelUp');
+    expect(mapKey(keyTableFor('tizen'), { key: '', keyCode: 10232 })).toBe('ChannelDown');
+  });
+  it('withCodes overrides and adds codes without touching the original', () => {
+    const base = keyTableFor('tizen');
+    const t = withCodes(base, { 9999: 'Play', 415: 'Stop' });
+    expect(mapKey(t, { key: '', keyCode: 9999 })).toBe('Play');
+    expect(mapKey(t, { key: '', keyCode: 415 })).toBe('Stop');
+    expect(mapKey(base, { key: '', keyCode: 9999 })).toBeUndefined();
+  });
+  it('withCodes on a key table returns it unchanged', () => {
+    const t = keyTableFor('desktop');
+    expect(withCodes(t, { 1: 'Play' })).toBe(t);
+  });
+  it('TIZEN_KEY_NAMES maps every media key name it registers', () => {
+    for (const n of ['MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind', 'MediaPlayPause', 'MediaTrackNext', 'MediaTrackPrevious']) {
+      expect(TIZEN_KEY_NAMES[n]).toBeDefined();
+      expect(TIZEN_KEYS_TO_REGISTER).toContain(n);
+    }
   });
 });
