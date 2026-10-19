@@ -281,7 +281,8 @@ export function createPlaybackController(
       if (current() !== undefined && !held && kind !== 'playing') hold();
     },
     resumeHeld() {
-      if (!held) return;
+      // Hidden: nothing opens. `resumeFromBackground` opens the held title once the app is visible again.
+      if (!held || inBackground) return;
       const v = pendingVod;
       if (v) {
         updateVodStart();
@@ -292,6 +293,7 @@ export function createPlaybackController(
       if (cur) this.playChannel(cur);
     },
     suspendForBackground() {
+      if (inBackground) return; // already away: a second hide must not overwrite the pending close/suspend
       inBackground = true;
       if (waitingNetwork) {
         // Closed already and waiting for the network: still closed, and it reopens only after coming back.
@@ -329,6 +331,8 @@ export function createPlaybackController(
           // A paused title stays paused: the supervisor pauses it at its first frame.
           if (vodWasPaused) supervisor.pause();
         }
+      } else if (held) {
+        this.resumeHeld(); // the cooldown may have ended while hidden; playChannel re-holds if it still blocks
       }
     },
     networkBack() {

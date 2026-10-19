@@ -649,6 +649,46 @@ describe('background', () => {
     ctl.resumeHeld();
     expect(supervisor.plays().length).toBe(before + 1);
   });
+  it('resumeHeld (cooldown end) opens nothing while hidden; the visible path opens the held channel', () => {
+    let blocked = true;
+    const { ctl, supervisor } = setupPlaying('live', { blocked: () => blocked }); // held at once
+    ctl.suspendForBackground();
+    blocked = false;
+    const before = supervisor.plays().length;
+    ctl.resumeHeld();
+    expect(supervisor.plays().length).toBe(before);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(before + 1);
+    ctl.resumeHeld(); // no longer held: nothing more
+    expect(supervisor.plays().length).toBe(before + 1);
+  });
+  it('hidden, visible, hidden, visible reopens once per round; hidden twice keeps close-live', () => {
+    const { ctl, supervisor, f, ch: channel } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    f.emit({ kind: 'playing' });
+    const afterFirst = supervisor.plays().length;
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    f.emit({ kind: 'playing' });
+    expect(supervisor.plays().length).toBe(afterFirst + 1);
+    // hidden twice with no visible in between: the second must not overwrite close-live with none
+    ctl.suspendForBackground();
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(afterFirst + 2);
+    expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
+  });
+  it('vod: hidden twice keeps suspend-vod, and visible still resumes', () => {
+    const { ctl, player, supervisor, journal } = setupPlaying('vod', { positionMs: 42_000, resumeResult: true });
+    ctl.suspendForBackground();
+    ctl.suspendForBackground();
+    expect(player.suspended).toBe(1);
+    const plays = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays);
+    expect(journal).toHaveBeenCalledWith('resume_restore');
+  });
   it('vod fallback reopen keeps a user pause', () => {
     const { ctl, f } = setupPlaying('vod', { positionMs: 42_000, resumeResult: false });
     f.supervisor.paused.mockReturnValue(true);
