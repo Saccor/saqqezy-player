@@ -497,7 +497,10 @@ export class AppApi {
       // Switched away or deleted meanwhile: never mix sources, and persist nothing.
       if (this.activeId !== id) return { rows: [], at: home.at };
       this.startCache = { sourceId: id, home };
-      await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
+      // Start asks every minute; the stored page is rewritten only when the rows differ (no idle readwrite transactions).
+      if (!cached || JSON.stringify(cached.rows) !== JSON.stringify(home.rows)) {
+        await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
+      }
       return home;
     });
   }

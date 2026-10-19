@@ -2304,6 +2304,33 @@ describe('AppApi – sports in your guide', () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
+  test('getStartHome writes the stored page only when the rows changed', async () => {
+    class Counting extends MemoryStorage {
+      startWrites = 0;
+      override async setMeta(key: string, value: unknown) {
+        if (key.startsWith('startHome:')) this.startWrites++;
+        return super.setMeta(key, value);
+      }
+    }
+    const st = new Counting();
+    const { api } = make(st);
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const first = await api.getStartHome();
+    expect(first.rows.length).toBeGreaterThan(0);
+    expect(st.startWrites).toBe(1);
+    const second = await api.getStartHome();
+    expect(second.rows).toEqual(first.rows);
+    expect(st.startWrites).toBe(1); // same rows: no readwrite transaction
+    expect(await api.getStartHomeCached()).toEqual(second);
+    // A favourite changes the live row: written again.
+    const ch = (await api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await api.toggleFavourite(ch.id);
+    const third = await api.getStartHome();
+    expect(third.rows).not.toEqual(first.rows);
+    expect(st.startWrites).toBe(2);
+  });
+
   test('deleteSource clears the stored Start page and the cached answer', async () => {
     const st = new MemoryStorage();
     const { api } = make(st);
