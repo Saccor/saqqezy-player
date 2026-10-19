@@ -10,6 +10,7 @@ import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
+import { HINT_Y } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
@@ -32,7 +33,6 @@ const COUNT_Y = KB_Y - 42;
 const COUNT_X = WORDMARK_RIGHT;
 const COUNT_W = LIST_X + LIST_W - COUNT_X;
 const LIST_H = LIST_ROWS * ROW_H;
-const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
 const memory = createSearchMemory();

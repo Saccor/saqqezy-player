@@ -10,7 +10,7 @@ import { WIDE_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
-import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -83,9 +83,9 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       setFocus(locateStart(h.rows, memory.focus));
     });
     if (h.rows.length === 0 && area() === 'rows') focusArea('tabs', false);
-    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, router.topOverlay() !== undefined) === 'rows') {
+    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, screenOverlayOpen()) === 'rows') {
       // The rows node mounts with the rows; focus it once it exists.
-      queueMicrotask(() => { if (alive && router.topOverlay() === undefined) focusArea('rows', false); });
+      queueMicrotask(() => { if (alive && !screenOverlayOpen()) focusArea('rows', false); });
     }
   };
   const load = async () => {
@@ -105,7 +105,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const openCell = () => {
     const c = focusedCell();
-    if (!c || router.topOverlay() !== undefined) return true;
+    if (!c || screenOverlayOpen()) return true;
     if (c.type === 'vod') router.push(c.tile.kind === 'series' ? 'seriesDetail' : 'movieDetail', { id: c.tile.id, tile: c.tile });
     else if (c.type === 'channel') actions.tune(c.channel.id);
     else if (c.type === 'event') void actions.openEvent(c.event);
@@ -126,7 +126,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   /** Long Ok / Menu: favourite a channel; follow or unfollow a side of an event. */
   const openMenu = () => {
     const c = focusedCell();
-    if (router.topOverlay() !== undefined) return true;
+    if (screenOverlayOpen()) return true;
     if (c?.type === 'channel') {
       void api.toggleFavourite(c.channel.id)
         .then((on) => { showToast(on ? 'Added to favourites' : 'Removed from favourites'); void load(); })

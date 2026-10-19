@@ -7,8 +7,8 @@ export const CANT_PLAY = "This video can't play on this device.";
 export interface LaunchDeps {
   /** False once the screen is gone. */
   alive: () => boolean;
-  /** The shell's top overlay; a press behind one (or one opened during the wait) must not act. */
-  topOverlay: () => unknown;
+  /** A screen overlay is open (`screenOverlayOpen`); a press behind one (or one opened during the wait) must not act. */
+  overlayOpen: () => boolean;
   getPlayable: (itemId: string, seriesId?: string) => Promise<VodPlayable | undefined>;
   /** Opens the player (`router.push('vodPlay', { playable, fromStart })`). */
   push: (playable: VodPlayable, fromStart: boolean) => void;
@@ -33,7 +33,7 @@ export function createVodLauncher(deps: LaunchDeps): VodLauncher {
     busy: () => busy,
     cancel: () => { gen++; busy = false; },
     play: async (itemId, opts) => {
-      if (busy || !deps.alive() || deps.topOverlay() !== undefined) return;
+      if (busy || !deps.alive() || deps.overlayOpen()) return;
       busy = true;
       const mine = ++gen;
       let p: VodPlayable | undefined;
@@ -46,7 +46,7 @@ export function createVodLauncher(deps: LaunchDeps): VodLauncher {
       } finally {
         if (mine === gen) busy = false;
       }
-      if (!deps.alive() || mine !== gen || deps.topOverlay() !== undefined) return;
+      if (!deps.alive() || mine !== gen || deps.overlayOpen()) return;
       if (p) deps.push(p, opts?.fromStart === true);
       else deps.toast(CANT_PLAY);
     },

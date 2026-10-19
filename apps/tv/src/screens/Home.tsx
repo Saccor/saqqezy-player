@@ -21,7 +21,7 @@ import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '.
 import { createDebounce } from '../playback/debounce.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { playback, previewHold } from '../playback/playback.ts';
-import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
+import { HINT_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -62,7 +62,6 @@ const HEAD_Y = WORDMARK_BOTTOM + 12;
 const BODY_Y = WORDMARK_BOTTOM + 50;
 const LIST_ROWS = 9;
 const LIST_H = LIST_ROWS * ROW_H;
-const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 /** Home's preview box; also where opaque screens park a fullscreen video they cover (see Search). */
 export const PREVIEW_RECT: Rect = { x: PREVIEW_X, y: BODY_Y, w: PREVIEW_W, h: PREVIEW_H };
 /** A browse focus resting this long asks the worker for that channel's now/next. It never plays. */
@@ -664,7 +663,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     if (modalOpen() || kbOpen()) return;
     const release = captureTextInput((e) => {
       const k = typingKey(e, {
-        overlayOpen: router.overlays().some((id) => id !== TOAST_OVERLAY_ID),
+        overlayOpen: screenOverlayOpen(),
         barFocused: area() === 'bar',
         query: query(),
       });

@@ -8,7 +8,7 @@ const setup = (answer: () => Promise<VodPlayable | undefined>) => {
   const s = { alive: true, overlay: undefined as string | undefined, pushed: [] as VodPlayable[], seriesIds: [] as Array<string | undefined>, fromStarts: [] as boolean[], toasts: [] as string[], calls: 0 };
   const launcher = createVodLauncher({
     alive: () => s.alive,
-    topOverlay: () => s.overlay,
+    overlayOpen: () => s.overlay !== undefined,
     getPlayable: (id, seriesId) => { s.calls++; expect(id).toBe('s:m1'); s.seriesIds.push(seriesId); return answer(); },
     push: (p, fromStart) => { s.pushed.push(p); s.fromStarts.push(fromStart); },
     toast: (m) => s.toasts.push(m),

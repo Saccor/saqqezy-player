@@ -7,6 +7,7 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
 import { SEASON_TAB_H, SeasonTabs } from '../components/SeasonTabs.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
+import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -72,7 +73,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   let restTimer: ReturnType<typeof setTimeout> | undefined;
   const launcher = createVodLauncher({
     alive: () => alive,
-    topOverlay: () => router.topOverlay(),
+    overlayOpen: screenOverlayOpen,
     getPlayable: (id, seriesId) => api.getVodPlayable(id, seriesId),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
@@ -103,7 +104,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   });
 
   /** No overlay or poster menu is open (a key or click behind one must not act). */
-  const free = () => router.topOverlay() === undefined && !menu.isOpen();
+  const free = () => !screenOverlayOpen() && !menu.isOpen();
 
   const clearRest = () => {
     if (restTimer !== undefined) clearTimeout(restTimer);
@@ -130,7 +131,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
 
   /** After a reload the focused area may have emptied: keep focus on a live node. */
   const settleFocus = () => queueMicrotask(() => {
-    if (!alive || router.topOverlay() !== undefined || menu.isOpen()) return;
+    if (!alive || screenOverlayOpen() || menu.isOpen()) return;
     if (area() !== 'actions') focusArea(area(), true);
   });
 

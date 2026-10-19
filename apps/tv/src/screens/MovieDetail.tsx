@@ -7,6 +7,7 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { pointerMode } from '../input/pointer.ts';
+import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -58,7 +59,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   let busy = false;
   const launcher = createVodLauncher({
     alive: () => alive,
-    topOverlay: () => router.topOverlay(),
+    overlayOpen: screenOverlayOpen,
     // Once the view is loaded, Play and the Versions list name the exact version; before, the card plays Play's pick.
     getPlayable: (id) => api.getVodPlayable(id, undefined, view() !== undefined),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
@@ -77,7 +78,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const moreRow = createMemo((): RowModel => ({ id: 'more', title: '', total: view()?.more.length ?? 0, items: view()?.more ?? [], loaded: true }));
 
   /** No overlay or poster menu is open (a key or click behind one must not act). */
-  const free = () => router.topOverlay() === undefined && !menu.isOpen();
+  const free = () => !screenOverlayOpen() && !menu.isOpen();
 
   /** Focuses an area. A refocus (`fallback`) lands on the actions when the More row is gone; a Down press just stays. */
   const focusArea = (a: Area, fallback = false) => {
@@ -92,7 +93,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   /** After a reload the focused view may have unmounted (the More row emptied): keep focus on a live node. */
   const settleFocus = () => queueMicrotask(() => {
-    if (!alive || router.topOverlay() !== undefined || menu.isOpen()) return;
+    if (!alive || screenOverlayOpen() || menu.isOpen()) return;
     if (area() !== 'more') return;
     setMoreCol((c) => Math.max(0, Math.min(c, moreRow().items.length - 1)));
     if (moreRow().items.length === 0) focusArea('actions');

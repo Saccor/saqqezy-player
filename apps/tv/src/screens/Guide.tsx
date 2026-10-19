@@ -13,7 +13,7 @@ import { pointerMode, usePointerBackdrop, usePointerTarget } from '../input/poin
 import type { GridHit } from '../input/pointerLogic.ts';
 import { devResume } from '../playback/devResume.ts';
 import { playback } from '../playback/playback.ts';
-import { BOTTOM_ROW_H, BOTTOM_ROW_Y, OFFLINE_BADGE_X, SCREEN_ROW_X } from '../shell/logic.ts';
+import { BOTTOM_ROW_H, BOTTOM_ROW_Y, HINT_Y, OFFLINE_BADGE_X, SCREEN_ROW_X } from '../shell/logic.ts';
 import { offline } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -41,7 +41,6 @@ const SIDE_W = INFO_W - SIDE_X;
 const SIDE_W_OFFLINE = Math.min(SIDE_W, OFFLINE_BADGE_X - LAYOUT.gap - INFO_X - SIDE_X);
 const TITLE_TOP = WORDMARK_BOTTOM + 4 - MINI.y;
 const GRID_Y = MINI.y + MINI.h + LAYOUT.gap;
-const HINT_Y = LAYOUT.height - LAYOUT.safeY - 30;
 const PICKER_ID = 'guideGroups';
 const PICKER_W = 460;
 const GROUP_ALL = 'all';

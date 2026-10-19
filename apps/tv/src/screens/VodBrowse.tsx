@@ -12,7 +12,7 @@ import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
 import { playback } from '../playback/playback.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
-import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -142,7 +142,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** After a load: put focus back on what the user chose, only when this load may have unmounted the focused view. */
   const restoreFocus = (before: { status: string | undefined; hasRows: boolean; hasTile: boolean }) => {
     queueMicrotask(() => {
-      if (!alive || router.topOverlay() !== undefined || menu.isOpen()) return;
+      if (!alive || screenOverlayOpen() || menu.isOpen()) return;
       const changed = before.status !== status() || before.hasRows !== (rows().length > 0) || before.hasTile !== !!focusedTile();
       if (!changed) return;
       restoring = true;
@@ -254,7 +254,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
   const launcher = createVodLauncher({
     alive: () => alive,
-    topOverlay: () => router.topOverlay(),
+    overlayOpen: screenOverlayOpen,
     getPlayable: (id, seriesId) => api.getVodPlayable(id, seriesId),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
@@ -309,7 +309,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           if (alive && v && focusedTile()?.id === t.id) setHero(v);
           return v;
         },
-        still: () => alive && focusedTile()?.id === t.id && router.topOverlay() === undefined && !menu.isOpen(),
+        still: () => alive && focusedTile()?.id === t.id && !screenOverlayOpen() && !menu.isOpen(),
         launcher,
         // No episodes (or the load failed): the detail opens instead.
         noPrimary: () => router.push(copy.detailRoute, { id: t.id, tile: t }),
@@ -320,7 +320,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
   const onHeroAction = (id: string) => {
     const t = focusedTile();
-    if (!t || router.topOverlay() !== undefined || menu.isOpen()) return;
+    if (!t || screenOverlayOpen() || menu.isOpen()) return;
     if (id === 'play') {
       if (kind !== 'series') { void launcher.play(t.id); return; }
       // A series plays its primary episode, loading the view first when the press comes before it.

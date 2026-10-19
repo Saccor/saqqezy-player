@@ -3,6 +3,7 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { SportsEventTile } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { WIDE_GAP, WIDE_H, WIDE_W, WideTile } from '../components/WideTile.tsx';
+import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { createStartActions } from './startActions.tsx';
@@ -33,14 +34,14 @@ export function StartSportsScreen() {
   const firstRow = () => Math.max(0, Math.floor(index() / COLS) - VISIBLE_ROWS + 1);
   const shown = () => events().slice(firstRow() * COLS, (firstRow() + VISIBLE_ROWS) * COLS);
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
-    if (router.topOverlay() !== undefined) return true;
+    if (screenOverlayOpen()) return true;
     const n = gridMove(events().length, COLS, index(), key);
     if (n !== 'top') setIndex(n);
     return true;
   };
   const open = () => {
     const e = events()[index()];
-    if (e && router.topOverlay() === undefined) void actions.openEvent(e);
+    if (e && !screenOverlayOpen()) void actions.openEvent(e);
     return true;
   };
   onMount(() => {
