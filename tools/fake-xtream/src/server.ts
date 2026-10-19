@@ -25,10 +25,12 @@ export interface FakeXtreamOptions {
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
 const MEDIA_TYPES: Record<string, string> = {
-  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt',
+  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt', mkv: 'video/x-matroska',
 };
 /** Movie stream id that plays the multi-track title when it was generated. */
 const MULTITRACK_MOVIE = 1;
+/** Movie stream id that plays the AC-3 sound file (`scripts/make-ac3.mjs`) when it was generated, listed as mkv. */
+const AC3_MOVIE = 2;
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -48,6 +50,9 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const chs = channels(opts.channels ?? 200);
   const now = opts.now ?? Date.now;
   const mediaDir = opts.mediaDir ?? DEFAULT_MEDIA_DIR;
+  const ac3File = () => existsSync(join(mediaDir, 'ac3', 'film.mkv'));
+  /** A movie's container: mkv for the AC-3 file when it exists, else the shared HLS extension. */
+  const movieExt = (n: number) => (n === AC3_MOVIE && ac3File() ? 'mkv' : VOD_EXT);
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
   const mvs = movies(opts.movies ?? 120, now());
   const srs = seriesList(opts.series ?? 12);
@@ -98,14 +103,16 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         res.writeHead(answer.status, { 'content-type': 'text/plain', ...answer.headers });
         return res.end();
       }
-      const multitrack = stream[1] === 'movie' && Number(stream[4]) === MULTITRACK_MOVIE
-        && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));
-      res.writeHead(302, { location: multitrack ? `${base}/media/multitrack/master.m3u8` : TEST_STREAM });
+      const movie = stream[1] === 'movie' ? Number(stream[4]) : undefined;
+      const multitrack = movie === MULTITRACK_MOVIE && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));
+      const ac3 = movie === AC3_MOVIE && ac3File();
+      const location = multitrack ? `${base}/media/multitrack/master.m3u8` : ac3 ? `${base}/media/ac3/film.mkv` : TEST_STREAM;
+      res.writeHead(302, { location });
       return res.end();
     }
 
     // Generated test media: one folder level, plain file names only (no traversal).
-    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt)$/.exec(url.pathname);
+    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt|mkv)$/.exec(url.pathname);
     if (media) {
       const file = join(mediaDir, media[1]!, `${media[2]}.${media[3]}`);
       return readFile(file, (err, body) => {
@@ -158,7 +165,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       if (action === 'get_vod_streams') {
         return send(res, 200, JSON.stringify(mvs.filter((m) => !catFilter || m.categoryId === catFilter).map((m) => ({
           num: m.n, name: m.name, stream_type: 'movie', stream_id: m.n, stream_icon: `${base}/poster/m${m.n}.svg`,
-          rating: m.rating, added: String(m.added), category_id: m.categoryId, container_extension: VOD_EXT,
+          rating: m.rating, added: String(m.added), category_id: m.categoryId, container_extension: movieExt(m.n),
         }))));
       }
       if (action === 'get_vod_info') {
@@ -170,7 +177,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
             director: 'Synthetic Director', cast: 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
             backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`,
           },
-          movie_data: { stream_id: m.n, name: m.name, container_extension: VOD_EXT },
+          movie_data: { stream_id: m.n, name: m.name, container_extension: movieExt(m.n) },
         }));
       }
       if (action === 'get_series_categories') {

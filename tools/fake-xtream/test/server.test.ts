@@ -81,6 +81,28 @@ describe('fake xtream + SourceService end to end', () => {
     }
   });
 
+  test('movie 2 is the generated AC-3 file when present: listed as mkv, redirected to it and served', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-media-'));
+    mkdirSync(join(dir, 'ac3'));
+    writeFileSync(join(dir, 'ac3', 'film.mkv'), 'MKV');
+    const withMedia = await startFakeXtream({ port: 0, channels: 1, mediaDir: dir, now: () => NOW });
+    const api = (q: string) => fetch(`${withMedia.url}/player_api.php?username=test&password=test&${q}`).then((r) => r.json());
+    try {
+      const list = (await api('action=get_vod_streams')) as { stream_id: number; container_extension: string }[];
+      expect(list.find((m) => m.stream_id === 2)?.container_extension).toBe('mkv');
+      expect(list.find((m) => m.stream_id === 3)?.container_extension).toBe('m3u8');
+      const info = (await api('action=get_vod_info&vod_id=2')) as { movie_data: { container_extension: string } };
+      expect(info.movie_data.container_extension).toBe('mkv');
+      const movie2 = await fetch(`${withMedia.url}/movie/test/test/2.mkv`, { redirect: 'manual' });
+      expect(movie2.headers.get('location')).toBe(`${withMedia.url}/media/ac3/film.mkv`);
+      const file = await fetch(`${withMedia.url}/media/ac3/film.mkv`);
+      expect(file.headers.get('content-type')).toBe('video/x-matroska');
+      expect(await file.text()).toBe('MKV');
+    } finally {
+      await withMedia.close();
+    }
+  });
+
   test('CORS headers on responses, redirects, 404s and OPTIONS', async () => {
     const api = await fetch(`${server.url}/player_api.php?username=test&password=test`);
     expect(api.headers.get('access-control-allow-origin')).toBe('*');

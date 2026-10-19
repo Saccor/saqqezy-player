@@ -210,3 +210,12 @@ export function trackShape(audio: readonly unknown[], text: readonly unknown[]):
 export function tracksKeyId(p: VodPlayable): string {
   return p.kind === 'episode' && p.series ? p.series.id : p.itemId;
 }
+
+/**
+ * The toast when the picture plays but the device decodes none of the sound (desktop browsers lack AC-3 / E-AC-3,
+ * common in films). With more than one audio track, another one may play.
+ */
+export function noSoundText(audioTrackCount: number): string {
+  const base = "No sound: this device can't play this video's audio format.";
+  return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;
+}

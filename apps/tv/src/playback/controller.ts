@@ -33,6 +33,8 @@ export interface PlaybackController {
   durationMs(): number | undefined;
   /** Ms buffered ahead of the playhead, as `positionMs`: undefined unless the current VOD title was opened. */
   bufferedAheadMs(): number | undefined;
+  /** As `positionMs`: false unless the current VOD title was opened. Its picture plays but the device decodes no sound. */
+  soundUndecodable(): boolean;
   paused(): boolean;
   /** Attempts that reached their first frame (never reset): a new value means a new engine attempt is playing. */
   startedAttempts(): number;
@@ -95,7 +97,7 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
-  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack'>,
+  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable'>,
   supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle' | 'liveInfo'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
@@ -229,6 +231,7 @@ export function createPlaybackController(
       const s = pendingVod && vodOpened ? supervisor.liveInfo().bufferAheadS : undefined;
       return s === undefined ? undefined : s * 1000;
     },
+    soundUndecodable: () => (pendingVod && vodOpened ? player.soundUndecodable?.() ?? false : false),
     paused: () => supervisor.paused(),
     startedAttempts: () => supervisor.startedAttempts(),
     onSubtitle: (fn) => supervisor.onSubtitle(fn),
