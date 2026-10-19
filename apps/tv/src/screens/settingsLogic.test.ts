@@ -157,24 +157,26 @@ describe('uaVersions', () => {
 
 describe('screenLines', () => {
   const dev = { innerWidth: 1920, innerHeight: 1080, screenWidth: 5120, screenHeight: 1440, devicePixelRatio: 1,
-    designScale: 1, userAgent: 'x Tizen 7.0 Chrome/94.0.1' };
-  it('shows viewport, screen, pixel ratio, design scale and engine', () => {
+    designScale: 1, renderWidth: 1920, renderHeight: 1080, userAgent: 'x Tizen 7.0 Chrome/94.0.1' };
+  it('shows viewport, screen, pixel ratio, design scale, render buffer and engine', () => {
     const t = screenLines(dev, 'browser').map(([k, v]) => `${k}: ${v}`);
     expect(t).toEqual([
       'Viewport: 1920\u00d71080 \u00b7 design scale 1.00',
       'Screen: 5120\u00d71440 \u00b7 pixel ratio 1',
+      'Render: 1920\u00d71080',
       'Engine: Tizen 7.0 \u00b7 Chrome 94.0.1',
     ]);
   });
   it('adds the Tizen device line only on Tizen, with fallbacks', () => {
-    expect(screenLines({ ...dev, tizenPlatformVersion: '7.0', tizenModel: 'QE-TEST' }, 'tizen')[2])
+    expect(screenLines({ ...dev, tizenPlatformVersion: '7.0', tizenModel: 'QE-TEST' }, 'tizen')[3])
       .toEqual(['Device', 'Tizen 7.0 \u00b7 QE-TEST']);
-    expect(screenLines(dev, 'tizen')[2]).toEqual(['Device', 'Tizen version unknown \u00b7 model unknown']);
+    expect(screenLines(dev, 'tizen')[3]).toEqual(['Device', 'Tizen version unknown \u00b7 model unknown']);
   });
   it('says unknown for missing numbers and rounds odd ones', () => {
     const t = screenLines({ devicePixelRatio: 1.3333, designScale: 2 / 3 }, 'browser');
     expect(t[0]).toEqual(['Viewport', 'unknown \u00b7 design scale 0.67']);
     expect(t[1]).toEqual(['Screen', 'unknown \u00b7 pixel ratio 1.33']);
+    expect(t[2]).toEqual(['Render', 'unknown']);
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],

@@ -144,3 +144,10 @@ export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 export function shellBackShown(route: ScreenId | undefined): boolean {
   return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay';
 }
+
+/** Debug HUD: the longest gap between consecutive animation-frame times (ms), i.e. the worst frame in the window. */
+export function slowestFrameMs(times: readonly number[]): number {
+  let worst = 0;
+  for (let i = 1; i < times.length; i++) worst = Math.max(worst, (times[i] ?? 0) - (times[i - 1] ?? 0));
+  return worst;
+}
