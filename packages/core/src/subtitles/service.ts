@@ -6,7 +6,12 @@ import { SUBTITLE_MAX_BYTES, decodeSubtitle, parseSubtitles, type SubtitleCue } 
 export interface LoadedSubtitle {
   name: string;
   cues: SubtitleCue[];
+  /** How much later (positive) or earlier (negative) the cues show, set by the user for this file. */
+  delayMs?: number;
 }
+
+/** The subtitle delay's limit either way. */
+export const SUBTITLE_DELAY_MAX_MS = 60_000;
 
 /** Where a subtitle comes from: a link, or a file's bytes read on the device. */
 export type SubtitleInput = { url: string } | { bytes: Uint8Array; name: string };
@@ -78,6 +83,16 @@ export class SubtitleService {
 
   async get(sourceId: string, itemId: string): Promise<LoadedSubtitle | undefined> {
     return (await this.storage.getMeta<LoadedSubtitle>(keyOf(sourceId, itemId))) ?? undefined;
+  }
+
+  /** Keeps the delay with the title's file (clamped to ±SUBTITLE_DELAY_MAX_MS); nothing when it has no file. */
+  async setDelay(sourceId: string, itemId: string, delayMs: number): Promise<void> {
+    const key = keyOf(sourceId, itemId);
+    const d = Math.round(Math.max(-SUBTITLE_DELAY_MAX_MS, Math.min(SUBTITLE_DELAY_MAX_MS, Number.isFinite(delayMs) ? delayMs : 0)));
+    await this.serial(async () => {
+      const cur = await this.storage.getMeta<LoadedSubtitle>(key);
+      if (cur) await this.storage.setMeta(key, { ...cur, delayMs: d });
+    });
   }
 
   async clear(sourceId: string, itemId: string): Promise<void> {

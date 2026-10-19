@@ -9,7 +9,7 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced', subtitleLanguage: 'off',
+      liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
     });
   });
 
@@ -17,6 +17,11 @@ describe('sanitizeSettings', () => {
     expect(SUBTITLE_LANGUAGES[0]).toBe('off');
     for (const v of ['en', 'sv', 'ar']) expect(sanitizeSettings({ subtitleLanguage: v }).subtitleLanguage).toBe(v);
     for (const v of ['english', 'xx', 3, null, undefined]) expect(sanitizeSettings({ subtitleLanguage: v }).subtitleLanguage).toBe('off');
+  });
+
+  test('subtitleExactMatch is a boolean, off by default (it reads a little of the video from the provider)', () => {
+    expect(sanitizeSettings({ subtitleExactMatch: true }).subtitleExactMatch).toBe(true);
+    for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ subtitleExactMatch: v }).subtitleExactMatch).toBe(false);
   });
 
   test('liveDelay keeps known values and falls back to balanced', () => {

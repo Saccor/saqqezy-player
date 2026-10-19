@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import { SUBTITLE_LANGUAGES, sanitizeSettings } from '@iptv/core';
 import {
-  FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, languageName,
+  ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW,
+  SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, delayLabel, languageName, stepDelay,
   onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
 } from './subtitleLogic.ts';
 
@@ -101,6 +102,10 @@ describe('online subtitles', () => {
     expect(onlineFileId('os:x')).toBeUndefined();
   });
 
+  it('a language whose best version matches the exact file says so', () => {
+    expect(onlineLanguageRows([{ language: 'en', count: 3, fileId: 1003, synced: true }])[0]).toMatchObject({ label: 'English · matches this file' });
+  });
+
   it('the find row comes first among the extra rows when the service is set up', () => {
     expect(subtitleExtraRows({ canLoadFile: false, canSearchOnline: true })[0]).toEqual(
       { kind: 'list', id: FIND_ONLINE_ROW, label: 'Find subtitles online…', checked: false },
@@ -109,10 +114,45 @@ describe('online subtitles', () => {
   });
 });
 
+describe('subtitle delay', () => {
+  it('labels in seconds with a sign', () => {
+    expect(delayLabel(0)).toBe('0.0 s');
+    expect(delayLabel(1200)).toBe('+1.2 s');
+    expect(delayLabel(-500)).toBe('−0.5 s');
+  });
+
+  it('steps 0.1 s (or a given step), within ±60 s', () => {
+    expect(stepDelay(0, 1)).toBe(100);
+    expect(stepDelay(0, -1)).toBe(-100);
+    expect(stepDelay(0, 1, 500)).toBe(500);
+    expect(stepDelay(59_950, 1)).toBe(60_000);
+    expect(stepDelay(-60_000, -1)).toBe(-60_000);
+  });
+
+  it('the delay row shows while a loaded file is on; pointer mode adds earlier/later rows to click', () => {
+    const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 1200, canLoadFile: false });
+    expect(rows[1]).toEqual({ kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: +1.2 s (Left/Right)', checked: false });
+    const pointer = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, canLoadFile: false, pointer: true });
+    expect(pointer.slice(1, 4).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW]);
+    expect(subtitleExtraRows({ external: { name: 'English', active: false }, delayMs: 0, canLoadFile: false }).some((r) => r.kind === 'list' && r.id === DELAY_ROW)).toBe(false);
+  });
+
+  it('"another version" names the next one, wrapping, and shows only with more than one', () => {
+    const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, canLoadFile: false, another: { label: 'English', index: 0, total: 3 } });
+    expect(rows.find((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toMatchObject({ label: 'Try another English version (2 of 3)' });
+    const last = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, another: { label: 'English', index: 2, total: 3 } });
+    expect(last.find((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toMatchObject({ label: 'Try another English version (1 of 3)' });
+    const one = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, another: { label: 'English', index: 0, total: 1 } });
+    expect(one.some((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toBe(false);
+    for (const id of [DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, ANOTHER_VERSION_ROW]) expect(id).not.toMatch(/^(a|s|os):|^off$/);
+  });
+});
+
 describe('subtitleExtraRows', () => {
   it('a loaded file (checked when on), load rows, and remove', () => {
     expect(subtitleExtraRows({ external: { name: 'film.srt', active: true }, canLoadFile: true })).toEqual([
       { kind: 'list', id: SUBTITLE_EXT_ROW, label: 'Subtitles: film.srt (loaded)', checked: true },
+      { kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: 0.0 s (Left/Right)', checked: false },
       { kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false },
       { kind: 'list', id: LOAD_FILE_ROW, label: 'Load subtitles from a file…', checked: false },
       { kind: 'list', id: REMOVE_EXT_ROW, label: 'Remove loaded subtitles', checked: false },

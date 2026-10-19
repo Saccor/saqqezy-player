@@ -187,7 +187,12 @@ export interface OnlineSubtitleLanguage {
   /** ISO 639-1, sometimes with a region ("pt-BR"). */
   language: string;
   count: number;
+  /** The file a click loads: the best version. */
   fileId: number;
+  /** Every version, best first ("Try another version" walks them). */
+  files: number[];
+  /** The best version was made for the exact file playing (exact match on, its hash matched). */
+  synced: boolean;
 }
 
 export interface MovieView {

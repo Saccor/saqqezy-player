@@ -56,9 +56,10 @@ export {
 } from './search/titleIndex.ts';
 export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
 export {
-  SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
+  SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';
 export {
-  OpenSubtitlesClient, bestSubtitle, languageChoices, searchParams, searchTitle,
+  OpenSubtitlesClient, bestSubtitle, languageChoices, rankSubtitles, searchParams, searchTitle,
   type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
 } from './subtitles/openSubtitles.ts';
+export { HASH_CHUNK, fetchMovieHash, openSubtitlesHash } from './subtitles/movieHash.ts';

@@ -10,6 +10,11 @@ export interface AppSettings {
   liveDelay: LiveDelaySetting;
   /** Movies and series: the subtitle language turned on when a title has no choice of its own ('off': none). */
   subtitleLanguage: string;
+  /**
+   * Find subtitles online also matches the exact video file (reads 128 KB of it from the provider: one short extra
+   * request while the title plays, which one-connection accounts may refuse). Off by default.
+   */
+  subtitleExactMatch: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -20,6 +25,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showClock: true,
   liveDelay: 'balanced',
   subtitleLanguage: 'off',
+  subtitleExactMatch: false,
 };
 
 /** 'off', then ISO 639-1 codes in order of their English names. */
@@ -58,5 +64,6 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     subtitleLanguage: typeof src.subtitleLanguage === 'string' && SUBTITLE_LANGUAGES.includes(src.subtitleLanguage)
       ? src.subtitleLanguage
       : DEFAULT_SETTINGS.subtitleLanguage,
+    subtitleExactMatch: typeof src.subtitleExactMatch === 'boolean' ? src.subtitleExactMatch : DEFAULT_SETTINGS.subtitleExactMatch,
   };
 }

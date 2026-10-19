@@ -1,4 +1,4 @@
-import { API_TIMEOUT_MS, OpenSubtitlesClient, SourceService, SubtitleService, VodService, withTimeout } from '@iptv/core';
+import { API_TIMEOUT_MS, OpenSubtitlesClient, SourceService, SubtitleService, VodService, fetchMovieHash, withTimeout } from '@iptv/core';
 import { IdbStorage } from '@iptv/storage';
 import { APP_API_METHODS, AppApi, CompanionHost, expose, type AppEvent, type PortLike } from '@iptv/app-api';
 import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-protocol';
@@ -42,6 +42,8 @@ const api = new AppApi({
   vod,
   subtitles,
   onlineSubtitles,
+  // Exact-match subtitles (a Settings choice): two 64 KB range reads of the VOD file over the app's fetch.
+  fileHash: (url) => fetchMovieHash(fetchFn, url),
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,
   companion: (appApi, onStatus) => new CompanionHost({

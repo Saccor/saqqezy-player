@@ -165,6 +165,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
     ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
     ['Clock', onOff(st.showClock)],
     ['Subtitle language', subtitleLanguageLabel(st.subtitleLanguage)],
+    ['Exact-match subtitles', onOff(st.subtitleExactMatch)],
   );
   return lines;
 }

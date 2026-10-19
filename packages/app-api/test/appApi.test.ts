@@ -2072,7 +2072,8 @@ describe('subtitles from a link or a file', () => {
 });
 
 describe('subtitles found online (fake OpenSubtitles service)', () => {
-  const makeOnline = (apiKey = 'fake-key') => {
+  const hashed: string[] = [];
+  const makeOnline = (apiKey = 'fake-key', fileHash?: (url: string) => Promise<string | undefined>) => {
     const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
     const service = new SourceService(deps);
     const vod = new VodService(deps);
@@ -2080,7 +2081,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     const onlineSubtitles = new OpenSubtitlesClient({
       apiFetch: deps.fetch, fileFetch: deps.fetch, apiKey, baseUrl: `${server.url}/opensubtitles/api/v1`, appName: 'Test v0',
     });
-    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, emit: () => {}, now: () => NOW });
+    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, ...(fileHash ? { fileHash } : {}), emit: () => {}, now: () => NOW });
     live.push(api);
     return api;
   };
@@ -2094,13 +2095,46 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
     const langs = await api.findSubtitlesOnline(movieId);
     expect(langs.map((l) => [l.language, l.count])).toEqual([['sv', 2], ['en', 3], ['de', 1], ['es', 1], ['fr', 1]]);
-    // The best Swedish file: the trusted one.
+    // The best Swedish file: the trusted one; every version best first, none timed for this exact file.
     expect(langs[0]!.fileId).toBe(2001);
+    expect(langs[0]!.files).toEqual([2001, 2002]);
+    expect(langs.every((l) => !l.synced)).toBe(true);
     const loaded = await api.loadOnlineSubtitle(movieId, langs[0]!.fileId, 'Swedish');
     expect(loaded.name).toBe('Swedish');
     expect(loaded.cues[0]).toEqual({ startMs: 1000, endMs: 4000, text: 'Synthetic subtitle 1 (sv)' });
     expect((await api.getSubtitle(movieId))?.name).toBe('Swedish');
     await expect(api.loadOnlineSubtitle(movieId, 999, 'English')).rejects.toThrow('Daily subtitle download limit reached. Try again tomorrow.');
+    // The delay is kept with that file; a newly loaded file starts at 0.
+    await api.setSubtitleDelay(movieId, 1200);
+    expect((await api.getSubtitle(movieId))?.delayMs).toBe(1200);
+    await api.loadOnlineSubtitle(movieId, 1001, 'English');
+    expect((await api.getSubtitle(movieId))?.delayMs).toBeUndefined();
+  });
+
+  test('exact match on: the stream file\'s hash goes along and the matching version comes first, marked synced', async () => {
+    hashed.length = 0;
+    const api = makeOnline('fake-key', async (url) => { hashed.push(url); return '0123456789abcdef'; });
+    await api.addSource(xt());
+    await api.refreshVod('movie');
+    const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+    // Off (the default): no hash is read.
+    expect((await api.findSubtitlesOnline(movieId))[0]!.synced).toBe(false);
+    expect(hashed).toEqual([]);
+    await api.saveSettings({ subtitleExactMatch: true, subtitleLanguage: 'en' });
+    const langs = await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(1);
+    expect(hashed[0]).toMatch(/\/movie\/test\/test\/\d+\.m3u8$/);
+    expect(langs[0]).toMatchObject({ language: 'en', fileId: 1003, synced: true });
+    expect(langs[0]!.files).toEqual([1003, 1001, 1002]);
+  });
+
+  test('exact match on but no hash (refused, or a playlist): the search still works', async () => {
+    const api = makeOnline('fake-key', async () => undefined);
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    await api.refreshVod('movie');
+    const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+    expect((await api.findSubtitlesOnline(movieId)).length).toBe(5);
   });
 
   test('not set up (no client): unavailable and rejects; the service\'s own errors come through', async () => {

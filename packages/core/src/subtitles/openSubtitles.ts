@@ -14,6 +14,8 @@ export interface SubtitleSearch {
   year?: number;
   /** ISO 639-1 codes; left out: every language. */
   languages?: string[];
+  /** The file's OpenSubtitles hash (`fetchMovieHash`): results then mark the files timed for this exact release. */
+  moviehash?: string;
 }
 
 /** One subtitle file found online. */
@@ -27,13 +29,18 @@ export interface OnlineSubtitle {
   /** Machine or AI translated. */
   machineTranslated: boolean;
   trusted: boolean;
+  /** Made for the exact file playing (its hash matched): timed for it. */
+  hashMatch: boolean;
 }
 
-/** One row of the language list: how many files, and the one a click loads. */
+/** One row of the language list: how many files, the one a click loads, and all of them best first. */
 export interface LanguageChoice {
   language: string;
   count: number;
   best: OnlineSubtitle;
+  files: OnlineSubtitle[];
+  /** One of its files matches the file playing. */
+  synced: boolean;
 }
 
 // "EN - ", "|SE| ", "[MULTI] ", "NL: " in front of provider titles. Upper case only, so "It: …" stays a title.
@@ -73,18 +80,28 @@ export function searchParams(q: SubtitleSearch): string {
     p.episode_number = String(q.episode);
   }
   if (q.languages?.length) p.languages = [...q.languages].sort().join(',');
+  if (q.moviehash) p.moviehash = q.moviehash;
   return Object.keys(p).sort().map((k) => `${k}=${enc(p[k] ?? '')}`).join('&');
 }
 
-/** The file a click loads: trusted uploaders, then human translations, then not hearing-impaired, then most downloaded. */
-export function bestSubtitle(list: readonly OnlineSubtitle[]): OnlineSubtitle | undefined {
-  const score = (s: OnlineSubtitle) => [s.trusted ? 0 : 1, s.machineTranslated ? 1 : 0, s.hearingImpaired ? 1 : 0, -s.downloads];
+const score = (s: OnlineSubtitle) => [s.hashMatch ? 0 : 1, s.trusted ? 0 : 1, s.machineTranslated ? 1 : 0, s.hearingImpaired ? 1 : 0, -s.downloads];
+
+/**
+ * Files best first: a match for the exact file playing, then trusted uploaders, then human translations, then not
+ * hearing-impaired, then most downloaded.
+ */
+export function rankSubtitles(list: readonly OnlineSubtitle[]): OnlineSubtitle[] {
   return [...list].sort((a, b) => {
     const x = score(a);
     const y = score(b);
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return (x[i] ?? 0) - (y[i] ?? 0);
     return 0;
-  })[0];
+  });
+}
+
+/** The file a click loads (`rankSubtitles`' first). */
+export function bestSubtitle(list: readonly OnlineSubtitle[]): OnlineSubtitle | undefined {
+  return rankSubtitles(list)[0];
 }
 
 const base = (code: string) => code.toLowerCase().split(/[-_]/)[0] ?? '';
@@ -98,9 +115,10 @@ export function languageChoices(list: readonly OnlineSubtitle[], preferred: stri
     else groups.set(s.language, [s]);
   }
   const rows: LanguageChoice[] = [];
-  for (const [language, files] of groups) {
-    const best = bestSubtitle(files);
-    if (best) rows.push({ language, count: files.length, best });
+  for (const [language, group] of groups) {
+    const files = rankSubtitles(group);
+    const best = files[0];
+    if (best) rows.push({ language, count: files.length, best, files, synced: best.hashMatch });
   }
   const pref = (c: LanguageChoice) => (preferred !== 'off' && base(c.language) === preferred ? 0 : 1);
   return rows.sort((a, b) => pref(a) - pref(b) || b.count - a.count || a.language.localeCompare(b.language));
@@ -178,6 +196,7 @@ export class OpenSubtitlesClient {
         hearingImpaired: a.hearing_impaired === true,
         machineTranslated: a.machine_translated === true || a.ai_translated === true,
         trusted: a.from_trusted === true,
+        hashMatch: a.moviehash_match === true,
       });
     }
     return out;

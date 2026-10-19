@@ -6,11 +6,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
  * spent daily quota (406).
  */
 export const FAKE_OPENSUBTITLES_KEY = 'fake-key';
+/** A search with this moviehash marks each language's third file as made for the exact file (`moviehash_match`). */
+export const FAKE_MATCHING_HASH = '0123456789abcdef';
 
 const LANGS: [string, number][] = [['en', 3], ['sv', 2], ['de', 1], ['fr', 1], ['es', 1]];
 const QUOTA_FILE = 999;
 
-function entries(languages: string[] | undefined) {
+function entries(languages: string[] | undefined, hashMatches: boolean) {
   const out: unknown[] = [];
   LANGS.forEach(([language, count], li) => {
     if (languages && !languages.includes(language)) return;
@@ -21,7 +23,7 @@ function entries(languages: string[] | undefined) {
         type: 'subtitle',
         attributes: {
           language, download_count: 1000 - n * 100, hearing_impaired: n === 2, machine_translated: false, ai_translated: n === 3,
-          from_trusted: n === 1, release: `Synthetic.Release.${language}.${n}`,
+          from_trusted: n === 1, release: `Synthetic.Release.${language}.${n}`, moviehash_match: hashMatches && n === 3,
           files: [{ file_id: fileId, file_name: `synthetic.${language}.${n}.srt` }],
         },
       });
@@ -68,7 +70,7 @@ export async function handleOpenSubtitles(req: IncomingMessage, res: ServerRespo
   const route = url.pathname.slice('/opensubtitles/api/v1'.length);
   if (route === '/subtitles' && req.method === 'GET') {
     const languages = url.searchParams.get('languages')?.split(',').filter(Boolean);
-    const data = entries(languages);
+    const data = entries(languages, url.searchParams.get('moviehash') === FAKE_MATCHING_HASH);
     json(res, 200, { total_pages: 1, total_count: data.length, per_page: 60, page: 1, data });
     return true;
   }

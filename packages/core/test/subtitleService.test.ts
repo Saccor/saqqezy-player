@@ -40,6 +40,19 @@ describe('SubtitleService', () => {
     expect(got.cues).toEqual([{ startMs: 1000, endMs: 2000, text: 'Hej' }]);
   });
 
+  test('a delay is kept with the title\'s file, clamped to ±60 s; a new file starts at 0', async () => {
+    await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' });
+    expect((await svc.get('src', 'item1'))?.delayMs).toBeUndefined();
+    await svc.setDelay('src', 'item1', 1500);
+    expect((await svc.get('src', 'item1'))?.delayMs).toBe(1500);
+    await svc.setDelay('src', 'item1', -999_999);
+    expect((await svc.get('src', 'item1'))?.delayMs).toBe(-60_000);
+    await svc.setDelay('src', 'none', 500); // no file: nothing to keep
+    expect(await svc.get('src', 'none')).toBeUndefined();
+    await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'b.srt' });
+    expect((await svc.get('src', 'item1'))?.delayMs).toBeUndefined();
+  });
+
   test('clear forgets a title', async () => {
     await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' });
     await svc.clear('src', 'item1');

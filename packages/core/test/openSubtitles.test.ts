@@ -18,12 +18,17 @@ const hit = (fileId: number, language: string, extra: Record<string, unknown> = 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 const sub = (fileId: number, language: string, o: Partial<OnlineSubtitle> = {}): OnlineSubtitle => ({
-  fileId, language, release: `r${fileId}`, downloads: 0, hearingImpaired: false, machineTranslated: false, trusted: false, ...o,
+  fileId, language, release: `r${fileId}`, downloads: 0, hearingImpaired: false, machineTranslated: false, trusted: false, hashMatch: false, ...o,
 });
 
 describe('searchParams', () => {
   test('movie by TMDB id, keys sorted and values lower-case (the API redirects otherwise)', () => {
     expect(searchParams({ tmdbId: 123, query: 'Ignored', languages: ['sv', 'en'] })).toBe('languages=en,sv&tmdb_id=123');
+  });
+
+  test('the file hash goes along with the id (results then say which files match it)', () => {
+    expect(searchParams({ tmdbId: 123, moviehash: '00ABCDEF01234567' })).toBe('moviehash=00abcdef01234567&tmdb_id=123');
+    expect(searchParams({ query: 'Synthetic Film', moviehash: '0000000000020000' })).toBe('moviehash=0000000000020000&query=synthetic+film');
   });
 
   test('episode by the series TMDB id plus season and episode', () => {
@@ -49,6 +54,10 @@ describe('searchTitle', () => {
 });
 
 describe('ranking and the language list', () => {
+  test('best: a hash match (timed for this exact file) beats everything else', () => {
+    expect(bestSubtitle([sub(1, 'en', { downloads: 900, trusted: true }), sub(2, 'en', { hashMatch: true, machineTranslated: true })])?.fileId).toBe(2);
+  });
+
   test('best: trusted, then not machine-translated, then not hearing-impaired, then most downloaded', () => {
     expect(bestSubtitle([sub(1, 'en', { downloads: 900, machineTranslated: true }), sub(2, 'en', { downloads: 10 })])?.fileId).toBe(2);
     expect(bestSubtitle([sub(1, 'en', { downloads: 900 }), sub(2, 'en', { downloads: 5, trusted: true })])?.fileId).toBe(2);
@@ -64,6 +73,14 @@ describe('ranking and the language list', () => {
     ]);
     expect(languageChoices(list, 'off')[0]?.language).toBe('de');
     expect(languageChoices([sub(1, 'pt-BR')], 'pt').map((c) => c.language)).toEqual(['pt-BR']);
+  });
+
+  test('each language keeps all its files best first ("another version" walks them) and says when one matches the file', () => {
+    const list = [sub(1, 'en', { downloads: 5 }), sub(2, 'en', { downloads: 50 }), sub(3, 'en', { hashMatch: true }), sub(4, 'sv')];
+    const [en, sv] = languageChoices(list, 'en');
+    expect(en!.files.map((f) => f.fileId)).toEqual([3, 2, 1]);
+    expect(en!.synced).toBe(true);
+    expect(sv!.synced).toBe(false);
   });
 });
 
@@ -86,11 +103,11 @@ describe('OpenSubtitlesClient', () => {
   };
 
   test('search: maps the answer and sends the key and app name', async () => {
-    const c = make({ '/subtitles': () => json({ total_count: 2, data: [hit(1, 'en', { download_count: 7, from_trusted: true }), hit(2, 'sv', { hearing_impaired: true, ai_translated: true })] }) });
+    const c = make({ '/subtitles': () => json({ total_count: 2, data: [hit(1, 'en', { download_count: 7, from_trusted: true }), hit(2, 'sv', { hearing_impaired: true, ai_translated: true, moviehash_match: true })] }) });
     const got = await c.search({ tmdbId: 5 });
     expect(got).toEqual([
-      { fileId: 1, language: 'en', release: 'Synthetic.Film.en', downloads: 7, hearingImpaired: false, machineTranslated: false, trusted: true },
-      { fileId: 2, language: 'sv', release: 'Synthetic.Film.sv', downloads: 100, hearingImpaired: true, machineTranslated: true, trusted: false },
+      { fileId: 1, language: 'en', release: 'Synthetic.Film.en', downloads: 7, hearingImpaired: false, machineTranslated: false, trusted: true, hashMatch: false },
+      { fileId: 2, language: 'sv', release: 'Synthetic.Film.sv', downloads: 100, hearingImpaired: true, machineTranslated: true, trusted: false, hashMatch: true },
     ]);
     expect(calls[0]?.url).toBe('https://api.test/api/v1/subtitles?tmdb_id=5');
     const h = new Headers(calls[0]?.init?.headers);

@@ -31,6 +31,8 @@ export function ListPicker(props: {
   hint?: string;
   /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
   pointerEnabled?: boolean;
+  /** Left (-1) / Right (1) on the selected row (e.g. a delay); true when it handled them. Default: ignored. */
+  onAdjust?: (row: PickerRow, dir: 1 | -1) => boolean;
 }) {
   const [sel, setSel] = createSignal(0);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
@@ -48,6 +50,11 @@ export function ListPicker(props: {
   const visible = () => props.rows.slice(scrollTop(), scrollTop() + VIEW_ROWS).map((row, k) => ({ row, i: scrollTop() + k }));
   const hint = () => props.hint ?? 'Ok adds or removes · Back closes';
   const move = (d: number) => { setSel(moveFocus(current(), d, props.rows.length)); return true; };
+  const adjust = (dir: 1 | -1) => {
+    const r = props.rows[current()];
+    if (r) props.onAdjust?.(r, dir);
+    return true;
+  };
   const more = () => {
     const above = scrollTop() > 0 ? '▲' : '';
     const below = scrollTop() + VIEW_ROWS < props.rows.length ? '▼' : '';
@@ -84,7 +91,7 @@ export function ListPicker(props: {
     <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
         width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
-        onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
+        onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
         onMenu={() => true} onLongOk={() => true}
         onEnter={() => { const r = props.rows[current()]; if (r) props.onPick(r); return true; }}>
         <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}

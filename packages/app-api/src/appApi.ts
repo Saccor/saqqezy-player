@@ -64,6 +64,11 @@ export interface AppApiDeps {
   subtitles?: SubtitleService;
   /** Subtitles found online for a title. Without it, "Find subtitles online" is not offered. */
   onlineSubtitles?: OpenSubtitlesClient;
+  /**
+   * The OpenSubtitles hash of a VOD file (`fetchMovieHash` over the app's fetch), read only when Settings asks for
+   * exact matches; undefined when it cannot be read.
+   */
+  fileHash?: (url: string) => Promise<string | undefined>;
 }
 
 export class AppApi {
@@ -128,6 +133,7 @@ export class AppApi {
   private readonly vod: VodService | undefined;
   private readonly subtitles: SubtitleService | undefined;
   private readonly onlineSubtitles: OpenSubtitlesClient | undefined;
+  private readonly fileHash: ((url: string) => Promise<string | undefined>) | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -150,6 +156,7 @@ export class AppApi {
     this.vod = deps.vod;
     this.subtitles = deps.subtitles;
     this.onlineSubtitles = deps.onlineSubtitles;
+    this.fileHash = deps.fileHash;
     this.vodc = deps.vod
       ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
       : undefined;
@@ -714,9 +721,25 @@ export class AppApi {
       const client = this.onlineOrThrow();
       const query = await this.vodOrThrow().subtitleSearch(itemId, seriesId);
       if (!query) throw new SubtitleError("This title can't be found right now.");
+      const settings = await this.currentSettings();
+      // Exact match: the stream file's hash marks the versions timed for it (a failed read just leaves it out).
+      if (settings.subtitleExactMatch && this.fileHash) {
+        const url = (await this.vodOrThrow().playable(itemId, seriesId))?.url;
+        const hash = url ? await this.fileHash(url).catch(() => undefined) : undefined;
+        if (hash) query.moviehash = hash;
+      }
       const found = await client.search(query);
-      const preferred = (await this.currentSettings()).subtitleLanguage;
-      return languageChoices(found, preferred).map((c) => ({ language: c.language, count: c.count, fileId: c.best.fileId }));
+      return languageChoices(found, settings.subtitleLanguage).map((c) => ({
+        language: c.language, count: c.count, fileId: c.best.fileId, files: c.files.map((f) => f.fileId), synced: c.synced,
+      }));
+    });
+  }
+
+  /** How much later (positive) or earlier the title's loaded subtitles show; kept with that file. */
+  setSubtitleDelay(itemId: string, delayMs: number): Promise<void> {
+    return this.run('setSubtitleDelay', () => {
+      const [svc, src] = this.subtitlesOrThrow();
+      return svc.setDelay(src, itemId, delayMs);
     });
   }
 
@@ -1554,7 +1577,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
 ] as const satisfies readonly (keyof AppApi)[];

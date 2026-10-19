@@ -167,7 +167,11 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - **Key:** the row shows only with `VITE_OPENSUBTITLES_API_KEY` in `apps/tv/.env.local` (git-ignored, `*.local`). `VITE_OPENSUBTITLES_URL` points at another server with the same API: the fake provider has one at `http://127.0.0.1:8899/opensubtitles/api/v1` (key `fake-key`; synthetic subtitles in five languages for every title; file id 999 answers like a spent quota).
   - The API calls skip the dev proxy (it forwards GET only; the API answers CORS itself); the file behind the download link goes through the app's fetch.
   - Without a user sign-in the free key allows 5 downloads per day per IP. A download happens only on a click, and the file is then kept for the title.
-- Not yet: subtitle delay, OpenSubtitles user sign-in (20 downloads a day), Tizen USB files.
+- **Keeping them in sync:**
+  - **Subtitle delay:** a row in Audio & subtitles while a loaded file shows; Left/Right move the cues 0.1 s (pointer mode adds ±0.5 s rows). VodPlay looks the cue up at `playhead − delay`. It is kept with that title's file (`SubtitleService.setDelay`, ±60 s, saved 400 ms after the last press and on leaving); a newly loaded file starts at 0.
+  - **Another version:** after a language from "Find subtitles online", "Try another English version (2 of 3)" loads the next file of that language (the worker lists every version best first).
+  - **Exact match:** Settings → Playback → Exact-match subtitles (off by default). When on, the worker reads the VOD file's OpenSubtitles hash (`fetchMovieHash`: two 64 KB range requests over the app's fetch, aborted at once if the server ignores ranges; nothing for playlists) and sends it with the search; files made for that exact release rank first and their language reads "· matches this file". It costs one short extra provider connection while the title plays, which one-connection accounts may refuse (the search then goes without it). Not verified against a real provider.
+- Not yet: OpenSubtitles user sign-in (20 downloads a day), automatic sync from the audio (PC app), Tizen USB files.
 
 ## App shell (Task 5)
 
