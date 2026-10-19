@@ -23,7 +23,7 @@ export interface PlaybackController {
    * VOD: plays a finite title from `startMs`. `current` becomes a stand-in channel (`vod:<itemId>`, empty name: no
    * titles reach the playback journal). No live-delay logic; the open-rate cap and refusal cooldown still apply.
    */
-  playVod(p: VodPlayable, startMs: number): void;
+  playVod(p: VodPlayable, startMs: number, automatic?: boolean): void;
   pause(): void;
   resume(): void;
   /** Absolute position in ms (clamped by the supervisor to [0, duration - 1 s]). */
@@ -214,7 +214,7 @@ export function createPlaybackController(
   return {
     playChannel(ch) {
       const cur = current();
-      if (cur?.id === ch.id && !held && status()?.kind !== 'failed') {
+      if (cur?.id === ch.id && !held && !waitingNetwork && status()?.kind !== 'failed') {
         // Same stream: keep it running, but take the fresh info (a rename, now/next). The urls stay those of
         // the open stream.
         if (cur !== ch) {
@@ -239,7 +239,7 @@ export function createPlaybackController(
       gate?.current?.(ch);
       return true;
     },
-    playVod(p, startMs) {
+    playVod(p, startMs, automatic) {
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
       if (p.cooldownKey !== undefined) stand.cooldownKey = p.cooldownKey;
@@ -254,7 +254,7 @@ export function createPlaybackController(
         gate.current?.(stand);
         return;
       }
-      startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
+      startPlay(p.url, undefined, automatic ? { vod: true, startMs, automatic } : { vod: true, startMs }, p.headers);
       gate?.current?.(stand);
     },
     pause: () => supervisor.pause(),
@@ -325,7 +325,7 @@ export function createPlaybackController(
           onResumed('resume_restore');
         } else if (pendingVod) {
           onResumed('resume_reopen');
-          this.playVod(pendingVod.p, next.positionMs);
+          this.playVod(pendingVod.p, next.positionMs, true);
           // A paused title stays paused: the supervisor pauses it at its first frame.
           if (vodWasPaused) supervisor.pause();
         }

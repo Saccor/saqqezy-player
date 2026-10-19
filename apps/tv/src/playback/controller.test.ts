@@ -661,4 +661,20 @@ describe('background', () => {
     ctl.resumeFromBackground({ networkUp: true });
     expect(f.supervisor.pause).not.toHaveBeenCalled();
   });
+  it('re-selecting the channel while it waits for the network reopens it', () => {
+    const { ctl, supervisor, ch: channel } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: false });
+    const before = supervisor.plays().length;
+    expect(ctl.playChannel(channel)).toBe(true);
+    expect(supervisor.plays().length).toBe(before + 1);
+    ctl.networkBack(); // the wait is over: no second open
+    expect(supervisor.plays().length).toBe(before + 1);
+  });
+  it('the VOD fallback reopen is an automatic open', () => {
+    const { ctl, f } = setupPlaying('vod', { positionMs: 42_000, resumeResult: false });
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ vod: true, startMs: 42_000, automatic: true });
+  });
 });
