@@ -13,6 +13,8 @@ export interface AppSettings {
   liveDelay: LiveDelaySetting;
   /** Movies and series: the subtitle language turned on when a title has no choice of its own ('off': none). */
   subtitleLanguage: string;
+  /** The audio track picked when a title or channel has no remembered choice: ISO 639-1, or 'auto' (the stream's default). */
+  audioLanguage: string;
   /**
    * Find subtitles online also matches the exact video file (reads 128 KB of it from the provider: one short extra
    * request while the title plays, which one-connection accounts may refuse). Off by default.
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showClock: true,
   liveDelay: 'balanced',
   subtitleLanguage: 'off',
+  audioLanguage: 'auto',
   subtitleExactMatch: false,
   combineDuplicates: true,
   preferredLanguages: [],
@@ -101,6 +104,10 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     subtitleLanguage: typeof src.subtitleLanguage === 'string' && SUBTITLE_LANGUAGES.includes(src.subtitleLanguage)
       ? src.subtitleLanguage
       : DEFAULT_SETTINGS.subtitleLanguage,
+    audioLanguage: src.audioLanguage === 'auto'
+      || (typeof src.audioLanguage === 'string' && src.audioLanguage !== 'off' && SUBTITLE_LANGUAGES.includes(src.audioLanguage))
+      ? (src.audioLanguage as string)
+      : DEFAULT_SETTINGS.audioLanguage,
     subtitleExactMatch: typeof src.subtitleExactMatch === 'boolean' ? src.subtitleExactMatch : DEFAULT_SETTINGS.subtitleExactMatch,
     combineDuplicates: typeof src.combineDuplicates === 'boolean' ? src.combineDuplicates : DEFAULT_SETTINGS.combineDuplicates,
     preferredLanguages: languageList(src.preferredLanguages),

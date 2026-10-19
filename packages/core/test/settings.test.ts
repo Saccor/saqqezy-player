@@ -9,7 +9,7 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
+      liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [],
     });
   });
@@ -26,6 +26,11 @@ describe('sanitizeSettings', () => {
     const many = Array.from({ length: 80 }, (_, i) => `Team ${i}`);
     expect(sanitizeSettings({ followedTeams: many }).followedTeams).toHaveLength(FOLLOWED_TEAMS_MAX);
     for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ followedTeams: v }).followedTeams).toEqual([]);
+  });
+
+  test('audioLanguage keeps a listed language code or auto, else auto (never off)', () => {
+    for (const v of ['en', 'sv', 'ar', 'auto']) expect(sanitizeSettings({ audioLanguage: v }).audioLanguage).toBe(v);
+    for (const v of ['off', 'english', 'xx', 3, null, undefined]) expect(sanitizeSettings({ audioLanguage: v }).audioLanguage).toBe('auto');
   });
 
   test('subtitleLanguage keeps a listed language code, else off', () => {

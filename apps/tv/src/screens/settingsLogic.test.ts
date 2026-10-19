@@ -181,7 +181,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
