@@ -37,6 +37,8 @@ export interface VodItem {
   url?: string;
   /** M3U movies: request headers from the playlist entry. */
   headers?: StreamHeaders;
+  /** The Movie Database id, when the list sends one (some Xtream panels): groups versions of a title. */
+  tmdbId?: number;
 }
 
 export interface VodCategory { id: string; kind: VodKind; name: string; count: number }

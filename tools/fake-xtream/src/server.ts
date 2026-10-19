@@ -16,6 +16,8 @@ export interface FakeXtreamOptions {
   /** Synthetic movies (default 120) and series (default 12). */
   movies?: number;
   series?: number;
+  /** List every movie and series title three times, as language and quality variants (for combining duplicates). */
+  versions?: boolean;
   now?: () => number;
   /**
    * Generated test media (default: `tools/fake-xtream/media`). When `multitrack/master.m3u8` exists there
@@ -55,8 +57,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   /** A movie's container: mkv for the AC-3 file when it exists, else the shared HLS extension. */
   const movieExt = (n: number) => (n === AC3_MOVIE && ac3File() ? 'mkv' : VOD_EXT);
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
-  const mvs = movies(opts.movies ?? 120, now());
-  const srs = seriesList(opts.series ?? 12);
+  const mvs = movies(opts.movies ?? 120, now(), opts.versions === true);
+  const srs = seriesList(opts.series ?? 12, opts.versions === true);
   let base = '';
   /** Refusal mode (`/__control/refuse?on=1`): every source request answers 403, as a refusing panel does. */
   let refusing = false;

@@ -109,7 +109,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', subtitleExactMatch: true },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [] },
   };
 
   it('shows version, platform, sources, errors and settings', () => {
@@ -179,7 +179,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [] } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');

@@ -3,6 +3,7 @@ import { createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import type { SeriesView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
+import { ListPicker } from '../components/ListPicker.tsx';
 import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
 import { SEASON_TAB_H, SeasonTabs } from '../components/SeasonTabs.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
@@ -19,6 +20,10 @@ import {
   fallbackArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, tabSelAfterReload, type SavedFocus, type SeriesArea,
 } from '../vod/seriesDetailLogic.ts';
 import { TAB_SWITCH_MS } from '../vod/tabLogic.ts';
+import { versionRows, versionsBadge } from '../vod/versionsLogic.ts';
+import type { PickerRow } from './homeMenuLogic.ts';
+
+const VERSIONS_ID = 'series-versions';
 
 const BG = COLORS.background;
 const HERO_X = LAYOUT.safeX;
@@ -51,6 +56,10 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const [tabSel, setTabSel] = createSignal(0);
   const [season, setSeason] = createSignal(0);
   const [epCol, setEpCol] = createSignal(0);
+  /** The version the user chose in the Versions list this visit (undefined: the one Play picks). */
+  const [versionId, setVersionId] = createSignal<string | undefined>(undefined);
+  /** The id episodes play and are marked under: the shown version's. */
+  const seriesId = () => view()?.versionId || params.id;
   let actionsNode: ElementNode | undefined;
   let tabsNode: ElementNode | undefined;
   let rowNode: ElementNode | undefined;
@@ -153,7 +162,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     let v: SeriesView | undefined;
     let failed = false;
     try {
-      v = await api.getSeries(params.id);
+      v = await api.getSeries(params.id, versionId());
     } catch (err) {
       console.warn('Series load failed', errName(err));
       failed = true;
@@ -180,10 +189,14 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const playEpisode = (col: number) => {
     const ep = episodes()[col];
     if (!ep || busy || !free()) return;
-    void launcher.play(ep.id, { seriesId: params.id });
+    void launcher.play(ep.id, { seriesId: seriesId() });
   };
 
-  const actions = () => seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true });
+  const actions = () => [
+    ...seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true }),
+    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `Versions (${view()!.versions.length})`, width: 240 }] : []),
+    ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
+  ];
   const onAction = async (id: string) => {
     userPressed = true;
     if (busy || !free()) return;
@@ -202,6 +215,11 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       } else if (id === 'fav') {
         const t = tile();
         if (t) await fav.toggle(t);
+      } else if (id === 'versions') {
+        openVersions();
+      } else if (id === 'combine') {
+        await api.setVodSplit(params.id, false).catch((err: unknown) => console.warn('Combine failed', errName(err)));
+        if (alive) await load();
       }
     } finally {
       busy = false;
@@ -232,7 +250,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const openMenu = (col: number) => {
     const ep = episodes()[col];
     if (!ep || !free()) return true;
-    menu.openEpisode(ep, params.id);
+    menu.openEpisode(ep, seriesId());
     return true;
   };
 
@@ -253,6 +271,34 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     else playEpisode(col);
   };
 
+  // ---- Versions list ----
+  const [picking, setPicking] = createSignal(false);
+  let pickerNode: ElementNode | undefined;
+  let removePicker: (() => void) | undefined;
+  const openVersions = () => {
+    if ((view()?.versions.length ?? 0) < 2) return;
+    setPicking(true);
+    removePicker = router.pushOverlay(VERSIONS_ID, closeVersions);
+    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
+  };
+  function closeVersions() {
+    removePicker = undefined;
+    setPicking(false);
+    queueMicrotask(() => { if (alive) focusArea('actions', true); });
+  }
+  const pickVersion = async (row: PickerRow) => {
+    removePicker?.();
+    closeVersions();
+    if (row.kind === 'new') {
+      await api.setVodSplit(params.id, true).catch((err: unknown) => console.warn('Split failed', errName(err)));
+    } else {
+      // Remembered, so the card and Play open this version from now on; the seasons shown switch to it.
+      await api.pickVodVersion(params.id, row.id).catch((err: unknown) => console.warn('Pick failed', errName(err)));
+      setVersionId(row.id);
+    }
+    if (alive) await load();
+  };
+
   onMount(() => {
     void load();
     actionsNode?.setFocus();
@@ -260,6 +306,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   onCleanup(() => {
     alive = false;
     clearRest();
+    removePicker?.();
   });
 
   const backdrop = () => detail()?.backdrop;
@@ -267,7 +314,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const notAvailable = () => loaded() && (loadFailed() || view() === undefined || view()!.detail === null);
   const meta = () => {
     const v = view();
-    if (v) return seriesMeta(v);
+    if (v) return [seriesMeta(v), versionsBadge(v.tile.quality, v.versions)].filter(Boolean).join(' · ');
     return metaLine({ year: tile()?.year, rating: tile()?.rating });
   };
 
@@ -303,6 +350,10 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
         </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
+      <Show when={picking()}>
+        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.versionId)}
+          onPick={(row) => void pickVersion(row)} hint="Ok shows its episodes · Back closes" />
+      </Show>
     </View>
   );
 }

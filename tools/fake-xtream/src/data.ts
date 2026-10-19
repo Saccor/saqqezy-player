@@ -50,24 +50,33 @@ export interface FakeSeries { n: number; name: string; categoryId: string; seaso
 
 const pad = (n: number, w: number) => String(n).padStart(w, '0');
 
-export function movies(count: number, now: number): FakeMovie[] {
+/** Versions mode: each title is listed three times, as a language and quality variant (prefix, then suffix). */
+const VARIANT_PREFIX = ['EN - ', '|SE| ', '[DK] '] as const;
+const VARIANT_QUALITY = [' 4K', ' FHD', ' HD'] as const;
+/** In versions mode, item `n` is variant `(n - 1) % 3` of title `ceil(n / 3)`; otherwise its own title. */
+const titleOf = (n: number, versions: boolean) => (versions ? Math.ceil(n / 3) : n);
+const variant = (n: number, versions: boolean, name: string) =>
+  (versions ? `${VARIANT_PREFIX[(n - 1) % 3]}${name}${VARIANT_QUALITY[(n - 1) % 3]}` : name);
+
+export function movies(count: number, now: number, versions = false): FakeMovie[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
+    const t = titleOf(n, versions);
     return {
       n,
-      name: `Synthetic Film ${pad(n, 3)} (${2000 + (n % 25)})`,
+      name: variant(n, versions, `Synthetic Film ${pad(t, 3)} (${2000 + (t % 25)})`),
       categoryId: String((i % MOVIE_GROUPS.length) + 1),
-      year: 2000 + (n % 25),
+      year: 2000 + (t % 25),
       rating: (5 + ((n * 7) % 50) / 10).toFixed(1),
       added: Math.floor(now / 1000) - n * 3600,
     };
   });
 }
 
-export function seriesList(count: number): FakeSeries[] {
+export function seriesList(count: number, versions = false): FakeSeries[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
-    return { n, name: `Synthetic Series ${pad(n, 2)}`, categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
+    return { n, name: variant(n, versions, `Synthetic Series ${pad(titleOf(n, versions), 2)}`), categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
   });
 }
 

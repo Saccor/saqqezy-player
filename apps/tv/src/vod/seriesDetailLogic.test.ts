@@ -15,6 +15,8 @@ const view = (extra: Partial<SeriesView> = {}): SeriesView => ({
   tile: { id: 's1', kind: 'series', title: 'Sample Series', categoryId: 'c', watched: false, favourite: false },
   detail: null,
   seasons: [season(1, 3), season(2, 5)],
+  versions: [],
+  versionId: 's1',
   ...extra,
 });
 

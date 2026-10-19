@@ -750,6 +750,7 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     expect(await service.getSettings()).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
+      combineDuplicates: true, preferredLanguages: [],
     });
     const saved = await service.saveSettings({ epgOffsetHours: 99, preferredFormat: 'm3u8' });
     expect(saved).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', autoRefreshHours: 12 });

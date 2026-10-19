@@ -1,12 +1,12 @@
 import {
-  VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
+  QUALITY_LABELS, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
   buildVodSearchIndex, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
-  type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState,
+  type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState, type VodGroup, type VodMember,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type {
-  AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
+  AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
 } from './types.ts';
 
 export const VOD_ROW_CONTINUE = 'vod:continue';
@@ -40,7 +40,26 @@ export interface VodControllerDeps {
   emit: (e: AppEvent) => void;
   /** Records a failure (scrubbed, in diagnostics) and returns the Error to rethrow: AppApi's `record`. */
   record: (where: string, err: unknown) => Error;
+  /**
+   * The settings that shape catalogues. Without it, titles are never combined (each item is its own card), as
+   * before duplicates were combined.
+   */
+  settings?: () => Promise<{ combineDuplicates: boolean; preferredLanguages: string[] }>;
+  /** The device language ("sv-SE"), for preferred languages left empty. */
+  locale?: () => string | undefined;
 }
+
+/** How catalogues are combined for the active source (loaded once per source; dropped when the settings change). */
+interface GroupConfig {
+  sourceEpoch: number;
+  combine: boolean;
+  langs: string[];
+  splits: Record<VodKind, Set<string>>;
+  picks: Record<VodKind, Record<string, string>>;
+}
+
+/** A version as ordered for Play: the item and what the ordering needs. */
+interface Candidate { id: string; item: VodItem; lang?: string; quality: number; activeAt?: number }
 
 interface Job { ac: AbortController; done: Promise<void> }
 
@@ -92,10 +111,19 @@ export class VodController {
   private readonly indexGens: Record<VodKind, number> = { movie: 0, series: 0 };
   private indexJob: { epoch: number; p: Promise<void> } | undefined;
 
+  private readonly settingsOf: VodControllerDeps['settings'];
+  private readonly locale: () => string | undefined;
+  private cfg: GroupConfig | undefined;
+  private cfgLoad: { sourceEpoch: number; p: Promise<GroupConfig | undefined> } | undefined;
+  /** Bumped when the settings change: a config load started before does not install. */
+  private cfgGen = 0;
+
   constructor(deps: VodControllerDeps) {
     this.vod = deps.vod;
     this.emit = deps.emit;
     this.record = deps.record;
+    this.settingsOf = deps.settings;
+    this.locale = deps.locale ?? (() => undefined);
   }
 
   reset(sourceId: string | undefined): void {
@@ -111,8 +139,21 @@ export class VodController {
     this.dropIndexes();
     this.sourceId = sourceId;
     this.wanted = undefined;
+    this.cfg = undefined;
+    this.cfgLoad = undefined;
     this.epoch++;
     this.sourceEpoch++;
+  }
+
+  /**
+   * The combine settings changed. `regroup`: the resident catalogue is dropped and rebuilt on the next request
+   * (screens reload on `vodRefreshed`); otherwise only the preferences are reread.
+   */
+  settingsChanged(regroup: boolean): void {
+    this.cfg = undefined;
+    this.cfgLoad = undefined;
+    this.cfgGen++;
+    if (regroup) this.regroup();
   }
 
   /** The kind of the resident catalogue, if one is loaded. */
@@ -260,60 +301,89 @@ export class VodController {
     const src = this.sourceId;
     const epoch = this.epoch;
     const catalog = src ? await this.catalog('movie') : undefined;
-    const item = catalog?.byId(id);
-    if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
+    const row = catalog?.rowOf(id);
+    if (!src || !catalog || !row || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
+    await this.config();
     if (this.epoch !== epoch) return undefined;
+    const ordered = this.ordered('movie', catalog, id, user);
+    const item = ordered[0]!.item;
     const detail = await this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item));
     if (this.epoch !== epoch) return undefined;
-    const s = user.get(id);
+    const s = user.get(item.id);
     const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
-    const more = catalog.slice(item.categoryId, sort, 0, VOD_MORE_ITEMS + 1).rows
-      .filter((i) => i.id !== id).slice(0, VOD_MORE_ITEMS).map((i) => this.tile(i));
-    return { tile: this.tile(item), detail, resumeMs: resumeMs(s), tracks: tracksOf(s), more };
+    const more = catalog.slice(row.categoryId, sort, 0, VOD_MORE_ITEMS + 1).rows
+      .filter((i) => i.id !== row.id).slice(0, VOD_MORE_ITEMS).map((i) => this.tile(i));
+    const view: MovieView = {
+      tile: this.tile(row), detail, resumeMs: resumeMs(s), tracks: tracksOf(s), more,
+      versions: this.versionViews(catalog, ordered), playId: item.id,
+    };
+    if (catalog.groupOf(id)?.splitFrom) view.split = true;
+    return view;
   }
 
-  async series(id: string): Promise<SeriesView | undefined> {
+  /** With `versionId` (a version of this series), shows that version's seasons. */
+  async series(id: string, versionId?: string): Promise<SeriesView | undefined> {
     const src = this.sourceId;
     const epoch = this.epoch;
     const catalog = src ? await this.catalog('series') : undefined;
-    const item = catalog?.byId(id);
-    if (!src || !catalog || !item || this.epoch !== epoch) return undefined;
+    const row = catalog?.rowOf(id);
+    if (!src || !catalog || !row || this.epoch !== epoch) return undefined;
     const user = await this.userMap();
+    await this.config();
     if (this.epoch !== epoch) return undefined;
+    const ordered = this.ordered('series', catalog, id, user);
+    const item = ordered.find((c) => c.id === versionId)?.item ?? ordered[0]!.item;
     const full = await this.detailOf<SeriesDetail>(item, () => this.vod.seriesDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const seasons = full?.seasons ?? [];
     const view: SeriesView = {
-      tile: this.tile(item),
+      tile: this.tile(row),
       detail: full ? withoutSeasons(full) : null,
       seasons: seasons.map((s): SeasonView => ({ number: s.number, name: s.name, episodes: s.episodes.map((e) => episodeView(e, user.get(e.id))) })),
+      versions: this.versionViews(catalog, ordered),
+      versionId: item.id,
     };
-    const primary = primaryOf(id, seasons, [...user].map(([itemId, state]) => ({ itemId, state })));
+    const primary = primaryOf(item.id, seasons, [...user].map(([itemId, state]) => ({ itemId, state })));
     if (primary) view.primary = primary;
+    if (catalog.groupOf(id)?.splitFrom) view.split = true;
     return view;
   }
 
-  /** Movies: `playable(movieId)`. Episodes: `playable(episodeId, seriesId)`. */
-  async playable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
+  /**
+   * Movies: `playable(movieId)`. Episodes: `playable(episodeId, seriesId)`. A combined title's card id plays the
+   * version Play picks; `exact` (a choice in the Versions list) plays the given version.
+   */
+  async playable(itemId: string, seriesId?: string, exact = false): Promise<VodPlayable | undefined> {
     const src = this.sourceId;
     if (!src) return undefined;
     const epoch = this.epoch;
     const user = await this.userMap();
     if (this.epoch !== epoch) return undefined;
-    const s = user.get(itemId);
     if (seriesId === undefined) {
-      const item = (await this.catalog('movie'))?.byId(itemId);
+      const catalog = await this.catalog('movie');
+      if (!exact && catalog?.grouped && catalog.rowOf(itemId)?.id === itemId) {
+        await this.config();
+        if (this.epoch !== epoch) return undefined;
+        itemId = this.ordered('movie', catalog, itemId, user)[0]!.id;
+      }
+      const s = user.get(itemId);
+      const item = catalog?.byId(itemId);
       if (!item || this.epoch !== epoch) return undefined;
       const url = await this.vod.streamUrl(src, item);
       if (this.epoch !== epoch) return undefined;
-      const movie: VodPlayable = { kind: 'movie', itemId, url, title: item.title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
+      // A combined title shows its clean name ("Synthetic Film", not "EN - Synthetic Film 4K").
+      const title = catalog?.grouped ? catalog.rowOf(itemId)?.title ?? item.title : item.title;
+      const movie: VodPlayable = { kind: 'movie', itemId, url, title, resumeMs: resumeMs(s), tracks: tracksOf(s) };
       // M3U: the playlist entry's own headers (AppApi merges them over the source's settings).
       if (item.headers) movie.headers = { ...item.headers };
       return movie;
     }
-    const show = (await this.catalog('series'))?.byId(seriesId);
+    const s = user.get(itemId);
+    const shows = await this.catalog('series');
+    const show = shows?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
+    const showTitle = shows?.grouped ? shows.rowOf(seriesId)?.title ?? show.title : show.title;
     // A failure is recorded once (as getVodDetail) by the shared fetch, and that same Error is rethrown (AppApi does not record it again).
     const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show), true);
     if (this.epoch !== epoch || !detail) return undefined;
@@ -327,7 +397,7 @@ export class VodController {
     const fromSeries = tracksOf(user.get(seriesId));
     const seriesTracks = fromSeries.audio || fromSeries.subtitle ? fromSeries : tracksOf(s);
     const out: VodPlayable = {
-      kind: 'episode', itemId, url, title: show.title, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
+      kind: 'episode', itemId, url, title: showTitle, episodeLabel: `${episodeLabel(ep.season, ep.episode)} · ${ep.title}`,
       resumeMs: resumeMs(s), tracks: seriesTracks, series,
     };
     if (ep.runtimeMin) out.durationMs = ep.runtimeMin * 60_000;
@@ -356,8 +426,10 @@ export class VodController {
       const year = item.year ?? t.year;
       return year ? { query: t.title, year } : { query: t.title };
     }
-    const show = (await this.catalog('series'))?.byId(seriesId);
+    const shows = await this.catalog('series');
+    const show = shows?.byId(seriesId);
     if (!show || this.epoch !== epoch) return undefined;
+    const showTitle = shows?.grouped ? shows.rowOf(seriesId)?.title ?? show.title : show.title;
     const detail = await this.detailOf<SeriesDetail>(show, () => this.vod.seriesDetail(src, show));
     if (this.epoch !== epoch || !detail) return undefined;
     const ep = detail.seasons.flatMap((x) => x.episodes).find((e) => e.id === itemId);
@@ -370,8 +442,42 @@ export class VodController {
     return this.write(itemId, (src) => this.vod.saveProgress(src, itemId, positionMs, durationMs, series));
   }
 
-  setFavourite(itemId: string, on: boolean): Promise<void> {
-    return this.write(itemId, (src) => this.vod.setFavourite(src, itemId, on));
+  /** On: marks `itemId`. Off: unmarks every version of its title (a combined card is a favourite if any version is). */
+  async setFavourite(itemId: string, on: boolean): Promise<void> {
+    const catalog = this.resident?.catalog;
+    const ids = !on && catalog?.grouped ? catalog.members(itemId).map((m) => m.item.id) : [itemId];
+    if (!ids.length) ids.push(itemId);
+    const user = await this.userMap();
+    for (const id of ids) {
+      if (id !== itemId && !user.get(id)?.favourite) continue;
+      await this.write(id, (src) => this.vod.setFavourite(src, id, on));
+    }
+  }
+
+  /** Remembers the version the user picked for the title `itemId` belongs to (Play picks it from now on). */
+  async pickVersion(itemId: string, versionId: string): Promise<void> {
+    const src = this.sourceId;
+    const r = this.resident;
+    const g = r?.catalog.groupOf(itemId);
+    if (!src || !r || !g || r.catalog.groupOf(versionId) !== g) return;
+    const cfg = await this.config();
+    await this.vod.setVodPick(src, r.kind, g.key, versionId);
+    if (cfg && this.cfg === cfg) cfg.picks[r.kind][g.key] = versionId;
+  }
+
+  /** "Show separately" (`on`) or "Combine again" for the title `itemId` belongs to. Screens reload on `vodRefreshed`. */
+  async setSplit(itemId: string, on: boolean): Promise<void> {
+    const src = this.sourceId;
+    const r = this.resident;
+    const g = r?.catalog.groupOf(itemId);
+    if (!src || !r || !g) return;
+    const key = on ? (g.members.length > 1 ? g.key : undefined) : g.splitFrom;
+    if (!key) return;
+    const epoch = this.sourceEpoch;
+    const keys = await this.vod.setVodSplit(src, r.kind, key, on);
+    if (this.sourceEpoch !== epoch) return;
+    if (this.cfg) this.cfg.splits[r.kind] = keys;
+    this.regroup();
   }
 
   /**
@@ -497,7 +603,8 @@ export class VodController {
     // Drop the other kind before loading, so two catalogues are never resident together.
     this.resident = undefined;
     const epoch = this.epoch;
-    const p = this.vod.storedCatalog(id, kind).then((catalog) => {
+    const p = this.config().then(() => this.vod.storedCatalog(id, kind)).then((stored) => {
+      const catalog = stored && this.shape(stored);
       if (catalog && this.epoch === epoch && this.loading?.p === p) this.resident = { kind, catalog };
       // A finished fetch may have installed a fresher list meanwhile: callers get that, not this older read.
       return this.epoch === epoch && this.resident?.kind === kind ? this.resident.catalog : catalog;
@@ -544,13 +651,124 @@ export class VodController {
 
   /** Needs `userMap()` to have run (every public caller awaits `records()` or `userMap()` first). */
   protected tile(item: VodItem, extra: Partial<VodTile> = {}): VodTile {
-    const s = this.user?.get(item.id);
-    const t: VodTile = { id: item.id, kind: item.kind, title: item.title, categoryId: item.categoryId, watched: s?.watched === true, favourite: s?.favourite === true };
-    if (item.poster) t.poster = item.poster;
-    if (item.year) t.year = item.year;
-    if (item.rating !== undefined) t.rating = item.rating;
-    if (s && isInProgress(s) && s.duration > 0) t.progress = Math.min(1, s.position / s.duration);
+    // A combined title: the card is its row, and its state is any version's (progress: the latest in progress).
+    const catalog = this.resident?.kind === item.kind && this.resident.catalog.grouped ? this.resident.catalog : undefined;
+    const g = catalog?.groupOf(item.id);
+    const row = (g && catalog?.rowOf(item.id)) || item;
+    const ids = g && catalog ? catalog.members(item.id).map((m) => m.item.id) : [item.id];
+    let watched = false;
+    let favourite = false;
+    let progress: VodUserState | undefined;
+    for (const id of ids) {
+      const s = this.user?.get(id);
+      if (!s) continue;
+      watched ||= s.watched;
+      favourite ||= s.favourite;
+      if (isInProgress(s) && s.duration > 0 && (!progress || s.updatedAt > progress.updatedAt)) progress = s;
+    }
+    const t: VodTile = { id: row.id, kind: row.kind, title: row.title, categoryId: row.categoryId, watched, favourite };
+    if (row.poster) t.poster = row.poster;
+    if (row.year) t.year = row.year;
+    if (row.rating !== undefined) t.rating = row.rating;
+    if (progress) t.progress = Math.min(1, progress.position / progress.duration);
+    if (g && g.members.length > 1) t.versions = g.members.length;
+    const quality = g ? QUALITY_LABELS[g.quality] : undefined;
+    if (quality) t.quality = quality;
     return { ...t, ...extra };
+  }
+
+  /** The versions of the title `id` belongs to, Play's pick first. Needs `config()` to have run for preferences. */
+  private ordered(kind: VodKind, catalog: VodCatalog, id: string, user: Map<string, VodUserState>): Candidate[] {
+    const members: VodMember[] = catalog.members(id);
+    const g: VodGroup | undefined = catalog.groupOf(id);
+    // When a version was last watched: a movie in progress, or any episode of a series version.
+    const seriesAt = new Map<string, number>();
+    if (kind === 'series' && members.length > 1) {
+      for (const s of user.values()) {
+        const sid = s.series?.id;
+        if (sid && s.updatedAt > (seriesAt.get(sid) ?? -1)) seriesAt.set(sid, s.updatedAt);
+      }
+    }
+    const cands = members.map((m): Candidate => {
+      const c: Candidate = { id: m.item.id, item: m.item, quality: m.quality };
+      if (m.lang) c.lang = m.lang;
+      const s = user.get(m.item.id);
+      const at = kind === 'movie' ? (s && isInProgress(s) ? s.updatedAt : undefined) : seriesAt.get(m.item.id);
+      if (at !== undefined) c.activeAt = at;
+      return c;
+    });
+    if (cands.length < 2) return cands;
+    const cfg = this.cfg;
+    const pick = g && cfg ? cfg.picks[kind][g.key] : undefined;
+    const langs = preferredLanguages(cfg?.langs ?? [], this.locale());
+    return orderVersions(cands, pick ? { pick, langs } : { langs });
+  }
+
+  private versionViews(catalog: VodCatalog, ordered: Candidate[]): VersionView[] {
+    if (ordered.length < 2) return [];
+    const catName = new Map(catalog.source.categories.map((c) => [c.id, c.name]));
+    return ordered.map((c, i) => {
+      const v: VersionView = { id: c.id, tags: parseVodTitle(c.item.title, catName.get(c.item.categoryId)).tags, auto: i === 0 };
+      if (c.lang) v.lang = c.lang;
+      const q = QUALITY_LABELS[c.quality];
+      if (q) v.quality = q;
+      return v;
+    });
+  }
+
+  /** The combine settings and the user's splits and picks, loaded once per source. Undefined without `settings`. */
+  private async config(): Promise<GroupConfig | undefined> {
+    const read = this.settingsOf;
+    const src = this.sourceId;
+    if (!read || !src) return undefined;
+    const sourceEpoch = this.sourceEpoch;
+    const gen = this.cfgGen;
+    if (this.cfg?.sourceEpoch === sourceEpoch) return this.cfg;
+    if (this.cfgLoad?.sourceEpoch === sourceEpoch) return this.cfgLoad.p;
+    const p = (async (): Promise<GroupConfig | undefined> => {
+      const s = await read().catch(() => undefined);
+      // Unreadable settings: show the catalogue as stored (never block it).
+      if (!s) return undefined;
+      const [ms, ss, mp, sp] = s.combineDuplicates
+        ? await Promise.all([
+          this.vod.getVodSplits(src, 'movie'), this.vod.getVodSplits(src, 'series'),
+          this.vod.getVodPicks(src, 'movie'), this.vod.getVodPicks(src, 'series'),
+        ]).catch(() => [new Set<string>(), new Set<string>(), {}, {}] as const)
+        : [new Set<string>(), new Set<string>(), {}, {}];
+      const cfg: GroupConfig = {
+        sourceEpoch, combine: s.combineDuplicates, langs: [...s.preferredLanguages],
+        splits: { movie: ms, series: ss }, picks: { movie: mp, series: sp },
+      };
+      if (this.sourceEpoch === sourceEpoch && this.cfgGen === gen) this.cfg = cfg;
+      return cfg;
+    })();
+    this.cfgLoad = { sourceEpoch, p };
+    const forget = () => { if (this.cfgLoad?.p === p) this.cfgLoad = undefined; };
+    p.then(forget, forget);
+    return p;
+  }
+
+  /** The catalogue as the settings show it: combined into titles, or one card per item. */
+  private shape(catalog: VodCatalog): VodCatalog {
+    const cfg = this.cfg;
+    if (!cfg || cfg.sourceEpoch !== this.sourceEpoch || !cfg.combine) return catalog;
+    return catalog.withGroups(groupVod(catalog.source, cfg.splits[catalog.kind]));
+  }
+
+  /** Drops the resident catalogue and Search indexes so they are rebuilt with the current grouping; screens reload. */
+  private regroup(): void {
+    const id = this.sourceId;
+    if (!id) return;
+    const kind = this.resident?.kind ?? this.loading?.kind;
+    const count = this.resident?.catalog.source.items.length ?? 0;
+    this.resident = undefined;
+    this.loading = undefined;
+    const searched = this.indexes.size > 0 || this.indexJob !== undefined;
+    this.dropIndexes();
+    this.indexGens.movie++;
+    this.indexGens.series++;
+    if (kind) this.emit({ type: 'vodRefreshed', sourceId: id, kind, count, truncated: false });
+    if (searched) this.emit({ type: 'searchReady', sourceId: id });
   }
 
   protected resetDetails(): void {
@@ -614,7 +832,7 @@ export class VodController {
       // Like the final swap: never next to (or instead of) a catalogue of the other kind.
       if ((this.loading && this.loading.kind !== kind) || (this.resident && this.resident.kind !== kind)) return;
       if (this.resident?.kind === kind && !this.progress.has(kind) && this.resident.catalog.size > 0) return;
-      this.resident = { kind, catalog: new VodCatalog(kind, list) };
+      this.resident = { kind, catalog: this.shape(new VodCatalog(kind, list)) };
       this.loading = undefined;
       this.progress.set(kind, list.items.length);
       this.emit({ type: 'vodProgress', sourceId: id, kind, count: list.items.length });
@@ -630,7 +848,7 @@ export class VodController {
         const otherLoading = this.loading !== undefined && this.loading.kind !== kind;
         const otherResident = this.resident !== undefined && this.resident.kind !== kind;
         if (!otherLoading && !otherResident) {
-          this.resident = { kind, catalog: new VodCatalog(kind, r.list) };
+          this.resident = { kind, catalog: this.shape(new VodCatalog(kind, r.list)) };
           this.loading = undefined;
         }
         // Search rebuilds this kind's index from the fresh list on its next query (told below, when it had one).
@@ -688,15 +906,23 @@ export class VodController {
 
   /** Continue watching tiles for this kind, newest first; items no longer in the catalogue are skipped. */
   protected continueItems(kind: VodKind, catalog: VodCatalog, records: VodUserRecord[]): VodTile[] {
+    // One tile per title: its first (newest) version in the list wins.
+    const seen = new Set<string>();
+    const once = (id: string): VodItem | undefined => {
+      const row = catalog.rowOf(id);
+      if (!row || seen.has(row.id)) return undefined;
+      seen.add(row.id);
+      return row;
+    };
     if (kind === 'movie') {
       return continueMovies(records).flatMap((id) => {
-        const item = catalog.byId(id);
+        const item = once(id);
         return item ? [this.tile(item)] : [];
       });
     }
     const byId = new Map(records.map((r) => [r.itemId, r.state]));
     return continueSeries(records).flatMap((e) => {
-      const item = catalog.byId(e.seriesId);
+      const item = once(e.seriesId);
       if (!item) return [];
       const extra: Partial<VodTile> = { badge: episodeLabel(e.season, e.episode) };
       const ep = byId.get(e.episodeId);
@@ -707,11 +933,14 @@ export class VodController {
 
   /** Favourite items of this catalogue, A to Z. */
   protected favouriteItems(catalog: VodCatalog, records: VodUserRecord[]): VodItem[] {
+    const seen = new Set<string>();
     return records
       .filter((r) => r.state.favourite)
       .flatMap((r) => {
-        const item = catalog.byId(r.itemId);
-        return item ? [item] : [];
+        const item = catalog.rowOf(r.itemId);
+        if (!item || seen.has(item.id)) return [];
+        seen.add(item.id);
+        return [item];
       })
       .sort((a, b) => a.title.localeCompare(b.title));
   }

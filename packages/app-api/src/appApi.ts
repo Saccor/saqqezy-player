@@ -158,7 +158,11 @@ export class AppApi {
     this.onlineSubtitles = deps.onlineSubtitles;
     this.fileHash = deps.fileHash;
     this.vodc = deps.vod
-      ? new VodController({ vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err) })
+      ? new VodController({
+        vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err),
+        settings: () => this.currentSettings(),
+        locale: () => (typeof navigator === 'undefined' ? undefined : navigator.language),
+      })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
   }
@@ -639,13 +643,18 @@ export class AppApi {
     return this.run('getMovie', () => this.vodOrThrow().movie(id));
   }
 
-  getSeries(id: string): Promise<SeriesView | undefined> {
-    return this.run('getSeries', () => this.vodOrThrow().series(id));
+  /** With `versionId` (from `SeriesView.versions`), shows that version's seasons. */
+  getSeries(id: string, versionId?: string): Promise<SeriesView | undefined> {
+    return this.run('getSeries', () => this.vodOrThrow().series(id, versionId));
   }
 
-  getVodPlayable(itemId: string, seriesId?: string): Promise<VodPlayable | undefined> {
+  /**
+   * A combined movie's card id plays the version Play picks; `exact` (a choice in the Versions list) plays `itemId`
+   * itself. Episodes pass the shown version's id (`SeriesView.versionId`) as `seriesId`.
+   */
+  getVodPlayable(itemId: string, seriesId?: string, exact?: boolean): Promise<VodPlayable | undefined> {
     return this.run('getVodPlayable', async () => {
-      const out = await this.vodOrThrow().playable(itemId, seriesId);
+      const out = await this.vodOrThrow().playable(itemId, seriesId, exact === true);
       if (!out) return out;
       // The playlist entry's own headers win over the source's settings, field by field.
       const headers = mergeHeaders(this.sourceHeaders, out.headers);
@@ -675,6 +684,16 @@ export class AppApi {
   /** "Remove from Continue watching" on a series tile. */
   clearSeriesContinue(seriesId: string): Promise<void> {
     return this.run('clearSeriesContinue', () => this.vodOrThrow().clearSeriesContinue(seriesId));
+  }
+
+  /** Remembers the version picked in the Versions list for the title `itemId` belongs to. */
+  pickVodVersion(itemId: string, versionId: string): Promise<void> {
+    return this.run('pickVodVersion', () => this.vodOrThrow().pickVersion(itemId, versionId));
+  }
+
+  /** "Show separately" (`on`) or "Combine again" for a title; screens reload on `vodRefreshed`. */
+  setVodSplit(itemId: string, on: boolean): Promise<void> {
+    return this.run('setVodSplit', () => this.vodOrThrow().setSplit(itemId, on));
   }
 
   setVodTracks(itemId: string, tracks: VodTracks): Promise<void> {
@@ -781,9 +800,12 @@ export class AppApi {
 
   saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
     return this.run('saveSettings', async () => {
+      const before = await this.currentSettings();
       this.settings = await this.service.saveSettings(partial);
       // Cached now/next was picked on the old offset's timeline.
       this.invalidateNowNext();
+      const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
+      if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
       return this.settings;
     });
   }
@@ -1576,7 +1598,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
-  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
+  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
