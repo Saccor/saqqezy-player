@@ -1,4 +1,4 @@
-import { For, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { SportsEventTile } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
@@ -18,6 +18,7 @@ const VISIBLE_ROWS = 4;
 export function StartSportsScreen() {
   const [events, setEvents] = createSignal<SportsEventTile[]>([]);
   const [index, setIndex] = createSignal(0);
+  const [loaded, setLoaded] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
   let node: ElementNode | undefined;
   let alive = true;
@@ -25,12 +26,14 @@ export function StartSportsScreen() {
     const list = await api.getSportsEvents().catch(() => [] as SportsEventTile[]);
     if (!alive) return;
     setEvents(list);
+    setLoaded(true);
     setIndex((i) => Math.min(i, Math.max(0, list.length - 1)));
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => node?.setFocus()) });
   const firstRow = () => Math.max(0, Math.floor(index() / COLS) - VISIBLE_ROWS + 1);
   const shown = () => events().slice(firstRow() * COLS, (firstRow() + VISIBLE_ROWS) * COLS);
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
+    if (router.topOverlay() !== undefined) return true;
     const n = gridMove(events().length, COLS, index(), key);
     if (n !== 'top') setIndex(n);
     return true;
@@ -51,6 +54,9 @@ export function StartSportsScreen() {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }}>
       <Text x={LAYOUT.safeX} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>Sports in your guide</Text>
+      <Show when={loaded() && events().length === 0}>
+        <Text x={LAYOUT.safeX} y={TOP + 20} fontSize={FONT.heading} color={COLORS.muted}>No sports in your guide right now.</Text>
+      </Show>
       <View ref={(el) => { node = el; }} x={LAYOUT.safeX} y={TOP} width={LAYOUT.width - 2 * LAYOUT.safeX} height={VISIBLE_ROWS * PITCH_Y}
         onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')} onEnter={open}>
         <For each={shown()}>{(e, i) => {
