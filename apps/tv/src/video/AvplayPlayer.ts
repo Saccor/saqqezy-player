@@ -180,6 +180,8 @@ const RESTORE_TIMEOUT_MS = 5_000;
 const LIVE_WINDOW_POLL_MS = 2_000;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_MS = 1_000;
+/** A held frame never outlives this (as in Html5Player), so the screensaver cannot stay off over a failure screen. */
+const HOLD_MAX_MS = 30_000;
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -202,7 +204,9 @@ export class AvplayPlayer implements Player {
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
   private suspended: { url: string; positionMs: number; wasPaused: boolean } | undefined;
-  private readonly saver: { update(i: { fullscreen: boolean; video: boolean; paused: boolean }): void } | undefined;
+  private readonly saver: ReturnType<typeof createScreenSaverGuard> | undefined;
+  /** Ends a held frame that outlived playback (see `HOLD_MAX_MS`). */
+  private holdTimer: ReturnType<typeof setTimeout> | undefined;
   private video = false;
   private userPaused = false;
 
@@ -599,6 +603,8 @@ export class AvplayPlayer implements Player {
     try {
       this.avplay.setVideoStillMode('true');
       this.stillOn = true;
+      clearTimeout(this.holdTimer);
+      this.holdTimer = setTimeout(() => this.releaseLastFrame(), HOLD_MAX_MS);
     } catch {
       // not supported here: a black frame during the reconnect, as before
     }
@@ -606,6 +612,8 @@ export class AvplayPlayer implements Player {
   }
 
   releaseLastFrame(): void {
+    clearTimeout(this.holdTimer);
+    this.holdTimer = undefined;
     if (!this.stillOn) {
       this.updateSaver();
       return;

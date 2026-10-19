@@ -1031,6 +1031,39 @@ describe('AvplayPlayer: screensaver', () => {
     p.releaseLastFrame!();
     expect(saver.at(-1)).toBe('on');
   });
+  test('a hold outliving stop is capped: saver returns to on after 30 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p, saver } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      p.stop();
+      expect(saver.at(-1)).toBe('off');
+      vi.advanceTimersByTime(30_000);
+      expect(saver.at(-1)).toBe('on');
+      expect(av.still.at(-1)).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test('a hold released early never fires the cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      p.releaseLastFrame!();
+      const n = av.still.length;
+      vi.advanceTimersByTime(60_000);
+      expect(av.still.length).toBe(n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   test('suspend → on', async () => {
     const { av, p, saver } = withSaver();
     p.setRect('fullscreen');
