@@ -526,8 +526,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome}
         onWheel={pointerWheel} onContextMenu={pointerOptions} />
 
-      {/* Desktop volume: + and - keys; the pill also shows with the pointer buttons so it can be clicked. */}
-      <VolumeOsd pinned={overlayShown()} onHoverChange={setOverVolume} />
+      {/* Desktop volume: + and - keys; with the pointer bar hidden a change shows a short top-right pill. */}
+      <VolumeOsd inBar={overlayShown()} onHoverChange={setOverVolume} />
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />
