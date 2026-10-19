@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
 import {
   ASPECT_MODES, PLAYER_POINTER_LABELS, WHEEL_ZAP_MIN_MS, aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill,
-  nextAspect, playerAutoHide, playerOverlayShown, playerStatusText, sleepLabel, wheelZapAllowed,
+  nextAspect, playerAutoHide, playerLeave, playerOverlayShown, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
@@ -147,6 +147,19 @@ describe('pointer overlay', () => {
       back: '← Back', channelUp: '▲ Ch+', channelDown: '▼ Ch−', previous: '⟲ Previous',
       info: 'ⓘ Info', options: '☰ Options', guide: '▦ Guide', window: '⛶ Window',
     });
+  });
+});
+
+describe('playerLeave', () => {
+  it('to Home: the last channel to focus and the preview hold', () => {
+    expect(playerLeave('home', 'c1')).toEqual({ params: { focusChannelId: 'c1' }, holdPreview: true });
+    expect(playerLeave('home', undefined)).toEqual({ holdPreview: true });
+  });
+
+  it('to Start, Search or the Guide: no focus param and no hold (they would suppress a later Home resume)', () => {
+    for (const below of ['start', 'search', 'guide', 'startSports', undefined] as const) {
+      expect(playerLeave(below, 'c1')).toEqual({ holdPreview: false });
+    }
   });
 });
 

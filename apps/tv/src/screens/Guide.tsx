@@ -21,7 +21,7 @@ import { activeMaxConnections } from '../state/activeLimit.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
-  GUIDE_POINTER_LABELS, HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideClick, guideOpenTarget, guideWindow, isOnAir, pageTime,
+  GUIDE_POINTER_LABELS, HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideClick, guideOpenTarget, guidePlayAction, guideWindow, isOnAir, pageTime,
   prefetchRange, relativeLabel, stepLeft, stepRight, type Block, type HStep,
 } from './guideLogic.ts';
 import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
@@ -192,7 +192,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
     }
   };
 
-  /** Plays the channel and opens the Player (Back returns here). */
+  /** Plays the channel and opens the Player (Back returns here), or returns to the Player this guide was opened from. */
   const play = (ch: ChannelRow) => {
     devResume.release(); // the user started a channel (spec §3.1)
     const g = groupId() ?? GROUP_ALL;
@@ -205,7 +205,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         playback.playChannel(pc);
         await api.markWatched(ch.id, g).catch(() => undefined);
         // The Player sets the rect to fullscreen on mount, so no fullscreen flash in the mini window beforehand.
-        if (alive && playback.isLatest(token)) router.push('player', { channelId: ch.id, groupId: g });
+        if (!alive || !playback.isLatest(token)) return;
+        const params = { channelId: ch.id, groupId: g };
+        if (guidePlayAction(router.below()?.screen) === 'back') router.back(params);
+        else router.push('player', params);
       } catch (err) {
         console.warn('Open channel failed', err instanceof Error ? err.name : 'Error');
       }

@@ -1,6 +1,7 @@
 import type { AspectMode, LiveInfo, SupervisorStatus } from '@iptv/player';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
 import { failureText } from '../playback/failureText.ts';
+import type { ScreenId } from '../shell/router.ts';
 import { LAYOUT } from '../shell/theme.ts';
 
 /**
@@ -68,6 +69,16 @@ export function bannerNowNextStale(
 }
 
 /** True while a modal layer owns the keys: the "Still watching?" dialog or the options menu. */
+/**
+ * What leaving the Player passes to the screen it reveals. Only Home takes a channel to focus (`focusChannelId`) and
+ * honours the preview hold after a sleep stop; Start, Search or the Guide below get neither, so they never carry a
+ * stale hold into a later Home visit or a param they do not read.
+ */
+export function playerLeave(below: ScreenId | undefined, lastChannelId: string | undefined): { params?: { focusChannelId: string }; holdPreview: boolean } {
+  const toHome = below === 'home';
+  return { ...(toHome && lastChannelId !== undefined ? { params: { focusChannelId: lastChannelId } } : {}), holdPreview: toHome };
+}
+
 export function isModalOpen(sleepKind: string, menuPage: string | undefined): boolean {
   return sleepKind === 'asking' || menuPage != null;
 }

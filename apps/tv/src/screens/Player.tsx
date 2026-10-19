@@ -30,7 +30,7 @@ import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
-  playerStatusText, sleepLabel, wheelZapAllowed,
+  playerLeave, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -226,18 +226,18 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     else focusRoot();
   }
 
-  /** Closes this screen's layers, then pops it (back to Home, which focuses `lastChannelId`). */
+  /** Closes this screen's layers, then pops it. Home below focuses `lastChannelId`; Start, Search or the Guide get no param. */
   const leave = (lastChannelId?: string) => {
     for (const id of [...removers.keys()]) removeOverlay(id);
     while (router.topOverlay() !== undefined) router.back();
-    router.back(lastChannelId !== undefined ? { focusChannelId: lastChannelId } : undefined);
+    router.back(playerLeave(router.below()?.screen, lastChannelId).params);
   };
 
-  /** The sleep timer ran out (or "Stop"): stop playback and return to Home on the last watched channel. */
+  /** The sleep timer ran out (or "Stop"): stop playback and return to the screen below (Home: on the last watched channel, held). */
   function sleepStop() {
     const last = playback.current()?.id ?? shown()?.id;
     playback.stop();
-    previewHold.set();
+    if (playerLeave(router.below()?.screen, last).holdPreview) previewHold.set();
     leave(last);
   }
 

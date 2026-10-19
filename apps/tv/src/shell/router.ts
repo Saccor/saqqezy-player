@@ -19,6 +19,8 @@ export interface Router {
   /** `params` are merged into the screen revealed by a screen pop (not by closing an overlay). */
   back(params?: ScreenParams): BackResult;
   current(): ScreenEntry | undefined;
+  /** The screen under the current one: what a screen pop reveals (undefined on the root). */
+  below(): ScreenEntry | undefined;
   depth(): number;
   /** Registers an overlay on top (moving it there if `id` is already open). The remover does not call `onClose`. */
   pushOverlay(id: string, onClose: () => void): () => void;
@@ -78,6 +80,7 @@ export function createRouter(): Router {
       return 'root';
     },
     current: () => stack[stack.length - 1],
+    below: () => stack[stack.length - 2],
     depth: () => stack.length,
     pushOverlay(id, onClose) {
       const token = {};
