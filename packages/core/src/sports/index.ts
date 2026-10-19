@@ -2,7 +2,7 @@
 import type { Programme } from '../types.ts';
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
 import { copyString } from '../search/titleIndex.ts';
-import { EVENT_THRESHOLD, scoreProgramme } from './detect.ts';
+import { EVENT_THRESHOLD, mayBeEvent, scoreProgramme } from './detect.ts';
 import { foldText, normSide } from './match.ts';
 
 const H = 3600_000;
@@ -31,6 +31,7 @@ export class SportsIndexBuilder {
 
   add(p: Programme, extra: ProgrammeExtra | undefined, epgKey: string): void {
     if (p.stop <= this.now - BACK_MS || p.start >= this.now + AHEAD_MS) return;
+    if (!mayBeEvent(p.title, extra)) return;
     const d = scoreProgramme(p, extra);
     if (d.score < EVENT_THRESHOLD) return;
     if (this.out.length >= this.max) { this.truncated = true; return; }

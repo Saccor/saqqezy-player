@@ -37,6 +37,22 @@ function stripLive(title: string): { rest: string; live: boolean } {
   return { rest: title.slice(m[0].length), live: true };
 }
 
+/**
+ * Cheap pre-check for the index builder: without a sport category hit or a live marker (flag or title prefix) a programme
+ * scores at most 2 (sides 2, or 1 from the subtitle), below EVENT_THRESHOLD, so `scoreProgramme` can be skipped. No allocations.
+ */
+export function mayBeEvent(title: string, extra?: ProgrammeExtra): boolean {
+  if (extra?.live === true) return true;
+  const cats = extra?.categories;
+  if (cats) {
+    for (let i = 0; i < cats.length; i++) {
+      const c = foldText(cats[i]!.trim());
+      if (SPORT_CATEGORIES.has(c) || (DVB_SPORT.test(c) && c !== DVB_MAGAZINE)) return true;
+    }
+  }
+  return stripLive(title).live;
+}
+
 export function scoreProgramme(p: { title: string; start: number; stop: number }, extra?: ProgrammeExtra): Detection {
   let score = 0;
   const cats = (extra?.categories ?? []).map((c) => foldText(c.trim()));

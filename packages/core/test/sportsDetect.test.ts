@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { EVENT_THRESHOLD, scoreProgramme } from '../src/sports/detect.ts';
+import { EVENT_THRESHOLD, mayBeEvent, scoreProgramme } from '../src/sports/detect.ts';
 
 const H = 3600_000;
 const p = (title: string, hours = 2) => ({ title, start: 0, stop: hours * H });
@@ -7,6 +7,22 @@ const isEvent = (title: string, extra?: Parameters<typeof scoreProgramme>[1], ho
   scoreProgramme(p(title, hours), extra).score >= EVENT_THRESHOLD;
 
 describe('scoreProgramme', () => {
+  test('mayBeEvent: false only when the programme cannot reach the threshold, and then scoreProgramme agrees', () => {
+    const cases: [string, Parameters<typeof scoreProgramme>[1]][] = [
+      ['Evening News', undefined], ['Northbridge FC v Eastport', undefined], ['Northbridge FC v Eastport', { categories: ['News'] }],
+      ['Cooking Show', { categories: ['Lifestyle'], subTitle: 'Lakeshore v Pinecrest' }],
+      ['Live at the Hall', undefined], ['Magazine', { categories: ['0x42'] }],
+    ];
+    for (const [title, extra] of cases) {
+      expect(mayBeEvent(title, extra)).toBe(false);
+      expect(scoreProgramme(p(title), extra).score).toBeLessThan(EVENT_THRESHOLD);
+    }
+    expect(mayBeEvent('Northbridge FC v Eastport', { categories: ['Sports'] })).toBe(true);
+    expect(mayBeEvent('Northbridge FC v Eastport', { live: true })).toBe(true);
+    expect(mayBeEvent('LIVE: Northbridge FC v Eastport')).toBe(true);
+    expect(mayBeEvent('Northbridge FC v Eastport', { categories: ['0x43'] })).toBe(true);
+  });
+
   test('sports category plus two sides is an event; sides are split', () => {
     const d = scoreProgramme(p('Northbridge FC v Eastport'), { categories: ['Sports'] });
     expect(d.score).toBe(4);
