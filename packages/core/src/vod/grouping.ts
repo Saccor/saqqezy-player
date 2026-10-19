@@ -1,4 +1,4 @@
-import { categoryBase, parseVodTitle } from './titleParse.ts';
+import { categoryBase, parseVodTitle, prefixLang } from './titleParse.ts';
 import type { VodCategory, VodList } from './types.ts';
 
 /** One title: every catalogue item that is a version of it. */
@@ -45,6 +45,8 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
   const { items } = list;
   const kind = items[0]?.kind ?? list.categories[0]?.kind ?? 'movie';
   const catName = new Map(list.categories.map((c) => [c.id, c.name]));
+  // Parsed once per category, not per item.
+  const catLang = new Map(list.categories.map((c) => [c.id, prefixLang(c.name)]));
   const catMerged = new Map<string, { id: string; name: string }>();
   const mergedOf = (categoryId: string) => {
     let m = catMerged.get(categoryId);
@@ -68,8 +70,8 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
 
   for (let i = 0; i < items.length; i++) {
     const it = items[i]!;
-    const p = parseVodTitle(it.title, catName.get(it.categoryId));
-    memberLang[i] = p.lang;
+    const p = parseVodTitle(it.title);
+    memberLang[i] = p.lang ?? catLang.get(it.categoryId);
     memberQuality[i] = p.quality;
     displays[i] = p.display;
     const year = it.year ?? p.year;

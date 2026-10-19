@@ -60,48 +60,65 @@ const PREFIX = /^([[(|])?\s*([A-Z]{2,3}(?:-[A-Z]{2})?)(\s+4K)?\s*[\])|:\-–—]
 /** "4K-EN ", "4K EN: ". */
 const PREFIX_4K = /^4K[-\s]+([A-Z]{2,3}(?:-[A-Z]{2})?)\s*[\])|:\-–—]*\s+/;
 
-const B = '(?<![\\p{L}\\p{N}])';
-const E = '(?![\\p{L}\\p{N}])';
-const word = (alts: string) => new RegExp(`${B}(?:${alts})${E}`, 'giu');
-
-const QUALITY_TOKENS: [RegExp, number][] = [
-  [word('4k|8k|uhd|2160p|3840p'), 0],
-  [word('fhd|full\\s?hd|1080[pi]'), 1],
-  [word('hd|hq|720p'), 2],
-  [word('sd|480p|576p|360p'), 3],
-];
 const TAG_ORDER = ['HDR', 'DV', 'HEVC', 'MULTI', 'SUB', 'DUB'] as const;
-const TAG_TOKENS: [RegExp, (typeof TAG_ORDER)[number]][] = [
-  [word('hdr10\\+|hdr10plus|hdr10|hdr'), 'HDR'],
-  [word('dovi|dolby\\s?vision|dv'), 'DV'],
-  [word('hevc|h\\.?265|x265'), 'HEVC'],
-  [word('multi[-\\s]?(?:subs?|audio|lang)|multi|dual[-\\s]?audio|dual'), 'MULTI'],
-  [word('vostfr|vose|vost|subbed|subs|sub'), 'SUB'],
-  [word('dubbed|dub'), 'DUB'],
+type Tag = (typeof TAG_ORDER)[number];
+/**
+ * Every quality, tag and dropped token. A number is a quality rank, a string a tag, null a token removed but not
+ * recorded. All are matched in one pass, as whole words: one alternation with one capture group per entry.
+ */
+const TOKENS: [string, number | Tag | null][] = [
+  ['hdr10\\+|hdr10plus|hdr10|hdr', 'HDR'],
+  ['dovi|dolby\\s?vision|dv', 'DV'],
+  ['hevc|h\\.?265|x265', 'HEVC'],
+  ['multi[-\\s]?(?:subs?|audio|lang)|multi|dual[-\\s]?audio|dual', 'MULTI'],
+  ['vostfr|vose|vost|subbed|subs|sub', 'SUB'],
+  ['dubbed|dub', 'DUB'],
+  ['4k|8k|uhd|2160p|3840p', 0],
+  ['fhd|full\\s?hd|1080[pi]', 1],
+  ['hd|hq|720p', 2],
+  ['sd|480p|576p|360p', 3],
+  ['av1|x264|h\\.?264|avc|[2-6]0\\s?fps', null],
 ];
-/** Removed but not recorded. */
-const DROP_TOKENS = word('av1|x264|h\\.?264|avc|[2-6]0\\s?fps');
+const TOKEN_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${TOKENS.map(([alts]) => `(${alts})`).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+const NO_TAGS: string[] = [];
+const MAX_YEAR = new Date().getFullYear() + 1;
+// eslint-disable-next-line no-control-regex
+const PLAIN = /^[\x20-\x7e]*$/;
 
 const INVISIBLE = /[​-‏‪-‮⁠﻿]/g;
 const BARS = /[┃│｜❘]/g;
 const EMPTY_BRACKETS = /[[(][\s|,+/\-–—]*[\])]/g;
-const EDGES = /^[\s\-–—|:.,+/]+|[\s\-–—|:,+/]+$/g;
-const YEAR_BRACKETED = /[([]\s*((?:19|20)\d{2})\s*[)\]]/g;
+const HAS_EMPTY_BRACKETS = /[[(][\s|,+/\-–—]*[\])]/;
+const SPACES = /\s+/g;
+const LEADING = /^[\s\-–—|:.,+/]+/;
+const TRAILING = /[\s\-–—|:,+/]+$/;
+const HAS_TEXT = /[\p{L}\p{N}]/u;
+/** A bracketed year at the given position (sticky). */
+const YEAR_AT = /[([]\s*((?:19|20)\d{2})\s*[)\]]/y;
+const DOUBLE_SPACE = /\s\s|[^\S ]/;
+const SEPARATORS = ' -–—|:,+/';
+const ENDS_IN_YEAR = /(?:19|20)\d{2}\s*$/;
 const YEAR_TRAILING = /(?:\s[-–—]\s*|\s)((?:19|20)\d{2})\s*$/;
 const ROMAN: Record<string, string> = { ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9' };
 const ROMAN_WORD = /(?<=^| )(?:ii|iii|iv|v|vi|vii|viii|ix)(?= |$)/g;
 
 function prepare(s: string): string {
+  // Plain ASCII (most titles) has nothing to normalise.
+  if (PLAIN.test(s)) return s.trim();
   return s.normalize('NFKC').replace(INVISIBLE, '').replace(BARS, '|').trim();
 }
 
+/** Drops brackets left empty, collapses spaces and trims separators from both ends. */
 function tidy(s: string): string {
   let out = s;
-  for (let prev = ''; prev !== out;) {
-    prev = out;
-    out = out.replace(EMPTY_BRACKETS, ' ').replace(/\s+/g, ' ').replace(EDGES, '');
-  }
-  return out.trim();
+  const brackets = out.includes('(') || out.includes('[');
+  do {
+    if (brackets) out = out.replace(EMPTY_BRACKETS, ' ');
+    if (DOUBLE_SPACE.test(out)) out = out.replace(SPACES, ' ');
+    out = out.replace(LEADING, '');
+    if (SEPARATORS.includes(out.charAt(out.length - 1))) out = out.replace(TRAILING, '');
+  } while (brackets && HAS_EMPTY_BRACKETS.test(out)); // "([ ])": the outer pair empties once the inner one goes
+  return out;
 }
 
 /** Peels one leading language prefix: the language and the rest, or undefined. */
@@ -120,48 +137,72 @@ function peelPrefix(s: string): { lang: string; rest: string; quality?: number }
 
 function stripTags(s: string): { rest: string; quality: number; tags: string[] } {
   let quality = QUALITY_UNKNOWN;
-  const found = new Set<string>();
-  let rest = s;
-  // Tags first: "hdr10" must go before "hd" can match inside nothing (whole words only, but order keeps it simple).
-  for (const [re, tag] of TAG_TOKENS) {
-    rest = rest.replace(re, () => {
-      found.add(tag);
-      return ' ';
-    });
+  /** Bit k: TAG_ORDER[k] was found. */
+  let found = 0;
+  let rest = '';
+  let from = 0;
+  TOKEN_RE.lastIndex = 0;
+  for (let m = TOKEN_RE.exec(s); m; m = TOKEN_RE.exec(s)) {
+    // m[k + 1] is entry k's capture: the one that matched says what the token is.
+    for (let k = 0; k < TOKENS.length; k++) {
+      if (m[k + 1] === undefined) continue;
+      const what = TOKENS[k]![1];
+      if (typeof what === 'number') quality = Math.min(quality, what);
+      else if (what) found |= 1 << TAG_ORDER.indexOf(what);
+      break;
+    }
+    rest += s.slice(from, m.index) + ' ';
+    from = m.index + m[0].length;
   }
-  for (const [re, rank] of QUALITY_TOKENS) {
-    rest = rest.replace(re, () => {
-      quality = Math.min(quality, rank);
-      return ' ';
-    });
-  }
-  rest = rest.replace(DROP_TOKENS, ' ');
-  return { rest, quality, tags: TAG_ORDER.filter((t) => found.has(t)) };
+  rest = from === 0 ? s : rest + s.slice(from);
+  return { rest, quality, tags: found ? TAG_ORDER.filter((_, k) => (found & (1 << k)) !== 0) : NO_TAGS };
 }
 
 function takeYear(s: string): { rest: string; year?: number } {
-  const max = new Date().getFullYear() + 1;
-  const ok = (y: number) => y >= 1900 && y <= max;
-  let last: RegExpExecArray | undefined;
-  for (const m of s.matchAll(YEAR_BRACKETED)) if (ok(Number(m[1]))) last = m;
-  if (last) {
-    const rest = s.slice(0, last.index) + ' ' + s.slice(last.index! + last[0].length);
-    if (tidy(rest)) return { rest, year: Number(last[1]) };
+  // A year must leave some title behind ("1917" alone is a title, not a year).
+  // The last bracketed year: try each "(" or "[" from the end.
+  for (let at = lastBracket(s, s.length - 1); at >= 0; at = lastBracket(s, at - 1)) {
+    YEAR_AT.lastIndex = at;
+    const m = YEAR_AT.exec(s);
+    if (!m || !isYear(Number(m[1]))) continue;
+    const rest = s.slice(0, at) + ' ' + s.slice(at + m[0].length);
+    if (HAS_TEXT.test(rest)) return { rest, year: Number(m[1]) };
+    break;
   }
-  const t = YEAR_TRAILING.exec(s.trimEnd());
-  if (t && ok(Number(t[1]))) {
-    const rest = s.trimEnd().slice(0, t.index);
-    if (tidy(rest)) return { rest, year: Number(t[1]) };
+  if (!ENDS_IN_YEAR.test(s)) return { rest: s };
+  const end = s.trimEnd();
+  const t = YEAR_TRAILING.exec(end);
+  if (t && isYear(Number(t[1]))) {
+    const rest = end.slice(0, t.index);
+    if (HAS_TEXT.test(rest)) return { rest, year: Number(t[1]) };
   }
   return { rest: s };
 }
 
+const NOT_ALNUM = /[^a-z0-9]+/g;
+const MAYBE_ROMAN = /(?:^| )[iv]/;
+
+function isYear(y: number): boolean {
+  return y >= 1900 && y <= MAX_YEAR;
+}
+
+function romanDigit(r: string): string {
+  return ROMAN[r]!;
+}
+
+function lastBracket(s: string, from: number): number {
+  return from < 0 ? -1 : Math.max(s.lastIndexOf('(', from), s.lastIndexOf('[', from));
+}
+
 function baseOf(display: string): string {
-  return searchKey(display.replace(/&/g, ' and ')).replace(ROMAN_WORD, (r) => ROMAN[r]!);
+  const s = display.includes('&') ? display.replace(/&/g, ' and ') : display;
+  // Plain ASCII: what `searchKey` gives, without its Unicode passes.
+  const key = PLAIN.test(s) ? s.toLowerCase().replace(NOT_ALNUM, ' ').trim() : searchKey(s);
+  return MAYBE_ROMAN.test(key) ? key.replace(ROMAN_WORD, romanDigit) : key;
 }
 
 /** The language of a leading prefix of `name`, if any (a category name such as "SE | Action"). */
-function prefixLang(name: string): string | undefined {
+export function prefixLang(name: string): string | undefined {
   return peelPrefix(prepare(name))?.lang;
 }
 
