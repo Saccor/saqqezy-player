@@ -18,6 +18,11 @@ export function readDeviceInfo(): DeviceInfo {
     info.userAgent = navigator.userAgent;
     info.screenWidth = screen.width;
     info.screenHeight = screen.height;
+    const canvas = document.querySelector<HTMLCanvasElement>('#app canvas');
+    if (canvas) {
+      info.renderWidth = canvas.width;
+      info.renderHeight = canvas.height;
+    }
   } catch { /* partial info is fine */ }
   try {
     const v = g.tizen?.systeminfo?.getCapability('http://tizen.org/feature/platform.version');

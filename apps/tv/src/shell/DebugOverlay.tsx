@@ -3,19 +3,25 @@ import { createEffect, createSignal, onCleanup } from 'solid-js';
 import type { SupervisorStatus } from '@iptv/player';
 import { onLogicalKey, onUnmappedKey } from '../input/keys.ts';
 import { platformId, startupMs, supervisorStatus } from '../state/appState.ts';
-import { createTapSequence } from './logic.ts';
+import { createTapSequence, slowestFrameMs } from './logic.ts';
 import { COLORS, FONT, LAYOUT } from './theme.ts';
 
 const WIDTH = 460;
 const LINE = 34;
 const SAMPLE_MS = 500;
-const HEIGHT = LINE * 6 + 16;
+const HEIGHT = LINE * 7 + 16;
 
 function describeStatus(s: SupervisorStatus | undefined): string {
   if (!s) return 'idle';
   if (s.kind === 'reconnecting') return `reconnecting (${s.attempt})`;
   if (s.kind === 'failed') return `failed (${s.reason})`;
   return s.kind;
+}
+
+/** The renderer canvas's drawing buffer (TVs cap it at 1920x1080, see `renderScale.ts`). */
+function renderSize(): string {
+  const c = document.querySelector<HTMLCanvasElement>('#app canvas');
+  return c ? `${c.width}×${c.height}` : 'n/a';
 }
 
 function heapText(): string {
@@ -29,11 +35,13 @@ const [visible, setVisible] = createSignal(false);
 export { visible as debugOverlayVisible, setVisible as setDebugOverlayVisible };
 
 /**
- * Developer HUD: startup time, FPS, JS heap, supervisor status, platform. Toggled by Info x3 within 2 s, or
+ * Developer HUD: startup time, FPS and the slowest frame of the last second, render buffer size, JS heap,
+ * supervisor status, platform. Toggled by Info x3 within 2 s, or
  * F12 in the browser. It is a non-modal HUD (takes no focus and is not a Back layer).
  */
 export function DebugOverlay() {
   const [fps, setFps] = createSignal(0);
+  const [slowest, setSlowest] = createSignal(0);
   const [heap, setHeap] = createSignal('n/a');
 
   const infoTaps = createTapSequence(3, 2000);
@@ -56,6 +64,7 @@ export function DebugOverlay() {
     if (t - lastSample >= SAMPLE_MS) {
       lastSample = t;
       setFps(frames.length);
+      setSlowest(Math.round(slowestFrameMs(frames)));
       setHeap(heapText());
     }
     raf = requestAnimationFrame(loop);
@@ -73,7 +82,8 @@ export function DebugOverlay() {
     const s = startupMs();
     return [
       `Startup: ${s === undefined ? 'pending' : `${Math.round(s)} ms`}`,
-      `FPS: ${fps()}`,
+      `FPS: ${fps()} · slowest frame ${slowest()} ms`,
+      `Render: ${renderSize()}`,
       `JS heap: ${heap()}`,
       `Player: ${describeStatus(supervisorStatus())}`,
       `Platform: ${platformId}`,

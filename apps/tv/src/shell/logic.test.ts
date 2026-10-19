@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  createTapSequence, deferWordmark, slowestFrameMs, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
   BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastLayout, toastOnShow,
 } from './logic.ts';
 
@@ -224,5 +224,15 @@ describe('shell Back button (pointer mode)', () => {
   it("leaves room for it: a screen's own bottom-row buttons start one gap after it", () => {
     expect(SCREEN_ROW_X).toBe(LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2);
     expect(SCREEN_ROW_X).toBe(308);
+  });
+});
+
+describe('slowestFrameMs', () => {
+  it('is the longest gap between consecutive frame times', () => {
+    expect(slowestFrameMs([0, 16, 33, 120, 136])).toBe(87);
+  });
+  it('is 0 with fewer than two frames', () => {
+    expect(slowestFrameMs([])).toBe(0);
+    expect(slowestFrameMs([5])).toBe(0);
   });
 });
