@@ -248,3 +248,8 @@ export interface VodPlayable {
   /** As `PlayableChannel.cooldown`. */
   cooldown?: SourceCooldown;
 }
+
+export interface SportsEventTile {
+  key: string; title: string; sides?: [string, string]; subTitle?: string; icon?: string;
+  start: number; stop: number; channelCount: number; followed: boolean;
+}

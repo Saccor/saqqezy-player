@@ -2114,3 +2114,36 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await expect(wrong.findSubtitlesOnline(movieId)).rejects.toThrow('Online subtitles are not set up correctly.');
   });
 });
+
+describe('AppApi – sports in your guide', () => {
+  let sportsServer: Awaited<ReturnType<typeof startFakeXtream>>;
+  beforeAll(async () => { sportsServer = await startFakeXtream({ port: 0, channels: 40, sports: true, now: () => NOW }); });
+  afterAll(async () => { await sportsServer.close(); });
+
+  test('events from the fake sports guide; highlights, replay and the film are not events', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const events = await api.getSportsEvents();
+    const titles = events.map((e) => e.title);
+    // One Northbridge event (the replay and the highlights show are not events); its title is one of the five spellings.
+    const nbs = events.filter((e) => e.title.includes('Northbridge'));
+    expect(nbs).toHaveLength(1);
+    expect(titles.join('|')).not.toMatch(/Highlights|Hollis/);
+    const nb = nbs[0]!;
+    expect(nb.channelCount).toBe(5);
+    const rows = await api.getEventChannels(nb.key);
+    expect(rows.map((r) => r.number)).toEqual([1, 2, 3, 4, 5]);
+    expect(await api.getEventChannels('p:nope')).toEqual([]);
+  });
+
+  test('followed teams sort first', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.saveSettings({ followedTeams: ['Pinecrest'] });
+    const events = await api.getSportsEvents();
+    expect(events[0]!.title).toBe('Lakeshore v Pinecrest');
+    expect(events[0]!.followed).toBe(true);
+  });
+});

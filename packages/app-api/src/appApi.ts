@@ -1,6 +1,6 @@
 import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
@@ -12,10 +12,11 @@ import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
+import { SportsController, eventTiles } from './sportsController.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
+  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, TitleHit,
   OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
@@ -124,6 +125,7 @@ export class AppApi {
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
+  private readonly sports: SportsController;
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
   private readonly subtitles: SubtitleService | undefined;
@@ -141,6 +143,7 @@ export class AppApi {
       }
     };
     this.now = deps.now ?? Date.now;
+    this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
     this.companion = deps.companion?.(this, (status) => {
       // Why a session ended, for diagnostics (relay close reasons carry no secrets).
@@ -411,6 +414,29 @@ export class AppApi {
           return { channel: rows[i]!, programmes };
         }),
       };
+    });
+  }
+
+  getSportsEvents(): Promise<SportsEventTile[]> {
+    return this.run('getSportsEvents', async () => {
+      const groups = await this.sportsGroups();
+      const settings = await this.currentSettings();
+      return eventTiles(groups, this.now(), settings.followedTeams, this.sports.aliases());
+    });
+  }
+
+  getEventChannels(key: string): Promise<ChannelRow[]> {
+    return this.run('getEventChannels', async () => {
+      const e = (await this.sportsGroups()).find((g) => g.key === key);
+      if (!e) return [];
+      const chans = e.airings.map((a) => this.index.get(a.channelId)).filter((c): c is Channel => c !== undefined);
+      const rows = await this.toRows(chans);
+      const now = this.now();
+      const at = new Map(e.airings.map((a) => [a.channelId, a]));
+      return rows.sort((x, y) => compareAirings(
+        { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
+        { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
+      ));
     });
   }
 
@@ -941,6 +967,7 @@ export class AppApi {
     this.companionStale();
     this.titles = undefined;
     this.titlesEpoch++;
+    this.sports.invalidate();
   }
 
   /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
@@ -1038,6 +1065,13 @@ export class AppApi {
    * The title index of `id` when it is in memory. Otherwise undefined, after starting (or joining) its
    * background load, unless a rebuild is running (it loads the index when done) or the index is known missing.
    */
+  private async sportsGroups() {
+    const id = this.activeId;
+    if (!id) return [];
+    const settings = await this.currentSettings();
+    return this.sports.events(id, await this.service.sportsIndexFor(id), this.index, settings.epgOffsetHours);
+  }
+
   private cachedTitles(id: string): TitleIndexData | undefined {
     if (this.titlesTimer !== undefined) clearTimeout(this.titlesTimer);
     this.titlesTimer = setTimeout(() => { this.titles = undefined; this.titlesTimer = undefined; }, TITLES_IDLE_MS);
@@ -1237,6 +1271,7 @@ export class AppApi {
       this.failed('epg', id, 'refreshEpg', err);
     }
     await this.reloadCoverage(id);
+    this.sports.invalidate();
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
@@ -1551,6 +1586,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
+  'getSportsEvents', 'getEventChannels',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable',
