@@ -21,6 +21,8 @@ import { isTvPlatform } from '../video/engineConfig.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
+import { VolumeOsd } from '../components/VolumeOsd.tsx';
+import { volumeStep } from '../video/volume.ts';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
@@ -672,11 +674,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  // The whole screen: moving the pointer shows the overlay, so its buttons can be clicked.
+  // The whole screen: moving the pointer shows the overlay, so its buttons can be clicked; the wheel sets the volume.
   usePointerTarget({
     node: () => root,
     onHover: (pt) => { if (pt) bump(); },
     onClick: () => bump(),
+    onWheel: (dy) => {
+      if (dy !== 0) volumeStep(dy < 0 ? 1 : -1);
+      return true;
+    },
   });
 
   // ---- reactions ----
@@ -893,6 +899,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           </Show>
         </View>
       </Show>
+
+      {/* Desktop volume: + and - keys and the wheel; shown with the overlay so the slider can be clicked. */}
+      <VolumeOsd pinned={visible()} onHover={bump} />
 
       <Show when={pickerOpen()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack}

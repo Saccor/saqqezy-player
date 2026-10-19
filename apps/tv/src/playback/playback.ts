@@ -25,6 +25,8 @@ export interface AppPlayer extends Player {
   currentUrl(): string | undefined;
   /** HTML5 only: drops a mute the desktop autoplay policy forced on us (call from a user gesture). */
   unmuteIfAutoMuted?(): void;
+  /** HTML5 only: the app's volume, 0..1. */
+  setVolume?(level: number): void;
 }
 
 const isTv = isTvPlatform(platformId);

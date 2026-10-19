@@ -9,6 +9,7 @@ import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
+import { VolumeOsd } from '../components/VolumeOsd.tsx';
 import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/pointer.ts';
 import { withFailTest } from '../dev/failTest.ts';
 import { channelHistory } from '../playback/channelHistory.ts';
@@ -377,6 +378,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   // ---- pointer (mouse, pointer remote) ----
 
   const [overButton, setOverButton] = createSignal(false);
+  /** The pointer is over the volume pill (counts as a button for the auto-hide). */
+  const [overVolume, setOverVolume] = createSignal(false);
   const overlayShown = () => playerOverlayShown(pointerMode(), modal());
   // Toasts ("Added to favourites", guide refresh failures) end above the banner, which they would otherwise cover.
   useToastFloor(() => (bannerOn() && shown()
@@ -444,7 +447,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     });
     onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); clearInterval(pillTimer); offNowNext(); });
     // Pointer mode ends after 3 s without movement here, unless the pointer is over an overlay button or a modal is open.
-    onCleanup(setPointerAutoHide(() => playerAutoHide({ overButton: overButton(), modalOpen: modal() })));
+    onCleanup(setPointerAutoHide(() => playerAutoHide({ overButton: overButton() || overVolume(), modalOpen: modal() })));
 
     const cur = playback.current();
     if (cur && cur.id === params.channelId) {
@@ -522,6 +525,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}
         onInfo={toggleBanner} onOptions={openMenu} onGuide={openGuide} onWindow={toHome}
         onWheel={pointerWheel} onContextMenu={pointerOptions} />
+
+      {/* Desktop volume: + and - keys; the pill also shows with the pointer buttons so it can be clicked. */}
+      <VolumeOsd pinned={overlayShown()} onHoverChange={setOverVolume} />
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />

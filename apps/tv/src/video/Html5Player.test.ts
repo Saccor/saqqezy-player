@@ -94,6 +94,7 @@ function fakeVideo() {
     readyState: 0,
     error: null,
     muted: false,
+    volume: 1,
     currentTime: 0,
     duration: Number.NaN as number,
     playbackRate: 1,
@@ -128,6 +129,19 @@ function makePlayer(opts: { isTv?: boolean } = {}) {
   player.onState((s, d) => events.push([s, d as Record<string, unknown> | undefined]));
   return { video, player, events };
 }
+
+describe('Html5Player – volume', () => {
+  test('setVolume sets the element volume (clamped) and never touches its mute', () => {
+    const { video, player } = makePlayer();
+    player.setVolume(0.35);
+    expect(video.volume).toBe(0.35);
+    player.setVolume(0);
+    expect(video.volume).toBe(0);
+    expect(video.muted).toBe(false);
+    player.setVolume(3);
+    expect(video.volume).toBe(1);
+  });
+});
 
 describe('Html5Player – mpegts.js to HLS retry', () => {
   test('the engine switch runs after the mpegts.js ERROR callback has returned, not inside it', async () => {
