@@ -125,6 +125,10 @@ export interface Player {
   /** Keeps the current frame visible until the next 'playing' (or `releaseLastFrame`). */
   holdLastFrame?(): void;
   releaseLastFrame?(): void;
+  /** The page is going to the background: release decoder and network, remember what is needed to come back. */
+  suspend?(): void;
+  /** Back in the foreground. True when the engine restored the session itself; false: the caller reopens. */
+  resume?(): boolean;
   /** VOD controls; engines implement what they can. */
   pause?(): void;
   play?(): void;

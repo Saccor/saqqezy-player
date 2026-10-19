@@ -64,6 +64,9 @@ class FakeAvplay implements AvplayLike {
   getState(): string { this.hit('getState'); return this.state; }
   getDuration(): number { this.hit('getDuration'); return this.durationMs; }
   setSilentSubtitle(on: boolean): void { this.hit('setSilentSubtitle'); this.silent.push(on); }
+  restores: [string, number, boolean][] = [];
+  suspend(): void { this.hit('suspend'); }
+  restore(url: string, ms: number, prepare: boolean): void { this.hit('restore'); this.restores.push([url, ms, prepare]); }
 }
 
 function setup() {
@@ -924,5 +927,68 @@ describe('AvplayPlayer: User-Agent, close before open, status awareness', () => 
     await p.closed();
     expect(av.calls).toContain('close');
     expect((p as Player).supportsStatus?.() ?? false).toBe(false);
+  });
+});
+
+describe('AvplayPlayer: suspend / resume', () => {
+  async function vodPlaying() {
+    const s = setup();
+    await s.p.open(URL_A, 1, { live: false });
+    s.av.prepared[0]!.ok();
+    s.av.time = 90_000;
+    return s;
+  }
+  test('VOD: suspend() calls avplay.suspend; resume() restores at the position without prepare', async () => {
+    const { av, p } = await vodPlaying();
+    p.suspend!();
+    expect(av.calls).toContain('suspend');
+    expect(p.resume!()).toBe(true);
+    expect(av.restores).toEqual([[URL_A, 90_000, false]]);
+  });
+  test('resume() is false when restore throws (caller reopens)', async () => {
+    const { av, p } = await vodPlaying();
+    p.suspend!();
+    av.throwOn.add('restore');
+    expect(p.resume!()).toBe(false);
+  });
+  test('live sessions are not suspended, and resume() without suspend is false', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    p.suspend!();
+    expect(av.calls).not.toContain('suspend');
+    expect(p.resume!()).toBe(false);
+  });
+  test('resume() keeps a paused session paused and arms no watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    av.state = 'PAUSED';
+    p.suspend!();
+    av.calls = [];
+    expect(p.resume!()).toBe(true);
+    expect(av.calls).toContain('pause');
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: no play time within 5 s → error NETWORK restoreTimeout', async () => {
+    vi.useFakeTimers();
+    const { p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    vi.advanceTimersByTime(5_001);
+    expect(events.at(-1)?.[0]).toBe('error');
+    expect(events.at(-1)?.[1]?.detail).toBe('restoreTimeout');
+    vi.useRealTimers();
+  });
+  test('oncurrentplaytime clears the restore watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.listener!.oncurrentplaytime!(91_000);
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s, d]) => s === 'error' && d?.detail === 'restoreTimeout')).toBe(false);
+    vi.useRealTimers();
   });
 });

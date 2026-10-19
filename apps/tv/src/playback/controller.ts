@@ -1,5 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
+import { onHidden, onVisible, type BackgroundAction } from './backgroundPolicy.ts';
 import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
@@ -45,6 +46,18 @@ export interface PlaybackController {
   textTracks(): TrackInfo[];
   /** `null`: subtitles off. */
   selectTextTrack(id: string | null): void;
+  /**
+   * The app went to the background (Tizen multitasking). Live: the stream is closed, the channel stays current. VOD:
+   * the engine suspends and remembers the position. Nothing playing (or held by a cooldown): nothing happens.
+   */
+  suspendForBackground(): void;
+  /**
+   * Back in the foreground. Live reopens (or waits for `networkBack` when `networkUp` is false); VOD asks the engine to
+   * restore and reopens at the saved position when it cannot.
+   */
+  resumeFromBackground(s: { networkUp: boolean }): void;
+  /** The network is back: reopens the live channel that was waiting for it, once. */
+  networkBack(): void;
   /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
   /**
@@ -97,12 +110,14 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
-  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable'>,
+  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable' | 'suspend' | 'resume'>,
   supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle' | 'liveInfo'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
   gate?: CooldownGate,
+  /** Told how a return from the background was handled (the playback journal). */
+  onResumed: (what: 'resume-restore' | 'resume-reopen') => void = () => { /* no listener */ },
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -177,6 +192,20 @@ export function createPlaybackController(
     report(undefined);
   };
 
+  let away: BackgroundAction = { kind: 'none' };
+  let waitingNetwork = false;
+  /** Opens the current live channel again, through the same hold/cooldown decision as `playChannel`. */
+  const reopenLive = () => {
+    const cur = current();
+    if (!cur || pendingVod) return;
+    if (gate?.blocked(cur)) {
+      hold();
+      return;
+    }
+    startPlay(cur.url, cur.alternateUrl, { channel: cur.name }, cur.headers);
+    onResumed('resume-reopen');
+  };
+
   return {
     playChannel(ch) {
       const cur = current();
@@ -193,6 +222,7 @@ export function createPlaybackController(
       }
       pendingVod = undefined;
       vodOpened = false;
+      waitingNetwork = false;
       setCurrent(ch);
       // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(ch)) {
@@ -211,6 +241,7 @@ export function createPlaybackController(
       if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
       pendingVod = { p, startMs };
       vodOpened = false;
+      waitingNetwork = false;
       setCurrent(stand);
       // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(stand)) {
@@ -255,8 +286,38 @@ export function createPlaybackController(
       const cur = current();
       if (cur) this.playChannel(cur);
     },
+    suspendForBackground() {
+      const kind = status()?.kind;
+      const playing = held ? 'none' : pendingVod ? (vodOpened ? 'vod' : 'none') : current() && kind !== 'failed' ? 'live' : 'none';
+      away = onHidden({ playing, positionMs: supervisor.positionMs() });
+      if (away.kind === 'close-live') supervisor.stop();
+      else if (away.kind === 'suspend-vod') player.suspend?.();
+    },
+    resumeFromBackground(s) {
+      const next = onVisible(away, s);
+      away = { kind: 'none' };
+      if (next.kind === 'reopen-live') {
+        reopenLive();
+      } else if (next.kind === 'wait-network') {
+        waitingNetwork = true;
+      } else if (next.kind === 'resume-vod') {
+        if (player.resume?.() ?? false) {
+          onResumed('resume-restore');
+        } else if (pendingVod) {
+          onResumed('resume-reopen');
+          this.playVod(pendingVod.p, next.positionMs);
+        }
+      }
+    },
+    networkBack() {
+      if (!waitingNetwork) return;
+      waitingNetwork = false;
+      reopenLive();
+    },
     stop() {
       token++;
+      waitingNetwork = false;
+      away = { kind: 'none' };
       held = false;
       pendingVod = undefined;
       vodOpened = false;

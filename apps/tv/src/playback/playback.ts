@@ -10,6 +10,7 @@ import { createPlaybackController } from './controller.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
+import { onBackOnline } from '../state/backOnline.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -99,7 +100,13 @@ export const playback = createPlaybackController(
     answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
     current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
   },
+  (what) => journal.add({ k: 'page', t: Date.now(), what }),
 );
+
+// Engines that can suspend (AVPlay) get the multitasking path: live closes, VOD suspends (spec 3.1).
+const canSuspend = typeof player.suspend === 'function';
+// A live channel closed in the background while the network was down reopens once it is back.
+onBackOnline(globalThis.window, () => playback.networkBack());
 
 // Hidden pages present no frames: the stall ladder pauses while hidden. Back from the background after a while,
 // the stream is behind, so jump to live.
@@ -111,9 +118,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) journal.flush();
   if (document.hidden) {
     hiddenAt = Date.now();
+    if (canSuspend) playback.suspendForBackground();
     return;
   }
-  if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
+  if (canSuspend) playback.resumeFromBackground({ networkUp: navigator.onLine !== false });
+  else if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
   hiddenAt = undefined;
 });
 

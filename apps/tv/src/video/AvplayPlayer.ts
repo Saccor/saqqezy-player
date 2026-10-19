@@ -31,6 +31,10 @@ export interface AvplayLike {
   getDuration?(): number;
   /** true hides the subtitles. */
   setSilentSubtitle?(silent: boolean): void;
+  /** Releases the decoder and network while the app is hidden (Tizen multitasking). */
+  suspend?(): void;
+  /** Re-opens after `suspend()`: `resumeMs` start position; `bPrepare` false lets AVPlay prepare itself. */
+  restore?(url: string, resumeMs: number, bPrepare: boolean): void;
 }
 
 export interface AvplayListener {
@@ -155,6 +159,8 @@ interface Session {
   watchdog?: ReturnType<typeof setTimeout>;
   /** Guards the VOD start seek: if firmware never calls back, playback starts anyway. */
   seekWatchdog?: ReturnType<typeof setTimeout>;
+  /** After `resume()`: no play time within `RESTORE_TIMEOUT_MS` means the restore failed. */
+  restoreWatchdog?: ReturnType<typeof setTimeout>;
   /** False when opened as a file/VOD (`open(…, { live: false })`): never live, no live window. */
   live: boolean;
   /** VOD start position (ms), sought once prepared, before `play()`. */
@@ -167,6 +173,8 @@ const MESSAGE = 'Playback error';
 const PREPARE_TIMEOUT_MS = 15_000;
 /** The VOD start seek gets this long to call back before playback starts anyway. */
 const START_SEEK_TIMEOUT_MS = 3_000;
+/** After a restore, AVPlay must report play time within this long, or the caller reopens the title. */
+const RESTORE_TIMEOUT_MS = 5_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
@@ -192,6 +200,7 @@ export class AvplayPlayer implements Player {
   private readonly prepareTimeoutMs: number;
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
+  private suspended: { url: string; positionMs: number; wasPaused: boolean } | undefined;
 
   constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size; prepareTimeoutMs?: number } = {}) {
     this.space = opts.displaySpace ?? DESIGN;
@@ -212,7 +221,11 @@ export class AvplayPlayer implements Player {
       av.setListener({
         onbufferingstart: () => this.emit(s, 'buffering'),
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
-        oncurrentplaytime: (ms) => { if (!s.dead && typeof ms === 'number') this.lastPosition = ms; },
+        oncurrentplaytime: (ms) => {
+          if (s.dead || typeof ms !== 'number') return;
+          this.lastPosition = ms;
+          clearTimeout(s.restoreWatchdog);
+        },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
         // A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
         onsubtitlechange: (duration, text) => {
@@ -284,12 +297,49 @@ export class AvplayPlayer implements Player {
     s.dead = true;
     clearTimeout(s.watchdog);
     clearTimeout(s.seekWatchdog);
+    clearTimeout(s.restoreWatchdog);
+    this.suspended = undefined;
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
     try { this.avplay.close(); } catch { /* ignore */ }
+  }
+
+  /** VOD only: live sessions are closed and reopened by the controller instead. */
+  suspend(): void {
+    const s = this.session;
+    if (!s || s.live || !this.avplay.suspend) return;
+    this.suspended = { url: s.url, positionMs: this.position(), wasPaused: this.paused() };
+    try {
+      this.avplay.suspend();
+    } catch {
+      this.suspended = undefined;
+    }
+  }
+
+  /** True when AVPlay restored the session; false means the caller reopens it. */
+  resume(): boolean {
+    const sp = this.suspended;
+    const s = this.session;
+    this.suspended = undefined;
+    if (!sp || !s || !this.avplay.restore) return false;
+    try {
+      this.avplay.restore(sp.url, sp.positionMs, false);
+    } catch {
+      return false;
+    }
+    this.applyDisplay();
+    if (sp.wasPaused) {
+      try { this.avplay.pause?.(); } catch { /* stays playing */ }
+      return true;
+    }
+    clearTimeout(s.restoreWatchdog);
+    s.restoreWatchdog = setTimeout(() => {
+      this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'restoreTimeout' });
+    }, RESTORE_TIMEOUT_MS);
+    return true;
   }
 
   /** `stop()` closes AVPlay synchronously: the previous stream is closed once `close()` has returned. */

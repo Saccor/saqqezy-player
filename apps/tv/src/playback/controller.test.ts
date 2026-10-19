@@ -529,3 +529,71 @@ describe('playback controller', () => {
     });
   });
 });
+
+describe('background', () => {
+  /** Plays a channel or a VOD title through the controller and marks it opened and playing. */
+  function setupPlaying(kind: 'live' | 'vod', o: { positionMs?: number; resumeResult?: boolean } = {}) {
+    const f = fakes();
+    const suspend = vi.fn();
+    const resume = vi.fn(() => o.resumeResult ?? false);
+    const player = { ...f.player, suspend, resume, get suspended() { return suspend.mock.calls.length; } };
+    f.supervisor.positionMs.mockReturnValue(o.positionMs ?? 0);
+    const journal = vi.fn();
+    const ctl = createPlaybackController(player, f.supervisor, undefined, 'AVPlay', undefined, undefined, journal);
+    const channel = ch('1');
+    if (kind === 'live') {
+      ctl.playChannel(channel);
+    } else {
+      ctl.playVod({ kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/u/p/1.mp4', title: 'T', resumeMs: 0, tracks: {} } as VodPlayable, 0);
+    }
+    f.emit({ kind: 'playing' });
+    const plays = () => f.supervisor.play.mock.calls.map((c) => ({ url: c[0], opts: c[2] as { startMs?: number } | undefined }));
+    return { ctl, player, journal, ch: channel, supervisor: { stopped: () => f.supervisor.stop.mock.calls.length, plays } };
+  }
+
+  it('live: suspendForBackground stops the stream but keeps the channel; resume reopens it', () => {
+    const { ctl, supervisor, ch: channel, journal } = setupPlaying('live');
+    ctl.suspendForBackground();
+    expect(supervisor.stopped()).toBe(1);
+    expect(ctl.current()).toBe(channel);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
+    expect(journal).toHaveBeenCalledWith('resume-reopen');
+  });
+  it('live with the network down: reopens only on networkBack()', () => {
+    const { ctl, supervisor, ch: channel } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: false });
+    const before = supervisor.plays().length;
+    ctl.networkBack();
+    expect(supervisor.plays().length).toBe(before + 1);
+    expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
+    ctl.networkBack(); // only once
+    expect(supervisor.plays().length).toBe(before + 1);
+  });
+  it('nothing playing: nothing is stopped or reopened', () => {
+    const f = fakes();
+    const ctl = createPlaybackController({ ...f.player, suspend: vi.fn(), resume: vi.fn(() => false) }, f.supervisor);
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    ctl.networkBack();
+    expect(f.supervisor.stop).not.toHaveBeenCalled();
+    expect(f.supervisor.play).not.toHaveBeenCalled();
+  });
+  it('vod: suspend → player.suspend; resume true → no reopen', () => {
+    const { ctl, player, supervisor, journal } = setupPlaying('vod', { positionMs: 42_000, resumeResult: true });
+    ctl.suspendForBackground();
+    expect(player.suspended).toBe(1);
+    const plays = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays);
+    expect(journal).toHaveBeenCalledWith('resume-restore');
+  });
+  it('vod: resume false → playVod at the saved position', () => {
+    const { ctl, supervisor, journal } = setupPlaying('vod', { positionMs: 42_000, resumeResult: false });
+    ctl.suspendForBackground();
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().at(-1)?.opts?.startMs).toBe(42_000);
+    expect(journal).toHaveBeenCalledWith('resume-reopen');
+  });
+});

@@ -17,6 +17,11 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('sanitizeEvent', () => {
+  it('keeps the background-return page events', () => {
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume-restore' })).toEqual({ k: 'page', t: 1, what: 'resume-restore' });
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume-reopen' })).toEqual({ k: 'page', t: 1, what: 'resume-reopen' });
+  });
+
   it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {
     expect(sanitizeEvent({ k: 'nope', t: 1 })).toBeUndefined();
     expect(sanitizeEvent({ k: 'stop' })).toBeUndefined();
