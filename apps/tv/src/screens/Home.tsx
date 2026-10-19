@@ -25,6 +25,7 @@ import { TOAST_OVERLAY_ID } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
@@ -986,8 +987,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         if (playingId !== undefined && playingInfoStale(ids, playingId, focusedRow()?.id)) rereadPlayingInfo(playingId);
       }),
     ];
-    const tick = setInterval(onTick, 30_000);
-    onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });
+    const stopTick = visibleInterval(onTick, 30_000); // sleeps while the page is hidden
+    onCleanup(() => { for (const off of offs) off(); stopTick(); });
     // Back from the Player or the Guide while searching: the bar takes focus and the remembered query runs again.
     // `nextFocus` then restores the focused result.
     if (searching()) {

@@ -12,6 +12,7 @@ import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { PREVIEW_RECT } from './Home.tsx';
@@ -126,8 +127,7 @@ export function SearchScreen() {
   };
 
   onMount(() => {
-    const tick = setInterval(() => setNow(Date.now()), 30_000);
-    onCleanup(() => clearInterval(tick));
+    onCleanup(visibleInterval(() => setNow(Date.now()), 30_000)); // sleeps while the page is hidden
     // A search index (guide titles, or movies and series) became ready, or a guide import finished (the first one may
     // finish while Search is open): re-run the open query so those results appear. A same-query re-run keeps the focused row.
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
