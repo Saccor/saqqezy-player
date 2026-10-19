@@ -12,7 +12,7 @@ const BACK_MS = 3 * 3600_000;
 const AHEAD_MS = 24 * 3600_000;
 
 export class SportsController {
-  private cache: { sourceId: string; built: number; gen: number; index: ChannelIndex; offset: number; events: SportsGroup<EventAiring>[] } | undefined;
+  private cache: { sourceId: string; built: number; gen: number; mapping: number; offset: number; events: SportsGroup<EventAiring>[] } | undefined;
   private aliasMap: Map<string, string> | undefined;
 
   constructor(private readonly deps: { storage: Storage; now: () => number }) {}
@@ -37,11 +37,15 @@ export class SportsController {
     await this.deps.storage.setMeta(ALIASES_KEY, [...m]).catch(() => undefined);
   }
 
-  async events(sourceId: string, rec: SportsIndexRecord | undefined, index: ChannelIndex, offsetHours: number): Promise<SportsGroup<EventAiring>[]> {
+  /**
+   * `mappingVersion` changes only when the candidate-to-channel mapping can (a new index, hidden channels or groups,
+   * hide-without-guide); recents, favourites and renames do not, so a zap never regroups.
+   */
+  async events(sourceId: string, rec: SportsIndexRecord | undefined, index: ChannelIndex, offsetHours: number, mappingVersion = 0): Promise<SportsGroup<EventAiring>[]> {
     const aliases = await this.loadAliases();
     if (!rec) return [];
     const c = this.cache;
-    if (!c || c.sourceId !== sourceId || c.built !== rec.built || c.gen !== rec.gen || c.index !== index || c.offset !== offsetHours) {
+    if (!c || c.sourceId !== sourceId || c.built !== rec.built || c.gen !== rec.gen || c.mapping !== mappingVersion || c.offset !== offsetHours) {
       const now = this.deps.now();
       const items: GroupInput<EventAiring>[] = [];
       for (const cand of rec.candidates) {
@@ -60,7 +64,7 @@ export class SportsController {
         }
       }
       const { events, learned } = groupEvents(items, aliases, (a) => a.channelId);
-      this.cache = { sourceId, built: rec.built, gen: rec.gen, index, offset: offsetHours, events };
+      this.cache = { sourceId, built: rec.built, gen: rec.gen, mapping: mappingVersion, offset: offsetHours, events };
       await this.learn(learned);
     }
     const now = this.deps.now();

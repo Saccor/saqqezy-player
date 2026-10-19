@@ -9,7 +9,7 @@ const H = 3600_000;
 /** 3 h back / 24 h ahead, widened by the largest guide offset (±12 h); the query narrows it after the shift. */
 const BACK_MS = 15 * H;
 const AHEAD_MS = 36 * H;
-export const SPORTS_MAX_CANDIDATES = 60_000;
+export const SPORTS_MAX_CANDIDATES = 20_000;
 
 export interface SportsCandidate {
   epgKey: string; start: number; stop: number; title: string; nt: string;

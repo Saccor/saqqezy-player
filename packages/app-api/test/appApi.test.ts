@@ -2160,6 +2160,50 @@ describe('AppApi – sports in your guide', () => {
     expect(stored).not.toMatch(/"url"/);
   });
 
+  const makeSpied = () => {
+    const st = new MemoryStorage();
+    const service = new SourceService({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const spy = vi.spyOn(service, 'sportsIndexFor');
+    const api = new AppApi({ service, storage: st, emit: () => {}, now: () => NOW, appVersion: '1.2.3' });
+    live.push(api);
+    return { api, spy };
+  };
+  const cachedEvents = (api: AppApi) => (api as unknown as { sports: { cache?: { events: unknown } } }).sports.cache?.events;
+
+  test('a zap (markWatched) does not regroup or re-read the index; hiding an airing channel does change the event', async () => {
+    const { api, spy } = makeSpied();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    spy.mockClear();
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    const grouped = cachedEvents(api);
+    expect(grouped).toBeDefined();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const rows = await api.getEventChannels(nb.key);
+    await api.markWatched(rows[0]!.id, 'all');
+    await api.getSportsEvents();
+    expect(cachedEvents(api)).toBe(grouped);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await api.toggleHidden(rows[0]!.id);
+    const after = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    expect(cachedEvents(api)).not.toBe(grouped);
+    expect(after.channelCount).toBe(nb.channelCount - 1);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('a guide refresh re-reads the sports index', async () => {
+    const { api, spy } = makeSpied();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    spy.mockClear();
+    await api.getSportsEvents();
+    await api.getSportsEvents();
+    expect(spy).toHaveBeenCalledTimes(1);
+    await api.refresh('epg');
+    await api.getSportsEvents();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   test('deleteSource clears the stored Start page and the cached answer', async () => {
     const st = new MemoryStorage();
     const { api } = make(st);

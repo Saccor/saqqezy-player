@@ -2,7 +2,7 @@ import {
   ChannelIndex, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
   compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
-  type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
+  type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   type LoadedSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
 } from '@iptv/core';
@@ -129,6 +129,9 @@ export class AppApi {
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
   private readonly sports: SportsController;
+  private sportsRec: { sourceId: string; rec: SportsIndexRecord } | undefined;
+  /** Bumped when the candidate-to-channel mapping can change (see SportsController.events). */
+  private sportsMapping = 0;
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
   private readonly subtitles: SubtitleService | undefined;
@@ -223,6 +226,7 @@ export class AppApi {
       this.formats.delete(id);
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
+      this.dropSports();
       for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id)]) {
         await this.storage.setMeta(key, null);
       }
@@ -843,6 +847,7 @@ export class AppApi {
       const id = this.activeId;
       if (id) {
         await this.service.clearCachedData(id);
+        this.dropSports();
         await this.activate(id);
         this.startBackground(id);
       }
@@ -1014,7 +1019,14 @@ export class AppApi {
     this.companionStale();
     this.titles = undefined;
     this.titlesEpoch++;
+    this.dropSports();
+    this.sportsMapping++;
+  }
+
+  /** Forgets the grouped events and the in-memory sports index record (the guide or the source changed). */
+  private dropSports(): void {
     this.sports.invalidate();
+    this.sportsRec = undefined;
   }
 
   /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
@@ -1071,6 +1083,7 @@ export class AppApi {
 
     await this.service.saveLayout(id, res.layout);
     this.index = this.index.withLayout(res.layout);
+    if (before.hiddenChannels !== res.layout.hiddenChannels || before.hiddenGroups !== res.layout.hiddenGroups || before.hideNoEpg !== res.layout.hideNoEpg) this.sportsMapping++;
     this.favSet = undefined;
     if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
     const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
@@ -1112,7 +1125,13 @@ export class AppApi {
     const id = this.activeId;
     if (!id) return [];
     const settings = await this.currentSettings();
-    return this.sports.events(id, await this.service.sportsIndexFor(id), this.index, settings.epgOffsetHours);
+    let rec = this.sportsRec?.sourceId === id ? this.sportsRec.rec : undefined;
+    if (!rec) {
+      rec = await this.service.sportsIndexFor(id);
+      // Only a found record is kept: a missing one may still be on its way.
+      if (rec && this.activeId === id) this.sportsRec = { sourceId: id, rec };
+    }
+    return this.sports.events(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
   }
 
   /**
@@ -1318,7 +1337,7 @@ export class AppApi {
       this.failed('epg', id, 'refreshEpg', err);
     }
     await this.reloadCoverage(id);
-    this.sports.invalidate();
+    this.dropSports();
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
