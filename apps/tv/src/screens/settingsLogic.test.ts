@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
+import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
   AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
+  addTeamError, displayItems, openOnLabel,
 } from './settingsLogic.ts';
 import {
   HIDE_NO_EPG_HELP, HIDE_NO_EPG_NO_GUIDE, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
@@ -109,7 +111,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [] },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] },
   };
 
   it('shows version, platform, sources, errors and settings', () => {
@@ -179,7 +181,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [] } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
@@ -292,5 +294,24 @@ describe('liveLines: stream clock and stream edge (final fixes)', () => {
     const lines = liveLines({ ...base, behindLiveS: 7.2, source: 'edge' });
     expect(lines[0]).toEqual(['Behind live', '7 s (stream edge)']);
     expect(lines.map((l) => l[0])).not.toContain('Behind stream edge');
+  });
+});
+
+describe('display page items', () => {
+  it('Open on label', () => {
+    expect(openOnLabel('lastChannel')).toBe('Last channel');
+    expect(openOnLabel('start')).toBe('Start page');
+  });
+  it('rows: clock, open on, teams heading, each team, add', () => {
+    const items = displayItems({ ...DEFAULT_SETTINGS, followedTeams: ['Northbridge FC', 'Pinecrest'] });
+    expect(items.map((i) => i.id)).toEqual(['clock', 'openOn', 'teamsHeading', 'team:0', 'team:1', 'addTeam']);
+    expect(items.find((i) => i.id === 'openOn')?.value).toBe('Last channel');
+    expect(items.find((i) => i.id === 'teamsHeading')?.heading).toBe(true);
+  });
+  it('adding a team: empty, duplicate, full', () => {
+    expect(addTeamError([], '   ')).toBe('Type a name');
+    expect(addTeamError(['Pinecrest'], 'pinecrest')).toBe('Already in the list');
+    expect(addTeamError(Array.from({ length: 50 }, (_, i) => `T${i}`), 'New')).toBe('The list is full (50)');
+    expect(addTeamError(['Pinecrest'], 'Lakeshore')).toBeUndefined();
   });
 });

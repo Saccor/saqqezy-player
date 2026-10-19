@@ -10,6 +10,12 @@ export function initialRoute(s: InitState): ScreenEntry {
   return { screen: 'home', params };
 }
 
+/** The stack a cold start opens: the initial route, plus Start over Home when Open on is the Start page. */
+export function bootRoutes(s: InitState): ScreenEntry[] {
+  const root = initialRoute(s);
+  return root.screen === 'home' && s.settings.openOn === 'start' ? [root, { screen: 'start', params: {} }] : [root];
+}
+
 /** Neutral toast copy for a worker event, or undefined when the event shows no toast. */
 export function toastFor(e: AppEvent): string | undefined {
   // Changes made on this device need no toast; a paired companion's do.

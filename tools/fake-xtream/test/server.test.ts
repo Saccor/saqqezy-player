@@ -259,3 +259,18 @@ describe('fake OpenSubtitles service', () => {
     expect(pre.headers.get('access-control-allow-headers')).toBe('*');
   });
 });
+
+test('sports option: synthetic matches on numbered channels, with a highlight show, a replay and a non-sports "vs" film', async () => {
+  const s = await startFakeXtream({ port: 0, channels: 40, sports: true, now: () => Date.UTC(2026, 9, 19, 18, 10) });
+  try {
+    const xml = await (await fetch(`${s.url}/xmltv.php?username=test&password=test`)).text();
+    expect(xml).toContain('<title>LIVE: Northbridge FC v Eastport</title>');
+    expect(xml).toContain('<title>Eastport - Northbridge FC</title>');
+    expect(xml).toContain('<category lang="en">Sports</category>');
+    expect(xml).toContain('Highlights');
+    expect(xml).toContain('<previously-shown/>');
+    expect(xml).toContain('<title>Hollis vs Hollis</title>');
+  } finally {
+    await s.close();
+  }
+});

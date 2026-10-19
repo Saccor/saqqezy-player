@@ -55,4 +55,31 @@ describe('parseXmltv', () => {
     expect(items).toHaveLength(1);
     expect((items[0] as Extract<XmltvItem, { type: 'programme' }>).programme.title).toBe('Real Title');
   });
+
+  test('detection fields go into extra; plain programmes have none', async () => {
+    const xml = '<tv>'
+      + '<programme start="20261013170000" stop="20261013190000" channel="a"><title>Northbridge FC v Eastport</title>'
+      + '<sub-title>Test Cup: Round 3</sub-title><sub-title>ignored</sub-title><category lang="en">Sports</category><category>Football</category>'
+      + '<icon src="http://img.test/e.png"/><live/></programme>'
+      + '<programme start="20261013190000" stop="20261013200000" channel="a"><title>Replay</title><previously-shown/></programme>'
+      + '<programme start="20261013200000" stop="20261013210000" channel="a"><title>Plain</title></programme>'
+      + '</tv>';
+    const items: XmltvItem[] = [];
+    for await (const it of parseXmltv(inChunks(xml, 11))) items.push(it);
+    expect(items[0]).toEqual({
+      type: 'programme',
+      programme: { epgId: 'a', start: Date.UTC(2026, 9, 13, 17), stop: Date.UTC(2026, 9, 13, 19), title: 'Northbridge FC v Eastport' },
+      extra: { categories: ['Sports', 'Football'], live: true, subTitle: 'Test Cup: Round 3', icon: 'http://img.test/e.png' },
+    });
+    expect(items[1]).toMatchObject({ extra: { rerun: true } });
+    expect(items[2]).toEqual({ type: 'programme', programme: { epgId: 'a', start: Date.UTC(2026, 9, 13, 20), stop: Date.UTC(2026, 9, 13, 21), title: 'Plain' } });
+  });
+
+  test('a channel icon is not taken as a programme icon', async () => {
+    const xml = '<tv><channel id="a"><display-name>A</display-name><icon src="http://img.test/a.png"/></channel>'
+      + '<programme start="20261013170000" stop="20261013180000" channel="a"><title>T</title></programme></tv>';
+    const items: XmltvItem[] = [];
+    for await (const it of parseXmltv(inChunks(xml, 9))) items.push(it);
+    expect(items[1]).not.toHaveProperty('extra');
+  });
 });

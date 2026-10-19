@@ -2148,3 +2148,128 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await expect(wrong.findSubtitlesOnline(movieId)).rejects.toThrow('Online subtitles are not set up correctly.');
   });
 });
+
+describe('AppApi – sports in your guide', () => {
+  let sportsServer: Awaited<ReturnType<typeof startFakeXtream>>;
+  beforeAll(async () => { sportsServer = await startFakeXtream({ port: 0, channels: 40, sports: true, now: () => NOW }); });
+  afterAll(async () => { await sportsServer.close(); });
+
+  test('events from the fake sports guide; highlights, replay and the film are not events', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const events = await api.getSportsEvents();
+    const titles = events.map((e) => e.title);
+    // One Northbridge event (the replay and the highlights show are not events); its title is one of the five spellings.
+    const nbs = events.filter((e) => e.title.includes('Northbridge'));
+    expect(nbs).toHaveLength(1);
+    expect(titles.join('|')).not.toMatch(/Highlights|Hollis/);
+    const nb = nbs[0]!;
+    expect(nb.channelCount).toBe(5);
+    const rows = await api.getEventChannels(nb.key);
+    expect(rows.map((r) => r.number)).toEqual([1, 2, 3, 4, 5]);
+    expect(await api.getEventChannels('p:nope')).toEqual([]);
+  });
+
+  test('followed teams sort first', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.saveSettings({ followedTeams: ['Pinecrest'] });
+    const events = await api.getSportsEvents();
+    expect(events[0]!.title).toBe('Lakeshore v Pinecrest');
+    expect(events[0]!.followed).toBe(true);
+  });
+
+  test('getStartHome: live now and sports rows; the cached call answers the last value; no stream URLs are kept', async () => {
+    const st = new MemoryStorage();
+    const { api } = make(st);
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    expect(await api.getStartHomeCached()).toBeUndefined();
+    const h = await api.getStartHome();
+    expect(h.rows.map((r) => r.id)).toContain('sports');
+    expect(await api.getStartHomeCached()).toEqual(h);
+    const stored = JSON.stringify(await st.getMeta(`startHome:${(await api.init()).activeSourceId}`));
+    expect(stored).not.toMatch(/"url"/);
+  });
+
+  const makeSpied = () => {
+    const st = new MemoryStorage();
+    const service = new SourceService({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const spy = vi.spyOn(service, 'sportsIndexFor');
+    const api = new AppApi({ service, storage: st, emit: () => {}, now: () => NOW, appVersion: '1.2.3' });
+    live.push(api);
+    return { api, spy };
+  };
+  const cachedEvents = (api: AppApi) => (api as unknown as { sports: { cache?: { events: unknown } } }).sports.cache?.events;
+
+  test('a zap (markWatched) does not regroup or re-read the index; hiding an airing channel does change the event', async () => {
+    const { api, spy } = makeSpied();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    spy.mockClear();
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    const grouped = cachedEvents(api);
+    expect(grouped).toBeDefined();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const rows = await api.getEventChannels(nb.key);
+    await api.markWatched(rows[0]!.id, 'all');
+    await api.getSportsEvents();
+    expect(cachedEvents(api)).toBe(grouped);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await api.toggleHidden(rows[0]!.id);
+    const after = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    expect(cachedEvents(api)).not.toBe(grouped);
+    expect(after.channelCount).toBe(nb.channelCount - 1);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('the later of two same-pairing events opens its own channels', async () => {
+    const st = new MemoryStorage();
+    const service = new SourceService({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const api = new AppApi({ service, storage: st, emit: () => {}, now: () => NOW, appVersion: '1.2.3' });
+    live.push(api);
+    const { sourceId } = await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const base = (await service.sportsIndexFor(sourceId))!;
+    const nbc = base.candidates.filter((c) => c.title.includes('Northbridge'));
+    expect(nbc.length).toBeGreaterThan(0);
+    const H = 3600_000;
+    // The same pairing 5 hours later, on one channel only.
+    const later = { ...nbc[0]!, start: nbc[0]!.start + 5 * H, stop: nbc[0]!.stop + 5 * H };
+    vi.spyOn(service, 'sportsIndexFor').mockResolvedValue({ ...base, candidates: [...base.candidates, later] });
+    const nbs = (await api.getSportsEvents()).filter((e) => e.title.includes('Northbridge')).sort((a, b) => a.start - b.start);
+    expect(nbs).toHaveLength(2);
+    expect(nbs[0]!.key).not.toBe(nbs[1]!.key);
+    expect((await api.getEventChannels(nbs[0]!.key)).length).toBe(nbs[0]!.channelCount);
+    const laterRows = await api.getEventChannels(nbs[1]!.key);
+    expect(laterRows.length).toBe(nbs[1]!.channelCount);
+    expect(nbs[1]!.channelCount).toBeLessThan(nbs[0]!.channelCount);
+  });
+
+  test('a guide refresh re-reads the sports index', async () => {
+    const { api, spy } = makeSpied();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    spy.mockClear();
+    await api.getSportsEvents();
+    await api.getSportsEvents();
+    expect(spy).toHaveBeenCalledTimes(1);
+    await api.refresh('epg');
+    await api.getSportsEvents();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  test('deleteSource clears the stored Start page and the cached answer', async () => {
+    const st = new MemoryStorage();
+    const { api } = make(st);
+    const { sourceId } = await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.getStartHome();
+    expect(await st.getMeta(`startHome:${sourceId}`)).toBeTruthy();
+    await api.deleteSource(sourceId);
+    expect(await st.getMeta(`startHome:${sourceId}`)).toBeNull();
+    expect(await api.getStartHomeCached()).toBeUndefined();
+  });
+});

@@ -43,10 +43,10 @@ export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';
-export { DEFAULT_SETTINGS, PREFERRED_LANGUAGES_MAX, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting } from './settings.ts';
+export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, PREFERRED_LANGUAGES_MAX, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
-export { parseXmltv, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
+export { parseXmltv, type ProgrammeExtra, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from './epg/window.ts';
 export {
   SourceService,
@@ -66,3 +66,9 @@ export {
   type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
 } from './subtitles/openSubtitles.ts';
 export { HASH_CHUNK, fetchMovieHash, openSubtitlesHash } from './subtitles/movieHash.ts';
+export { scoreProgramme, EVENT_THRESHOLD, type Detection } from './sports/detect.ts';
+export { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from './sports/match.ts';
+export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from './sports/quality.ts';
+export { groupEvents, type GroupInput, type SportsGroup } from './sports/group.ts';
+export { isFollowed } from './sports/follow.ts';
+export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';

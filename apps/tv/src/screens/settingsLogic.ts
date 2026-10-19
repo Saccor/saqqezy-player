@@ -2,7 +2,8 @@
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { LiveInfo } from '@iptv/player';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
-import type { AppSettings } from '@iptv/core';
+import type { AppSettings, OpenOn } from '@iptv/core';
+import type { SettingItem } from '../components/SettingsList.tsx';
 import { subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
 
 export type SettingsPageId =
@@ -244,4 +245,28 @@ export function liveLines(info: LiveInfo): [string, string][] {
     ['Live target', `${info.targetS.toFixed(1)} s`],
     ['Stalls / reconnects', `${info.stalls} / ${info.reconnects}`],
   ];
+}
+
+// ---- Display page: clock, Open on, Teams I follow ----
+
+const TEAMS_MAX = 50; // mirrors FOLLOWED_TEAMS_MAX in @iptv/core (the worker sanitises again)
+
+export const openOnLabel = (v: OpenOn) => (v === 'start' ? 'Start page' : 'Last channel');
+
+export function displayItems(st: Pick<AppSettings, 'showClock' | 'openOn' | 'followedTeams'>): SettingItem[] {
+  return [
+    { id: 'clock', label: 'Show the clock', value: onOff(st.showClock), adjustable: true, help: 'Top right, and in the channel banner' },
+    { id: 'openOn', label: 'Open on', value: openOnLabel(st.openOn), adjustable: true, help: 'Where the app opens: the last channel, or the Start page' },
+    { id: 'teamsHeading', label: 'Teams I follow', heading: true },
+    ...st.followedTeams.map((t, i): SettingItem => ({ id: `team:${i}`, label: t, help: 'Ok removes it' })),
+    { id: 'addTeam', label: 'Add a team', help: 'Their matches come first on the Start page' },
+  ];
+}
+
+export function addTeamError(list: string[], name: string): string | undefined {
+  const t = name.trim();
+  if (!t) return 'Type a name';
+  if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return 'Already in the list';
+  if (list.length >= TEAMS_MAX) return `The list is full (${TEAMS_MAX})`;
+  return undefined;
 }

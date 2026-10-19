@@ -1,11 +1,17 @@
 import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SourceService, emptyIfUnsupported } from '../src/service/sourceService.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
+
+const detectFlags = vi.hoisted(() => ({ throwOnScore: false }));
+vi.mock('../src/sports/detect.ts', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/sports/detect.ts')>();
+  return { ...real, scoreProgramme: (...a: Parameters<typeof real.scoreProgramme>) => { if (detectFlags.throwOnScore) throw new Error('boom'); return real.scoreProgramme(...a); } };
+});
 
 const m3u = readFileSync(new URL('./fixtures/basic.m3u', import.meta.url), 'utf8');
 const xml = readFileSync(new URL('./fixtures/basic.xml', import.meta.url), 'utf8');
@@ -750,7 +756,7 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     expect(await service.getSettings()).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
-      combineDuplicates: true, preferredLanguages: [],
+      combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [],
     });
     const saved = await service.saveSettings({ epgOffsetHours: 99, preferredFormat: 'm3u8' });
     expect(saved).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', autoRefreshHours: 12 });
@@ -1332,5 +1338,43 @@ describe('SourceService – refresh backoff', () => {
     for (const what of ['playlist', 'epg', 'vod:movie', 'vod:series']) {
       expect(await storage.getMeta(`refreshFail:${id}:${what}`)).toBeFalsy();
     }
+  });
+});
+
+describe('SourceService – sports index', () => {
+  const sportsXml = (start: string, stop: string) => '<tv><channel id="ch1.test"><display-name>Channel 001</display-name></channel>'
+    + `<programme start="${start}" stop="${stop}" channel="ch1.test"><title>Northbridge FC v Eastport</title><category>Sports</category></programme>`
+    + `<programme start="${start}" stop="${stop}" channel="ch2.test"><title>Evening Bulletin</title></programme></tv>`;
+
+  test('refreshEpg stores sports candidates for the new generation', async () => {
+    routes['/epg.xml'] = () => new Response(sportsXml('20261013170000 +0000', '20261013190000 +0000'));
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await service.sportsIndexFor(source.id))!;
+    expect(rec.gen).toBe(await storage.getMeta(`epgGen:${source.id}`));
+    expect(rec.candidates.map((c) => [c.epgKey, c.title])).toEqual([['ch1.test', 'Northbridge FC v Eastport']]);
+  });
+
+  test('a throwing sports scorer never fails the guide import and leaves no sports record', async () => {
+    routes['/epg.xml'] = () => new Response(sportsXml('20261013170000 +0000', '20261013190000 +0000'));
+    const { source } = await service.addSource(m3uInput);
+    detectFlags.throwOnScore = true;
+    try {
+      await expect(service.refreshEpg(source.id)).resolves.toMatchObject({ programmes: 2 });
+    } finally {
+      detectFlags.throwOnScore = false;
+    }
+    expect(await service.sportsIndexFor(source.id)).toBeUndefined();
+    expect(await storage.getMeta(`sportsIndex:${source.id}`)).toBeNull();
+  });
+
+  test('a record from another generation reads as missing; clearing the guide clears it', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await storage.getMeta<{ gen: number }>(`sportsIndex:${source.id}`))!;
+    await storage.setMeta(`sportsIndex:${source.id}`, { ...rec, gen: rec.gen + 1 });
+    expect(await service.sportsIndexFor(source.id)).toBeUndefined();
+    await service.clearCachedData(source.id);
+    expect(await storage.getMeta(`sportsIndex:${source.id}`)).toBeNull();
   });
 });

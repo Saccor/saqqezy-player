@@ -34,7 +34,7 @@ import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { primaryLabel, regularSeasonCount } from '../vod/seriesDetailLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { KIND_COPY, vodStatusLine } from '../vod/kindCopy.ts';
-import { TAB_H, tabNavigation, tabOfKind, type TabId, type VodKind } from '../vod/tabLogic.ts';
+import { TAB_H, tabNavigation, tabOfKind, tabParams, type TabId, type VodKind } from '../vod/tabLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
 const HERO_Y = 200;
@@ -242,7 +242,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     const nav = tabNavigation(tabOfKind(kind), t);
     if (nav.action === 'back') back();
     // Movies and Series replace each other: the stack never grows.
-    else if (nav.action === 'replace') router.replace('vod', { kind: nav.kind, focus: 'tabs' });
+    else if (nav.action === 'replace') router.replace(nav.to.screen, tabParams(nav.to));
   };
   const openCell = () => {
     const c = focusedCell();

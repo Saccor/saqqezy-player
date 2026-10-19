@@ -13,7 +13,7 @@ const ready: InitState = {
 };
 
 function fakeRouter() {
-  return { reset: vi.fn() };
+  return { reset: vi.fn(), push: vi.fn() };
 }
 
 afterEach(() => { vi.useRealTimers(); });
@@ -25,6 +25,12 @@ describe('bootstrap', () => {
     expect(router.reset).toHaveBeenCalledWith('home', {});
     expect(initFailed()).toBe(false);
     expect(initState()).toEqual(ready);
+  });
+  it('pushes Start over Home when Open on is the Start page', async () => {
+    const router = fakeRouter();
+    await bootstrap({ init: () => Promise.resolve({ ...ready, settings: { ...DEFAULT_SETTINGS, openOn: 'start' } }) }, router);
+    expect(router.reset).toHaveBeenCalledWith('home', {});
+    expect(router.push).toHaveBeenCalledWith('start', {});
   });
 
   it('does not route to Add source when init fails; it flags the load error instead', async () => {

@@ -28,7 +28,7 @@ import { showToast } from '../shell/Toast.tsx';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
-import { TABS_W, tabNavigation, type TabId } from '../vod/tabLogic.ts';
+import { TABS_W, tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
@@ -854,7 +854,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const goTab = (t: TabId) => {
     if (modalOpen() || kbOpen()) return;
     const nav = tabNavigation('live', t);
-    if (nav.action === 'push') router.push('vod', { kind: nav.kind, focus: 'tabs' });
+    if (nav.action === 'push') router.push(nav.to.screen, tabParams(nav.to));
   };
 
   /** A click focuses the row like the D-pad, then the same rule as Ok: play in the small video, or fullscreen. */

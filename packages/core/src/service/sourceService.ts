@@ -9,6 +9,7 @@ import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
+import { SportsIndexBuilder, isSportsIndexRecord, type SportsIndexRecord } from '../sports/index.ts';
 import { withCleanHttpSettings } from '../net/headers.ts';
 import { REFUSAL_STATUSES, RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
@@ -56,6 +57,7 @@ const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
+const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
 /** Short-EPG requests in flight at once, across all sources (spec 2026-10-15-gentle-source §3.2). */
 const SHORT_EPG_CONCURRENCY = 1;
 /** Short-EPG lookups waiting for the slot; past this the oldest waiters are dropped (they resolve to nothing). */
@@ -251,6 +253,7 @@ export class SourceService {
       await this.storage.setMeta(`epgStaging:${id}`, null);
       await this.storage.setMeta(`epgCoverage:${id}`, null);
       await this.storage.setMeta(titleIndexKey(id), null);
+      await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
@@ -362,6 +365,7 @@ export class SourceService {
       // No guide configured: coverage is unknown rather than empty, so a no-EPG filter hides nothing.
       await this.storage.setMeta(`epgCoverage:${id}`, null);
       await this.storage.setMeta(titleIndexKey(id), null);
+      await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
@@ -387,6 +391,8 @@ export class SourceService {
     let stored = 0;
     const coverage = new Set<string>();
     const titles = new TitleIndexBuilder();
+    const sports = new SportsIndexBuilder(now);
+    let sportsOk = true;
     let storageFailure: { error: unknown } | undefined;
     const store = async (rows: Programme[]) => {
       try {
@@ -406,6 +412,14 @@ export class SourceService {
         if (!key || !inWindow(item.programme, now)) continue;
         batch.push({ ...item.programme, epgId: key });
         titles.add(item.programme.title, key, item.programme.start, item.programme.stop);
+        if (sportsOk) {
+          try {
+            sports.add(item.programme, item.extra, key);
+          } catch {
+            // Sports is optional: stop adding and store no record; the guide import goes on.
+            sportsOk = false;
+          }
+        }
         coverage.add(key);
         if (batch.length >= EPG_BATCH) {
           await store(batch);
@@ -447,6 +461,16 @@ export class SourceService {
         // Best effort: an older record has another gen, so it still reads as missing.
       }
     }
+    // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
+    try {
+      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? { gen: newGen, built: now, candidates: sports.build(), truncated: sports.truncated } satisfies SportsIndexRecord : null);
+    } catch {
+      try {
+        await this.storage.setMeta(sportsIndexKey(id), null);
+      } catch {
+        // Best effort: an older record has another gen, so it still reads as missing.
+      }
+    }
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
     await this.storage.setMeta(`epgStaging:${id}`, null);
@@ -461,6 +485,13 @@ export class SourceService {
     if (!rec || typeof rec !== 'object') return undefined;
     if (rec.gen !== ((await this.currentGen(id)) ?? 0) || !isTitleIndexData(rec.data)) return undefined;
     return rec.data;
+  }
+
+  /** The stored sports candidates of the live guide generation, or undefined (missing, stale or malformed). */
+  async sportsIndexFor(id: string): Promise<SportsIndexRecord | undefined> {
+    const rec = await this.storage.getMeta<unknown>(sportsIndexKey(id));
+    if (!isSportsIndexRecord(rec)) return undefined;
+    return rec.gen === ((await this.currentGen(id)) ?? 0) ? rec : undefined;
   }
 
   /** Builds the title index from the stored guide (guides imported before it existed, or a bad record). */

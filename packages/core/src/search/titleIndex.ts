@@ -43,7 +43,7 @@ export interface TitleMatch {
 interface TitleEntry { display: string; air: number[] }
 
 /** A copy of `s` that shares no storage with it (concatenating then slicing flattens into a new string). */
-function copyString(s: string): string {
+export function copyString(s: string): string {
   return (' ' + s).slice(1);
 }
 

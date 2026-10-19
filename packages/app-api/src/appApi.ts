@@ -1,8 +1,8 @@
 import {
-  ChannelIndex, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
-  epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  ChannelIndex, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, SubtitleError, alternateStreamUrl, applyOps, applyShift, emptyLayout,
+  compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
-  type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
+  type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   type LoadedSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
 } from '@iptv/core';
@@ -12,10 +12,12 @@ import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
+import { SportsController, eventTiles } from './sportsController.ts';
+import { assembleStartHome, type StartParts } from './startHome.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, TitleHit,
+  ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
   OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
 } from './types.ts';
 
@@ -79,6 +81,8 @@ export class AppApi {
   private readonly appVersion: string;
 
   private activeId: string | undefined;
+  /** The last Start page answer for the active source (also kept in meta `startHome:<id>`). */
+  private startCache: { sourceId: string; home: StartHome } | undefined;
   /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
   private sourceHeaders: StreamHeaders | undefined;
   private index = new ChannelIndex([]);
@@ -129,6 +133,10 @@ export class AppApi {
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
+  private readonly sports: SportsController;
+  private sportsRec: { sourceId: string; rec: SportsIndexRecord } | undefined;
+  /** Bumped when the candidate-to-channel mapping can change (see SportsController.events). */
+  private sportsMapping = 0;
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
   private readonly subtitles: SubtitleService | undefined;
@@ -147,6 +155,7 @@ export class AppApi {
       }
     };
     this.now = deps.now ?? Date.now;
+    this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
     this.companion = deps.companion?.(this, (status) => {
       // Why a session ended, for diagnostics (relay close reasons carry no secrets).
@@ -227,7 +236,9 @@ export class AppApi {
       this.shortCache.dropSource(id);
       this.formats.delete(id);
       this.titleRebuilds.delete(id);
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, formatMemoKey(id)]) {
+      if (this.startCache?.sourceId === id) this.startCache = undefined;
+      this.dropSports();
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();
@@ -422,6 +433,72 @@ export class AppApi {
           return { channel: rows[i]!, programmes };
         }),
       };
+    });
+  }
+
+  getSportsEvents(): Promise<SportsEventTile[]> {
+    return this.run('getSportsEvents', async () => {
+      const groups = await this.sportsGroups();
+      const settings = await this.currentSettings();
+      return eventTiles(groups, this.now(), settings.followedTeams, this.sports.aliases());
+    });
+  }
+
+  getEventChannels(key: string): Promise<ChannelRow[]> {
+    return this.run('getEventChannels', async () => {
+      const e = (await this.sportsGroups()).find((g) => g.key === key);
+      if (!e) return [];
+      const chans = e.airings.map((a) => this.index.get(a.channelId)).filter((c): c is Channel => c !== undefined);
+      const rows = await this.toRows(chans);
+      const now = this.now();
+      const at = new Map(e.airings.map((a) => [a.channelId, a]));
+      return rows.sort((x, y) => compareAirings(
+        { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
+        { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
+      ));
+    });
+  }
+
+  getStartHomeCached(): Promise<StartHome | undefined> {
+    return this.run('getStartHomeCached', async () => {
+      const id = this.activeId;
+      if (!id) return undefined;
+      if (this.startCache?.sourceId === id) return this.startCache.home;
+      const stored = await this.storage.getMeta<StartHome | null>(`startHome:${id}`).catch(() => undefined);
+      return stored && Array.isArray(stored.rows) ? stored : undefined;
+    });
+  }
+
+  getStartHome(): Promise<StartHome> {
+    return this.run('getStartHome', async () => {
+      const id = this.activeId;
+      if (!id) return { rows: [], at: this.now() };
+      const safe = async <T>(f: () => Promise<T>, fallback: T): Promise<T> => {
+        try { return await f(); } catch (err) { this.record('getStartHome', err); return fallback; }
+      };
+      const lastId = await this.storage.getMeta<string>(`lastChannel:${id}`).catch(() => undefined);
+      const last = lastId ? this.index.get(lastId) : undefined;
+      const favs = this.index.slice(GROUP_FAV, 0, 30);
+      const liveChans = favs.length ? favs : this.index.slice(GROUP_RECENT, 0, 30);
+      const [lastRows, liveNow, sports, movie, series] = await Promise.all([
+        safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
+        safe(() => this.toRows(liveChans), [] as ChannelRow[]),
+        safe(() => this.getSportsEvents(), [] as SportsEventTile[]),
+        safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
+        safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
+      ]);
+      const parts: StartParts = { liveNow, sports };
+      if (lastRows[0]) parts.lastChannel = lastRows[0];
+      if (movie || series) parts.continueVod = [...(movie?.continue ?? []), ...(series?.continue ?? [])];
+      if (movie) parts.newMovies = { items: movie.recent, total: movie.recentTotal };
+      if (series) parts.newSeries = { items: series.recent, total: series.recentTotal };
+      const cached = this.startCache?.sourceId === id ? this.startCache.home : await this.getStartHomeCached();
+      const home = assembleStartHome(parts, this.now(), cached);
+      // Switched away or deleted meanwhile: never mix sources, and persist nothing.
+      if (this.activeId !== id) return { rows: [], at: home.at };
+      this.startCache = { sourceId: id, home };
+      await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
+      return home;
     });
   }
 
@@ -815,6 +892,7 @@ export class AppApi {
       const id = this.activeId;
       if (id) {
         await this.service.clearCachedData(id);
+        this.dropSports();
         await this.activate(id);
         this.startBackground(id);
       }
@@ -986,6 +1064,14 @@ export class AppApi {
     this.companionStale();
     this.titles = undefined;
     this.titlesEpoch++;
+    this.dropSports();
+    this.sportsMapping++;
+  }
+
+  /** Forgets the grouped events and the in-memory sports index record (the guide or the source changed). */
+  private dropSports(): void {
+    this.sports.invalidate();
+    this.sportsRec = undefined;
   }
 
   /** The active source or the source list changed: tells the TV UI (and the companion host) who did it. */
@@ -1042,6 +1128,7 @@ export class AppApi {
 
     await this.service.saveLayout(id, res.layout);
     this.index = this.index.withLayout(res.layout);
+    if (before.hiddenChannels !== res.layout.hiddenChannels || before.hiddenGroups !== res.layout.hiddenGroups || before.hideNoEpg !== res.layout.hideNoEpg) this.sportsMapping++;
     this.favSet = undefined;
     if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
     const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
@@ -1077,6 +1164,19 @@ export class AppApi {
   private invalidateNowNext(): void {
     this.generation++;
     this.nnCache = new Map();
+  }
+
+  private async sportsGroups() {
+    const id = this.activeId;
+    if (!id) return [];
+    const settings = await this.currentSettings();
+    let rec = this.sportsRec?.sourceId === id ? this.sportsRec.rec : undefined;
+    if (!rec) {
+      rec = await this.service.sportsIndexFor(id);
+      // Only a found record is kept: a missing one may still be on its way.
+      if (rec && this.activeId === id) this.sportsRec = { sourceId: id, rec };
+    }
+    return this.sports.events(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
   }
 
   /**
@@ -1282,6 +1382,7 @@ export class AppApi {
       this.failed('epg', id, 'refreshEpg', err);
     }
     await this.reloadCoverage(id);
+    this.dropSports();
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
@@ -1596,6 +1697,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
+  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
