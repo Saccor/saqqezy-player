@@ -1,7 +1,7 @@
 import type { ElementNode } from '@lightningtv/solid';
-import { createSignal } from 'solid-js';
+import { createEffect, createSignal, on } from 'solid-js';
 import { router } from './router.ts';
-import { MOTION, type MotionToken } from './theme.ts';
+import { FOCUS, MOTION, type MotionToken } from './theme.ts';
 import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, type MotionLevel, type PropClass } from './motionLogic.ts';
 
 /**
@@ -129,6 +129,21 @@ export function stopMotion(node: ElementNode): void {
   if (!props) return;
   owners.delete(node);
   for (const o of props.values()) { o.interrupted = true; o.ctl.stop(false); }
+}
+
+/**
+ * A card's focus scale: up to `FOCUS.scale` in 120 ms when it gains focus (`lit`), back to 1 in 90 ms when it loses it,
+ * snapped while a key is held. The card's node must not bind `scale` itself. The focus ring, a child of the node, scales
+ * with it. A card mounted already lit starts at its scale (no animation).
+ */
+export function useFocusScale(node: () => ElementNode | undefined, lit: () => boolean): void {
+  createEffect(on(lit, (l, prev) => {
+    const n = node();
+    if (!n) return;
+    const target = l ? FOCUS.scale : 1;
+    if (prev === undefined) { n.scale = target; return; }
+    tween(n, { scale: target }, l ? MOTION.focusIn : MOTION.focusOut);
+  }));
 }
 
 /**
