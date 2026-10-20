@@ -21,7 +21,7 @@ const trend = (strong: boolean[], kind: 'movie' | 'series' = 'movie', from = 500
 const fresh = new Date(NOW - DAY).toISOString();
 
 describe('assembleStartHome: row order', () => {
-  test('continue, on now, Top movies, Top series, sports, new in your library, top rated; empty rows never drawn', () => {
+  test('matches first (when it has any), then continue, on now, Top movies, Top series, new in your library, top rated; empty rows never drawn', () => {
     const h = assembleStartHome({
       ...base, favourites: [chan(1)], sports: [ev(1)],
       continueMovies: [{ tile: vod(1), at: NOW }],
@@ -31,11 +31,19 @@ describe('assembleStartHome: row order', () => {
       topMovies: { items: many(300, 6), total: 6 }, topSeries: { items: many(400, 6, 'series'), total: 6 },
     }, NOW);
     expect(h.rows.map((r) => [r.id, r.title])).toEqual([
-      ['continue', 'Continue watching'], ['live', 'On now on your channels'],
-      ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'], ['sports', 'Matches in your guide'],
+      ['sports', 'Matches in your guide'], ['continue', 'Continue watching'], ['live', 'On now on your channels'],
+      ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'],
       ['newLibrary', 'New in your library'], ['topMovies', 'Top rated movies'], ['topSeries', 'Top rated series'],
     ]);
     expect(h.at).toBe(NOW);
+  });
+
+  test('a filtered matches row with no match (only View all) keeps its place after the trending rows', () => {
+    const h = assembleStartHome({
+      ...base, favourites: [chan(1)], sports: [], sportsTotal: 0, sportsFiltered: true,
+      continueMovies: [{ tile: vod(1), at: NOW }], newMovies: { items: many(100, 3), total: 3 },
+    }, NOW);
+    expect(h.rows.map((r) => r.id)).toEqual(['continue', 'live', 'sports', 'newLibrary']);
   });
 
   test('nothing at all: no rows', () => {
