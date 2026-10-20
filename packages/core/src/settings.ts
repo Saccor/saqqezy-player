@@ -3,6 +3,9 @@ import { normalizeCountry } from './text/regions.ts';
 export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
 export type OpenOn = 'lastChannel' | 'start';
 export type PosterSize = 'standard' | 'compact';
+/** How much the TV UI moves (motion research 2026-10-20 §5): all motion, fades only, or none. */
+export type MotionSetting = 'full' | 'reduced' | 'off';
+const MOTION_CHOICES: readonly MotionSetting[] = ['full', 'reduced', 'off'];
 /** Your countries: off (no effect), put first, or show only these (report 2026-10-20 §2.2). */
 export type RegionMode = 'off' | 'first' | 'only';
 /** ISO 3166-1 alpha-2 codes (GB, not UK), plus `lang:xx` for language-only groups. */
@@ -62,6 +65,8 @@ export interface AppSettings {
   hiddenCompetitions: string[];
   /** Matches in your guide: only these guide categories (folded guide text); empty: all. On-device only. */
   matchCategories: string[];
+  /** Motion level. Unset: follow the system's reduced-motion preference. On-device only (not synced). */
+  motion?: MotionSetting;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -175,6 +180,7 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     pinnedCompetitions: foldedList(src.pinnedCompetitions, PINNED_COMPETITIONS_MAX),
     hiddenCompetitions: foldedList(src.hiddenCompetitions, HIDDEN_COMPETITIONS_MAX),
     matchCategories: foldedList(src.matchCategories, MATCH_CATEGORIES_MAX),
+    ...(MOTION_CHOICES.includes(src.motion as MotionSetting) ? { motion: src.motion as MotionSetting } : {}),
   };
 }
 

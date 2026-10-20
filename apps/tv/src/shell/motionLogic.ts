@@ -97,6 +97,11 @@ export function effectiveLevel(level: MotionLevel, playing: boolean): MotionLeve
   return playing && level === 'full' ? 'reduced' : level;
 }
 
+/** The Motion setting's next value: Full, Reduced, Off, then Full again. */
+export function nextMotionLevel(level: MotionLevel): MotionLevel {
+  return MOTION_LEVELS[(MOTION_LEVELS.indexOf(level) + 1) % MOTION_LEVELS.length]!;
+}
+
 /** The stored setting when it is a level, else the system's reduced-motion preference. */
 export function parseMotionLevel(stored: unknown, prefersReduced: boolean): MotionLevel {
   if (typeof stored === 'string' && (MOTION_LEVELS as readonly string[]).includes(stored)) return stored as MotionLevel;

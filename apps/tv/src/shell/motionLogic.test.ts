@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { EASE, MOTION } from './theme.ts';
-import { classifyGap, effectiveLevel, isNavKey, KeyCadence, parseMotionLevel, planMotion, type MotionContext } from './motionLogic.ts';
+import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, type MotionContext } from './motionLogic.ts';
 
 const ctx = (o: Partial<MotionContext> = {}): MotionContext => ({ level: 'full', cadence: 'normal', gap: undefined, live: 0, ...o });
 
@@ -107,6 +107,14 @@ describe('effectiveLevel', () => {
     expect(effectiveLevel('reduced', true)).toBe('reduced');
     expect(effectiveLevel('off', true)).toBe('off');
     expect(effectiveLevel('full', false)).toBe('full');
+  });
+});
+
+describe('nextMotionLevel', () => {
+  test('Full, Reduced, Off, then Full again', () => {
+    expect(nextMotionLevel('full')).toBe('reduced');
+    expect(nextMotionLevel('reduced')).toBe('off');
+    expect(nextMotionLevel('off')).toBe('full');
   });
 });
 
