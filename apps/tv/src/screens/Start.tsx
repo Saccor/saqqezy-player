@@ -15,8 +15,10 @@ import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
+import { nowNextLine } from './homeLogic.ts';
 import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
@@ -54,7 +56,6 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   let wheelNode: ElementNode | undefined;
   let alive = true;
   let gen = 0;
-  let lastLoad = 0;
   /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). Only user moves change it. */
   let preferredArea: 'tabs' | 'rows' = startOnTabs ? 'tabs' : 'rows';
 
@@ -90,7 +91,6 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   const load = async () => {
     const g = ++gen;
-    lastLoad = Date.now();
     try {
       const h = await api.getStartHome();
       if (alive && g === gen) apply(h);
@@ -182,11 +182,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       onEvent('vodRefreshed', () => void load()),
       onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; memory.cols.clear(); void load(); }),
     ];
-    const tick = setInterval(() => {
-      setNow(Date.now());
-      if (Date.now() - lastLoad > REVALIDATE_MS) void load();
-    }, 60_000);
-    onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });
+    // Stale-while-revalidate: re-read the rows every 30 s while the page is visible (and once when it becomes visible
+    // again), so Live now and Sports move on with the guide; the hero's times follow `now`.
+    const stopTick = visibleInterval(() => { setNow(Date.now()); void load(); }, REVALIDATE_MS);
+    onCleanup(() => { for (const off of offs) off(); stopTick(); });
     queueMicrotask(() => focusArea(startOnTabs ? 'tabs' : 'rows', false));
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
@@ -201,7 +200,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   const heroLine = () => {
     const c = focusedCell();
-    if (c?.type === 'channel') return c.channel.now ? `Now: ${c.channel.now.title}${c.channel.next ? ` · Next: ${c.channel.next.title}` : ''}` : 'No guide information';
+    if (c?.type === 'channel') return nowNextLine(c.channel);
     if (c?.type === 'event') return [eventWhen(c.event, now()), channelsLabel(c.event.channelCount), c.event.subTitle].filter(Boolean).join(' · ');
     if (c?.type === 'vod') return c.tile.year ? String(c.tile.year) : '';
     return '';

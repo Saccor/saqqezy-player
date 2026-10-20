@@ -7,6 +7,7 @@ import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { createStartActions } from './startActions.tsx';
 import { gridMove } from './startLogic.ts';
 
@@ -50,8 +51,8 @@ export function StartSportsScreen() {
     parkLiveForScreen('stop');
     void load();
     const off = onEvent('refreshed', () => void load());
-    const tick = setInterval(() => setNow(Date.now()), 60_000);
-    onCleanup(() => { off(); clearInterval(tick); });
+    const stopTick = visibleInterval(() => setNow(Date.now()), 60_000);
+    onCleanup(() => { off(); stopTick(); });
     queueMicrotask(() => node?.setFocus());
   });
   onCleanup(() => { alive = false; actions.close(); });
