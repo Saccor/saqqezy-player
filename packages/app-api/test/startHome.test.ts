@@ -32,7 +32,7 @@ describe('assembleStartHome: row order', () => {
     }, NOW);
     expect(h.rows.map((r) => [r.id, r.title])).toEqual([
       ['continue', 'Continue watching'], ['live', 'On now on your channels'],
-      ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'], ['sports', 'Sports in your guide'],
+      ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'], ['sports', 'Matches in your guide'],
       ['newLibrary', 'New in your library'], ['topMovies', 'Top rated movies'], ['topSeries', 'Top rated series'],
     ]);
     expect(h.at).toBe(NOW);
@@ -42,10 +42,18 @@ describe('assembleStartHome: row order', () => {
     expect(assembleStartHome(base, 1).rows).toEqual([]);
   });
 
-  test('sports: capped, View all past the cap', () => {
+  test('matches: capped at 12, View all past the cap', () => {
     const h = assembleStartHome({ ...base, sports: Array.from({ length: 35 }, (_, i) => ev(i)) }, NOW);
-    expect(h.rows[0]!.cells).toHaveLength(31);
-    expect(h.rows[0]!.cells[30]).toEqual({ type: 'viewAll', target: 'sports', total: 35 });
+    expect(h.rows[0]!.cells).toHaveLength(13);
+    expect(h.rows[0]!.cells[12]).toEqual({ type: 'viewAll', target: 'sports', total: 35 });
+  });
+
+  test('matches: the row is the focus set; View all counts every match in See all', () => {
+    const h = assembleStartHome({ ...base, sports: [ev(1), ev(2), ev(3), ev(4)], sportsTotal: 9 }, NOW);
+    expect(h.rows[0]!.title).toBe('Matches in your guide');
+    expect(h.rows[0]!.cells).toHaveLength(5);
+    expect(h.rows[0]!.cells[4]).toEqual({ type: 'viewAll', target: 'sports', total: 9 });
+    expect(assembleStartHome({ ...base, sports: [ev(1)], sportsTotal: 1 }, NOW).rows[0]!.cells).toHaveLength(1);
   });
 });
 

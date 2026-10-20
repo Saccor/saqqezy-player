@@ -355,8 +355,16 @@ export interface VodPlayable {
 
 export interface SportsEventTile {
   key: string; title: string; sides?: [string, string]; subTitle?: string; icon?: string;
+  /** The channels the picker shows (fold rows when combining). */
   start: number; stop: number; channelCount: number; followed: boolean;
+  /** Competition text from the user's guide, as written (v2 guide records). */
+  competition?: string;
+  /** On air now (started at most 3 h ago); v2 guide records. */
+  onAir?: boolean;
 }
+/** Matches in your guide: chips from the user's own guide; `id` is the folded text a setting stores. */
+export interface MatchFilterChip { id: string; label: string }
+export interface MatchFilterChips { competitions: MatchFilterChip[]; categories: MatchFilterChip[] }
 
 export type StartRowId =
   | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newLibrary' | 'topMovies' | 'topSeries';

@@ -15,6 +15,6 @@ export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } f
 export type {
   ArchiveState, CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, SportsEventTile, StartCell, StartHome, StartRow, StartRowId, TitleHit,
+  ListSummary, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, SportsEventTile, MatchFilterChip, MatchFilterChips, StartCell, StartHome, StartRow, StartRowId, TitleHit,
   EpisodeView, MovieView, OnlineSubtitleLanguage, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
 } from './types.ts';

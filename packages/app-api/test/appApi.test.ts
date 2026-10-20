@@ -2392,6 +2392,23 @@ describe('AppApi – sports in your guide', () => {
     expect(events[0]!.followed).toBe(true);
   });
 
+  test("matches: a pinned competition comes first, a hidden one is gone; chips are the guide's own categories", async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const before = await api.getSportsEvents();
+    expect(before[0]!.title).not.toBe('Lakeshore v Pinecrest');
+    expect(before.find((e) => e.title === 'Lakeshore v Pinecrest')!.competition).toBe('Test Cup');
+    await api.saveSettings({ pinnedCompetitions: ['Test Cup'] });
+    expect((await api.getSportsEvents())[0]!.title).toBe('Lakeshore v Pinecrest');
+    await api.saveSettings({ pinnedCompetitions: [], hiddenCompetitions: ['test cup'] });
+    expect((await api.getSportsEvents()).map((e) => e.title)).not.toContain('Lakeshore v Pinecrest');
+    const chips = await api.getMatchFilters();
+    expect(chips.categories.map((c) => c.label)).toEqual(['Football', 'Tennis']);
+    await api.saveSettings({ hiddenCompetitions: [], matchCategories: ['tennis'] });
+    expect((await api.getSportsEvents()).every((e) => e.title.includes('Marlow'))).toBe(true);
+  });
+
   test('getStartHome: live now and sports rows; the cached call answers the last value; no stream URLs are kept', async () => {
     const st = new MemoryStorage();
     const { api } = make(st);
@@ -2452,7 +2469,7 @@ describe('AppApi – sports in your guide', () => {
     live.push(api);
     return { api, spy };
   };
-  const cachedEvents = (api: AppApi) => (api as unknown as { sports: { cache?: { events: unknown } } }).sports.cache?.events;
+  const cachedEvents = (api: AppApi) => (api as unknown as { sports: { cache?: { view: { events: unknown } } } }).sports.cache?.view.events;
 
   test('a zap (markWatched) does not regroup or re-read the index; hiding an airing channel does change the event', async () => {
     const { api, spy } = makeSpied();

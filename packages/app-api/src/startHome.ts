@@ -2,12 +2,12 @@
 import type { ChannelRow, SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
 
 export const START_TITLES: Record<StartRowId, string> = {
-  continue: 'Continue watching', live: 'On now on your channels', sports: 'Sports in your guide',
+  continue: 'Continue watching', live: 'On now on your channels', sports: 'Matches in your guide',
   trendingMovies: 'Trending movies', trendingSeries: 'Trending series',
   newLibrary: 'New in your library',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',
 };
-export const START_CAPS = { continue: 12, live: 30, sports: 30, trending: 20, new: 20, top: 20 } as const;
+export const START_CAPS = { continue: 12, live: 30, sports: 12, trending: 20, new: 20, top: 20 } as const;
 /** A Top rated row shows only when the library has at least this many rated titles of that kind. */
 export const START_TOP_MIN = 6;
 /** An unnumbered trending row shows only when at least this many trending titles are in the library. */
@@ -36,7 +36,10 @@ export interface StartParts {
   /** Undefined while unknown (that kind's catalogue never resident), so the cached row stays when both are. */
   continueMovies?: StartTimedTile[];
   continueSeries?: StartTimedTile[];
+  /** Matches in your guide: the row's focus set, best first (design note live-matches-ranking §3.5 G8). */
   sports: SportsEventTile[];
+  /** Every match See all lists (the View all count); `sports.length` when unknown. */
+  sportsTotal?: number;
   newMovies?: CountedPart;
   newSeries?: CountedPart;
   /** The best-rated titles (the provider's `rating`; unrated ones never) and how many are rated. */
@@ -65,7 +68,8 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
   rows.push(trendMovies, trendSeries);
 
   const sports: StartCell[] = p.sports.slice(0, START_CAPS.sports).map((event) => ({ type: 'event', event }));
-  if (p.sports.length > START_CAPS.sports) sports.push({ type: 'viewAll', target: 'sports', total: p.sports.length });
+  const sportsTotal = Math.max(p.sportsTotal ?? 0, p.sports.length);
+  if (sportsTotal > sports.length) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
   rows.push(row('sports', sports));
 
   rows.push(newRow(p, fromCache('newLibrary')));
