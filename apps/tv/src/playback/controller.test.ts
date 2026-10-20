@@ -18,6 +18,7 @@ function fakes() {
     onSubtitle: vi.fn((_fn: (t: string | null) => void) => () => undefined),
     startedAttempts: vi.fn(() => 3),
     liveInfo: vi.fn((): { targetS: number; stalls: number; reconnects: number; bufferAheadS?: number } => ({ targetS: 0, stalls: 0, reconnects: 0, bufferAheadS: 12.5 })),
+    isGivingUp: vi.fn(() => false),
   };
   const player = {
     setRect: vi.fn((_r: Rect | 'fullscreen') => undefined),
@@ -540,8 +541,8 @@ describe('playback controller', () => {
 });
 
 describe('background', () => {
-  /** Plays a channel or a VOD title through the controller and marks it opened and playing. */
-  function setupPlaying(kind: 'live' | 'vod', o: { positionMs?: number; resumeResult?: boolean; blocked?: () => boolean } = {}) {
+  /** Plays a channel or a VOD title through the controller and marks it opened and playing (or `o.status`). */
+  function setupPlaying(kind: 'live' | 'vod', o: { positionMs?: number; resumeResult?: boolean; blocked?: () => boolean; status?: SupervisorStatus } = {}) {
     const f = fakes();
     const suspend = vi.fn();
     const resume = vi.fn(() => o.resumeResult ?? false);
@@ -557,7 +558,7 @@ describe('background', () => {
     } else {
       ctl.playVod({ kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/u/p/1.mp4', title: 'T', resumeMs: 0, tracks: {} } as VodPlayable, 0);
     }
-    f.emit({ kind: 'playing' });
+    f.emit(o.status ?? { kind: 'playing' });
     const plays = () => f.supervisor.play.mock.calls.map((c) => ({ url: c[0], opts: c[2] as { startMs?: number } | undefined }));
     return { ctl, player, journal, statuses, f, ch: channel, supervisor: { stopped: () => f.supervisor.stop.mock.calls.length, plays } };
   }
@@ -726,6 +727,110 @@ describe('background', () => {
     ctl.resumeFromBackground({ networkUp: true });
     expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ vod: true, startMs: 42_000, automatic: true });
   });
+
+  it.each([
+    ['before its first frame', { kind: 'loading' }],
+    ['while it reconnects', { kind: 'reconnecting', attempt: 1 }],
+  ] as const)('vod hidden %s: closed (no retries while hidden), reopened at its position on return', (_, status) => {
+    const { ctl, player, supervisor, journal, statuses, f } = setupPlaying('vod', { positionMs: 30_000, resumeResult: true, status });
+    ctl.suspendForBackground();
+    expect(player.suspended).toBe(0);
+    expect(supervisor.stopped()).toBe(1);
+    expect(statuses.at(-1)).toBeUndefined();
+    const plays = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(player.resume).not.toHaveBeenCalled();
+    expect(supervisor.plays().length).toBe(plays + 1);
+    expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ vod: true, startMs: 30_000, automatic: true });
+    expect(journal).toHaveBeenCalledWith('resume_reopen');
+    expect(f.supervisor.pause).toHaveBeenCalled(); // paused before it went away (the fake says so): stays paused
+  });
+  it.each([
+    ['failed', { kind: 'failed', reason: 'unavailable' }],
+    ['ended', { kind: 'ended' }],
+  ] as const)('a VOD title that %s stays as it is: not suspended, not restored or reopened on return', (_, status) => {
+    const { ctl, player, supervisor, journal } = setupPlaying('vod', { positionMs: 42_000, resumeResult: true, status });
+    const stops = supervisor.stopped();
+    const plays = supervisor.plays().length;
+    ctl.suspendForBackground();
+    expect(player.suspended).toBe(0);
+    expect(supervisor.stopped()).toBe(stops);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(player.resume).not.toHaveBeenCalled();
+    expect(supervisor.plays().length).toBe(plays);
+    expect(journal).not.toHaveBeenCalled();
+    expect(ctl.status()).toEqual(status); // its error or next-episode card stays
+  });
+  it('live in its background retries (failed after playing): closed while hidden, reopened on return', () => {
+    const { ctl, supervisor, f, ch: channel, journal } = setupPlaying('live');
+    f.supervisor.isGivingUp.mockReturnValue(true);
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    ctl.suspendForBackground();
+    expect(supervisor.stopped()).toBe(1);
+    const plays = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays + 1);
+    expect(supervisor.plays().at(-1)?.url).toBe(channel.url);
+    expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ automatic: true });
+    expect(journal).toHaveBeenCalledWith('resume_reopen');
+  });
+  it('live that failed for good (no background retries): nothing closed or reopened', () => {
+    const { ctl, supervisor, f } = setupPlaying('live');
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    const plays = supervisor.plays().length;
+    ctl.suspendForBackground();
+    expect(supervisor.stopped()).toBe(0);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays);
+  });
+  it('playChannel while hidden (a late zap or preview) opens nothing; the channel opens on return', () => {
+    const { ctl, supervisor } = setupPlaying('live');
+    ctl.suspendForBackground();
+    const plays = supervisor.plays().length;
+    const other = ch('2');
+    ctl.playChannel(other);
+    expect(supervisor.plays().length).toBe(plays);
+    expect(ctl.current()?.id).toBe('2');
+    ctl.resumeHeld(); // a cooldown ending while hidden opens nothing either
+    expect(supervisor.plays().length).toBe(plays);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays + 1);
+    expect(supervisor.plays().at(-1)?.url).toBe(other.url);
+  });
+  it('playVod while hidden opens nothing and lets the suspended title go; the new title opens on return', () => {
+    const { ctl, player, supervisor } = setupPlaying('vod', { positionMs: 42_000, resumeResult: true });
+    ctl.suspendForBackground();
+    const plays = supervisor.plays().length;
+    const stops = supervisor.stopped();
+    ctl.playVod({ kind: 'movie', itemId: 'm2', url: 'http://example.test/movie/u/p/2.mp4', title: 'T2', resumeMs: 0, tracks: {} } as VodPlayable, 5_000);
+    expect(supervisor.plays().length).toBe(plays);
+    expect(supervisor.stopped()).toBe(stops + 1);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(player.resume).not.toHaveBeenCalled();
+    expect(supervisor.plays().length).toBe(plays + 1);
+    expect(supervisor.plays().at(-1)).toMatchObject({ url: 'http://example.test/movie/u/p/2.mp4', opts: { startMs: 5_000 } });
+  });
+  it('stop while hidden: nothing reopens on return', () => {
+    const { ctl, supervisor, player } = setupPlaying('vod', { positionMs: 42_000, resumeResult: true });
+    ctl.suspendForBackground();
+    ctl.stop();
+    const plays = supervisor.plays().length;
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(player.resume).not.toHaveBeenCalled();
+    expect(supervisor.plays().length).toBe(plays);
+  });
+  it('stop while hidden keeps the app hidden: a later playChannel waits for the return', () => {
+    const { ctl, supervisor } = setupPlaying('live');
+    ctl.suspendForBackground();
+    ctl.stop();
+    const plays = supervisor.plays().length;
+    ctl.playChannel(ch('2'));
+    ctl.resumeHeld();
+    expect(supervisor.plays().length).toBe(plays);
+    ctl.resumeFromBackground({ networkUp: true });
+    expect(supervisor.plays().length).toBe(plays + 1);
+    expect(supervisor.plays().at(-1)?.url).toBe(ch('2').url);
+  });
 });
 
 describe('playback controller – failover between the streams of a combined channel', () => {
@@ -843,6 +948,20 @@ describe('playback controller – failover between the streams of a combined cha
     await flush();
     expect(pb.status()).toEqual({ kind: 'failed', reason: 'unavailable' });
     expect(pb.current()?.id).toBe('a');
+  });
+
+  it('a failover answered while hidden opens nothing; the next stream opens on return', async () => {
+    const { f, pb, fetched } = setup();
+    pb.playChannel(row('a', ['a', 'b']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    pb.suspendForBackground();
+    await flush();
+    expect(fetched).toEqual(['b']);
+    expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    expect(pb.current()?.id).toBe('b');
+    pb.resumeFromBackground({ networkUp: true });
+    expect(f.supervisor.play).toHaveBeenCalledTimes(2);
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('b').url, ch('b').alternateUrl, { sourceKey: 'src-1', channel: 'Channel One', automatic: true });
   });
 
   it('a newer play wins over a failover in flight; VOD never fails over', async () => {
