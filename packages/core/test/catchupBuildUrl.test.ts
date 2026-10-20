@@ -48,6 +48,11 @@ describe('buildCatchupUrl per mode', () => {
     expect(xt!.alternateUrl).toBe('http://x.test/streaming/timeshift.php?username=u&password=p&stream=5&start=2026-10-20%3A20-00&duration=31');
   });
 
+  test('xc: the live format that plays on the source replaces the channel URL\'s', () => {
+    const r = buildCatchupUrl({ url: 'http://x.test/live/u/p/5.ts', catchup: { mode: 'xc', days: 3 } }, TPL, prog, 0, UTC, NOW, { ext: 'm3u8' });
+    expect(r!.url).toBe('http://x.test/timeshift/u/p/31/2026-10-20:18-00/5.m3u8');
+  });
+
   test('wall-clock template: minute step in the zone', () => {
     expect(build('http://s.test/1.m3u8', { mode: 'default', days: 3, tpl: 2 }, 0, STHLM))
       .toEqual({ url: 'http://archive.test/20261020/2000.ts', stepMs: 60_000, openStart: prog.start });

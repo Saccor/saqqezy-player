@@ -94,7 +94,8 @@ describe('the catch-up player', () => {
     expect(notAvailableFailure({ kind: 'failed', reason: 'gone', httpStatus: 404 }, false, 500)).toBe(true);
     expect(notAvailableFailure({ kind: 'failed', reason: 'unavailable', httpStatus: 500 }, false, 500)).toBe(true);
     expect(notAvailableFailure({ kind: 'failed', reason: 'unavailable', httpStatus: 400 }, false, 500)).toBe(true);
-    expect(notAvailableFailure({ kind: 'failed', reason: 'unavailable' }, false, 500)).toBe(false);
+    expect(notAvailableFailure({ kind: 'failed', reason: 'unavailable' }, false, 500)).toBe(true);
+    expect(notAvailableFailure({ kind: 'failed', reason: 'unsupported' }, false, 500)).toBe(false);
     expect(notAvailableFailure({ kind: 'failed', reason: 'refused', httpStatus: 403 }, false, 500)).toBe(false);
     expect(notAvailableFailure({ kind: 'failed', reason: 'unavailable', httpStatus: 503 }, false, 500)).toBe(false);
     expect(notAvailableFailure({ kind: 'ended' }, false, EARLY_END_MS)).toBe(true);

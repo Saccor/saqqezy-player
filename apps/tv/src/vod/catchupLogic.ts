@@ -125,8 +125,9 @@ export function endCardActions(next: CatchupPlayable['next']): { id: 'next' | 'l
 }
 
 /**
- * The catch-up stream failed before it played: Not available (§5.5) for a gone or unavailable archive, or a stream that
- * ended within `EARLY_END_MS` with no frame. Refusals, the account limit and an unreachable source keep their copy.
+ * The catch-up stream failed before it played: Not available (§5.5) for a gone archive (404/410/400/5xx), one whose
+ * opens ran out with no frame and no status, or a stream that ended within `EARLY_END_MS` with no frame. Refusals
+ * (401/403/429/503/509) keep their own copy.
  */
 export function notAvailableFailure(
   s: { kind: string; reason?: string; httpStatus?: number } | undefined, played: boolean, openedFor: number,
@@ -136,7 +137,12 @@ export function notAvailableFailure(
   if (s.kind !== 'failed') return false;
   if (s.reason === 'gone') return true;
   const st = s.httpStatus;
-  return st === 400 || st === 404 || st === 410 || (st !== undefined && st >= 500 && st < 600 && st !== 503 && st !== 509);
+  if (st === undefined) {
+    // No status (the engine retried on its own and the reopens ran out): the archive never gave a frame while the
+    // source itself answers, so it is the programme that is missing. Watch live stays one press away.
+    return s.reason === 'unavailable';
+  }
+  return st === 400 || st === 404 || st === 410 || (st >= 500 && st < 600 && st !== 503 && st !== 509);
 }
 
 /** In-memory "not available" marks: the Guide stops offering a programme for `MISSING_TTL_MS`. Nothing is persisted. */

@@ -1226,7 +1226,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         </View>
       </Show>
 
-      <Show when={statusText() && !failed()}>
+      <Show when={statusText() && !failed() && !notAvail() && !endCard()}>
         <StatusPill text={statusText()} zIndex={20} />
       </Show>
 

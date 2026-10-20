@@ -117,8 +117,11 @@ export class CatchupController {
     return this.refinedProgramme(ctx, stop);
   }
 
-  /** URL and step for `prog` (displayed) from `offsetMs` in; undefined when the data cannot build one. */
-  async build(ctx: CatchupContext, prog: { start: number; stop: number }, offsetMs: number) {
+  /**
+   * URL and step for `prog` (displayed) from `offsetMs` in; undefined when the data cannot build one. `xcExt`: the live
+   * format that plays on the source (xc URLs use it).
+   */
+  async build(ctx: CatchupContext, prog: { start: number; stop: number }, offsetMs: number, xcExt?: 'ts' | 'm3u8') {
     const c = ctx.channel.catchup;
     if (!c) return undefined;
     const templates = c.tpl === undefined ? [] : await this.templatesFor(ctx.sourceId);
@@ -128,7 +131,9 @@ export class CatchupController {
       ...(ctx.source.serverTimeZone ? { serverTimeZone: ctx.source.serverTimeZone } : {}),
       ...(ctx.source.serverOffsetMin !== undefined ? { serverOffsetMin: ctx.source.serverOffsetMin } : {}),
     }).zone;
-    return buildCatchupUrl(ctx.channel, templates, prog, offsetMs, zone, this.deps.now(), { xtream: ctx.source.kind === 'xtream' });
+    return buildCatchupUrl(ctx.channel, templates, prog, offsetMs, zone, this.deps.now(), {
+      xtream: ctx.source.kind === 'xtream', ...(xcExt ? { ext: xcExt } : {}),
+    });
   }
 
   /**

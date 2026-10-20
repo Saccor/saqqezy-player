@@ -460,7 +460,9 @@ export class AppApi {
       if (!prog) return { notAvailable: 'none' };
       const state = this.catchup.state(ctx, prog);
       if (!playableState(state)) return { notAvailable: state };
-      const built = await this.catchup.build(ctx, prog, offsetMs);
+      // xc: the format live plays in on this source (the memo or the setting), as for the channel itself.
+      const xcExt = ctx.channel.catchup?.mode === 'xc' ? formatOf((await this.streamUrls(ctx.channel)).url) : undefined;
+      const built = await this.catchup.build(ctx, prog, offsetMs, xcExt);
       if (!built) return { notAvailable: 'none' };
       const out: CatchupPlayable = {
         kind: 'catchup', channelId, channelName: this.index.get(channelId)?.name ?? ctx.channel.name, title: prog.title,

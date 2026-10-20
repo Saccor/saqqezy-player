@@ -26,6 +26,7 @@ function appendQuery(url: string, suffix: string): string {
 /**
  * The URL that plays `prog` (displayed times) from `offsetMs` into it. `templates` are the source's interned ones;
  * `zone` the channel's catch-up zone. `xtream`: the source is an Xtream account (adds the php alternate for xc).
+ * `ext`: the live format the source plays in (xc), when it differs from the channel URL's.
  * Undefined when the channel has no catch-up or its data cannot build a right URL.
  */
 export function buildCatchupUrl(
@@ -35,7 +36,7 @@ export function buildCatchupUrl(
   offsetMs: number,
   zone: CatchupZone,
   now: number,
-  opts: { xtream?: boolean } = {},
+  opts: { xtream?: boolean; ext?: 'ts' | 'm3u8' } = {},
 ): BuiltCatchup | undefined {
   const c = ch.catchup;
   if (!c) return undefined;
@@ -58,8 +59,9 @@ export function buildCatchupUrl(
         return url ? { url, stepMs, openStart } : undefined;
       }
       case 'xc': {
-        const p = parseXcLiveUrl(ch.url);
-        if (!p) return undefined;
+        const parsed = parseXcLiveUrl(ch.url);
+        if (!parsed) return undefined;
+        const p = opts.ext ? { ...parsed, ext: opts.ext } : parsed;
         const out: BuiltCatchup = { url: xcTimeshiftUrl(p, openStart, prog.stop, zone), stepMs, openStart };
         if (opts.xtream) out.alternateUrl = xcTimeshiftPhpUrl(p, openStart, prog.stop, zone);
         return out;

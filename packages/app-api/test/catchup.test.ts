@@ -71,6 +71,13 @@ describe('getCatchupPlayable (Xtream)', () => {
     expect(await status(p.url)).toBe(302);
   });
 
+  test('xc uses the live format the source plays in (the format setting)', async () => {
+    const { api, ch } = await xtream();
+    await api.saveSettings({ preferredFormat: 'm3u8' });
+    const p = await api.getCatchupPlayable(ch(1), SLOT(NOW) - 2 * H);
+    expect(isPlayable(p) && p.url).toBe(`${server.url}/timeshift/test/test/31/2026-10-20:18-00/1.m3u8`);
+  });
+
   test('a seek re-open starts at the floored minute and asks for the rest', async () => {
     const { api, ch } = await xtream();
     const start = SLOT(NOW) - 2 * H;
