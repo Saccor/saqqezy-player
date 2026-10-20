@@ -4,11 +4,21 @@ const SLOT = 30 * 60_000;
 
 export interface FakeChannel { n: number; name: string; epgId: string; categoryId: string; group: string }
 
-export function channels(count: number): FakeChannel[] {
+const LIVE_VARIANTS = [' HD', ' FHD', ' 4K', ' (backup)'] as const;
+
+/**
+ * `versions`: every channel is listed four times, as HD, FHD and 4K streams sharing a guide id plus a spare feed
+ * without one ("Channel 001 (backup)"), so the TV can combine them into one row.
+ */
+export function channels(count: number, versions = false): FakeChannel[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
     const g = i % GROUPS.length;
-    return { n, name: `Channel ${String(n).padStart(3, '0')}`, epgId: `c${n}.test`, categoryId: String(g + 1), group: GROUPS[g]! };
+    if (!versions) return { n, name: `Channel ${String(n).padStart(3, '0')}`, epgId: `c${n}.test`, categoryId: String(g + 1), group: GROUPS[g]! };
+    const t = Math.ceil(n / 4);
+    const v = (n - 1) % 4;
+    const epgId = v === 3 ? '' : `c${t}.test`;
+    return { n, name: `Channel ${String(t).padStart(3, '0')}${LIVE_VARIANTS[v]}`, epgId, categoryId: String(g + 1), group: GROUPS[g]! };
   });
 }
 
@@ -44,8 +54,11 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 /** `history`: extra programmes before the usual 6 h for a channel (catch-up channels), given the XMLTV date format. */
 export function* xmltv(
-  chs: FakeChannel[], now: number, sports = false, history?: (c: FakeChannel, xmlDate: (ms: number) => string) => string,
+  all: FakeChannel[], now: number, sports = false, history?: (c: FakeChannel, xmlDate: (ms: number) => string) => string,
 ): Generator<string> {
+  // Streams of one channel share a guide id (versions mode): each guide channel is listed once.
+  const seen = new Set<string>();
+  const chs = all.filter((c) => c.epgId !== '' && !seen.has(c.epgId) && Boolean(seen.add(c.epgId)));
   yield '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="fake-xtream">\n';
   for (const c of chs) yield `<channel id="${c.epgId}"><display-name>${c.name}</display-name></channel>\n`;
   const s = slots(now);

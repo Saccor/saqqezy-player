@@ -2,6 +2,7 @@ import { GROUP_ALL, GROUP_FAV, GROUP_RECENT } from '../constants.ts';
 import { epgKey } from '../epg/window.ts';
 import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/types.ts';
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
+import { foldChannels, type ChannelFolds } from '../live/fold.ts';
 import { searchKey } from '../text/searchKey.ts';
 import { orderGroupChannels } from './order.ts';
 import type { Channel, GroupInfo } from '../types.ts';
@@ -42,6 +43,42 @@ interface Base {
   noEpg?: Set<string>;
   /** Lazily built: playlist channels by epgKey, in number order. */
   byEpgKey?: Map<string, Channel[]>;
+  /** Lazily built: playlist channels by number. */
+  byNum?: Map<number, Channel>;
+  /** Built by the first index with `fold` on. */
+  fold?: FoldBase;
+}
+
+/** The folds of one playlist (spec 2026-10-19-live-grouping §3), shared by every index built on the same base. */
+interface FoldBase {
+  folds: ChannelFolds;
+  /** Channel id → its fold index. */
+  foldIndexOf: Map<string, number>;
+  /** Channel id → its playlist position. */
+  pos: Map<string, number>;
+  /** Per fold: its members (playlist order) and its lead (the row's id and number). */
+  members: Channel[][];
+  leads: Channel[];
+}
+
+function buildFold(base: Base): FoldBase {
+  const folds = foldChannels(base.channels);
+  const foldIndexOf = new Map<string, number>();
+  const pos = new Map<string, number>();
+  base.channels.forEach((c, i) => {
+    foldIndexOf.set(c.id, folds.foldOf[i]!);
+    pos.set(c.id, i);
+  });
+  return {
+    folds, foldIndexOf, pos,
+    members: folds.folds.map((f) => f.members.map((i) => base.channels[i]!)),
+    leads: folds.folds.map((f) => base.channels[f.lead]!),
+  };
+}
+
+export interface ChannelIndexOptions {
+  /** One row per live channel: duplicates of a channel fold into its row (spec 2026-10-19-live-grouping). */
+  fold?: boolean;
 }
 
 function groupIdOf(c: Channel): string {
@@ -52,8 +89,8 @@ function listGroupId(listId: string): string {
   return listId === FAV_LIST_ID ? GROUP_FAV : LIST_PREFIX + listId;
 }
 
-/** Internal constructor seed: the previous index whose base and unchanged caches the new index reuses. */
-interface Seed { prev: ChannelIndex }
+/** Internal constructor options: the previous index whose base and unchanged caches the new index reuses. */
+interface InternalOptions extends ChannelIndexOptions { prev?: ChannelIndex }
 
 function noEpgIds(base: Base, coverage: Set<string>): Set<string> {
   if (!base.noEpg) {
@@ -111,15 +148,21 @@ export class ChannelIndex {
   /** Nothing hidden (channels, groups, no-guide) and nothing renamed: every channel shows as it is. */
   private readonly plain: boolean;
   private readonly visibleCache = new Map<string, Channel[]>();
+  /** Fold mode only. */
+  private readonly fb: FoldBase | undefined;
+  /** Fold index → its row (null: no candidate). Depends on hidden channels, hidden groups and names only. */
+  private rowCache = new Map<number, Channel | null>();
+  /** Row id → `searchKey` of a folded row's name. */
+  private readonly rowKeys = new Map<string, string>();
 
   /**
    * @param layout the user's layout; a v1 `UserFlags` object is converted with `layoutFromFlags`.
    *   The index keeps and shallow-freezes the layout object it is given.
    * @param epgCoverage epgKeys with guide data; needed for `layout.hideNoEpg` to have any effect.
-   * @param seed internal: used by `withLayout` only.
+   * @param opts `fold`: one row per live channel (default off: one row per playlist entry).
    */
-  constructor(channels: Channel[], layout?: Layout | UserFlags, epgCoverage?: Set<string>, seed?: Seed) {
-    const prev = seed?.prev;
+  constructor(channels: Channel[], layout?: Layout | UserFlags, epgCoverage?: Set<string>, opts?: ChannelIndexOptions) {
+    const prev = (opts as InternalOptions | undefined)?.prev;
     this.base = prev && prev.base.channels === channels && prev.base.epgCoverage === epgCoverage
       ? prev.base
       : buildBase(channels, epgCoverage);
@@ -147,10 +190,12 @@ export class ChannelIndex {
     }
     this.noEpg = lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
     this.plain = this.hiddenCh.size === 0 && this.hiddenGr.size === 0 && this.renamed.size === 0 && !this.noEpg?.size;
+    this.fb = opts?.fold ? (this.base.fold ??= buildFold(this.base)) : undefined;
+    if (old && this.fb && old.fb === this.fb && sameHiddenCh && sameHiddenGr && sameNames) this.rowCache = old.rowCache;
 
     // Carry over cached groups whose inputs did not change (layout fields are copy-on-write, so
     // unchanged fields keep their identity). Membership inputs shared by every group:
-    if (old && pl && sameHiddenCh && sameHiddenGr && sameNames && pl.hideNoEpg === lay.hideNoEpg) {
+    if (old && pl && old.fb === this.fb && sameHiddenCh && sameHiddenGr && sameNames && pl.hideNoEpg === lay.hideNoEpg) {
       const listsSame = pl.lists === lay.lists;
       const recentSame = pl.recent === lay.recent;
       for (const [gid, v] of old.visibleCache) {
@@ -168,7 +213,8 @@ export class ChannelIndex {
 
   /** Same playlist and EPG coverage, different layout; reuses the playlist-derived data and unaffected cached groups. */
   withLayout(layout: Layout): ChannelIndex {
-    return new ChannelIndex(this.base.channels, layout, this.base.epgCoverage, { prev: this });
+    const opts: InternalOptions = { fold: this.fb !== undefined, prev: this };
+    return new ChannelIndex(this.base.channels, layout, this.base.epgCoverage, opts);
   }
 
   // ---------- internals ----------
@@ -191,7 +237,114 @@ export class ChannelIndex {
    * `byNumber`: `src` is already in number order, so `number` mode needs no sort.
    */
   private order(groupId: string, src: Channel[], byNumber = false): Channel[] {
-    return orderGroupChannels(src, this.sortModeFor(groupId), this.lay.channelOrder[groupId], channelName, byNumber);
+    let manual = this.lay.channelOrder[groupId];
+    if (this.fb && manual) manual = manual.map((id) => this.rowOf(id) ?? id);
+    return orderGroupChannels(src, this.sortModeFor(groupId), manual, channelName, byNumber);
+  }
+
+  // ---------- fold mode ----------
+
+  /** Can stream for its row: not hidden, and its group not hidden. */
+  private candidate(c: Channel): boolean {
+    return !this.hiddenCh.has(c.id) && !this.hiddenGr.has(groupIdOf(c));
+  }
+
+  private row(fi: number): Channel | undefined {
+    let r = this.rowCache.get(fi);
+    if (r === undefined) {
+      r = this.buildRow(fi) ?? null;
+      this.rowCache.set(fi, r);
+    }
+    return r ?? undefined;
+  }
+
+  /**
+   * A copy of the lead named for the channel: the lead's rename, else a member's, else the folded name. The guide id
+   * comes from the first member with one when the lead has none. Undefined when no member is a candidate.
+   */
+  private buildRow(fi: number): Channel | undefined {
+    const fb = this.fb!;
+    const members = fb.members[fi]!;
+    const lead = fb.leads[fi]!;
+    if (members.length === 1) return this.candidate(lead) ? this.display(lead) : undefined;
+    let count = 0;
+    let quality = 4;
+    for (const m of members) {
+      if (!this.candidate(m)) continue;
+      count++;
+      quality = Math.min(quality, fb.folds.memberQuality[fb.pos.get(m.id)!]!);
+    }
+    if (count === 0) return undefined;
+    let name = this.renamed.get(lead.id)?.name;
+    if (name === undefined) {
+      for (const m of members) {
+        const r = this.renamed.get(m.id);
+        if (r) { name = r.name; break; }
+      }
+    }
+    const row: Channel = { ...lead, name: name ?? fb.folds.folds[fi]!.display, quality };
+    if (!lead.epgId) {
+      const g = members.find((m) => m.epgId);
+      if (g) {
+        row.epgId = g.epgId!;
+        if (g.epgShift !== undefined) row.epgShift = g.epgShift;
+        else delete row.epgShift;
+      }
+    }
+    if (count > 1) row.sources = count;
+    return row;
+  }
+
+  /** The member whose playlist data the guide uses: the first with a guide id, else the lead. */
+  private guideMember(fi: number): Channel {
+    const fb = this.fb!;
+    return fb.members[fi]!.find((m) => m.epgId) ?? fb.leads[fi]!;
+  }
+
+  /** The row as provider groups and All show it: hide-no-guide tests the row's guide, not each member's. */
+  private shownRow(fi: number): Channel | undefined {
+    const r = this.row(fi);
+    if (!r || !this.noEpg) return r;
+    return this.noEpg.has(this.guideMember(fi).id) ? undefined : r;
+  }
+
+  /** Rows of `src` (playlist channels) in `src` order, each once, at its first candidate. */
+  private rowsOf(src: readonly Channel[]): Channel[] {
+    const fb = this.fb!;
+    const out: Channel[] = [];
+    const seen = new Set<number>();
+    for (const c of src) {
+      if (!this.candidate(c)) continue;
+      const fi = fb.foldIndexOf.get(c.id)!;
+      if (seen.has(fi)) continue;
+      seen.add(fi);
+      const r = this.shownRow(fi);
+      if (r) out.push(r);
+    }
+    return out;
+  }
+
+  /** Rows of stored ids (lists, recents), each once, at its first id. */
+  private rowsOfIds(ids: readonly string[], shownOnly: boolean): Channel[] {
+    const fb = this.fb!;
+    const out: Channel[] = [];
+    const seen = new Set<number>();
+    for (const id of ids) {
+      const fi = fb.foldIndexOf.get(id);
+      if (fi === undefined || seen.has(fi)) continue;
+      seen.add(fi);
+      const r = shownOnly ? this.shownRow(fi) : this.listRow(fi);
+      if (r) out.push(r);
+    }
+    return out;
+  }
+
+  /** In user lists a single channel keeps today's rule (only its own hiding counts); a folded row needs a candidate. */
+  private listRow(fi: number): Channel | undefined {
+    const fb = this.fb!;
+    if (fb.members[fi]!.length > 1) return this.row(fi);
+    const c = fb.leads[fi]!;
+    return this.hiddenCh.has(c.id) ? undefined : this.display(c);
   }
 
   private resolveListed(ids: readonly string[]): Channel[] {
@@ -205,6 +358,7 @@ export class ChannelIndex {
   }
 
   private compute(groupId: string): Channel[] {
+    if (this.fb) return this.computeFolded(groupId);
     if (groupId === GROUP_ALL) {
       const mode = this.sortModeFor(GROUP_ALL);
       const src = mode === 'number' ? this.base.byNumber : this.base.channels;
@@ -223,6 +377,22 @@ export class ChannelIndex {
     const mode = this.sortModeFor(groupId);
     const src = mode === 'number' ? this.membersByNumber(groupId, m) : m;
     return this.order(groupId, src.filter((c) => this.shown(c)).map((c) => this.display(c)), mode === 'number');
+  }
+
+  private computeFolded(groupId: string): Channel[] {
+    if (groupId === GROUP_ALL) {
+      const mode = this.sortModeFor(GROUP_ALL);
+      return this.order(GROUP_ALL, this.rowsOf(mode === 'number' ? this.base.byNumber : this.base.channels), mode === 'number');
+    }
+    if (groupId === GROUP_RECENT) return this.rowsOfIds(this.lay.recent, true);
+    if (groupId === GROUP_FAV || groupId.startsWith(LIST_PREFIX)) {
+      const list = this.lay.lists.find((l) => listGroupId(l.id) === groupId);
+      return list ? this.order(groupId, this.rowsOfIds(list.channelIds, false)) : [];
+    }
+    const m = this.base.members.get(groupId);
+    if (!m || this.hiddenGr.has(groupId)) return [];
+    const mode = this.sortModeFor(groupId);
+    return this.order(groupId, this.rowsOf(mode === 'number' ? this.membersByNumber(groupId, m) : m), mode === 'number');
   }
 
   private membersByNumber(groupId: string, m: Channel[]): Channel[] {
@@ -307,7 +477,8 @@ export class ChannelIndex {
   }
 
   indexOf(groupId: string, channelId: string): number {
-    return this.visible(groupId).findIndex((c) => c.id === channelId);
+    const id = this.fb ? this.rowOf(channelId) ?? channelId : channelId;
+    return this.visible(groupId).findIndex((c) => c.id === id);
   }
 
   get(id: string): Channel | undefined {
@@ -320,7 +491,12 @@ export class ChannelIndex {
   }
 
   byNumber(n: number): Channel | undefined {
-    return this.visible(GROUP_ALL).find((c) => c.number === n);
+    if (!this.fb) return this.visible(GROUP_ALL).find((c) => c.number === n);
+    // Any stream's number finds its row.
+    this.base.byNum ??= new Map(this.base.channels.map((c) => [c.number, c]));
+    const c = this.base.byNum.get(n);
+    if (!c || !this.candidate(c)) return undefined;
+    return this.shownRow(this.fb.foldIndexOf.get(c.id)!);
   }
 
   /**
@@ -339,13 +515,15 @@ export class ChannelIndex {
       this.base.byEpgKey = m;
     }
     const all = this.base.byEpgKey.get(key) ?? NO_CHANNELS;
+    if (this.fb) return this.rowsOf(all);
     if (this.plain) return all;
     return all.filter((c) => this.shown(c)).map((c) => this.display(c));
   }
 
   neighbour(groupId: string, channelId: string, delta: number): Channel | undefined {
     const list = this.visible(groupId);
-    const i = list.findIndex((c) => c.id === channelId);
+    const id = this.fb ? this.rowOf(channelId) ?? channelId : channelId;
+    const i = list.findIndex((c) => c.id === id);
     if (i === -1 || list.length === 0) return undefined;
     const j = (((i + delta) % list.length) + list.length) % list.length;
     return list[j];
@@ -360,12 +538,91 @@ export class ChannelIndex {
     const keys = searchKeys(this.base);
     for (const c of this.visible(GROUP_ALL)) {
       const orig = keys.get(c.id)!;
-      const disp = this.renamedKeys.get(c.id);
+      // A folded row also matches by its row name.
+      const disp = c.quality !== undefined ? this.rowKey(c) : this.renamedKeys.get(c.id);
       if (orig.startsWith(q) || (disp !== undefined && disp.startsWith(q))) prefix.push(c);
       else if (orig.includes(q) || (disp !== undefined && disp.includes(q))) contains.push(c);
       if (prefix.length >= limit) break;
     }
     return [...prefix, ...contains].slice(0, limit);
+  }
+
+  private rowKey(row: Channel): string {
+    let k = this.rowKeys.get(row.id);
+    if (k === undefined) {
+      k = searchKey(row.name);
+      this.rowKeys.set(row.id, k);
+    }
+    return k;
+  }
+
+  /** True when this index folds duplicate channels into rows. */
+  folding(): boolean {
+    return this.fb !== undefined;
+  }
+
+  /** The row id of any channel id (itself when not folded); undefined for an unknown id. */
+  rowOf(id: string): string | undefined {
+    if (!this.fb) return this.base.byId.has(id) ? id : undefined;
+    const fi = this.fb.foldIndexOf.get(id);
+    return fi === undefined ? undefined : this.fb.leads[fi]!.id;
+  }
+
+  /**
+   * The streams of `id`'s row as display channels (their own names), playlist order: its candidates, else its
+   * members that are not hidden. The channel itself when not folding.
+   */
+  sources(id: string): Channel[] {
+    if (!this.fb) {
+      const c = this.base.byId.get(id);
+      return c ? [this.display(c)] : [];
+    }
+    const fi = this.fb.foldIndexOf.get(id);
+    if (fi === undefined) return [];
+    const members = this.fb.members[fi]!;
+    const cands = members.filter((m) => this.candidate(m));
+    return (cands.length ? cands : members.filter((m) => !this.hiddenCh.has(m.id))).map((m) => this.display(m));
+  }
+
+  /** `id`'s row as lists show it (its lead named for the row), even when hidden; the channel itself when not folding. */
+  rowChannel(id: string): Channel | undefined {
+    const fi = this.fb?.foldIndexOf.get(id);
+    if (fi === undefined) return this.get(id);
+    return this.row(fi) ?? this.display(this.fb!.leads[fi]!);
+  }
+
+  /** Every channel id of `id`'s row, hidden ones included, playlist order (`[id]` when not folding). */
+  memberIds(id: string): string[] {
+    const fi = this.fb?.foldIndexOf.get(id);
+    if (fi === undefined) return this.base.byId.has(id) ? [id] : [];
+    return this.fb!.members[fi]!.map((m) => m.id);
+  }
+
+  /** The fold key of `id`'s row (stable across refreshes; for remembered sources). Undefined when not folding. */
+  foldKey(id: string): string | undefined {
+    const fi = this.fb?.foldIndexOf.get(id);
+    return fi === undefined ? undefined : this.fb!.folds.folds[fi]!.key;
+  }
+
+  /** A channel's quality rank and spare-feed tag, from its playlist name. Undefined when not folding. */
+  memberInfo(id: string): { quality: number; backup: boolean } | undefined {
+    const at = this.fb?.pos.get(id);
+    if (at === undefined) return undefined;
+    const f = this.fb!.folds;
+    return { quality: f.memberQuality[at]!, backup: f.memberBackup[at] === 1 };
+  }
+
+  /**
+   * The channel whose playlist data guide lookups use, under `c.id`: for a folded row the first member with a guide
+   * id (else the lead); for a renamed channel its playlist original; else `c` itself.
+   */
+  guideChannel(c: Channel): Channel {
+    const fi = this.fb?.foldIndexOf.get(c.id);
+    if (fi !== undefined && this.fb!.members[fi]!.length > 1) {
+      const g = this.guideMember(fi);
+      return g.id === c.id ? g : { ...g, id: c.id };
+    }
+    return this.renamed.has(c.id) ? this.base.byId.get(c.id) ?? c : c;
   }
 
   /** The layout this index was built with: a frozen (shallow) snapshot. Change it with `applyOps`, which returns a new layout. */

@@ -17,7 +17,7 @@ export {
   type CatchupZone, type WallClock, type ZoneChoice, type ZoneHow, type ZoneInputs,
 } from './catchup/zone.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';
-export { ChannelIndex, type ProviderGroupInfo } from './index/channelIndex.ts';
+export { ChannelIndex, type ChannelIndexOptions, type ProviderGroupInfo } from './index/channelIndex.ts';
 export { orderGroupChannels } from './index/order.ts';
 export { type Storage, MAX_PROGRAMME_MS } from './storage.ts';
 export * from './vod/types.ts';
@@ -31,6 +31,9 @@ export {
   type TrendingCandidate, type TrendingFeed, type TrendingFeedItem, type TrendingIndex,
 } from './vod/trending.ts';
 export { orderVersions, preferredLanguages, type VersionCandidate, type VersionContext } from './vod/versions.ts';
+export { parseChannelName, type ParsedChannelName } from './live/channelName.ts';
+export { foldChannels, type ChannelFold, type ChannelFolds } from './live/fold.ts';
+export { orderLiveSources, type LiveSourceCandidate, type LiveSourceContext } from './live/sources.ts';
 export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
 export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi } from './vod/fetchXtream.ts';
 export {

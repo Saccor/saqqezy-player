@@ -17,6 +17,23 @@ export interface ChannelRow {
   now?: ProgrammeLite; next?: ProgrammeLite;
   /** Archive days when the channel has catch-up; the UI computes marks with `archiveState`. */
   archiveDays?: number;
+  /** A combined channel (Settings → Combine duplicate channels): how many streams it has, set when more than one. */
+  sourceCount?: number;
+  /** A combined channel: the best quality among its streams ("4K", "FHD", "HD", "SD"), when known. */
+  quality?: string;
+}
+
+/** One stream of a combined channel, for Choose source and failover. */
+export interface LiveSourceView {
+  /** The stream's channel id (play it with `getPlayable(id, { exact: true })`). */
+  id: string;
+  /** Its own name, plus its group when two streams share a name. */
+  label: string;
+  quality?: string;
+  /** Failed to play in the last few minutes, or its host is waiting after a refusal: tried last. */
+  bad: boolean;
+  /** Its host is waiting after a refusal or while unreachable: never tried automatically. */
+  blocked: boolean;
 }
 
 /** A past programme (or the current one from its start) from the source's archive (spec 2026-10-20-catch-up §3.4). */
@@ -55,6 +72,13 @@ export interface PlayableChannel extends ChannelRow {
   cooldownKey?: string;
   /** This stream's host cooldown when the answer was made, if it was not clear (the source's is in `InitState`). */
   cooldown?: SourceCooldown;
+  /**
+   * A combined channel: the row's id (favourites, focus, zapping), while `id` is the stream that plays. Name and
+   * number are the row's. Unset for a channel with one stream.
+   */
+  rowId?: string;
+  /** A combined channel: its streams best first, [0] the one this answer plays (or the one asked for exactly). */
+  sources?: LiveSourceView[];
 }
 
 export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u'; active: boolean }
