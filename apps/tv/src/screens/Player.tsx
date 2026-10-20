@@ -24,6 +24,7 @@ import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
@@ -55,8 +56,9 @@ function lookup(p: Promise<PlayableChannel | undefined>): Promise<PlayableChanne
 
 function Spinner(props: { x: number; y: number }) {
   const [tick, setTick] = createSignal(0);
-  const t = setInterval(() => setTick((v) => (v + 1) % 8), 120);
-  onCleanup(() => clearInterval(t));
+  // Mounted only while a status shows; sleeps while the page is hidden.
+  const stop = visibleInterval(() => setTick((v) => (v + 1) % 8), 120);
+  onCleanup(stop);
   const dots = [0, 1, 2, 3, 4, 5, 6, 7];
   return (
     <View x={props.x} y={props.y} width={36} height={36}>
@@ -434,9 +436,10 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     }
     // The previous screen's focused node is gone: take focus so the keys reach this screen.
     root?.setFocus();
-    const tick = setInterval(() => setNow(Date.now()), 30_000);
-    const infoTimer = setInterval(() => { if (infoOn()) setInfoTick((v) => v + 1); }, 1000);
-    const pillTimer = setInterval(() => { if (bannerOn()) setPillTick((v) => v + 1); }, 1000);
+    // The ticks sleep while the page is hidden (visibleInterval).
+    const stopTick = visibleInterval(() => setNow(Date.now()), 30_000);
+    const stopInfo = visibleInterval(() => { if (infoOn()) setInfoTick((v) => v + 1); }, 1000);
+    const stopPill = visibleInterval(() => { if (bannerOn()) setPillTick((v) => v + 1); }, 1000);
     // A background short-EPG answer for the playing channel: the visible banner re-reads its now/next.
     const offNowNext = onEvent('nowNextUpdated', (e) => {
       const id = playback.current()?.id;
@@ -445,7 +448,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         if (alive && ch && shown()?.id === id && playback.current()?.id === id) setShown(ch);
       }).catch(() => undefined);
     });
-    onCleanup(() => { clearInterval(tick); clearInterval(infoTimer); clearInterval(pillTimer); offNowNext(); });
+    onCleanup(() => { stopTick(); stopInfo(); stopPill(); offNowNext(); });
     // Pointer mode ends after 3 s without movement here, unless the pointer is over an overlay button or a modal is open.
     onCleanup(setPointerAutoHide(() => playerAutoHide({ overButton: overButton() || overVolume(), modalOpen: modal() })));
 

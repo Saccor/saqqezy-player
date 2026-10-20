@@ -121,6 +121,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - Use `<View width={64} height={64} src={url} />`. The renderer fetches the image and decodes it with `createImageBitmap`.
 - The spike uses a runtime-generated PNG `data:` URL. Remote images (channel logos) need CORS or the dev proxy on desktop. TVs fetch directly.
 - The renderer retries failed textures according to `maxRetryCount`.
+- Logo tiles (`components/logoKey.ts`) key their texture on the logo URL, never on the row object, so a refetched page, a re-used row while scrolling or a guide chunk load keeps the texture; a failed URL is remembered per tile and shows the fallback.
 
 ## Worker / RPC
 
@@ -179,6 +180,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - After a modal closes, the shell restores focus to the element that had it (`activeElement()` saved before opening), or to the screen host.
 - `src/state/appState.ts` owns `InitState`, the offline flag, the startup metric (`markStartup()`, called by Home once its cached list is on screen), the supervisor status (`setSupervisorStatus`, for the player screens) and `platformId`. It imports `@iptv/core` as types only, so core stays in the worker chunk.
 - Source changes from the phone: `AppApi` emits `sourcesChanged { activeSourceId?, origin }` after every add, edit, delete and set-active (`origin: 'remote'` when `CompanionHost` made the call, like `applyLayoutOps`). `wireEvents` (given `api`, `router`, `playing`, `stopPlayback` by `App.tsx`) reacts only to `remote` ones through the pure `sourcesReaction` in `state/events.ts`: toast "Updated from your phone", re-run `api.init()` + apply, stop a stream whose source is gone or no longer active, reset to Add source when no source is left, leave the Player or an empty Add source root for Home. Home, the Guide and Settings > Sources re-read themselves on the same event. `local` events are ignored there: Settings and Add source already apply their own results.
+- Screen timers use `src/shell/visibleInterval.ts` (`visibleInterval(fn, ms)`: a `setInterval` that skips ticks while `document.hidden` and runs once on return): Home's 30 s page tick, the Player's clock, info and pill ticks and the status spinner, the Guide's minute tick, Search's clock. The pointer's 250 ms tick (`input/pointer.ts`) runs only while pointer mode is on.
 - `onUnmappedKey(fn)` in `src/input/keys.ts` observes keydowns that map to no logical key (used for F12 → debug HUD in the browser). It does not `preventDefault`.
 - Dev-only console handle: `window.__iptv = { player, layer, playback, api, router, showToast }` (in `main.tsx`, `import.meta.env.DEV` only). For example `await __iptv.api.addSource({ kind: 'xtream', name: 'Test', server: 'http://127.0.0.1:8899', username: 'test', password: 'test' })`.
 
@@ -203,6 +205,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - `invalidate()` drops everything (refresh, favourite/hide changes).
   - Now/next never waits on the network: the worker answers rows from stored programmes only and runs the Xtream short EPG in the background only for the focused or the playing channel when it has nothing stored (see the policy below). When answers arrive it emits `nowNextUpdated { channelIds }`; Home calls `invalidateRows(ids)` and reloads the visible window. The Guide ignores the event.
 - Short-EPG policy (core `SourceService.shortEpgFor` + `AppApi.startShortEpg`, unit-tested):
+  - `focusChannel` and `getPlayable` decide from memory first (`wantShortEpg`): a non-Xtream source, a channel in the guide coverage or a fresh now/next answer costs no storage read; only an uncovered Xtream channel without a fresh answer reads the stored guide once and then asks. `getEpgRows` rows are lite (no now/next: the Guide draws its own programmes).
   - Rows never ask for it: `getChannelSlice`, `search` and `getEpgRows` read stored programmes and cached answers only. Only two channels are looked up: the focused one (a browse focus resting `FOCUS_REST_MS` makes Home call `focusChannel`, which only asks for now/next and never plays) and the playing one (`getPlayable`, `neighbour`, `byNumber`). No lookup runs while a guide refresh of the source runs.
   - 1 request in flight across all sources, at least 2 s between two requests to the same source (`shortEpgGapMs`), at most 4 waiting; when the queue is full the oldest waiter is dropped (it resolves to nothing).
   - Right before each request (after it got a slot) a lookup is skipped as stale when the now/next generation changed (settings, refresh, source switch), the active source changed, the source was deleted, or the channel is neither the focused nor the playing one.

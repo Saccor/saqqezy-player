@@ -8,7 +8,9 @@ export interface ProgrammeLite { title: string; start: number; stop: number; des
 
 export interface ChannelRow {
   id: string; number: number; name: string; logo?: string; group: string;
-  favourite: boolean; now?: ProgrammeLite; next?: ProgrammeLite;
+  favourite: boolean;
+  /** Now/next from the stored guide or a cached short-EPG answer. Absent from `getEpgRows` rows (lite: the Guide draws its own programmes). */
+  now?: ProgrammeLite; next?: ProgrammeLite;
 }
 
 export interface PlayableChannel extends ChannelRow {

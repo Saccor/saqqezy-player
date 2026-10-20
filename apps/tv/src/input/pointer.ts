@@ -98,6 +98,14 @@ function setHovered(entry: Entry | undefined, local: Point | undefined): void {
   if (entry && local) safely(() => entry.t.onHover?.(local));
 }
 
+/** The 250 ms tick while pointer mode is on (see `installPointer`); none while it is off. */
+let tick: ReturnType<typeof setInterval> | undefined;
+let startTick: (() => void) | undefined;
+function stopTick(): void {
+  if (tick !== undefined) clearInterval(tick);
+  tick = undefined;
+}
+
 function dispatch(e: PointerModeEvent): void {
   const prev = mode;
   const next = pointerModeReducer(prev, e);
@@ -105,6 +113,8 @@ function dispatch(e: PointerModeEvent): void {
   mode = next;
   if (prev.on !== next.on) {
     setModeOn(next.on);
+    if (next.on) startTick?.();
+    else stopTick();
     applyCursor(next.on);
     if (!next.on) setHovered(undefined, undefined); // a remote key: no highlight stays behind
   }
@@ -385,9 +395,14 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   };
 
   const offKeys = onLogicalKey(() => dispatch({ type: 'key' }));
-  const tick = setInterval(() => {
-    if (mode.on) dispatch({ type: 'tick', now: Date.now(), autoHide: autoHide?.() ?? false });
-  }, TICK_MS);
+  // The tick (auto-hide, idle) runs only while pointer mode is on: started and stopped by `dispatch` on the change.
+  startTick = () => {
+    stopTick();
+    tick = setInterval(() => {
+      if (mode.on) dispatch({ type: 'tick', now: Date.now(), autoHide: autoHide?.() ?? false });
+    }, TICK_MS);
+  };
+  if (mode.on) startTick();
   win.addEventListener('pointermove', onMove);
   win.addEventListener('pointerdown', onDown);
   win.addEventListener('pointerup', onUp);
@@ -401,7 +416,8 @@ export function installPointer(opts: { canvas: HTMLCanvasElement; platform: Plat
   win.document.addEventListener('cursorStateChange', onCursor);
   return () => {
     offKeys();
-    clearInterval(tick);
+    stopTick();
+    startTick = undefined;
     win.removeEventListener('pointermove', onMove);
     win.removeEventListener('pointerdown', onDown);
     win.removeEventListener('pointerup', onUp);

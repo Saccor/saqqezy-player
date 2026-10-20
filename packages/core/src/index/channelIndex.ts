@@ -34,8 +34,8 @@ interface Base {
   byNumber: Channel[];
   /** Lazily computed number-ordered members per provider group. */
   membersByNumber: Map<string, Channel[]>;
-  /** `searchKey` of each channel's original (playlist) name, by channel id. */
-  keys: Map<string, string>;
+  /** `searchKey` of each channel's original (playlist) name, by channel id; built on the first `search()`. */
+  keys?: Map<string, string>;
   epgCoverage: Set<string> | undefined;
   /** Lazily computed ids whose epgKey is not covered. */
   noEpg?: Set<string>;
@@ -67,10 +67,8 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
   const byId = new Map<string, Channel>();
   const providerOrder: string[] = [];
   const members = new Map<string, Channel[]>();
-  const keys = new Map<string, string>();
   for (const c of channels) {
     byId.set(c.id, c);
-    keys.set(c.id, searchKey(c.name));
     const gid = groupIdOf(c);
     let m = members.get(gid);
     if (!m) {
@@ -81,7 +79,17 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
     m.push(c);
   }
   const byNumber = [...channels].sort((a, b) => a.number - b.number);
-  return { channels, byId, providerOrder, members, byNumber, membersByNumber: new Map(), keys, epgCoverage };
+  return { channels, byId, providerOrder, members, byNumber, membersByNumber: new Map(), epgCoverage };
+}
+
+/** Search keys of the original names, built once per base on the first search (a cold start never pays for them). */
+function searchKeys(base: Base): Map<string, string> {
+  if (!base.keys) {
+    const keys = new Map<string, string>();
+    for (const c of base.channels) keys.set(c.id, searchKey(c.name));
+    base.keys = keys;
+  }
+  return base.keys;
 }
 
 /**
@@ -340,8 +348,9 @@ export class ChannelIndex {
     if (!q) return [];
     const prefix: Channel[] = [];
     const contains: Channel[] = [];
+    const keys = searchKeys(this.base);
     for (const c of this.visible(GROUP_ALL)) {
-      const orig = this.base.keys.get(c.id)!;
+      const orig = keys.get(c.id)!;
       const disp = this.renamedKeys.get(c.id);
       if (orig.startsWith(q) || (disp !== undefined && disp.startsWith(q))) prefix.push(c);
       else if (orig.includes(q) || (disp !== undefined && disp.includes(q))) contains.push(c);

@@ -17,6 +17,7 @@ import { BOTTOM_ROW_H, BOTTOM_ROW_Y, OFFLINE_BADGE_X, SCREEN_ROW_X } from '../sh
 import { offline } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
@@ -279,10 +280,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
     playback.setRect(MINI);
     root?.setFocus();
     // Aligned to the minute boundary, so the clock-based labels and the now line change on the minute.
-    let tick: ReturnType<typeof setInterval> | undefined;
+    let stopTick: (() => void) | undefined;
     const first = setTimeout(() => {
       setNow(Date.now());
-      tick = setInterval(() => setNow(Date.now()), MINUTE);
+      stopTick = visibleInterval(() => setNow(Date.now()), MINUTE); // sleeps while the page is hidden
     }, MINUTE - (Date.now() % MINUTE));
     const off = onEvent('refreshed', () => cache.invalidate());
     // A companion switched, added or deleted a source: re-read the groups and open the new source's list.
@@ -302,7 +303,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         }
       })();
     });
-    onCleanup(() => { clearTimeout(first); if (tick !== undefined) clearInterval(tick); off(); offSources(); });
+    onCleanup(() => { clearTimeout(first); stopTick?.(); off(); offSources(); });
 
     void (async () => {
       try {

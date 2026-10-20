@@ -293,6 +293,29 @@ describe('AppApi', () => {
     }
   });
 
+  test('getEpgRows reads the stored guide once per page (the window), with lite rows without now/next', async () => {
+    let reads = 0;
+    class Counting extends SourceService {
+      override async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
+        reads++;
+        return super.programmesFor(id, channels, from, to);
+      }
+    }
+    const { api } = make(storage, Counting);
+    await api.addSource(xt());
+    await api.refresh('epg');
+    reads = 0;
+    const r = await api.getEpgRows('all', 0, 3, NOW, NOW + 3 * 3600_000);
+    expect(reads).toBe(1);
+    expect(r.rows.map((row) => row.channel.name)).toHaveLength(3);
+    for (const row of r.rows) {
+      expect(row.programmes.length).toBeGreaterThan(0);
+      expect(row.channel.now).toBeUndefined();
+      expect(row.channel.next).toBeUndefined();
+      expect(typeof row.channel.favourite).toBe('boolean');
+    }
+  });
+
   test('search: channels only when nothing in the guide matches', async () => {
     const { api } = make();
     await api.addSource(xt());
@@ -830,6 +853,53 @@ describe('AppApi – background short EPG', () => {
     expect(h.streams).toEqual([]);
   });
 
+  test('focusChannel reads nothing for a channel with a stored guide, for a non-Xtream source, or with a fresh short-EPG answer', async () => {
+    let reads = 0;
+    class Counting extends SourceService {
+      override async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
+        reads++;
+        return super.programmesFor(id, channels, from, to);
+      }
+    }
+    // Xtream with a guide: the focused channel is covered.
+    const { api } = make(storage, Counting);
+    await api.addSource(xt());
+    await api.refresh('epg');
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await api.focusChannel(id);
+    await api.idle();
+    expect(reads).toBe(0);
+
+    // M3U (no short EPG exists for it): nothing to look up, with or without a guide.
+    const m3u = make(new MemoryStorage(), Counting);
+    await m3u.api.addSource({ kind: 'm3u', name: 'Plain', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    await m3u.api.idle().catch(() => undefined);
+    const mid = (await m3u.api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await m3u.api.focusChannel(mid);
+    await m3u.api.idle();
+    expect(reads).toBe(0);
+
+    // Xtream without a guide: the first focus looks up (one read) and asks the short EPG; a fresh answer skips both.
+    const h = held();
+    const bare = make(new MemoryStorage(), Counting, h.fetchFn);
+    await bare.api.addSource(xt());
+    await bare.api.idle().catch(() => undefined);
+    h.g.open();
+    const bid = (await bare.api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await bare.api.focusChannel(bid);
+    await bare.api.idle();
+    expect(reads).toBe(1);
+    expect(h.streams).toEqual([streamOf(bid)]);
+    await bare.api.focusChannel(undefined);
+    await bare.api.focusChannel(bid);
+    await bare.api.idle();
+    expect(reads).toBe(1);
+    expect(h.streams).toEqual([streamOf(bid)]);
+  });
+
   test('focusChannel looks up the focused channel only; a queued one that lost the focus sends no request', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);
@@ -1097,6 +1167,49 @@ describe('AppApi – stream format memory', () => {
     const p = (await api.getPlayable(id))!;
     expect(p.url).toBe('http://example.test/live/u/p/7.ts');
     expect(p.alternateUrl).toBe('http://example.test/live/u/p/7.m3u8');
+  });
+});
+
+describe('AppApi – init reads', () => {
+  /** Counts `getMeta` reads by key and the most reads in flight at once (serial awaits never overlap). */
+  class CountingStorage extends MemoryStorage {
+    reads = new Map<string, number>();
+    inFlight = 0;
+    peak = 0;
+    override async getMeta<T>(key: string) {
+      this.reads.set(key, (this.reads.get(key) ?? 0) + 1);
+      this.inFlight++;
+      this.peak = Math.max(this.peak, this.inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      try { return await super.getMeta<T>(key); } finally { this.inFlight--; }
+    }
+  }
+
+  test('init reads parseStats once and overlaps the independent state reads', async () => {
+    const st = new CountingStorage();
+    const { sourceId } = await seeded(st);
+    st.reads.clear();
+    st.peak = 0;
+    const { api } = make(st);
+    const state = await api.init();
+    await api.idle();
+    expect(state.activeSourceId).toBe(sourceId);
+    expect(st.reads.get(`parseStats:${sourceId}`)).toBe(1);
+    // parseStats, lastChannel, lastGroup and the cooldown status go out together (settings is already cached).
+    expect(st.peak).toBeGreaterThanOrEqual(4);
+  });
+
+  test('init with a lost channel cache reads parseStats once for the state and once for the refill decision', async () => {
+    const st = new CountingStorage();
+    const { sourceId } = await seeded(st);
+    await st.replaceChannels(sourceId, []);
+    st.reads.clear();
+    const { api } = make(st);
+    const state = await api.init();
+    await api.idle();
+    expect(state.activeSourceId).toBe(sourceId);
+    expect(st.reads.get(`parseStats:${sourceId}`)).toBe(2);
+    expect((await api.getGroups()).find((g) => g.id === 'all')?.count).toBe(40);
   });
 });
 
@@ -2259,6 +2372,33 @@ describe('AppApi – sports in your guide', () => {
     await api.refresh('epg');
     await api.getSportsEvents();
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  test('getStartHome writes the stored page only when the rows changed', async () => {
+    class Counting extends MemoryStorage {
+      startWrites = 0;
+      override async setMeta(key: string, value: unknown) {
+        if (key.startsWith('startHome:')) this.startWrites++;
+        return super.setMeta(key, value);
+      }
+    }
+    const st = new Counting();
+    const { api } = make(st);
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const first = await api.getStartHome();
+    expect(first.rows.length).toBeGreaterThan(0);
+    expect(st.startWrites).toBe(1);
+    const second = await api.getStartHome();
+    expect(second.rows).toEqual(first.rows);
+    expect(st.startWrites).toBe(1); // same rows: no readwrite transaction
+    expect(await api.getStartHomeCached()).toEqual(second);
+    // A favourite changes the live row: written again.
+    const ch = (await api.getChannelSlice('all', 0, 1)).rows[0]!;
+    await api.toggleFavourite(ch.id);
+    const third = await api.getStartHome();
+    expect(third.rows).not.toEqual(first.rows);
+    expect(st.startWrites).toBe(2);
   });
 
   test('deleteSource clears the stored Start page and the cached answer', async () => {

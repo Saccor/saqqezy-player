@@ -85,6 +85,8 @@ export class AppApi {
   private startCache: { sourceId: string; home: StartHome } | undefined;
   /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
   private sourceHeaders: StreamHeaders | undefined;
+  /** The active source's kind, kept from `activate` so a focus never reads the source list to learn it. */
+  private sourceKind: SourceConfig['kind'] | undefined;
   private index = new ChannelIndex([]);
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
@@ -409,8 +411,9 @@ export class AppApi {
     Promise<{ total: number; rows: { channel: ChannelRow; programmes: ProgrammeLite[] }[] }> {
     return this.run('getEpgRows', async () => {
       const channels = this.index.slice(groupId, offset, count);
-      // The guide grid shows stored programmes only: no background short-EPG lookups from here.
-      const rows = await this.toRows(channels);
+      // The guide grid draws the programmes it is given, never a row's now/next: lite rows, and no storage read
+      // for them (nor a background short-EPG lookup).
+      const rows = this.liteRows(channels);
       const id = this.activeId;
       const settings = await this.currentSettings();
       const shifts = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
@@ -497,7 +500,10 @@ export class AppApi {
       // Switched away or deleted meanwhile: never mix sources, and persist nothing.
       if (this.activeId !== id) return { rows: [], at: home.at };
       this.startCache = { sourceId: id, home };
-      await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
+      // Start asks every minute; the stored page is rewritten only when the rows differ (no idle readwrite transactions).
+      if (!cached || JSON.stringify(cached.rows) !== JSON.stringify(home.rows)) {
+        await this.storage.setMeta(`startHome:${id}`, home).catch(() => undefined);
+      }
       return home;
     });
   }
@@ -984,20 +990,22 @@ export class AppApi {
 
   private async initState(): Promise<InitState> {
     const id = this.activeId;
-    const state: InitState = {
-      sources: await this.summaries(),
-      groups: id ? this.index.groups() : [],
-      settings: await this.currentSettings(),
-      hasVod: false,
-    };
+    // Independent reads go out together: on a TV each IDB round trip costs more than the data.
+    const [sources, settings, stats, lastChannel, lastGroup, cooldown] = await Promise.all([
+      this.summaries(),
+      this.currentSettings(),
+      id ? this.storage.getMeta<IngestResult>(`parseStats:${id}`) : undefined,
+      id ? this.storage.getMeta<string>(`lastChannel:${id}`) : undefined,
+      id ? this.storage.getMeta<string>(`lastGroup:${id}`) : undefined,
+      id ? this.service.guard.status(id) : undefined,
+    ]);
+    const state: InitState = { sources, groups: id ? this.index.groups() : [], settings, hasVod: false };
     if (id) {
       state.activeSourceId = id;
-      state.hasVod = await this.hasVod(id);
-      const lastChannel = await this.storage.getMeta<string>(`lastChannel:${id}`);
-      const lastGroup = await this.storage.getMeta<string>(`lastGroup:${id}`);
+      state.hasVod = await this.hasVod(id, stats, sources);
       if (lastChannel) state.lastChannelId = lastChannel;
       if (lastGroup) state.lastGroupId = lastGroup;
-      state.cooldown = await this.service.guard.status(id);
+      state.cooldown = cooldown;
     }
     return state;
   }
@@ -1027,6 +1035,7 @@ export class AppApi {
         this.playingId = undefined;
       }
       this.activeId = id;
+      this.sourceKind = source?.kind;
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
@@ -1450,23 +1459,26 @@ export class AppApi {
    */
   private async expectsChannels(id: string): Promise<boolean> {
     const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
-    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id));
+    return (stats?.channelCount ?? 0) > 0 || !(await this.hasVod(id, stats));
   }
 
   /**
    * Whether a source has movies or series, from stored meta only: the last ingest counted some (M3U) or found the
    * categories of a live-empty account (Xtream), or a catalogue was fetched (Xtream). An M3U `vodAt` is not used:
    * every M3U ingest stamps it, with or without titles.
+   * `stats` and `sources` are passed by callers that already read them (one `parseStats` read per init).
    */
-  private async hasVod(id: string): Promise<boolean> {
-    const stats = await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
+  private async hasVod(
+    id: string, stats?: IngestResult | undefined, sources?: readonly { id: string; kind: SourceConfig['kind'] }[],
+  ): Promise<boolean> {
+    stats ??= await this.storage.getMeta<IngestResult>(`parseStats:${id}`);
     if ((stats?.movieCount ?? 0) > 0 || (stats?.seriesCount ?? 0) > 0 || stats?.vodCatalogue === true) return true;
-    const source = (await this.service.listSources()).find((s) => s.id === id);
+    const source = (sources ?? await this.service.listSources()).find((s) => s.id === id);
     if (source?.kind !== 'xtream') return false;
-    for (const kind of ['movie', 'series'] as const) {
-      if (((await this.storage.getMeta<number>(`vodAt:${kind}:${id}`)) ?? 0) > 0) return true;
-    }
-    return false;
+    const [movieAt, seriesAt] = await Promise.all(
+      (['movie', 'series'] as const).map((kind) => this.storage.getMeta<number>(`vodAt:${kind}:${id}`)),
+    );
+    return (movieAt ?? 0) > 0 || (seriesAt ?? 0) > 0;
   }
 
   /** Every channel of the active source, hidden ones (and those in hidden groups or without a guide) included. */
@@ -1528,10 +1540,19 @@ export class AppApi {
     return out;
   }
 
-  /** The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached answer. */
+  /**
+   * The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached
+   * answer. Decided from memory where possible (no IDB traffic while browsing): only Xtream has a short EPG; a
+   * channel in the guide coverage has stored programmes; a fresh now/next answer needs nothing more.
+   */
   private async wantShortEpg(c: Channel): Promise<void> {
     const id = this.activeId;
-    if (id) await this.lookupNowNext(id, [c], this.now(), true);
+    if (!id || this.sourceKind !== 'xtream') return;
+    if (this.coverage?.has(epgKey(this.originals([c])[0]!))) return;
+    const t = this.now();
+    const hit = this.nnCache.get(c.id);
+    if (hit && t - hit.at < NOW_NEXT_TTL_MS && (hit.nn.now !== undefined || hit.nn.next !== undefined)) return;
+    await this.lookupNowNext(id, [c], t, true);
   }
 
   /** `wantShortEpg` without waiting (tracked for `idle`); a failure is noted by its name only. */
@@ -1578,6 +1599,16 @@ export class AppApi {
       this.shortJobs.delete(job);
     }).catch(noop); // fire-and-forget: a failing listener must not become an unhandled rejection
     this.shortJobs.add(job);
+  }
+
+  /** Rows without now/next (the Guide draws its own programmes): no storage read at all. */
+  private liteRows(channels: Channel[]): ChannelRow[] {
+    const favs = this.favourites();
+    return channels.map((c) => {
+      const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id) };
+      if (c.logo) row.logo = c.logo;
+      return row;
+    });
   }
 
   /** Rows with now/next from the stored guide and cached short-EPG answers. Never starts a short-EPG lookup. */
