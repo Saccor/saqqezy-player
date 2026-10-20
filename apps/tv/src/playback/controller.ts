@@ -156,7 +156,7 @@ export function createPlaybackController(
     if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
   };
   const startPlay = (
-    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number }, headers?: StreamHeaders,
+    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number; vodAlternate?: boolean }, headers?: StreamHeaders,
   ) => {
     held = false;
     const key = sourceKey();
@@ -218,7 +218,9 @@ export function createPlaybackController(
         gate.current?.(stand);
         return;
       }
-      startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
+      // Catch-up's stand-in title has a second archive URL form; real VOD has one URL.
+      if (p.alternateUrl !== undefined) startPlay(p.url, p.alternateUrl, { vod: true, startMs, vodAlternate: true }, p.headers);
+      else startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
       gate?.current?.(stand);
     },
     pause: () => supervisor.pause(),

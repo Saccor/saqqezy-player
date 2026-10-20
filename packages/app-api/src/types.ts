@@ -305,6 +305,8 @@ export interface VodPlayable {
   itemId: string;
   /** Carries credentials: never display or log it. */
   url: string;
+  /** Catch-up only (the TV's stand-in title): the second archive URL form, tried once before anything played. */
+  alternateUrl?: string;
   title: string;
   /** Episodes: "S2 · E4 · Episode title". */
   episodeLabel?: string;
