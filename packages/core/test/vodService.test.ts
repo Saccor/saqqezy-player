@@ -361,7 +361,7 @@ describe('VodService versions', () => {
     expect(Object.keys(picks)).toHaveLength(2000);
     expect(picks.k0).toBeUndefined();
     expect(picks.k2000).toBe('x:s2000');
-  });
+  }, 30_000); // 2001 sequential writes: the default 5 s is too tight when the whole suite runs in parallel.
 
   test('junk in storage reads as empty', async () => {
     await storage.setMeta('vodSplit:movie:x', 'junk');
