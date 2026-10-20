@@ -1,10 +1,9 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { WIDE_GAP, WIDE_H, WIDE_W, WideTile, type WideCell } from './WideTile.tsx';
+import { WIDE_GAP, WideTile, wideSize, type WideCell } from './WideTile.tsx';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
 
-const PITCH = WIDE_W + WIDE_GAP;
 /** Tiles fully visible by default. */
 const VISIBLE = 5;
 const BUFFER = 2;
@@ -16,6 +15,8 @@ export function WideRow(props: {
   visible?: number;
   /** Channel cards show their number (see `WideTile`). */
   channelNumbers?: boolean;
+  /** Compact tiles (Start's match and channel rows, see `WideTile`). */
+  compact?: boolean;
   onCellClick?: (col: number) => void; onCellOptions?: (col: number) => void; onWheel?: (dy: number, dx: number) => boolean;
 }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
@@ -23,6 +24,8 @@ export function WideRow(props: {
   let lastScroll = 0;
   const cells = () => props.row.cells.length;
   const visible = () => props.visible ?? VISIBLE;
+  const size = () => wideSize(props.compact === true);
+  const pitch = () => size().w + WIDE_GAP;
   const scroll = createMemo(() => {
     if (props.focusCol !== undefined) lastScroll = scrollTopFor(props.focusCol, lastScroll, visible(), cells());
     else lastScroll = Math.min(lastScroll, Math.max(0, cells() - visible()));
@@ -33,8 +36,8 @@ export function WideRow(props: {
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
   const colAt = (px: number) => {
-    const c = scroll() + Math.floor(px / PITCH);
-    return px % PITCH < WIDE_W && c < cells() ? c : undefined;
+    const c = scroll() + Math.floor(px / pitch());
+    return px % pitch() < size().w && c < cells() ? c : undefined;
   };
   usePointerTarget({
     node: () => node,
@@ -45,9 +48,10 @@ export function WideRow(props: {
     onWheel: (dy, dx) => props.onWheel?.(dy, dx) ?? false,
   });
   return (
-    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={WIDE_H}>
+    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={size().h}>
       <For each={cols()}>{(c) => (
-        <WideTile x={(c - scroll()) * PITCH} y={0} cell={props.row.cells[c]!} now={props.now} channelNumbers={props.channelNumbers}
+        <WideTile x={(c - scroll()) * pitch()} y={0} cell={props.row.cells[c]!} now={props.now} channelNumbers={props.channelNumbers}
+          compact={props.compact}
           lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
       )}</For>
     </View>

@@ -8,8 +8,8 @@ import { canFromStart } from '../vod/catchupLogic.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
-import { WIDE_H } from '../components/WideTile.tsx';
+import { InfoStrip, STRIP_TEXT_H, STRIP_Y } from '../components/InfoStrip.tsx';
+import { COMPACT_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
@@ -35,16 +35,20 @@ import {
   type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
-/** Layout (1080p design space, spec §2.2): the info strip at the top, rows from y 262 at x 160. */
+/**
+ * Layout (1080p design space, spec §2.2): the info strip at the top, rows at x 160 from just under the strip's title
+ * and meta (Start shows no plot): y 184. Match and channel rows use the compact tile, so four rows show at once.
+ */
 const ROW_X = LAYOUT.contentX;
-const ROW_Y = 262;
+const STRIP_ROW_GAP = 34;
+const ROW_Y = STRIP_Y + STRIP_TEXT_H + STRIP_ROW_GAP;
 const LABEL_H = 42;
-const ROW_GAP = 36;
+const ROW_GAP = 28;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
 const REVALIDATE_MS = 30_000;
 
-const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H : WIDE_H);
+const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H : COMPACT_H);
 /** Per source: focus by identity and the last column per row (kept across visits, like VodBrowse). */
 const memories = new Map<string, { focus: StartMemory; cols: Map<string, number> }>();
 
@@ -270,7 +274,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
               <View y={rowY(i)}>
                 <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
                 <Show when={rowKind(r()) === 'poster'} fallback={
-                  <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()}
+                  <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact
                     onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                 }>
                   <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
