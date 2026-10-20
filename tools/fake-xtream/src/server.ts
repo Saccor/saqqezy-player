@@ -35,6 +35,11 @@ export interface FakeXtreamOptions {
    * the `/catchup.m3u` playlist (see `catchup.ts`). Off by default so other tests see the plain provider.
    */
   catchup?: boolean;
+  /**
+   * `reverse` lists the live categories last to first in `get_live_categories` (streams keep their order), so the API
+   * category order differs from first appearance in `get_live_streams`. Default: the stream order.
+   */
+  categoryOrder?: 'reverse';
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -182,7 +187,9 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       if (!valid) return send(res, 200, '[]');
       if (action === 'get_live_categories') {
-        return send(res, 200, JSON.stringify(GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
+        const cats = GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }));
+        if (opts.categoryOrder === 'reverse') cats.reverse();
+        return send(res, 200, JSON.stringify(cats));
       }
       if (action === 'get_live_streams') {
         return send(res, 200, JSON.stringify(chs.map((c) => ({

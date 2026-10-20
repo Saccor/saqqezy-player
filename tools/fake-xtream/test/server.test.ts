@@ -166,6 +166,20 @@ describe('fake xtream options', () => {
     }
   });
 
+  test('categoryOrder reverse: live groups follow the category list, numbers stay', async () => {
+    const rev = await startFakeXtream({ port: 0, channels: 8, categoryOrder: 'reverse', now: () => NOW });
+    try {
+      const s = svc();
+      const { source } = await s.addSource({ kind: 'xtream', name: 'Fake', server: rev.url, username: 'test', password: 'test' });
+      const idx = await s.loadIndex(source.id);
+      expect(idx.groups().map((g) => g.name)).toEqual(['Favourites', 'All channels', 'Music', 'Kids', 'Movies', 'News']);
+      expect(idx.slice('all', 0, 8).map((c) => c.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(idx.byNumber(1)?.name).toBe('Channel 001');
+    } finally {
+      await rev.close();
+    }
+  });
+
   test('refusal mode answers 403 to everything and counts it', async () => {
     const ctl = (q = '') => fetch(`${server.url}/__control/refuse${q}`).then((r) => r.json());
     expect(await ctl('?on=1')).toEqual({ refusing: true, refused: 0 });
