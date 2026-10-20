@@ -182,8 +182,11 @@ export class AppApi {
   private backupSvc: BackupService | undefined;
   /** Until when a restore sent from the phone is accepted (the user opened "Restore from your phone"). */
   private restoreUntil = 0;
-  /** Who asked for the restore running now (its `layoutChanged` origin). */
-  private restoreOrigin: LayoutOrigin = 'local';
+  /**
+   * The restore being applied now (under the index lock): who asked, and what it changed for the active source. Its
+   * layout and VOD events are held back and sent once when it is done (`finishRestore`).
+   */
+  private restoring: RestoreRun | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -1285,7 +1288,8 @@ export class AppApi {
     if (opts.locked && (refold || reregion)) {
       this.setIndex(this.channels, this.index.layout(), this.coverage);
       this.invalidateNowNext();
-      this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+      if (this.restoring) this.restoring.layout = true;
+      else this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
     } else if (refold) await this.refold();
     else if (reregion) await this.reregion();
     const regroup = before.combineDuplicates !== this.settings.combineDuplicates
@@ -1359,8 +1363,22 @@ export class AppApi {
   }
 
   private backups(): BackupService {
+    const vod = this.vod;
     this.backupSvc ??= new BackupService({
-      storage: this.storage, clock: this.service.syncClock, now: this.now, iterations: this.backupIterations, vod: this.vod,
+      storage: this.storage, clock: this.service.syncClock, now: this.now, iterations: this.backupIterations,
+      vod: vod && {
+        getVodPicks: (id, kind) => vod.getVodPicks(id, kind),
+        getVodSplits: (id, kind) => vod.getVodSplits(id, kind),
+        getVodLayout: (id, kind) => vod.getVodLayout(id, kind),
+        applyRestore: async (id, plan) => {
+          await vod.applyRestore(id, plan);
+          // Noted for the active source only: another source's VOD state is read when it becomes active.
+          const run = this.restoring;
+          if (!run || id !== this.activeId) return;
+          if (plan.vod.length) run.vodUser = true;
+          if (plan.picks.length || plan.splits.length || plan.vodLayout?.length) run.vodGrouping = true;
+        },
+      },
       loadLayout: (id) => (id === this.activeId ? Promise.resolve(this.index.layout()) : this.service.loadLayout(id)),
       applyLayout: (id, ops) => this.applyRestoredLayout(id, ops),
       getSettings: () => this.currentSettings(),
@@ -1369,12 +1387,16 @@ export class AppApi {
     return this.backupSvc;
   }
 
-  /** Restores under the index lock (the active source's layout changes through its index), then tells the UI. */
+  /**
+   * Opens the backup first, outside the index lock: the PBKDF2 derivation is the slow step on a TV and touches no
+   * state, so channel calls never queue behind it. Only the merge runs under the lock (the active source's layout
+   * changes through its index). Then refreshes exactly what changed and tells the UI.
+   */
   private async restoreBackup(envelope: unknown, code: string, origin: LayoutOrigin): Promise<RestoreSummary> {
-    const res = await this.withIndex(() => {
-      this.restoreOrigin = origin;
-      return this.backups().restore(envelope, code);
-    });
+    const opened = await this.backups().open(envelope, code);
+    const run = newRestoreRun(origin);
+    const res = await this.withIndex(() => this.restoringAs(run, () => this.backups().apply(opened)))
+      .finally(() => this.finishRestore(run));
     this.emit({ type: 'backupRestored', origin, applied: res.applied, pending: res.pending, sources: res.sources, at: res.at });
     return res;
   }
@@ -1383,13 +1405,37 @@ export class AppApi {
   private async applyPendingBackup(source: SourceConfig): Promise<void> {
     try {
       if (!(await this.storage.listSyncMeta(BACKUP_FP_SCOPE)).length) return;
-      await this.withIndex(() => {
-        this.restoreOrigin = 'local';
-        return this.backups().applyPending(source);
-      });
+      const run = newRestoreRun('local');
+      await this.withIndex(() => this.restoringAs(run, () => this.backups().applyPending(source)))
+        .finally(() => this.finishRestore(run));
     } catch (err) {
       this.record('applyPendingBackup', err);
     }
+  }
+
+  /** Runs a restore's merge with `run` noting what it changes. Caller holds the index lock. */
+  private async restoringAs<T>(run: RestoreRun, fn: () => Promise<T>): Promise<T> {
+    this.restoring = run;
+    try {
+      return await fn();
+    } finally {
+      this.restoring = undefined;
+    }
+  }
+
+  /**
+   * After a restore (a failed one too, for what it applied), the screens re-read exactly what changed: one
+   * `layoutChanged` marked `restored` (no toast of its own) when the active layout or its index changed, and the VOD
+   * user map or category config is read again (`vodRefreshed`). Restored settings went through `applySettings`.
+   */
+  private finishRestore(run: RestoreRun): void {
+    if (run.layout) {
+      this.emit({
+        type: 'layoutChanged', version: this.index.layout().version, origin: run.origin === 'remote' ? 'remote' : 'local', restored: true,
+      });
+    }
+    const id = this.activeId;
+    if (id && (run.vodUser || run.vodGrouping)) this.vodc?.restored(id, { user: run.vodUser, grouping: run.vodGrouping });
   }
 
   /** Restored layout ops: the active source through its index (caller holds the index lock), others in storage. */
@@ -1403,7 +1449,7 @@ export class AppApi {
     }
     const before = this.index.layout();
     const res = applyOps(before, ops);
-    if (res.changed) await this.commitLayoutLocked(id, before, res.layout, [], this.restoreOrigin);
+    if (res.changed) await this.commitLayoutLocked(id, before, res.layout, [], this.restoring?.origin ?? 'local');
   }
 
   clearCache(): Promise<InitState> {
@@ -1737,6 +1783,11 @@ export class AppApi {
       || before.shownGroups !== layout.shownGroups || before.groupRegion !== layout.groupRegion) this.sportsMapping++;
     this.favSet = undefined;
     if (before.channelNames !== layout.channelNames) this.invalidateNowNext();
+    // A restore tells the UI once, when it is done.
+    if (this.restoring) {
+      this.restoring.layout = true;
+      return;
+    }
     const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
     if (onlyRecentChanged(before, layout)) event.recentOnly = true;
     this.emit(event);
@@ -2474,6 +2525,10 @@ const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle' | 'restoreFromCompanion'
 void exhaustive;
 
 const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });
+
+/** What a restore changed for the active source, so `finishRestore` refreshes exactly that. */
+interface RestoreRun { origin: LayoutOrigin; layout: boolean; vodUser: boolean; vodGrouping: boolean }
+const newRestoreRun = (origin: LayoutOrigin): RestoreRun => ({ origin, layout: false, vodUser: false, vodGrouping: false });
 
 function sameRegions(a: RegionSettings, b: RegionSettings): boolean {
   return a.mode === b.mode && a.codes.join() === b.codes.join();

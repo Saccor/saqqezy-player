@@ -134,7 +134,8 @@ export type AppEvent =
   | { type: 'searchReady'; sourceId: string }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
   /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */
-  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean }
+  /** `restored`: a restored backup changed it (sent once, before `backupRestored`, which carries the one toast). */
+  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean; restored?: boolean }
   /**
    * The active source or the source list changed (added, edited, deleted, switched). `activeSourceId` is the active
    * source afterwards (absent without sources); `origin` says who asked: this device's UI or a paired companion.

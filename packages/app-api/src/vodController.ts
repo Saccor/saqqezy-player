@@ -128,8 +128,10 @@ export class VodController {
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
-  /** The user-state load in flight (one per epoch; concurrent callers join it). */
-  private userLoad: { epoch: number; p: Promise<Map<string, VodUserState>> } | undefined;
+  /** The user-state load in flight (one per epoch and generation; concurrent callers join it). */
+  private userLoad: { epoch: number; gen: number; p: Promise<Map<string, VodUserState>> } | undefined;
+  /** Bumped by `restored`: a user-state load started before it does not install. */
+  private userGen = 0;
   private readonly jobs = new Map<VodKind, Job>();
   /** First loads that installed a snapshot as the resident catalogue: the titles so far, per kind. */
   private readonly progress = new Map<VodKind, number>();
@@ -202,6 +204,30 @@ export class VodController {
     this.cfgLoad = undefined;
     this.cfgGen++;
     if (regroup) this.regroup();
+  }
+
+  /**
+   * A restored backup rewrote some of this source's VOD state in storage. `user`: progress, watched, favourites or
+   * tracks; the user map is read again and the screens reload (`vodRefreshed`). `grouping`: version picks, splits or
+   * category layouts; the config is read again and the resident catalogue regrouped. Fetches in flight, details and
+   * the stored catalogue are kept: the catalogue itself did not change.
+   */
+  restored(sourceId: string, what: { user: boolean; grouping: boolean }): void {
+    if (this.sourceId !== sourceId) return;
+    if (what.user) {
+      this.user = undefined;
+      this.userLoad = undefined;
+      this.userGen++;
+    }
+    if (what.grouping) {
+      this.cfg = undefined;
+      this.cfgLoad = undefined;
+      this.cfgGen++;
+      this.regroup();
+    } else if (what.user) {
+      const kind = this.resident?.kind ?? this.loading?.kind;
+      if (kind) this.emit({ type: 'vodRefreshed', sourceId, kind, count: this.resident?.catalog.source.items.length ?? 0, truncated: false });
+    }
   }
 
   /** The kind of the resident catalogue, if one is loaded. */
@@ -758,17 +784,18 @@ export class VodController {
     const id = this.sourceId;
     if (!id) return new Map();
     const epoch = this.sourceEpoch;
-    if (this.userLoad?.epoch === epoch) return this.userLoad.p;
+    const gen = this.userGen;
+    if (this.userLoad?.epoch === epoch && this.userLoad.gen === gen) return this.userLoad.p;
     const p: Promise<Map<string, VodUserState>> = this.vod.listUser(id).then((records) => {
       const map = new Map(records.map((r) => [r.itemId, r.state]));
       // Installed only if nothing else did meanwhile; every caller of this epoch gets the installed map.
-      if (this.sourceEpoch !== epoch) return map;
+      if (this.sourceEpoch !== epoch || this.userGen !== gen) return map;
       this.user ??= map;
       return this.user;
     }).finally(() => {
       if (this.userLoad?.p === p) this.userLoad = undefined;
     });
-    this.userLoad = { epoch, p };
+    this.userLoad = { epoch, gen, p };
     return p;
   }
 

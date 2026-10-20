@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import { SourceService, VodService, type BackupEnvelope } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -75,6 +75,90 @@ describe('AppApi backup and restore', () => {
     // The index follows the restored setting, and the next edit is not stuck behind a held lock.
     expect((await b.api.getRegions()).mode).toBe('first');
     await b.api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+  });
+
+  test('restored VOD progress, favourites and category layout show at once, without init()', async () => {
+    const a = make();
+    await a.api.addSource(xt());
+    await a.api.getVodHome('movie');
+    await a.api.idle();
+    const items = (await a.api.getVodHome('movie')).rows.flatMap((r) => r.items);
+    const [m1, m2] = [items[0]!, items.find((t) => t.id !== items[0]!.id)!];
+    await a.api.saveVodProgress(m1.id, 120_000, 3_600_000);
+    await a.api.setVodFavourite(m2.id, true);
+    const hideCat = (await a.api.getVodCategories('movie')).find((c) => !c.id.startsWith('vod:') && c.id !== 'all' && c.count > 0)!.id;
+    await a.api.applyVodLayoutOps('movie', [{ op: 'hideCategories', ids: [hideCat] }]);
+    const file = await a.api.backupToFile();
+
+    const b = make();
+    const { sourceId } = await b.api.addSource(xt());
+    await b.api.getVodHome('movie');
+    await b.api.idle();
+    const bId = (id: string) => sourceId + suffix(id);
+    // Read once, so the worker holds the pre-restore user state and category layout in memory.
+    expect((await b.api.getMovie(bId(m1.id)))?.resumeMs).toBe(0);
+    expect((await b.api.getMovie(bId(m2.id)))?.tile.favourite).toBe(false);
+    expect((await b.api.getVodCategories('movie')).map((c) => c.id)).toContain(hideCat);
+    const init = vi.spyOn(b.api, 'init');
+    b.events.length = 0;
+
+    await b.api.restoreFromFile(file.data, file.code);
+    expect((await b.api.getMovie(bId(m1.id)))?.resumeMs).toBe(120_000);
+    expect((await b.api.getMovie(bId(m2.id)))?.tile.favourite).toBe(true);
+    expect((await b.api.getVodCategories('movie')).map((c) => c.id)).not.toContain(hideCat);
+    expect(init).not.toHaveBeenCalled();
+    // The screens that show them re-read: VOD screens on vodRefreshed.
+    expect(b.events.some((e) => e.type === 'vodRefreshed' && e.kind === 'movie' && e.sourceId === sourceId)).toBe(true);
+  });
+
+  test('restored channel edits come as one layoutChanged marked as a restore, after the restore finished', async () => {
+    const a = await tvWithEdits();
+    const file = await a.api.backupToFile();
+    const b = make();
+    await b.api.addSource(xt());
+    b.events.length = 0;
+    const envelope = JSON.parse(file.data) as BackupEnvelope;
+    await b.api.armPhoneRestore(true);
+    await b.api.restoreFromCompanion(envelope, file.code);
+    const changes = b.events.filter((e) => e.type === 'layoutChanged');
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ origin: 'remote', restored: true });
+    // The layout event comes before the restore's own (which carries the one toast).
+    expect(b.events.findIndex((e) => e.type === 'layoutChanged')).toBeLessThan(b.events.findIndex((e) => e.type === 'backupRestored'));
+  });
+
+  test('the recovery-code key derivation does not hold the index lock: other calls go ahead', async () => {
+    const a = await tvWithEdits();
+    const file = await a.api.backupToFile();
+    const b = make();
+    await b.api.addSource(xt());
+    // Hold PBKDF2 (the slow step on a TV) until released.
+    const subtle = globalThis.crypto.subtle;
+    const real = subtle.deriveBits.bind(subtle);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let derivations = 0;
+    const spy = vi.spyOn(subtle, 'deriveBits').mockImplementation(async (alg, key, len) => {
+      if ((alg as { name?: string }).name === 'PBKDF2') {
+        derivations++;
+        await gate;
+      }
+      return real(alg, key, len);
+    });
+    try {
+      const restore = b.api.restoreFromFile(file.data, file.code);
+      await vi.waitFor(() => expect(derivations).toBe(1));
+      const other = await Promise.race([
+        b.api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]).then(() => 'done' as const),
+        new Promise<'queued'>((r) => setTimeout(() => r('queued'), 1000)),
+      ]);
+      expect(other).toBe('done');
+      release();
+      await expect(restore).resolves.toMatchObject({ sources: 1 });
+    } finally {
+      release();
+      spy.mockRestore();
+    }
   });
 
   test('a wrong code or a damaged file is refused with a clear error', async () => {
