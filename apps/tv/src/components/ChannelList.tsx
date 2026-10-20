@@ -5,7 +5,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
@@ -19,7 +19,7 @@ export const LOGO_W_PX = LOGO_W;
 export const LOGO_H_PX = LOGO_H;
 export const BAR_H = 4;
 export const ROW_FOCUS_FILL = COLORS.focus;
-export const TRACK = 0x2a3140ff;
+export const TRACK = COLORS.track;
 /** The `⋯` options button at the right end of the hovered row (pointer mode). */
 const DOTS_W = ROW_OPTIONS_W;
 const DOTS_H = ROW_OPTIONS_H;
@@ -31,10 +31,10 @@ export function Logo(props: { x: number; y: number; url: string | undefined; num
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   return (
     <View x={props.x} y={props.y} width={LOGO_W} height={LOGO_H} borderRadius={8}
-      color={props.focused ? 0xffffff26 : COLORS.surface}>
+      color={props.focused ? COLORS.onFocusTrack : COLORS.surface}>
       <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed fallback={
-        <Text y={(LOGO_H - FONT.small) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
-          fontSize={FONT.small} color={COLORS.muted}>{`${props.number}`}</Text>
+        <Text y={(LOGO_H - TYPE.meta) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
+          fontSize={TYPE.meta} color={COLORS.muted}>{`${props.number}`}</Text>
       }>
         {(url) => {
           logoCache.touch(url);
@@ -58,11 +58,11 @@ export function ChannelRowView(props: {
   optionsShown?: boolean;
 }) {
   const r = () => props.row;
-  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
+  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : COLORS.transparent);
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
   const textSub = () => (props.lit ? COLORS.onFocusMuted : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
-  const numSize = () => (String(r()?.number ?? '').length >= 5 ? 20 : FONT.body);
+  const numSize = () => (String(r()?.number ?? '').length >= 5 ? TYPE.meta : TYPE.body);
   const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
   const nowLine = () => {
     const n = r()?.now;
@@ -80,11 +80,11 @@ export function ChannelRowView(props: {
         <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={r()?.logo} number={r()?.number ?? 0} focused={props.lit} />
       </Show>
       <Text x={textX} y={8} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
-        fontSize={FONT.body} color={textMain()}>
+        fontSize={TYPE.body} color={textMain()}>
         {`${r()?.name ?? 'Loading…'}${r()?.id === props.playingId && r() ? ' ▶' : ''}`}
       </Text>
       <Text x={textX} y={42} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
-        fontSize={FONT.small} color={textSub()}>{nowLine()}</Text>
+        fontSize={TYPE.meta} color={textSub()}>{nowLine()}</Text>
       <Show when={r()?.now}>
         <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
@@ -194,9 +194,9 @@ export function ChannelList(props: {
       )}</For>
       <Show when={dotsRow() !== undefined}>
         <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (ROW_H - 6 - DOTS_H) / 2}
-          width={DOTS_W} height={DOTS_H} borderRadius={DOTS_H / 2} color={hoverDots() ? COLORS.focus : COLORS.background}>
-          <Text y={(DOTS_H - FONT.body) / 2 - 4} width={DOTS_W} maxWidth={DOTS_W} contain="width" textAlign="center"
-            fontSize={FONT.body} color={hoverDots() ? COLORS.onFocus : COLORS.text}>{ROW_OPTIONS_LABEL}</Text>
+          width={DOTS_W} height={DOTS_H} borderRadius={DOTS_H / 2} color={hoverDots() ? COLORS.muted : COLORS.background}>
+          <Text y={(DOTS_H - TYPE.body) / 2 - 4} width={DOTS_W} maxWidth={DOTS_W} contain="width" textAlign="center"
+            fontSize={TYPE.body} color={hoverDots() ? COLORS.onFocus : COLORS.text}>{ROW_OPTIONS_LABEL}</Text>
         </View>
       </Show>
     </View>

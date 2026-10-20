@@ -22,9 +22,8 @@ const OSD_Y = LAYOUT.safeY + 56;
  */
 export function VolumeControl(props: {
   x: number; y: number; width: number; height: number;
-  /** Pill fill and border: the bar it sits in decides (VOD buttons: surface; pointer bars: panel with a focus ring). */
+  /** Pill fill: the bar it sits in decides (VOD buttons: surface; pointer bars: surfaceRaised). */
   fill?: number;
-  border?: boolean;
   onHoverChange?: (over: boolean) => void;
   /** Every pointer move, drag step and wheel step over it (keeps the screen's controls up). */
   onActive?: () => void;
@@ -69,11 +68,10 @@ export function VolumeControl(props: {
 
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={props.height}
-      color={props.fill ?? COLORS.panel} borderRadius={props.height / 2}
-      border={props.border ? { width: 2, color: lit() ? COLORS.focus : COLORS.muted } : undefined}>
+      color={lit() ? COLORS.hover : props.fill ?? COLORS.panel} borderRadius={props.height / 2}>
       <View x={iconX()} y={(props.height - icon()) / 2} width={icon()} height={icon()} src={iconTexture(silent() ? 'mute' : 'volume')}
         color={lit() ? COLORS.text : COLORS.muted} />
-      <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.background} />
+      <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.track} />
       <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
         color={silent() ? COLORS.muted : COLORS.accent} />
       <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}

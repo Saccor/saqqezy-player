@@ -69,7 +69,7 @@ function Menu(props: {
         const hovered = () => pointerMode() && hover() === i();
         return (
           <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_H - 8} borderRadius={LAYOUT.radius}
-            color={isSel() ? (focused() ? COLORS.focus : COLORS.surface) : hovered() ? COLORS.hover : 0x00000000}>
+            color={isSel() ? (focused() ? COLORS.focus : COLORS.surface) : hovered() ? COLORS.hover : COLORS.transparent}>
             <Text x={24} y={(MENU_ROW_H - 8 - FONT.body) / 2 - 3} fontSize={FONT.body}
               color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
           </View>
