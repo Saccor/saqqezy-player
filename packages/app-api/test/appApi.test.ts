@@ -4,8 +4,9 @@ import {
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
-import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, SUBTITLE_SEARCH_PAGE_SIZE, scrub } from '../src/appApi.ts';
+import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, MOVIE_HASH_RETRY_MS, SUBTITLE_SEARCH_PAGE_SIZE, scrub } from '../src/appApi.ts';
 import { worseCooldown } from '../src/index.ts';
+import { VodController } from '../src/vodController.ts';
 import type { AppEvent } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 13, 18, 10);
@@ -2273,6 +2274,9 @@ describe('subtitles from a link or a file', () => {
 describe('subtitles found online (fake OpenSubtitles service)', () => {
   const hashed: string[] = [];
   type HashFn = (url: string, headers?: { userAgent?: string; referrer?: string }) => Promise<string | undefined>;
+  // The API's clock (its injected `now`): a test moves it to expire a failed hash read; reset after each test.
+  let clockMs = NOW;
+  afterEach(() => { clockMs = NOW; vi.restoreAllMocks(); });
   const makeOnline = (apiKey = 'fake-key', fileHash?: HashFn, apiFetch?: (u: string, i?: RequestInit) => Promise<Response>) => {
     const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
     const service = new SourceService(deps);
@@ -2281,7 +2285,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     const onlineSubtitles = new OpenSubtitlesClient({
       apiFetch: apiFetch ?? deps.fetch, fileFetch: deps.fetch, apiKey, baseUrl: `${server.url}/opensubtitles/api/v1`, appName: 'Test v0',
     });
-    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, ...(fileHash ? { fileHash } : {}), emit: () => {}, now: () => NOW });
+    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, ...(fileHash ? { fileHash } : {}), emit: () => {}, now: () => clockMs });
     live.push(api);
     return api;
   };
@@ -2369,6 +2373,58 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     expect(versions.map((v) => v.fileId)).toEqual([1002, 1003, 1001]);
     expect(versions[0]).toEqual({ fileId: 1002, release: 'Synthetic.Release.en.2', fps: 23.976, synced: false, downloads: 800 });
     expect('fps' in versions[1]!).toBe(false);
+  });
+
+  test('exact match: another file under the same id (a picked version) is hashed again; a source switch forgets the hashes', async () => {
+    const hashed: string[] = [];
+    const api = makeOnline('fake-key', async (url) => { hashed.push(url); return '0123456789abcdef'; });
+    const { sourceId } = await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(1);
+    // The id now resolves to another file (as after "pickVodVersion"): its own hash is read.
+    const real = VodController.prototype.playable;
+    const spy = vi.spyOn(VodController.prototype, 'playable').mockImplementation(async function (this: VodController, ...args) {
+      const out = await real.apply(this, args);
+      return out && { ...out, url: out.url.replace(/(\.\w+)$/, '-other$1') };
+    });
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(2);
+    expect(hashed[1]).toMatch(/-other\.\w+$/);
+    spy.mockRestore();
+    // Back to the first file: still remembered.
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(2);
+    // Switching source (even to the same one) forgets every hash.
+    await api.setActiveSource(sourceId);
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(3);
+  });
+
+  test('exact match: a failed hash read is retried only after MOVIE_HASH_RETRY_MS', async () => {
+    let calls = 0;
+    const api = makeOnline('fake-key', async () => { calls++; return undefined; });
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    await api.findSubtitlesOnline(movieId);
+    clockMs = NOW + MOVIE_HASH_RETRY_MS - 1;
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toBe(1);
+    clockMs = NOW + MOVIE_HASH_RETRY_MS;
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toBe(2);
+  });
+
+  test('versions with an empty or blank language: none, and nothing is asked', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', undefined, (u, i) => { urls.push(u); return fetch(u, i); });
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    expect(await api.subtitleVersions(movieId, '')).toEqual([]);
+    expect(await api.subtitleVersions(movieId, '  ')).toEqual([]);
+    expect(urls).toEqual([]);
   });
 
   // A stub of the search API: `pages` answers by page number; other calls go to the fake server.
