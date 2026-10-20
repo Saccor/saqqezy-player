@@ -16,11 +16,11 @@ import { Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
-import { initState } from '../state/appState.ts';
+import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { categoryRows, pickedSort, sortRows } from '../vod/categoryPicker.ts';
 import {
-  GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, saveSort, sortsFor,
+  GRID_PAGE, GRID_VIEW_ROWS, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, saveSort, sortsFor,
   type GridGeometry,
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
@@ -39,17 +39,12 @@ const GRID_X = LAYOUT.contentX;
 const GRID_Y = 150;
 const GRID_W = LAYOUT.contentW;
 const CELL_GAP = 24;
-const ROW_GAP = 28;
-const CELL_W = Math.floor((GRID_W - CELL_GAP * (GRID_COLS - 1)) / GRID_COLS); // 187
-const CELL_H = Math.round(CELL_W * 1.5); // 280
-const ROW_PITCH = CELL_H + ROW_GAP;
 const HEAD_Y = LAYOUT.safeY;
 /**
  * The grid node covers the grid only (not the whole screen), so its pointer target never overlaps the rail or the
  * header. It reaches PAD past the tiles on the left and top so a focused tile's scale and ring are not clipped.
  */
 const PAD = 16;
-const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: ROW_PITCH, hitH: CELL_H };
 const SCROLL_X = 1860;
 const SCROLL_H = LAYOUT.height - LAYOUT.safeY - GRID_Y; // 876
 /** The focused title and meta at the top right: two right-aligned lines in a box ending at the grid's right edge. */
@@ -104,6 +99,10 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let pickerNode: ElementNode | undefined;
   let alive = true;
   let lastTopRow = 0;
+  /** Standard 8 or Compact 10 per row; everything below follows it. */
+  const layout = () => gridLayout(settings()?.posterSize ?? 'standard');
+  const geo = (): GridGeometry => ({ pad: PAD, cellW: layout().cellW, gap: CELL_GAP, rowPitch: layout().rowPitch, hitH: layout().cellH });
+  const rowCount = () => Math.ceil(total() / layout().cols);
   /** Bumped per category/sort change: answers for an older one are dropped. */
   let gen = 0;
   /** Pages being fetched, keyed `gen:page`, so a dropped (stale or failed) page is asked for again later. */
@@ -120,14 +119,15 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const sorts = () => sortsFor(cats().some((c) => c.id === VOD_ROW_RECENT));
   const tileAt = (i: number) => pages().get(Math.floor(i / GRID_PAGE))?.[i % GRID_PAGE];
   const topRow = createMemo(() => {
-    lastTopRow = scrollTopFor(Math.floor(focus() / GRID_COLS), lastTopRow, GRID_VIEW_ROWS, Math.ceil(total() / GRID_COLS));
+    lastTopRow = scrollTopFor(Math.floor(focus() / layout().cols), lastTopRow, GRID_VIEW_ROWS, rowCount());
     return lastTopRow;
   });
   const indices = createMemo(() => {
     // No buffer rows: the peeking fourth row is the last drawn, which keeps texture memory down on 1 GB TVs.
-    const r = renderRange(topRow(), GRID_VIEW_ROWS + 1, Math.ceil(total() / GRID_COLS), 0);
+    const cols = layout().cols;
+    const r = renderRange(topRow(), GRID_VIEW_ROWS + 1, rowCount(), 0);
     const out: number[] = [];
-    for (let row = r.from; row < r.to; row++) for (let c = 0; c < GRID_COLS; c++) if (row * GRID_COLS + c < total()) out.push(row * GRID_COLS + c);
+    for (let row = r.from; row < r.to; row++) for (let c = 0; c < cols; c++) if (row * cols + c < total()) out.push(row * cols + c);
     return out;
   });
 
@@ -281,7 +281,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   };
 
   const moveGrid = (key: 'up' | 'down' | 'left' | 'right') => {
-    const r = gridMove(focus(), key, total());
+    const r = gridMove(focus(), key, total(), layout().cols);
     if (r === 'rail') return focusArea('rail');
     if (r === 'header') return focusArea('header');
     setFocus(r);
@@ -291,7 +291,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     return true;
   };
   const page = (dir: 1 | -1) => {
-    setFocus(gridPage(focus(), dir, total()));
+    setFocus(gridPage(focus(), dir, total(), layout().cols));
     setHover(undefined);
     remember();
     ensurePages();
@@ -347,7 +347,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   };
 
   // Pointer: a click opens the tile, a right click opens its menu, the wheel moves a row (never out of the grid).
-  const cellAt = (p: Point) => gridCellAt(p.x, p.y, topRow(), GEO, total());
+  const cellAt = (p: Point) => gridCellAt(p.x, p.y, topRow(), geo(), total(), layout().cols);
   usePointerTarget({
     node: () => gridNode,
     enabled: () => total() > 0,
@@ -369,7 +369,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     },
     onWheel: (dy) => {
       if (dy === 0) return true;
-      const r = gridMove(focus(), dy > 0 ? 'down' : 'up', total());
+      const r = gridMove(focus(), dy > 0 ? 'down' : 'up', total(), layout().cols);
       if (typeof r === 'number' && r !== focus()) {
         setFocus(r);
         remember();
@@ -419,8 +419,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     removePicker?.();
   });
 
-  const x = (i: number) => PAD + (i % GRID_COLS) * (CELL_W + CELL_GAP);
-  const y = (i: number) => PAD + (Math.floor(i / GRID_COLS) - topRow()) * ROW_PITCH;
+  const x = (i: number) => PAD + (i % layout().cols) * (layout().cellW + CELL_GAP);
+  const y = (i: number) => PAD + (Math.floor(i / layout().cols) - topRow()) * layout().rowPitch;
 
   /** The focused title and its meta, once focus rests. */
   const shown = dwellSignal(() => tileAt(focus()));
@@ -454,11 +454,11 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)} onEnter={open} onMenu={openMenu} onLongOk={openMenu}>
         <For each={indices()}>{(i) => (
-          <PosterTile x={x(i)} y={y(i)} w={CELL_W} h={CELL_H} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
+          <PosterTile x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
             hover={pointerMode() && hover() === i} />
         )}</For>
       </View>
-      <ScrollIndicator x={SCROLL_X} y={GRID_Y} height={SCROLL_H} total={Math.ceil(total() / GRID_COLS)} visible={GRID_VIEW_ROWS} first={topRow()} />
+      <ScrollIndicator x={SCROLL_X} y={GRID_Y} height={SCROLL_H} total={rowCount()} visible={GRID_VIEW_ROWS} first={topRow()} />
       <Show when={failed()}>
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
         <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}

@@ -10,13 +10,18 @@ describe('sanitizeSettings', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
-      combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [],
+      combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard',
     });
   });
 
   test('openOn keeps known values and falls back to lastChannel', () => {
     for (const v of ['lastChannel', 'start'] as const) expect(sanitizeSettings({ openOn: v }).openOn).toBe(v);
     for (const v of ['home', 1, null, undefined]) expect(sanitizeSettings({ openOn: v }).openOn).toBe('lastChannel');
+  });
+
+  test('posterSize keeps known values and falls back to standard', () => {
+    for (const v of ['standard', 'compact'] as const) expect(sanitizeSettings({ posterSize: v }).posterSize).toBe(v);
+    for (const v of ['big', 1, null, undefined]) expect(sanitizeSettings({ posterSize: v }).posterSize).toBe('standard');
   });
 
   test('followedTeams: strings only, trimmed, 1-40 chars, deduped ignoring case and accents, at most 50', () => {

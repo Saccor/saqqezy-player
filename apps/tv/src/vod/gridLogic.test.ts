@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_COLS, GRID_PAGE, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
+import { GRID_COLS, GRID_PAGE, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
   test('moves in an 8-column grid', () => {
@@ -78,5 +78,10 @@ describe('gridLogic', () => {
     const out = keepFailedPages(fresh, [1, 3], old, 3 + 2, 3);
     expect([...out.entries()]).toEqual([[0, ['a']], [1, ['b', 'c']]]);
     expect(out).not.toBe(fresh);
+  });
+
+  test('grid layout per poster size', () => {
+    expect(gridLayout('standard')).toEqual({ cols: 8, cellW: 187, cellH: 280, rowPitch: 308 });
+    expect(gridLayout('compact')).toEqual({ cols: 10, cellW: 144, cellH: 216, rowPitch: 244 });
   });
 });

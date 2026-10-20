@@ -23,10 +23,11 @@ export function DisplayPage(props: PageProps) {
   const clock = () => settings()?.showClock ?? true;
   const openOn = () => settings()?.openOn ?? 'lastChannel';
   const teams = () => settings()?.followedTeams ?? [];
-  const items = () => displayItems({ showClock: clock(), openOn: openOn(), followedTeams: teams() });
+  const items = () => displayItems({ showClock: clock(), openOn: openOn(), followedTeams: teams(), posterSize: settings()?.posterSize ?? 'standard' });
 
   const onAdjust = (id: string) => {
     if (id === 'clock') { void saveSetting({ showClock: !clock() }); return true; }
+    if (id === 'posterSize') { void saveSetting({ posterSize: (settings()?.posterSize ?? 'standard') === 'compact' ? 'standard' : 'compact' }); return true; }
     if (id === 'openOn') { void saveSetting({ openOn: openOn() === 'start' ? 'lastChannel' : 'start' }); return true; }
     return false;
   };

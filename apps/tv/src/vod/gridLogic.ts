@@ -1,6 +1,14 @@
-import type { VodSort } from '@iptv/core';
+import type { PosterSize, VodSort } from '@iptv/core';
 
 /** The category grid. Pure: no Solid, no Lightning. */
+
+/** Cell sizes across the 1664 px content width with 24 px column gaps and 28 px row gaps. */
+export function gridLayout(size: PosterSize): { cols: number; cellW: number; cellH: number; rowPitch: number } {
+  const cols = size === 'compact' ? 10 : 8;
+  const cellW = Math.floor((1664 - 24 * (cols - 1)) / cols);
+  const cellH = Math.floor(cellW * 1.5);
+  return { cols, cellW, cellH, rowPitch: cellH + 28 };
+}
 
 export const GRID_COLS = 8;
 /** Rows fully visible (a fourth peeks in). */
