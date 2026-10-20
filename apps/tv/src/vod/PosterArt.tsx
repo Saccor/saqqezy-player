@@ -3,14 +3,15 @@ import { createSignal, type JSX } from 'solid-js';
 import { posterCache } from '../components/posterCache.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { barWidth, titleCardColour } from './posterLogic.ts';
+import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
 const RING = 4;
 
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
- * generated title card (stable colour, the title in text) when there is none or it fails. Focused (`lit`): a
+ * generated title card (stable colour, the title in text) when there is none or it fails; a skeleton (a plain surface
+ * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): a
  * focus-coloured ring (hover: a thin muted one), an outset fill behind the card so the image never covers it.
  * `progress`: a bar at the bottom. `watched`: a check badge. `label`: a text-only card (View all, Loading…).
  * Children are extra overlays (zIndex 4 sits above the image). Layered by zIndex: a late-loading image would otherwise
@@ -25,6 +26,8 @@ export function PosterArt(props: {
   lit: boolean;
   hover?: boolean;
   label?: string;
+  /** The tile itself is not here yet (a grid page or a row still loading): a skeleton card. */
+  pending?: boolean;
   /** The title card text: font size, line count and top edge (default: small, 3 lines, 110 above the bottom). */
   titleFont?: number;
   titleLines?: number;
@@ -32,7 +35,11 @@ export function PosterArt(props: {
   children?: JSX.Element;
 }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
+  const [loadedUrl, setLoadedUrl] = createSignal<string | undefined>(undefined);
   const url = () => (props.image && props.image !== failedUrl() ? props.image : undefined);
+  /** The image drawn (a URL that failed before, in this or another tile, is not tried again). */
+  const shown = () => (posterCache.usable(url()) ? url() : undefined);
+  const face = () => posterFace({ pending: props.pending === true, image: shown(), loaded: shown() !== undefined && loadedUrl() === shown(), failed: false });
   const ring = () => (props.lit ? COLORS.focus : props.hover ? COLORS.muted : undefined);
   const ringW = () => (props.lit ? RING : 2);
   return (
@@ -44,21 +51,21 @@ export function PosterArt(props: {
         )}
       </Show>
       <View width={props.w} height={props.h} zIndex={1} borderRadius={LAYOUT.radius}
-        color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : titleCardColour(props.title)} />
+        color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>
         <Text x={12} y={props.h / 2 - FONT.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
           zIndex={2} fontSize={FONT.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
       </Show>
       <Show when={props.label === undefined}>
-        {/* Title card text, under the image so a loaded image covers it. */}
-        <Text x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
+        {/* Title card text: only on the card (no poster, or it failed), never on a skeleton. */}
+        <Text alpha={face() === 'card' ? 1 : 0} x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
           maxLines={props.titleLines ?? 3} zIndex={2} fontSize={props.titleFont ?? FONT.small} color={COLORS.text}>{props.title}</Text>
-        <Show when={posterCache.usable(url()) ? url() : undefined} keyed>
+        <Show when={props.pending ? undefined : shown()} keyed>
           {(u) => {
             posterCache.touch(u);
             return (
               <View width={props.w} height={props.h} zIndex={3} borderRadius={LAYOUT.radius} src={rawViaDevProxy(u)}
-                onEvent={{ failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
+                onEvent={{ loaded: () => setLoadedUrl(u), failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
             );
           }}
         </Show>

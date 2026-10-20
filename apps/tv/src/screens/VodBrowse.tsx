@@ -2,14 +2,15 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, SeriesView, VodHome, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
+import { VOD_ALL } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { FAV_COPY } from '../copy.ts';
-import { ActionBar } from '../components/ActionBar.tsx';
+import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
+import { CHIP_H, ChipRow } from '../components/ChipRow.tsx';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { createDebounce } from '../playback/debounce.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
@@ -19,9 +20,12 @@ import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
 import {
-  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
+  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels,
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
+import {
+  areaAbove, areaBelow, browseChips, browseSlots, chipMove, effectiveLine, locateChip, type BrowseArea, type BrowseChip, type BrowseLine,
+} from '../vod/browseNavLogic.ts';
 import { CrossFadeArt } from '../vod/CrossFadeArt.tsx';
 import { heroArt } from '../vod/fadeLogic.ts';
 import { createFavToggle } from '../vod/favToggle.ts';
@@ -36,38 +40,62 @@ import { metaLine } from '../vod/posterLogic.ts';
 import { KIND_COPY, vodStatusLine } from '../vod/kindCopy.ts';
 import { TAB_H, tabNavigation, tabOfKind, tabParams, type TabId, type VodKind } from '../vod/tabLogic.ts';
 
+/**
+ * Layout (1080p design space), like Start's: a compact hero under the tab bar (title, one meta line, one line of plot
+ * or status) with the action bar at its right, then the lines from y 290: the Categories chips and the poster rows.
+ * The line the page is scrolled to sits on top; two poster rows show in full and a third peeks in (`browseSlots`).
+ */
 const HERO_X = LAYOUT.safeX;
-const HERO_Y = 200;
-const HERO_W = 860;
-const ROW_LABEL_Y = 610;
+const HERO_Y = TAB_BAR_Y + TAB_H + 24;
+const HERO_META_Y = HERO_Y + 62;
+const HERO_LINE_Y = HERO_META_Y + 34;
+const ACTION_GAP = 16;
+/** The widest action bar (Resume, Details, In favourites): the title and meta end a gap before it. */
+const ACTIONS_MAX_W = 320 + 200 + 300 + ACTION_GAP * 2;
+const HERO_W = LAYOUT.width - LAYOUT.safeX * 2 - ACTIONS_MAX_W - LAYOUT.gap;
+/** The plot or status line runs under the action bar. */
+const HERO_LINE_W = LAYOUT.width - LAYOUT.safeX * 2;
+const ROW_Y = 290;
+const LABEL_H = 44;
+const ROW_GAP = 36;
+/** A line below the top one is drawn while at least its title and a strip of it fit on screen. */
+const ROW_PEEK = LABEL_H + 20;
+const ROW_H = LABEL_H + POSTER_H;
+const CHIPS_LINE_H = LABEL_H + CHIP_H;
 /** A row's title line: a long category name (fed by the source's own names) ends inside the safe area. */
 const ROW_TITLE_W = LAYOUT.width - LAYOUT.safeX * 2;
-const NEXT_LABEL_Y = ROW_LABEL_Y + 44 + POSTER_H + 36;
 const HERO_SETTLE_MS = 400;
 const ART_X = 640;
 const ART_W = LAYOUT.width - ART_X;
-const ART_H = 720;
+/** The backdrop ends behind the first line, faded into the background. */
+const ART_H = 600;
 const BG = COLORS.background;
 /** Per source and kind focus memories kept (least recently used go). */
 const MEMORY_MAX = 20;
-/** Skeleton rows (first load): under the loading line, ending a gap above the pointer-mode bottom row. */
-const SKELETONS = skeletonRows({ x: LAYOUT.safeX, top: HERO_Y + 160, bottom: BOTTOM_ROW_Y - LAYOUT.gap });
+/** Skeleton rows (first load): where the rows go, ending a gap above the pointer-mode bottom row. */
+const SKELETONS = skeletonRows({ x: LAYOUT.safeX, top: ROW_Y, bottom: BOTTOM_ROW_Y - LAYOUT.gap });
 
-type Area = 'tabs' | 'hero' | 'rows';
+type Area = BrowseArea;
 
-/** The focus by identity (row id, tile id) and the last column per row id. */
-interface BrowseMemory { focus: FocusMemory; cols: Map<string, number> }
-/** Kept across visits (per source and kind) so Back from the detail returns to the same poster. */
+/**
+ * The focus by identity (row id, tile id), the last column per row id, the line the page is on and the chip (by id).
+ * A first visit starts on the chips: the way into the whole library is the first thing focused.
+ */
+interface BrowseMemory { focus: FocusMemory; cols: Map<string, number>; line: BrowseLine; chipId?: string; chip: number }
+/** Kept across visits (per source and kind) so Back from the detail or the grid returns to the same poster or chip. */
 const memories = new Map<string, BrowseMemory>();
-const memoryFor = (key: string): BrowseMemory => lruGet(memories, key, () => ({ focus: { row: 0, col: 0 }, cols: new Map() }), MEMORY_MAX);
+const memoryFor = (key: string): BrowseMemory =>
+  lruGet(memories, key, () => ({ focus: { row: 0, col: 0 }, cols: new Map(), line: 'chips', chip: 0 }), MEMORY_MAX);
+const actionsWidth = (as: readonly Action[]) => as.reduce((w, a) => w + a.width, 0) + ACTION_GAP * Math.max(0, as.length - 1);
 
 const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
 const FAV_ADD_ACTION = { id: 'fav', label: FAV_COPY.add, width: 300 };
 const FAV_ON_ACTION = { id: 'fav', label: FAV_COPY.in, width: 300 };
 
 /**
- * Movies or Series browse (`params.kind`): the tab bar, a hero for the focused title, and poster rows (Continue watching,
- * Favourites, Recently added, categories).
+ * Movies or Series browse (`params.kind`): the tab bar, a hero for the focused title, the Categories chips (Ok opens
+ * the grid on that category; Green opens it on All) and poster rows (Continue watching, Favourites, Recently added,
+ * categories).
  */
 export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { kind?: VodKind; focus?: 'tabs' | 'content' };
@@ -84,8 +112,12 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const [focus, setFocus] = createSignal<BrowseFocus>({ row: memory.focus.row, col: memory.focus.col });
   const [area, setArea] = createSignal<Area>(startOnTabs ? 'tabs' : 'rows');
   const [hero, setHero] = createSignal<MovieView | SeriesView | undefined>(undefined);
+  const [chips, setChips] = createSignal<BrowseChip[]>([]);
+  const [chip, setChip] = createSignal(memory.chip);
+  const [line, setLine] = createSignal<BrowseLine>(memory.line);
   let tabsNode: ElementNode | undefined;
   let heroNode: ElementNode | undefined;
+  let chipsNode: ElementNode | undefined;
   let rowsNode: ElementNode | undefined;
   let errorNode: ElementNode | undefined;
   let wheelNode: ElementNode | undefined;
@@ -96,7 +128,11 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). */
   let preferredArea: Area = startOnTabs ? 'tabs' : 'rows';
   let restoring = false;
+  /** A key or pointer move happened: chips that arrive later no longer take the focus. */
+  let userMoved = false;
   const choose = (a: Area) => { setArea(a); if (!restoring) preferredArea = a; };
+  const hasChips = () => chips().length > 0;
+  const setLineTo = (l: BrowseLine) => { setLine(l); memory.line = l; };
 
   const focusedCell = () => {
     const r = rows()[focus().row];
@@ -122,9 +158,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     memory.focus = { row: f.row, col: f.col, ...(r ? { rowId: r.id } : {}), ...(t ? { tileId: t.id } : {}) };
   };
 
+  /** Up/Down context for `areaAbove`/`areaBelow`. */
+  const ctx = () => ({ chips: hasChips(), heroTile: !!focusedTile(), rows: rows().length > 0, line: line() });
+
+  /** 'rows' goes to the line the page is on (the chips or the rows); 'chips' scrolls the page to the chips. */
   const focusArea = (a: Area) => {
     if (!restoring) preferredArea = a;
     if (a === 'hero' && !focusedTile()) a = 'rows';
+    if (a === 'chips' && !hasChips()) a = 'rows';
+    if (a === 'rows' && effectiveLine(line(), hasChips()) === 'chips') a = 'chips';
+    if (a === 'chips') setLineTo('chips');
     if (a !== 'tabs' && rows().length === 0) {
       // No rows: the Try again button (error) is the content; otherwise the tab bar.
       if (home()?.status === 'error' && errorNode) {
@@ -135,8 +178,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       a = 'tabs';
     }
     setArea(a);
-    (a === 'tabs' ? tabsNode : a === 'hero' ? heroNode : rowsNode)?.setFocus();
+    (a === 'tabs' ? tabsNode : a === 'hero' ? heroNode : a === 'chips' ? chipsNode : rowsNode)?.setFocus();
     return true;
+  };
+  /** Into the poster rows (from the chips, a pointer press, the wheel): the page scrolls to the focused row. */
+  const enterRows = () => {
+    setLineTo('rows');
+    return focusArea('rows');
   };
 
   // ---- data ----
@@ -152,8 +200,34 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     });
   };
 
+  /**
+   * The chips come from the grid rail's categories, read apart from the home (they may wait for the catalogue).
+   * Chips that appear after the user has moved never take the focus: the page stays on the rows.
+   */
+  const loadChips = async (g: number) => {
+    let cs: BrowseChip[];
+    try {
+      cs = browseChips(await api.getVodCategories(kind));
+    } catch {
+      return; // The chips keep what they had.
+    }
+    if (!alive || g !== gen) return;
+    const had = hasChips();
+    batch(() => {
+      setChips(cs);
+      setChip(locateChip(cs, memory.chipId, memory.chip));
+    });
+    // Before the rows arrive, the load's own focus restore goes to the chips (the page's line).
+    if (had || cs.length === 0 || line() !== 'chips' || area() !== 'rows' || rows().length === 0) return;
+    if (userMoved) { setLineTo('rows'); return; }
+    queueMicrotask(() => {
+      if (alive && area() === 'rows' && !screenOverlayOpen() && !menu.isOpen()) focusArea('chips');
+    });
+  };
+
   const load = async () => {
     const g = ++gen;
+    void loadChips(g);
     const before = { status: status(), hasRows: rows().length > 0, hasTile: !!focusedTile() };
     let h: VodHome | undefined;
     try {
@@ -186,7 +260,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const loadNear = async () => {
     const g = gen;
     const rs = rows();
-    for (const i of rowsToLoad(rs, focus().row)) {
+    // The rows on screen: the focused one, the next in full and a third peeking in.
+    for (const i of rowsToLoad(rs, focus().row, 2)) {
       const r = rs[i]!;
       const key = `${g}:${r.id}`;
       if (loading.has(key)) continue;
@@ -253,6 +328,27 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     if (c.kind === 'tile') router.push(copy.detailRoute, { id: c.tile.id, tile: c.tile });
     else if (c.kind === 'viewAll') router.push('vodGrid', { kind, categoryId: r.id });
     return true;
+  };
+  /** The grid on a category (Ok on a chip), or on All (Green). */
+  const openGrid = (categoryId: string) => {
+    if (screenOverlayOpen() || menu.isOpen()) return true;
+    router.push('vodGrid', { kind, categoryId });
+    return true;
+  };
+  const openChip = () => {
+    const c = chips()[chip()];
+    return c ? openGrid(c.id) : true;
+  };
+  const rememberChip = () => {
+    memory.chip = chip();
+    memory.chipId = chips()[chip()]?.id;
+  };
+  const moveChips = (key: 'up' | 'down' | 'left' | 'right') => {
+    userMoved = true;
+    const r = chipMove(chips().length, chip(), key);
+    if ('chip' in r) { setChip(r.chip); rememberChip(); return true; }
+    if (r.edge === 'up') return focusArea(areaAbove('chips', ctx()));
+    return areaBelow('chips', ctx()) === 'rows' ? enterRows() : true;
   };
   const launcher = createVodLauncher({
     alive: () => alive,
@@ -332,8 +428,9 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
+    userMoved = true;
     const r = moveBrowse(rows(), focus(), key, memory.cols);
-    if ('edge' in r) return focusArea(focusedTile() ? 'hero' : 'tabs');
+    if ('edge' in r) return focusArea(areaAbove('rows', ctx()));
     const cur = focus();
     if (r.focus.row === cur.row && r.focus.col === cur.col) {
       if (focusedCell()?.kind === 'loading') void loadNear();
@@ -345,13 +442,24 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
 
   /**
-   * Pointer mode shows only the focused row (the peek row would sit under the shell's Back button), so the wheel walks
-   * the rows: vertical between rows, horizontal along the row. At the top row a wheel up stays put.
+   * The wheel walks the lines (pointer mode shows only whole lines above the shell's Back button): vertical between
+   * the chips and the rows, horizontal along the line. On the chips a wheel up stays put; from the top row it goes to
+   * the chips (never to the hero).
    */
   const onWheel = (dy: number, dx: number) => {
     const key = wheelKey(dy, dx);
-    if (!key || (key === 'up' && focus().row === 0)) return true;
-    if (area() !== 'rows') focusArea('rows');
+    if (!key) return true;
+    userMoved = true;
+    if (effectiveLine(line(), hasChips()) === 'chips') {
+      if (area() !== 'chips') focusArea('chips');
+      if (key !== 'up') moveChips(key);
+      return true;
+    }
+    if (key === 'up' && focus().row === 0) {
+      if (hasChips()) focusArea('chips');
+      return true;
+    }
+    if (area() !== 'rows') enterRows();
     move(key);
     return true;
   };
@@ -382,11 +490,15 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         launcher.cancel();
         setSourceId(ev.activeSourceId);
         memory = memoryFor(memKey());
+        userMoved = false;
         batch(() => {
           setRows([]);
+          setChips([]);
           setHome(undefined);
           setHero(undefined);
           setFocus({ row: memory.focus.row, col: memory.focus.col });
+          setChip(memory.chip);
+          setLine(memory.line);
         });
         restoring = true;
         try { focusArea('tabs'); } finally { restoring = false; }
@@ -438,10 +550,30 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     }
     return seriesMetaLine({ year: t?.year, seasons: regularSeasonCount(heroSeries()?.seasons ?? []), genre: d?.genre, ageRating: d?.ageRating, rating: t?.rating });
   };
-  /** The focused row, and the next one peeking in below; not in pointer mode, where its label would sit under the shell's Back button. */
-  const visibleRows = () => visibleRowIndexes(focus().row, rows().length, pointerMode());
+  /**
+   * The line the page is on at the top, then the rows after it, down to a peek of the next one's title; in pointer
+   * mode only lines that fit above the shell's bottom button row.
+   */
+  const slots = createMemo(() => browseSlots(
+    { chipsH: CHIPS_LINE_H, rowH: ROW_H, chips: hasChips(), rowCount: rows().length, line: line(), row: focus().row },
+    { top: ROW_Y, gap: ROW_GAP, bottom: pointerMode() ? BOTTOM_ROW_Y : LAYOUT.height, peek: ROW_PEEK },
+    pointerMode() ? 'whole' : 'peek'));
+  const visibleRows = () => slots().rows.map((s) => s.index);
+  const rowY = (i: number) => slots().rows.find((s) => s.index === i)?.y ?? ROW_Y;
+  /** The hero's third line: the catalogue status while there is one, else the plot. */
+  const heroLine = () => statusLine() || (heroDetail()?.plot ?? '');
+  /** A pointer press on a chip: it takes the focus and opens the grid. */
+  const pointToChip = (i: number) => {
+    userMoved = true;
+    setChip(i);
+    rememberChip();
+    focusArea('chips');
+    openChip();
+  };
   /** A pointer press on a poster: the column memory of the row left and of the row pressed are kept, as with the keys. */
   const pointTo = (row: number, col: number) => {
+    userMoved = true;
+    setLineTo('rows');
     const from = rows()[focus().row];
     if (from) memory.cols.set(from.id, focus().col);
     const to = rows()[row];
@@ -452,44 +584,40 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={back}
+      onGreen={() => openGrid(VOD_ALL)}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
-      {/* Hero art: the backdrop, else the poster, faded into the background. */}
+      {/* Hero art: the backdrop, faded into the background behind the hero and the first line. */}
       <Show when={heroTile()}>
         {/* Layers by zIndex, not insertion order: a late image is inserted last and would otherwise cover the rest. */}
         <View zIndex={0}>
           {/* A new backdrop cross-fades in over 200 ms (two stacked image nodes). */}
           <CrossFadeArt x={ART_X} y={0} width={ART_W} height={ART_H} url={shownArt()} onFailed={(u) => { posterCache.markFailed(u); setArtFailures((n) => n + 1); }} />
-          <Show when={!shownArt() && heroDetail() !== undefined ? heroTile()?.poster : undefined} keyed>
-            {(u) => <View x={LAYOUT.width - LAYOUT.safeX - 300} y={130} width={300} height={450} src={rawViaDevProxy(u)} alpha={0.9} />}
-          </Show>
         </View>
         {/* Scrims: left to right, and into the rows. */}
         <View zIndex={1} x={ART_X} y={0} width={ART_W} height={ART_H} src={scrimTexture('left', BACKGROUND_RGB)} />
-        <View zIndex={1} y={ART_H - 280} width={LAYOUT.width} height={280} src={scrimTexture('down', BACKGROUND_RGB)} />
+        <View zIndex={1} y={ART_H - 340} width={LAYOUT.width} height={340} src={scrimTexture('down', BACKGROUND_RGB)} />
         <View zIndex={2}>
-        <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{focusedRowTitle()}</Text>
-        <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTile()?.title ?? ''}</Text>
-        <Text x={HERO_X} y={HERO_Y + 116} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
-          {heroMeta()}
-        </Text>
-        <Text x={HERO_X} y={HERO_Y + 160} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} fontSize={FONT.body} color={COLORS.muted}>
-          {heroDetail()?.plot ?? ''}
-        </Text>
-        <ActionBar ref={(el) => { heroNode = el; }} x={HERO_X} y={HERO_Y + 290} actions={heroActions()} onAction={onHeroAction}
-          onUp={() => focusArea('tabs')} onDown={() => focusArea('rows')} onFocusChanged={(f) => { if (f) choose('hero'); }} />
+          <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>{heroTile()?.title ?? ''}</Text>
+          <Text x={HERO_X} y={HERO_META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
+            {heroMeta()}
+          </Text>
+          <ActionBar ref={(el) => { heroNode = el; }} x={LAYOUT.width - LAYOUT.safeX - actionsWidth(heroActions())} y={HERO_Y - 4}
+            actions={heroActions()} onAction={onHeroAction}
+            onUp={() => focusArea('tabs')} onDown={() => focusArea(areaBelow('hero', ctx()))} onFocusChanged={(f) => { if (f) choose('hero'); }} />
         </View>
       </Show>
-
-      <TabBar ref={(el) => { tabsNode = el; }} active={tabOfKind(kind)} onSelect={goTab} onDown={() => focusArea(focusedTile() ? 'hero' : 'rows')}
-        onFocusChanged={(f) => { if (f) choose('tabs'); }} />
-      <Show when={statusLine()}>
-        {/* Under the tab bar: right of it the line would run into the wordmark zone (x 700). */}
-        <Text zIndex={2} x={TAB_BAR_X} y={TAB_BAR_Y + TAB_H + 12} fontSize={FONT.small} color={COLORS.muted}>{statusLine()}</Text>
+      {/* The plot (one line), or the catalogue status while there is one (also before any title shows). */}
+      <Show when={heroLine()}>
+        <Text zIndex={2} x={HERO_X} y={HERO_LINE_Y} width={HERO_LINE_W} maxWidth={HERO_LINE_W} contain="width" maxLines={1}
+          fontSize={FONT.small} color={COLORS.muted}>{heroLine()}</Text>
       </Show>
+
+      <TabBar ref={(el) => { tabsNode = el; }} active={tabOfKind(kind)} onSelect={goTab} onDown={() => focusArea(areaBelow('tabs', ctx()))}
+        onFocusChanged={(f) => { if (f) choose('tabs'); }} />
 
       <Show when={status() === 'ready'} fallback={
         <View>
-          <Text x={HERO_X} y={HERO_Y + 100} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={2} fontSize={FONT.heading} color={COLORS.text}>{message()}</Text>
+          <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={2} fontSize={FONT.heading} color={COLORS.text}>{message()}</Text>
           {/* First load: skeleton rows (a label bar and poster placeholders) stand in for the rows (spec §3.7). */}
           <Show when={skeletonShown(status(), rows().length)}>
             <For each={SKELETONS}>{(r) => (
@@ -500,24 +628,36 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
             )}</For>
           </Show>
           <Show when={status() === 'error'}>
-            <Button ref={(el) => { errorNode = el; }} x={HERO_X} y={HERO_Y + 220} label="Try again"
+            <Button ref={(el) => { errorNode = el; }} x={HERO_X} y={ROW_Y} label="Try again"
               onPress={() => void api.refreshVod(kind).catch(() => undefined).then(() => load())} onUp={() => { tabsNode?.setFocus(); return true; }} />
           </Show>
         </View>
       }>
-        {/* Rows: the focused row sits in the fixed slot, the next one peeks in below. One focusable node owns the keys. */}
+        {/* Categories: the way into the whole library (the grid), on top while the page is on it. */}
+        <View ref={(el) => { chipsNode = el; }} y={slots().chipsY ?? ROW_Y} width={LAYOUT.width} height={CHIPS_LINE_H} zIndex={3}
+          alpha={slots().chipsY === undefined ? 0 : 1}
+          onFocusChanged={(f: boolean) => { if (f) choose('chips'); }}
+          onUp={() => moveChips('up')} onDown={() => moveChips('down')} onLeft={() => moveChips('left')} onRight={() => moveChips('right')}
+          onEnter={openChip}>
+          <Show when={slots().chipsY !== undefined}>
+            <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{'Categories'}</Text>
+            <Text x={LAYOUT.safeX + 200} y={8} fontSize={FONT.small} color={COLORS.muted}>{`Ok opens the grid · Green: ${copy.allLabel}`}</Text>
+            <ChipRow x={LAYOUT.safeX} y={LABEL_H} width={LAYOUT.width - LAYOUT.safeX} chips={chips()} focus={chip()} lit={area() === 'chips'}
+              onChipClick={pointToChip} onWheel={onWheel} />
+          </Show>
+        </View>
+        {/* Rows: the line the page is on sits on top, the rows after it below. One focusable node owns the keys. */}
         <View ref={(el) => { rowsNode = el; }} y={0} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
           onFocusChanged={(f: boolean) => { if (f) choose('rows'); }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
-          <View ref={(el) => { wheelNode = el; }} y={ROW_LABEL_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_LABEL_Y} />
+          <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
           <For each={visibleRows()}>{(i) => {
             const r = () => rows()[i]!;
-            const y = () => (i === focus().row ? ROW_LABEL_Y : NEXT_LABEL_Y);
             return (
-              <View y={y()}>
+              <View y={rowY(i)}>
                 <Text x={LAYOUT.safeX} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
-                <PosterRow x={LAYOUT.safeX} y={44} width={LAYOUT.width - LAYOUT.safeX} row={r()}
+                <PosterRow x={LAYOUT.safeX} y={LABEL_H} width={LAYOUT.width - LAYOUT.safeX} row={r()}
                   focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                   onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
                   onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />

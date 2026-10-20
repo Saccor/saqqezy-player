@@ -2,13 +2,14 @@ import { For, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { VodTile } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { ROW_VISIBLE_COLS, cellAt, cellCount, type Cell, type RowModel } from '../vod/browseLogic.ts';
+import { ROW_VISIBLE_COLS, cellAt, cellCount, drawnCells, type Cell, type RowModel } from '../vod/browseLogic.ts';
 import { POSTER_GAP, POSTER_H, POSTER_W, PosterTile } from './PosterTile.tsx';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
 
 const PITCH = POSTER_W + POSTER_GAP;
 const tileOf = (c: Cell): VodTile | undefined => (c.kind === 'tile' ? c.tile : undefined);
-const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? `View all (${c.total})` : c.kind === 'loading' ? 'Loading…' : undefined);
+/** View all is a text tile; a loading cell is drawn as a skeleton (no tile, no label). */
+const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? `View all (${c.total})` : undefined);
 /** Tiles kept rendered beyond each edge of the visible ones. */
 const BUFFER = 3;
 
@@ -36,7 +37,7 @@ export function PosterRow(props: {
     return lastScroll;
   });
   const cols = createMemo(() => {
-    const r = renderRange(scroll(), ROW_VISIBLE_COLS, cells(), BUFFER);
+    const r = renderRange(scroll(), ROW_VISIBLE_COLS, drawnCells(props.row), BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
   const colAt = (px: number) => {

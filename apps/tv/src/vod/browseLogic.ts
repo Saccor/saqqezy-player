@@ -32,6 +32,11 @@ export function cellCount(r: RowModel): number {
   return r.items.length + (r.total > r.items.length ? 1 : 0);
 }
 
+/** Tiles drawn: a row still loading fills its strip with skeleton tiles (its first one is the focusable loading cell). */
+export function drawnCells(r: RowModel): number {
+  return r.loaded ? cellCount(r) : ROW_VISIBLE_COLS + 1;
+}
+
 export function cellAt(r: RowModel, col: number): Cell {
   if (!r.loaded) return { kind: 'loading' };
   const t = r.items[col];
@@ -76,9 +81,9 @@ export function locateFocus(rows: RowModel[], mem: FocusMemory): BrowseFocus {
   return { row, col: col >= 0 ? col : clampCol(r, mem.col) };
 }
 
-/** The focused row and the one below, when not loaded yet (or carried over and stale) and not empty. */
-export function rowsToLoad(rows: RowModel[], focusRow: number): number[] {
-  return [focusRow, focusRow + 1].filter((i) => rows[i] !== undefined && (!rows[i]!.loaded || rows[i]!.stale) && rows[i]!.total > 0);
+/** The focused row and `ahead` rows below it, when not loaded yet (or carried over and stale) and not empty. */
+export function rowsToLoad(rows: RowModel[], focusRow: number, ahead = 1): number[] {
+  return Array.from({ length: ahead + 1 }, (_, k) => focusRow + k).filter((i) => rows[i] !== undefined && (!rows[i]!.loaded || rows[i]!.stale) && rows[i]!.total > 0);
 }
 
 /** Category rows are sorted like the worker's home rows: by date when the source has dates. */
@@ -121,12 +126,4 @@ export function skeletonRows(area: { x: number; top: number; bottom: number }, r
       posters: Array.from({ length: cols }, (_, c) => ({ x: area.x + c * (posterW + gap), y: py, w: posterW, h: posterH })),
     };
   });
-}
-
-/**
- * The rows drawn: the focused one and the next peeking in below. In pointer mode only the focused one: the peek row's
- * label would sit under the shell's Back button.
- */
-export function visibleRowIndexes(focusRow: number, rowCount: number, pointer: boolean): number[] {
-  return (pointer ? [focusRow] : [focusRow, focusRow + 1]).filter((i) => i >= 0 && i < rowCount);
 }
