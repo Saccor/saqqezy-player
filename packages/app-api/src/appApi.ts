@@ -17,7 +17,7 @@ import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
 import { SportsController, eventTiles } from './sportsController.ts';
-import { assembleStartHome, type StartParts } from './startHome.ts';
+import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
@@ -608,31 +608,40 @@ export class AppApi {
       };
       const lastId = await this.storage.getMeta<string>(`lastChannel:${id}`).catch(() => undefined);
       const last = lastId ? this.index.get(lastId) : undefined;
-      const favs = this.index.slice(GROUP_FAV, 0, 30);
-      const liveChans = favs.length ? favs : this.index.slice(GROUP_RECENT, 0, 30);
+      // On now fills from favourites, then recents; only the rows that can show are built (at most the cap in all).
+      const favs = this.index.slice(GROUP_FAV, 0, START_CAPS.live);
+      const taken = new Set(favs.map((c) => c.id));
+      if (last) taken.add(last.id);
+      const recents = this.index.slice(GROUP_RECENT, 0, START_CAPS.live)
+        .filter((c) => !taken.has(c.id)).slice(0, Math.max(0, START_CAPS.live - taken.size));
       // The stored trending copies (a meta read; never waits on the network) before the VOD rows match against them.
       await safe(() => this.trending?.prime() ?? Promise.resolve(), undefined);
-      const [lastRows, liveNow, sports, movie, series] = await Promise.all([
+      const [lastRows, favourites, recentRows, sports, movie, series] = await Promise.all([
         safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
-        safe(() => this.toRows(liveChans), [] as ChannelRow[]),
+        safe(() => this.toRows(favs), [] as ChannelRow[]),
+        safe(() => this.toRows(recents), [] as ChannelRow[]),
         safe(() => this.getSportsEvents(), [] as SportsEventTile[]),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
-      const parts: StartParts = { liveNow, sports };
+      const parts: StartParts = { favourites, recents: recentRows, sports };
       if (lastRows[0]) parts.lastChannel = lastRows[0];
-      if (movie || series) parts.continueVod = [...(movie?.continue ?? []), ...(series?.continue ?? [])];
+      // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
+      if (movie || series) {
+        parts.continueMovies = movie?.continue ?? [];
+        parts.continueSeries = series?.continue ?? [];
+      }
       if (movie) parts.newMovies = { items: movie.recent, total: movie.recentTotal };
       if (series) parts.newSeries = { items: series.recent, total: series.recentTotal };
       if (movie) parts.topMovies = { items: movie.top, total: movie.topTotal };
       if (series) parts.topSeries = { items: series.top, total: series.topTotal };
       if (!this.trending) {
         // No feed configured: known empty, so a row cached by another build never lingers.
-        parts.trendingMovies = [];
-        parts.trendingSeries = [];
+        parts.trendingMovies = { items: [] };
+        parts.trendingSeries = { items: [] };
       } else {
-        if (movie?.trending) parts.trendingMovies = movie.trending;
-        if (series?.trending) parts.trendingSeries = series.trending;
+        if (movie?.trending) parts.trendingMovies = trendPart(movie.trending, movie.trendingAt);
+        if (series?.trending) parts.trendingSeries = trendPart(series.trending, series.trendingAt);
       }
       const cached = this.startCache?.sourceId === id ? this.startCache.home : await this.getStartHomeCached();
       const home = assembleStartHome(parts, this.now(), cached);
@@ -2052,3 +2061,5 @@ export const APP_API_METHODS = [
 // Compile-time check: every public method except the test-only `idle` is listed above.
 const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle'>, (typeof APP_API_METHODS)[number]>] extends [never] ? true : never = true;
 void exhaustive;
+
+const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });

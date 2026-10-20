@@ -359,9 +359,10 @@ export interface SportsEventTile {
 }
 
 export type StartRowId =
-  | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newMovies' | 'newSeries' | 'topMovies' | 'topSeries';
+  | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newLibrary' | 'topMovies' | 'topSeries';
 export type StartCell =
-  | { type: 'vod'; tile: VodTile }
+  /** `rank`: a Top 10 row's number, 1..N among the library's strongly matched titles in feed order. */
+  | { type: 'vod'; tile: VodTile; rank?: number }
   | { type: 'channel'; channel: ChannelRow; last?: true }
   | { type: 'event'; event: SportsEventTile }
   /** `order: 'rating'`: the whole kind best rated first (Top rated); otherwise that kind's Recently added. */

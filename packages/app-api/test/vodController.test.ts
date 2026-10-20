@@ -1371,6 +1371,26 @@ describe('VodController.startRows', () => {
     expect(few.top).toHaveLength(5);
   });
 
+  test('continue entries carry when they were last played (movies: the record; series: its latest episode)', async () => {
+    let t = NOW;
+    const { c } = await setup('xtream', () => t);
+    await c.refresh('movie');
+    const a = (await c.slice('movie', '1', 'title', 0, 1)).rows[0]!;
+    await c.saveProgress(a.id, 10 * 60_000, 60 * 60_000);
+    await c.home('movie');
+    expect((await c.startRows('movie'))!.continue).toEqual([{ tile: expect.objectContaining({ id: a.id }), at: NOW }]);
+
+    await c.refresh('series');
+    const showId = (await c.slice('series', 'all', 'title', 0, 1)).rows[0]!.id;
+    const first = (await c.series(showId))!.seasons[0]!.episodes[0]!;
+    const p = (await c.playable(first.id, showId))!;
+    t = NOW + 5_000;
+    await c.saveProgress(first.id, 0.95 * 2_700_000, 2_700_000, p.series);
+    await c.home('series');
+    const cont = (await c.startRows('series'))!.continue;
+    expect(cont).toEqual([{ tile: expect.objectContaining({ id: showId, badge: 'S1 · E2' }), at: NOW + 5_000 }]);
+  });
+
   test('a source change while snapping never leaves the old rows behind', async () => {
     const { c, sourceId } = await setup();
     await c.home('movie');
@@ -1415,8 +1435,11 @@ describe('VodController.startRows trending', () => {
     await c.idle();
     await c.home('movie');
     const rows = (await c.startRows('movie'))!;
-    expect(rows.trending!.map((t) => t.title)).toEqual(['Synthetic Film 003', 'Synthetic Film 001', 'Synthetic Film 005']);
-    expect(rows.trending![0]!.poster).toMatch(/\/poster\/m3\.svg$/);
+    expect(rows.trending!.map((t) => [t.tile.title, t.strong])).toEqual([
+      ['Synthetic Film 003', true], ['Synthetic Film 001', false], ['Synthetic Film 005', true],
+    ]);
+    expect(rows.trending![0]!.tile.poster).toMatch(/\/poster\/m3\.svg$/);
+    expect(rows.trendingAt).toBe('2026-10-20T00:00:00Z');
   });
 
   test('combined titles: one tile per title, its clean name and its versions', async () => {
@@ -1426,7 +1449,7 @@ describe('VodController.startRows trending', () => {
     await c.idle();
     await c.home('movie');
     const rows = (await c.startRows('movie'))!;
-    expect(rows.trending!.map((t) => t.title)).toEqual(['Synthetic Film 003']);
+    expect(rows.trending!.map((t) => t.tile.title)).toEqual(['Synthetic Film 003']);
   });
 
   test('no movie feed: no trending part for movies (the cached row stays)', async () => {

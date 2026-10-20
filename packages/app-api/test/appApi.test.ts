@@ -2405,6 +2405,22 @@ describe('AppApi – sports in your guide', () => {
     expect(stored).not.toMatch(/"url"/);
   });
 
+  test('getStartHome: On now is the last channel, then favourites, then recents, one tile per channel', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const [a, b, c] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
+    await api.toggleFavourite(a!);
+    await api.markWatched(b!, 'all');
+    await api.markWatched(a!, 'all');
+    await api.markWatched(c!, 'all');
+    await api.idle();
+    const live = (await api.getStartHome()).rows.find((r) => r.id === 'live')!;
+    expect(live.title).toBe('On now on your channels');
+    expect(live.cells.map((x) => (x.type === 'channel' ? [x.channel.id, x.last ?? false] : []))).toEqual([
+      [c, true], [a, false], [b, false],
+    ]);
+  });
+
   test('getStartHome: Top rated rows from the loaded catalogues, kept once the other kind is resident', async () => {
     const { api } = makeVod(new MemoryStorage());
     await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
@@ -2573,9 +2589,13 @@ describe('AppApi – trending rows', () => {
     await api.getVodHome('movie');
     const h = await api.getStartHome();
     const ids = h.rows.map((r) => r.id);
-    expect(ids.indexOf('trendingMovies')).toBeLessThan(ids.indexOf('newMovies'));
+    expect(ids.indexOf('trendingMovies')).toBeLessThan(ids.indexOf('newLibrary'));
     const row = h.rows.find((r) => r.id === 'trendingMovies')!;
-    expect(row.title).toBe('Trending movies');
+    // Five title + exact year matches: numbered 1..5; the feed is fresh.
+    expect(row.title).toBe('Top movies this week');
+    expect(row.cells.map((c) => (c.type === 'vod' ? c.rank : undefined))).toEqual([1, 2, 3, 4, 5]);
+    // A numbered Top row turns that kind's Top rated row off.
+    expect(ids).not.toContain('topMovies');
     expect(row.cells.map((c) => (c.type === 'vod' ? c.tile.title : ''))).toEqual(
       ['Synthetic Film 003', 'Synthetic Film 001', 'Synthetic Film 005', 'Synthetic Film 007', 'Synthetic Film 009'],
     );

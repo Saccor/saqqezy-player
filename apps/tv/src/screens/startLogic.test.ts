@@ -8,7 +8,7 @@ const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: 
 const rows: StartRow[] = [
   { id: 'continue', title: 'Continue watching', cells: [vod(1), vod(2), vod(3)] },
   { id: 'live', title: 'Live now', cells: [chan(1), chan(2)] },
-  { id: 'newMovies', title: 'Recently added movies', cells: [vod(4), { type: 'viewAll', target: 'movie', total: 40 }] },
+  { id: 'newLibrary', title: 'New in your library', cells: [vod(4), { type: 'viewAll', target: 'movie', total: 40 }] },
 ];
 
 describe('startLogic', () => {
@@ -43,7 +43,7 @@ describe('startLogic', () => {
   });
   test('poster row model for PosterRow', () => {
     const m = toPosterRow(rows[2]!);
-    expect(m).toMatchObject({ id: 'newMovies', total: 40, loaded: true });
+    expect(m).toMatchObject({ id: 'newLibrary', total: 40, loaded: true });
     expect(m.items.map((t) => t.id)).toEqual(['v4']);
   });
   test('gridMove: 5 columns, clamps, top edge', () => {
