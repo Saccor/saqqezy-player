@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CatchupPlayable } from '@iptv/app-api';
 import {
-  EARLY_END_MS, MISSING_TTL_MS, archiveLine, archiveStateOf, catchupPosition, catchupSubtitle, catchupVodPlayable, createMissingMarks,
+  EARLY_END_MS, MISSING_TTL_MS, archiveLine, canFromStart, archiveStateOf, catchupPosition, catchupSubtitle, catchupVodPlayable, createMissingMarks,
   endCardActions, guideOkAction, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from './catchupLogic.ts';
 
@@ -101,6 +101,14 @@ describe('the catch-up player', () => {
     expect(notAvailableFailure({ kind: 'ended' }, false, EARLY_END_MS + 1)).toBe(false);
     expect(notAvailableFailure({ kind: 'failed', reason: 'gone' }, true, 500)).toBe(false);
   });
+});
+
+it('From the start: a catch-up channel with its now programme on air', () => {
+  const now = { start: NOW - H, stop: NOW + H };
+  expect(canFromStart({ archiveDays: 3, now }, NOW)).toBe(true);
+  expect(canFromStart({ now }, NOW)).toBe(false);
+  expect(canFromStart({ archiveDays: 3 }, NOW)).toBe(false);
+  expect(canFromStart({ archiveDays: 3, now: { start: NOW - 2 * H, stop: NOW - H } }, NOW)).toBe(false);
 });
 
 it('not-available marks last 30 min, in memory', () => {

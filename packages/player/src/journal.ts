@@ -20,6 +20,8 @@ export type JournalEvent =
   | { k: 'drift'; t: number; action: 'seek' | 'reopen' | 'rate'; behindS?: number; targetS: number; rate?: number }
   | { k: 'failed'; t: number; reason: 'unavailable' | 'unsupported' | 'refused' | 'gone' }
   | { k: 'giveUpRetry'; t: number }
+  /** A catch-up programme the source did not return (its mode and HTTP status only: never a URL). */
+  | { k: 'catchupMissing'; t: number; mode?: string; httpStatus?: number }
   | { k: 'stop'; t: number };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -38,6 +40,7 @@ export interface JournalOptions {
 
 const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop',
+  'catchupMissing',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
 const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;

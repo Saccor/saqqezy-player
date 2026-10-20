@@ -466,6 +466,7 @@ export class AppApi {
         kind: 'catchup', channelId, channelName: this.index.get(channelId)?.name ?? ctx.channel.name, title: prog.title,
         start: prog.start, stop: prog.stop, openedAtMs: built.openStart - prog.start, url: built.url, stepMs: built.stepMs,
       };
+      if (ctx.channel.catchup) out.mode = ctx.channel.catchup.mode;
       if (built.alternateUrl) out.alternateUrl = built.alternateUrl;
       const headers = mergeHeaders(this.sourceHeaders, ctx.channel.headers);
       if (headers) out.headers = headers;
@@ -474,6 +475,16 @@ export class AppApi {
       await this.addStreamCooldown(out);
       return out;
     });
+  }
+
+  /** Settings → source → Catch-up time (minutes from UTC; undefined = Auto). No playlist refresh. */
+  setCatchupOffset(sourceId: string, minutes: number | undefined): Promise<number | undefined> {
+    return this.run('setCatchupOffset', async () => (await this.service.setCatchupOffset(sourceId, minutes)).catchupOffsetMin);
+  }
+
+  /** The active source's largest catch-up archive in days (0 without catch-up): how far back the Guide reaches. */
+  catchupDays(): Promise<number> {
+    return this.run('catchupDays', async () => this.channels.reduce((m, c) => Math.max(m, c.catchup?.days ?? 0), 0));
   }
 
   /**
@@ -1852,7 +1863,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive',
+  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',

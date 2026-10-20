@@ -6,6 +6,7 @@ import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/p
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
+import { iconTexture } from '../vod/icons.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
@@ -38,6 +39,8 @@ const NOW_LINE = 0xf5a524ff;
 const ON_AIR = 0x1f2939ff;
 const FILLER = 0x10141cff;
 const ROW_BG = 0x0f131aff;
+/** The archive glyph (catch-up marks): drawn before a past block's title, at the end of an on-air one. */
+const MARK = 22;
 
 function Logo(props: { url: string | undefined }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
@@ -63,7 +66,7 @@ function reuse(prev: readonly Block[] | undefined, next: Block[]): Block[] {
   const old = new Map(prev.map((b) => [`${b.start}:${b.stop}:${b.title}`, b]));
   return next.map((b) => {
     const o = old.get(`${b.start}:${b.stop}:${b.title}`);
-    return o && o.desc === b.desc && o.filler === b.filler ? o : b;
+    return o && o.desc === b.desc && o.filler === b.filler && o.archive === b.archive ? o : b;
   });
 }
 
@@ -96,6 +99,13 @@ export function EpgGrid(props: {
   onRight: () => boolean;
   onOk: () => boolean;
   onPage: (dir: 1 | -1) => boolean;
+  /** Menu: the Guide's options (catch-up: From the start, Go to day). */
+  onMenu?: () => boolean;
+  /**
+   * The archive mark of a block (spec 2026-10-20-catch-up §5.1): `past` for a programme the archive can play,
+   * `onAir` for one on a catch-up channel that can play from its start. Not by colour alone: a glyph.
+   */
+  archiveMark?: (row: number, b: Block) => 'past' | 'onAir' | undefined;
   /** Pointer click on a channel name or a programme block. */
   onCellClick?: (hit: GridHit<Block>) => void;
   /** One wheel step per axis (-1, 0 or 1). */
@@ -138,7 +148,8 @@ export function EpgGrid(props: {
       onFocusChanged={setFocused}
       onUp={() => props.onUp()} onDown={() => props.onDown()}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onOk()}
-      onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}>
+      onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}
+      onMenu={() => props.onMenu?.() ?? false}>
       {/* Ruler */}
       <Text x={10} y={(RULER_H - FONT.small) / 2 - 2} width={CHANNEL_W - 20} maxWidth={CHANNEL_W - 20} contain="width"
         maxLines={1} fontSize={FONT.small} color={COLORS.text}>{props.dayLabel}</Text>
@@ -186,11 +197,17 @@ export function EpgGrid(props: {
                     : sel() ? COLORS.surface : b.filler ? FILLER : isOnAir(b, props.now) ? ON_AIR : COLORS.surface);
                   const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.focus }
                     : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
-                  const textW = () => Math.max(0, w() - 24);
+                  const mark = () => (b.filler ? undefined : props.archiveMark?.(i, b));
+                  const textX = () => (mark() === 'past' ? 12 + MARK + 8 : 12);
+                  const textW = () => Math.max(0, w() - textX() - 12 - (mark() === 'onAir' ? MARK + 8 : 0));
                   return (
                     <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={8} border={ring()}>
+                      <Show when={mark() && w() > 48 + MARK}>
+                        <View x={mark() === 'past' ? 12 : w() - 12 - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
+                          src={iconTexture('archive')} color={lit() ? 0xffffffff : COLORS.muted} />
+                      </Show>
                       <Show when={w() > 48}>
-                        <Text x={12} y={(CELL_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width"
+                        <Text x={textX()} y={(CELL_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width"
                           maxLines={1} fontSize={FONT.body}
                           color={lit() ? COLORS.onFocus : b.filler ? COLORS.muted : COLORS.text}>{b.title}</Text>
                       </Show>

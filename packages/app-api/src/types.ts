@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveState, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
 export type { ArchiveState, SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -22,6 +22,8 @@ export interface ChannelRow {
 /** A past programme (or the current one from its start) from the source's archive (spec 2026-10-20-catch-up §3.4). */
 export interface CatchupPlayable {
   kind: 'catchup';
+  /** The URL form, for the playback journal only. */
+  mode?: CatchupMode;
   channelId: string;
   channelName: string;
   title: string;

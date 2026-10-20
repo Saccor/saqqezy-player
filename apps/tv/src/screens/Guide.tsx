@@ -1,10 +1,14 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
-import type { ChannelRow, ProgrammeLite } from '@iptv/app-api';
+import type { ArchiveState, ChannelRow, ProgrammeLite } from '@iptv/app-api';
 import type { GroupInfo } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { createChoiceMenu } from '../components/choiceMenu.tsx';
+import { CATCHUP_COPY } from '../copy.ts';
+import { showToast } from '../shell/Toast.tsx';
+import { archiveLine, archiveStateOf, guideOkAction, missingArchive } from '../vod/catchupLogic.ts';
 import { PointerBar } from '../components/PointerBar.tsx';
 import { GroupList } from '../components/GroupList.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
@@ -22,8 +26,8 @@ import { activeMaxConnections } from '../state/activeLimit.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { EpgCache } from './epgCache.ts';
 import {
-  GUIDE_POINTER_LABELS, HOUR, MINUTE, blockIndexAt, buildBlocks, dayLabel, guideClick, guideOpenTarget, guidePlayAction, guideWindow, isOnAir, pageTime,
-  prefetchRange, relativeLabel, stepLeft, stepRight, type Block, type HStep,
+  GUIDE_POINTER_LABELS, HOUR, MINUTE, blockIndexAt, buildBlocks, dayJumpTargets, dayJumpView, dayLabel, guideBackMs, guideClick,
+  guideOpenTarget, guidePlayAction, guideWindow, isOnAir, pageTime, prefetchRange, relativeLabel, stepLeft, stepRight, type Block, type HStep,
 } from './guideLogic.ts';
 import { formatRange, pickGroup, previewMessage } from './homeLogic.ts';
 
@@ -58,7 +62,8 @@ const memory: { groupId?: string } = {};
 export function GuideScreen(props: { entry: ScreenEntry }) {
   const sideW = () => (offline() ? SIDE_W_OFFLINE : SIDE_W);
   const opened = Date.now();
-  const win = guideWindow(opened);
+  /** Widened once the source's catch-up days are known (before the first rows load): see `guideBackMs`. */
+  let win = guideWindow(opened);
   const target = guideOpenTarget(props.entry.params, opened, win);
   const wantedGroup = target.groupId;
 
@@ -73,6 +78,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
   const [picking, setPicking] = createSignal<number | undefined>(undefined);
   const [expanded, setExpanded] = createSignal(false);
   const [ready, setReady] = createSignal(false);
+  /** The active source's largest archive (0: no catch-up). */
+  const [catchupDays, setCatchupDays] = createSignal(0);
+  /** Bumped when a refined row should be fetched again. */
+  const [kick, setKick] = createSignal(0);
 
   let root: ElementNode | undefined;
   let gridNode: ElementNode | undefined;
@@ -112,6 +121,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
   createEffect(() => {
     const g = groupId();
     if (g === undefined) return;
+    kick();
     const r = renderRange(top(), EPG_VIEW_ROWS, Math.max(total(), 1), ROW_BUFFER);
     const vs = viewStart();
     const wide = prefetchRange(vs, win);
@@ -216,6 +226,73 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
     })();
   };
 
+  // ---- catch-up ----
+
+  /** The archive state of a block (§2), with the source's own answer and the in-memory "not available" marks. */
+  const stateOf = (ch: ChannelRow | undefined, b: Block): ArchiveState => {
+    if (!ch || b.filler || missingArchive.has(ch.id, b.start, Date.now())) return 'none';
+    return archiveStateOf(ch.archiveDays, b, now(), b.archive);
+  };
+  const archiveMark = (i: number, b: Block): 'past' | 'onAir' | undefined => {
+    const s = stateOf(channelAt(i), b);
+    return s === 'available' ? 'past' : s === 'onAir' ? 'onAir' : undefined;
+  };
+
+  let openingCatchup = false;
+  /** Plays a programme from the archive in the catch-up player; the mini video plays until it takes over. */
+  const openCatchup = (ch: ChannelRow, b: Block) => {
+    if (openingCatchup) return;
+    openingCatchup = true;
+    devResume.release();
+    api.getCatchupPlayable(ch.id, b.start).then((r) => {
+      if (!alive) return;
+      if (!('kind' in r)) {
+        showToast(archiveLine(r.notAvailable, ch.archiveDays, b, Date.now()) ?? CATCHUP_COPY.noArchive);
+        return;
+      }
+      router.push('vodPlay', { catchup: r });
+    }, (err) => console.warn('Catch-up failed', err instanceof Error ? err.name : 'Error'))
+      .finally(() => { openingCatchup = false; });
+  };
+
+  const menu = createChoiceMenu('guideOptions', () => { if (alive) gridNode?.setFocus(); });
+  /** Menu: From the start (a catch-up programme on air) and Go to day (a guide with days of history). */
+  const openMenu = () => {
+    const ch = focusChannel();
+    const b = focusBlock();
+    const items = [
+      ...(ch && b && area() === 'grid' && stateOf(ch, b) === 'onAir' ? [{ id: 'fromStart', label: CATCHUP_COPY.fromStart }] : []),
+      ...(win.start < guideWindow(opened).start ? [{ id: 'goToDay', label: CATCHUP_COPY.goToDay }] : []),
+    ];
+    if (items.length === 0) return true;
+    void (async () => {
+      const pick = await menu.choose('TV guide', items);
+      if (!alive) return;
+      if (pick === 'fromStart' && ch && b) openCatchup(ch, b);
+      if (pick === 'goToDay') {
+        const days = dayJumpTargets(Date.now(), win);
+        const day = await menu.choose(CATCHUP_COPY.goToDay, days.map((d, i) => ({ id: String(i), label: d.label })));
+        const at = day === undefined ? undefined : days[Number(day)]?.at;
+        if (!alive || at === undefined) return;
+        const v = dayJumpView(at, Date.now(), win);
+        setArea('grid');
+        setViewStart(v.viewStart);
+        setAnchor(v.anchor);
+        setExpanded(false);
+      }
+    })();
+    return true;
+  };
+
+  // Focus resting 600 ms on a catch-up row in the past: ask the source for that row's own archive listings (Xtream).
+  createEffect(() => {
+    const ch = focusChannel();
+    const past = anchor() < now();
+    if (!ch || ch.archiveDays === undefined || !past) return;
+    const timer = setTimeout(() => { api.refineArchive(ch.id).catch(() => undefined); }, 600);
+    onCleanup(() => clearTimeout(timer));
+  });
+
   const keys = {
     onUp: () => setFocusRow(moveFocus(row(), -1, total())),
     onDown: () => setFocusRow(moveFocus(row(), 1, total())),
@@ -236,10 +313,18 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       const ch = focusChannel();
       if (!ch) return true;
       const b = focusBlock();
-      if (area() === 'channels' || !b || isOnAir(b, Date.now())) play(ch);
-      else setExpanded((v) => !v); // future or past: details only (no catch-up in v1)
+      if (area() === 'channels' || !b) {
+        play(ch);
+        return true;
+      }
+      // On air: live. A past programme the archive has: the catch-up player. Anything else: the details.
+      const action = guideOkAction(stateOf(ch, b), isOnAir(b, Date.now()));
+      if (action === 'live') play(ch);
+      else if (action === 'catchup') openCatchup(ch, b);
+      else setExpanded((v) => !v);
       return true;
     },
+    onMenu: openMenu,
   };
 
   // ---- pointer (mouse, pointer remote) ----
@@ -288,6 +373,12 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       stopTick = visibleInterval(() => setNow(Date.now()), MINUTE); // sleeps while the page is hidden
     }, MINUTE - (Date.now() % MINUTE));
     const off = onEvent('refreshed', () => cache.invalidate());
+    // The source's own archive listings for the focused row arrived: fetch that row again (no flicker).
+    const offRefined = onEvent('archiveRefined', (e) => {
+      if (focusChannel()?.id !== (e as { channelId?: string }).channelId) return;
+      cache.stalePage(row());
+      setKick((k) => k + 1);
+    });
     // A companion switched, added or deleted a source: re-read the groups and open the new source's list.
     const offSources = onEvent('sourcesChanged', (e) => {
       if ((e as { origin?: string }).origin !== 'remote') return;
@@ -305,12 +396,15 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
         }
       })();
     });
-    onCleanup(() => { clearTimeout(first); stopTick?.(); off(); offSources(); });
+    onCleanup(() => { clearTimeout(first); stopTick?.(); off(); offRefined(); offSources(); });
 
     void (async () => {
       try {
-        const gs = await api.getGroups();
+        const [gs, days] = await Promise.all([api.getGroups(), api.catchupDays().catch(() => 0)]);
         if (!alive) return;
+        // Days of history only when the source has catch-up channels (the stored guide keeps them for those only).
+        if (days > 0) win = guideWindow(opened, guideBackMs(days));
+        setCatchupDays(days);
         setGroups(gs);
         const located = await locatePlaying(gs);
         if (!alive || located === 'superseded') return;
@@ -348,7 +442,10 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
   const whenLine = () => {
     const b = focusBlock();
     if (!b) return '';
-    return `${dayLabel(b.start, now())} ${formatRange(b.start, b.stop)} · ${relativeLabel(b, now())}`;
+    // Catch-up: how long the archive keeps it, that it plays from the start, or why it cannot play (§5.1).
+    const ch = focusChannel();
+    const line = b.filler ? undefined : archiveLine(stateOf(ch, b), ch?.archiveDays, b, now());
+    return `${dayLabel(b.start, now())} ${formatRange(b.start, b.stop)} · ${line ?? relativeLabel(b, now())}`;
   };
   const descText = () => {
     const b = focusBlock();
@@ -390,7 +487,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
       <EpgGrid ref={(el) => { gridNode = el; }} x={LAYOUT.safeX} y={GRID_Y} total={total()} top={top()} focusRow={row()}
         focusStart={focusBlock()?.start} area={area()} viewStart={viewStart()} now={now()}
         playingId={playback.current()?.id} dayLabel={dayLabel(viewStart(), now())}
-        channel={channelAt} blocks={blocksAt} {...keys} onCellClick={onCellClick} onPointerWheel={onGridWheel} />
+        channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...keys} onCellClick={onCellClick} onPointerWheel={onGridWheel} />
 
       {/* Pointer mode only: the bottom row, after the shell's Back. The ruler stays as the remote sees it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={[
@@ -405,9 +502,13 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
           fontSize={FONT.small} color={COLORS.muted}>
           {area() === 'channels'
             ? 'Ok watch · Left groups · Right back to the guide · Ch+/Ch− page'
-            : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
+            : catchupDays() > 0
+              ? 'Ok watch / catch-up / details · Menu options · Left at the start: channels · Ch+/Ch− page'
+              : 'Ok watch now / details · Left at the start: channels and groups · Ch+/Ch− page'}
         </Text>
       </Show>
+
+      <menu.View />
 
       <Show when={picking() !== undefined}>{(_open) => {
         let backdrop: ElementNode | undefined;

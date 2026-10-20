@@ -88,7 +88,7 @@ export function SettingsScreen() {
   const [page, setPage] = createSignal(Math.min(memory.page, SETTINGS_PAGES.length - 1));
   const [area, setArea] = createSignal<'menu' | 'page'>('menu');
   const [dialog, setDialog] = createSignal<{ message: string; yes: string; answer: (yes: boolean) => void } | undefined>();
-  const [chooser, setChooser] = createSignal<{ title: string; items: OptionItem[]; answer: (id?: string) => void } | undefined>();
+  const [chooser, setChooser] = createSignal<{ title: string; items: OptionItem[]; initial?: number; answer: (id?: string) => void } | undefined>();
   const [busyText, setBusyText] = createSignal<string | undefined>(undefined);
 
   let menuNode: ElementNode | undefined;
@@ -163,7 +163,7 @@ export function SettingsScreen() {
       setDialog({ message, yes, answer });
       removeLayer = router.pushOverlay(DIALOG_ID, () => { removeLayer = undefined; setDialog(undefined); restoreFocus(); resolve(false); });
     }),
-    choose: (title, items) => new Promise<string | undefined>((resolve) => {
+    choose: (title, items, initial) => new Promise<string | undefined>((resolve) => {
       const answer = (id?: string) => {
         removeLayer?.();
         removeLayer = undefined;
@@ -171,7 +171,7 @@ export function SettingsScreen() {
         restoreFocus();
         resolve(id === 'cancel' ? undefined : id);
       };
-      setChooser({ title, items, answer });
+      setChooser({ title, items, answer, ...(initial !== undefined ? { initial } : {}) });
       removeLayer = router.pushOverlay(CHOOSER_ID, () => { removeLayer = undefined; setChooser(undefined); restoreFocus(); resolve(undefined); });
       queueMicrotask(() => chooserNode?.setFocus());
     }),
@@ -235,7 +235,7 @@ export function SettingsScreen() {
       </Show>
 
       <Show when={chooser()}>{(c) => (
-        <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} onChoose={(cid) => c().answer(cid)} />
+        <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
       )}</Show>
       <Show when={dialog()}>{(d) => (
         <ConfirmDialog message={d().message} yes={d().yes} no="Cancel" onYes={() => d().answer(true)} onNo={() => d().answer(false)} />

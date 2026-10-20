@@ -188,6 +188,21 @@ export class SourceService {
     });
   }
 
+  /**
+   * Settings → source → Catch-up time: the user's correction in minutes (undefined = Auto). Saved on the source without
+   * a playlist refresh (catch-up URLs are built when they play).
+   */
+  setCatchupOffset(id: string, minutes: number | undefined): Promise<SourceConfig> {
+    return this.withLock(id, async () => {
+      const source: SourceConfig = { ...(await this.requireSource(id)) };
+      delete source.catchupOffsetMin;
+      if (minutes !== undefined) source.catchupOffsetMin = minutes;
+      const next = withCleanCatchupOffset(source);
+      await this.storage.putSource(next);
+      return next;
+    });
+  }
+
   deleteSource(id: string): Promise<void> {
     return this.withLock(id, async () => {
       await this.storage.clearProgrammes(await this.currentEpgKey(id));

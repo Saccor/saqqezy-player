@@ -40,6 +40,11 @@ export function archiveLine(state: ArchiveState, days: number | undefined, prog:
   return undefined;
 }
 
+/** A channel row whose programme on now can play from its start: catch-up and a now programme on air. */
+export function canFromStart(ch: { archiveDays?: number; now?: { start: number; stop: number } }, now: number): boolean {
+  return ch.archiveDays !== undefined && ch.now !== undefined && ch.now.start <= now && now < ch.now.stop;
+}
+
 /** What Ok does on a Guide programme (§5.1): play it from the archive, tune live, or toggle the details. */
 export function guideOkAction(state: ArchiveState, onAir: boolean): 'catchup' | 'live' | 'details' {
   if (onAir) return 'live';

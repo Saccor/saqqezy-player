@@ -8,7 +8,13 @@ const W = 900;
 const ROWS = 7;
 
 /** The channels in the user's playlist that air one event (spec §4), best first (the worker sorts them). */
-export function EventChannels(props: { title: string; when: string; rows: ChannelRow[]; now: number; onPick: (channelId: string) => void }) {
+export function EventChannels(props: {
+  title: string; when: string; rows: ChannelRow[]; now: number; onPick: (channelId: string) => void;
+  /** Menu on a row (catch-up: From the start on a row with an archive). */
+  onRowMenu?: (channelId: string) => void;
+  /** A line under the list (what Menu does). */
+  hint?: string;
+}) {
   const [focus, setFocus] = createSignal(0);
   const [top, setTop] = createSignal(0);
   let list: ElementNode | undefined;
@@ -29,11 +35,13 @@ export function EventChannels(props: { title: string; when: string; rows: Channe
       <View x={x - 24} y={y - 24} width={W + 48} height={h + 168} color={COLORS.panel} borderRadius={LAYOUT.radius}>
         <Text x={24} y={20} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
         <Text x={24} y={64} fontSize={FONT.small} color={COLORS.muted}>{props.when}</Text>
+        <Text x={24} y={h + 116} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>{props.hint ?? ''}</Text>
       </View>
       <ChannelList ref={(el) => { list = el; }} x={x} y={y + 96} width={W} height={h} total={props.rows.length} top={top()} focus={focus()}
         row={(i) => props.rows[i]} now={props.now} playingId={undefined}
         onMove={move} onPage={(d) => move(d * ROWS)} onLeft={() => true}
-        onOk={() => pick(focus())} onOptions={() => true} onRowClick={(i) => { pick(i); }} />
+        onOk={() => pick(focus())} onOptions={() => { const r = props.rows[focus()]; if (r) props.onRowMenu?.(r.id); return true; }}
+        onRowClick={(i) => { pick(i); }} />
     </View>
   );
 }

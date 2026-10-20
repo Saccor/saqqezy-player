@@ -9,6 +9,8 @@ import { applyInitState } from '../../state/appState.ts';
 import { maxConnectionsOf } from '../../state/sourceLimit.ts';
 import { connectionsLine } from '../addSourceLogic.ts';
 import { markSubscreenLeave, type PageProps } from './shared.ts';
+import { CATCHUP_COPY } from '../../copy.ts';
+import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetLabel } from '../settingsLogic.ts';
 
 const ADD_ID = '__add';
 /** Focused row across visits (Edit/Add source return to it). */
@@ -104,6 +106,23 @@ export function SourcesPage(props: PageProps) {
     setSel((i) => Math.min(i, items().length - 1));
   };
 
+  /** Catch-up time: Auto or a fixed offset from UTC (the list opens at the current value). Saved without a refresh. */
+  const catchupTime = async (s: { id: string; name: string }) => {
+    const current = (await api.getSource(s.id).catch(() => undefined))?.catchupOffsetMin;
+    if (!alive) return;
+    const choices = catchupOffsetChoices();
+    const at = Math.max(0, choices.findIndex((c) => c.id === (current === undefined ? 'auto' : String(current))));
+    const pick = await props.choose(`${CATCHUP_COPY.time} · ${CATCHUP_COPY.timeHelp}`, choices, at);
+    if (!alive || pick === undefined) return;
+    try {
+      const saved = await api.setCatchupOffset(s.id, catchupOffsetFromId(pick));
+      showToast(`${CATCHUP_COPY.time}: ${catchupOffsetLabel(saved)}`);
+    } catch (err) {
+      console.warn('Catch-up time save failed', err instanceof Error ? err.name : 'Error');
+      showToast("Couldn't save the catch-up time.");
+    }
+  };
+
   const onOk = async (id: string) => {
     if (id === ADD_ID) {
       markSubscreenLeave();
@@ -116,6 +135,7 @@ export function SourcesPage(props: PageProps) {
       ...(s.active ? [] : [{ id: 'active', label: 'Set as active' }]),
       { id: 'edit', label: 'Edit' },
       { id: 'advanced', label: 'Advanced' },
+      { id: 'catchupTime', label: CATCHUP_COPY.time },
       ...(s.active ? [{ id: 'refresh', label: 'Refresh now' }] : []),
       { id: 'delete', label: 'Delete' },
       { id: 'cancel', label: 'Cancel' },
@@ -124,6 +144,7 @@ export function SourcesPage(props: PageProps) {
     if (choice === 'active') await setActive(s);
     else if (choice === 'edit') { markSubscreenLeave(); router.push('addSource', { sourceId: s.id }); }
     else if (choice === 'advanced') { markSubscreenLeave(); router.push('addSource', { sourceId: s.id, advanced: true }); }
+    else if (choice === 'catchupTime') await catchupTime(s);
     else if (choice === 'refresh') await refreshNow();
     else if (choice === 'delete') await remove(s);
   };

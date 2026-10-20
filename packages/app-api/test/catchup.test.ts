@@ -88,6 +88,24 @@ describe('getCatchupPlayable (Xtream)', () => {
     expect(await api.getCatchupPlayable('nope', SLOT(NOW))).toEqual({ notAvailable: 'none' });
   });
 
+  test('a manual catch-up time writes wall-clock URLs in that offset, without a playlist refresh', async () => {
+    let lists = 0;
+    const counting: FetchFn = (u, i) => {
+      if (u.includes('get_live_streams')) lists++;
+      return fetch(u, i);
+    };
+    const { api, ch, sourceId } = await xtream(counting);
+    const before = lists;
+    expect(await api.setCatchupOffset(sourceId, 61)).toBe(60);
+    expect(lists).toBe(before);
+    expect((await api.getSource(sourceId))?.catchupOffsetMin).toBe(60);
+    const p = await api.getCatchupPlayable(ch(1), SLOT(NOW) - 2 * H);
+    expect(isPlayable(p) && p.url).toBe(`${server.url}/timeshift/test/test/31/2026-10-20:17-00/1.ts`);
+    expect((await api.diagnostics()).sources[0]!.catchupTime).toBe('manual +1:00');
+    expect(await api.setCatchupOffset(sourceId, undefined)).toBeUndefined();
+    expect((await api.diagnostics()).sources[0]!.catchupTime).toBe('Europe/Stockholm');
+  });
+
   test('the source User-Agent goes with the archive URL', async () => {
     const { api, ch } = await xtream(undefined, { userAgent: 'SyntheticAgent/1.0' });
     const p = await api.getCatchupPlayable(ch(1), SLOT(NOW) - 2 * H);

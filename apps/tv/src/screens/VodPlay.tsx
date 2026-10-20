@@ -1,6 +1,6 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
-import type { VodPlayable, VodTracks } from '@iptv/app-api';
+import type { CatchupPlayable, VodPlayable, VodTracks } from '@iptv/app-api';
 import { cueAt, type LoadedSubtitle, type SubtitleInput } from '@iptv/core';
 import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
@@ -12,7 +12,11 @@ import { onLogicalKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
-import { playback } from '../playback/playback.ts';
+import { isVodId, journal, playback } from '../playback/playback.ts';
+import { CATCHUP_COPY } from '../copy.ts';
+import {
+  REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
+} from '../vod/catchupLogic.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
@@ -90,10 +94,17 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
  * subtitles for engines that cannot draw them, the next-episode card, and the failure messages.
  */
 export function VodPlayScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { playable: VodPlayable; fromStart?: boolean };
-  const p = params.playable;
-  const startMs = params.fromStart ? 0 : p.resumeMs;
+  const params = props.entry.params as { playable?: VodPlayable; fromStart?: boolean; catchup?: CatchupPlayable };
+  /**
+   * Catch-up mode (spec 2026-10-20-catch-up §5.4): a programme from the source's archive, played as a stand-in title.
+   * Its timeline is the programme; nothing is saved (no progress, no remembered tracks, no loaded subtitles).
+   */
+  const cu = params.catchup;
+  const p: VodPlayable = cu ? catchupVodPlayable(cu) : params.playable!;
+  const startMs = cu ? 0 : params.fromStart ? 0 : p.resumeMs;
   const standId = `vod:${p.itemId}`;
+  /** The live channel that played before a catch-up programme opened: Back plays it again. */
+  const liveBefore = cu && !isVodId(playback.current()?.id) ? playback.current()?.id : undefined;
 
   const [now, setNow] = createSignal(Date.now());
   const [lastKeyAt, setLastKeyAt] = createSignal(Date.now());
@@ -124,6 +135,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const [subDelay, setSubDelay] = createSignal(0);
   /** The loaded file came from "Find subtitles online": its language's versions, best first, and which one shows. */
   const [onlineVersion, setOnlineVersion] = createSignal<{ label: string; files: number[]; index: number } | undefined>(undefined);
+  /** Catch-up: the URL playing now (a seek may re-open another), and where in the programme it starts. */
+  const [cur, setCur] = createSignal<CatchupPlayable | undefined>(cu);
+  const [openedAt, setOpenedAt] = createSignal(cu?.openedAtMs ?? 0);
+  /** Catch-up: the programme ended (or its end was reached); the card offers the next one and live. */
+  const [endCard, setEndCard] = createSignal(false);
+  /** Catch-up: the source did not return this programme (§5.5). */
+  const [notAvail, setNotAvail] = createSignal(false);
 
   let root: ElementNode | undefined;
   let barNode: ElementNode | undefined;
@@ -153,6 +171,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let switchBusy = false;
   /** The no-sound toast was shown (once per title). */
   let soundWarned = false;
+  /** Catch-up: a frame was seen (a later failure is a normal one), when the stream was asked for, and the last re-open. */
+  let everPlayed = false;
+  let openedWall = Date.now();
+  let lastReopenAt: number | undefined;
+  let reopenTimer: ReturnType<typeof setTimeout> | undefined;
+  let reopenSeq = 0;
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
@@ -191,8 +215,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
   /** The playhead and duration only while the stream is this title's (never a held title's or another one's). */
   const ours = () => playback.current()?.id === standId;
-  const trustedPos = () => (ours() ? playback.positionMs() : undefined);
-  const trustedDur = () => (ours() ? playback.durationMs() : undefined);
+  /** Catch-up: programme time (where the URL starts plus the engine's playhead), and the programme's length. */
+  const trustedPos = () => {
+    if (!ours()) return undefined;
+    const e = playback.positionMs();
+    return e === undefined || !cu ? e : openedAt() + e;
+  };
+  const trustedDur = () => (ours() ? (cu ? p.durationMs : playback.durationMs()) : undefined);
   const focusRoot = () => queueMicrotask(() => { if (alive) root?.setFocus(); });
 
   // ---- progress ----
@@ -202,7 +231,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
    * unmount.
    */
   const save = (atMs?: number) => {
-    if (!alive) return;
+    if (!alive || cu) return; // catch-up never appears in Continue watching
     const d = knownDuration(trustedDur(), p.durationMs);
     if (atMs === undefined) {
       arm();
@@ -227,7 +256,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     setPickerOpen(false);
   };
 
-  /** Back: save, stop, leave. */
+  /** Back: save, stop, leave. After a catch-up programme, the live channel that played before plays again. */
   const leave = (saveFirst = true) => {
     if (!alive) return;
     closePicker();
@@ -237,6 +266,97 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     stopOurs();
     alive = false;
     router.back();
+    if (liveBefore) resumeLive(liveBefore);
+  };
+
+  /** Plays a live channel again (no screen change): the screen below sets its own video rect. */
+  const resumeLive = (channelId: string) => {
+    const token = playback.begin();
+    api.getPlayable(channelId).then((pc) => {
+      if (pc && playback.isLatest(token) && playback.current() === undefined) playback.playChannel(pc);
+    }, (err) => console.warn('Live resume failed', errName(err)));
+  };
+
+  /** Catch-up: Watch live on the programme's channel (back to a Player below, else a new one in this place). */
+  const watchLive = () => {
+    const c = cur();
+    if (!c || !alive) return;
+    const token = playback.begin();
+    api.getPlayable(c.channelId).then((pc) => {
+      if (!alive || !pc || !playback.isLatest(token)) return;
+      alive = false;
+      closePicker();
+      playback.playChannel(pc);
+      const params2 = { channelId: c.channelId, groupId: 'all' };
+      if (router.below()?.screen === 'player') router.back(params2);
+      else router.replace('player', params2);
+    }, (err) => {
+      console.warn('Watch live failed', errName(err));
+      showToast(CANT_PLAY_NOW);
+    });
+  };
+
+  /** Catch-up: the next programme of the channel from the archive, in this player's place. */
+  const playNextProgramme = () => {
+    const c = cur();
+    if (!c?.next || !alive) return;
+    api.getCatchupPlayable(c.channelId, c.next.start).then((n) => {
+      if (!alive) return;
+      if (!('kind' in n)) {
+        showToast(CATCHUP_COPY.notAvailable);
+        return;
+      }
+      alive = false;
+      closePicker();
+      router.replace('vodPlay', { catchup: n });
+    }, (err) => console.warn('Next programme failed', errName(err)));
+  };
+
+  /** Catch-up: a new archive URL that starts at `targetMs` into the programme (at most one per 2 s, close before open). */
+  const reopenAt = (targetMs: number) => {
+    const c = cur();
+    if (!c || !alive) return;
+    const now = Date.now();
+    if (!reopenAllowed(lastReopenAt, now)) {
+      if (reopenTimer !== undefined) clearTimeout(reopenTimer);
+      reopenTimer = setTimeout(() => { reopenTimer = undefined; reopenAt(targetMs); }, REOPEN_MIN_GAP_MS - (now - (lastReopenAt ?? now)));
+      return;
+    }
+    lastReopenAt = now;
+    const seq = ++reopenSeq;
+    setPos(targetMs);
+    lastPos = targetMs;
+    api.getCatchupPlayable(c.channelId, c.start, targetMs).then((n) => {
+      if (!alive || seq !== reopenSeq) return;
+      if (!('kind' in n)) {
+        showToast(CATCHUP_COPY.notAvailable);
+        return;
+      }
+      setCur(n);
+      setOpenedAt(n.openedAtMs);
+      setBufEnd(undefined);
+      openedWall = Date.now();
+      playback.playVod(catchupVodPlayable(n), reopenStartMs(targetMs, n.openedAtMs, n.url));
+    }, (err) => console.warn('Catch-up seek failed', errName(err)));
+  };
+
+  /** Catch-up: the source did not return this programme. The Guide stops offering it for a while; the journal notes it. */
+  const showNotAvailable = (httpStatus?: number) => {
+    if (notAvail()) return;
+    const c = cur();
+    if (c) missingArchive.mark(c.channelId, c.start, Date.now());
+    journal.add({ k: 'catchupMissing', t: Date.now(), ...(c?.mode ? { mode: c.mode } : {}), ...(httpStatus !== undefined ? { httpStatus } : {}) });
+    stopOurs();
+    setNotAvail(true);
+    queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
+  };
+  const showEndCard = () => {
+    if (endCard() || notAvail()) return;
+    if (!playback.paused()) playback.pause();
+    setEndCard(true);
+    dropSeek();
+    closePicker();
+    queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
   };
 
   // ---- pause and seek ----
@@ -269,6 +389,19 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const s = scrub();
     dropSeek();
     if (!s || !alive) return;
+    if (cu) {
+      // In place when the open stream covers the target (HLS archive playlists), else a new URL from there.
+      const plan = seekPlan(s.targetMs, openedAt(), playback.durationMs());
+      if (plan.kind === 'inPlace') {
+        playback.seek(plan.engineMs);
+        setPos(s.targetMs);
+        setBufEnd(undefined);
+        lastPos = s.targetMs;
+      } else {
+        reopenAt(plan.offsetMs);
+      }
+      return;
+    }
     arm({ userSeeked: true }); // the user chose this position
     playback.seek(s.targetMs);
     setPos(s.targetMs);
@@ -278,7 +411,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** The duration a seek may use now; undefined while the title failed, ended or has no known length. */
   const seekableDur = () => {
-    if (failed() || ended()) return undefined;
+    if (failed() || ended() || notAvail()) return undefined;
+    // Catch-up: the programme, and for one on air only up to now.
+    if (cu) return seekLimitMs(cur() ?? cu, Date.now()) || undefined;
     const d = trustedDur();
     return d !== undefined && Number.isFinite(d) && d > 0 ? d : undefined;
   };
@@ -373,6 +508,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
     const base = trackRows(playback.audioTracks(), playback.textTracks())
       .map((r) => (r.kind === 'list' && r.id === SUBTITLES_OFF && on ? { ...r, checked: false } : r));
+    // Catch-up: the stream's own tracks only (a loaded file would be kept per title, and catch-up keeps nothing).
+    if (cu) return base;
     return [...base, ...subtitleExtraRows({
       external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
       delayMs: subDelay(), pointer: pointerMode(),
@@ -387,6 +524,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
 
   const remember = (tracks: VodTracks) => {
+    if (cu) return; // catch-up keeps nothing
     // Episodes remember their choices per series; movies per title.
     api.setVodTracks(tracksKeyId(p), tracks).catch((err) => console.warn('Track save failed', errName(err)));
   };
@@ -773,15 +911,27 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   const retry = () => {
     bump();
+    if (cu) {
+      reopenAt(lastPos ?? openedAt());
+      focusRoot();
+      return;
+    }
     // Until saves are armed the playhead is not the title's real position (it never played, or dropped the start seek).
     playback.playVod(p, saveArmed ? (lastPos ?? startMs) : startMs);
     focusRoot();
   };
-  const cardActions = (): Action[] => (failed()
-    ? [{ id: 'retry', label: 'Try again', width: 260 }]
-    : [{ id: 'nextNow', label: 'Play now', width: 260 }, { id: 'cancel', label: 'Cancel', width: 220 }]);
+  const cardActions = (): Action[] => {
+    if (notAvail()) return [{ id: 'live', label: CATCHUP_COPY.watchLive, width: 260 }, { id: 'back', label: 'Back', width: 220 }];
+    if (endCard()) return endCardActions(cur()?.next).map((a) => ({ id: a.id, label: a.label, width: a.id === 'next' ? 420 : a.id === 'live' ? 260 : 220 }));
+    return failed()
+      ? [{ id: 'retry', label: 'Try again', width: 260 }]
+      : [{ id: 'nextNow', label: 'Play now', width: 260 }, { id: 'cancel', label: 'Cancel', width: 220 }];
+  };
   const onCardAction = (id: string) => {
-    if (id === 'retry') retry();
+    if (id === 'live') watchLive();
+    else if (id === 'back') leave(false);
+    else if (id === 'next') playNextProgramme();
+    else if (id === 'retry') retry();
     else if (id === 'nextNow') void playNext();
     else if (id === 'cancel') { stopCountdown(); leave(false); }
   };
@@ -790,7 +940,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** Ok on the root (the overlay hidden, or shown by a pause): pause, and the timeline takes the focus. */
   const onEnter = () => {
-    if (failed() || ended()) return true;
+    if (failed() || ended() || endCard() || notAvail()) return true;
     if (!visible()) {
       bump();
       if (!playback.paused()) togglePause();
@@ -842,12 +992,28 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // A (re)start that reaches 'playing': re-apply the remembered tracks at once (the tick catches a quick reopen).
   createEffect(on(() => status()?.kind, (kind) => {
-    if (kind === 'playing') applyTracks();
+    if (kind === 'playing') {
+      everPlayed = true;
+      applyTracks();
+    }
+  }));
+
+  // Catch-up: an end right after the open with no frame is Not available; any other end shows the end card.
+  createEffect(on(ended, (isEnded) => {
+    if (!cu || !isEnded) return;
+    if (notAvailableFailure({ kind: 'ended' }, everPlayed, Date.now() - openedWall)) showNotAvailable();
+    else showEndCard();
+  }));
+
+  // Catch-up: a first open the source answered with 404/410/400/5xx (both forms) is Not available.
+  createEffect(on(() => failed(), (f) => {
+    if (!cu || !f) return;
+    if (notAvailableFailure(f, everPlayed, Date.now() - openedWall)) showNotAvailable(f.httpStatus);
   }));
 
   // Ended: save the end position; offer the next episode, else return to the detail.
   createEffect(on(ended, (isEnded) => {
-    if (!isEnded || endedHandled) return;
+    if (cu || !isEnded || endedHandled) return;
     endedHandled = true;
     dropSeek();
     const d = knownDuration(trustedDur(), p.durationMs);
@@ -859,7 +1025,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // A failure with a Try again button takes the focus; any other failure leaves it on the root (Back still works).
   createEffect(on(() => failed()?.reason, (reason) => {
-    if (reason === undefined) return;
+    if (reason === undefined || notAvail()) return;
     dropSeek();
     closePicker();
     if (reason !== 'unsupported') queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
@@ -910,6 +1076,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
+      // Catch-up: the programme's end reached (the archive may run on into the next one, or reach live).
+      if (cu && playing && at !== undefined && d !== undefined && at >= d) showEndCard();
       // A silent picture (a sound format this device cannot decode): say so once instead of playing on in silence.
       if (!soundWarned && playing && !playback.paused() && playback.soundUndecodable()) {
         soundWarned = true;
@@ -935,8 +1103,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const offKeys = onLogicalKey(() => bump());
     const offSubs = playback.onSubtitle((text) => { if (alive && !extOn()) setCue(cueText(text)); });
     // The subtitles loaded earlier for this title: shown when chosen (the tracks may already have been applied).
-    api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });
-    api.getSubtitle(p.itemId).then((loaded) => {
+    // Catch-up keeps no subtitles of its own.
+    if (!cu) api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });
+    if (!cu) api.getSubtitle(p.itemId).then((loaded) => {
       if (!alive || !loaded) return;
       setExternal(loaded);
       setSubDelay(loaded.delayMs ?? 0);
@@ -955,6 +1124,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   onCleanup(() => {
     alive = false;
     dropSeek();
+    if (reopenTimer !== undefined) clearTimeout(reopenTimer);
     if (rowsTimer !== undefined) clearTimeout(rowsTimer);
     if (countdownTimer !== undefined) clearInterval(countdownTimer);
     // A delay changed just before leaving: save it now.
@@ -986,9 +1156,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
    */
   const card = createMemo(() => {
     const f = failed();
-    const text = f
-      ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
-      : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
+    const text = notAvail() ? CATCHUP_COPY.notAvailable
+      : endCard() ? `End of ${title}`
+        : f
+          ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
+          : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
     const small = !fitsBox(text, MESSAGE_BOXES.vodCard);
     return { text, box: small ? MESSAGE_BOXES.vodCardSmall : MESSAGE_BOXES.vodCard, font: small ? FONT.body : FONT.heading };
   });
@@ -1032,6 +1204,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}
             onDown={focusBar} onFocusChanged={(f) => { timelineFocused = f; }}
             onPointerSeek={pointerSeek} onDrag={onDrag} onHover={bump} />
+          {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
+          <Show when={cu && now() < (cur() ?? cu).stop}>
+            <View x={CONTENT_X + Math.round((CONTENT_W * seekLimitMs(cur() ?? cu!, now())) / Math.max(1, p.durationMs ?? 1)) - 2}
+              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.focus} borderRadius={2} />
+          </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={FONT.body} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
           <Show when={dur() !== undefined}>
@@ -1053,14 +1230,14 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <StatusPill text={statusText()} zIndex={20} />
       </Show>
 
-      <Show when={failed() || (countdown() !== undefined && p.next)}>
+      <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
         <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
           color={COLORS.panel} borderRadius={LAYOUT.radius * 2}>
           {/* The text area above the buttons: y 24 to 148. */}
           <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
             contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
             fontSize={card().font} color={COLORS.text}>{card().text}</Text>
-          <Show when={failed()?.reason !== 'unsupported'}>
+          <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
               x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - 72 - 40}
               actions={cardActions()} onAction={onCardAction} />

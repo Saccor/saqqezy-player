@@ -17,6 +17,11 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('sanitizeEvent', () => {
+  it('keeps a catch-up miss with its mode and status only', () => {
+    expect(sanitizeEvent({ k: 'catchupMissing', t: 1, mode: 'xc', httpStatus: 404 })).toEqual({ k: 'catchupMissing', t: 1, mode: 'xc', httpStatus: 404 });
+    expect(sanitizeEvent({ k: 'catchupMissing', t: 1, mode: 'http://x.test/a?u=1' })).toEqual({ k: 'catchupMissing', t: 1 });
+  });
+
   it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {
     expect(sanitizeEvent({ k: 'nope', t: 1 })).toBeUndefined();
     expect(sanitizeEvent({ k: 'stop' })).toBeUndefined();

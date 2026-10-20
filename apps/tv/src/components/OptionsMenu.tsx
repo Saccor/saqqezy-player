@@ -32,8 +32,10 @@ export function OptionsMenu(props: {
   title: string;
   items: OptionItem[];
   onChoose: (id: string) => void;
+  /** The item selected when the menu opens (a long list opens at the current value). */
+  initial?: number;
 }) {
-  const [sel, setSel] = createSignal(0);
+  const [sel, setSel] = createSignal(Math.max(0, Math.min(props.items.length - 1, props.initial ?? 0)));
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let backdrop: ElementNode | undefined;
   let panel: ElementNode | undefined;
