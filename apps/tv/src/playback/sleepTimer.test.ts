@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SLEEP_OPTIONS, createSleepTimer, nextSleepOption, type SleepState } from './sleepTimer.ts';
+import { SLEEP_OPTIONS, createSharedSleepTimer, createSleepTimer, nextSleepOption, type SleepState } from './sleepTimer.ts';
 
 const MIN = 60_000;
 
@@ -88,5 +88,88 @@ describe('nextSleepOption', () => {
     expect(nextSleepOption(90)).toBe(120);
     expect(nextSleepOption(120)).toBe(0);
     expect(nextSleepOption(42)).toBe(0);
+  });
+});
+
+describe('createSharedSleepTimer (one timer across Player visits)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const player = () => {
+    const states: SleepState[] = [];
+    const onExpire = vi.fn();
+    return { l: { onChange: (s: SleepState) => states.push(s), onExpire }, states, onExpire };
+  };
+
+  it('an armed timer survives a detach (Guide, Home) and shows its state to the next Player at once', () => {
+    const shared = createSharedSleepTimer({ askSeconds: 60 });
+    const first = player();
+    const detach = shared.attach(first.l);
+    shared.set(30);
+    expect(first.states).toMatchObject([{ kind: 'armed', minutes: 30 }]);
+    detach();
+    vi.advanceTimersByTime(10 * MIN);
+    const second = player();
+    shared.attach(second.l);
+    expect(second.states).toMatchObject([{ kind: 'armed', minutes: 30 }]);
+    expect(shared.minutesLeft()).toBe(20);
+  });
+
+  it('an off timer tells a new Player nothing', () => {
+    const shared = createSharedSleepTimer();
+    const p = player();
+    shared.attach(p.l);
+    expect(p.states).toEqual([]);
+  });
+
+  it('the question reaches the attached Player and its expiry too; a detached one no longer hears anything', () => {
+    const shared = createSharedSleepTimer({ askSeconds: 60 });
+    const first = player();
+    const detach = shared.attach(first.l);
+    shared.set(15);
+    detach();
+    const second = player();
+    shared.attach(second.l);
+    vi.advanceTimersByTime(15 * MIN);
+    expect(second.states.at(-1)).toEqual({ kind: 'asking', secondsLeft: 60 });
+    expect(first.states).toHaveLength(1);
+    vi.advanceTimersByTime(60_000);
+    expect(second.onExpire).toHaveBeenCalledTimes(1);
+    expect(first.onExpire).not.toHaveBeenCalled();
+    expect(shared.state()).toEqual({ kind: 'off' });
+  });
+
+  it('a Player attached during the question reopens it with the seconds left', () => {
+    const shared = createSharedSleepTimer({ askSeconds: 60 });
+    shared.set(15);
+    vi.advanceTimersByTime(15 * MIN + 20_000);
+    const p = player();
+    shared.attach(p.l);
+    expect(p.states).toEqual([{ kind: 'asking', secondsLeft: 40 }]);
+  });
+
+  it('with no Player attached the expiry runs the unattended fallback (the app stops playback)', () => {
+    const unattended = vi.fn();
+    const shared = createSharedSleepTimer({ askSeconds: 60, onExpireUnattended: unattended });
+    const p = player();
+    const detach = shared.attach(p.l);
+    shared.set(15);
+    detach();
+    vi.advanceTimersByTime(15 * MIN + 60_000);
+    expect(unattended).toHaveBeenCalledTimes(1);
+    expect(p.onExpire).not.toHaveBeenCalled();
+    expect(shared.state()).toEqual({ kind: 'off' });
+  });
+
+  it('a stale detach from an earlier Player does not detach the current one', () => {
+    const shared = createSharedSleepTimer();
+    const first = player();
+    const detachFirst = shared.attach(first.l);
+    const second = player();
+    shared.attach(second.l);
+    detachFirst();
+    shared.set(15);
+    expect(second.states).toHaveLength(1);
+    expect(first.states).toHaveLength(0);
   });
 });

@@ -10,6 +10,7 @@ import { createPlaybackController } from './controller.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
+import { createSharedSleepTimer } from './sleepTimer.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -132,3 +133,9 @@ export const previewHold = {
   set(): void { previewHeld = true; },
   take(): boolean { const v = previewHeld; previewHeld = false; return v; },
 };
+
+/**
+ * The Player's sleep timer, one for the app: it survives Player remounts (the Guide, Home and back). When it runs
+ * out while no Player is on screen to ask "Still watching?", playback simply stops.
+ */
+export const sleepTimer = createSharedSleepTimer({ onExpireUnattended: () => playback.stop() });

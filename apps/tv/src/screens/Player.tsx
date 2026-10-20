@@ -17,8 +17,8 @@ import { channelHistory } from '../playback/channelHistory.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
-import { playback, player, previewHold, supervisor } from '../playback/playback.ts';
-import { createSleepTimer, nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
+import { playback, player, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
+import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -208,17 +208,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   // ---- sleep timer ----
 
-  const sleepTimer = createSleepTimer({
-    onChange: (s) => {
-      const wasAsking = sleep().kind === 'asking';
-      setSleep(s);
-      if (s.kind === 'asking') {
-        if (!wasAsking) openOverlay(SLEEP_ID, keepWatching);
-      } else removeOverlay(SLEEP_ID);
-      if (s.kind === 'off') setSleepMinutes(0);
-    },
-    onExpire: () => { if (alive) sleepStop(); },
-  });
+  // The timer itself is the app's (`playback.sleepTimer`): this screen attaches to it on mount and mirrors its state.
+  const onSleepChange = (s: SleepState) => {
+    const wasAsking = sleep().kind === 'asking';
+    setSleep(s);
+    if (s.kind === 'asking') {
+      if (!wasAsking) openOverlay(SLEEP_ID, keepWatching);
+    } else removeOverlay(SLEEP_ID);
+    if (s.kind === 'off') setSleepMinutes(0);
+    else if (s.kind === 'armed') setSleepMinutes(Math.round(s.minutes / SLEEP_SCALE));
+  };
 
   /** "Keep watching" (button or Back): focus returns to the options menu when it is open, else to the root. */
   function keepWatching() {
@@ -427,12 +426,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     playback.setRect('fullscreen');
     player.setAspect(sessionAspect);
     showBanner();
-    // Default sleep timer (Settings > Playback): armed for each fullscreen session.
+    // The shared timer: an armed one (from a Player before the Guide or Home) shows its minutes, an open question
+    // reopens its dialog. Else the default (Settings > Playback) is armed for this fullscreen session.
+    const detachSleep = sleepTimer.attach({ onChange: onSleepChange, onExpire: () => { if (alive) sleepStop(); } });
+    onCleanup(detachSleep);
     const defaultSleep = settings()?.sleepTimerMinutes ?? 0;
-    if (defaultSleep > 0) {
-      setSleepMinutes(defaultSleep);
-      sleepTimer.set(defaultSleep * SLEEP_SCALE);
-    }
+    if (defaultSleep > 0 && sleepTimer.state().kind === 'off') sleepTimer.set(defaultSleep * SLEEP_SCALE);
     // The previous screen's focused node is gone: take focus so the keys reach this screen.
     root?.setFocus();
     const tick = setInterval(() => setNow(Date.now()), 30_000);
@@ -464,7 +463,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     alive = false;
     zapper.cancel();
     numbers.clear();
-    sleepTimer.dispose();
     if (bannerTimer !== undefined) clearTimeout(bannerTimer);
     if (flashTimer !== undefined) clearTimeout(flashTimer);
     for (const id of [...removers.keys()]) removeOverlay(id);
