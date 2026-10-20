@@ -30,7 +30,7 @@ function appendQuery(url: string, suffix: string): string {
  * Undefined when the channel has no catch-up or its data cannot build a right URL.
  */
 export function buildCatchupUrl(
-  ch: Pick<Channel, 'url' | 'catchup'>,
+  ch: Pick<Channel, 'url' | 'cu'>,
   templates: readonly string[],
   prog: { start: number; stop: number },
   offsetMs: number,
@@ -38,7 +38,7 @@ export function buildCatchupUrl(
   now: number,
   opts: { xtream?: boolean; ext?: 'ts' | 'm3u8' } = {},
 ): BuiltCatchup | undefined {
-  const c = ch.catchup;
+  const c = ch.cu;
   if (!c) return undefined;
   const tpl = c.tpl === undefined ? undefined : templates[c.tpl];
   let stepMs = 1000;

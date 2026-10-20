@@ -1483,7 +1483,7 @@ describe('catchupBackLimits: the catch-up channels share a history budget', () =
   const H = 3_600_000;
   const chans = (n: number, every: number, days = 7): Channel[] => Array.from({ length: n }, (_, i) => ({
     id: `s:${i}`, sourceId: 's', name: `C${i}`, url: `http://s.test/${i}.ts`, epgId: `c${i}`, group: 'G', number: i + 1,
-    ...(i % every === 0 ? { catchup: { mode: 'xc' as const, days } } : {}),
+    ...(i % every === 0 ? { cu: { mode: 'xc' as const, days } } : {}),
   }));
 
   test('a few catch-up channels keep their archive days, capped at 7', () => {
@@ -1500,6 +1500,6 @@ describe('catchupBackLimits: the catch-up channels share a history budget', () =
   });
 
   test('no catch-up channels: no limits', () => {
-    expect(catchupBackLimits(chans(10, 1000).map(({ catchup: _c, ...c }) => c)).size).toBe(0);
+    expect(catchupBackLimits(chans(10, 1000).map(({ cu: _c, ...c }) => c)).size).toBe(0);
   });
 });

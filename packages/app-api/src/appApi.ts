@@ -461,7 +461,7 @@ export class AppApi {
             .filter((p) => p.stop > from && p.start < to)
             .sort((a, b) => a.start - b.start)
             .map(toLite);
-          if (id && c.catchup) programmes = this.catchup.decorate(id, c.id, programmes, hours, from, to);
+          if (id && c.cu) programmes = this.catchup.decorate(id, c.id, programmes, hours, from, to);
           return { channel: rows[i]!, programmes };
         }),
       };
@@ -481,14 +481,14 @@ export class AppApi {
       const state = this.catchup.state(ctx, prog);
       if (!playableState(state)) return { notAvailable: state };
       // xc: the format live plays in on this source (the memo or the setting), as for the channel itself.
-      const xcExt = ctx.channel.catchup?.mode === 'xc' ? formatOf((await this.streamUrls(ctx.channel)).url) : undefined;
+      const xcExt = ctx.channel.cu?.mode === 'xc' ? formatOf((await this.streamUrls(ctx.channel)).url) : undefined;
       const built = await this.catchup.build(ctx, prog, offsetMs, xcExt);
       if (!built) return { notAvailable: 'none' };
       const out: CatchupPlayable = {
         kind: 'catchup', channelId, channelName: this.index.get(channelId)?.name ?? ctx.channel.name, title: prog.title,
         start: prog.start, stop: prog.stop, openedAtMs: built.openStart - prog.start, url: built.url, stepMs: built.stepMs,
       };
-      if (ctx.channel.catchup) out.mode = ctx.channel.catchup.mode;
+      if (ctx.channel.cu) out.mode = ctx.channel.cu.mode;
       if (built.alternateUrl) out.alternateUrl = built.alternateUrl;
       const headers = mergeHeaders(this.sourceHeaders, ctx.channel.headers);
       if (headers) out.headers = headers;
@@ -506,7 +506,7 @@ export class AppApi {
 
   /** The active source's largest catch-up archive in days (0 without catch-up): how far back the Guide reaches. */
   catchupDays(): Promise<number> {
-    return this.run('catchupDays', async () => this.channels.reduce((m, c) => Math.max(m, c.catchup?.days ?? 0), 0));
+    return this.run('catchupDays', async () => this.channels.reduce((m, c) => Math.max(m, c.cu?.days ?? 0), 0));
   }
 
   /**
@@ -1739,7 +1739,7 @@ export class AppApi {
   private async catchupContext(channelId: string): Promise<CatchupContext | undefined> {
     const id = this.activeId;
     const shown = this.index.get(channelId);
-    if (!id || !shown?.catchup) return undefined;
+    if (!id || !shown?.cu) return undefined;
     const [channel] = this.originals([shown]);
     const source = (await this.service.listSources()).find((s) => s.id === id);
     if (!source || !channel) return undefined;
@@ -1760,7 +1760,7 @@ export class AppApi {
     return channels.map((c) => {
       const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id) };
       if (c.logo) row.logo = c.logo;
-      if (c.catchup) row.archiveDays = c.catchup.days;
+      if (c.cu) row.archiveDays = c.cu.days;
       return row;
     });
   }
@@ -1776,7 +1776,7 @@ export class AppApi {
         id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id),
       };
       if (c.logo) row.logo = c.logo;
-      if (c.catchup) row.archiveDays = c.catchup.days;
+      if (c.cu) row.archiveDays = c.cu.days;
       if (pair?.now) row.now = toLite(pair.now);
       if (pair?.next) row.next = toLite(pair.next);
       return row;

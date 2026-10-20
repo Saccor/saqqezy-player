@@ -24,7 +24,7 @@ export function xtreamToChannels(
     };
     if (s.epgChannelId) ch.epgId = s.epgChannelId;
     if (s.icon) ch.logo = s.icon;
-    if (s.archiveDays) ch.catchup = shared.get({ mode: 'xc', days: s.archiveDays });
+    if (s.archiveDays) ch.cu = shared.get({ mode: 'xc', days: s.archiveDays });
     return ch;
   });
 }

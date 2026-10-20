@@ -10,7 +10,7 @@ const prog = { start: Date.UTC(2026, 9, 20, 18, 0), stop: Date.UTC(2026, 9, 20, 
 const NOW = Date.UTC(2026, 9, 20, 20, 0);
 const S = prog.start / 1000;
 const TPL = ['http://archive.test/a?start={utc}&end={utcend}', '?utc={utc}&lutc={lutc}', 'http://archive.test/{Y}{m}{d}/{H}{M}.ts', '&t={utc}'];
-const ch = (url: string, catchup: ChannelCatchup) => ({ url, catchup });
+const ch = (url: string, catchup: ChannelCatchup) => ({ url, cu: catchup });
 const build = (url: string, c: ChannelCatchup, offsetMs = 0, zone: CatchupZone = UTC, xtream = false) =>
   buildCatchupUrl(ch(url, c), TPL, prog, offsetMs, zone, NOW, { xtream });
 
@@ -49,7 +49,7 @@ describe('buildCatchupUrl per mode', () => {
   });
 
   test('xc: the live format that plays on the source replaces the channel URL\'s', () => {
-    const r = buildCatchupUrl({ url: 'http://x.test/live/u/p/5.ts', catchup: { mode: 'xc', days: 3 } }, TPL, prog, 0, UTC, NOW, { ext: 'm3u8' });
+    const r = buildCatchupUrl({ url: 'http://x.test/live/u/p/5.ts', cu: { mode: 'xc', days: 3 } }, TPL, prog, 0, UTC, NOW, { ext: 'm3u8' });
     expect(r!.url).toBe('http://x.test/timeshift/u/p/31/2026-10-20:18-00/5.m3u8');
   });
 

@@ -101,7 +101,7 @@ export class CatchupController {
   /** The archive state of a programme (displayed times) with the refined answer when held. */
   state(ctx: CatchupContext, prog: { start: number; stop: number }): ArchiveState {
     const flag = this.refinedFlag(ctx.sourceId, ctx.channel.id, prog.start, ctx.shiftHours);
-    return archiveState(ctx.channel.catchup?.days, prog, this.deps.now(), flag);
+    return archiveState(ctx.channel.cu?.days, prog, this.deps.now(), flag);
   }
 
   /** A refined listing that starts at `start` (displayed), for programmes the stored guide lacks. */
@@ -122,7 +122,7 @@ export class CatchupController {
    * format that plays on the source (xc URLs use it).
    */
   async build(ctx: CatchupContext, prog: { start: number; stop: number }, offsetMs: number, xcExt?: 'ts' | 'm3u8') {
-    const c = ctx.channel.catchup;
+    const c = ctx.channel.cu;
     if (!c) return undefined;
     const templates = c.tpl === undefined ? [] : await this.templatesFor(ctx.sourceId);
     const zone = pickZone({
@@ -142,7 +142,7 @@ export class CatchupController {
    */
   async refine(ctx: CatchupContext): Promise<void> {
     const { sourceId, source, channel } = ctx;
-    if (source.kind !== 'xtream' || !channel.catchup || this.inFlight) return;
+    if (source.kind !== 'xtream' || !channel.cu || this.inFlight) return;
     const streamId = Number(/:x(\d+)$/.exec(channel.id)?.[1]);
     if (!streamId) return;
     const now = this.deps.now();

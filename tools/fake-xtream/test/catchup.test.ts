@@ -130,7 +130,7 @@ describe('catch-up ingest end to end (SourceService)', () => {
     expect(source).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
     const idx = await s.loadIndex(source.id);
     const [c1, c2, c3] = idx.slice('all', 0, 3);
-    expect([c1!.catchup, c2!.catchup, c3!.catchup]).toEqual([{ mode: 'xc', days: 7 }, { mode: 'xc', days: 3 }, undefined]);
+    expect([c1!.cu, c2!.cu, c3!.cu]).toEqual([{ mode: 'xc', days: 7 }, { mode: 'xc', days: 3 }, undefined]);
     await s.refreshEpg(source.id);
     // Half the 12 channels have catch-up: they share the history budget, 6 h + 30 h x 12 / 6 = 66 h each (spec §8).
     const old = await s.programmesFor(source.id, [c1!, c2!, c3!], NOW - 65 * 3600_000, NOW - 7 * 3600_000);
@@ -185,7 +185,7 @@ describe('catch-up ingest end to end (SourceService)', () => {
     expect(result).toMatchObject({ channelCount: 9, catchupChannels: 8, catchupUnsupported: 1 });
     expect(source).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
     const chans = (await s.loadIndex(source.id)).slice('all', 0, 20);
-    expect(chans.map((c) => c.catchup?.mode)).toEqual(['default', 'default', 'append', 'shift', 'flussonic', 'xc', 'shift', 'default', undefined]);
+    expect(chans.map((c) => c.cu?.mode)).toEqual(['default', 'default', 'append', 'shift', 'flussonic', 'xc', 'shift', 'default', undefined]);
     expect(await s.catchupTemplates(source.id)).toHaveLength(4);
     // A manual catch-up time skips the probe.
     const manual = await s.addSource({ kind: 'm3u', name: 'Manual', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test`, catchupOffsetMin: 61 });

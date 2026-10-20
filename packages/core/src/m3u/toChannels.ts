@@ -45,7 +45,7 @@ export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[], catc
     if (e.headers) ch.headers = { ...e.headers };
     if (catchup && e.catchup) {
       const c = resolveCatchup(e.catchup, e.url, catchup);
-      if (c) ch.catchup = c;
+      if (c) ch.cu = c;
     }
     return ch;
   });

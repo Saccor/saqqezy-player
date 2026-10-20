@@ -65,7 +65,7 @@ const EPG_BATCH = 5000;
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
-/** The source's interned catch-up templates (`Channel.catchup.tpl` indexes it), saved with every channel list. */
+/** The source's interned catch-up templates (`Channel.cu.tpl` indexes it), saved with every channel list. */
 export const catchupTemplatesKey = (id: string) => `catchupTemplates:${id}`;
 /** Guide history kept for catch-up channels, at most (spec §5.1). */
 export const CATCHUP_GUIDE_DAYS = 7;
@@ -757,7 +757,7 @@ export class SourceService {
    */
   private async probeXcClock(source: M3uSourceConfig, channels: Channel[]): Promise<XtreamAccount | undefined> {
     if (source.catchupOffsetMin !== undefined) return {};
-    const first = channels.find((c) => c.catchup?.mode === 'xc');
+    const first = channels.find((c) => c.cu?.mode === 'xc');
     const parts = first && parseXcLiveUrl(first.url);
     if (!parts) return {};
     try {
@@ -797,7 +797,7 @@ export class SourceService {
       onProgress?.({ phase: 'playlist', count: channels.length });
       const result: IngestResult = { channelCount: channels.length, skipped: 0 };
       if (channels.length === 0) result.vodCatalogue = true;
-      const archived = channels.reduce((n, c) => n + (c.catchup ? 1 : 0), 0);
+      const archived = channels.reduce((n, c) => n + (c.cu ? 1 : 0), 0);
       if (archived) result.catchupChannels = archived;
       return { channels, result, account, templates: [] };
     }
@@ -878,13 +878,13 @@ function accountChanged(a: SourceConfig, b: SourceConfig): boolean {
 export function catchupBackLimits(channels: Channel[]): Map<string, number> {
   const out = new Map<string, number>();
   let withCatchup = 0;
-  for (const c of channels) if (c.catchup) withCatchup++;
+  for (const c of channels) if (c.cu) withCatchup++;
   if (withCatchup === 0) return out;
   const budgetMs = EPG_BACK_MS + Math.floor((CATCHUP_HISTORY_BUDGET_MS * channels.length) / withCatchup / 3_600_000) * 3_600_000;
   for (const c of channels) {
-    if (!c.catchup) continue;
+    if (!c.cu) continue;
     const key = epgKey(c);
-    const ms = Math.min(c.catchup.days * 86_400_000, CATCHUP_GUIDE_DAYS * 86_400_000, budgetMs);
+    const ms = Math.min(c.cu.days * 86_400_000, CATCHUP_GUIDE_DAYS * 86_400_000, budgetMs);
     if (ms > (out.get(key) ?? 0)) out.set(key, ms);
   }
   return out;

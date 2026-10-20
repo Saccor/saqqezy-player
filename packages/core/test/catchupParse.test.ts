@@ -47,7 +47,7 @@ describe('m3uEntriesToChannels resolves catch-up', () => {
     const { out } = await parse(fixture);
     const col = new CatchupCollector();
     const ch = m3uEntriesToChannels('s', out, col);
-    const by = (name: string) => ch.find((c) => c.name === name)!.catchup;
+    const by = (name: string) => ch.find((c) => c.name === name)!.cu;
     expect(by('Header defaults')).toEqual({ mode: 'shift', days: 2, corrMin: 60 });
     expect(by('Default override')).toEqual({ mode: 'default', days: 5, tpl: 0, corrMin: 60 });
     expect(by('Default alias vod')).toEqual({ mode: 'default', days: 9, tpl: 1, corrMin: -150 });
@@ -71,7 +71,7 @@ describe('m3uEntriesToChannels resolves catch-up', () => {
     const col = new CatchupCollector();
     const ch = m3uEntriesToChannels('s', (await parse(lines.join('\n'))).out, col);
     expect(col.templates).toHaveLength(1);
-    expect(ch.every((c) => c.catchup?.tpl === 0 && c.catchup.days === 3)).toBe(true);
+    expect(ch.every((c) => c.cu?.tpl === 0 && c.cu.days === 3)).toBe(true);
   });
 
   test('past 256 distinct templates, entries get no catch-up and count as unsupported', () => {

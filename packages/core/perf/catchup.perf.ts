@@ -37,10 +37,9 @@ function bestCloneMs(v: unknown): number {
 }
 
 /**
- * Spec §8 asks for +5 %. Equal catch-up records share one object, so each channel adds only the `catchup` key and a
- * back-reference (about 11 bytes): +6 % on this fixture's short 184-byte records, less on real playlists with longer
- * names and URLs. The gates below hold the measured cost (size +7 %, clone time +20 % for timing noise); the log
- * line shows the values.
+ * Spec §8 asks for +5 %. Equal catch-up records share one object, and the key is two letters (`Channel.cu`), so each
+ * channel adds the key and a back-reference (about 6 bytes): +3 % on this fixture's short 184-byte records, less on
+ * real playlists with longer names and URLs. Clone time gets +20 % for timing noise; the log line shows the values.
  */
 test('50k channels with one shared catch-up template: record size and structuredClone time stay close to today', async () => {
   const plain = await channels50k();
@@ -54,7 +53,7 @@ test('50k channels with one shared catch-up template: record size and structured
   const tCaught = bestCloneMs(caught.channels);
   console.log(`50k channel record: ${(sizePlain / 1e6).toFixed(2)} MB -> ${(sizeCaught / 1e6).toFixed(2)} MB `
     + `(${(((sizeCaught / sizePlain) - 1) * 100).toFixed(1)} %); structuredClone best ${tPlain.toFixed(1)} -> ${tCaught.toFixed(1)} ms`);
-  expect(sizeCaught / sizePlain).toBeLessThan(1.07);
+  expect(sizeCaught / sizePlain).toBeLessThan(1.05);
   expect(tCaught / tPlain).toBeLessThan(1.2);
 });
 
@@ -65,7 +64,7 @@ function ingestWindow(share: number): { today: number; withCatchup: number; ms: 
   const every = Math.round(1 / share);
   const chans: Channel[] = Array.from({ length: n }, (_, i) => {
     const c: Channel = { id: `s:${i}`, sourceId: 's', name: `Channel ${i}`, url: `http://s.test/${i}.ts`, group: 'G', number: i + 1, epgId: `c${i}.test` };
-    if (i % every === 0) c.catchup = { mode: 'xc', days: 7 };
+    if (i % every === 0) c.cu = { mode: 'xc', days: 7 };
     return c;
   });
   const back = catchupBackLimits(chans);

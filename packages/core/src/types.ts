@@ -11,8 +11,12 @@ export interface Channel {
   epgShift?: number;
   /** Per-channel request headers from the playlist (`#EXTVLCOPT`, `#EXTHTTP`, the URL pipe). */
   headers?: StreamHeaders;
-  /** The source keeps an archive of this channel's past programmes (spec 2026-10-20-catch-up §3.1). */
-  catchup?: ChannelCatchup;
+  /**
+   * Catch-up: the source keeps an archive of this channel's past programmes (spec 2026-10-20-catch-up §3.1). The key
+   * is two letters because it is stored on every channel record (50k records: each letter costs 50 KB and clone
+   * time; spec §8 allows +5 %). Equal records share one object.
+   */
+  cu?: ChannelCatchup;
 }
 
 export type CatchupMode = 'default' | 'append' | 'shift' | 'flussonic' | 'xc';

@@ -26,10 +26,10 @@ describe('Xtream catch-up fields', () => {
     const got = await c.liveStreams();
     expect(got.map((s) => s.archiveDays)).toEqual([7, 5, 3, 3, undefined, undefined, 30]);
     const ch = xtreamToChannels('s', c, [], got);
-    expect(ch.map((x) => x.catchup)).toEqual([
+    expect(ch.map((x) => x.cu)).toEqual([
       { mode: 'xc', days: 7 }, { mode: 'xc', days: 5 }, { mode: 'xc', days: 3 }, { mode: 'xc', days: 3 }, undefined, undefined, { mode: 'xc', days: 30 },
     ]);
-    expect('catchup' in ch[5]!).toBe(false);
+    expect('cu' in ch[5]!).toBe(false);
   });
 
   test('server_info: zone and the panel clock offset', async () => {
