@@ -1362,7 +1362,32 @@ describe('AppApi – layout', () => {
     expect(await storage.listSyncMeta(sourceId)).toEqual([]);
     await api.toggleFavourite(id);
     await api.applyLayoutOps([{ op: 'hideChannels', ids: [id] }]);
+    await api.idle(); // stamps are stored after the layout write, batched
     expect((await storage.listSyncMeta(sourceId)).map((e) => e.key).sort()).toEqual([`hc:${id}`, `lm:fav|${id}`, 'lq:fav']);
+  });
+
+  test('a bulk layout edit returns after the layout write, not after its sync stamps', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const sourceId = (await api.init()).activeSourceId!;
+    const put = storage.putSyncMeta.bind(storage);
+    const held = gate();
+    storage.putSyncMeta = async (e) => { await held.p; return put(e); };
+    const ids = Array.from({ length: 50_000 }, (_, i) => `${sourceId}:x${900_000 + i}`);
+    const t0 = performance.now();
+    await api.applyLayoutOps([{ op: 'hideChannels', ids }]);
+    const ms = performance.now() - t0;
+    expect((await api.getLayout()).hiddenChannels).toHaveLength(50_000);
+    expect(await storage.listSyncMeta(sourceId)).toEqual([]); // still held
+    // A later edit queues behind it and gets the later stamp.
+    await api.applyLayoutOps([{ op: 'unhideChannels', ids: [ids[0]!] }]);
+    held.open();
+    await api.idle();
+    const meta = new Map((await storage.listSyncMeta(sourceId)).map((e) => [e.key, e.value as string]));
+    expect(meta.size).toBe(50_000);
+    expect(meta.get(`hc:${ids[0]}`)! > meta.get(`hc:${ids[1]}`)!).toBe(true);
+    console.info(`hideChannels 50k ids: ${ms.toFixed(0)} ms to return`);
+    expect(ms).toBeLessThan(2000);
   });
 
   test('layoutChanged carries the version and origin; no-op batches emit nothing', async () => {

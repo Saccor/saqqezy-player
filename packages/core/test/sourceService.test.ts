@@ -81,11 +81,23 @@ describe('SourceService – m3u', () => {
     const first = loaded.slice('all', 0, 1)[0]!;
     const res = applyOps(loaded.layout(), [{ op: 'hideChannels', ids: [first.id] }, { op: 'markWatched', id: first.id }]);
     await service.saveLayout(source.id, res.layout, res.touched);
+    await service.syncClock.idle(); // stamps are stored after the layout write
     const clocks = await service.syncClock.clocks(source.id);
     expect([...clocks.keys()]).toEqual([`hc:${first.id}`]);
     const zap = applyOps(res.layout, [{ op: 'markWatched', id: 'other' }]);
     await service.saveLayout(source.id, zap.layout, zap.touched);
+    await service.syncClock.idle();
     expect((await service.syncClock.clocks(source.id)).size).toBe(1);
+  });
+
+  test('deleting a source drops stamps that were still queued for it', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const loaded = await service.loadIndex(source.id);
+    const res = applyOps(loaded.layout(), [{ op: 'setHideNoEpg', value: true }]);
+    await service.saveLayout(source.id, res.layout, res.touched);
+    await service.deleteSource(source.id);
+    await service.syncClock.idle();
+    expect(await storage.listSyncMeta(source.id)).toEqual([]);
   });
 
   test('saveLayout for a removed source stamps nothing', async () => {
@@ -845,6 +857,18 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     expect(await storage.getMeta('settings')).toEqual(saved);
     const again = await service.saveSettings({ showClock: false });
     expect(again).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', showClock: false });
+  });
+
+  test('saving a synced setting that changed stamps its clock; device settings and unchanged values do not', async () => {
+    await service.saveSettings({ epgOffsetHours: 2, subtitleLanguage: 'off' });
+    await service.syncClock.idle();
+    expect(await storage.listSyncMeta('#settings')).toEqual([]);
+    await service.saveSettings({ subtitleLanguage: 'sv', preferredLanguages: ['sv'], showClock: false });
+    await service.syncClock.idle();
+    expect((await storage.listSyncMeta('#settings')).map((e) => e.key).sort()).toEqual(['st:preferredLanguages', 'st:subtitleLanguage']);
+    await service.saveSettings({ audioLanguage: 'en' }, { stamp: false });
+    await service.syncClock.idle();
+    expect((await storage.listSyncMeta('#settings')).length).toBe(2);
   });
 
   test('autoRefreshHours drives needs*Refresh; 0 means never', async () => {

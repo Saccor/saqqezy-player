@@ -918,3 +918,62 @@ describe('fitCompanionState', () => {
     expect(() => fitCompanionState(s)).toThrow(expect.objectContaining({ name: 'StateTooLargeError' }));
   });
 });
+
+describe('CompanionHost: backups (protocol 3)', () => {
+  test('backupToPhone sends the sealed backup to a v3 phone and waits for backupSaved', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const done = s.api.backupToPhone();
+    const msg = await p.next('backup');
+    expect(msg.tv).toBe('Living room');
+    expect(msg.backup.f).toBe('iptv-backup');
+    expect(JSON.stringify(msg)).not.toContain(server.url);
+    await p.ch.send({ t: 'backupSaved', at: msg.backup.at });
+    const res = await done;
+    expect(res.code).toHaveLength(26);
+  });
+
+  test('an older phone page gets no backup: OldCompanion', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    await expect(s.api.backupToPhone()).rejects.toMatchObject({ name: 'OldCompanion' });
+    expect(p.inbox.some((m) => m.t === 'backup')).toBe(false);
+  });
+
+  test('no answer from the phone: Timeout', async () => {
+    fakeTimers();
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const done = s.api.backupToPhone().then(() => undefined, (e: unknown) => e);
+    await p.next('backup');
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(await done).toMatchObject({ name: 'Timeout' });
+  });
+
+  test('restore from the phone: refused until the TV waits for it, then applied and answered ok', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { rows } = await s.api.getChannelSlice('all', 0, 1);
+    await s.api.applyLayoutOps([{ op: 'hideChannels', ids: [rows[0]!.id] }]);
+    const file = await s.api.backupToFile();
+    await s.api.applyLayoutOps([{ op: 'unhideChannels', ids: [rows[0]!.id] }]);
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const backup = JSON.parse(file.data);
+    const refused = await p.call({ t: 'restore', backup, code: file.code });
+    expect(refused).toMatchObject({ ok: false, error: { name: 'NotReady' } });
+    await s.api.armPhoneRestore(true);
+    const wrong = await p.call({ t: 'restore', backup, code: '1'.repeat(26) });
+    expect(wrong).toMatchObject({ ok: false, error: { name: 'BackupError' } });
+    // The unhide is newer than the backup: the restore keeps it; the call still succeeds.
+    const ok = await p.call({ t: 'restore', backup, code: file.code });
+    expect(ok.ok).toBe(true);
+    expect(s.events.some((e) => e.type === 'backupRestored' && e.origin === 'remote')).toBe(true);
+  });
+});

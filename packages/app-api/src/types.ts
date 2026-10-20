@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveState, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
 export type { ArchiveState, SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -142,6 +142,8 @@ export type AppEvent =
   | { type: 'sourcesChanged'; activeSourceId?: string; origin: LayoutOrigin }
   /** The phone companion session changed state. */
   | { type: 'companion'; status: CompanionStatus }
+  /** A backup was restored (`origin`: a file on this device, or sent by the phone). Counts as in `RestoreSummary`. */
+  | { type: 'backupRestored'; origin: LayoutOrigin; applied: number; pending: number; sources: number; at: number }
   /** A catalogue fetch started for the active source (first open or a stale refresh). */
   | { type: 'vodLoading'; sourceId: string; kind: VodKind }
   /** A first load got further: the VOD screen can show the titles so far (`count`). Throttled in the worker. */
@@ -179,6 +181,11 @@ export interface CompanionControl {
   handleEvent(e: AppEvent): void;
   /** The companion state's channels, guide coverage or sources changed (no AppEvent says so). Must not throw. */
   stateChanged?(): void;
+  /**
+   * Sends a sealed backup to the connected phone (protocol 3) and resolves once the phone says it kept it. Rejects
+   * with `NoCompanion` (no phone), `OldCompanion` (the phone's page predates backups) or `Timeout`.
+   */
+  sendBackup?(backup: BackupEnvelope): Promise<void>;
 }
 
 /** Who applied a layout change: this device's UI, or a paired companion. */
