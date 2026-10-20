@@ -1861,6 +1861,27 @@ describe('PlaybackSupervisor: spaced give-up retries', () => {
     expect(s.player.opened).toHaveLength(n + 3);
   });
 
+  it('isGivingUp() is true while the background retries are scheduled, false once they end or stop()', () => {
+    const s = setup(roomy);
+    expect(s.sup.isGivingUp()).toBe(false);
+    exhaust(s);
+    expect(s.sup.isGivingUp()).toBe(true);
+    vi.advanceTimersByTime(29_000); // the first retry opens and is still pending: still giving up
+    expect(s.sup.isGivingUp()).toBe(true);
+    s.player.emit('playing');
+    expect(s.sup.isGivingUp()).toBe(false);
+    const stopped = setup(roomy);
+    exhaust(stopped);
+    stopped.sup.stop();
+    expect(stopped.sup.isGivingUp()).toBe(false);
+    // A channel that never played stops for good: no background retries.
+    const never = setup();
+    never.sup.play(A);
+    for (let i = 0; i < 4; i++) { never.player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(10_000); }
+    expect(never.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+    expect(never.sup.isGivingUp()).toBe(false);
+  });
+
   it('the waits get ±20 % jitter', () => {
     const s = setup({ ...roomy, random: () => 1 });
     const n = exhaust(s);

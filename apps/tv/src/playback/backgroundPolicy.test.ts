@@ -20,6 +20,11 @@ describe('backgroundPolicy', () => {
     expect(b).toEqual({ kind: 'suspend-vod', positionMs: 61_000 });
     expect(onVisible(b, { networkUp: true })).toEqual({ kind: 'resume-vod', positionMs: 61_000 });
   });
+  it('vod not playing yet (loading, reconnecting) → close at the position, reopen there on visible', () => {
+    const b = onHidden({ playing: 'vod-loading', positionMs: 30_000 });
+    expect(b).toEqual({ kind: 'close-vod', positionMs: 30_000 });
+    expect(onVisible(b, { networkUp: true })).toEqual({ kind: 'reopen-vod', positionMs: 30_000 });
+  });
   it('vod with unknown position → 0', () => {
     expect(onHidden({ playing: 'vod' })).toEqual({ kind: 'suspend-vod', positionMs: 0 });
   });

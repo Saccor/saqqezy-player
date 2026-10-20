@@ -466,6 +466,14 @@ export class PlaybackSupervisor {
     return this.vod && this.userPaused;
   }
 
+  /**
+   * True while a live stream that played has failed and the slow background retries (30/60/120 s) are still scheduled
+   * or one is opening. False once they end, on `stop()`, and for a stream that failed for good.
+   */
+  isGivingUp(): boolean {
+    return this.active && this.givingUp;
+  }
+
   /** How many attempts reached their first frame so far (never reset): a new value means a new engine attempt plays. */
   startedAttempts(): number {
     return this.startedCount;

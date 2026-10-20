@@ -4,6 +4,7 @@ import { parseM3u, type M3uEntry, type ParseStats } from '../src/m3u/parse.ts';
 import { m3uEntriesToChannels, uniqueId } from '../src/m3u/toChannels.ts';
 import { splitLines } from '../src/text/lines.ts';
 import { fnv1a } from '../src/hash.ts';
+import { INGEST_NAME_MAX } from '../src/constants.ts';
 
 async function* once(s: string) { yield s; }
 async function parse(text: string) {
@@ -28,6 +29,21 @@ describe('parseM3u', () => {
     expect(out[1]?.tvgChno).toBe(10);
     expect(out[2]?.groupTitle).toBe('Kids');
     expect(stats).toEqual({ entries: 5, skipped: 1 });
+  });
+
+  test('names, tvg-name and group-title are capped at INGEST_NAME_MAX characters; urls and logos are not', async () => {
+    const long = 'N'.repeat(5000);
+    const logo = `http://img.test/${'p'.repeat(400)}.png`;
+    const url = `http://example.test/${'u'.repeat(400)}.ts`;
+    const { out } = await parse(`#EXTM3U\n#EXTINF:-1 tvg-name="${long}" tvg-logo="${logo}" group-title="${long}",${long}\n${url}\n#EXTINF:-1,\n${url}\n`);
+    expect(out[0]!.name).toHaveLength(INGEST_NAME_MAX);
+    expect(out[0]!.tvgName).toHaveLength(INGEST_NAME_MAX);
+    expect(out[0]!.groupTitle).toHaveLength(INGEST_NAME_MAX);
+    expect(out[0]!.tvgLogo).toBe(logo);
+    expect(out[0]!.url).toBe(url);
+    // A bare url as the name is capped too.
+    expect(out[1]!.name).toHaveLength(INGEST_NAME_MAX);
+    expect(out[1]!.url).toBe(url);
   });
 
   test('empty input yields nothing', async () => {

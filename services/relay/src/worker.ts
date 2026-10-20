@@ -4,8 +4,9 @@
 // Privacy (CLAUDE.md guardrails 6 and 7):
 // - No Durable Object storage reads or writes.
 // - No logging at all: not frame contents, not session ids, not IPs.
-// - The connecting IP is never held: the new-session limit is keyed by HMAC(IPv4 address or IPv6
-//   /64, per-isolate random key), in memory only.
+// - The connecting IP is never held: the in-memory new-session limit is keyed by HMAC(IPv4 address
+//   or IPv6 /64, per-isolate random key); the shared limit (Cloudflare Rate Limiting binding) is
+//   keyed by a truncated SHA-256 of the same prefix, held only in Cloudflare's counter.
 //
 // Sockets use the standard `accept()` API, not WebSocket Hibernation: hibernation would evict the
 // in-memory SessionCore (creation time, reconnect queue, rate windows), and enforcing TTL while
@@ -15,19 +16,25 @@
 import { DurableObject } from 'cloudflare:workers';
 import { SessionCore } from './sessionCore.ts';
 import {
-  CLOSE, IpRateLimiter, LIMITS, QueueBudget, RecentSessions, ipLimitKey, isRole, isSessionId, limitsFromEnv,
-  originAllowed, parseAllowedOrigins, type LimitsEnv,
+  CLOSE, IpRateLimiter, LIMITS, QueueBudget, RecentSessions, allowNewSession, isRole, isSessionId, limitsFromEnv,
+  originAllowed, parseAllowedOrigins, type LimitsEnv, type RateLimitBinding,
 } from './limits.ts';
 
 export interface Env extends LimitsEnv {
   SESSION: DurableObjectNamespace<Session>;
   ALLOWED_ORIGINS: string;
+  /**
+   * Cloudflare Workers Rate Limiting binding (`[[ratelimits]]` in wrangler.toml): the new-session
+   * limit shared across isolates. Optional: without it the per-isolate in-memory limit applies.
+   */
+  NEW_SESSION_LIMITER?: RateLimitBinding;
 }
 
 const ROUTE = /^\/v1\/session\/([^/]+)\/ws$/;
 const TICK_MS = 1000;
 
-// Per-isolate, in memory only. Approximate across isolates by design: no shared store holds IPs.
+// Per-isolate, in memory only: the first line. The NEW_SESSION_LIMITER binding enforces the same
+// limit across isolates when it is configured.
 const newSessionLimiter = new IpRateLimiter(LIMITS.newSessionsPerIp, LIMITS.newSessionWindowMs);
 const recentSessions = new RecentSessions(LIMITS.sessionTtlMaxMs);
 /** Reconnect-queue bytes across every session in this isolate (all Session objects share it). */
@@ -71,9 +78,11 @@ export default {
     // Only a session id this isolate has not seen counts as a new session; joins and reconnects
     // to a known id are free. The limiter only ever sees an HMAC of the address prefix.
     if (!recentSessions.has(sessionId, Date.now())) {
-      const key = await ipLimitKey(request.headers.get('CF-Connecting-IP') ?? '');
+      const ip = request.headers.get('CF-Connecting-IP') ?? '';
       const now = Date.now();
-      if (!newSessionLimiter.allow(key, now)) return text(429, 'too many sessions');
+      if (!(await allowNewSession(ip, now, newSessionLimiter, env.NEW_SESSION_LIMITER))) {
+        return text(429, 'too many sessions');
+      }
       recentSessions.add(sessionId, now);
     }
 

@@ -62,6 +62,13 @@ describe('searchTitle', () => {
     expect(searchTitle('Dr. Synthetic')).toEqual({ title: 'Dr. Synthetic' });
     expect(searchTitle('Up: A Synthetic Tale')).toEqual({ title: 'Up: A Synthetic Tale' });
   });
+  test('long space runs are linear, not quadratic', () => {
+    const t = performance.now();
+    expect(searchTitle('Film' + ' '.repeat(40000) + 'x')).toEqual({ title: 'Film x' });
+    expect(searchTitle('Film' + ' '.repeat(40000) + '(x')).toEqual({ title: 'Film (x' });
+    expect(searchTitle('Film' + ' '.repeat(40000) + '(2001)   1080p')).toEqual({ title: 'Film', year: 2001 });
+    expect(performance.now() - t).toBeLessThan(200);
+  });
 });
 
 describe('ranking and the language list', () => {
@@ -142,6 +149,10 @@ describe('OpenSubtitlesClient', () => {
     };
     const fileFetch: FetchFn = async (url) => {
       calls.push({ url });
+      if (url === 'https://dl.test/big') {
+        // Chunked, no content-length, and endless: only cancelling ends it.
+        return new Response(new ReadableStream<Uint8Array>({ pull(ctl) { ctl.enqueue(new Uint8Array(1 << 20)); } }));
+      }
       return url === 'https://dl.test/f/1' ? new Response('1\n00:00:01,000 --> 00:00:02,000\nHi\n') : new Response('', { status: 404 });
     };
     return new OpenSubtitlesClient({ apiFetch, fileFetch, apiKey: 'k', baseUrl: 'https://api.test/api/v1', appName: 'Test v1' });
@@ -207,5 +218,7 @@ describe('OpenSubtitlesClient', () => {
     await expect(down.search({ tmdbId: 1 })).rejects.toThrow("Couldn't reach the subtitle service.");
     const badLink = make({ '/download': () => json({ link: 'https://dl.test/missing' }) });
     await expect(badLink.download(1)).rejects.toThrow("Couldn't download the subtitles (error 404).");
+    const big = make({ '/download': () => json({ link: 'https://dl.test/big' }) });
+    await expect(big.download(1)).rejects.toThrow(new SubtitleError('That file is too large to be subtitles.'));
   });
 });

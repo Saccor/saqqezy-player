@@ -1,27 +1,39 @@
-const YEAR_RE = /\s*[([](\d{4})[)\]]\s*$/;
+/** "(2021)" or "[2021]" as the whole string: matched against the last six characters of a trimmed name. */
+const YEAR_RE = /^[([](\d{4})[)\]]$/;
 const MARKERS = [/\bS(\d{1,2})\s*E(\d{1,3})\b/i, /\b(\d{1,2})x(\d{2,3})\b/i];
 const LEADING_SEPARATORS = /^[\s\-–—|:.]+/;
-const TRAILING_SEPARATORS = /[\s\-–—|:.]+$/;
 /** Words whose trailing `.` is part of the word (`Dr.`, `Vol.`), so edge stripping keeps it. */
 const ABBREVIATION = /(?:^|[^\p{L}])(?:dr|mr|mrs|ms|st|vol|jr|sr|mt|prof)$/iu;
+const TRAILING_SEPARATOR = /[\s\-–—|:.]/;
+
+/**
+ * Where the run of `[\s\-–—|:.]` at the end of `s` starts (`s.length` without one). A scan from the right: an
+ * end-anchored regex backtracks quadratically on a long run that does not reach the end.
+ */
+function trailingRunStart(s: string): number {
+  let i = s.length;
+  while (i > 0 && TRAILING_SEPARATOR.test(s[i - 1]!)) i--;
+  return i;
+}
 
 function clean(s: string): string {
   const lead = s.replace(LEADING_SEPARATORS, '');
-  const run = TRAILING_SEPARATORS.exec(lead);
+  const at = trailingRunStart(lead);
   let out = lead;
-  if (run) {
-    out = lead.slice(0, run.index);
-    if (run[0].startsWith('.') && ABBREVIATION.test(out)) out += '.';
+  if (at < lead.length) {
+    out = lead.slice(0, at);
+    if (lead[at] === '.' && ABBREVIATION.test(out)) out += '.';
   }
   return out.replace(/\s+/g, ' ').trim();
 }
 
 /** "Title (2021)" → { title: "Title", year: 2021 }. Years outside 1900–2100, or nothing left of the title, keep the name. */
 export function splitYear(name: string): { title: string; year?: number } {
-  const m = YEAR_RE.exec(name);
+  const end = name.trimEnd();
+  const m = end.length >= 6 ? YEAR_RE.exec(end.slice(-6)) : null;
   if (!m) return { title: name.trim() };
   const year = Number(m[1]);
-  const title = name.slice(0, m.index).trim();
+  const title = end.slice(0, -6).trim();
   if (year < 1900 || year > 2100 || !title) return { title: name.trim() };
   return { title, year };
 }

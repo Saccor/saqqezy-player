@@ -6,7 +6,7 @@ import {
   VOD_UNCATEGORIZED,
   type Episode, type MovieDetail, type SeriesDetail, type SourceSubtitle, type VodCategory, type VodItem, type VodKind,
 } from '../vod/types.ts';
-import { isObj, nonNegInt, posInt, str } from './json.ts';
+import { isObj, nameStr, nonNegInt, posInt, str } from './json.ts';
 
 const num = (v: unknown): number | undefined => {
   const n = Number.parseFloat(String(v ?? ''));
@@ -58,7 +58,7 @@ export function parseVodCategories(data: unknown, kind: VodKind): VodCategory[] 
   for (const c of data) {
     if (!isObj(c)) continue;
     const id = str(c.category_id);
-    const name = str(c.category_name);
+    const name = nameStr(c.category_name);
     if (!id || !name || seen.has(id)) continue;
     seen.add(id);
     out.push({ id, kind, name, count: 0 });
@@ -82,7 +82,7 @@ export function parseVodStreams(data: unknown, sourceId: string): VodItem[] {
   for (const s of data) {
     if (!isObj(s)) continue;
     const xid = posInt(s.stream_id);
-    const name = str(s.name);
+    const name = nameStr(s.name);
     if (!xid || !name) continue;
     const item = baseItem(s, 'movie', sourceId, xid, name, 'm');
     const poster = str(s.stream_icon);
@@ -104,7 +104,7 @@ export function parseSeriesList(data: unknown, sourceId: string): VodItem[] {
   for (const s of data) {
     if (!isObj(s)) continue;
     const xid = posInt(s.series_id);
-    const name = str(s.name);
+    const name = nameStr(s.name);
     if (!xid || !name) continue;
     const item = baseItem(s, 'series', sourceId, xid, name, 's');
     const poster = str(s.cover);
@@ -194,7 +194,7 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
     for (const s of root.seasons) {
       if (!isObj(s)) continue;
       const n = nonNegInt(s.season_number);
-      const name = str(s.name);
+      const name = nameStr(s.name);
       if (n !== undefined && name) names.set(n, name);
     }
   }
@@ -214,7 +214,7 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
       seen.add(xid);
       const season = nonNegInt(e.season) ?? g.key ?? 1;
       const episode = posInt(e.episode_num) ?? i + 1;
-      const raw = str(e.title);
+      const raw = nameStr(e.title);
       // "Show - S01E02 - Title" → "Title"; a name without a marker stays as it is.
       const title = (raw && parseEpisodeMarker(raw)?.title) ?? raw ?? `Episode ${episode}`;
       const ep: Episode = { id: `${sourceId}:e${xid}`, season, episode, title, xid };

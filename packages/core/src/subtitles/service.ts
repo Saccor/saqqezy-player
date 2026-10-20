@@ -159,13 +159,49 @@ export class SubtitleService {
       throw new SubtitleError("Couldn't download the subtitles. Check the link.");
     }
     if (!res.ok) throw new SubtitleError(`Couldn't download the subtitles (error ${res.status}).`);
-    if (Number(res.headers.get('content-length') ?? 0) > SUBTITLE_MAX_BYTES) throw new SubtitleError(TOO_LARGE);
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(await res.arrayBuffer());
-    } catch {
-      throw new SubtitleError("Couldn't download the subtitles. Check the link.");
-    }
-    return { bytes, name: nameOf(u) };
+    return { bytes: await readSubtitleBody(res, "Couldn't download the subtitles. Check the link."), name: nameOf(u) };
   }
+}
+
+const MEDIA_TYPE = /^\s*(?:video|audio)\//i;
+
+/**
+ * A subtitle download's bytes, read chunk by chunk and cancelled as soon as they pass SUBTITLE_MAX_BYTES (a chunked
+ * body has no content-length to check first). A video or audio content type is refused before any body is read.
+ * `failed` is the message for a read that breaks off.
+ */
+export async function readSubtitleBody(res: Response, failed: string): Promise<Uint8Array> {
+  const refuse = async (message: string): Promise<never> => {
+    await res.body?.cancel().catch(() => {});
+    throw new SubtitleError(message);
+  };
+  if (MEDIA_TYPE.test(res.headers.get('content-type') ?? '')) return refuse('That link is a video or audio file, not subtitles.');
+  if (Number(res.headers.get('content-length') ?? 0) > SUBTITLE_MAX_BYTES) return refuse(TOO_LARGE);
+  if (!res.body) return new Uint8Array(0);
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    let r: ReadableStreamReadResult<Uint8Array>;
+    try {
+      r = await reader.read();
+    } catch {
+      throw new SubtitleError(failed);
+    }
+    if (r.done) break;
+    size += r.value.byteLength;
+    if (size > SUBTITLE_MAX_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new SubtitleError(TOO_LARGE);
+    }
+    parts.push(r.value);
+  }
+  if (parts.length === 1) return parts[0]!;
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
 }

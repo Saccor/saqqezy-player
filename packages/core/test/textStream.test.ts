@@ -85,6 +85,66 @@ describe('responseText', () => {
     await expect(collect(responseText(new Response(null), 'http://example.test/x'))).rejects.toThrow('empty');
   });
 
+  describe('character sets', () => {
+    /** A body sent as these byte chunks. */
+    const chunked = (...parts: (number[] | string)[]) => new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const p of parts) c.enqueue(typeof p === 'string' ? new Uint8Array(Buffer.from(p, 'latin1')) : new Uint8Array(p));
+        c.close();
+      },
+    });
+    const text = (body: ReadableStream<Uint8Array> | Uint8Array, headers?: Record<string, string>) =>
+      collect(responseText(new Response(body, headers ? { headers } : {}), 'http://example.test/x'));
+    const latin1 = (s: string) => new Uint8Array(Buffer.from(s, 'latin1'));
+
+    test('a Latin-1 XMLTV body with its XML declaration decodes å, ä and ö', async () => {
+      const xml = '<?xml version="1.0" encoding="ISO-8859-1"?>\n<tv><channel id="a"><display-name>Synthetic Kanal Åäö</display-name></channel></tv>';
+      expect(await text(latin1(xml))).toBe(xml);
+    });
+    test('the XML declaration names the fallback character set', async () => {
+      // 0xA4 is "€" in ISO-8859-15 but "¤" in windows-1252.
+      const head = '<?xml version="1.0" encoding="ISO-8859-15"?>\n<tv>Price ';
+      expect(await text(chunked(head, [0xa4], '</tv>'))).toBe(`${head}€</tv>`);
+    });
+    test('a charset in Content-Type names the fallback character set', async () => {
+      expect(await text(chunked('#EXTM3U\n#EXTINF:-1,Price ', [0xa4, 0x0a]), { 'content-type': 'audio/x-mpegurl; charset="ISO-8859-15"' }))
+        .toBe('#EXTM3U\n#EXTINF:-1,Price €\n');
+    });
+    test('a Latin-1 M3U without a declaration: the first non-ASCII byte after a long ASCII run decides', async () => {
+      const ascii = '#EXTINF:-1,Synthetic Channel\nhttp://example.test/1.ts\n'.repeat(400);
+      expect(await text(chunked(ascii.slice(0, 5000), ascii.slice(5000), '#EXTINF:-1,Synthetic Malmö\n'))).toBe(`${ascii}#EXTINF:-1,Synthetic Malmö\n`);
+    });
+    test('a Latin-1 byte at the end of a chunk that looks like a UTF-8 lead byte', async () => {
+      // 0xE5 ("å") starts a 3-byte UTF-8 sequence; the next chunk proves it is not one.
+      expect(await text(chunked('Synthetic ', [0xe5], 'ngel\n'))).toBe('Synthetic ångel\n');
+    });
+    test('UTF-8 split byte by byte stays UTF-8', async () => {
+      const bytes = [...new TextEncoder().encode('Synthetic Åtta ✓ 😀\n')];
+      expect(await text(chunked(...bytes.map((b) => [b])))).toBe('Synthetic Åtta ✓ 😀\n');
+    });
+    test('UTF-8 mislabelled as Latin-1 is read as UTF-8', async () => {
+      expect(await text(new TextEncoder().encode('Synthetic Åtta'), { 'content-type': 'text/plain; charset=iso-8859-1' })).toBe('Synthetic Åtta');
+      const xml = '<?xml version="1.0" encoding="ISO-8859-1"?><tv>Åtta</tv>';
+      expect(await text(new TextEncoder().encode(xml))).toBe(xml);
+    });
+    test('once real UTF-8 was seen, a later stray byte does not switch the character set', async () => {
+      const utf8 = [...new TextEncoder().encode('Åtta ')];
+      expect(await text(chunked(utf8, ' x '.repeat(100), [0xff], ' end'))).toBe(`Åtta ${' x '.repeat(100)}� end`);
+    });
+    test('UTF-8 with a stray byte in the same chunk as its first non-ASCII text stays UTF-8', async () => {
+      const enc = (s: string) => [...new TextEncoder().encode(s)];
+      expect(await text(new Uint8Array([...enc('Åtta Åtta '), 0xff, ...enc(' end')]))).toBe('Åtta Åtta � end');
+    });
+    test('byte order marks', async () => {
+      expect(await text(new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode('Åtta')]))).toBe('Åtta');
+      expect(await text(new Uint8Array([0xff, 0xfe, ...Buffer.from('Åtta', 'utf16le')]))).toBe('Åtta');
+      expect(await text(new Uint8Array([0xfe, 0xff, ...Buffer.from('Åtta', 'utf16le').swap16()]))).toBe('Åtta');
+    });
+    test('a Latin-1 byte as the very last byte', async () => {
+      expect(await text(chunked('Synthetic ', [0xe5]))).toBe('Synthetic å');
+    });
+  });
+
   describe('older TV engines (no DecompressionStream / TextDecoderStream)', () => {
     afterEach(() => { vi.unstubAllGlobals(); });
     test('decodes plain utf-8 split across chunks without TextDecoderStream', async () => {

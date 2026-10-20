@@ -7,3 +7,5 @@ export const GROUP_FAV = 'fav';
 export const GROUP_RECENT = 'recent';
 export const RECENT_MAX = 20;
 export const UNCATEGORIZED = 'Uncategorized';
+/** Longest channel, group or title name kept at ingest: longer ones are cut, so name parsing stays cheap. */
+export const INGEST_NAME_MAX = 256;

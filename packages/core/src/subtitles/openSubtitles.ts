@@ -1,5 +1,5 @@
 import type { FetchFn } from '../types.ts';
-import { SubtitleError } from './service.ts';
+import { SubtitleError, readSubtitleBody } from './service.ts';
 
 /**
  * What identifies one title: a movie's TMDB id, an episode's series TMDB id plus season and episode, or, without
@@ -51,8 +51,10 @@ export interface LanguageChoice {
 
 // "EN - ", "|SE| ", "[MULTI] ", "NL: " in front of provider titles. Upper case only, so "It: …" stays a title.
 const LEADING_TAG = /^\s*(?:[[|(]\s*[A-Z]{2,5}\s*[\]|)]|[A-Z]{2,3}\s*[-:|])\s*/;
-const QUALITY = /\s+(?:4k|uhd|fhd|hd|sd|hdr|hdr10|dv|\d{3,4}p|hevc|h\.?26[45]|x26[45]|multi(?:-?sub)?|vostfr|dual)\b.*$/i;
-const YEAR = /\s*[([](\d{4})[)\]]/;
+// Both only start a match where a space run starts (the lookbehind), or a bracket: a leading `\s+` tried at every
+// space of a long run backtracks quadratically. `[^]*` (not `.*$`) so a line break cannot make it backtrack either.
+const QUALITY = /(?<!\s)\s+(?:4k|uhd|fhd|hd|sd|hdr|hdr10|dv|\d{3,4}p|hevc|h\.?26[45]|x26[45]|multi(?:-?sub)?|vostfr|dual)\b[^]*/i;
+const YEAR = /[([](\d{4})[)\]]/;
 
 /** A provider's title as a search query: tags in front, quality words and the year out (the year is returned apart). */
 export function searchTitle(name: string): { title: string; year?: number } {
@@ -261,6 +263,6 @@ export class OpenSubtitlesClient {
     }
     if (!res.ok) throw new SubtitleError(`Couldn't download the subtitles (error ${res.status}).`);
     const name = isObj(body) && typeof body.file_name === 'string' && body.file_name ? body.file_name : `subtitles-${fileId}.srt`;
-    return { bytes: new Uint8Array(await res.arrayBuffer()), name };
+    return { bytes: await readSubtitleBody(res, "Couldn't download the subtitles. Try again."), name };
   }
 }

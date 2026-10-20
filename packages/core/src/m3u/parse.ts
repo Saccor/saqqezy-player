@@ -1,5 +1,6 @@
 import { redactUrl } from '../errors.ts';
 import { cleanHeaderValue } from '../net/headers.ts';
+import { capName } from '../text/normalize.ts';
 import type { StreamHeaders } from '../types.ts';
 
 export interface M3uEntry {
@@ -113,16 +114,16 @@ function parseExtinf(line: string, lists: ListCache): Omit<M3uEntry, 'url'> {
     }
   }
   const head = comma === -1 ? body : body.slice(0, comma);
-  const name = comma === -1 ? '' : body.slice(comma + 1).trim();
+  const name = comma === -1 ? '' : capName(body.slice(comma + 1).trim());
   const info: Omit<M3uEntry, 'url'> = { name };
   for (const m of head.matchAll(ATTR_RE)) {
     const key = m[1]!.toLowerCase();
     const value = m[2]!.trim();
     if (!value) continue;
     if (key === 'tvg-id') info.tvgId = value;
-    else if (key === 'tvg-name') info.tvgName = value;
+    else if (key === 'tvg-name') info.tvgName = capName(value);
     else if (key === 'tvg-logo') info.tvgLogo = value;
-    else if (key === 'group-title') info.groupTitle = value;
+    else if (key === 'group-title') info.groupTitle = capName(value);
     else if (key === 'tvg-chno') {
       const n = Number.parseInt(value, 10);
       if (Number.isFinite(n) && n > 0) info.tvgChno = n;
@@ -218,7 +219,7 @@ export async function* parseM3u(
       continue;
     }
     if (line.startsWith('#EXTGRP:')) {
-      pendingGroup = line.slice('#EXTGRP:'.length).trim() || undefined;
+      pendingGroup = capName(line.slice('#EXTGRP:'.length).trim()) || undefined;
       continue;
     }
     if (line.startsWith('#EXTVLCOPT:')) {
@@ -240,7 +241,7 @@ export async function* parseM3u(
       entry.headers = headers;
       tagHeaders = {};
     }
-    if (!entry.name) entry.name = redactUrl(url);
+    if (!entry.name) entry.name = capName(redactUrl(url));
     if (!entry.groupTitle && pendingGroup) entry.groupTitle = pendingGroup;
     // The entry's own attributes win over the header's, field by field.
     if (headerCatchup) entry.catchup = entry.catchup ? { ...headerCatchup, ...entry.catchup } : { ...headerCatchup };

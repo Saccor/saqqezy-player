@@ -3,6 +3,7 @@ import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
 import { riseIn } from '../shell/motion.ts';
+import { clampIndex } from './optionsMenuLogic.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface OptionItem { id: string; label: string; value?: string }
@@ -36,12 +37,14 @@ export function OptionsMenu(props: {
   /** The item selected when the menu opens (a long list opens at the current value). */
   initial?: number;
 }) {
-  const [sel, setSel] = createSignal(Math.max(0, Math.min(props.items.length - 1, props.initial ?? 0)));
+  const [rawSel, setSel] = createSignal(clampIndex(props.initial ?? 0, props.items.length));
+  // Read clamped: the items can change while the menu is open ("Play from start" goes when the programme ends).
+  const sel = () => clampIndex(rawSel(), props.items.length);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let backdrop: ElementNode | undefined;
   let panel: ElementNode | undefined;
   const move = (d: number) => {
-    setSel((s) => Math.max(0, Math.min(props.items.length - 1, s + d)));
+    setSel(clampIndex(sel() + d, props.items.length));
     return true;
   };
   // Digits are swallowed so they never reach the Player's number entry while the menu is open.

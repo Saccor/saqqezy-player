@@ -4,6 +4,7 @@ import { xtreamToChannels } from '../src/xtream/toChannels.ts';
 import { ChannelIndex } from '../src/index/channelIndex.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
 import type { FetchFn } from '../src/types.ts';
+import { INGEST_NAME_MAX } from '../src/constants.ts';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -174,6 +175,19 @@ describe('XtreamClient – shape guards', () => {
     }));
     expect((await c.liveStreams()).map((s) => s.streamId)).toEqual([3]);
     expect(await c.liveCategories()).toEqual([{ id: '1', name: 'News' }]);
+  });
+
+  test('stream and category names are capped at INGEST_NAME_MAX characters; icons are not', async () => {
+    const long = 'N'.repeat(5000);
+    const icon = `http://img.test/${'p'.repeat(400)}.png`;
+    const c = new XtreamClient(cfg, fakeFetch({
+      get_live_streams: () => json([{ stream_id: 3, name: long, stream_icon: icon }]),
+      get_live_categories: () => json([{ category_id: '1', category_name: long }]),
+    }));
+    const [s] = await c.liveStreams();
+    expect(s!.name).toHaveLength(INGEST_NAME_MAX);
+    expect(s!.icon).toBe(icon);
+    expect((await c.liveCategories())[0]!.name).toHaveLength(INGEST_NAME_MAX);
   });
 
   test('shortEpg tolerates non-array listings, null rows and non-object bodies', async () => {

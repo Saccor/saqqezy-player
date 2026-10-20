@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { parseXmltvDate } from '../src/xmltv/date.ts';
-import { parseXmltv, type XmltvItem, type XmltvStats } from '../src/xmltv/parse.ts';
+import { NO_STOP_MAX_MS, parseXmltv, type XmltvItem, type XmltvStats } from '../src/xmltv/parse.ts';
 
 const fixture = readFileSync(new URL('./fixtures/basic.xml', import.meta.url), 'utf8');
 async function* inChunks(s: string, size: number) { for (let i = 0; i < s.length; i += size) yield s.slice(i, i + size); }
@@ -81,5 +81,65 @@ describe('parseXmltv', () => {
     const items: XmltvItem[] = [];
     for await (const it of parseXmltv(inChunks(xml, 9))) items.push(it);
     expect(items[1]).not.toHaveProperty('extra');
+  });
+});
+
+describe('parseXmltv: programmes without stop', () => {
+  const h = (hour: number, min = 0) => Date.UTC(2026, 9, 13, hour, min);
+  const prog = (channel: string, start: string, stop: string | undefined, title: string) =>
+    `<programme start="${start}"${stop === undefined ? '' : ` stop="${stop}"`} channel="${channel}"><title>${title}</title></programme>`;
+  async function programmes(xml: string, size = 11) {
+    const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
+    const out: { epgId: string; start: number; stop: number; title: string }[] = [];
+    for await (const it of parseXmltv(inChunks(xml, size), stats)) if (it.type === 'programme') out.push(it.programme);
+    return { out, stats };
+  }
+  const byStart = <T extends { epgId: string; start: number }>(a: T[]) => [...a].sort((x, y) => x.epgId.localeCompare(y.epgId) || x.start - y.start);
+
+  test('each one ends where the next one on its channel starts', async () => {
+    const { out, stats } = await programmes(`<tv>${
+      prog('a', '20261013170000', undefined, 'A1')}${prog('b', '20261013170000', undefined, 'B1')}${
+      prog('a', '20261013173000', '', 'A2')}${prog('a', '20261013180000', '20261013190000', 'A3')}${
+      prog('b', '20261013181500', undefined, 'B2')}</tv>`);
+    expect(byStart(out)).toEqual([
+      { epgId: 'a', start: h(17), stop: h(17, 30), title: 'A1' },
+      { epgId: 'a', start: h(17, 30), stop: h(18), title: 'A2' },
+      { epgId: 'a', start: h(18), stop: h(19), title: 'A3' },
+      { epgId: 'b', start: h(17), stop: h(18, 15), title: 'B1' },
+      // The last one on its channel: start + NO_STOP_MAX_MS, flushed at the end.
+      { epgId: 'b', start: h(18, 15), stop: h(18, 15) + NO_STOP_MAX_MS, title: 'B2' },
+    ]);
+    expect(stats).toEqual({ channels: 0, programmes: 5, skipped: 0 });
+  });
+
+  test('a long gap or an out-of-order successor caps it at NO_STOP_MAX_MS', async () => {
+    const { out } = await programmes(`<tv>${
+      prog('a', '20261013080000', undefined, 'Gap')}${prog('a', '20261013200000', '20261013210000', 'Late')}${
+      prog('c', '20261013120000', undefined, 'C1')}${prog('c', '20261013110000', '20261013120000', 'C0')}</tv>`);
+    expect(byStart(out)).toEqual([
+      { epgId: 'a', start: h(8), stop: h(8) + NO_STOP_MAX_MS, title: 'Gap' },
+      { epgId: 'a', start: h(20), stop: h(21), title: 'Late' },
+      { epgId: 'c', start: h(11), stop: h(12), title: 'C0' },
+      { epgId: 'c', start: h(12), stop: h(12) + NO_STOP_MAX_MS, title: 'C1' },
+    ]);
+  });
+
+  test('a stop that is present but unreadable is still skipped', async () => {
+    const { out, stats } = await programmes(`<tv>${prog('a', '20261013170000', 'bad', 'X')}</tv>`);
+    expect(out).toEqual([]);
+    expect(stats.skipped).toBe(1);
+  });
+
+  test('a streaming consumer gets each one as soon as its successor is read', async () => {
+    const xml = `<tv>${prog('a', '20261013170000', undefined, 'A1')}${prog('a', '20261013180000', undefined, 'A2')}`;
+    const seen: string[] = [];
+    async function* chunks() {
+      yield xml;
+      // A1 is out before the document goes on; A2 waits for its successor or the end.
+      expect(seen).toEqual(['A1']);
+      yield '</tv>';
+    }
+    for await (const it of parseXmltv(chunks())) if (it.type === 'programme') seen.push(it.programme.title);
+    expect(seen).toEqual(['A1', 'A2']);
   });
 });

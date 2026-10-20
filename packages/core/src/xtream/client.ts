@@ -7,7 +7,7 @@ import type { FetchFn, Programme, SourceHttpSettings, StreamHeaders } from '../t
 import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
 import { CATCHUP_DEFAULT_DAYS, CATCHUP_MAX_DAYS } from '../catchup/m3uCatchup.ts';
 import { serverOffsetFrom } from '../catchup/zone.ts';
-import { isObj, nonNegInt, posInt, str } from './json.ts';
+import { isObj, nameStr, nonNegInt, posInt, str } from './json.ts';
 import {
   parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
 } from './vod.ts';
@@ -159,7 +159,7 @@ export class XtreamClient {
     if (!Array.isArray(data)) return [];
     return data
       .filter(isObj)
-      .map((c) => ({ id: str(c.category_id), name: str(c.category_name) }))
+      .map((c) => ({ id: str(c.category_id), name: nameStr(c.category_name) }))
       .filter((c): c is XtreamCategory => !!c.id && !!c.name);
   }
 
@@ -170,7 +170,7 @@ export class XtreamClient {
     for (const s of data) {
       if (!isObj(s)) continue;
       const streamId = posInt(s.stream_id);
-      const name = str(s.name);
+      const name = nameStr(s.name);
       if (!streamId || !name) continue;
       const stream: XtreamStream = { streamId, name };
       const icon = str(s.stream_icon);
