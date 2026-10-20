@@ -1207,7 +1207,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
           <Show when={cu && now() < (cur() ?? cu).stop}>
             <View x={CONTENT_X + Math.round((CONTENT_W * seekLimitMs(cur() ?? cu!, now())) / Math.max(1, p.durationMs ?? 1)) - 2}
-              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.focus} borderRadius={2} />
+              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.accent} borderRadius={2} />
           </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={FONT.body} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>

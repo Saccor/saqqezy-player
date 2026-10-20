@@ -265,7 +265,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       {/* Only with a known length: the bar and the minutes left would be guesses otherwise. */}
       <Show when={resumeBarShown(resumeMs(), durationMs())}>
         <View x={INFO_X} y={POSTER_Y + 392 + 80} width={360} height={6} borderRadius={3} color={COLORS.surface}>
-          <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.focus} />
+          <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.accent} />
         </View>
         {/* Beside the bar, not under it: under it the line would reach the More label. */}
         <Text x={INFO_X + 376} y={POSTER_Y + 392 + 70} fontSize={FONT.small} color={COLORS.muted}>

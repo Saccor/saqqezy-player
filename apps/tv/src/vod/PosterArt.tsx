@@ -71,7 +71,7 @@ export function PosterArt(props: {
         </Show>
         <Show when={props.progress !== undefined}>
           <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={0x000000aa}>
-            <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.focus} />
+            <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.accent} />
           </View>
         </Show>
         <Show when={props.watched}>

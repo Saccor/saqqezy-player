@@ -36,7 +36,7 @@ function ProgrammeRowView(props: {
       <Text x={textX} y={42} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.small} color={textSub()}>{sub()}</Text>
       <Show when={props.row.kind === 'onNow'}>
         <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
-          <View width={Math.round(textW * progressOf(hit(), props.now))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.focus} />
+          <View width={Math.round(textW * progressOf(hit(), props.now))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
       </Show>
     </View>
@@ -66,7 +66,7 @@ function VodRowView(props: {
         color={props.lit ? 0xffffffcc : COLORS.muted}>{sub()}</Text>
       <Show when={t().progress !== undefined}>
         <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
-          <View width={Math.round(textW * (t().progress ?? 0))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.focus} />
+          <View width={Math.round(textW * (t().progress ?? 0))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
       </Show>
     </View>

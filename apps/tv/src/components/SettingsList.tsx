@@ -141,8 +141,8 @@ export function SettingsList(props: {
             </Show>
             {/* Focused (or, in pointer mode, hovered) adjustable row: a stepper (‹ value ›); otherwise the value right-aligned. */}
             <Show when={stepper()}>
-              <Text x={props.width - VALUE_W - 28} y={valueY} fontSize={FONT.body} color={COLORS.focus}>{'‹'}</Text>
-              <Text x={props.width - 28 - 14} y={valueY} fontSize={FONT.body} color={COLORS.focus}>{'›'}</Text>
+              <Text x={props.width - VALUE_W - 28} y={valueY} fontSize={FONT.body} color={COLORS.muted}>{'‹'}</Text>
+              <Text x={props.width - 28 - 14} y={valueY} fontSize={FONT.body} color={COLORS.muted}>{'›'}</Text>
             </Show>
             <Text x={props.width - VALUE_W - 28 + (stepper() ? 28 : 0)} y={valueY} width={VALUE_W - (stepper() ? 56 : 0)}
               maxWidth={VALUE_W - (stepper() ? 56 : 0)} contain="width" textAlign={stepper() ? 'center' : 'right'}

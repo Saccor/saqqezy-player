@@ -88,7 +88,7 @@ export function ChannelRowView(props: {
       <Show when={r()?.now}>
         <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
-            color={props.lit ? COLORS.onFocus : COLORS.focus} />
+            color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
       </Show>
     </View>

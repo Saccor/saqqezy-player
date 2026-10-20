@@ -81,7 +81,7 @@ function TypeTile(props: {
       <Text x={40} y={56} fontSize={40} color={COLORS.text}>{props.title}</Text>
       <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={FONT.body}
         color={COLORS.muted}>{props.body}</Text>
-      {props.badge ? <Text x={40} y={196} fontSize={FONT.small} color={COLORS.focus}>{props.badge}</Text> : null}
+      {props.badge ? <Text x={40} y={196} fontSize={FONT.small} color={COLORS.accent}>{props.badge}</Text> : null}
     </View>
   );
 }

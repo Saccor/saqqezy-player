@@ -195,7 +195,7 @@ export function EpgGrid(props: {
                   const sel = () => isRow() && b.start === props.focusStart;
                   const fill = () => (lit() ? COLORS.focus
                     : sel() ? COLORS.surface : b.filler ? FILLER : isOnAir(b, props.now) ? ON_AIR : COLORS.surface);
-                  const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.focus }
+                  const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.muted }
                     : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
                   const mark = () => (b.filler ? undefined : props.archiveMark?.(i, b));
                   const textX = () => (mark() === 'past' ? 12 + MARK + 8 : 12);
@@ -204,7 +204,7 @@ export function EpgGrid(props: {
                     <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={8} border={ring()}>
                       <Show when={mark() && w() > 48 + MARK}>
                         <View x={mark() === 'past' ? 12 : w() - 12 - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
-                          src={iconTexture('archive')} color={lit() ? 0xffffffff : COLORS.muted} />
+                          src={iconTexture('archive')} color={lit() ? COLORS.onFocus : COLORS.muted} />
                       </Show>
                       <Show when={w() > 48}>
                         <Text x={textX()} y={(CELL_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width"

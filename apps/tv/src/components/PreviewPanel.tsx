@@ -70,7 +70,7 @@ export function PreviewPanel(props: {
                 color={COLORS.text}>{n().title}</Text>
               <Text y={38} fontSize={FONT.small} color={COLORS.muted}>{formatRange(n().start, n().stop)}</Text>
               <View y={76} width={PREVIEW_W} height={6} color={0x2a3140ff} borderRadius={3}>
-                <View width={Math.round(PREVIEW_W * progressOf(n(), props.now))} height={6} color={COLORS.focus} borderRadius={3} />
+                <View width={Math.round(PREVIEW_W * progressOf(n(), props.now))} height={6} color={COLORS.accent} borderRadius={3} />
               </View>
             </View>
           )}</Show>

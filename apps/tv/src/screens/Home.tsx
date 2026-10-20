@@ -108,7 +108,7 @@ const PHONE_BADGE_X = TAB_BAR_X + TABS_W + LAYOUT.gap;
 function PhoneBadge() {
   return (
     <View x={PHONE_BADGE_X} y={LAYOUT.safeY - 4} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
-      borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.focus }}>
+      borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.subtle }}>
       <Text y={(PHONE_BADGE_H - FONT.small) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
         textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone'}</Text>
     </View>

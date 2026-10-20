@@ -48,7 +48,7 @@ export function SeasonTabs(props: {
             <Text y={(SEASON_TAB_H - FONT.body) / 2 - 2} width={w()} maxWidth={w()} contain="width" maxLines={1} textAlign="center"
               fontSize={FONT.body} color={lit() ? COLORS.onFocus : shown() ? COLORS.text : COLORS.muted}>{label() ?? ''}</Text>
             <View x={w() / 2 - 20} y={SEASON_TAB_H - 6} width={40} height={4} borderRadius={2}
-              color={COLORS.focus} alpha={shown() && !lit() ? 1 : 0} />
+              color={COLORS.accent} alpha={shown() && !lit() ? 1 : 0} />
           </View>
         );
       }}</Index>
