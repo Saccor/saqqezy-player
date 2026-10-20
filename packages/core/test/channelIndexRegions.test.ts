@@ -58,6 +58,23 @@ describe('ChannelIndex regions', () => {
     expect(idx.search('synthetic', 20).map((c) => c.id)).not.toContain('s:2');
   });
 
+  test('searchRuleHidden: matches only the region rule hides, counted, prefix first, user-hidden never', () => {
+    const l = lay({ op: 'hideChannels', ids: ['s:6'] });
+    const idx = new ChannelIndex(channels, undefined, undefined, { regions: view('only', ['SE']) });
+    expect(idx.searchRuleHidden('synthetic', 20)).toEqual({ count: 3, channels: [channels[0], channels[1], channels[5]] });
+    expect(idx.searchRuleHidden('docs', 20)).toEqual({ count: 1, channels: [channels[1]] });
+    expect(idx.searchRuleHidden('synthetic', 1)).toEqual({ count: 3, channels: [channels[0]] });
+    expect(idx.searchRuleHidden('', 20)).toEqual({ count: 0, channels: [] });
+    const user = new ChannelIndex(channels, lay({ op: 'hideGroups', ids: ['g:DK | Docs'] }), undefined, { regions: view('only', ['SE']) });
+    expect(user.searchRuleHidden('docs', 20)).toEqual({ count: 0, channels: [] });
+    const hiddenCh = new ChannelIndex(channels, l, undefined, { regions: view('only', ['SE']) });
+    expect(hiddenCh.searchRuleHidden('film', 20).count).toBe(0);
+    const first = new ChannelIndex(channels, undefined, undefined, { regions: view('first', ['SE']) });
+    expect(first.searchRuleHidden('synthetic', 20)).toEqual({ count: 0, channels: [] });
+    const folded = new ChannelIndex(channels, undefined, undefined, { fold: true, regions: view('only', ['SE']) });
+    expect(folded.searchRuleHidden('news', 20)).toEqual({ count: 1, channels: [channels[0]] });
+  });
+
   test('hidden beats shown beats the rule; groupRegion overrides detection', () => {
     const l = lay(
       { op: 'showGroups', ids: ['g:DK | Docs'] },

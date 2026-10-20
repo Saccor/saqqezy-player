@@ -530,6 +530,7 @@ export class ChannelIndex {
 
   /** Every provider group, hidden or not (for the companion). */
   allProviderGroups(): ProviderGroupInfo[] {
+    const shown = new Set(this.lay.shownGroups);
     return this.orderedProviderGroups().map((gid) => ({
       id: gid,
       name: this.groupName(gid),
@@ -537,7 +538,7 @@ export class ChannelIndex {
       count: this.base.members.get(gid)?.length ?? 0,
       hidden: this.userHiddenGr.has(gid),
       regionHidden: this.rd.ruleHidden.has(gid),
-      shown: this.lay.shownGroups.includes(gid),
+      shown: shown.has(gid),
       regions: [...(this.rd.keysOf.get(gid) ?? NO_KEYS)],
     }));
   }
@@ -619,6 +620,32 @@ export class ChannelIndex {
       if (prefix.length >= limit) break;
     }
     return [...prefix, ...contains].slice(0, limit);
+  }
+
+  /**
+   * Search matches that only the region rule hides (catalogue-personalisation §2.2 "Results in hidden groups (n)"):
+   * channels of rule-hidden groups, never user-hidden groups or channels; `count` is every match, `channels` the first
+   * `limit` (prefix matches first, then playlist order). Each is the playlist channel (renamed), not a folded row.
+   */
+  searchRuleHidden(query: string, limit: number): { count: number; channels: Channel[] } {
+    const q = searchKey(query);
+    const rule = this.rd.ruleHidden;
+    if (!q || rule.size === 0) return { count: 0, channels: [] };
+    const prefix: Channel[] = [];
+    const contains: Channel[] = [];
+    const keys = searchKeys(this.base);
+    for (const c of this.base.channels) {
+      const gid = groupIdOf(c);
+      if (!rule.has(gid) || this.userHiddenGr.has(gid) || this.hiddenCh.has(c.id) || this.noEpg?.has(c.id)) continue;
+      const orig = keys.get(c.id)!;
+      const disp = this.renamedKeys.get(c.id);
+      if (orig.startsWith(q) || (disp !== undefined && disp.startsWith(q))) prefix.push(c);
+      else if (orig.includes(q) || (disp !== undefined && disp.includes(q))) contains.push(c);
+    }
+    const max = Math.max(0, limit);
+    const channels = (prefix.length >= max ? prefix.slice(0, max) : [...prefix, ...contains.slice(0, max - prefix.length)])
+      .map((c) => this.display(c));
+    return { count: prefix.length + contains.length, channels };
   }
 
   private rowKey(row: Channel): string {
