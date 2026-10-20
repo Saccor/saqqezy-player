@@ -1,0 +1,31 @@
+#EXTM3U
+#EXTINF:-1 group-title="SE | Synthetic News",Synthetic One
+http://example.test/live/2725918878.ts
+#EXTINF:-1 group-title="DK | Synthetic Docs",Synthetic Two
+http://example.test/live/1573916522.ts
+#EXTINF:-1 group-title="FI | Synthetic Talk",Synthetic Three
+http://example.test/live/779032465.ts
+#EXTINF:-1 group-title="IT Synthetic Crowd",Synthetic Crowd One
+http://example.test/live/2313220008.ts
+#EXTINF:-1 group-title="MY Synthetic Picks",Synthetic Picks One
+http://example.test/live/1711222814.ts
+#EXTINF:-1 group-title="AL | Synthetic Gold",Synthetic Gold One
+http://example.test/live/50529941.ts
+#EXTINF:-1 group-title="IN | Synthetic Late",Synthetic Late One
+http://example.test/live/951212176.ts
+#EXTINF:-1 group-title="UP - Synthetic Late",Synthetic Late Two
+http://example.test/live/322766606.ts
+#EXTINF:-1 group-title="Synthetic Crowd HD",Synthetic Crowd Two
+http://example.test/live/1942932223.ts
+#EXTINF:-1 group-title="Synthetic | TV",Synthetic Talk Two
+http://example.test/live/1963025263.ts
+#EXTINF:-1 group-title="Picks",SE: Synthetic Pick
+http://example.test/live/243586437.ts
+#EXTINF:-1 group-title="Picks",DK: Synthetic Pick
+http://example.test/live/2808826372.ts
+#EXTINF:-1 group-title="Picks",FI: Synthetic Pick
+http://example.test/live/62502224.ts
+#EXTINF:-1 group-title="Duo",SE: Synthetic Duo
+http://example.test/live/1299411365.ts
+#EXTINF:-1 group-title="Duo",SE: Synthetic Duo Two
+http://example.test/live/305168212.ts

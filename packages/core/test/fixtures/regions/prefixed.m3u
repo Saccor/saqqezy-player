@@ -1,0 +1,27 @@
+#EXTM3U
+#EXTINF:-1 group-title="SE | Synthetic News",Synthetic One
+http://example.test/live/137749629.ts
+#EXTINF:-1 group-title="SE | Synthetic News",Synthetic Two
+http://example.test/live/2763424315.ts
+#EXTINF:-1 group-title="SE | Synthetic Kids",Synthetic Kids One
+http://example.test/live/2885111040.ts
+#EXTINF:-1 group-title="DK | Synthetic Docs",Synthetic Docs One
+http://example.test/live/2542212185.ts
+#EXTINF:-1 group-title="NO | Synthetic Sport",Synthetic Sport One
+http://example.test/live/1703011504.ts
+#EXTINF:-1 group-title="NO | Synthetic Movies",Synthetic Movies One
+http://example.test/live/1277831146.ts
+#EXTINF:-1 group-title="UK | Synthetic Drama",Synthetic Drama One
+http://example.test/live/242438791.ts
+#EXTINF:-1 group-title="EN | Synthetic Cinema",Synthetic Cinema One
+http://example.test/live/2694225843.ts
+#EXTINF:-1 group-title="SE: Synthetic Music",Synthetic Music One
+http://example.test/live/405918873.ts
+#EXTINF:-1 group-title="News",SE: Synthetic Daily
+http://example.test/live/1940227086.ts
+#EXTINF:-1 group-title="News",SE: Synthetic Evening
+http://example.test/live/199945369.ts
+#EXTINF:-1 group-title="News",SE: Synthetic Morning
+http://example.test/live/879429051.ts
+#EXTINF:-1 group-title="News",DK: Synthetic Night
+http://example.test/live/187321222.ts
