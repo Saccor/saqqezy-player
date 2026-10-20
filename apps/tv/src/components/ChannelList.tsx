@@ -48,7 +48,7 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
 /** One channel row (number, logo, name, now line, progress), positioned by the caller. */
 function ChannelRowView(props: {
   y: number; width: number; row: ChannelRow | undefined; lit: boolean; isFocus: boolean;
-  now: number; playingId: string | undefined; showNext?: boolean;
+  now: number; playingId: string | undefined;
   /** The pointer is over the row (pointer mode): a subtle fill, never focus. */
   hover?: boolean;
   /** The `⋯` pill shows on this row: the text and progress bar end before it. */
@@ -63,9 +63,8 @@ function ChannelRowView(props: {
   const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
   const nowLine = () => {
     const n = r()?.now;
-    const nx = props.showNext ? r()?.next : undefined;
     if (!n) return r() ? 'No guide information' : '';
-    return `${formatRange(n.start, n.stop)} · ${n.title}${nx ? ` | Next: ${nx.title}` : ''}`;
+    return `${formatRange(n.start, n.stop)} · ${n.title}`;
   };
   return (
     <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={LAYOUT.radius}>
@@ -109,8 +108,6 @@ export function ChannelList(props: {
   row: (index: number) => ChannelRow | undefined;
   now: number;
   playingId: string | undefined;
-  /** Append the next programme to the now line (Search). */
-  showNext?: boolean;
   onFocusChanged?: (focused: boolean) => void;
   onMove: (delta: number) => boolean;
   onPage: (dir: 1 | -1) => boolean;
@@ -187,7 +184,7 @@ export function ChannelList(props: {
       <For each={indices()}>{(i) => (
         <ChannelRowView y={(i - props.top) * ROW_H} width={props.width} row={props.row(i)}
           lit={i === props.focus && focused()} isFocus={i === props.focus} now={props.now}
-          playingId={props.playingId} showNext={props.showNext} hover={hovered(i)} optionsShown={dotsRow() === i} />
+          playingId={props.playingId} hover={hovered(i)} optionsShown={dotsRow() === i} />
       )}</For>
       <Show when={dotsRow() !== undefined}>
         <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (ROW_H - 6 - DOTS_H) / 2}

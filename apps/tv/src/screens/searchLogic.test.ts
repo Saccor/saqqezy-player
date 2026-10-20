@@ -266,15 +266,15 @@ describe('resultsMessage', () => {
 
   it('says the guide is being prepared when nothing matches yet and the guide is pending', () => {
     const pending = searchRows(result({ guidePending: true }));
-    expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Guide results are being prepared');
+    expect(resultsMessage(st({ results: pending }))).toBe('Nothing matches "xyz" · Guide results are being prepared');
     expect(resultsMessage(st({ results: pending, busy: true }))).toBe('Searching…');
     expect(resultsMessage(st({ results: searchRows(result({ channels: [row(1)], guidePending: true })) }))).toBeUndefined();
   });
 
   it('says movies and series are being prepared when only they are pending', () => {
-    expect(resultsMessage(st({ results: searchRows(result({ vodPending: true })) }))).toBe('No channels match "xyz" · Movies and series are being prepared');
+    expect(resultsMessage(st({ results: searchRows(result({ vodPending: true })) }))).toBe('Nothing matches "xyz" · Movies and series are being prepared');
     expect(resultsMessage(st({ results: searchRows(result({ guidePending: true, vodPending: true })) })))
-      .toBe('No channels match "xyz" · Guide results are being prepared');
+      .toBe('Nothing matches "xyz" · Guide results are being prepared');
   });
 });
 

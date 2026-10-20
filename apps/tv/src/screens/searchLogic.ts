@@ -235,7 +235,7 @@ export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
   const note = pendingNotes(s.results)[0];
-  if (note) return `No channels match "${s.query}" · ${note}`;
+  if (note) return `Nothing matches "${s.query}" · ${note}`;
   return `Nothing matches "${s.query}"`;
 }
 

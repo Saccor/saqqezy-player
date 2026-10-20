@@ -122,7 +122,7 @@ export function InfoBanner(props: {
             fontSize={TYPE.meta} color={COLORS.muted}>{formatClock(new Date(n.start))}</Text>
           <View x={trackX} y={PROGRESS_Y + (TYPE.meta * 1.2 - TRACK_H) / 2} width={trackW} height={TRACK_H}
             color={COLORS.track} borderRadius={TRACK_H / 2}>
-            <View width={Math.round(trackW * progressOf(n, props.now))} height={TRACK_H} color={COLORS.text}
+            <View width={Math.round(trackW * progressOf(n, props.now))} height={TRACK_H} color={COLORS.accent}
               borderRadius={TRACK_H / 2} />
           </View>
           <Text x={BANNER_W - TIME_W} y={PROGRESS_Y} width={TIME_W} maxWidth={TIME_W} contain="width" textAlign="right"
