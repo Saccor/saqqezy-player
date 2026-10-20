@@ -9,6 +9,31 @@
 
 Your TV app then needs to know both addresses, so you build it again at the end.
 
+## This project's deployment (short version)
+
+Both parts are already live, and both deploy from the repo root with one command each (after
+`pnpm install` and, once per computer, `pnpm dlx wrangler login`):
+
+| Part | Command | Config | Address |
+|---|---|---|---|
+| Relay | `pnpm relay:deploy` | `services/relay/wrangler.toml` | `wss://iptv-relay-production.sacco-rezais.workers.dev` |
+| Companion page | `pnpm companion:deploy` | `apps/companion/wrangler.jsonc` | `https://saqqezy-companion.sacco-rezais.workers.dev` |
+
+- `pnpm companion:deploy` (`scripts/companion-deploy.mjs`) builds the page with
+  `VITE_RELAY_URL=wss://iptv-relay-production.sacco-rezais.workers.dev` and `REQUIRE_PROD_ENV=1`, then runs
+  `wrangler deploy` in `apps/companion` (wrangler refuses to run at the pnpm workspace root). It works the same in
+  PowerShell and Git Bash. Add `--dry-run` to build and check without uploading.
+- The page is a **static-assets Worker** (`saqqezy-companion`), not a Pages project: no Worker script, only
+  `dist/`. Workers static assets applies the generated `dist/_headers` (CSP with the relay origin), as Pages does.
+  Observability and wrangler metrics are off.
+- The relay's `ALLOWED_ORIGINS` already lists the companion page and the local TV dev origins
+  (`services/relay/README.md`, "Production").
+- TV dev builds read `VITE_COMPANION_ORIGIN` and `VITE_RELAY_URL` from the git-ignored `apps/tv/.env.local`.
+  Set them to the two addresses above.
+- Deploy the relay first when both change, so the relay already accepts the page's origin.
+
+The rest of this guide is the full walkthrough for a fresh account or your own domain.
+
 This guide takes about an hour the first time. You type a few commands in a terminal (PowerShell on Windows) and
 click through the Cloudflare dashboard. You do not need to program. Until you deploy, everything also runs on your
 own computer: see "Manage from your phone (local test)" in [try-v1.md](try-v1.md).
@@ -54,14 +79,9 @@ you only log in once per computer.
 
 ## 4. Tell the relay which web app may connect (`ALLOWED_ORIGINS`)
 
-Open `services/relay/wrangler.toml` in a text editor. Near the bottom, find this line under
-`[env.production.vars]`:
-
-```toml
-ALLOWED_ORIGINS = "https://manage.example.com"
-```
-
-Replace `https://manage.example.com` with your web app's address:
+Open `services/relay/wrangler.toml` in a text editor. Near the bottom, find the `ALLOWED_ORIGINS` line under
+`[env.production.vars]`. Its first entry is this project's companion page; the `http://localhost:...` entries are
+for TV dev builds on this computer. Replace the first entry with your web app's address:
 
 - `https://` plus the host name, nothing else: no path and no `/` at the end.
 - For the test addresses it looks like `https://iptv-companion.pages.dev`.

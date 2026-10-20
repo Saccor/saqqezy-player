@@ -48,6 +48,9 @@ importers:
       vite-plugin-solid:
         specifier: 2.11.14
         version: 2.11.14(solid-js@1.9.17)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15))
+      wrangler:
+        specifier: 4.151.0
+        version: 4.151.0(@cloudflare/workers-types@5.20261014.1)(@types/node@22.20.5)
 
   apps/tv:
     dependencies:

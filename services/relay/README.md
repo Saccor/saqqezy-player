@@ -100,13 +100,29 @@ new-session limit (10 per minute).
 
 ## Production
 
-`pnpm relay:deploy` runs `wrangler deploy --env production` and needs a Cloudflare account.
-`[env.production]` in `wrangler.toml` does not inherit the dev `[vars]`, so the dev origins and
-timer overrides never reach production. Before the first deploy:
+The relay runs as the Worker `iptv-relay-production` at
+`wss://iptv-relay-production.sacco-rezais.workers.dev` (`/healthz` over https). Deploy it from the repo root with:
 
-1. Set `ALLOWED_ORIGINS` under `[env.production.vars]` to the companion's real origin (the
-   placeholder is `https://manage.example.com`).
-2. Add any hosted TV origins (for example a Titan OS or other hosted web TV build) to the same
-   comma-separated list. Packaged Tizen and webOS builds send `Origin: null` or `file://` and need no
-   entry.
-3. Keep zone HTTP request logging and Logpush off for the relay hostname (see Privacy notes).
+```sh
+pnpm relay:deploy                                              # wrangler deploy --env production
+pnpm --filter @iptv/relay exec wrangler deploy --env production --dry-run   # check without uploading
+```
+
+It needs `pnpm dlx wrangler login` once per computer. wrangler runs in `services/relay` (the pnpm filter
+takes care of that; wrangler refuses to run at the workspace root). Everything the deploy needs is in
+`wrangler.toml`: no `--var` flags. `[env.production]` does not inherit the dev `[vars]`, so the dev
+timer overrides never reach production.
+
+`ALLOWED_ORIGINS` under `[env.production.vars]` lists:
+
+1. the companion page, `https://saqqezy-companion.sacco-rezais.workers.dev` (deployed with
+   `pnpm companion:deploy`, see [docs/deploy-companion.md](../../docs/deploy-companion.md));
+2. `http://localhost:5173` and `http://localhost:5180`, so TV dev builds on this computer can pair through the
+   production relay. That is fine because the Origin check is hygiene only (see Origins above).
+
+Add any hosted TV origins (for example a Titan OS or other hosted web TV build) to the same
+comma-separated list and deploy again. Packaged Tizen and webOS builds send `Origin: null` or `file://`
+and need no entry. If the companion moves to another address, change the first entry and redeploy, or
+the relay refuses the phone.
+
+Keep zone HTTP request logging and Logpush off for the relay hostname (see Privacy notes).
