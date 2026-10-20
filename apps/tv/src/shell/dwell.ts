@@ -3,7 +3,8 @@ import { MOTION } from './theme.ts';
 
 /**
  * "Follow focus once it rests" (spec §1.3, InfoStrip and Backdrop): the first value applies at once (a screen opens
- * with its info filled); after that a value applies only when no newer one came for `ms`, so holding a key never
+ * with its info filled). `undefined` (a source still loading) applies at once too but does not use up that first
+ * chance, so the first real value is also immediate. After that a value applies only when no newer one came for `ms`, so holding a key never
  * loads backdrops or rewrites text on every step.
  */
 export function createDweller<T>(ms: number, set: (v: T) => void): { push(v: T): void; cancel(): void } {
@@ -12,7 +13,12 @@ export function createDweller<T>(ms: number, set: (v: T) => void): { push(v: T):
   const cancel = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
   return {
     push(v) {
-      if (first) { first = false; set(v); return; }
+      if (first) {
+        cancel();
+        if (v !== undefined) first = false;
+        set(v);
+        return;
+      }
       cancel();
       timer = setTimeout(() => { timer = undefined; set(v); }, ms);
     },

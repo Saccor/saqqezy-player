@@ -17,6 +17,17 @@ describe('createDweller', () => {
     vi.advanceTimersByTime(50);
     expect(seen).toEqual(['a', 'c']);
   });
+  test('undefined does not use up the immediate first value', () => {
+    const seen: (string | undefined)[] = [];
+    const d = createDweller<string | undefined>(250, (v) => seen.push(v));
+    d.push(undefined);
+    d.push('a');
+    expect(seen).toEqual([undefined, 'a']);
+    d.push('b');
+    expect(seen).toEqual([undefined, 'a']);
+    vi.advanceTimersByTime(250);
+    expect(seen).toEqual([undefined, 'a', 'b']);
+  });
   test('cancel drops a pending value', () => {
     const seen: number[] = [];
     const d = createDweller<number>(250, (v) => seen.push(v));
