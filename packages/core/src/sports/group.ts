@@ -136,3 +136,20 @@ export function groupEvents<A>(
   const learned = [...seen.values()].filter((s) => s.ids.size >= 2).map((s) => s.pair);
   return { events, learned };
 }
+
+/**
+ * Re-airs by pairing (gate G3): a match whose pair already had an earlier event that ended before this one started,
+ * unless this one is live-marked. Title-only events are never marked. `events` sorted by start (as groupEvents returns).
+ */
+export function reairKeys<A>(events: readonly SportsGroup<A>[]): Set<string> {
+  const out = new Set<string>();
+  const firstStop = new Map<string, number>();
+  for (const e of events) {
+    if (!e.key.startsWith('p:')) continue;
+    const pair = e.key.slice(0, e.key.lastIndexOf('@'));
+    const prev = firstStop.get(pair);
+    if (prev !== undefined && prev <= e.start && !e.live) out.add(e.key);
+    if (prev === undefined || e.stop < prev) firstStop.set(pair, e.stop);
+  }
+  return out;
+}

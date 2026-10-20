@@ -3,6 +3,9 @@ export type OpenOn = 'lastChannel' | 'start';
 export type PosterSize = 'standard' | 'compact';
 export const FOLLOWED_TEAMS_MAX = 50;
 export const FOLLOWED_TEAM_LEN = 40;
+export const PINNED_COMPETITIONS_MAX = 20;
+export const HIDDEN_COMPETITIONS_MAX = 50;
+export const MATCH_CATEGORIES_MAX = 5;
 
 export interface AppSettings {
   epgOffsetHours: number;
@@ -36,6 +39,14 @@ export interface AppSettings {
    * default until the TV UI for sources lands (report 2026-10-20 §3.1 step 3), then on.
    */
   combineChannels: boolean;
+  /**
+   * Matches in your guide: competitions (folded guide text, `competitionKey`) whose matches come first, and ones that
+   * are hidden. On the device, and in the end-to-end encrypted sync only.
+   */
+  pinnedCompetitions: string[];
+  hiddenCompetitions: string[];
+  /** Matches in your guide: only these guide categories (folded guide text); empty: all. On-device only. */
+  matchCategories: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -54,6 +65,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   followedTeams: [],
   posterSize: 'standard',
   combineChannels: false,
+  pinnedCompetitions: [],
+  hiddenCompetitions: [],
+  matchCategories: [],
 };
 
 /** Most entries in `preferredLanguages`. */
@@ -85,6 +99,20 @@ function sanitizeTeams(value: unknown): string[] {
     seen.add(k);
     out.push(t);
     if (out.length >= FOLLOWED_TEAMS_MAX) break;
+  }
+  return out;
+}
+
+/** Folded guide texts (competitions, categories): trimmed, inner spaces collapsed, 1-40 chars, deduped, capped. */
+function foldedList(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string') continue;
+    const k = v.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, FOLLOWED_TEAM_LEN).trim();
+    if (!k || out.includes(k)) continue;
+    out.push(k);
+    if (out.length >= max) break;
   }
   return out;
 }
@@ -125,6 +153,9 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     followedTeams: sanitizeTeams(src.followedTeams),
     posterSize: src.posterSize === 'compact' || src.posterSize === 'standard' ? src.posterSize : DEFAULT_SETTINGS.posterSize,
     combineChannels: typeof src.combineChannels === 'boolean' ? src.combineChannels : DEFAULT_SETTINGS.combineChannels,
+    pinnedCompetitions: foldedList(src.pinnedCompetitions, PINNED_COMPETITIONS_MAX),
+    hiddenCompetitions: foldedList(src.hiddenCompetitions, HIDDEN_COMPETITIONS_MAX),
+    matchCategories: foldedList(src.matchCategories, MATCH_CATEGORIES_MAX),
   };
 }
 

@@ -59,7 +59,9 @@ export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, sourceHeadersOf, with
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';
-export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, PREFERRED_LANGUAGES_MAX, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn, type PosterSize } from './settings.ts';
+export {
+  DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, HIDDEN_COMPETITIONS_MAX, MATCH_CATEGORIES_MAX, PINNED_COMPETITIONS_MAX, PREFERRED_LANGUAGES_MAX, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn, type PosterSize,
+} from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type ProgrammeExtra, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
@@ -82,10 +84,15 @@ export {
   type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
 } from './subtitles/openSubtitles.ts';
 export { HASH_CHUNK, fetchMovieHash, openSubtitlesHash } from './subtitles/movieHash.ts';
-export { scoreProgramme, EVENT_THRESHOLD, type Detection } from './sports/detect.ts';
+export { parseMatch, scoreProgramme, EVENT_THRESHOLD, type Detection, type ParsedMatch } from './sports/detect.ts';
+export { MATCH_FLAGS, isSportCategory } from './sports/words.ts';
 export { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from './sports/match.ts';
 export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from './sports/quality.ts';
-export { groupEvents, type GroupInput, type SportsGroup } from './sports/group.ts';
+export { groupEvents, reairKeys, type GroupInput, type SportsGroup } from './sports/group.ts';
+export {
+  MATCHES_ALL_CAP, MATCHES_ROW_CAP, competitionKey, matchScore, rankMatches, type MatchEvent, type RankOptions, type RankedMatch, type RankedMatches,
+} from './sports/rank.ts';
+export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, matchFilters, type MatchChip, type MatchFilters } from './sports/competitions.ts';
 export { isFollowed } from './sports/follow.ts';
-export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
+export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_INDEX_VERSION, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
 export * from './sync/index.ts';
