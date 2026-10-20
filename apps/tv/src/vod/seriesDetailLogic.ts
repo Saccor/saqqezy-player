@@ -30,7 +30,7 @@ export function episodeMeta(e: EpisodeView): string {
   return rt ? `${label} · ${rt}` : label;
 }
 
-/** The season tab label: the season's name when it is not just a number, else "Season N"; number 0 is "Specials". */
+/** The season dropdown label and list row label: the season's name when it is not just a number, else "Season N"; number 0 is "Specials". */
 export function seasonLabel(s: SeasonView): string {
   if (s.number === 0) return 'Specials';
   const name = s.name.trim();
@@ -69,35 +69,6 @@ export function refocus(
   return { season: Math.max(0, sIdx), episode: 0 };
 }
 
-/** A season tab's width from its label: roughly the text plus padding, kept between 140 and 360. */
-export function seasonTabWidth(label: string): number {
-  return Math.max(140, Math.min(360, Math.round(label.length * 13) + 56));
-}
-
-/** Left edges of tabs laid out left to right with `gap` between them. */
-export function stripStarts(widths: readonly number[], gap: number): number[] {
-  let x = 0;
-  return widths.map((w) => { const at = x; x += w + gap; return at; });
-}
-
-/** The tab under a strip-local x (scroll already added), undefined in a gap or outside. */
-export function stripAt(starts: readonly number[], widths: readonly number[], x: number): number | undefined {
-  const i = starts.findIndex((s, k) => x >= s && x < s + widths[k]!);
-  return i >= 0 ? i : undefined;
-}
-
-/** The strip's scroll offset keeping the focused tab fully in a `view`-wide window, moving as little as possible. */
-export function stripOffset(starts: readonly number[], widths: readonly number[], focus: number, view: number, prev: number): number {
-  const n = starts.length;
-  if (n === 0) return 0;
-  const total = starts[n - 1]! + widths[n - 1]!;
-  const i = Math.max(0, Math.min(focus, n - 1));
-  let next = prev;
-  if (starts[i]! < next) next = starts[i]!;
-  else if (starts[i]! + widths[i]! > next + view) next = starts[i]! + widths[i]! - view;
-  return Math.max(0, Math.min(next, Math.max(0, total - view)));
-}
-
 /** The card under a row-local x for a row scrolled to `scroll` cards, undefined in a gap or past the last card. */
 export function cardAt(px: number, scroll: number, pitch: number, cardW: number, total: number): number | undefined {
   if (px < 0) return undefined;
@@ -106,7 +77,7 @@ export function cardAt(px: number, scroll: number, pitch: number, cardW: number,
 }
 
 /** The series detail's focus areas, top to bottom. */
-export type SeriesArea = 'actions' | 'seasons' | 'episodes';
+export type SeriesArea = 'actions' | 'season' | 'episodes';
 /** Where the screen was, kept in its router params so a remount (returning from the player) lands there again. */
 export interface SavedFocus { seasonNumber: number; episodeId: string }
 
@@ -120,7 +91,7 @@ export function remountRestore(
   saved: { focus?: SavedFocus; area?: SeriesArea },
   view: SeriesView,
 ): { prev: SavedFocus | undefined; area: SeriesArea } {
-  if (!saved.focus || (saved.area !== 'seasons' && saved.area !== 'episodes')) return { prev: undefined, area: 'actions' };
+  if (!saved.focus || (saved.area !== 'season' && saved.area !== 'episodes')) return { prev: undefined, area: 'actions' };
   const id = saved.focus.episodeId;
   const watched = view.seasons.some((s) => s.episodes.some((e) => e.id === id && e.watched));
   const p = view.primary;
@@ -128,17 +99,19 @@ export function remountRestore(
   return { prev: saved.focus, area: saved.area };
 }
 
-/** The area to focus when `a` may have emptied: episodes fall back to the seasons, no seasons to the actions. */
-export function fallbackArea(a: SeriesArea, counts: { seasons: number; episodes: number }): SeriesArea {
-  if (a === 'episodes' && counts.episodes === 0) a = 'seasons';
-  if (a === 'seasons' && counts.seasons === 0) a = 'actions';
-  return a;
+/** The area Up or Down moves to from `a`: one step through actions, season, episodes; an empty area is skipped (stays put). */
+export function moveArea(a: SeriesArea, key: 'up' | 'down', counts: { seasons: number; episodes: number }): SeriesArea {
+  const order: SeriesArea[] = ['actions', 'season', 'episodes'];
+  const want = order[Math.max(0, Math.min(2, order.indexOf(a) + (key === 'down' ? 1 : -1)))]!;
+  const live = fallbackArea(want, counts);
+  return live === want ? want : a;
 }
 
-/** The season tab selection after a reload: the placed season, except while the keys are on the tabs (kept, clamped). */
-export function tabSelAfterReload(area: SeriesArea, tabSel: number, placedSeason: number, seasons: number): number {
-  if (area !== 'seasons') return placedSeason;
-  return Math.max(0, Math.min(tabSel, seasons - 1));
+/** The area to focus when `a` may have emptied: episodes fall back to the seasons, no seasons to the actions. */
+export function fallbackArea(a: SeriesArea, counts: { seasons: number; episodes: number }): SeriesArea {
+  if (a === 'episodes' && counts.episodes === 0) a = 'season';
+  if (a === 'season' && counts.seasons === 0) a = 'actions';
+  return a;
 }
 
 /** The action buttons: the primary episode (hidden once loaded without one) and Favourite. */

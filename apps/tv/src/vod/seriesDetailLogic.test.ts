@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { EpisodeView, SeasonView, SeriesView } from '@iptv/app-api';
 import {
-  cardAt, episodeMeta, fallbackArea, initialFocus, primaryLabel, refocus, regularSeasonCount, remountRestore, restoreFocusMove, seasonLabel, seasonTabWidth,
-  seriesActions, seriesMeta, stripAt, stripOffset, stripStarts, tabSelAfterReload,
+  cardAt, episodeMeta, fallbackArea, initialFocus, moveArea, primaryLabel, refocus, regularSeasonCount, remountRestore, restoreFocusMove, seasonLabel,
+  seriesActions, seriesMeta,
 } from './seriesDetailLogic.ts';
 
 const ep = (season: number, episode: number, extra: Partial<EpisodeView> = {}): EpisodeView => ({
@@ -103,38 +103,6 @@ describe('regularSeasonCount', () => {
   });
 });
 
-describe('season tab strip', () => {
-  it('sizes a tab from its label within bounds', () => {
-    expect(seasonTabWidth('Season 1')).toBeGreaterThanOrEqual(140);
-    expect(seasonTabWidth('A')).toBe(140);
-    expect(seasonTabWidth('x'.repeat(200))).toBe(360);
-    expect(seasonTabWidth('Season 10')).toBeGreaterThan(seasonTabWidth('Season 1'));
-  });
-  it('lays tabs out left to right with a gap', () => {
-    expect(stripStarts([100, 150, 120], 10)).toEqual([0, 110, 270]);
-    expect(stripStarts([], 10)).toEqual([]);
-  });
-  it('finds the tab under x, none in a gap or outside', () => {
-    const starts = [0, 110, 270];
-    const widths = [100, 150, 120];
-    expect(stripAt(starts, widths, 50)).toBe(0);
-    expect(stripAt(starts, widths, 105)).toBeUndefined();
-    expect(stripAt(starts, widths, 300)).toBe(2);
-    expect(stripAt(starts, widths, 400)).toBeUndefined();
-    expect(stripAt(starts, widths, -1)).toBeUndefined();
-  });
-  it('scrolls as little as possible to keep the focused tab in view', () => {
-    const widths = [200, 200, 200, 200, 200];
-    const starts = stripStarts(widths, 0);
-    expect(stripOffset(starts, widths, 0, 500, 0)).toBe(0);
-    expect(stripOffset(starts, widths, 2, 500, 0)).toBe(100);
-    expect(stripOffset(starts, widths, 4, 500, 100)).toBe(500);
-    expect(stripOffset(starts, widths, 1, 500, 500)).toBe(200);
-    expect(stripOffset(starts, widths, 3, 500, 500)).toBe(500);
-    expect(stripOffset([], [], 0, 500, 40)).toBe(0);
-  });
-});
-
 describe('cardAt', () => {
   it('maps a row-local x to the card under it (pitch 424, card 400), none in a gap or past the end', () => {
     expect(cardAt(10, 0, 424, 400, 10)).toBe(0);
@@ -151,7 +119,7 @@ describe('remountRestore', () => {
   const v = view();
   it('restores the saved episode and area when the screen was left from the seasons or episodes', () => {
     expect(remountRestore({ focus, area: 'episodes' }, v)).toEqual({ prev: focus, area: 'episodes' });
-    expect(remountRestore({ focus, area: 'seasons' }, v)).toEqual({ prev: focus, area: 'seasons' });
+    expect(remountRestore({ focus, area: 'season' }, v)).toEqual({ prev: focus, area: 'season' });
   });
   it('opens on the primary button (and the primary episode) on a first open or when left from the actions', () => {
     expect(remountRestore({}, v)).toEqual({ prev: undefined, area: 'actions' });
@@ -162,7 +130,7 @@ describe('remountRestore', () => {
     const primary = { episodeId: 'e2-5', season: 2, episode: 5, resumeMs: 0, mode: 'continue' as const };
     const watched = view({ seasons: [season(1, 3), { ...season(2, 5), episodes: season(2, 5).episodes.map((e) => ({ ...e, watched: e.episode <= 4 })) }], primary });
     expect(remountRestore({ focus, area: 'episodes' }, watched)).toEqual({ prev: { seasonNumber: 2, episodeId: 'e2-5' }, area: 'episodes' });
-    expect(remountRestore({ focus, area: 'seasons' }, watched)).toEqual({ prev: { seasonNumber: 2, episodeId: 'e2-5' }, area: 'seasons' });
+    expect(remountRestore({ focus, area: 'season' }, watched)).toEqual({ prev: { seasonNumber: 2, episodeId: 'e2-5' }, area: 'season' });
     // No primary: the saved (watched) episode stays.
     expect(remountRestore({ focus, area: 'episodes' }, { ...watched, primary: undefined })).toEqual({ prev: focus, area: 'episodes' });
     // Not watched: the saved episode stays even with a primary elsewhere.
@@ -173,25 +141,31 @@ describe('remountRestore', () => {
 describe('fallbackArea', () => {
   it('keeps an area that has something to focus', () => {
     expect(fallbackArea('episodes', { seasons: 2, episodes: 3 })).toBe('episodes');
-    expect(fallbackArea('seasons', { seasons: 2, episodes: 0 })).toBe('seasons');
+    expect(fallbackArea('season', { seasons: 2, episodes: 0 })).toBe('season');
     expect(fallbackArea('actions', { seasons: 0, episodes: 0 })).toBe('actions');
   });
   it('falls back from empty episodes to the seasons, and from no seasons to the actions', () => {
-    expect(fallbackArea('episodes', { seasons: 2, episodes: 0 })).toBe('seasons');
+    expect(fallbackArea('episodes', { seasons: 2, episodes: 0 })).toBe('season');
     expect(fallbackArea('episodes', { seasons: 0, episodes: 0 })).toBe('actions');
-    expect(fallbackArea('seasons', { seasons: 0, episodes: 0 })).toBe('actions');
+    expect(fallbackArea('season', { seasons: 0, episodes: 0 })).toBe('actions');
   });
 });
 
-describe('tabSelAfterReload', () => {
-  it('follows the placed season unless the keys are on the tabs', () => {
-    expect(tabSelAfterReload('episodes', 3, 1, 5)).toBe(1);
-    expect(tabSelAfterReload('actions', 3, 1, 5)).toBe(1);
+describe('moveArea', () => {
+  const full = { seasons: 2, episodes: 3 };
+  it('Down goes actions -> season -> episodes and stays on the episodes', () => {
+    expect(moveArea('actions', 'down', full)).toBe('season');
+    expect(moveArea('season', 'down', full)).toBe('episodes');
+    expect(moveArea('episodes', 'down', full)).toBe('episodes');
   });
-  it('keeps the tab selection while on the tabs, clamped to the seasons', () => {
-    expect(tabSelAfterReload('seasons', 3, 1, 5)).toBe(3);
-    expect(tabSelAfterReload('seasons', 3, 1, 2)).toBe(1);
-    expect(tabSelAfterReload('seasons', 3, 0, 0)).toBe(0);
+  it('Up goes episodes -> season -> actions and stays on the actions', () => {
+    expect(moveArea('episodes', 'up', full)).toBe('season');
+    expect(moveArea('season', 'up', full)).toBe('actions');
+    expect(moveArea('actions', 'up', full)).toBe('actions');
+  });
+  it('stays put when the area below is empty', () => {
+    expect(moveArea('actions', 'down', { seasons: 0, episodes: 0 })).toBe('actions');
+    expect(moveArea('season', 'down', { seasons: 2, episodes: 0 })).toBe('season');
   });
 });
 
@@ -211,7 +185,7 @@ describe('seriesActions', () => {
 describe('restoreFocusMove', () => {
   it('the first load moves focus to the restored seasons or episodes', () => {
     expect(restoreFocusMove('episodes', false)).toBe('episodes');
-    expect(restoreFocusMove('seasons', false)).toBe('seasons');
+    expect(restoreFocusMove('season', false)).toBe('season');
   });
 
   it('no move to the actions (focus starts there) and none once the user pressed a key', () => {
