@@ -2,7 +2,10 @@ import { createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import { RequestError } from '../connection/pending.ts';
 import { COPY } from '../logic/copy.ts';
-import { cleanSource, emptyForm, FORM_LIMITS, formFromSource, formProblem, formToInput, formToSource, type SourceForm } from '../logic/source.ts';
+import {
+  cleanSource, emptyForm, FORM_LIMITS, formFromSource, formProblem, formToInput, formToSource, HEADER_UNUSED_NOTE, headerDimmed,
+  headerHelp, headersAllowed, type SourceForm,
+} from '../logic/source.ts';
 import { currentClient, store } from '../state/store.ts';
 import { progressText, runRequest } from '../state/actions.ts';
 
@@ -31,6 +34,10 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
   const [error, setError] = createSignal<string | undefined>();
   const [stalled, setStalled] = createSignal(false);
   const [showPassword, setShowPassword] = createSignal(false);
+  // Fixed for the form's life: the TV this form talks to (a reconnect to another TV ends the session and the form).
+  const withHeaders = headersAllowed(store.tvProtocol);
+  /** Advanced starts open when the loaded source has a value; set once, so typing never collapses it. */
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   let firstField: HTMLInputElement | undefined;
   let alive = true;
 
@@ -45,7 +52,9 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
       const src = await c.getSource(props.sourceId);
       if (!alive) return;
       // Unknown fields from a newer TV are dropped before anything can echo them back.
-      setForm(formFromSource(cleanSource(src)));
+      const loaded = formFromSource(cleanSource(src, withHeaders));
+      setForm(loaded);
+      setAdvancedOpen(loaded.userAgent !== '' || loaded.referrer !== '');
     } catch (e) {
       if (!alive) return;
       setError(e instanceof RequestError && e.reason === 'timeout' ? COPY.timeout
@@ -83,8 +92,8 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
     setSaving(true);
     const opts = { onStall: () => setStalled(true), attached: () => alive };
     const err = props.mode === 'edit' && props.sourceId
-      ? await runRequest({ t: 'updateSource', source: formToSource(f, props.sourceId) }, { ...opts, key: props.sourceId })
-      : await runRequest({ t: 'addSource', input: formToInput(f) }, { ...opts, key: 'add' });
+      ? await runRequest({ t: 'updateSource', source: formToSource(f, props.sourceId, withHeaders) }, { ...opts, key: props.sourceId })
+      : await runRequest({ t: 'addSource', input: formToInput(f, withHeaders) }, { ...opts, key: 'add' });
     if (!alive) return;
     setSaving(false);
     setStalled(false);
@@ -154,6 +163,34 @@ export function SourceFormPanel(props: { mode: 'add' | 'edit'; sourceId: string 
               <input id="src-epg" type="url" inputmode="url" value={form.epgUrl} onInput={(e) => setForm('epgUrl', e.currentTarget.value)}
                 placeholder="http://192.168.1.10/guide.xml" {...NO_AUTOFILL} maxlength={FORM_LIMITS.url} autocapitalize="off" spellcheck={false} />
             </div>
+          </Show>
+
+          {/* Protocol 2 TVs only: older ones reject the fields. Collapsed; free text, no presets. */}
+          <Show when={withHeaders}>
+            <details class="advanced" open={advancedOpen()}>
+              <summary>Advanced</summary>
+              <div class="advanced-body">
+                <p class="hint">{headerHelp(store.tvHeaders)}</p>
+                <div class={headerDimmed(store.tvHeaders, 'userAgent') ? 'field dim' : 'field'}>
+                  <label for="src-ua">User-Agent <span class="optional">(optional)</span></label>
+                  <input id="src-ua" value={form.userAgent} onInput={(e) => setForm('userAgent', e.currentTarget.value)} placeholder="Default"
+                    {...NO_AUTOFILL} maxlength={FORM_LIMITS.header} autocapitalize="off" spellcheck={false}
+                    aria-describedby={headerDimmed(store.tvHeaders, 'userAgent') ? 'src-ua-note' : undefined} />
+                  <Show when={headerDimmed(store.tvHeaders, 'userAgent')}>
+                    <p id="src-ua-note" class="hint">{HEADER_UNUSED_NOTE}</p>
+                  </Show>
+                </div>
+                <div class={headerDimmed(store.tvHeaders, 'referrer') ? 'field dim' : 'field'}>
+                  <label for="src-ref">Referer <span class="optional">(optional)</span></label>
+                  <input id="src-ref" value={form.referrer} onInput={(e) => setForm('referrer', e.currentTarget.value)} placeholder="Default"
+                    {...NO_AUTOFILL} maxlength={FORM_LIMITS.header} autocapitalize="off" spellcheck={false}
+                    aria-describedby={headerDimmed(store.tvHeaders, 'referrer') ? 'src-ref-note' : undefined} />
+                  <Show when={headerDimmed(store.tvHeaders, 'referrer')}>
+                    <p id="src-ref-note" class="hint">{HEADER_UNUSED_NOTE}</p>
+                  </Show>
+                </div>
+              </div>
+            </details>
           </Show>
 
           <p class="hint">Your details are sent encrypted to your TV and stored only there.</p>

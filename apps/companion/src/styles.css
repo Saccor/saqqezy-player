@@ -90,6 +90,11 @@ p { margin: 0 0 0.75rem; }
 /* ---- forms ---- */
 .form { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
+/* Advanced (source User-Agent and Referer): collapsed; a field the TV cannot use is dimmed but stays editable. */
+.advanced > summary { font-weight: 600; cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.advanced-body { display: flex; flex-direction: column; gap: 16px; }
+.field.dim input { color: var(--muted); }
+.field.dim label { color: var(--muted); }
 label, legend { font-weight: 600; }
 input[type='text'], input[type='url'], input[type='password'], input:not([type]) {
   width: 100%;

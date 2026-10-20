@@ -1,8 +1,9 @@
 import { NAME_MAX, type NewSource } from '@iptv/core';
 import {
-  ChannelClosedError, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
+  ChannelClosedError, HEADERS_PROTOCOL, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
   QueueFullError, SecureChannel, secretsFromCode,
-  type CloseReason, type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
+  type CloseReason, type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvHeaderSupport,
+  type TvToPhone,
 } from '@iptv/companion-protocol';
 import { scrub, type AppApi } from './appApi.ts';
 import { toRpcError } from './rpc.ts';
@@ -99,6 +100,8 @@ export interface CompanionHostDeps {
   /** Where the companion web app lives; the QR URL is `<origin>/#s=…&k=…`. */
   companionOrigin: string;
   onStatus?: (status: CompanionStatus) => void;
+  /** Which of a source's User-Agent and Referer this TV can send; told to v2 companions in `welcome.tv.headers`. */
+  headerSupport?: TvHeaderSupport;
   now?: () => number;
   /** Test hooks. */
   unpairedTtlMs?: number;
@@ -116,6 +119,8 @@ interface Session {
   connected: boolean;
   /** The label from the companion's last hello. */
   helloLabel: string | undefined;
+  /** The protocol from the companion's last hello (1 until one arrives): gates the source header fields. */
+  peerProtocol: number;
   presenceTimer: ReturnType<typeof setTimeout> | undefined;
   /** The transport is reconnecting. */
   linkDown: boolean;
@@ -228,7 +233,7 @@ export class CompanionHost implements CompanionControl {
     });
     const s: Session = {
       channel, createdAt, expiresAt: createdAt + this.unpairedTtl, timer: undefined, paired: false, connected: false,
-      helloLabel: undefined, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
+      helloLabel: undefined, peerProtocol: 1, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
       stateBusy: false, stateDirty: false, stateTimer: undefined, sentState: undefined, progress: new Map(),
     };
     this.session = s;
@@ -428,7 +433,10 @@ export class CompanionHost implements CompanionControl {
       this.emitStatus();
       return;
     }
-    if (msg.t === 'hello') s.helloLabel = msg.client.label.trim() || undefined;
+    if (msg.t === 'hello') {
+      s.helloLabel = msg.client.label.trim() || undefined;
+      s.peerProtocol = msg.client.protocol;
+    }
     s.connected = true;
     this.touchPeer(s);
     this.emitStatus();
@@ -439,7 +447,13 @@ export class CompanionHost implements CompanionControl {
     const api = this.deps.api;
     switch (msg.t) {
       case 'hello':
-        await this.send(s, { t: 'welcome', tv: { label: this.deps.tvLabel, appVersion: this.deps.appVersion, protocol: PROTOCOL_VERSION } });
+        await this.send(s, {
+          t: 'welcome',
+          tv: {
+            label: this.deps.tvLabel, appVersion: this.deps.appVersion, protocol: PROTOCOL_VERSION,
+            ...(this.deps.headerSupport ? { headers: this.deps.headerSupport } : {}),
+          },
+        });
         return;
       case 'ping':
         return; // presence only; handled above
@@ -449,7 +463,12 @@ export class CompanionHost implements CompanionControl {
       case 'getSource': {
         const found = await api.getSource(msg.id);
         if (!found) throw Object.assign(new Error('Source not found.'), { name: 'NotFoundError' });
-        // The User-Agent and Referer settings stay on the TV (the phone form has no such fields).
+        // The User-Agent and Referer settings reach only companions that know them (protocol 2); only inside
+        // the paired SecureChannel, like the credentials.
+        if (s.peerProtocol >= HEADERS_PROTOCOL) {
+          await this.send(s, { t: 'source', source: found });
+          return;
+        }
         const { userAgent: _ua, referrer: _ref, ...source } = found;
         await this.send(s, { t: 'source', source });
         return;
@@ -470,17 +489,21 @@ export class CompanionHost implements CompanionControl {
         return;
       }
       case 'addSource':
-        await api.addSource(checked(msg.input), 'remote');
+        // Core cleans the User-Agent and Referer (trimmed, capped, dropped when empty).
+        await api.addSource({ ...checked(msg.input), ...sentHeaders(msg.input) }, 'remote');
         await this.result(s, msgId);
         return;
       case 'updateSource': {
-        const { id, ...input } = msg.source;
-        // The phone never sees the User-Agent and Referer settings, so its edit keeps the stored ones.
+        const { id, userAgent, referrer, ...input } = msg.source;
+        // User-Agent and Referer: an absent field keeps the stored value (v1 phones never send them), "" clears
+        // it, a value sets it (cleaned by core).
         const stored = await api.getSource(id);
-        const keep: { userAgent?: string; referrer?: string } = {};
-        if (stored?.userAgent) keep.userAgent = stored.userAgent;
-        if (stored?.referrer) keep.referrer = stored.referrer;
-        await api.updateSource({ ...checked(input as NewSource), ...keep, id }, 'remote');
+        const headers: { userAgent?: string; referrer?: string } = {};
+        const ua = userAgent ?? stored?.userAgent;
+        const ref = referrer ?? stored?.referrer;
+        if (ua) headers.userAgent = ua;
+        if (ref) headers.referrer = ref;
+        await api.updateSource({ ...checked(input as NewSource), ...headers, id }, 'remote');
         await this.result(s, msgId);
         return;
       }
@@ -659,6 +682,14 @@ export class CompanionHost implements CompanionControl {
       void this.send(s, { t: 'progress', phase, count: pending });
     }, Math.max(0, PROGRESS_INTERVAL_MS - (now - p.last)));
   }
+}
+
+/** The User-Agent and Referer a companion sent with a new source (protocol 2), non-empty ones only. */
+function sentHeaders(input: NewSource): { userAgent?: string; referrer?: string } {
+  const out: { userAgent?: string; referrer?: string } = {};
+  if (input.userAgent) out.userAgent = input.userAgent;
+  if (input.referrer) out.referrer = input.referrer;
+  return out;
 }
 
 function checked(input: NewSource): NewSource {

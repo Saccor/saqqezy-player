@@ -4,7 +4,7 @@ import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
   isTvToPhone, MAX_MESSAGE_BYTES, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
-  type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
+  type CompanionState, type TvHeaderSupport, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { AppApi } from '../src/appApi.ts';
 import {
@@ -119,7 +119,7 @@ function fakeTimers() {
   vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout'] });
 }
 
-function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; now?: () => number } = {}) {
+function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; now?: () => number; headerSupport?: TvHeaderSupport } = {}) {
   const events: AppEvent[] = [];
   const statuses: CompanionStatus[] = [];
   const transports: { tv: TestTransport; phone: TestTransport; id: string; deadline: number | undefined }[] = [];
@@ -142,6 +142,7 @@ function setup(opts: { unpairedTtlMs?: number; pairedTtlMs?: number; now?: () =>
         ...(opts.unpairedTtlMs !== undefined ? { unpairedTtlMs: opts.unpairedTtlMs } : {}),
         ...(opts.pairedTtlMs !== undefined ? { pairedTtlMs: opts.pairedTtlMs } : {}),
         ...(opts.now !== undefined ? { now: opts.now } : {}),
+        ...(opts.headerSupport !== undefined ? { headerSupport: opts.headerSupport } : {}),
       });
       return host;
     },
@@ -160,8 +161,8 @@ async function pairQr(s: ReturnType<typeof setup>) {
   return { started, p, t };
 }
 
-async function hello(p: ReturnType<typeof phone>) {
-  await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'My phone', protocol: 1 } });
+async function hello(p: ReturnType<typeof phone>, protocol = 1) {
+  await p.ch.send({ t: 'hello', client: { kind: 'phone', label: 'My phone', protocol } });
   return p.next('welcome');
 }
 
@@ -179,7 +180,7 @@ describe('CompanionHost', () => {
     expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
 
     const welcome = await hello(p);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 1 });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2 });
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBe('My phone');
     // Paired: the session now lives up to 60 minutes from its start.
@@ -321,6 +322,52 @@ describe('CompanionHost', () => {
     const res = await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, name: 'Renamed' } });
     expect(res).toMatchObject({ ok: true });
     expect(await s.api.getSource(sourceId)).toMatchObject({ name: 'Renamed', userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
+  });
+
+  test('protocol 2: welcome carries the TV header support', async () => {
+    const headerSupport = { lists: { userAgent: false, referrer: false }, streams: { userAgent: true, referrer: false } };
+    const s = setup({ headerSupport });
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    const welcome = await hello(p, 2);
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2, headers: headerSupport });
+  });
+
+  test('protocol 2: getSource returns the stored User-Agent and Referer to a v2 phone', async () => {
+    const s = setup();
+    const { sourceId } = await s.api.addSource(xt());
+    await s.api.updateSource({ ...(await s.api.getSource(sourceId))!, userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    await p.ch.send({ t: 'getSource', id: sourceId });
+    const { source } = await p.next('source');
+    expect(source).toMatchObject({ userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
+  });
+
+  test('protocol 2 updateSource: an absent field keeps, "" clears, a value sets (cleaned)', async () => {
+    const s = setup();
+    const { sourceId } = await s.api.addSource(xt());
+    await s.api.updateSource({ ...(await s.api.getSource(sourceId))!, userAgent: 'Old/1.0', referrer: 'http://old.example.test/' });
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    expect(await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, userAgent: '  New/2.0 ' } })).toMatchObject({ ok: true });
+    expect(await s.api.getSource(sourceId)).toMatchObject({ userAgent: 'New/2.0', referrer: 'http://old.example.test/' });
+    expect(await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, referrer: '' } })).toMatchObject({ ok: true });
+    const after = await s.api.getSource(sourceId);
+    expect(after).toMatchObject({ userAgent: 'New/2.0' });
+    expect(after && 'referrer' in after).toBe(false);
+  });
+
+  test('protocol 2 addSource stores the User-Agent and Referer', async () => {
+    const s = setup();
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    const res = await p.call({ t: 'addSource', input: { ...xt(), userAgent: 'SyntheticAgent/1.0', referrer: '' } });
+    expect(res).toMatchObject({ ok: true });
+    const [summary] = await s.api.listSources();
+    const src = await s.api.getSource(summary!.id);
+    expect(src).toMatchObject({ userAgent: 'SyntheticAgent/1.0' });
+    expect(src && 'referrer' in src).toBe(false);
   });
 
   test('addSource through the companion forwards progress and adds the source', async () => {

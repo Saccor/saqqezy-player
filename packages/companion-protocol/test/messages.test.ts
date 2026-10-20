@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLayout } from '@iptv/core';
+import { emptyLayout, HEADER_VALUE_MAX } from '@iptv/core';
 import {
-  isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, isUnknownTvMessage, PHONE_TO_TV_TYPES, TV_TO_PHONE_TYPES,
+  PROTOCOL_VERSION, isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, isUnknownTvMessage, PHONE_TO_TV_TYPES, TV_TO_PHONE_TYPES,
   type PhoneToTv, type TvToPhone,
 } from '../src/index.ts';
 
@@ -88,5 +88,35 @@ describe('source-scoped layout messages', () => {
     const { sourceId: _drop, ...without } = ok;
     expect(isTvToPhone(without)).toBe(false);
     expect(isTvToPhone({ ...ok, sourceId: 3 })).toBe(false);
+  });
+});
+
+describe('protocol v2: source User-Agent and Referer (spec 2026-10-20-source-headers §6.3)', () => {
+  const m3u = { kind: 'm3u', name: 'Home', playlistUrl: 'http://example.test/list.m3u' };
+  const xt = { kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
+
+  it('is protocol 2', () => {
+    expect(PROTOCOL_VERSION).toBe(2);
+  });
+
+  it('the TV accepts userAgent and referrer on add and update, empty strings included (clear)', () => {
+    expect(isPhoneToTv({ t: 'addSource', input: { ...m3u, userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' } })).toBe(true);
+    expect(isPhoneToTv({ t: 'updateSource', source: { ...xt, id: 'src-1', userAgent: '', referrer: '' } })).toBe(true);
+    expect(isPhoneToTv({ t: 'updateSource', source: { ...m3u, id: 'src-1', userAgent: 'a'.repeat(HEADER_VALUE_MAX) } })).toBe(true);
+  });
+
+  it('with the TV limits: at most 512, no control characters, strings only', () => {
+    expect(isPhoneToTv({ t: 'addSource', input: { ...m3u, userAgent: 'a'.repeat(HEADER_VALUE_MAX + 1) } })).toBe(false);
+    expect(isPhoneToTv({ t: 'addSource', input: { ...m3u, userAgent: 'A\r\nX: 1' } })).toBe(false);
+    expect(isPhoneToTv({ t: 'updateSource', source: { ...xt, id: 'src-1', referrer: 7 } })).toBe(false);
+  });
+
+  it('unknown fields are still rejected by the TV', () => {
+    expect(isPhoneToTv({ t: 'addSource', input: { ...m3u, cookie: 'x' } })).toBe(false);
+  });
+
+  it('welcome may carry the TV header support; the companion accepts it', () => {
+    const headers = { lists: { userAgent: false, referrer: false }, streams: { userAgent: true, referrer: false } };
+    expect(isTvToPhone({ t: 'welcome', tv: { label: 'TV', appVersion: '1', protocol: 2, headers } })).toBe(true);
   });
 });

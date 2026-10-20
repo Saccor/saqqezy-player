@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import type { CompanionChannel, CompanionState, PairingSecrets } from '@iptv/companion-protocol';
+import type { CompanionChannel, CompanionState, PairingSecrets, TvHeaderSupport } from '@iptv/companion-protocol';
+import { readTvHeaders } from '../logic/source.ts';
 import type { Layout } from '@iptv/core';
 import { CompanionClient, type LinkStatus } from '../connection/client.ts';
 import { detectClient } from '../connection/pair.ts';
@@ -36,6 +37,8 @@ export interface AppState {
   tvLabel: string | undefined;
   /** The TV's protocol version (from `welcome`); gate newer message types on it. */
   tvProtocol: number | undefined;
+  /** Which source headers the TV can send (`welcome.tv.headers`, protocol 2); undefined when it did not say. */
+  tvHeaders: TvHeaderSupport | undefined;
   /**
    * The TV's companion state without its channel list; `state.version` is the layout version this copy reflects.
    * The channels (up to 50k+) live in the `channels` signal: replaced whole, never proxied or reconciled.
@@ -58,7 +61,7 @@ const [store, setStore] = createStore<AppState>({
   phase: 'pair',
   link: 'connecting',
   tvLabel: undefined,
-  tvProtocol: undefined,
+  tvProtocol: undefined, tvHeaders: undefined,
   state: undefined,
   stateStatus: 'ok',
   progress: undefined,
@@ -134,7 +137,7 @@ function sessionGone(endMessage: string): void {
   client = undefined;
   clearTimeout(progressTimer);
   setStore({
-    phase: 'ended', endMessage, state: undefined, progress: undefined, stateStatus: 'ok', tvLabel: undefined, tvProtocol: undefined,
+    phase: 'ended', endMessage, state: undefined, progress: undefined, stateStatus: 'ok', tvLabel: undefined, tvProtocol: undefined, tvHeaders: undefined,
   });
   optimistic.reset();
   publishLayout();
@@ -147,7 +150,7 @@ export function connect(secrets: PairingSecrets): void {
   client?.close(true);
   client = undefined;
   setStore({
-    phase: 'connecting', link: 'connecting', tvLabel: undefined, tvProtocol: undefined, state: undefined, progress: undefined,
+    phase: 'connecting', link: 'connecting', tvLabel: undefined, tvProtocol: undefined, tvHeaders: undefined, state: undefined, progress: undefined,
     endMessage: undefined, pairError: undefined, stateStatus: 'ok',
   });
   setStore('working', reconcile({}));
@@ -173,7 +176,7 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
     handlers: {
       welcome: (tv) => {
         if (client !== c) return;
-        setStore({ tvLabel: tv.label, tvProtocol: tv.protocol, phase: 'connected' });
+        setStore({ tvLabel: tv.label, tvProtocol: tv.protocol, tvHeaders: readTvHeaders(tv.headers), phase: 'connected' });
       },
       state: (state) => {
         if (client !== c) return;

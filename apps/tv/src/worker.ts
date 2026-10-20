@@ -4,6 +4,8 @@ import { APP_API_METHODS, AppApi, CompanionHost, expose, type AppEvent, type Por
 import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-protocol';
 import { rawViaDevProxy, unwrapDevProxyResponse } from './net/devProxy.ts';
 import { routedFetch } from './net/routedFetch.ts';
+import { tvHeaderSupport } from './net/headerSupport.ts';
+import { detectPlatform } from '@iptv/platform';
 
 // All parsing, storage and networking for the UI runs here, off the UI thread.
 const storage = new IdbStorage();
@@ -56,6 +58,9 @@ const api = new AppApi({
     tvLabel: 'TV',
     appVersion: APP_VERSION,
     companionOrigin: COMPANION_ORIGIN,
+    // What this TV can send of a source's User-Agent and Referer, for the phone's Advanced help (protocol 2).
+    // Workers have no `tizen`/`webOS` globals; the user agent names both platforms.
+    headerSupport: tvHeaderSupport(detectPlatform(self.navigator.userAgent, {}), import.meta.env.DEV),
     onStatus,
     // One long-lived transport per session: it reconnects with backoff (status `reconnecting`) and gives up
     // after about 60 s of failures, on a final relay close code, or at the session deadline.

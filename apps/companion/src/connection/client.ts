@@ -27,7 +27,8 @@ export type LinkStatus = 'connecting' | 'online' | 'reconnecting';
 export type StateStatus = 'ok' | 'unanswered';
 
 export interface ClientHandlers {
-  welcome(tv: { label: string; appVersion: string; protocol: number }): void;
+  /** `headers`: protocol 2, unchecked here (read it with `readTvHeaders`). */
+  welcome(tv: { label: string; appVersion: string; protocol: number; headers?: unknown }): void;
   state(state: CompanionState): void;
   /** A pushed layout; `sourceId` is the source it belongs to. */
   layout(version: number, layout: Layout, sourceId: string): void;
