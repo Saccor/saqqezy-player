@@ -6,7 +6,7 @@ import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
-import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
+import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { StatusPill } from '../components/StatusPill.tsx';
 import { onLogicalKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -1153,7 +1153,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
   /**
    * The card's text (the failure: its cause and status, spec 2026-10-16-source-retry §2.8; else the next-episode
-   * countdown) and the box it fits: heading size, or body size for a long refusal that names the account's limit.
+   * countdown) and the box it fits (body size, up to three lines for a long refusal that names the account's limit).
    */
   const card = createMemo(() => {
     const f = failed();
@@ -1162,8 +1162,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         : f
           ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
           : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
-    const small = !fitsBox(text, MESSAGE_BOXES.vodCard);
-    return { text, box: small ? MESSAGE_BOXES.vodCardSmall : MESSAGE_BOXES.vodCard, font: TYPE.body };
+    return { text, box: MESSAGE_BOXES.vodCard };
   });
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
@@ -1237,7 +1236,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           {/* The text area above the buttons: y 24 to 148. */}
           <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
             contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
-            fontSize={card().font} {...STRONG} color={COLORS.text}>{card().text}</Text>
+            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
               x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}

@@ -16,6 +16,11 @@ describe('tokenLint', () => {
     expect(countTokens('fontSize={a ? 36 : TYPE.title} fontSize={b ? TYPE.h2 : TYPE.meta}').fontSize).toBe(1);
     expect(countTokens('fontSize={a ? 20 : 36}').fontSize).toBe(2);
   });
+  test('counts object-form fontSize and scale literals', () => {
+    expect(countTokens("{ fontFamily: 'sans-serif', fontSize: 32 }")).toEqual({ colour: 0, fontSize: 1, scale: 0 });
+    expect(countTokens('{ fontSize: TYPE.body, scale: FOCUS.scale }')).toEqual({ colour: 0, fontSize: 0, scale: 0 });
+    expect(countTokens('{ scale: 1.08 } { scale: 1 }')).toEqual({ colour: 0, fontSize: 0, scale: 1 });
+  });
   test('the baseline is empty: every file uses the tokens', () => {
     expect(JSON.parse(readFileSync(join(here, 'tokenLint.baseline.json'), 'utf8'))).toEqual({});
   });

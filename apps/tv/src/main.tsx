@@ -2,7 +2,7 @@ import { Config, createRenderer, registerDefaultShaders } from '@lightningtv/sol
 import type { RendererMain } from '@lightningjs/renderer';
 import { WebGlRenderer } from '@lightningjs/renderer/webgl';
 import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
-import { COLORS } from './shell/theme.ts';
+import { COLORS, TYPE } from './shell/theme.ts';
 import { CorsWebPlatform } from './shell/corsPlatform.ts';
 import { App } from './App.tsx';
 import { api } from './api.ts';
@@ -20,7 +20,7 @@ import { registerKeys } from './platform/tizen.ts';
 import { devPairing } from './screens/settings/ManageOnPhonePage.tsx';
 
 // Canvas text with the platform's default sans-serif face: no font files are bundled.
-Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: COLORS.text };
+Config.fontSettings = { fontFamily: 'sans-serif', fontSize: TYPE.body, color: COLORS.text };
 Config.animationsEnabled = true;
 
 const appRoot = document.getElementById('app');

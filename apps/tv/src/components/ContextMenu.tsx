@@ -70,7 +70,7 @@ export function ContextMenu<A extends string>(props: {
     },
   });
   return (
-    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={50}>
+    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
         width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
         onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}

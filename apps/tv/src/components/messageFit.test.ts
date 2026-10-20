@@ -5,8 +5,8 @@ import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from
 
 describe('stackedMessage', () => {
   it('puts the hint under the last line of the text, the whole block centred and inside the box', () => {
-    // Home's preview: 588 × 331, text 524 wide at body size; the Player: 1100 × 240 at heading size.
-    for (const [w, h, size] of [[524, 331, 26], [1036, 240, 32]] as const) {
+    // Home's preview: 588 × 331, text 524 wide; the Player: 1100 × 240; both at body size (26).
+    for (const [w, h, size] of [[524, 331, 26], [1036, 240, 26]] as const) {
       for (const text of ['Short.', COOLDOWN_TEXT, `${COOLDOWN_TEXT} ${COOLDOWN_TEXT}`]) {
         const s = stackedMessage(text, { width: w, fontSize: size, maxLines: 3 }, h, 22);
         expect(s.hintY, text).toBeGreaterThanOrEqual(s.textY + s.lines * s.lineH);
@@ -43,14 +43,42 @@ describe('messageLines', () => {
 });
 
 describe('MESSAGE_BOXES', () => {
+  /** Every text a failure box shows for a stream or a video. */
+  const failures = (subject: 'stream' | 'video') => [
+    failureText({ reason: 'unavailable' }, subject),
+    failureText({ reason: 'unavailable', httpStatus: 404 }, subject),
+    failureText({ reason: 'unsupported' }, subject),
+    failureText({ reason: 'gone', httpStatus: 404 }, subject),
+    failureText({ reason: 'refused', httpStatus: 429 }, subject),
+    failureText({ reason: 'refused', httpStatus: 403 }, subject),
+    failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, subject),
+  ];
+
   it('the longest failure text fits every box that shows failures', () => {
-    for (const key of ['preview', 'guide', 'player', 'vodCardSmall'] as const) {
+    for (const key of ['preview', 'guide', 'player', 'vodCard'] as const) {
       expect(fitsBox(LONG, MESSAGE_BOXES[key]), key).toBe(true);
     }
   });
 
+  it("every failure message fits the Player's box and VodPlay's card", () => {
+    for (const m of failures('stream')) expect(fitsBox(m, MESSAGE_BOXES.player), m).toBe(true);
+    for (const m of failures('video')) expect(fitsBox(m, MESSAGE_BOXES.vodCard), m).toBe(true);
+  });
+
+  it('all boxes draw body text (26) on 32 px lines', () => {
+    for (const [key, b] of Object.entries(MESSAGE_BOXES)) expect(b.lineH, key).toBe(32);
+    expect(Object.keys(MESSAGE_BOXES)).not.toContain('vodCardSmall');
+  });
+
+  it("the Player's box and VodPlay's card hold the characters of their width at about 0.55 em", () => {
+    const widths = { player: 1020, vodCard: 920 } as const;
+    for (const [key, w] of Object.entries(widths)) {
+      expect(MESSAGE_BOXES[key as keyof typeof widths].charsPerLine, key).toBe(Math.floor(w / (26 * 0.55)));
+    }
+  });
+
   it('every box keeps its lines inside its height', () => {
-    const heights = { preview: 331, guide: 270, live: 234, player: 206, vodCard: 124, vodCardSmall: 124 } as const;
+    const heights = { preview: 331, guide: 270, live: 234, player: 206, vodCard: 124 } as const;
     for (const [key, h] of Object.entries(heights)) {
       const b = MESSAGE_BOXES[key as keyof typeof MESSAGE_BOXES];
       expect(b.maxLines * b.lineH, key).toBeLessThanOrEqual(h);

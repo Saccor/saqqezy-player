@@ -20,11 +20,11 @@ export function ConfirmDialog(props: { message: string; yes?: string; no?: strin
   usePointerBackdrop(() => scrim, undefined, true);
   usePointerTarget({ node: () => box, layer: 'overlay', global: true });
   return (
-    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={50}>
+    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       <View ref={(el) => { box = el; }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - HEIGHT) / 2} width={WIDTH} height={HEIGHT}
         color={COLORS.surface} borderRadius={LAYOUT.radius * 2}>
         {/* At most three lines, ending above the buttons (a long list name used to wrap into them). */}
-        <Text x={24} y={40} width={WIDTH - 48} maxWidth={WIDTH - 48} contain="width" maxLines={3} lineHeight={40} textAlign="center"
+        <Text x={24} y={40} width={WIDTH - 48} maxWidth={WIDTH - 48} contain="width" maxLines={3} lineHeight={32} textAlign="center"
           fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.message}</Text>
         <Row x={(WIDTH - rowW) / 2} y={HEIGHT - BUTTON_H - 56} width={rowW} height={BUTTON_H} gap={LAYOUT.gap}
           scroll="none" selected={1} autofocus>
