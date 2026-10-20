@@ -281,6 +281,24 @@ describe('CompanionHost', () => {
     await p.next('stateUnchanged');
   });
 
+  test('changing only Your countries pushes a fresh state with the new regions', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    await s.api.idle();
+    const { p } = await pairQr(s);
+    await hello(p, PROTOCOL_VERSION);
+    await settle(400);
+    p.inbox.length = 0;
+    const version = (await s.api.getLayout()).version;
+    await s.api.setRegions({ codes: ['SE', 'DK'], mode: 'first' });
+    const pushed = await p.next('state', (m) => m.state.regions?.mode === 'first');
+    expect(pushed.state.regions).toMatchObject({ mode: 'first', codes: ['SE', 'DK'] });
+    expect(pushed.state.version).toBe(version);
+    await s.api.setRegions({ codes: ['FI'], mode: 'only' });
+    const again = await p.next('state', (m) => m.state.regions?.mode === 'only');
+    expect(again.state.regions).toMatchObject({ mode: 'only', codes: ['FI'] });
+  });
+
   test('no state is pushed while no companion is connected', async () => {
     const s = setup();
     await s.api.addSource(xt());
