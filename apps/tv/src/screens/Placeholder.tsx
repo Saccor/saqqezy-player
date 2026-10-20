@@ -8,7 +8,6 @@ const TITLES: Record<ScreenId, string> = {
   addSource: 'Add source',
   home: 'Home',
   player: 'Player',
-  guide: 'TV guide',
   search: 'Search',
   settings: 'Settings',
   vod: 'Movies',
@@ -21,7 +20,7 @@ const TITLES: Record<ScreenId, string> = {
 };
 
 /** Screens Home can open while they are placeholders (Tasks 6 to 11 replace them). */
-const HOME_LINKS: ScreenId[] = ['guide', 'search', 'settings', 'player', 'addSource'];
+const HOME_LINKS: ScreenId[] = ['search', 'settings', 'player', 'addSource'];
 
 const BTN_W = 220;
 const BTN_H = 80;

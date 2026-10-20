@@ -100,7 +100,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** The guide's time window, widened by the source's catch-up days (`guideBackMs`). */
   const [win, setWin] = createSignal(guideWindow(opened, guideBackMs(knownDays)));
   const [catchupDays, setCatchupDays] = createSignal(knownDays);
-  // A channel and time to open at (Search's "later" rows, once the guide route is gone).
+  // A channel and time to open at (Search's "later" rows return here with them).
   const target = guideOpenTarget(params, opened, win());
   // One-shot hint from the Player (the channel it showed last).
   const focusHint = params.focusChannelId;

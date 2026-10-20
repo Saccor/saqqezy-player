@@ -16,7 +16,7 @@ describe('router screen stack', () => {
     r.reset('home');
     expect(r.below()).toBeUndefined();
     r.push('player', { channelId: 'c1' });
-    r.push('guide');
+    r.push('search');
     expect(r.below()).toEqual({ screen: 'player', params: { channelId: 'c1' } });
     r.back();
     expect(r.below()?.screen).toBe('home');
@@ -25,14 +25,14 @@ describe('router screen stack', () => {
   it('push, replace and back move through the stack', () => {
     const r = createRouter();
     r.reset('home');
-    r.push('guide');
+    r.push('search');
     r.push('player', { channelId: 'c1' });
     expect(r.current()?.screen).toBe('player');
     r.replace('search', { q: 'x' });
     expect(r.current()).toEqual({ screen: 'search', params: { q: 'x' } });
     expect(r.depth()).toBe(3);
     expect(r.back()).toBe('screen');
-    expect(r.current()?.screen).toBe('guide');
+    expect(r.current()?.screen).toBe('search');
     expect(r.back()).toBe('screen');
     expect(r.current()?.screen).toBe('home');
   });
@@ -60,7 +60,7 @@ describe('router screen stack', () => {
     r.back(); // root: no change
     expect(fn).toHaveBeenCalledTimes(3);
     off();
-    r.push('guide');
+    r.push('search');
     expect(fn).toHaveBeenCalledTimes(3);
   });
 });
@@ -78,11 +78,69 @@ describe('router back params', () => {
   });
 });
 
+describe('router backTo (hand-offs return to a screen lower in the stack)', () => {
+  it('pops every screen above the target in one change and merges params into it', () => {
+    const r = createRouter();
+    r.reset('home', { a: 1 });
+    r.push('search');
+    r.push('player', { channelId: 'c1' });
+    const fn = vi.fn();
+    r.subscribe(fn);
+    expect(r.backTo('home', { channelId: 's:7', at: 5 })).toBe(true);
+    expect(r.current()).toEqual({ screen: 'home', params: { a: 1, channelId: 's:7', at: 5 } });
+    expect(r.depth()).toBe(1);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the open overlays first, calling their onClose', () => {
+    const r = createRouter();
+    r.reset('home');
+    r.push('player');
+    const closed = vi.fn();
+    r.pushOverlay('menu', closed);
+    expect(r.backTo('home')).toBe(true);
+    expect(closed).toHaveBeenCalledOnce();
+    expect(r.overlays()).toEqual([]);
+    expect(r.current()?.screen).toBe('home');
+  });
+
+  it('already on the target: params are merged and subscribers told (the screen re-reads them)', () => {
+    const r = createRouter();
+    r.reset('home');
+    const fn = vi.fn();
+    r.subscribe(fn);
+    expect(r.backTo('home', { focusChannelId: 'c1' })).toBe(true);
+    expect(r.current()).toEqual({ screen: 'home', params: { focusChannelId: 'c1' } });
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false and changes nothing when the target is not in the stack', () => {
+    const r = createRouter();
+    r.reset('addSource');
+    r.push('search');
+    expect(r.backTo('home', { x: 1 })).toBe(false);
+    expect(r.current()).toEqual({ screen: 'search', params: {} });
+    expect(r.depth()).toBe(2);
+  });
+
+  it('stops at the topmost entry of the target', () => {
+    const r = createRouter();
+    r.reset('home');
+    r.push('settings', { n: 1 });
+    r.push('search');
+    r.push('settings', { n: 2 });
+    r.push('player');
+    expect(r.backTo('settings')).toBe(true);
+    expect(r.current()).toEqual({ screen: 'settings', params: { n: 2 } });
+    expect(r.depth()).toBe(4);
+  });
+});
+
 describe('router overlays and layered Back', () => {
   it('Back closes the top overlay first, then pops the screen', () => {
     const r = createRouter();
     r.reset('home');
-    r.push('guide');
+    r.push('search');
     const order: string[] = [];
     r.pushOverlay('toast', () => order.push('toast'));
     r.pushOverlay('menu', () => order.push('menu'));
@@ -90,7 +148,7 @@ describe('router overlays and layered Back', () => {
     expect(r.back()).toBe('overlay');
     expect(r.back()).toBe('overlay');
     expect(order).toEqual(['menu', 'toast']);
-    expect(r.current()?.screen).toBe('guide');
+    expect(r.current()?.screen).toBe('search');
     expect(r.back()).toBe('screen');
     expect(r.current()?.screen).toBe('home');
   });

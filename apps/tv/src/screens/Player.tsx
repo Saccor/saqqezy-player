@@ -229,9 +229,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     else focusRoot();
   }
 
-  /** Closes this screen's layers, then pops it. Home below focuses `lastChannelId`; Start, Search or the Guide get no param. */
+  /** Closes this screen's own layers (without their close handlers: the screen is going away). */
+  const closeLayers = () => { for (const id of [...removers.keys()]) removeOverlay(id); };
+
+  /** Closes this screen's layers, then pops it. Home below focuses `lastChannelId`; Start or Search get no param. */
   const leave = (lastChannelId?: string) => {
-    for (const id of [...removers.keys()]) removeOverlay(id);
+    closeLayers();
     while (router.topOverlay() !== undefined) router.back();
     router.back(playerLeave(router.below()?.screen, lastChannelId).params);
   };
@@ -407,18 +410,18 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   useToastFloor(() => (bannerOn() && shown()
     ? LAYOUT.height - LAYOUT.safeY - BANNER_H - bannerLift(overlayShown()) - LAYOUT.gap
     : undefined));
-  /** `⛶ Window` and double click: back to Home with the small video (past a Guide or Search below the Player). */
-  const toHome = () => {
-    leave();
-    while (router.depth() > 1 && router.current()?.screen !== 'home') router.back();
+  /**
+   * Back to Live TV, the root `home` (past a Search below the Player), in one stack change; never a second Live TV.
+   * `focusChannelId` is the row Live TV focuses. Without a Live TV in the stack it is a plain leave.
+   */
+  const returnToLive = (focusChannelId?: string) => {
+    closeLayers();
+    if (!router.backTo('home', focusChannelId !== undefined ? { focusChannelId } : undefined)) leave(focusChannelId);
   };
-  /** `▦ Guide`. The entry keeps the channel now playing, so Back from the Guide does not jump to the first one. */
-  const openGuide = () => {
-    const cur = playback.current();
-    if (cur) params.channelId = cur.id;
-    params.groupId = zapGroup;
-    router.push('guide', { groupId: zapGroup });
-  };
+  /** `⛶ Window` and double click: back to Live TV with the small video. */
+  const toHome = () => returnToLive();
+  /** `▦ Guide`: Live TV is the guide; it opens on the channel now playing. */
+  const openGuide = () => returnToLive(playback.current()?.id ?? params.channelId);
   const toggleBanner = () => {
     if (bannerOn()) hideBanner();
     else showBanner();
@@ -448,7 +451,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     playback.setRect('fullscreen');
     player.setAspect(sessionAspect);
     showBanner();
-    // The shared timer: an armed one (from a Player before the Guide or Home) shows its minutes, an open question
+    // The shared timer: an armed one (from a Player before Live TV) shows its minutes, an open question
     // reopens its dialog. Else the default (Settings > Playback) is armed for this fullscreen session.
     const detachSleep = sleepTimer.attach({ onChange: onSleepChange, onExpire: () => { if (alive) sleepStop(); } });
     onCleanup(detachSleep);

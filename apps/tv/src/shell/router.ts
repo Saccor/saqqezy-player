@@ -5,7 +5,7 @@
  * Back is layered: `back()` closes the top overlay first (calling its `onClose`), then pops the screen. On the
  * root screen it changes nothing and returns `'root'`; the shell then asks to confirm exit.
  */
-export type ScreenId = 'addSource' | 'home' | 'player' | 'guide' | 'search' | 'settings' | 'vod' | 'vodGrid' | 'movieDetail' | 'seriesDetail' | 'vodPlay' | 'start' | 'startSports';
+export type ScreenId = 'addSource' | 'home' | 'player' | 'search' | 'settings' | 'vod' | 'vodGrid' | 'movieDetail' | 'seriesDetail' | 'vodPlay' | 'start' | 'startSports';
 export type ScreenParams = Record<string, unknown>;
 export interface ScreenEntry { screen: ScreenId; params: ScreenParams }
 export type BackResult = 'overlay' | 'screen' | 'root';
@@ -18,6 +18,13 @@ export interface Router {
   reset(screen: ScreenId, params?: ScreenParams): void;
   /** `params` are merged into the screen revealed by a screen pop (not by closing an overlay). */
   back(params?: ScreenParams): BackResult;
+  /**
+   * Returns to the topmost `screen` in the stack: closes every overlay (calling its `onClose`), pops the screens above
+   * it in one change and merges `params` into it. Subscribers are told even when it was already on top, so it re-reads
+   * the params. False (nothing changed) when `screen` is not in the stack. Hand-offs use it to reach the root Live TV
+   * without stacking a second one.
+   */
+  backTo(screen: ScreenId, params?: ScreenParams): boolean;
   current(): ScreenEntry | undefined;
   /** The screen under the current one: what a screen pop reveals (undefined on the root). */
   below(): ScreenEntry | undefined;
@@ -78,6 +85,17 @@ export function createRouter(): Router {
         return 'screen';
       }
       return 'root';
+    },
+    backTo(screen, params) {
+      let i = stack.length - 1;
+      while (i >= 0 && stack[i]!.screen !== screen) i--;
+      if (i < 0) return false;
+      while (layers.length > 0) router.back();
+      stack.length = i + 1;
+      const target = stack[i]!;
+      if (params) target.params = { ...target.params, ...params };
+      emitScreen();
+      return true;
     },
     current: () => stack[stack.length - 1],
     below: () => stack[stack.length - 2],

@@ -2,6 +2,7 @@ import type { ChannelRow, SearchResult, VodTile } from '@iptv/app-api';
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 import {
   countText,
+  laterRoute,
   listTop,
   createSearchMemory,
   createSearcher,
@@ -251,6 +252,13 @@ describe('movie and series rows', () => {
     expect(vodRoute({ kind: 'vod', tile: s })).toEqual({ screen: 'seriesDetail', params: { id: s.id, tile: s } });
     expect(vodRoute({ kind: 'channel', channel: row(1) })).toBeUndefined();
     expect(vodRoute(undefined)).toBeUndefined();
+  });
+
+  test('a coming-up row returns to Live TV at that channel and time; other rows do not', () => {
+    const hit = { title: 'Later Show', channel: row(7), start: 1_700_000_000_000, stop: 1_700_000_360_000, more: 0 };
+    expect(laterRoute({ kind: 'later', hit })).toEqual({ screen: 'home', params: { channelId: 's:7', at: 1_700_000_000_000 } });
+    expect(laterRoute({ kind: 'channel', channel: row(1) })).toBeUndefined();
+    expect(laterRoute(undefined)).toBeUndefined();
   });
 
   test('a compact line: title, then year when known', () => {
