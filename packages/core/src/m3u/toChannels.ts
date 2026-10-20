@@ -1,5 +1,6 @@
 import { UNCATEGORIZED } from '../constants.ts';
 import { fnv1a } from '../hash.ts';
+import { resolveCatchup, type CatchupCollector } from '../catchup/m3uCatchup.ts';
 import type { Channel } from '../types.ts';
 import { entryIdKey, type M3uEntry } from './parse.ts';
 
@@ -14,7 +15,8 @@ export function uniqueId(base: string, used: Set<string>): string {
   return id;
 }
 
-export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[]): Channel[] {
+/** `catchup`: collects interned templates and counts; without it, catch-up attributes are ignored. */
+export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[], catchup?: CatchupCollector): Channel[] {
   const seen = new Set<string>();
   const unique: M3uEntry[] = [];
   let maxChno = 0;
@@ -41,6 +43,10 @@ export function m3uEntriesToChannels(sourceId: string, entries: M3uEntry[]): Cha
     if (e.tvgId) ch.epgId = e.tvgId;
     if (e.tvgShift) ch.epgShift = e.tvgShift;
     if (e.headers) ch.headers = { ...e.headers };
+    if (catchup && e.catchup) {
+      const c = resolveCatchup(e.catchup, e.url, catchup);
+      if (c) ch.catchup = c;
+    }
     return ch;
   });
 }

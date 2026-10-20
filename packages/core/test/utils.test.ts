@@ -33,6 +33,7 @@ describe('normalize', () => {
 describe('redactUrl', () => {
   test('hides xtream path credentials and query credentials', () => {
     expect(redactUrl('http://example.test:8080/live/user1/pass1/42.ts')).toBe('http://example.test:8080/live/***/***/42.ts');
+    expect(redactUrl('http://example.test/timeshift/user1/pass1/31/2026-10-20:20-00/42.ts')).toBe('http://example.test/timeshift/***/***/31/2026-10-20:20-00/42.ts');
     expect(redactUrl('http://example.test/player_api.php?username=u&password=p&action=x'))
       .toBe('http://example.test/player_api.php?username=***&password=***&action=x');
   });

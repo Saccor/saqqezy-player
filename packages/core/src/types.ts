@@ -11,6 +11,33 @@ export interface Channel {
   epgShift?: number;
   /** Per-channel request headers from the playlist (`#EXTVLCOPT`, `#EXTHTTP`, the URL pipe). */
   headers?: StreamHeaders;
+  /** The source keeps an archive of this channel's past programmes (spec 2026-10-20-catch-up §3.1). */
+  catchup?: ChannelCatchup;
+}
+
+export type CatchupMode = 'default' | 'append' | 'shift' | 'flussonic' | 'xc';
+
+export interface ChannelCatchup {
+  mode: CatchupMode;
+  /** Archive length in days, 1–30. */
+  days: number;
+  /** Index into the source's catch-up templates (modes default and append; absent for shift, flussonic and xc). */
+  tpl?: number;
+  /** `catchup-correction` in minutes, when the playlist sets one. */
+  corrMin?: number;
+}
+
+/**
+ * Catch-up time settings, both kinds. `catchupOffsetMin`: the user's correction (Settings → source → Advanced →
+ * Catch-up time), a fixed offset from UTC in minutes; undefined = Auto. The server clock fields come from the last
+ * Xtream login (or, for an M3U with `xc` channels, the one `player_api.php` probe at refresh).
+ */
+export interface CatchupSettings {
+  catchupOffsetMin?: number;
+  /** `server_info.timezone` (IANA name), when present. */
+  serverTimeZone?: string;
+  /** Panel wall clock minus UTC in minutes, from `server_info.time_now` vs `timestamp_now`; rounded to 15 min. */
+  serverOffsetMin?: number;
 }
 
 /**
@@ -36,7 +63,7 @@ export interface Programme {
   desc?: string;
 }
 
-export interface XtreamSourceConfig extends SourceHttpSettings {
+export interface XtreamSourceConfig extends SourceHttpSettings, CatchupSettings {
   kind: 'xtream';
   id: string;
   name: string;
@@ -49,7 +76,7 @@ export interface XtreamSourceConfig extends SourceHttpSettings {
   activeConnections?: number;
 }
 
-export interface M3uSourceConfig extends SourceHttpSettings {
+export interface M3uSourceConfig extends SourceHttpSettings, CatchupSettings {
   kind: 'm3u';
   id: string;
   name: string;

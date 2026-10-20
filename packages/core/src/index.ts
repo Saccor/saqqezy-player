@@ -6,7 +6,16 @@ export { fnv1a } from './hash.ts';
 export { splitLines } from './text/lines.ts';
 export { normalize } from './text/normalize.ts';
 export { searchKey } from './text/searchKey.ts';
-export { parseM3u, type M3uEntry, type ParseStats } from './m3u/parse.ts';
+export { parseM3u, type M3uCatchupRaw, type M3uEntry, type ParseStats } from './m3u/parse.ts';
+export { archiveState, daysLeft, playableState, type ArchiveState } from './catchup/availability.ts';
+export { buildCatchupUrl, type BuiltCatchup } from './catchup/buildUrl.ts';
+export { CATCHUP_DEFAULT_DAYS, CATCHUP_MAX_DAYS, CATCHUP_MAX_TEMPLATES, CatchupCollector, resolveCatchup } from './catchup/m3uCatchup.ts';
+export { renderTemplate, templateStepMs, validTemplate, type TemplateTimes } from './catchup/template.ts';
+export { parseXcLiveUrl, xcDurationMin, xcStart, xcTimeshiftPhpUrl, xcTimeshiftUrl, type XcParts } from './catchup/xc.ts';
+export {
+  formatOffset, intlZonesWork, pickZone, serverOffsetFrom, wallClock, zoneLabel,
+  type CatchupZone, type WallClock, type ZoneChoice, type ZoneHow, type ZoneInputs,
+} from './catchup/zone.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';
 export { ChannelIndex, type ProviderGroupInfo } from './index/channelIndex.ts';
 export { orderGroupChannels } from './index/order.ts';

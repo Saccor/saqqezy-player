@@ -23,8 +23,8 @@ export function redactUrl(raw: string): string {
     if (u.searchParams.has(key)) u.searchParams.set(key, '***');
   }
   const parts = u.pathname.split('/');
-  // Xtream stream paths: /live|movie|series/{user}/{pass}/{id}.{ext}
-  if (parts.length >= 5 && ['live', 'movie', 'series'].includes(parts[1] ?? '')) {
+  // Xtream stream paths: /live|movie|series/{user}/{pass}/{id}.{ext}, and /timeshift/{user}/{pass}/{min}/{start}/{id}.{ext}
+  if (parts.length >= 5 && ['live', 'movie', 'series', 'timeshift'].includes(parts[1] ?? '')) {
     parts[2] = '***';
     parts[3] = '***';
   } else if (parts.length === 4 && parts[1] && parts[2] && /^\d+(?:\.(?:ts|m3u8))?$/.test(parts[3] ?? '')) {
