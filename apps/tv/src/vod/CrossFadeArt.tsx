@@ -1,15 +1,15 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup } from 'solid-js';
 import { rawViaDevProxy } from '../net/devProxy.ts';
+import { tween } from '../shell/motion.ts';
+import { MOTION } from '../shell/theme.ts';
 import { failLayer, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
 
-/** How long a new image takes to fade in (spec §6). */
-export const ART_FADE_MS = 200;
 /**
  * A new layer's starting alpha: invisible, but above 0, because the renderer does not load the texture of a node with
  * alpha 0 (it is not renderable), so its `loaded` event would never come.
  */
-const START_ALPHA = 0.001;
+const START_ALPHA = MOTION.startAlpha;
 /**
  * Cover fitting (renderer 3.7 `textureOptions.resizeMode`): the image fills the box at its own aspect, centred, and the
  * overflow is cropped through the texture coordinates. A 2:3 poster in the wide strip box is never stretched.
@@ -18,7 +18,7 @@ const COVER = { resizeMode: { type: 'cover' } } as const;
 
 /**
  * An image box that cross-fades (cover-fitted, never stretched): a new `url` is drawn on a second image node above the current one and fades in over
- * 200 ms once its texture has loaded; then the old node goes. No `url`: nothing is drawn. `onFailed` reports an image
+ * 260 ms (`MOTION.backdrop`, the fade curve) once its texture has loaded; then the old node goes. No `url`: nothing is drawn. `onFailed` reports an image
  * that could not load, once per layer; when it was the new (top) image every layer goes, so the box is empty and the
  * screen's fallback can show.
  */
@@ -32,13 +32,14 @@ export function CrossFadeArt(props: { url: string | undefined; x: number; y: num
   /** One image node per layer id (keyed by id: settling a layer must not remount its node). */
   const Layer = (p: { id: number; z: number }) => {
     let node: ElementNode | undefined;
-    let fade: { stop(): unknown; waitUntilStopped(): Promise<void> } | undefined;
+    let fading = false;
     const id = p.id;
     const url = layers().find((l) => l.id === id)?.url ?? '';
     const onLoaded = () => {
-      if (!node || fade || !alive) return;
-      fade = node.animate({ alpha: 1 }, { duration: ART_FADE_MS, easing: 'ease-in-out' }).start();
-      void fade.waitUntilStopped().then(() => { if (alive) setLayers((ls) => settleLayer(ls, id)); });
+      if (!node || fading || !alive) return;
+      fading = true;
+      // Through the motion helper: the fade curve, capped under reduced motion, snapped when motion is off.
+      tween(node, { alpha: 1 }, MOTION.backdrop, () => { if (alive) setLayers((ls) => settleLayer(ls, id)); });
     };
     let failed = false;
     const onFailed = () => {
@@ -47,7 +48,6 @@ export function CrossFadeArt(props: { url: string | undefined; x: number; y: num
       setLayers((ls) => failLayer(ls, id));
       props.onFailed?.(url);
     };
-    onCleanup(() => fade?.stop());
     return (
       <View ref={(el) => { node = el; }} zIndex={p.z} width={props.width} height={props.height} alpha={START_ALPHA}
         src={rawViaDevProxy(url)} textureOptions={COVER} onEvent={{ loaded: onLoaded, failed: onFailed }} />

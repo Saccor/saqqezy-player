@@ -93,7 +93,7 @@ export const LAYOUT = {
 } as const;
 
 /** One focus style (spec §1.2): cards scale and get a light ring outside a dark gap; the rest get a fill only. */
-export const FOCUS = { scale: 1.05, ring: 4, offset: 4, ms: 120, /** The focused card's scale while OK is held. */ press: 1.02 } as const;
+export const FOCUS = { scale: 1.05, ring: 4, offset: 4, /** The focused card's scale while OK is held. */ press: 1.02 } as const;
 
 /**
  * Easing curves (motion research §3), always as explicit `cubic-bezier(...)` strings: renderer 3.7's named
