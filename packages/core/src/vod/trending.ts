@@ -106,8 +106,11 @@ export function buildTrendingIndex(groups: readonly TrendingCandidate[]): Trendi
   return { keys, undated };
 }
 
-/** Per feed item: its title-and-year keys (exact year first) and its `n:` key when its names reduce to one base. */
-interface ItemKeys { years: string[]; name?: string }
+/**
+ * Per feed item: its title-and-year keys (exact year first, then ±1), how many of them are exact, and its `n:` key
+ * when its names reduce to one base.
+ */
+interface ItemKeys { years: string[]; exact: number; name?: string }
 const feedKeys = new WeakMap<TrendingFeed, ItemKeys[]>();
 
 function keysOf(feed: TrendingFeed): ItemKeys[] {
@@ -126,12 +129,23 @@ function keysOf(feed: TrendingFeed): ItemKeys[] {
       exact.push(`y:${p.base}|${year}`);
       near.push(`y:${p.base}|${year - 1}`, `y:${p.base}|${year + 1}`);
     }
-    const k: ItemKeys = { years: [...exact, ...near] };
+    const k: ItemKeys = { years: [...exact, ...near], exact: exact.length };
     if (bases.size === 1) k.name = `n:${bases.values().next().value}`;
     return k;
   });
   feedKeys.set(feed, all);
   return all;
+}
+
+/** One matched catalogue title. */
+export interface TrendingHit {
+  /** The group index. */
+  group: number;
+  /**
+   * Matched by tmdb id or by title and the exact year (spec catalogue-personalisation-sync §5.2): only these are
+   * numbered in a Top 10 row. A year off by one or the name alone is a weak match.
+   */
+  strong: boolean;
 }
 
 /**
@@ -140,23 +154,33 @@ function keysOf(feed: TrendingFeed): ItemKeys[] {
  * (a feed item with a year only reaches undated titles that way). Another kind's feed matches nothing.
  */
 export function matchTrending(feed: TrendingFeed, kind: VodKind, index: TrendingIndex, cap = 20): number[] {
+  return matchTrendingHits(feed, kind, index, cap).map((h) => h.group);
+}
+
+/** `matchTrending` with how strong each match is. */
+export function matchTrendingHits(feed: TrendingFeed, kind: VodKind, index: TrendingIndex, cap = 20): TrendingHit[] {
   if (feed.kind !== kind || cap <= 0 || index.keys.size === 0) return [];
   const all = keysOf(feed);
-  const out: number[] = [];
+  const out: TrendingHit[] = [];
   const used = new Set<number>();
   for (let n = 0; n < feed.items.length && out.length < cap; n++) {
     const it = feed.items[n]!;
     const k = all[n]!;
     let hit: number | undefined;
+    let strong = false;
     if (it.tmdb !== undefined) hit = index.keys.get(`t:${it.tmdb}`);
-    for (let y = 0; hit === undefined && y < k.years.length; y++) hit = index.keys.get(k.years[y]!);
+    if (hit !== undefined) strong = true;
+    for (let y = 0; hit === undefined && y < k.years.length; y++) {
+      hit = index.keys.get(k.years[y]!);
+      if (hit !== undefined) strong = y < k.exact;
+    }
     if (hit === undefined && k.name) {
       hit = index.keys.get(k.name);
       if (hit === undefined && it.year === undefined) hit = index.undated.get(k.name);
     }
     if (hit === undefined || used.has(hit)) continue;
     used.add(hit);
-    out.push(hit);
+    out.push({ group: hit, strong });
   }
   return out;
 }

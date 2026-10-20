@@ -27,8 +27,8 @@ export { VodCatalog, type VodMember } from './vod/catalog.ts';
 export { parseVodTitle, categoryBase, QUALITY_LABELS, QUALITY_UNKNOWN, type ParsedTitle } from './vod/titleParse.ts';
 export { groupVod, mergedCategoryId, type VodGroup, type VodGroups } from './vod/grouping.ts';
 export {
-  TRENDING_FEED_MAX, buildTrendingIndex, matchTrending, parseTrendingFeed,
-  type TrendingCandidate, type TrendingFeed, type TrendingFeedItem, type TrendingIndex,
+  TRENDING_FEED_MAX, buildTrendingIndex, matchTrending, matchTrendingHits, parseTrendingFeed,
+  type TrendingCandidate, type TrendingFeed, type TrendingFeedItem, type TrendingHit, type TrendingIndex,
 } from './vod/trending.ts';
 export { orderVersions, preferredLanguages, type VersionCandidate, type VersionContext } from './vod/versions.ts';
 export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';

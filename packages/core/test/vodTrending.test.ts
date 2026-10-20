@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { groupVod } from '../src/vod/grouping.ts';
 import {
-  buildTrendingIndex, matchTrending, parseTrendingFeed, type TrendingCandidate, type TrendingFeed, type TrendingFeedItem,
+  buildTrendingIndex, matchTrending, matchTrendingHits, parseTrendingFeed, type TrendingCandidate, type TrendingFeed, type TrendingFeedItem,
 } from '../src/vod/trending.ts';
 import type { VodItem } from '../src/vod/types.ts';
 
@@ -113,6 +113,35 @@ describe('matchTrending', () => {
   test('an empty catalogue or feed matches nothing', () => {
     expect(match(feed([]), groupsOf([movie(1, 'A (2020)')]))).toEqual([]);
     expect(match(feed([{ wd: 'Q1', titles: ['A'] }]), [])).toEqual([]);
+  });
+});
+
+describe('matchTrendingHits', () => {
+  const hits = (f: TrendingFeed, groups: readonly TrendingCandidate[]) =>
+    matchTrendingHits(f, 'movie', buildTrendingIndex(groups)).map((h) => [groups[h.group]!.display, h.strong]);
+
+  test('strong for a tmdb id or title and exact year; weak for one year off or the name alone', () => {
+    const groups = groupsOf([
+      movie(1, 'Synthetic Alpha', { tmdbId: 11 }), movie(2, 'Synthetic Beta (2020)'), movie(3, 'Synthetic Gamma (2018)'),
+      movie(4, 'Synthetic Delta'),
+    ]);
+    const f = feed([
+      { wd: 'Q1', tmdb: 11, titles: ['Anything'] },
+      { wd: 'Q2', year: 2020, titles: ['Synthetic Beta'] },
+      { wd: 'Q3', year: 2019, titles: ['Synthetic Gamma'] },
+      { wd: 'Q4', titles: ['Synthetic Delta'] },
+    ]);
+    expect(hits(f, groups)).toEqual([
+      ['Synthetic Alpha', true], ['Synthetic Beta', true], ['Synthetic Gamma', false], ['Synthetic Delta', false],
+    ]);
+  });
+
+  test('a year in the feed title counts as the year; matchTrending is the hit groups', () => {
+    const groups = groupsOf([movie(1, 'Synthetic Beta (2020)')]);
+    const f = feed([{ wd: 'Q2', titles: ['Synthetic Beta (2020)'] }]);
+    expect(hits(f, groups)).toEqual([['Synthetic Beta', true]]);
+    const index = buildTrendingIndex(groups);
+    expect(matchTrending(f, 'movie', index)).toEqual(matchTrendingHits(f, 'movie', index).map((h) => h.group));
   });
 });
 
