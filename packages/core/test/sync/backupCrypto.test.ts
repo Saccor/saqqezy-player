@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_SCHEMA, BackupError, isBackupEnvelope, openBackup, sealBackup, type BackupEnvelope,
+  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_PBKDF2_ITERATIONS, BACKUP_PBKDF2_MAX, BACKUP_SCHEMA, BackupError, isBackupEnvelope, openBackup, sealBackup, type BackupEnvelope,
 } from '../../src/sync/backupCrypto.ts';
 import { encodeRecoveryCode, newRecoveryCode } from '../../src/sync/recovery.ts';
 import { sourceFingerprint } from '../../src/sync/ref.ts';
@@ -55,5 +55,18 @@ describe('backup envelope', () => {
       expect(isBackupEnvelope(bad)).toBe(false);
       await expect(openBackup(bad as BackupEnvelope, newRecoveryCode())).rejects.toMatchObject({ reason: 'invalid' });
     }
+  });
+
+  test('the iteration count travels in the header and opening uses it; a count above the TV bound is refused', async () => {
+    // Bounded so a 1 GB TV derives the key in about 1.5 s at most (a hostile file cannot ask for more).
+    expect(BACKUP_PBKDF2_MAX).toBeLessThanOrEqual(300_000);
+    expect(BACKUP_PBKDF2_ITERATIONS).toBeLessThanOrEqual(BACKUP_PBKDF2_MAX);
+    const code = newRecoveryCode();
+    const { envelope } = await sealBackup(text('x'), code, { now: T, iterations: 1234 });
+    expect(envelope.i).toBe(1234);
+    expect(new TextDecoder().decode((await openBackup(envelope, code)).plaintext)).toBe('x');
+    expect(isBackupEnvelope({ ...envelope, i: BACKUP_PBKDF2_MAX })).toBe(true);
+    expect(isBackupEnvelope({ ...envelope, i: BACKUP_PBKDF2_MAX + 1 })).toBe(false);
+    await expect(openBackup({ ...envelope, i: BACKUP_PBKDF2_MAX + 1 }, code)).rejects.toMatchObject({ reason: 'invalid' });
   });
 });

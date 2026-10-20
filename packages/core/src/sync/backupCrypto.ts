@@ -24,9 +24,20 @@ export interface BackupEnvelope {
 }
 
 export const BACKUP_SCHEMA = 1;
+/**
+ * PBKDF2-SHA256 iterations of a new backup. The secret is the recovery code's 128 random bits, not a password, so
+ * guessing it is infeasible at any count: the iterations are defence in depth only, and the count is chosen for
+ * the slowest TV it must open on: half the phone pairing's 200k (≈ 0.2–1 s there), so about 0.1–0.5 s on a 1 GB
+ * TV. The count is written into the header (`i`, bound by the AAD) and opening always uses that stored count, so
+ * it can change without breaking older backups. The derivation runs outside AppApi's index lock (WebCrypto works
+ * off the JS thread), so even a slow one never holds up the UI.
+ */
 export const BACKUP_PBKDF2_ITERATIONS = 100_000;
-/** An envelope asking for more work than this is refused (a hostile file must not freeze the TV). */
-export const BACKUP_PBKDF2_MAX = 2_000_000;
+/**
+ * An envelope asking for more work than this is refused: a hostile or future file must not keep a low-end TV busy
+ * for more than about 1.5 s. Three times the default leaves room to raise it later.
+ */
+export const BACKUP_PBKDF2_MAX = 300_000;
 /** Largest snapshot JSON sealed (bytes). Its envelope stays under the companion's 8 MiB message cap. */
 export const BACKUP_PLAINTEXT_MAX = 4 * 1024 * 1024;
 /** Longest `ct` accepted (base64 of BACKUP_PLAINTEXT_MAX plus the tag, rounded up). */

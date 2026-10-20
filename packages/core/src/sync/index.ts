@@ -22,11 +22,11 @@ export {
   RECOVERY_CODE_BYTES, RECOVERY_CODE_LENGTH, encodeRecoveryCode, formatRecoveryCode, newRecoveryCode, parseRecoveryCode,
 } from './recovery.ts';
 export {
-  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_PBKDF2_ITERATIONS, BACKUP_PLAINTEXT_MAX, BACKUP_SCHEMA, BackupError, isBackupEnvelope,
+  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_PBKDF2_ITERATIONS, BACKUP_PBKDF2_MAX, BACKUP_PLAINTEXT_MAX, BACKUP_SCHEMA, BackupError, isBackupEnvelope,
   newBackupKeys, openBackup, sealBackup, type BackupEnvelope, type BackupErrorReason,
 } from './backupCrypto.ts';
 export {
   SETTINGS_SCOPE, SYNTHETIC_NODE, applyVodRestore, exportSettings, exportSource, isSyntheticStamp, planSettingsRestore,
   planSourceRestore, registerMap, type SourceRestorePlan, type SourceState, type VodRestore,
 } from './snapshot.ts';
-export { BACKUP_FP_SCOPE, BackupService, type BackupDeps, type CreatedBackup, type RestoreSummary } from './backup.ts';
+export { BACKUP_FP_SCOPE, BackupService, type BackupDeps, type CreatedBackup, type OpenedSnapshot, type RestoreSummary } from './backup.ts';

@@ -66,6 +66,15 @@ export interface RestoreSummary {
   at: number;
 }
 
+/** A decrypted backup, ready to merge (`BackupService.open`). Holds no secret that opens the backup again. */
+export interface OpenedSnapshot {
+  records: SyncRecord[];
+  /** When the backup was made (ms). */
+  at: number;
+  fpKey: CryptoKey;
+  fpRaw: Uint8Array;
+}
+
 const VOD_KINDS: readonly VodKind[] = ['movie', 'series'];
 
 /** Same value, or a removal of something that is not there. */
@@ -111,6 +120,14 @@ export class BackupService {
 
   /** Opens a backup with its recovery code and merges it into this device. Throws `BackupError`. */
   async restore(envelope: unknown, code: string): Promise<RestoreSummary> {
+    return this.apply(await this.open(envelope, code));
+  }
+
+  /**
+   * The slow, side-effect-free half of a restore: derives the key from the code (PBKDF2), decrypts and decodes.
+   * Touches no state, so a caller runs it outside its locks and holds them only for `apply`. Throws `BackupError`.
+   */
+  async open(envelope: unknown, code: string): Promise<OpenedSnapshot> {
     const opened = await openBackup(envelope, code);
     let snapshot: unknown;
     try {
@@ -121,7 +138,12 @@ export class BackupService {
     if (typeof snapshot !== 'object' || snapshot === null || (snapshot as Snapshot).v !== SNAPSHOT_VERSION) {
       throw new BackupError('invalid', 'This backup is damaged.');
     }
-    const remote = decodePayload((snapshot as Snapshot).p);
+    return { records: decodePayload((snapshot as Snapshot).p), at: opened.at, fpKey: opened.fpKey, fpRaw: opened.fpRaw };
+  }
+
+  /** Merges an opened backup into this device (the caller holds whatever locks guard the layout). */
+  async apply(opened: OpenedSnapshot): Promise<RestoreSummary> {
+    const remote = opened.records;
     const { storage, clock } = this.deps;
     await clock.idle();
     const summary: RestoreSummary = { applied: 0, pending: 0, sources: 0, at: opened.at };
