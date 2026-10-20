@@ -8,6 +8,8 @@ export interface KindCopy {
   detailRoute: 'movieDetail' | 'seriesDetail';
   /** The grid's All entry, in running text ("Green: all movies"). */
   allLabel: string;
+  /** The category picker's title on browse. */
+  categoriesTitle: string;
 }
 
 export const KIND_COPY: Record<VodKind, KindCopy> = {
@@ -17,6 +19,7 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     loading: 'Loading movies from your source…',
     detailRoute: 'movieDetail',
     allLabel: 'all movies',
+    categoriesTitle: 'Movie categories',
   },
   series: {
     empty: 'This source has no series.',
@@ -24,6 +27,7 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     loading: 'Loading series from your source…',
     detailRoute: 'seriesDetail',
     allLabel: 'all series',
+    categoriesTitle: 'Series categories',
   },
 };
 

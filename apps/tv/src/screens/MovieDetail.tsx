@@ -178,6 +178,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const menu = createPosterMenu({
     refocus: () => { if (alive) focusArea(menuArea, true); },
     onChanged: () => { if (alive) void load(false); },
+    // Play from the menu shares this screen's launcher (one press at a time).
+    play: { launcher },
   });
   const openMenu = (col: number) => {
     const t = moreRow().items[col];

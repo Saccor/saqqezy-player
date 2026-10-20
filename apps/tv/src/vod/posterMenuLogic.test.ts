@@ -5,12 +5,17 @@ import { buildEpisodeMenu, buildPosterMenu, runEpisodeAction, runPosterAction, t
 const movie = (over: Partial<VodTile> = {}): VodTile => ({ id: 's:m1', kind: 'movie', title: 'Synthetic Film 1', categoryId: '1', watched: false, favourite: false, ...over });
 
 describe('posterMenuLogic', () => {
+  test('Play (or Resume) comes first', () => {
+    const tile = { id: 'm1', kind: 'movie', title: 'Glass Harbor', categoryId: 'c', watched: false, favourite: false } as const;
+    expect(buildPosterMenu(tile, false)[0]).toEqual({ action: 'play', label: 'Play' });
+    expect(buildPosterMenu({ ...tile, progress: 0.4 }, true)[0]).toEqual({ action: 'play', label: 'Resume' });
+  });
   test('items follow the tile state and the row', () => {
-    expect(buildPosterMenu(movie(), false).map((i) => i.action)).toEqual(['favAdd', 'watched', 'cancel']);
+    expect(buildPosterMenu(movie(), false).map((i) => i.action)).toEqual(['play', 'favAdd', 'watched', 'cancel']);
     expect(buildPosterMenu(movie({ favourite: true, watched: true }), true).map((i) => i.action))
-      .toEqual(['favRemove', 'unwatched', 'removeContinue', 'cancel']);
-    expect(buildPosterMenu(movie({ kind: 'series' }), false).map((i) => i.action)).toEqual(['favAdd', 'cancel']);
-    expect(buildPosterMenu(movie(), false).map((i) => i.label)).toEqual(['Add to favourites', 'Mark as watched', 'Cancel']);
+      .toEqual(['play', 'favRemove', 'unwatched', 'removeContinue', 'cancel']);
+    expect(buildPosterMenu(movie({ kind: 'series' }), false).map((i) => i.action)).toEqual(['play', 'favAdd', 'cancel']);
+    expect(buildPosterMenu(movie(), false).map((i) => i.label)).toEqual(['Play', 'Add to favourites', 'Mark as watched', 'Cancel']);
   });
   test('actions call the API', async () => {
     const api: PosterApi = {
@@ -28,12 +33,15 @@ describe('posterMenuLogic', () => {
     await runPosterAction('removeContinue', movie(), api);
     expect(api.clearVodProgress).toHaveBeenCalledWith('s:m1');
     expect(await runPosterAction('cancel', movie(), api)).toBe(false);
+    // Play is started by the menu runner; nothing is saved.
+    expect(await runPosterAction('play', movie(), api)).toBe(false);
     expect(api.clearSeriesContinue).not.toHaveBeenCalled();
   });
   test('series tiles: favourite and Remove from Continue watching, never watched', () => {
     const series = movie({ id: 's:s1', kind: 'series', title: 'Synthetic Show 1' });
-    expect(buildPosterMenu(series, false).map((i) => i.action)).toEqual(['favAdd', 'cancel']);
+    expect(buildPosterMenu(series, false).map((i) => i.action)).toEqual(['play', 'favAdd', 'cancel']);
     expect(buildPosterMenu({ ...series, favourite: true, watched: true }, true)).toEqual([
+      { action: 'play', label: 'Play' },
       { action: 'favRemove', label: 'Remove from favourites' },
       { action: 'removeContinue', label: 'Remove from Continue watching' },
       { action: 'cancel', label: 'Cancel' },

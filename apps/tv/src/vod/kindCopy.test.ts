@@ -23,6 +23,7 @@ describe('kindCopy', () => {
       loading: 'Loading movies from your source…',
       detailRoute: 'movieDetail',
       allLabel: 'all movies',
+      categoriesTitle: 'Movie categories',
     });
   });
   test('series', () => {
@@ -32,6 +33,7 @@ describe('kindCopy', () => {
       loading: 'Loading series from your source…',
       detailRoute: 'seriesDetail',
       allLabel: 'all series',
+      categoriesTitle: 'Series categories',
     });
   });
 });
