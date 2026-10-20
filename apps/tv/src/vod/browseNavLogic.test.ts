@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodCategoryView } from '@iptv/app-api';
 import {
-  areaAbove, areaBelow, browseChips, browseSlots, chipLayout, chipMove, chipScroll, chipWidth, effectiveLine, greenOpensGrid, locateChip,
+  areaAbove, areaBelow, browseChips, browseSlots, chipLayout, chipMove, chipScroll, chipWidth, effectiveLine, greenOpensGrid, hintAfterHeading, locateChip,
 } from './browseNavLogic.ts';
 
 const cats: VodCategoryView[] = [
@@ -137,5 +137,12 @@ describe('greenOpensGrid', () => {
   test('Green opens the All grid only while the catalogue is ready, never on loading, empty or failed', () => {
     expect(greenOpensGrid('ready')).toBe(true);
     for (const s of ['loading', 'empty', 'error', undefined]) expect(greenOpensGrid(s)).toBe(false);
+  });
+});
+
+describe('hintAfterHeading', () => {
+  test('the chips hint starts past the widest likely "Categories" heading at 32 px (DejaVu Sans: 172 px) plus a gap', () => {
+    expect(hintAfterHeading('Categories', 32)).toBeGreaterThanOrEqual(172 + 24);
+    expect(hintAfterHeading('Categories', 32)).toBeLessThan(260);
   });
 });

@@ -790,6 +790,14 @@ describe('SourceService – xtream', () => {
     expect(await storage.getVodUser(source.id, 'x')).toEqual(state);
   });
 
+  test('clearing the cache also forgets the guide look-back record (epgLongest)', async () => {
+    routes['/one.m3u'] = () => new Response(['#EXTM3U', '#EXTINF:-1,Channel 001', 'http://example.test/live/u/p/1.ts'].join('\n'));
+    const { source } = await service.addSource({ kind: 'm3u', name: 'Mine', playlistUrl: 'http://example.test/one.m3u' });
+    await storage.setMeta(`epgLongest:${source.id}`, { gen: 1, ms: 30 * 3_600_000 });
+    await service.clearCachedData(source.id);
+    expect(await storage.getMeta(`epgLongest:${source.id}`)).toBeFalsy();
+  });
+
   test('rejected login surfaces SourceAuthError, server error surfaces SourceNetworkError', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 0 } });
     await expect(service.addSource(xInput)).rejects.toBeInstanceOf(SourceAuthError);

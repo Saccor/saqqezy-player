@@ -24,7 +24,7 @@ import {
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import {
-  areaAbove, areaBelow, browseChips, browseSlots, chipMove, effectiveLine, greenOpensGrid, locateChip, type BrowseArea, type BrowseChip, type BrowseLine,
+  areaAbove, areaBelow, browseChips, browseSlots, chipMove, effectiveLine, greenOpensGrid, hintAfterHeading, locateChip, type BrowseArea, type BrowseChip, type BrowseLine,
 } from '../vod/browseNavLogic.ts';
 import { CrossFadeArt } from '../vod/CrossFadeArt.tsx';
 import { heroArt } from '../vod/fadeLogic.ts';
@@ -641,7 +641,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           onEnter={openChip}>
           <Show when={slots().chipsY !== undefined}>
             <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{'Categories'}</Text>
-            <Text x={LAYOUT.safeX + 200} y={8} fontSize={FONT.small} color={COLORS.muted}>{`Ok opens the grid · Green: ${copy.allLabel}`}</Text>
+            <Text x={LAYOUT.safeX + hintAfterHeading('Categories', FONT.heading)} y={8} fontSize={FONT.small} color={COLORS.muted}>{`Ok opens the grid · Green: ${copy.allLabel}`}</Text>
             <ChipRow x={LAYOUT.safeX} y={LABEL_H} width={LAYOUT.width - LAYOUT.safeX} chips={chips()} focus={chip()} lit={area() === 'chips'}
               onChipClick={pointToChip} onWheel={onWheel} />
           </Show>

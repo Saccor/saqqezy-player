@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
-import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetLabel, diagnosticsLines } from './settingsLogic.ts';
+import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetIndex, catchupOffsetLabel, diagnosticsLines } from './settingsLogic.ts';
 
 describe('Catch-up time (spec 2026-10-20-catch-up §5.6)', () => {
   it('offers Auto and −12 h … +14 h in 15 min steps', () => {
@@ -10,6 +10,14 @@ describe('Catch-up time (spec 2026-10-20-catch-up §5.6)', () => {
     expect(c.at(-1)).toEqual({ id: '840', label: 'UTC+14:00' });
     expect(c).toHaveLength(1 + (26 * 4 + 1));
     expect(c.find((x) => x.id === '-210')?.label).toBe('UTC-3:30');
+  });
+
+  it('the list opens on the current value: Auto at the top, a manual time on its own row', () => {
+    const c = catchupOffsetChoices();
+    expect(catchupOffsetIndex(c, undefined)).toBe(0);
+    expect(c[catchupOffsetIndex(c, 60)]).toEqual({ id: '60', label: 'UTC+1:00' });
+    expect(c[catchupOffsetIndex(c, -210)]?.label).toBe('UTC-3:30');
+    expect(catchupOffsetIndex(c, 7)).toBe(0); // not a choice: the top
   });
 
   it('maps a choice back to minutes; anything else is Auto', () => {

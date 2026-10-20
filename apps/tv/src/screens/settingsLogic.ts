@@ -187,6 +187,11 @@ export function catchupOffsetChoices(): { id: string; label: string }[] {
   return out;
 }
 
+/** The row the Catch-up time list opens on: the current value (Auto, or a manual time); the top when unknown. */
+export function catchupOffsetIndex(choices: readonly { id: string }[], current: number | undefined): number {
+  return Math.max(0, choices.findIndex((c) => c.id === (current === undefined ? 'auto' : String(current))));
+}
+
 /** `Auto`, or the offset from UTC as `UTC+1:00` / `UTC-3:30`. */
 export function catchupOffsetLabel(min: number | undefined): string {
   if (min === undefined) return 'Auto';

@@ -292,6 +292,7 @@ export class SourceService {
       await this.storage.setMeta(`epgGen:${id}`, null);
       await this.storage.setMeta(`epgStaging:${id}`, null);
       await this.storage.setMeta(`epgCoverage:${id}`, null);
+      await this.storage.setMeta(epgLongestKey(id), null);
       await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
@@ -405,6 +406,7 @@ export class SourceService {
       await this.storage.clearProgrammes(await this.currentEpgKey(id));
       // No guide configured: coverage is unknown rather than empty, so a no-EPG filter hides nothing.
       await this.storage.setMeta(`epgCoverage:${id}`, null);
+      await this.storage.setMeta(epgLongestKey(id), null);
       await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.setMeta(`epgAt:${id}`, this.now());

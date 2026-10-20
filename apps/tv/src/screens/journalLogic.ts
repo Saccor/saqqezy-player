@@ -22,6 +22,10 @@ const CAUSE: Record<string, string> = {
   startTimeout: 'no picture at start', drift: 'far behind live', goLive: 'go live', edgeSeekFailed: 'jump to live failed',
 };
 const PRESET = { low: 'Low', balanced: 'Balanced', stable: 'Stable' } as const;
+/** One text per `note` kind; an unknown kind (a journal saved by another app version) reads "Note". */
+const NOTES: Record<Extract<JournalEvent, { k: 'note' }>['what'], string> = {
+  refererDropped: 'Referer not sent: this TV cannot send it',
+};
 const FAILED = {
   unavailable: 'Gave up: stream unavailable', unsupported: 'Gave up: format not supported', refused: 'Gave up: source refused',
   gone: 'Gave up: not on the source',
@@ -80,7 +84,7 @@ export function eventText(e: JournalEvent): string {
     case 'stop':
       return 'Stopped';
     case 'note':
-      return 'Referer not sent: this TV cannot send it';
+      return NOTES[e.what] ?? 'Note';
   }
 }
 

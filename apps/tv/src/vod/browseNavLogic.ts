@@ -108,3 +108,12 @@ export function browseSlots(
 
 /** Green opens the grid on All only while the catalogue is ready: on loading, empty or failed it would show nothing. */
 export const greenOpensGrid = (status: string | undefined): boolean => status === 'ready';
+
+/**
+ * Where a hint after a heading may start (px from the heading's x): the heading's width at 0.62 em a character, an
+ * upper bound for the platform sans-serif faces on mixed-case words (Arial "Categories" at 32 px is 155 px, DejaVu
+ * Sans 172 px), plus a gap. Text is measured late in Lightning, so the hint is placed from this estimate.
+ */
+export function hintAfterHeading(heading: string, fontSize: number, gap = 24): number {
+  return Math.ceil(heading.length * fontSize * 0.62) + gap;
+}

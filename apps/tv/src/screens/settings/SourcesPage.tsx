@@ -10,7 +10,7 @@ import { maxConnectionsOf } from '../../state/sourceLimit.ts';
 import { connectionsLine } from '../addSourceLogic.ts';
 import { markSubscreenLeave, type PageProps } from './shared.ts';
 import { CATCHUP_COPY } from '../../copy.ts';
-import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetLabel } from '../settingsLogic.ts';
+import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetIndex, catchupOffsetLabel } from '../settingsLogic.ts';
 
 const ADD_ID = '__add';
 /** Focused row across visits (Edit/Add source return to it). */
@@ -111,7 +111,7 @@ export function SourcesPage(props: PageProps) {
     const current = (await api.getSource(s.id).catch(() => undefined))?.catchupOffsetMin;
     if (!alive) return;
     const choices = catchupOffsetChoices();
-    const at = Math.max(0, choices.findIndex((c) => c.id === (current === undefined ? 'auto' : String(current))));
+    const at = catchupOffsetIndex(choices, current);
     const pick = await props.choose(`${CATCHUP_COPY.time} · ${CATCHUP_COPY.timeHelp}`, choices, at);
     if (!alive || pick === undefined) return;
     try {
