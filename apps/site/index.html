@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saqqezy Player</title>
+<meta name="description" content="A fast TV player for your own media: your own playlists, TV guide and media library on smart TVs and computers. No content included.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/familjen-grotesk-700.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  /* Familjen Grotesk (SIL Open Font License, fonts/OFL.txt), served from this site: no third-party font requests. */
+  @font-face { font-family: "Familjen Grotesk"; font-weight: 400; font-display: swap; src: url("/fonts/familjen-grotesk-400.woff2") format("woff2"); }
+  @font-face { font-family: "Familjen Grotesk"; font-weight: 500; font-display: swap; src: url("/fonts/familjen-grotesk-500.woff2") format("woff2"); }
+  @font-face { font-family: "Familjen Grotesk"; font-weight: 600; font-display: swap; src: url("/fonts/familjen-grotesk-600.woff2") format("woff2"); }
+  @font-face { font-family: "Familjen Grotesk"; font-weight: 700; font-display: swap; src: url("/fonts/familjen-grotesk-700.woff2") format("woff2"); }
+  :root {
+    --ink: #121a30;
+    --panel: #1b2542;
+    --panel-2: #24305a;
+    --focus: #4f8cff;
+    --text: #e8eaf0;
+    --muted: #a3acc2;
+    --line: #2c3760;
+    --measure: 64ch;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: "Familjen Grotesk", system-ui, sans-serif;
+    font-size: 1.0625rem;
+    line-height: 1.6;
+  }
+  a { color: var(--text); text-decoration-color: var(--focus); text-underline-offset: 0.2em; text-decoration-thickness: 2px; }
+  a:hover { color: #fff; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 28px 0; }
+  .brand { font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; text-decoration: none; }
+  .brand span { color: var(--muted); font-weight: 500; }
+  nav.top a { color: var(--muted); text-decoration: none; margin-left: 24px; font-weight: 500; }
+  nav.top a:hover { color: var(--text); }
+
+  .hero { display: grid; grid-template-columns: 1fr 1.05fr; gap: 56px; align-items: center; padding: 40px 0 88px; }
+  h1 { font-size: clamp(2.6rem, 5.4vw, 4.4rem); line-height: 1.02; letter-spacing: -0.035em; font-weight: 700; margin: 0 0 24px; }
+  .lede { font-size: 1.25rem; color: var(--muted); max-width: 34ch; margin: 0 0 32px; line-height: 1.5; }
+  .lede strong { color: var(--text); font-weight: 600; }
+  .status { display: inline-flex; gap: 10px; align-items: center; color: var(--muted); font-size: 0.95rem; margin: 0; }
+  .status i { width: 10px; height: 10px; border-radius: 50%; background: var(--focus); box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.18); }
+
+  /* The TV: the one memorable element. */
+  .screen {
+    aspect-ratio: 16 / 9; background: #0e1427; border: 10px solid #070a14; border-radius: 14px;
+    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.7); overflow: hidden; position: relative;
+    container-type: inline-size;
+  }
+  .stand { width: 22%; height: 10px; margin: 0 auto; background: #070a14; border-radius: 0 0 8px 8px; }
+  .tabs { position: absolute; top: 6%; left: 5%; display: flex; gap: 2.2cqw; font-size: 2.6cqw; font-weight: 500; color: var(--muted); }
+  .tabs b { font-weight: 500; padding: 0.5cqw 1.6cqw; border-radius: 99px; position: relative; z-index: 1; transition: color 200ms; }
+  .tabs b.on { color: #fff; }
+  .ring {
+    position: absolute; top: 6%; left: 5%; height: 4.6cqw; border-radius: 99px; background: var(--focus);
+    transition: transform 380ms cubic-bezier(.3, .7, .2, 1), width 380ms cubic-bezier(.3, .7, .2, 1);
+  }
+  .title { position: absolute; left: 5%; top: 22%; font-size: 5.2cqw; font-weight: 700; letter-spacing: -0.02em; }
+  .meta { position: absolute; left: 5%; top: 34.5%; font-size: 2.2cqw; color: var(--muted); }
+  .row { position: absolute; left: 5%; right: 0; top: 44%; display: flex; gap: 1.6cqw; }
+  .row div { flex: 0 0 13cqw; aspect-ratio: 2 / 3; border-radius: 1cqw; background: var(--panel); }
+  .row div:nth-child(2) { background: var(--panel-2); }
+  .row div:nth-child(4) { background: #2a3a6e; }
+  .row div:first-child { outline: 0.5cqw solid var(--focus); outline-offset: 0.5cqw; }
+
+  section { padding: 72px 0; border-top: 1px solid var(--line); }
+  .cols { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 56px; }
+  h2 { font-size: 2rem; letter-spacing: -0.02em; line-height: 1.1; margin: 0; font-weight: 700; }
+  .body p { margin: 0 0 18px; max-width: var(--measure); }
+  .body p:last-child { margin-bottom: 0; }
+  ul.plain { list-style: none; padding: 0; margin: 0; max-width: var(--measure); }
+  ul.plain li { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  ul.plain li strong { display: block; font-weight: 600; }
+  ul.plain li span { color: var(--muted); }
+
+  footer { padding: 48px 0 64px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.95rem; }
+  footer p { margin: 0 0 10px; max-width: var(--measure); }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; gap: 40px; padding: 16px 0 64px; }
+    .cols { grid-template-columns: 1fr; gap: 20px; }
+    nav.top a { margin-left: 16px; }
+  }
+  @media (max-width: 520px) {
+    nav.top { display: none; }
+    section { padding: 56px 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .ring, .tabs b { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/">Saqqezy <span>Player</span></a>
+    <nav class="top" aria-label="Sections">
+      <a href="#sources">What it plays</a>
+      <a href="#features">What it does</a>
+      <a href="#privacy">Privacy</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div>
+        <h1>Your own TV, made fast.</h1>
+        <p class="lede">A TV player for <strong>the playlists, guide and media library you already have</strong>. Built for the remote, on smart TVs and computers.</p>
+        <p class="status"><i aria-hidden="true"></i>In beta on Samsung and LG TVs</p>
+      </div>
+      <div class="tv" aria-hidden="true">
+        <div class="screen">
+          <span class="ring" id="ring"></span>
+          <div class="tabs" id="tabs"><b class="on">Start</b><b>Live TV</b><b>Movies</b><b>Series</b></div>
+          <div class="title" id="title">Good evening</div>
+          <div class="meta" id="meta">Continue watching, live now, your guide</div>
+          <div class="row"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+        </div>
+        <div class="stand"></div>
+      </div>
+    </div>
+
+    <section id="sources">
+      <div class="cols">
+        <h2>What it plays</h2>
+        <div class="body">
+          <p>Saqqezy Player comes with no channels, films or series. It plays what you bring: sources you have the right to use, from your TV operator, your own server or free-to-air broadcasts.</p>
+          <ul class="plain">
+            <li><strong>Playlists</strong><span>M3U links and Xtream logins that your operator or your own server gives you.</span></li>
+            <li><strong>TV guide</strong><span>XMLTV guide data, matched to your channels.</span></li>
+            <li><strong>Your media server and antenna</strong><span>Jellyfin, Plex and HDHomeRun tuners are on the way.</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="cols">
+        <h2>What it does</h2>
+        <div class="body">
+          <p>It opens on the last channel you watched in under a second, and every screen works with the arrows, OK and Back on your remote.</p>
+          <p>A full TV guide, with catch-up when your source keeps recordings. Your films and series with posters, resume and one card per title. Subtitles in your language, and the sound track you prefer.</p>
+          <p>A start page with what you were watching, what is on now, sports from your own guide, and the titles in your library that people are talking about this week.</p>
+          <p>Set it up from your phone: scan a code on the TV and add your sources there instead of typing with the remote.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacy">
+      <div class="cols">
+        <h2>Privacy</h2>
+        <div class="body">
+          <p>This site sets no cookies and loads nothing from other companies.</p>
+          <p>Your logins and playlist links stay on your TV. When you set up the TV from your phone, the two talk end to end encrypted. The relay in between only passes on data it cannot read, and stores nothing.</p>
+          <p>We never see your streams, playlists or guide. The app plays them straight from your source. The only thing it downloads from us is a public list of popular titles, and that request carries nothing about you.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Saqqezy Player is a media player only. It includes no content and is not affiliated with any content provider.</p>
+    <p>This product uses the TMDB API but is not endorsed or certified by TMDB. Popularity data: Wikimedia pageview statistics. Identifiers and titles: Wikidata.</p>
+    <p>Contact: <a href="https://github.com/Saccor">github.com/Saccor</a></p>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('#tabs b'));
+    var ring = document.getElementById('ring');
+    var title = document.getElementById('title');
+    var meta = document.getElementById('meta');
+    var screens = [
+      ['Good evening', 'Continue watching, live now, your guide'],
+      ['Channel 001', 'Now: Evening news. Next at 20:00'],
+      ['All movies', 'Your library, with posters'],
+      ['All series', 'Pick up where you left off'],
+    ];
+    var current = 0;
+    function place(i) {
+      var t = tabs[i];
+      var box = t.parentNode.getBoundingClientRect();
+      var r = t.getBoundingClientRect();
+      ring.style.width = r.width + 'px';
+      ring.style.transform = 'translateX(' + (r.left - box.left) + 'px)';
+      tabs.forEach(function (b, j) { b.classList.toggle('on', j === i); });
+      title.textContent = screens[i][0];
+      meta.textContent = screens[i][1];
+      current = i;
+    }
+    function start() {
+      place(0);
+      window.addEventListener('resize', function () { place(current); });
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      // One moment on load: the focus steps along the tabs like presses on a remote, then rests on Start.
+      [1, 2, 3, 0].forEach(function (i, n) { setTimeout(function () { place(i); }, 900 + n * 900); });
+    }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
+  })();
+</script>
+</body>
+</html>
