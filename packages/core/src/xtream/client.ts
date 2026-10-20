@@ -2,7 +2,8 @@ import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../erro
 import { responseText } from '../net/textStream.ts';
 import { jsonArrayBatches } from '../net/jsonArrayStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
-import type { FetchFn, Programme } from '../types.ts';
+import { sourceHeadersOf } from '../net/headers.ts';
+import type { FetchFn, Programme, SourceHttpSettings, StreamHeaders } from '../types.ts';
 import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
 import { isObj, nonNegInt, posInt, str } from './json.ts';
 import {
@@ -42,15 +43,18 @@ function decodeBase64Utf8(b64: string): string {
 export class XtreamClient {
   private readonly base: string;
   private readonly idleMs: number;
+  /** The source's User-Agent and Referer, sent with every `player_api` call (`FetchInit.sourceHeaders`). */
+  private readonly sourceHeaders: StreamHeaders | undefined;
 
   constructor(
-    private readonly cfg: { server: string; username: string; password: string },
+    private readonly cfg: { server: string; username: string; password: string } & SourceHttpSettings,
     private readonly fetchFn: FetchFn,
     /** `idleMs`: JSON body inactivity timeout (default `BODY_IDLE_MS`, as for playlist and guide bodies). */
     opts: { idleMs?: number } = {},
   ) {
     this.base = normalizeServer(cfg.server);
     this.idleMs = opts.idleMs ?? BODY_IDLE_MS;
+    this.sourceHeaders = sourceHeadersOf(cfg);
   }
 
   private credQuery(): string {
@@ -64,7 +68,9 @@ export class XtreamClient {
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, { timeoutMs, ...(signal ? { signal } : {}) });
+      res = await this.fetchFn(`${this.base}/player_api.php?${params.toString()}`, {
+        timeoutMs, ...(signal ? { signal } : {}), ...(this.sourceHeaders ? { sourceHeaders: this.sourceHeaders } : {}),
+      });
     } catch (err) {
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
       throw new SourceNetworkError('Could not reach the provider.');

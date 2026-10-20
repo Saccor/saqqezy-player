@@ -170,3 +170,19 @@ describe('XtreamClient – shape guards', () => {
     }
   });
 });
+
+describe('XtreamClient – source headers', () => {
+  test('player_api requests carry the source User-Agent and Referer as FetchInit.sourceHeaders', async () => {
+    const inits: (Parameters<FetchFn>[1])[] = [];
+    const f: FetchFn = async (_url, init) => { inits.push(init); return authOk(); };
+    await new XtreamClient({ ...cfg, userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' }, f).authenticate();
+    expect(inits[0]?.sourceHeaders).toEqual({ userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' });
+  });
+
+  test('without settings the init has no sourceHeaders field', async () => {
+    const inits: (Parameters<FetchFn>[1])[] = [];
+    const f: FetchFn = async (_url, init) => { inits.push(init); return authOk(); };
+    await new XtreamClient(cfg, f).authenticate();
+    expect(inits[0] && 'sourceHeaders' in inits[0]).toBe(false);
+  });
+});

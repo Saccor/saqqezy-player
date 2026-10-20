@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SourceNetworkError } from '../src/errors.ts';
 import { alternateStreamUrl } from '../src/net/alternate.ts';
+import { sourceHeadersOf } from '../src/net/headers.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS, withTimeout } from '../src/net/timeout.ts';
 import type { FetchFn } from '../src/types.ts';
 
@@ -120,5 +121,21 @@ describe('alternateStreamUrl', () => {
     expect(alternateStreamUrl('http://example.test/live/u/p/12.mp4')).toBeUndefined();
     expect(alternateStreamUrl('http://example.test/stream.m3u8')).toBeUndefined();
     expect(alternateStreamUrl('not a url')).toBeUndefined();
+  });
+});
+
+describe('source headers on list requests', () => {
+  test('withTimeout passes FetchInit.sourceHeaders through to the app fetch', async () => {
+    let got: unknown;
+    const f = withTimeout(async (_url, init) => { got = init?.sourceHeaders; return new Response(''); }, 1000);
+    await f('http://example.test/p.m3u', { sourceHeaders: { userAgent: 'SyntheticAgent/1.0' } });
+    expect(got).toEqual({ userAgent: 'SyntheticAgent/1.0' });
+  });
+
+  test('sourceHeadersOf: cleaned values, undefined when neither is set', () => {
+    expect(sourceHeadersOf({})).toBeUndefined();
+    expect(sourceHeadersOf({ userAgent: '  ', referrer: '' })).toBeUndefined();
+    expect(sourceHeadersOf({ userAgent: ' A/1\r\n ', referrer: 'http://ref.example.test/' }))
+      .toEqual({ userAgent: 'A/1', referrer: 'http://ref.example.test/' });
   });
 });

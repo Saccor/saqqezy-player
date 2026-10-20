@@ -39,7 +39,7 @@ export {
   UNREACHABLE_WINDOW_MS, streamCooldownKey, streamKeySource, type CooldownCause, type CooldownListener, type RefusalGuardDeps, type SourceCooldown,
 } from './net/refusalGuard.ts';
 export { parseRetryAfter } from './net/retryAfter.ts';
-export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, withCleanHttpSettings } from './net/headers.ts';
+export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, sourceHeadersOf, withCleanHttpSettings } from './net/headers.ts';
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';

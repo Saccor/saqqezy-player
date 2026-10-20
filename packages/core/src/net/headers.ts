@@ -34,3 +34,8 @@ export function withCleanHttpSettings<T extends SourceHttpSettings>(source: T): 
   if (ref) out.referrer = ref;
   return out;
 }
+
+/** The source's User-Agent and Referer as request headers for its list requests; undefined when neither is set. */
+export function sourceHeadersOf(source: SourceHttpSettings): StreamHeaders | undefined {
+  return mergeHeaders(undefined, { userAgent: cleanHeaderValue(source.userAgent), referrer: cleanHeaderValue(source.referrer) });
+}

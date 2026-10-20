@@ -1378,3 +1378,51 @@ describe('SourceService – sports index', () => {
     expect(await storage.getMeta(`sportsIndex:${source.id}`)).toBeNull();
   });
 });
+
+describe('SourceService – source headers on list requests (spec 2026-10-20-source-headers §4.2)', () => {
+  const xInput = { kind: 'xtream' as const, name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
+  const HEADERS = { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' };
+  let seen: { url: string; init: Parameters<FetchFn>[1] }[];
+
+  beforeEach(() => {
+    seen = [];
+    let n = 0;
+    const recording: FetchFn = async (url, init) => {
+      seen.push({ url, init });
+      return fetchFn(url, init);
+    };
+    service = new SourceService({ shortEpgGapMs: 0, storage, fetch: recording, now: () => NOW, newId: () => `id${++n}` });
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', epg_channel_id: 'c1' }]);
+    routes['/xmltv.php'] = () => new Response(xml);
+  });
+
+  test('the M3U playlist and XMLTV requests carry the source headers', async () => {
+    const { source } = await service.addSource({ ...m3uInput, ...HEADERS });
+    await service.refreshEpg(source.id);
+    expect(seen.map((s) => new URL(s.url).pathname)).toEqual(['/p.m3u', '/epg.xml']);
+    for (const s of seen) expect(s.init?.sourceHeaders).toEqual(HEADERS);
+  });
+
+  test('every player_api call and the Xtream XMLTV carry the source headers', async () => {
+    const { source } = await service.addSource({ ...xInput, userAgent: HEADERS.userAgent });
+    await service.refreshEpg(source.id);
+    expect(seen.length).toBeGreaterThanOrEqual(4);
+    for (const s of seen) expect(s.init?.sourceHeaders).toEqual({ userAgent: HEADERS.userAgent });
+  });
+
+  test('per-channel playlist headers never reach list requests', async () => {
+    routes['/p.m3u'] = () => new Response('#EXTM3U\n#EXTINF:-1,Channel 1\n#EXTVLCOPT:http-user-agent=ChannelAgent/1.0\nhttp://example.test/live/1.ts\n');
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshPlaylist(source.id);
+    for (const s of seen) expect(s.init?.sourceHeaders).toBeUndefined();
+  });
+
+  test('a source without headers sends exactly today\'s requests: same URLs, no sourceHeaders field', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    expect(seen.map((s) => s.url)).toEqual(['http://example.test/p.m3u', 'http://example.test/epg.xml']);
+    for (const s of seen) expect(s.init && 'sourceHeaders' in s.init).toBe(false);
+  });
+});

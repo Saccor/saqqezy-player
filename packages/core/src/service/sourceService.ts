@@ -10,7 +10,7 @@ import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
 import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
 import { SportsIndexBuilder, isSportsIndexRecord, type SportsIndexRecord } from '../sports/index.ts';
-import { withCleanHttpSettings } from '../net/headers.ts';
+import { sourceHeadersOf, withCleanHttpSettings } from '../net/headers.ts';
 import { REFUSAL_STATUSES, RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
@@ -369,7 +369,7 @@ export class SourceService {
       await this.storage.setMeta(`epgAt:${id}`, this.now());
       return { programmes: 0, skipped: 0 };
     }
-    const res = await this.get(id, url);
+    const res = await this.get(source, url);
     if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
     const channels = await this.storage.getChannels(id);
 
@@ -654,10 +654,12 @@ export class SourceService {
     return new XtreamClient(s, this.guard.wrap(s.id, this.fetchFn), { idleMs: this.bodyIdleMs });
   }
 
-  private async get(sourceId: string, url: string): Promise<Response> {
+  /** A playlist or XMLTV download for `source`, with its User-Agent and Referer settings (`FetchInit.sourceHeaders`). */
+  private async get(source: SourceConfig, url: string): Promise<Response> {
     let res: Response;
+    const sourceHeaders = sourceHeadersOf(source);
     try {
-      res = await this.guard.wrap(sourceId, this.fetchFn)(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS });
+      res = await this.guard.wrap(source.id, this.fetchFn)(url, { timeoutMs: DOWNLOAD_TIMEOUT_MS, ...(sourceHeaders ? { sourceHeaders } : {}) });
     } catch (err) {
       // A header timeout or the refusal cooldown keeps its own message; anything else means the provider could not be reached.
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
@@ -690,7 +692,7 @@ export class SourceService {
       if (channels.length === 0) result.vodCatalogue = true;
       return { channels, result, account };
     }
-    const res = await this.get(source.id, source.playlistUrl);
+    const res = await this.get(source, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
     const entries: M3uEntry[] = [];
     for await (const e of parseM3u(splitLines(responseText(res, source.playlistUrl, { idleMs: this.bodyIdleMs })), stats)) {

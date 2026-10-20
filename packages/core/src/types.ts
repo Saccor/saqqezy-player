@@ -66,5 +66,10 @@ export interface GroupInfo {
 }
 
 /** `RequestInit` plus a per-call header timeout, honoured (and stripped) by `withTimeout`. */
-export type FetchInit = RequestInit & { timeoutMs?: number };
+/**
+ * `sourceHeaders`: the source's User-Agent and Referer settings for a list request (playlist, XMLTV, `player_api`).
+ * Browsers forbid both headers on `fetch`, so the app's fetch turns them into a route URL where it has one (the dev
+ * proxy today, the host route later) and strips the field; elsewhere they are dropped. Never logged.
+ */
+export type FetchInit = RequestInit & { timeoutMs?: number; sourceHeaders?: StreamHeaders };
 export type FetchFn = (url: string, init?: FetchInit) => Promise<Response>;
