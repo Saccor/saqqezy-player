@@ -2540,6 +2540,26 @@ describe('AppApi – trending rows', () => {
     expect(asked.every((u) => u.startsWith(`${FEED_BASE}/v1/`))).toBe(true);
   });
 
+  test('Movies opened before any feed was fetched, then Series, then Start: the movie row still fills', async () => {
+    // The movie snapshot is taken on the Movies visit while the feed is still on its way; the Series visit then makes
+    // series the resident catalogue, so Start cannot recompute movies. The snapshot must pick the feed up once it lands.
+    const api = makeTrending(async (url) => new Response(JSON.stringify(feedFor(url.includes('/movie.') ? 'movie' : 'series'))));
+    await api.addSource(xt());
+    await api.idle();
+    // Each tab asks again once its catalogue has loaded (the screen reloads on vodRefreshed).
+    for (const kind of ['movie', 'series'] as const) {
+      await api.getVodHome(kind);
+      await api.idle();
+      await api.getVodHome(kind);
+    }
+    await api.idle();
+    const h = await api.getStartHome();
+    const row = h.rows.find((r) => r.id === 'trendingMovies');
+    expect(row?.cells.map((c) => (c.type === 'vod' ? c.tile.title : ''))).toEqual(
+      ['Synthetic Film 003', 'Synthetic Film 001', 'Synthetic Film 005', 'Synthetic Film 007', 'Synthetic Film 009'],
+    );
+  });
+
   test('without a feed URL there is no trending row and no request', async () => {
     const { api } = makeVod(new MemoryStorage(), async (u, i) => {
       expect(u).not.toContain('trending');

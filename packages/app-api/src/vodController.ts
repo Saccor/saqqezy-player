@@ -62,6 +62,8 @@ export interface VodControllerDeps {
   locale?: () => string | undefined;
   /** The current trending feed of a kind (TrendingService.feed); without it Start has no trending rows. */
   trending?: (kind: VodKind) => TrendingFeed | undefined;
+  /** The feed once one is known (TrendingService.settled): a snapshot taken before it arrived fills its row then. */
+  trendingSettled?: (kind: VodKind) => Promise<TrendingFeed | undefined>;
 }
 
 /** How catalogues are combined for the active source (loaded once per source; dropped when the settings change). */
@@ -100,6 +102,7 @@ export class VodController {
   private sourceEpoch = 0;
   private readonly startSnaps = new Map<VodKind, StartVodRows>();
   private readonly trendingOf: VodControllerDeps['trending'];
+  private readonly trendingSettledOf: VodControllerDeps['trendingSettled'];
   /** The resident catalogue's trending index (its titles' grouping keys), built on the first Start snapshot. */
   private trendIndex: { catalog: VodCatalog; groups: readonly VodGroup[]; index: TrendingIndex } | undefined;
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
@@ -146,6 +149,7 @@ export class VodController {
     this.settingsOf = deps.settings;
     this.locale = deps.locale ?? (() => undefined);
     this.trendingOf = deps.trending;
+    this.trendingSettledOf = deps.trendingSettled;
   }
 
   reset(sourceId: string | undefined): void {
@@ -252,8 +256,30 @@ export class VodController {
     };
     const feed = this.trendingOf?.(kind);
     if (feed) snap.trending = this.trendingTiles(kind, catalog, feed);
+    else if (this.trendingSettledOf) this.fillTrendingLater(kind, catalog, epoch);
     if (this.epoch === epoch) this.startSnaps.set(kind, snap);
     return snap;
+  }
+
+  /**
+   * No feed yet (first run, or Movies opened before Start read it): match once it lands, into the kind's latest
+   * snapshot. Without that, opening Series next would leave the movie snapshot without trending until the next
+   * Movies visit, because Start never recomputes a catalogue that is not resident. The catalogue is held only until
+   * the feed settles (one fetch); a source switch (epoch) drops the result.
+   */
+  private fillTrendingLater(kind: VodKind, catalog: VodCatalog, epoch: number): void {
+    const settled = this.trendingSettledOf;
+    if (!settled) return;
+    const p = settled(kind).then((feed) => {
+      const snap = this.startSnaps.get(kind);
+      if (!feed || this.epoch !== epoch || !snap || snap.trending) return;
+      // A newer resident catalogue of this kind (a partial first load completing) has the fuller list.
+      const r = this.resident;
+      snap.trending = this.trendingTiles(kind, r?.kind === kind ? r.catalog : catalog, feed);
+    }, () => undefined);
+    this.pending.add(p);
+    const forget = () => { this.pending.delete(p); };
+    p.then(forget, forget);
   }
 
   /**
@@ -266,7 +292,8 @@ export class VodController {
     if (t?.catalog !== catalog) {
       const groups = (catalog.titleGroups ?? groupVod(catalog.source)).groups;
       t = { catalog, groups, index: buildTrendingIndex(groups) };
-      this.trendIndex = t;
+      // Cached only for the resident catalogue: a released one (a late feed) must not stay alive on a 1 GB TV.
+      if (this.resident?.catalog === catalog) this.trendIndex = t;
     }
     const items = catalog.source.items;
     return matchTrending(feed, kind, t.index, START_ITEMS).map((g) => {

@@ -195,7 +195,7 @@ export class AppApi {
         vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err),
         settings: () => this.currentSettings(),
         locale: uiLanguage,
-        ...(trending ? { trending: (kind: VodKind) => trending.feed(kind) } : {}),
+        ...(trending ? { trending: (kind: VodKind) => trending.feed(kind), trendingSettled: (kind: VodKind) => trending.settled(kind) } : {}),
       })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));

@@ -35,6 +35,8 @@ export class TrendingService {
   private readonly entries = new Map<string, Entry>();
   private readonly loads = new Map<string, Promise<void>>();
   private readonly inflight = new Set<string>();
+  /** The running refresh per key, so `settled` can wait for a first copy. */
+  private readonly refreshes = new Map<string, Promise<void>>();
   private readonly backoff = new Map<string, { fails: number; nextAt: number }>();
   private readonly jobs = new Set<Promise<void>>();
   /** Language → until when it is known to have no feed. */
@@ -64,6 +66,21 @@ export class TrendingService {
     }
     this.refreshIfDue(kind, lang);
     return e.feed;
+  }
+
+  /**
+   * The copy of `kind` once one is known: the stored copy, or, when there is none yet, the refresh that is fetching
+   * the first one (a failure resolves to undefined). For Start snapshots taken before the feed arrived.
+   */
+  async settled(kind: VodKind): Promise<TrendingFeed | undefined> {
+    await this.loadMissing();
+    let lang = this.lang();
+    await this.load(kind, lang);
+    this.refreshIfDue(kind, lang);
+    if (!this.entries.get(key(kind, lang))?.feed) await this.refreshes.get(key(kind, lang))?.catch(() => undefined);
+    lang = this.lang(); // a 404 for this language switches to the fallback
+    if (!this.entries.get(key(kind, lang))?.feed) await this.refreshes.get(key(kind, lang))?.catch(() => undefined);
+    return this.entries.get(key(kind, lang))?.feed;
   }
 
   /** Test helper: resolves once no load or refresh is running. */
@@ -122,7 +139,9 @@ export class TrendingService {
     const b = this.backoff.get(k);
     if (b && now < b.nextAt) return;
     this.inflight.add(k);
-    this.track(this.refresh(kind, lang).finally(() => this.inflight.delete(k)));
+    const p = this.refresh(kind, lang).finally(() => { this.inflight.delete(k); this.refreshes.delete(k); });
+    this.refreshes.set(k, p);
+    this.track(p);
   }
 
   private async refresh(kind: VodKind, lang: string): Promise<void> {
