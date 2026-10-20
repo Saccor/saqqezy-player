@@ -34,6 +34,8 @@ export const COLORS = {
   error: 0xff8a80ff,
   /** Pointer hover highlight (pointer mode only). */
   hover: 0x232b3cff,
+  /** Fully transparent, for fills that are only drawn while focused or hovered. */
+  transparent: 0x00000000,
 } as const;
 
 /** The background colour without alpha (0xRRGGBB), for the canvas fade textures (`vod/scrim.ts`). */
