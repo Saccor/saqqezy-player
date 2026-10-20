@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, Match, on, Show, Switch, type Accessor
 import { pairFromFragment } from './connection/pair.ts';
 import { COPY } from './logic/copy.ts';
 import { linkView } from './logic/status.ts';
+import { BackupPage } from './pages/Backup.tsx';
 import { DisplayPage } from './pages/Display.tsx';
 import { GroupsPage } from './pages/Groups.tsx';
 import { ListsPage } from './pages/Lists.tsx';
@@ -9,13 +10,14 @@ import { PairPage } from './pages/Pair.tsx';
 import { SourcesPage } from './pages/Sources.tsx';
 import { connect, retryState, setPairError, store } from './state/store.ts';
 
-type Tab = 'sources' | 'lists' | 'groups' | 'display';
+type Tab = 'sources' | 'lists' | 'groups' | 'display' | 'backup';
 
 const TABS: { id: Tab; label: string; icon: () => JSX.Element }[] = [
   { id: 'sources', label: 'Sources', icon: () => <path d="M4 6h16M4 12h16M4 18h10" /> },
   { id: 'lists', label: 'My lists', icon: () => <path d="M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 16.4 7.2 18.9l.9-5.4-3.9-3.8 5.4-.8z" /> },
   { id: 'groups', label: 'Groups', icon: () => <path d="M4 5h7v6H4zM13 5h7v6h-7zM4 13h7v6H4zM13 13h7v6h-7z" /> },
   { id: 'display', label: 'Display', icon: () => <path d="M3 5h18v11H3zM8 20h8M12 16v4" /> },
+  { id: 'backup', label: 'Backup', icon: () => <path d="M12 4v10M8 10l4 4 4-4M5 16v3h14v-3" /> },
 ];
 
 export function App(props: { fragment: Accessor<string | null>; clearFragment: () => void; secure: boolean }) {
@@ -141,6 +143,9 @@ function Shell() {
           </Match>
           <Match when={tab() === 'display'}>
             <DisplayPage />
+          </Match>
+          <Match when={tab() === 'backup'}>
+            <BackupPage />
           </Match>
         </Switch>
       </main>

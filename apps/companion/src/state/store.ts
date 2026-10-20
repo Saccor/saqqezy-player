@@ -7,6 +7,7 @@ import { CompanionClient, type LinkStatus } from '../connection/client.ts';
 import { detectClient } from '../connection/pair.ts';
 import { COPY, endCopy } from '../logic/copy.ts';
 import { OptimisticLayout } from '../logic/optimistic.ts';
+import { keepBackup } from './backupStore.ts';
 
 export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787';
 
@@ -235,6 +236,17 @@ function makeClient(secrets: PairingSecrets): CompanionClient {
       ended: (reason) => {
         if (client !== c) return;
         sessionGone(endCopy(reason));
+      },
+      backup: (backup, tv) => {
+        if (client !== c) return;
+        // Only a stored backup is confirmed: without `backupSaved` the TV tells the user it was not kept.
+        keepBackup(backup, tv).then(
+          () => {
+            c.backupSaved(backup.at);
+            showNotice(`Backup from ${tv || 'your TV'} saved on this phone. Find it under Backup.`);
+          },
+          () => showNotice("Couldn't keep the backup on this phone. Check that this browser may store data for this page."),
+        );
       },
     },
   });
