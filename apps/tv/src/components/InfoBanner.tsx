@@ -70,11 +70,15 @@ export function InfoBanner(props: {
   const lift = () => props.lift ?? 0;
   const bandY = () => LAYOUT.height - LAYOUT.safeY - BANNER_H - lift();
   const numW = () => String(c().number).length * DIGIT_W;
-  const nameX = () => TEXT_X + numW() + LAYOUT.gap / 2;
+  // DIGIT_W is an estimate: a few px of margin so a wide font never runs the number into the name.
+  const nameX = () => TEXT_X + numW() + LAYOUT.gap / 2 + 6;
   const nameW = () => BANNER_W - nameX() - (props.showClock ? RIGHT_W + LAYOUT.gap : 0);
   const archive = () => c().archiveDays !== undefined;
   const titleX = () => TEXT_X + (archive() ? ICON + 12 : 0);
-  const titleW = () => BANNER_W - titleX() - (props.live ? RIGHT_W + LAYOUT.gap : 0);
+  /** The title's right edge: left of the live pill column while it shows. */
+  const titleEnd = () => BANNER_W - (props.live ? RIGHT_W + LAYOUT.gap : 0);
+  const titleW = () => titleEnd() - titleX();
+  const plainTitleW = () => titleEnd() - TEXT_X;
   const trackX = TEXT_X + TIME_W + LAYOUT.gap / 2;
   const trackW = BANNER_W - trackX - TIME_W - LAYOUT.gap / 2;
   return (
@@ -103,8 +107,7 @@ export function InfoBanner(props: {
       )}</Show>
 
       <Show when={c().now} keyed fallback={
-        <Text x={TEXT_X} y={TITLE_Y} width={BANNER_W - TEXT_X - (props.live ? RIGHT_W + LAYOUT.gap : 0)}
-          maxWidth={BANNER_W - TEXT_X - (props.live ? RIGHT_W + LAYOUT.gap : 0)} contain="width" maxLines={1}
+        <Text x={TEXT_X} y={TITLE_Y} width={plainTitleW()} maxWidth={plainTitleW()} contain="width" maxLines={1}
           fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.textSecondary}>{NO_GUIDE_INFO}</Text>
       }>{(n) => (
         <>
@@ -126,9 +129,10 @@ export function InfoBanner(props: {
             maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{formatClock(new Date(n.stop))}</Text>
         </>
       )}</Show>
-      <Show when={bannerNextLine(c().next)}>{(line) => (
+      {/* Keyed, like the title: a non-keyed Show with an accessor child laid the text out clipped (~510 px). */}
+      <Show when={c().next} keyed>{(n) => (
         <Text x={TEXT_X} y={c().now ? NEXT_Y : PROGRESS_Y} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}
-          fontSize={TYPE.meta} color={COLORS.muted}>{line()}</Text>
+          fontSize={TYPE.meta} color={COLORS.muted}>{bannerNextLine(n)}</Text>
       )}</Show>
     </View>
   );

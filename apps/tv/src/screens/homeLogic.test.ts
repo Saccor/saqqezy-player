@@ -140,9 +140,9 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
     expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
   });
 
-  test('bannerNextLine: "Next · HH:MM  Title"', () => {
+  test('bannerNextLine: "Next · HH:MM Title"', () => {
     const start = new Date(2026, 9, 20, 21, 0).getTime();
-    expect(bannerNextLine({ start, title: 'Glass Harbor' })).toBe('Next · 21:00  Glass Harbor');
+    expect(bannerNextLine({ start, title: 'Glass Harbor' })).toBe('Next · 21:00 Glass Harbor');
     expect(bannerNextLine(undefined)).toBe('');
   });
 });

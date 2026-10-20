@@ -4,10 +4,10 @@ import { onUnmappedKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
 import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { NUMBER_ENTRY_H, NUMBER_ENTRY_Y } from './NumberEntry.tsx';
 import { fractionAt } from '../vod/timelineLogic.ts';
 import { volume, volumeRecent, volumeSet, volumeStep, volumeSupported, volumeToggleMute } from '../video/volume.ts';
 import { volumeKeyStep, volumePercent } from '../video/volumeLogic.ts';
+import { NUMBER_ENTRY_H, NUMBER_ENTRY_Y } from './NumberEntry.tsx';
 
 const BAR_H = 8;
 const KNOB = 20;
