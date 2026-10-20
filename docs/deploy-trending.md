@@ -88,19 +88,21 @@ Languages: by default `en, sv, de, fr, es, it, nl, pl, tr, ar, fa, da, no, fi, p
 
 ## 6. Build the TV app with the feed address
 
-In PowerShell, in the project folder, together with the relay settings from
-[deploy-companion.md](deploy-companion.md) step 7:
+The address is set in `apps/tv/.env.production`, which every production build reads (`pnpm build:tv`,
+`pnpm build:tizen`):
 
 ```
-$env:VITE_TRENDING_URL = "https://trending.example.com/trending"
-$env:VITE_TMDB_ATTRIBUTION = "1"     # only while TMDB_KEY is set (beta)
-pnpm build:tizen
+VITE_TRENDING_URL=https://iptv-trending-production.sacco-rezais.workers.dev/trending
+VITE_TMDB_ATTRIBUTION=1
 ```
 
-- The address ends in **`/trending`**, without a `/` at the end.
-- Without `VITE_TRENDING_URL` the TV has no trending rows and never asks for a feed.
+- The address ends in **`/trending`**, without a `/` at the end. Change it there if the Worker moves to your own
+  domain. A value set in the shell for one build (`$env:VITE_TRENDING_URL = "..."` in PowerShell) wins over the file.
 - `VITE_TMDB_ATTRIBUTION=1` shows "This product uses the TMDB API but is not endorsed or certified by TMDB." in
-  **Settings → About**, which TMDB requires while its key is used. Leave it out once the key is removed.
+  **Settings → About**, which TMDB requires while its key is used. **Delete that line the day the `TMDB_KEY` secret
+  is removed.**
+- Only public addresses go in that file: the build is shipped to TVs. Never a key or token.
+- Without `VITE_TRENDING_URL` the TV has no trending rows and never asks for a feed.
 
 ## 7. Check that it works
 
