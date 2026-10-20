@@ -28,11 +28,11 @@ import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, guideOpenTarget, guideWindow, isOnAir, prefetchRange,
   stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
-import { pickGroup, resolveFocus, restoreIndex, resumeTarget, returnedToLive, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
+import { resumeTarget, returnedToLive, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
 import { emptyGroupText, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
-import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, liveKey, liveOkAction, type LiveKey, type LivePlace } from './liveLogic.ts';
+import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, liveKey, liveOkAction, locateFocus, sameInfo, type LiveKey, type LivePlace } from './liveLogic.ts';
 import { createLivePreview } from './livePreview.ts';
 import { LiveVideo } from './LiveVideo.tsx';
 
@@ -206,10 +206,12 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   });
 
   // The info block follows the focus once it rests.
-  const shown = dwellSignal(() => {
+  // Equal while it shows the same thing: arriving prefetch pages rebuild the objects but must not restart the dwell.
+  const infoSource = createMemo(() => {
     const channel = focusChannel();
     return channel ? { channel, block: place() === 'channels' ? undefined : focusBlock() } : undefined;
-  });
+  }, undefined, { equals: sameInfo });
+  const shown = dwellSignal(infoSource);
 
   // ---- focus ----
 
@@ -264,22 +266,16 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   };
 
   /**
-   * The group and row to open: `prefer` (else All, else the first group) at the first of `ids` it holds, else the
-   * remembered row. A wanted channel outside a narrower group switches to All (number entry, Search). `superseded`
-   * when another group was opened meanwhile.
+   * The group and row to open (`locateFocus`): `pinned` channels may switch to All, `others` never change the group.
+   * `superseded` when another group was opened meanwhile.
    */
-  const locate = async (gs: GroupInfo[], prefer: string | undefined, ids: readonly (string | undefined)[]):
-    Promise<{ g: string | undefined; index: number } | 'superseded'> => {
+  const locate = async (gs: GroupInfo[], prefer: string | undefined, pinned: readonly (string | undefined)[],
+    others: readonly (string | undefined)[]): Promise<{ g: string | undefined; index: number } | 'superseded'> => {
     const seq = groupSeq;
-    let g = pickGroup(gs, prefer);
-    if (g === undefined) return { g, index: 0 };
-    const indexIn = (grp: string) => (id: string) => api.indexOf(grp, id).catch(() => -1);
-    const wanted = ids.find((id) => id !== undefined);
-    if (wanted !== undefined && g !== GROUP_ALL && gs.some((x) => x.id === GROUP_ALL) && await indexIn(g)(wanted) < 0) g = GROUP_ALL;
-    const hit = await resolveFocus(ids, indexIn(g));
-    if (seq !== groupSeq) return 'superseded';
-    const count = gs.find((x) => x.id === g)?.count ?? 0;
-    return { g, index: restoreIndex(hit.index, g === memory.groupId ? memory.row : undefined, count) };
+    const found = await locateFocus({
+      groups: gs, prefer, pinned, others, indexOf: (g, id) => api.indexOf(g, id).catch(() => -1),
+    });
+    return seq !== groupSeq ? 'superseded' : found;
   };
 
   /** Re-reads the groups and the guide (refresh, a remote change), keeping focus on the same channel. */
@@ -291,9 +287,11 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const gs = await api.getGroups();
     if (!alive || seq !== reloadSeq) return undefined;
     setGroups(gs);
-    cache.invalidate();
     if (before !== undefined && gs.some((x) => x.id === before)) {
-      // Same group: the channel's new row; one that left the group (hidden, removed) hands its row to the neighbour.
+      // Same group: the rows stay on screen and are refetched (`setGroup` to the same group is a no-op, so no blank grid).
+      cache.staleAll();
+      setKick((k) => k + 1);
+      // The channel's new row; one that left the group (hidden, removed) hands its row to the neighbour.
       const gSeq = groupSeq;
       const index = keepId === undefined ? -1 : await api.indexOf(before, keepId).catch(() => -1);
       if (!alive || seq !== reloadSeq || gSeq !== groupSeq) return gs;
@@ -301,8 +299,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       setFocusRow(index >= 0 ? index : Math.max(0, Math.min(row(), count - 1)));
       return gs;
     }
-    // The group disappeared: All channels (or the first group), at the same channel when it is there.
-    const located = await locate(gs, undefined, [keepId]);
+    // The group disappeared: All channels (or the first group; `openGroup` swaps the cache), at the same channel when it is there.
+    const located = await locate(gs, undefined, [], [keepId]);
     if (!alive || seq !== reloadSeq || located === 'superseded' || located.g === undefined) return gs;
     openGroup(located.g, located.index);
     return gs;
@@ -490,19 +488,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         void reload().then((gs) => { if (alive && gs) setWaiting(allCount(gs) === 0); }).catch(() => undefined);
       }),
       onEvent('refreshFailed', () => setWaiting(false)),
-      // Background short-EPG answers (the focused or playing channel): re-read the pages of those rows on screen.
+      // Background short-EPG answers (the focused or playing channel): every cached page holding them is fetched again.
       onEvent('nowNextUpdated', (e) => {
-        const ids = new Set((e as { channelIds: string[] }).channelIds);
-        const r = renderRange(top(), viewRows(), total(), ROW_BUFFER);
-        let stale = false;
-        for (let i = r.from; i < r.to; i++) {
-          const id = cache.channel(i)?.id;
-          if (id !== undefined && ids.has(id)) {
-            cache.stalePage(i);
-            stale = true;
-          }
-        }
-        if (stale) setKick((k) => k + 1);
+        if (cache.staleChannels((e as { channelIds: string[] }).channelIds, (c) => c.id) > 0) setKick((k) => k + 1);
       }),
     ];
     onCleanup(() => {
@@ -519,9 +507,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         setGroups(gs);
         // An empty cache on first start: the channels arrive with a later `refreshed` event.
         if (waitsForChannels(allCount(gs), initState()?.hasVod)) setWaiting(true);
-        // Focus order: a requested channel, the Player's last channel, the playing one, the remembered one, init's last.
+        // Focus order: a requested channel, the Player's last channel, the playing one (these may switch to All), then
+        // the remembered one and init's last (these keep the group). One lookup when the first is in the group.
         const located = await locate(gs, target.groupId ?? memory.groupId ?? params.lastGroupId,
-          [target.channelId, focusHint, playingId, memory.channelId, params.lastChannelId]);
+          [target.channelId, focusHint, playingId], [memory.channelId, params.lastChannelId]);
         if (!alive || located === 'superseded') return;
         if (located.g !== undefined) openGroup(located.g, located.index);
       } catch (err) {

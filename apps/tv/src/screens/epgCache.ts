@@ -91,6 +91,26 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
     for (const e of this.entries.values()) if (e.page === page) e.fetchedAt = Number.NEGATIVE_INFINITY;
   }
 
+  /**
+   * Marks stale every cached page holding one of `ids` (rows on screen or not; e.g. the playing channel's now/next
+   * arrived). Returns how many pages were marked. Rows stay readable until the next `ensure` refetches them.
+   */
+  staleChannels(ids: Iterable<string>, idOf: (channel: C) => string): number {
+    const wanted = new Set(ids);
+    if (wanted.size === 0) return 0;
+    const pages = new Set<number>();
+    for (const e of this.entries.values()) {
+      if (e.rows.some((r) => wanted.has(idOf(r.channel)))) pages.add(e.page);
+    }
+    for (const e of this.entries.values()) if (pages.has(e.page)) e.fetchedAt = Number.NEGATIVE_INFINITY;
+    return pages.size;
+  }
+
+  /** Marks every entry stale without dropping it (a refresh): the grid keeps its rows until the refetch lands. */
+  staleAll(): void {
+    for (const e of this.entries.values()) e.fetchedAt = Number.NEGATIVE_INFINITY;
+  }
+
   entryCount(): number {
     return this.entries.size;
   }

@@ -63,7 +63,7 @@ export function createLivePreview(alive: () => boolean) {
     }
   };
 
-  /** Cancels any preview request in flight. */
+  /** Cancels any preview request in flight. Unused until Task 4: opening the channel menu stops a pending preview (as Home). */
   const stopPreview = () => {
     playback.begin();
     setRequested(undefined);

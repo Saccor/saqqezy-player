@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, liveKey, liveMenuItems, liveOkAction, timeLeftLabel } from './liveLogic.ts';
+import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, liveKey, locateFocus, sameInfo, liveMenuItems, liveOkAction, timeLeftLabel } from './liveLogic.ts';
 
 describe('liveLogic layout', () => {
   test('preview, info and grid positions', () => {
@@ -92,5 +92,75 @@ describe('liveMenuItems', () => {
   });
   test('no programme items when neither applies', () => {
     expect(liveMenuItems({ channel, fromStart: false, goToDay: false })[0]!.action).toBe('toggleFavourite');
+  });
+});
+
+describe('sameInfo', () => {
+  const ch = { id: 'c1', number: 1, name: 'One' };
+  const block = { start: 10, stop: 20, title: 'T', desc: 'D', filler: false };
+  test('rebuilt objects with the same content are equal', () => {
+    expect(sameInfo({ channel: { ...ch }, block: { ...block } }, { channel: { ...ch }, block: { ...block } })).toBe(true);
+    expect(sameInfo(undefined, undefined)).toBe(true);
+  });
+  test('another channel, block or text is a change', () => {
+    expect(sameInfo({ channel: ch, block }, { channel: { ...ch, id: 'c2' }, block })).toBe(false);
+    expect(sameInfo({ channel: ch, block }, { channel: { ...ch, name: 'Renamed' }, block })).toBe(false);
+    expect(sameInfo({ channel: ch, block }, { channel: ch, block: { ...block, start: 11 } })).toBe(false);
+    expect(sameInfo({ channel: ch, block }, { channel: ch, block: { ...block, desc: 'More' } })).toBe(false);
+    expect(sameInfo({ channel: ch, block }, { channel: ch })).toBe(false);
+    expect(sameInfo({ channel: ch }, undefined)).toBe(false);
+  });
+  test('without a block, the row now/next counts', () => {
+    const now = { title: 'N', start: 1, stop: 2 };
+    expect(sameInfo({ channel: { ...ch, now } }, { channel: { ...ch, now: { ...now } } })).toBe(true);
+    expect(sameInfo({ channel: { ...ch, now } }, { channel: { ...ch, now: { ...now, title: 'M' } } })).toBe(false);
+  });
+});
+
+describe('locateFocus', () => {
+  const groups = [{ id: 'all', name: 'All', count: 100 }, { id: 'news', name: 'News', count: 10 }];
+  /** news holds the `n` ids, all holds every id; the index is the id's number. */
+  const lookup = () => {
+    const calls: [string, string][] = [];
+    const indexOf = async (g: string, id: string) => {
+      calls.push([g, id]);
+      return g === 'all' || id.startsWith('n') ? Number(id.slice(1)) : -1;
+    };
+    return { calls, indexOf };
+  };
+
+  test('cold start: one lookup when the pinned channel is in the group', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups, prefer: 'news', pinned: [undefined, 'n4'], others: ['n4', 'n7'], indexOf: l.indexOf }))
+      .toEqual({ g: 'news', index: 4 });
+    expect(l.calls).toEqual([['news', 'n4']]);
+  });
+
+  test('a pinned (playing) channel outside the group switches to All', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups, prefer: 'news', pinned: ['x42'], others: [], indexOf: l.indexOf }))
+      .toEqual({ g: 'all', index: 42 });
+    expect(l.calls).toEqual([['news', 'x42'], ['all', 'x42']]);
+  });
+
+  test('a remembered or last channel outside the group keeps the group at row 0', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups, prefer: 'news', pinned: [], others: ['x42', 'x7'], indexOf: l.indexOf }))
+      .toEqual({ g: 'news', index: 0 });
+    expect(l.calls).toEqual([['news', 'x42'], ['news', 'x7']]);
+  });
+
+  test('falls back to the next candidate and skips duplicates', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups, prefer: 'news', pinned: [], others: ['x1', 'x1', 'n3'], indexOf: l.indexOf }))
+      .toEqual({ g: 'news', index: 3 });
+    expect(l.calls).toEqual([['news', 'x1'], ['news', 'n3']]);
+  });
+
+  test('no groups: nothing to open', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups: [], prefer: undefined, pinned: ['a'], others: [], indexOf: l.indexOf }))
+      .toEqual({ g: undefined, index: 0 });
+    expect(l.calls).toEqual([]);
   });
 });

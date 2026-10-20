@@ -130,3 +130,31 @@ describe('EpgCache', () => {
     expect(cache.group()).toBe('all');
   });
 });
+
+describe('EpgCache stale marks', () => {
+  it('staleChannels marks every cached page holding one of the ids, on screen or not; rows stay readable', async () => {
+    const fetch = fakeFetch(45);
+    const cache = new EpgCache<Ch, Prog>(fetch, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 45);
+    await cache.ensure(0, 45, B, B + CHUNK);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(cache.staleChannels(['c25', 'nope'], (c) => c.id)).toBe(1);
+    expect(cache.channel(25)?.id).toBe('c25');
+    await cache.ensure(0, 45, B, B + CHUNK);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch.mock.calls[3]).toEqual(['all', 20, 20, B, B + CHUNK]);
+    expect(cache.staleChannels([], (c) => c.id)).toBe(0);
+  });
+
+  it('staleAll keeps the group, its total and its rows, and refetches on the next ensure', async () => {
+    const fetch = fakeFetch(45);
+    const cache = new EpgCache<Ch, Prog>(fetch, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 45);
+    await cache.ensure(0, 12, B, B + CHUNK);
+    cache.staleAll();
+    expect(cache.total()).toBe(45);
+    expect(cache.channel(3)?.id).toBe('c3');
+    await cache.ensure(0, 12, B, B + CHUNK);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});

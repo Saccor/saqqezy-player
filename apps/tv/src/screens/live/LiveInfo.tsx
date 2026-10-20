@@ -9,6 +9,8 @@ const TITLE_Y = 36;
 const TIME_Y = 94;
 const DESC_Y = 134;
 const DESC_LINE_H = 34;
+/** Expanded details end at y 54 + 134 + 3 × 34 = 290, clear of the ruler at 312. */
+const DESC_LINES_EXPANDED = 3;
 /** "20:00–21:30" at meta size is about 132 px wide: the progress track starts after it. */
 const TRACK_X = 152;
 const TRACK_W = 160;
@@ -17,7 +19,7 @@ const LEFT_X = TRACK_X + TRACK_W + 16;
 
 /**
  * The focused programme, right of the mini video: "{number} · {channel}", the title, the time range (with progress
- * and time left while it is on air) and the description (2 lines, 4 when `expanded`). With no block it shows the
+ * and time left while it is on air) and the description (2 lines, 3 when `expanded`). With no block it shows the
  * channel's `now` when the row carries one, else the guide's "No information" with no time line. The screen feeds
  * it through `dwellSignal`, so holding a key does not rewrite it on every step.
  */
@@ -38,7 +40,7 @@ export function LiveInfo(props: { block?: Block; channel?: ChannelRow; now: numb
     return p !== undefined && isOnAir(p, props.now);
   };
   return (
-    <View x={INFO_X} y={LAYOUT.safeY} width={INFO_W} height={DESC_Y + DESC_LINE_H * 4}>
+    <View x={INFO_X} y={LAYOUT.safeY} width={INFO_W} height={DESC_Y + DESC_LINE_H * DESC_LINES_EXPANDED}>
       <Text width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta}
         color={COLORS.muted}>{channelLine()}</Text>
       <Text y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.title} {...STRONG}
@@ -58,7 +60,7 @@ export function LiveInfo(props: { block?: Block; channel?: ChannelRow; now: numb
           </Show>
         </View>
       )}</Show>
-      <Text y={DESC_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={props.expanded ? 4 : 2}
+      <Text y={DESC_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={props.expanded ? DESC_LINES_EXPANDED : 2}
         lineHeight={DESC_LINE_H} fontSize={TYPE.meta} color={COLORS.textSecondary}>{prog()?.desc ?? ''}</Text>
     </View>
   );
