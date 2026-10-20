@@ -858,6 +858,18 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
     expect(again).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', showClock: false });
   });
 
+  test('saving a synced setting that changed stamps its clock; device settings and unchanged values do not', async () => {
+    await service.saveSettings({ epgOffsetHours: 2, subtitleLanguage: 'off' });
+    await service.syncClock.idle();
+    expect(await storage.listSyncMeta('#settings')).toEqual([]);
+    await service.saveSettings({ subtitleLanguage: 'sv', preferredLanguages: ['sv'], showClock: false });
+    await service.syncClock.idle();
+    expect((await storage.listSyncMeta('#settings')).map((e) => e.key).sort()).toEqual(['st:preferredLanguages', 'st:subtitleLanguage']);
+    await service.saveSettings({ audioLanguage: 'en' }, { stamp: false });
+    await service.syncClock.idle();
+    expect((await storage.listSyncMeta('#settings')).length).toBe(2);
+  });
+
   test('autoRefreshHours drives needs*Refresh; 0 means never', async () => {
     const { source } = await service.addSource(m3uInput);
     await storage.setMeta(`playlistAt:${source.id}`, NOW - 7 * 3600_000);

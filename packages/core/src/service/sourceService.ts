@@ -30,6 +30,9 @@ import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
 import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type ArchiveListing, type XtreamAccount } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
 import { SyncClock } from '../sync/clock.ts';
+import { SYNC_KIND, clockKey } from '../sync/keys.ts';
+import { SYNCED_SETTINGS } from '../sync/payload.ts';
+import { SETTINGS_SCOPE } from '../sync/snapshot.ts';
 import {
   REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
   type RefreshWhat,
@@ -283,10 +286,27 @@ export class SourceService {
     return sanitizeSettings(await this.storage.getMeta<unknown>('settings'));
   }
 
-  async saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+  /**
+   * Stores a settings change. A synced setting (§6.3) whose value changed stamps its clock (`#settings` scope), so a
+   * restore or a later sync can tell which side wrote last; a restore passes `stamp: false` and adopts its stamps.
+   */
+  async saveSettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
     const defined = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined));
-    const next = sanitizeSettings({ ...(await this.getSettings()), ...defined });
+    const prev = await this.getSettings();
+    const next = sanitizeSettings({ ...prev, ...defined });
     await this.storage.setMeta('settings', next);
+    if (opts.stamp !== false) {
+      const before = prev as unknown as Record<string, unknown>;
+      const after = next as unknown as Record<string, unknown>;
+      const keys = [...SYNCED_SETTINGS]
+        .filter((k) => k in defined && JSON.stringify(before[k]) !== JSON.stringify(after[k]))
+        .map((k) => clockKey(SYNC_KIND.setting, k));
+      if (keys.length) {
+        this.syncClock.stamp(SETTINGS_SCOPE, keys).catch((err: unknown) => {
+          console.warn('Sync stamp write failed', err instanceof Error ? err.name : 'Error');
+        });
+      }
+    }
     return next;
   }
 
