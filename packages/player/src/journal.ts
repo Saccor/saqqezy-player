@@ -39,7 +39,7 @@ export interface JournalOptions {
 }
 
 const KINDS = new Set<string>([
-  'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop', 'note',
+  'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop', 'note', 'rateWait',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
 const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;

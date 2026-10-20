@@ -17,6 +17,10 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('sanitizeEvent', () => {
+  it('keeps a rateWait event (noted while the connection limit of a source is full)', () => {
+    expect(sanitizeEvent({ k: 'rateWait', t: 1, delayMs: 4200 })).toEqual({ k: 'rateWait', t: 1, delayMs: 4200 });
+  });
+
   it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {
     expect(sanitizeEvent({ k: 'nope', t: 1 })).toBeUndefined();
     expect(sanitizeEvent({ k: 'stop' })).toBeUndefined();
