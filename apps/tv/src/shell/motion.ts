@@ -1,5 +1,6 @@
 import type { ElementNode } from '@lightningtv/solid';
-import { createEffect, createSignal, on } from 'solid-js';
+import { createEffect, createMemo, createSignal, on } from 'solid-js';
+import { TOAST_OVERLAY_ID } from './logic.ts';
 import { router } from './router.ts';
 import { FOCUS, MOTION, type MotionToken } from './theme.ts';
 import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, type MotionLevel, type PropClass } from './motionLogic.ts';
@@ -63,6 +64,23 @@ export function noteNavKeyUp(): void {
 export function navKeyHeld(): boolean {
   return cadence.held(now());
 }
+
+const [okDown, setOkDown] = createSignal(false);
+
+/**
+ * Called by the key layer when OK goes down (its long-press timer starts) and when it is released or becomes LongOk.
+ * Only feedback: the Ok or LongOk action still fires exactly as before.
+ */
+export function noteOkPress(down: boolean): void {
+  setOkDown(down);
+}
+
+/** OK is held on the screen itself (not in a menu or dialog above it; a toast does not take OK). */
+const okOnScreen = (): boolean => {
+  if (!okDown()) return false;
+  const top = router.topOverlay();
+  return top === undefined || top === TOAST_OVERLAY_ID;
+};
 
 interface Controller {
   start(): unknown;
@@ -134,15 +152,19 @@ export function stopMotion(node: ElementNode): void {
 /**
  * A card's focus scale: up to `FOCUS.scale` in 120 ms when it gains focus (`lit`), back to 1 in 90 ms when it loses it,
  * snapped while a key is held. The card's node must not bind `scale` itself. The focus ring, a child of the node, scales
- * with it. A card mounted already lit starts at its scale (no animation).
+ * with it. A card mounted already lit starts at its scale (no animation). While OK is held on the focused card it dips
+ * to `FOCUS.press` (60 ms) and comes back on release or LongOk (100 ms).
  */
 export function useFocusScale(node: () => ElementNode | undefined, lit: () => boolean): void {
-  createEffect(on(lit, (l, prev) => {
+  // Only the lit card follows OK, so a press does not re-run every card's effect.
+  const pressed = createMemo(() => lit() && okOnScreen());
+  createEffect(on([lit, pressed] as const, ([l, p], prev) => {
     const n = node();
     if (!n) return;
-    const target = l ? FOCUS.scale : 1;
+    const target = !l ? 1 : p ? FOCUS.press : FOCUS.scale;
     if (prev === undefined) { n.scale = target; return; }
-    tween(n, { scale: target }, l ? MOTION.focusIn : MOTION.focusOut);
+    const token = l !== prev[0] ? (l ? MOTION.focusIn : MOTION.focusOut) : p ? MOTION.pressIn : MOTION.pressOut;
+    tween(n, { scale: target }, token);
   }));
 }
 

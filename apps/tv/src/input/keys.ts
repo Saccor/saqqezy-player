@@ -1,6 +1,6 @@
 import { detectPlatform, mapKey, type LogicalKey, type PlatformId } from '@iptv/platform';
 import type { KeyMap } from '@lightningtv/solid';
-import { noteNavKeyDown, noteNavKeyUp } from '../shell/motion.ts';
+import { noteNavKeyDown, noteNavKeyUp, noteOkPress } from '../shell/motion.ts';
 import { isNavKey } from '../shell/motionLogic.ts';
 
 /** Only the error's name is logged: messages may carry URLs or other data. */
@@ -177,9 +177,12 @@ export function installKeys(
     if (key === 'Ok') {
       // Remotes repeat keydown while held, not always with `repeat` set: the running timer is the guard.
       if (okTimer !== undefined || okLong) return;
+      // Press feedback only (the focused card dips); the action still waits for the release or the long press.
+      noteOkPress(true);
       okTimer = setTimeout(() => {
         okTimer = undefined;
         okLong = true;
+        noteOkPress(false);
         press('LongOk', e);
         forward('keyup', 'LongOk', e);
       }, LONG_PRESS_MS);
@@ -202,6 +205,7 @@ export function installKeys(
       if (okTimer !== undefined) {
         clearTimeout(okTimer);
         okTimer = undefined;
+        noteOkPress(false);
         press('Ok', e);
         forward('keyup', 'Ok', e);
       }
@@ -217,6 +221,8 @@ export function installKeys(
     if (okTimer !== undefined) clearTimeout(okTimer);
     okTimer = undefined;
     okLong = false;
+    noteOkPress(false);
+    noteNavKeyUp();
   };
 
   // Capture on window runs before Lightning's own document listeners, so raw events never reach them.
