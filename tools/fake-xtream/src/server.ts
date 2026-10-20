@@ -274,6 +274,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
             director: showcase ? 'A. Example' : 'Synthetic Director',
             cast: showcase ? 'Sam Example, Alex Placeholder' : 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
             backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`, tmdb_id: String(900000 + m.n),
+            // ffprobe-shaped, as panels that probe their files send it; every fifth file is untagged.
+            audio: { codec_name: 'aac', channels: 2, tags: { language: m.n % 5 === 0 ? 'und' : 'eng' } },
           },
           movie_data: { stream_id: m.n, name: m.name, container_extension: movieExt(m.n) },
         }));
@@ -297,7 +299,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
             id: String(episodeId(s.n, season, i + 1)), episode_num: i + 1, season,
             title: `${s.name} - S${String(season).padStart(2, '0')}E${String(i + 1).padStart(2, '0')} - Episode ${i + 1}`,
             container_extension: VOD_EXT,
-            info: { duration_secs: 2700 + i * 60, plot: showcase ? `Episode ${i + 1} of ${s.name}.` : `Synthetic episode ${i + 1}.`, movie_image: `${base}/poster/e${episodeId(s.n, season, i + 1)}.svg` },
+            info: { audio: { codec_name: 'aac', channels: 2, tags: { language: 'eng' } }, duration_secs: 2700 + i * 60, plot: showcase ? `Episode ${i + 1} of ${s.name}.` : `Synthetic episode ${i + 1}.`, movie_image: `${base}/poster/e${episodeId(s.n, season, i + 1)}.svg` },
           }));
         }
         return send(res, 200, JSON.stringify({

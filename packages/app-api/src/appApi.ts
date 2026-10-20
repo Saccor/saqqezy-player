@@ -986,6 +986,11 @@ export class AppApi {
   }
 
   /** With `versionId` (from `SeriesView.versions`), shows that version's seasons. */
+  /** The Versions list's missing languages, by version id (from the source's probe data). */
+  getVersionLanguages(id: string): Promise<Record<string, string>> {
+    return this.run('getVersionLanguages', () => this.vodOrThrow().versionLanguages(id));
+  }
+
   getSeries(id: string, versionId?: string): Promise<SeriesView | undefined> {
     return this.run('getSeries', () => this.vodOrThrow().series(id, versionId));
   }
@@ -2514,7 +2519,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
-  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
+  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getVersionLanguages', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',

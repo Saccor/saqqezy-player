@@ -58,6 +58,8 @@ export interface Episode {
   url?: string;
   /** From the source's probe data (Xtream episode `info.video`). */
   video?: VideoRange;
+  /** The audio's language from the source's probe data (Xtream episode `info.audio`), ISO 639-1. */
+  audioLang?: string;
   /** M3U episodes: request headers from the playlist entry. */
   headers?: StreamHeaders;
 }
@@ -88,6 +90,8 @@ export interface VideoRange {
 export interface MovieDetail {
   /** From the source's probe data (Xtream `info.video`), when it sends it. */
   video?: VideoRange;
+  /** The audio's language from the source's probe data (Xtream `info.audio`), ISO 639-1. */
+  audioLang?: string;
   plot?: string;
   runtimeMin?: number;
   genre?: string;

@@ -75,6 +75,11 @@ describe('trackLabels', () => {
       .toEqual(['Swedish (AC-3)', 'English', 'English (2)', 'Director (AAC)']);
   });
 
+  it('names any language code, falls back to the track language tag, and never shows und', () => {
+    expect(trackLabels([t('0', 'ice', 'ice'), t('1', '', 'fre'), t('2', 'und', 'fre'), t('3', 'und'), t('4', '')]))
+      .toEqual(['Icelandic', 'French', 'French (2)', 'Unknown language', 'Unknown language (2)']);
+  });
+
   it('keeps the codec out of the remembered key', () => {
     expect(trackKey(t('0', 'swe', 'swe', false, 'AC-3'))).toBe('swe:swe');
   });

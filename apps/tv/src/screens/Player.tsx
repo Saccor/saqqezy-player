@@ -22,6 +22,7 @@ import { devResume } from '../playback/devResume.ts';
 import { playback, player, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
 import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
+import { mediaBadges } from '../playback/mediaBadges.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -85,6 +86,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const [infoTick, setInfoTick] = createSignal(0);
   const [pillTick, setPillTick] = createSignal(0);
   const pill = createMemo(() => { pillTick(); return livePill(playback.status(), supervisor.liveInfo()); });
+  // What is playing, as badges in the banner: re-read on the pill's 1 s tick, redrawn only when a badge changes.
+  const badges = createMemo((): string[] => {
+    pillTick();
+    if (!bannerOn()) return [];
+    return mediaBadges({ info: player.streamInfo(), audio: playback.audioTracks(), text: playback.textTracks() });
+  }, [], { equals: (a, b) => a.join('|') === b.join('|') });
   const [aspect, setAspect] = createSignal<AspectMode>(sessionAspect);
   const [sleep, setSleep] = createSignal<SleepState>({ kind: 'off' });
   const [sleepMinutes, setSleepMinutes] = createSignal(0);
@@ -556,7 +563,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
-        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} />
+        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
       )}</Show>
 
       <Show when={digits() || flash()}>

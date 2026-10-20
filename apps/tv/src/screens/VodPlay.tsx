@@ -7,7 +7,9 @@ import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
+import { MediaBadges } from '../components/MediaBadges.tsx';
 import { StatusPill } from '../components/StatusPill.tsx';
+import { mediaBadges } from '../playback/mediaBadges.ts';
 import { onLogicalKey, sendKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
@@ -73,6 +75,8 @@ const CONTENT_X = LAYOUT.safeX;
 const CONTENT_W = LAYOUT.width - LAYOUT.safeX * 2;
 const TITLE_Y = 596;
 const LABEL_Y = 654;
+/** The media badges: under the episode label, else in its place. */
+const BADGES_LABEL_Y = LABEL_Y + 50;
 /** The timeline's hit area; the scrub bubble (88 px) sits above it, clear of the label (ends ~690). */
 const TIMELINE_Y = 788;
 const TIMES_Y = TIMELINE_Y + TIMELINE_H + 6;
@@ -252,6 +256,17 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     setNow(t);
     setLastKeyAt(t);
   };
+  // What is playing, as badges under the title while the controls show: re-read each tick (the engine learns the
+  // size, frame rate and tracks after the start), redrawn only when a badge changes.
+  const badges = createMemo((): string[] => {
+    if (!visible()) return [];
+    now();
+    const ext = external();
+    return mediaBadges({
+      info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(),
+      ...(ext && chosen.subtitle === SUBTITLE_KEY_EXT ? { external: ext.online ? onlineLanguageLabel(ext.online.language) : '' } : {}),
+    });
+  }, [], { equals: (a, b) => a.join('|') === b.join('|') });
   /** The playhead and duration only while the stream is this title's (never a held title's or another one's). */
   const ours = () => playback.current()?.id === standId;
   /** Catch-up: programme time (where the URL starts plus the engine's playhead), and the programme's length. */
@@ -1381,6 +1396,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
               maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
           </Show>
+          <MediaBadges x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
           <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
             posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
             onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}

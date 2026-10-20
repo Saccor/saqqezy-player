@@ -9,6 +9,7 @@ import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts'
 import { iconTexture } from '../vod/icons.ts';
 import { scrimTexture } from '../vod/scrim.ts';
 import { logoCache } from './logoCache.ts';
+import { BADGE_H, MediaBadges } from './MediaBadges.tsx';
 import { logoKey } from './logoKey.ts';
 
 /** The banner's band: its text and progress, from the bottom safe edge up. */
@@ -30,6 +31,8 @@ const PROGRESS_Y = TOP + 110;
 const TIME_W = 80;
 const TRACK_H = 4;
 const NEXT_Y = TOP + 150;
+/** The media badges' room at the right of the next-programme line. */
+const BADGES_W = Math.round(TEXT_W / 2);
 /** About the width of a semibold digit at body size (the number and the name share line 1). */
 const DIGIT_W = Math.ceil(TYPE.body * 0.62);
 
@@ -65,7 +68,10 @@ export function InfoBanner(props: {
   channel: ChannelRow; now: number; showClock: boolean; live?: { text: string; hint?: string };
   /** Moves the banner up by this many px (the Player's pointer row is showing below it). */
   lift?: number;
+  /** What is playing (`mediaBadges`), at the right of the next-programme line. */
+  badges?: readonly string[];
 }) {
+  const nextW = () => ((props.badges?.length ?? 0) > 0 ? TEXT_W - BADGES_W - LAYOUT.gap : TEXT_W);
   const c = () => props.channel;
   const lift = () => props.lift ?? 0;
   const bandY = () => LAYOUT.height - LAYOUT.safeY - BANNER_H - lift();
@@ -131,9 +137,12 @@ export function InfoBanner(props: {
       )}</Show>
       {/* Keyed, like the title: a non-keyed Show with an accessor child laid the text out clipped (~510 px). */}
       <Show when={c().next} keyed>{(n) => (
-        <Text x={TEXT_X} y={c().now ? NEXT_Y : PROGRESS_Y} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}
+        <Text x={TEXT_X} y={c().now ? NEXT_Y : PROGRESS_Y} width={nextW()} maxWidth={nextW()} contain="width" maxLines={1}
           fontSize={TYPE.meta} color={COLORS.muted}>{bannerNextLine(n)}</Text>
       )}</Show>
+      {/* What is playing ("1080p · 50 fps · H.264 · Stereo AAC"): the right half of the next-programme line. */}
+      <MediaBadges x={BANNER_W - BADGES_W} y={(c().now ? NEXT_Y : PROGRESS_Y) + (TYPE.meta - BADGE_H) / 2 + 2}
+        maxWidth={BADGES_W} badges={props.badges ?? []} align="right" />
     </View>
   );
 }

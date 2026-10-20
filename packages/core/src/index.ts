@@ -21,6 +21,7 @@ export { ChannelIndex, type ChannelIndexOptions, type ChannelRegionView, type Pr
 export { orderGroupChannels } from './index/order.ts';
 export { type Storage, type SyncMetaEntry, MAX_PROGRAMME_MS } from './storage.ts';
 export * from './vod/types.ts';
+export { ISO_LANGUAGES, englishLanguageName, isoLanguage } from './text/language.ts';
 export { dvFromFourCC, dvFromTitle, videoRangeOf, wrongColoursWithoutDv } from './vod/videoRange.ts';
 export { splitYear, parseEpisodeMarker } from './vod/title.ts';
 export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';

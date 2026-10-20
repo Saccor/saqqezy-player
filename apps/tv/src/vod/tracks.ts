@@ -1,3 +1,4 @@
+import { englishLanguageName } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 
@@ -28,9 +29,12 @@ export const LANGUAGE_NAMES: Record<string, string> = {
   zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
 };
 
-/** A language code's English name ("pt-BR", "ENG" and "ger" too); undefined when unknown. */
+/**
+ * A language code's English name ("pt-BR", "ENG", "ger" and less common codes such as "ice" too); undefined for an
+ * undetermined (`und`) or unrecognised code.
+ */
 export function languageName(code: string): string | undefined {
-  return LANGUAGE_NAMES[code.toLowerCase().split(/[-_]/)[0] ?? ''];
+  return LANGUAGE_NAMES[code.toLowerCase().split(/[-_]/)[0] ?? ''] ?? englishLanguageName(code);
 }
 
 /**
@@ -65,7 +69,9 @@ export function trackLabels(tracks: readonly TrackInfo[]): string[] {
   const seen = new Map<string, number>();
   return tracks.map((t) => {
     const raw = oneSpace(t.label);
-    const name = LANGUAGE_NAMES[raw.toLowerCase()] ?? raw;
+    // A bare code (or no label at all) names the language; an untagged track says so rather than showing "und".
+    const bare = raw === '' || /^[a-z]{2,3}([-_][a-z0-9]{2,4})?$/i.test(raw);
+    const name = bare ? languageName(raw) ?? (t.language ? languageName(t.language) : undefined) ?? (raw && !/^und$/i.test(raw) ? raw : 'Unknown language') : raw;
     const base = t.codec ? `${name} (${t.codec})` : name;
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);

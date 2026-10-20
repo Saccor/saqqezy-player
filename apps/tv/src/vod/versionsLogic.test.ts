@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VersionView } from '@iptv/app-api';
 import {
-  PREFERRED_LANGUAGE_OPTIONS, SHOW_SEPARATELY, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor, versionLabel, versionRows,
+  PREFERRED_LANGUAGE_OPTIONS, SHOW_SEPARATELY, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor, versionLabel, versionRows, withLanguages,
 } from './versionsLogic.ts';
 
 const v = (id: string, lang?: string, quality?: string, tags: string[] = [], auto = false): VersionView => {
@@ -25,6 +25,14 @@ describe('versionLabel', () => {
   });
   test('an unknown code shows upper case', () => {
     expect(versionLabel(v('a', 'xx'))).toBe('XX');
+  });
+});
+
+describe('withLanguages', () => {
+  test("fills in a missing language; a version's own language stays", () => {
+    const out = withLanguages([v('a', 'sv'), v('b'), v('c')], { a: 'en', b: 'is' });
+    expect(out.map((x) => x.lang)).toEqual(['sv', 'is', undefined]);
+    expect(versionLabel(out[1]!)).toBe('Icelandic');
   });
 });
 

@@ -1,3 +1,4 @@
+import { isoLanguage } from '../text/language.ts';
 import { seasonsOf } from '../vod/list.ts';
 import { parseEpisodeMarker, splitYear } from '../vod/title.ts';
 import { videoRangeOf } from '../vod/videoRange.ts';
@@ -136,10 +137,18 @@ function detailFields(info: Record<string, unknown>): MovieDetail {
   return d;
 }
 
+/** From an ffprobe-shaped audio stream object (Xtream `info.audio`): its `tags.language`, as ISO 639-1. */
+function audioLangOf(audio: unknown): string | undefined {
+  if (!isObj(audio)) return undefined;
+  return isoLanguage(str(isObj(audio.tags) ? audio.tags.language : undefined) ?? str(audio.language));
+}
+
 function movieFields(info: Record<string, unknown>): MovieDetail {
   const d = detailFields(info);
   const video = videoRangeOf(info.video);
   if (video) d.video = video;
+  const lang = audioLangOf(info.audio);
+  if (lang) d.audioLang = lang;
   return d;
 }
 
@@ -194,6 +203,8 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
       if (ext) ep.ext = ext;
       const video = videoRangeOf(ei.video);
       if (video) ep.video = video;
+      const lang = audioLangOf(ei.audio);
+      if (lang) ep.audioLang = lang;
       episodes.push(ep);
     });
   }
