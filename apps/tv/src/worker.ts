@@ -63,8 +63,9 @@ const api = new AppApi({
   vod,
   subtitles,
   onlineSubtitles,
-  // Exact-match subtitles (a Settings choice): two 64 KB range reads of the VOD file over the app's fetch.
-  fileHash: (url) => fetchMovieHash(fetchFn, url),
+  // Exact-match subtitles (a Settings choice): two 64 KB range reads of the VOD file over the app's fetch,
+  // with the stream's User-Agent and Referer (routed like list requests).
+  fileHash: (url, headers) => fetchMovieHash(fetchFn, url, headers),
   ...(TRENDING_URL ? { trending: { baseUrl: TRENDING_URL, fetch: trendingFetch } } : {}),
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,

@@ -8,10 +8,22 @@ export interface LoadedSubtitle {
   cues: SubtitleCue[];
   /** How much later (positive) or earlier (negative) the cues show, set by the user for this file. */
   delayMs?: number;
+  /** How fast subtitle time runs against the video's (a frame-rate fix), set for this file; none: not set yet. */
+  speed?: number;
+  /** The frame rate the file was timed for, when known (a file found online). */
+  fps?: number;
+  /** A file found online: its language and which version it is. */
+  online?: { language: string; fileId: number };
 }
+
+/** What is known about a file found online, kept with it. */
+export interface SubtitleDetails { language?: string; fileId?: number; fps?: number }
 
 /** The subtitle delay's limit either way. */
 export const SUBTITLE_DELAY_MAX_MS = 60_000;
+/** A speed outside this range is no frame-rate fix: kept as Normal (1). */
+const SPEED_MIN = 0.8;
+const SPEED_MAX = 1.25;
 
 /** Where a subtitle comes from: a link, or a file's bytes read on the device. */
 export type SubtitleInput = { url: string } | { bytes: Uint8Array; name: string };
@@ -64,12 +76,15 @@ export class SubtitleService {
     this.fetch = deps.fetch;
   }
 
-  async load(sourceId: string, itemId: string, input: SubtitleInput): Promise<LoadedSubtitle> {
+  async load(sourceId: string, itemId: string, input: SubtitleInput, details?: SubtitleDetails): Promise<LoadedSubtitle> {
     const { bytes, name } = 'url' in input ? await this.download(input.url) : input;
     if (bytes.byteLength > SUBTITLE_MAX_BYTES) throw new SubtitleError(TOO_LARGE);
     const cues = parseSubtitles(decodeSubtitle(bytes));
     if (cues.length === 0) throw new SubtitleError('No subtitles found. Use an .srt or .vtt file.');
     const loaded: LoadedSubtitle = { name, cues };
+    const fps = details?.fps;
+    if (fps !== undefined && Number.isFinite(fps) && fps > 0) loaded.fps = fps;
+    if (details?.language && details.fileId !== undefined) loaded.online = { language: details.language, fileId: details.fileId };
     const key = keyOf(sourceId, itemId);
     await this.serial(async () => {
       await this.storage.setMeta(key, loaded);
@@ -92,6 +107,16 @@ export class SubtitleService {
     await this.serial(async () => {
       const cur = await this.storage.getMeta<LoadedSubtitle>(key);
       if (cur) await this.storage.setMeta(key, { ...cur, delayMs: d });
+    });
+  }
+
+  /** Keeps the speed with the title's file (one outside a frame-rate fix's range is Normal); nothing when it has no file. */
+  async setSpeed(sourceId: string, itemId: string, speed: number): Promise<void> {
+    const key = keyOf(sourceId, itemId);
+    const s = Number.isFinite(speed) && speed >= SPEED_MIN && speed <= SPEED_MAX ? speed : 1;
+    await this.serial(async () => {
+      const cur = await this.storage.getMeta<LoadedSubtitle>(key);
+      if (cur) await this.storage.setMeta(key, { ...cur, speed: s });
     });
   }
 

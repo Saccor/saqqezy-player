@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  OpenSubtitlesClient, bestSubtitle, languageChoices, searchParams, searchTitle, type OnlineSubtitle,
+  OpenSubtitlesClient, bestSubtitle, languageChoices, rankSubtitles, searchParams, searchTitle, type OnlineSubtitle,
 } from '../src/subtitles/openSubtitles.ts';
 import { SubtitleError } from '../src/subtitles/service.ts';
 import type { FetchFn } from '../src/types.ts';
@@ -29,6 +29,17 @@ describe('searchParams', () => {
   test('the file hash goes along with the id (results then say which files match it)', () => {
     expect(searchParams({ tmdbId: 123, moviehash: '00ABCDEF01234567' })).toBe('moviehash=00abcdef01234567&tmdb_id=123');
     expect(searchParams({ query: 'Synthetic Film', moviehash: '0000000000020000' })).toBe('moviehash=0000000000020000&query=synthetic+film');
+  });
+
+  test('page: added after the first, keys still sorted', () => {
+    expect(searchParams({ tmdbId: 123, languages: ['en'], page: 2 })).toBe('languages=en&page=2&tmdb_id=123');
+    expect(searchParams({ tmdbId: 123, page: 1 })).toBe('tmdb_id=123');
+    expect(searchParams({ tmdbId: 123 })).toBe('tmdb_id=123');
+  });
+
+  test('page: a fraction is floored before the check (1.5 is the first page)', () => {
+    expect(searchParams({ tmdbId: 123, page: 1.5 })).toBe('tmdb_id=123');
+    expect(searchParams({ tmdbId: 123, page: 2.9 })).toBe('page=2&tmdb_id=123');
   });
 
   test('episode by the series TMDB id plus season and episode', () => {
@@ -64,6 +75,29 @@ describe('ranking and the language list', () => {
     expect(bestSubtitle([sub(1, 'en', { downloads: 900, hearingImpaired: true }), sub(2, 'en', { downloads: 5 })])?.fileId).toBe(2);
     expect(bestSubtitle([sub(1, 'en', { downloads: 5 }), sub(2, 'en', { downloads: 50 })])?.fileId).toBe(2);
     expect(bestSubtitle([])).toBeUndefined();
+  });
+
+  test('with the video frame rate: matching fps first, unknown between, other known fps last (after the hash match)', () => {
+    const list = [
+      sub(1, 'en', { fps: 25, trusted: true, downloads: 900 }),
+      sub(2, 'en', { downloads: 5 }),
+      sub(3, 'en', { fps: 23.976, downloads: 1 }),
+      sub(4, 'en', { fps: 25, hashMatch: true }),
+    ];
+    expect(rankSubtitles(list, 23.976).map((s) => s.fileId)).toEqual([4, 3, 2, 1]);
+    expect(rankSubtitles(list.slice(0, 3), 23.976).map((s) => s.fileId)).toEqual([3, 2, 1]);
+    expect(rankSubtitles(list.slice(0, 3), 23.98).map((s) => s.fileId)).toEqual([3, 2, 1]);
+    expect(languageChoices(list.slice(0, 3), 'en', 25)[0]?.best.fileId).toBe(1);
+    expect(languageChoices(list.slice(0, 3), 'en', 23.976)[0]?.best.fileId).toBe(3);
+  });
+
+  test('ranking is unchanged without a video frame rate', () => {
+    const list = [
+      sub(1, 'en', { fps: 25, downloads: 5 }),
+      sub(2, 'en', { fps: 23.976, downloads: 50 }),
+      sub(3, 'en', { trusted: true, downloads: 1 }),
+    ];
+    expect(rankSubtitles(list).map((s) => s.fileId)).toEqual([3, 2, 1]);
   });
 
   test('one row per language: preferred first, then by count, then by code; each with its best file', () => {
@@ -113,6 +147,28 @@ describe('OpenSubtitlesClient', () => {
     const h = new Headers(calls[0]?.init?.headers);
     expect(h.get('api-key')).toBe('k');
     expect(h.get('x-user-agent')).toBe('Test v1');
+  });
+
+  test('search: fps is read when it is a positive number, otherwise left out', async () => {
+    const c = make({ '/subtitles': () => json({ data: [hit(1, 'en', { fps: 23.976 }), hit(2, 'en', { fps: 0 }), hit(3, 'en', { fps: '25' }), hit(4, 'en')] }) });
+    const got = await c.search({ tmdbId: 5 });
+    expect(got.map((s) => s.fps)).toEqual([23.976, undefined, undefined, undefined]);
+    expect('fps' in got[1]!).toBe(false);
+  });
+
+  test('search: an infinite fps (1e400 parses to Infinity) is left out', async () => {
+    const body = `{"data":[${JSON.stringify(hit(1, 'en')).replace(/}}$/, ',"fps":1e400}}')}]}`;
+    const c = make({ '/subtitles': () => new Response(body, { headers: { 'content-type': 'application/json' } }) });
+    const got = await c.search({ tmdbId: 5 });
+    expect(got).toHaveLength(1);
+    expect('fps' in got[0]!).toBe(false);
+  });
+
+  test('searchPage: the subtitles plus the page count the service reports (undefined when it does not)', async () => {
+    let c = make({ '/subtitles': () => json({ total_pages: 3, page: 1, data: [hit(1, 'en')] }) });
+    expect(await c.searchPage({ tmdbId: 5 })).toEqual({ subtitles: [expect.objectContaining({ fileId: 1 })], totalPages: 3 });
+    c = make({ '/subtitles': () => json({ data: [hit(1, 'en')] }) });
+    expect((await c.searchPage({ tmdbId: 5 })).totalPages).toBeUndefined();
   });
 
   test('search skips entries without a file or language', async () => {

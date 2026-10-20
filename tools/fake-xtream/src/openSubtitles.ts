@@ -24,6 +24,8 @@ function entries(languages: string[] | undefined, hashMatches: boolean) {
         attributes: {
           language, download_count: 1000 - n * 100, hearing_impaired: n === 2, machine_translated: false, ai_translated: n === 3,
           from_trusted: n === 1, release: `Synthetic.Release.${language}.${n}`, moviehash_match: hashMatches && n === 3,
+          // Frame rates: the first file PAL (25), the second film (23.976), the third unknown.
+          ...(n === 1 ? { fps: 25 } : n === 2 ? { fps: 23.976 } : {}),
           files: [{ file_id: fileId, file_name: `synthetic.${language}.${n}.srt` }],
         },
       });

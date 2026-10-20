@@ -12,7 +12,7 @@ import { onLogicalKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
-import { isVodId, journal, playback } from '../playback/playback.ts';
+import { isVodId, journal, playback, player } from '../playback/playback.ts';
 import { CATCHUP_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
@@ -42,13 +42,15 @@ import { pickAudioTrack } from '../vod/tracks.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
   REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, stepDelay, type OnlineLanguage,
-  pickSubtitle, subtitleExtraRows,
+  pickSubtitle, subtitleExtraRows, SPEED_ROW, autoSpeed, normalizeSpeed, stepSpeed, subtitleTime, versionFileId, versionRows,
+  type SubtitleSpeed, type VersionInfo,
 } from '../vod/subtitleLogic.ts';
 
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const SUB_URL_ID = 'vodSubtitleLink';
 const SUB_ONLINE_ID = 'vodSubtitleOnline';
+const SUB_VERSIONS_ID = 'vodSubtitleVersions';
 /** OpenSubtitles' free plan asks for this line wherever its subtitles are picked. */
 const ONLINE_ATTRIBUTION = 'Subtitles provided by OpenSubtitles.com';
 /** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
@@ -134,8 +136,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const [onlineRows, setOnlineRows] = createSignal<PickerRow[] | undefined>(undefined);
   /** The loaded file's delay: how much later (positive) or earlier its cues show. Kept with the file. */
   const [subDelay, setSubDelay] = createSignal(0);
-  /** The loaded file came from "Find subtitles online": its language's versions, best first, and which one shows. */
-  const [onlineVersion, setOnlineVersion] = createSignal<{ label: string; files: number[]; index: number } | undefined>(undefined);
+  /** The loaded file's speed (a frame-rate fix): how fast its time runs against the video's. Kept with the file. */
+  const [subSpeed, setSubSpeed] = createSignal<SubtitleSpeed>(1);
+  /** The "Try another version" picker's rows (undefined: closed). */
+  const [versionPickRows, setVersionPickRows] = createSignal<PickerRow[] | undefined>(undefined);
   /** Catch-up: the URL playing now (a seek may re-open another), and where in the programme it starts. */
   const [cur, setCur] = createSignal<CatchupPlayable | undefined>(cu);
   const [openedAt, setOpenedAt] = createSignal(cu?.openedAtMs ?? 0);
@@ -156,6 +160,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let onlineSearch = 0;
   /** The languages of the last online search (each with its versions). */
   let onlineLangs: OnlineLanguage[] = [];
+  let versionsNode: ElementNode | undefined;
+  let removeVersions: (() => void) | undefined;
+  /** Bumped per versions list, so one answered after its picker closed changes nothing. */
+  let versionsSearch = 0;
+  /** The versions listed in the open picker, and the language they are in. */
+  let versionList: { language: string; versions: VersionInfo[] } | undefined;
+  /** Ticks left to wait for the video's frame rate before the loaded file's automatic speed is given up. */
+  let autoSpeedTries = 0;
+  /** Ticks left asking for the video's frame rate early (about 10 s of playing). */
+  let fpsPrimeTicks = 40;
   let delaySaveTimer: ReturnType<typeof setTimeout> | undefined;
   let cardNode: ElementNode | undefined;
   let barFocused = false;
@@ -263,6 +277,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     closePicker();
     closeLinkEntry();
     closeOnline();
+    closeVersions();
     if (saveFirst) save();
     stopOurs();
     alive = false;
@@ -513,8 +528,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (cu) return base;
     return [...base, ...subtitleExtraRows({
       external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
-      delayMs: subDelay(), pointer: pointerMode(),
-      ...(onlineVersion() ? { another: { label: onlineVersion()!.label, index: onlineVersion()!.index, total: onlineVersion()!.files.length } } : {}),
+      delayMs: subDelay(), speed: subSpeed(), pointer: pointerMode(),
+      ...(ext?.online && onlineOk() ? { another: { label: onlineLanguageLabel(ext.online.language) } } : {}),
     })];
   };
   /** Engines may report the new active track a moment later: read the rows now and once more shortly after. */
@@ -537,9 +552,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       return;
     }
     if (row.id === DELAY_ROW) return; // Left/Right change it
+    if (row.id === SPEED_ROW) {
+      changeSpeed(1); // Left/Right too; Ok (or a click) steps on, wrapping
+      return;
+    }
     if (row.id === ANOTHER_VERSION_ROW) {
       closePicker();
-      anotherVersion();
+      openVersions();
       return;
     }
     if (row.id === FIND_ONLINE_ROW) {
@@ -610,28 +629,61 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     }, 400);
   };
   const adjustRow = (row: PickerRow, dir: 1 | -1) => {
-    if (row.kind !== 'list' || row.id !== DELAY_ROW) return false;
-    changeDelay(dir);
+    if (row.kind !== 'list') return false;
+    if (row.id === DELAY_ROW) changeDelay(dir);
+    else if (row.id === SPEED_ROW) changeSpeed(dir);
+    else return false;
     return true;
   };
 
-  /** The next version of the same language from the last online search (wrapping). */
-  const anotherVersion = () => {
-    const v = onlineVersion();
-    if (!v || v.files.length < 2 || subBusy()) return;
-    const index = (v.index + 1) % v.files.length;
-    const fileId = v.files[index];
-    if (fileId === undefined) return;
-    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, v.label), `${v.label} (version ${index + 1} of ${v.files.length})`).then((error) => {
-      if (!alive) return;
-      if (error) showToast(error);
-      else setOnlineVersion({ ...v, index });
-    });
+  /** The loaded file's speed set (by the user, or once automatically): kept with the file, never overridden later. */
+  const setSpeedFor = (ext: LoadedSubtitle, speed: SubtitleSpeed) => {
+    setSubSpeed(speed);
+    setExternal({ ...ext, speed });
+    api.setSubtitleSpeed(p.itemId, speed).catch((err) => console.warn('Subtitle speed save failed', errName(err)));
+  };
+  /** Left/Right on the speed row: Normal, 25 → 23.976, 23.976 → 25 (wrapping). */
+  const changeSpeed = (dir: 1 | -1) => {
+    const ext = external();
+    if (!ext) return;
+    setSpeedFor(ext, stepSpeed(subSpeed(), dir));
+    refreshRows();
+  };
+
+  /** The playing video's frame rate, when the engine reports it. */
+  const videoFps = (): number | undefined => {
+    try {
+      const fps = player.streamInfo().fps;
+      return fps !== undefined && Number.isFinite(fps) && fps > 0 ? fps : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  /**
+   * A loaded file with no speed set: when its frame rate and the video's are both known and differ, the matching
+   * speed is set (and said). Waits a few ticks for the engine to report the video's rate; a set speed is kept.
+   */
+  const applyAutoSpeed = (quiet = false): boolean => {
+    const ext = external();
+    if (!ext || ext.speed !== undefined || ext.fps === undefined || autoSpeedTries <= 0) return false;
+    const fps = videoFps();
+    if (fps === undefined) {
+      autoSpeedTries--;
+      return false;
+    }
+    autoSpeedTries = 0;
+    const speed = autoSpeed(ext.fps, fps);
+    if (speed === 1) return false;
+    setSpeedFor(ext, speed);
+    refreshRows();
+    if (!quiet) showToast('Subtitle speed adjusted to match the video');
+    return true;
   };
 
   const removeExternal = () => {
     api.clearSubtitle(p.itemId).catch((err) => console.warn('Subtitle remove failed', errName(err)));
-    setOnlineVersion(undefined);
+    setSubSpeed(1);
     setExternal(undefined);
     showExternal(false);
     // It was the choice: the preferred language takes over (the choice stays for the series' other episodes).
@@ -639,22 +691,36 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
 
   /** Loads, keeps and turns on a subtitle file; returns the error to show (a message meant for the user). */
-  const loadSubtitle = (input: SubtitleInput) => loadWith(() => api.loadSubtitle(p.itemId, input)).then((error) => {
-    if (!error) setOnlineVersion(undefined); // a link or file: not one of the online versions
-    return error;
-  });
+  const loadSubtitle = (input: SubtitleInput) => loadWith(() => api.loadSubtitle(p.itemId, input));
+
+  /** The loaded file now showing: its delay and speed (Normal until set, or set to match the video's frame rate). */
+  const useLoaded = (loaded: LoadedSubtitle) => {
+    // A delay change still waiting to be saved belonged to the previous file.
+    if (delaySaveTimer !== undefined) {
+      clearTimeout(delaySaveTimer);
+      delaySaveTimer = undefined;
+    }
+    setExternal(loaded);
+    setSubDelay(loaded.delayMs ?? 0);
+    setSubSpeed(normalizeSpeed(loaded.speed));
+    // About 5 s for the engine to report the video's frame rate.
+    autoSpeedTries = 20;
+  };
 
   /** A newly loaded file starts with no delay. `toastName`: what the toast calls it (default: its name). */
   const loadWith = async (load: () => Promise<LoadedSubtitle>, toastName?: string): Promise<string | undefined> => {
     if (subBusy()) return undefined;
     setSubBusy(true);
+    // The previous file must not get an automatic speed while the new one downloads.
+    autoSpeedTries = 0;
     try {
       const loaded = await load();
       if (!alive) return undefined;
-      setExternal(loaded);
-      setSubDelay(loaded.delayMs ?? 0);
+      useLoaded(loaded);
       useExternal();
-      showToast(`Subtitles on: ${oneSpace(toastName ?? loaded.name)}`);
+      // One toast: the file, and the speed when it was matched to the video at once.
+      const matched = applyAutoSpeed(true);
+      showToast(`Subtitles on: ${oneSpace(toastName ?? loaded.name)}${matched ? ' · speed matched to the video' : ''}`);
       return undefined;
     } catch (err) {
       console.warn('Subtitle load failed', errName(err));
@@ -684,7 +750,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       focusBarOrRoot();
     });
     queueMicrotask(() => { if (alive) onlineNode?.setFocus(); });
-    api.findSubtitlesOnline(p.itemId, p.series?.id).then((langs) => {
+    api.findSubtitlesOnline(p.itemId, p.series?.id, videoFps()).then((langs) => {
       if (!alive || search !== onlineSearch) return;
       if (langs.length === 0) {
         closeOnline();
@@ -710,12 +776,77 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (fileId === undefined || subBusy()) return;
     const lang = onlineLangs.find((l) => l.fileId === fileId);
     const label = lang ? onlineLanguageLabel(lang.language) : row.label;
-    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label)).then((error) => {
+    const details = lang ? { language: lang.language, ...(lang.fps ? { fps: lang.fps } : {}) } : undefined;
+    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
       if (!alive) return;
       closeOnline();
       focusBarOrRoot();
       if (error) showToast(error);
-      else setOnlineVersion({ label, files: lang?.files?.length ? lang.files : [fileId], index: 0 });
+    });
+  };
+
+  // ---- other versions of the loaded file's language ----
+
+  function closeVersions() {
+    versionsSearch++;
+    versionList = undefined;
+    removeVersions?.();
+    removeVersions = undefined;
+    setVersionPickRows(undefined);
+  }
+
+  /** "Try another version": the loaded file's language's versions (listed once per session), the loaded one checked. */
+  const openVersions = () => {
+    const online = external()?.online;
+    if (!online) return;
+    const search = ++versionsSearch;
+    setVersionPickRows([{ kind: 'list', id: 'searching', label: 'Searching…', checked: false }]);
+    removeVersions = router.pushOverlay(SUB_VERSIONS_ID, () => {
+      versionsSearch++;
+      versionList = undefined;
+      removeVersions = undefined;
+      setVersionPickRows(undefined);
+      focusBarOrRoot();
+    });
+    queueMicrotask(() => { if (alive) versionsNode?.setFocus(); });
+    api.subtitleVersions(p.itemId, online.language, p.series?.id, videoFps()).then((versions) => {
+      if (!alive || search !== versionsSearch) return;
+      if (versions.length === 0) {
+        closeVersions();
+        focusBarOrRoot();
+        showToast('No other versions found for this title.');
+        return;
+      }
+      versionList = { language: online.language, versions };
+      setVersionPickRows(versionRows(versions, external()?.online?.fileId));
+    }, (err) => {
+      console.warn('Subtitle versions failed', errName(err));
+      if (!alive || search !== versionsSearch) return;
+      closeVersions();
+      focusBarOrRoot();
+      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't search for subtitles.");
+    });
+  };
+
+  /** A version picked: download that one file and turn it on (the loaded one just closes the list). */
+  const pickVersion = (row: PickerRow) => {
+    if (row.kind !== 'list' || subBusy()) return;
+    const fileId = versionFileId(row.id);
+    const list = versionList;
+    const v = list?.versions.find((x) => x.fileId === fileId);
+    if (fileId === undefined || !list || !v) return;
+    if (fileId === external()?.online?.fileId) {
+      closeVersions();
+      focusBarOrRoot();
+      return;
+    }
+    const label = onlineLanguageLabel(list.language);
+    const details = { language: list.language, ...(v.fps ? { fps: v.fps } : {}) };
+    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
+      if (!alive) return;
+      closeVersions();
+      focusBarOrRoot();
+      if (error) showToast(error);
     });
   };
 
@@ -1039,8 +1170,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!extOn() || !ext) return;
     const show = () => {
       const at = trustedPos();
-      // A positive delay shows each cue later: look up the cue for that much earlier.
-      setCue(at === undefined || !Number.isFinite(at) ? '' : cueText(cueAt(ext.cues, at - subDelay())));
+      // A positive delay shows each cue later: look up the cue for that much earlier; the speed fixes frame-rate drift.
+      setCue(at === undefined || !Number.isFinite(at) ? '' : cueText(cueAt(ext.cues, subtitleTime(at, subDelay(), subSpeed()))));
     };
     show();
     const timer = setInterval(show, EXT_SUB_POLL_MS);
@@ -1075,6 +1206,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       shapeTicks++;
       const shape = playing && shapeCheckDue(shapeTicks) ? trackShape(playback.audioTracks(), playback.textTracks()) : tracksAppliedShape;
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
+      // A loaded file without a speed: set it once the engine reports the video's frame rate.
+      if (playing && autoSpeedTries > 0) applyAutoSpeed();
+      // Where the engine reports no frame rate it is measured once playing: ask early, so a search has it.
+      if (playing && fpsPrimeTicks > 0 && !cu) fpsPrimeTicks = videoFps() === undefined ? fpsPrimeTicks - 1 : 0;
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
       // Catch-up: the programme's end reached (the archive may run on into the next one, or reach live).
@@ -1108,8 +1243,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!cu) api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });
     if (!cu) api.getSubtitle(p.itemId).then((loaded) => {
       if (!alive || !loaded) return;
-      setExternal(loaded);
-      setSubDelay(loaded.delayMs ?? 0);
+      useLoaded(loaded);
       if (chosen.subtitle === SUBTITLE_KEY_EXT) applySubtitle();
     }, (err) => console.warn('Subtitle read failed', errName(err)));
     onCleanup(() => {
@@ -1139,6 +1273,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     router.removeOverlay(SUB_URL_ID);
     removeOnline?.();
     router.removeOverlay(SUB_ONLINE_ID);
+    removeVersions?.();
+    router.removeOverlay(SUB_VERSIONS_ID);
     stopOurs();
   });
 
@@ -1255,6 +1391,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={onlineRows()}>{(list) => (
         <ListPicker ref={(el) => { onlineNode = el; }} title="Subtitles online" rows={list()} onPick={pickOnline}
+          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
+      )}</Show>
+
+      <Show when={versionPickRows()}>{(list) => (
+        <ListPicker ref={(el) => { versionsNode = el; }} title="Subtitle versions" rows={list()} onPick={pickVersion}
           hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
       )}</Show>
 

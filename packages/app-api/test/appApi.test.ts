@@ -4,8 +4,9 @@ import {
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
-import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, scrub } from '../src/appApi.ts';
+import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, MOVIE_HASH_RETRY_MS, SUBTITLE_SEARCH_PAGE_SIZE, scrub } from '../src/appApi.ts';
 import { worseCooldown } from '../src/index.ts';
+import { VodController } from '../src/vodController.ts';
 import type { AppEvent } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 13, 18, 10);
@@ -2284,15 +2285,19 @@ describe('subtitles from a link or a file', () => {
 
 describe('subtitles found online (fake OpenSubtitles service)', () => {
   const hashed: string[] = [];
-  const makeOnline = (apiKey = 'fake-key', fileHash?: (url: string) => Promise<string | undefined>) => {
+  type HashFn = (url: string, headers?: { userAgent?: string; referrer?: string }) => Promise<string | undefined>;
+  // The API's clock (its injected `now`): a test moves it to expire a failed hash read; reset after each test.
+  let clockMs = NOW;
+  afterEach(() => { clockMs = NOW; vi.restoreAllMocks(); });
+  const makeOnline = (apiKey = 'fake-key', fileHash?: HashFn, apiFetch?: (u: string, i?: RequestInit) => Promise<Response>) => {
     const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
     const service = new SourceService(deps);
     const vod = new VodService(deps);
     const subtitles = new SubtitleService(deps);
     const onlineSubtitles = new OpenSubtitlesClient({
-      apiFetch: deps.fetch, fileFetch: deps.fetch, apiKey, baseUrl: `${server.url}/opensubtitles/api/v1`, appName: 'Test v0',
+      apiFetch: apiFetch ?? deps.fetch, fileFetch: deps.fetch, apiKey, baseUrl: `${server.url}/opensubtitles/api/v1`, appName: 'Test v0',
     });
-    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, ...(fileHash ? { fileHash } : {}), emit: () => {}, now: () => NOW });
+    const api = new AppApi({ service, storage, vod, subtitles, onlineSubtitles, ...(fileHash ? { fileHash } : {}), emit: () => {}, now: () => clockMs });
     live.push(api);
     return api;
   };
@@ -2346,6 +2351,220 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await api.refreshVod('movie');
     const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
     expect((await api.findSubtitlesOnline(movieId)).length).toBe(5);
+  });
+
+  const firstMovie = async (api: AppApi) => {
+    await api.refreshVod('movie');
+    return (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+  };
+
+  test('with the video frame rate: each language\'s best is timed for it; rows carry its release and fps', async () => {
+    const api = makeOnline();
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleLanguage: 'sv' });
+    const movieId = await firstMovie(api);
+    const plain = await api.findSubtitlesOnline(movieId);
+    // Without a frame rate: the trusted PAL file, as before.
+    expect(plain[0]).toMatchObject({ language: 'sv', fileId: 2001, release: 'Synthetic.Release.sv.1', fps: 25 });
+    const film = await api.findSubtitlesOnline(movieId, undefined, 23.976);
+    expect(film[0]).toMatchObject({ language: 'sv', fileId: 2002, release: 'Synthetic.Release.sv.2', fps: 23.976 });
+    expect(film[0]!.files).toEqual([2002, 2001]);
+    // A language with only a PAL file still offers it, its fps on the row.
+    expect(film.find((l) => l.language === 'de')).toMatchObject({ fileId: 3001, fps: 25 });
+  });
+
+  test('versions of one language: one search for that language only, ranked with the frame rate', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', undefined, (u, i) => { urls.push(u); return fetch(u, i); });
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const versions = await api.subtitleVersions(movieId, 'en', undefined, 23.976);
+    expect(urls).toHaveLength(1);
+    expect(new URL(urls[0]!).searchParams.get('languages')).toBe('en');
+    expect(new URL(urls[0]!).searchParams.get('page')).toBeNull();
+    expect(versions.map((v) => v.fileId)).toEqual([1002, 1003, 1001]);
+    expect(versions[0]).toEqual({ fileId: 1002, release: 'Synthetic.Release.en.2', fps: 23.976, synced: false, downloads: 800 });
+    expect('fps' in versions[1]!).toBe(false);
+  });
+
+  test('versions are kept per title for the session: a reopen asks nothing; a source switch forgets them', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', undefined, (u, i) => { if (new URL(u).pathname.endsWith('/subtitles')) urls.push(u); return fetch(u, i); });
+    const { sourceId } = await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const first = await api.subtitleVersions(movieId, 'en', undefined, 23.976);
+    expect(urls).toHaveLength(1);
+    expect(await api.subtitleVersions(movieId, 'en', undefined, 23.976)).toEqual(first);
+    expect(urls).toHaveLength(1);
+    // Another language (or frame rate) is another list.
+    await api.subtitleVersions(movieId, 'sv', undefined, 23.976);
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    await api.setActiveSource(sourceId);
+    await api.subtitleVersions(movieId, 'en', undefined, 23.976);
+    expect(urls).toHaveLength(4);
+  });
+
+  test('kept versions belong to the file playing and the exact-match setting', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', async () => '0123456789abcdef',
+      (u, i) => { if (new URL(u).pathname.endsWith('/subtitles')) urls.push(u); return fetch(u, i); });
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(1);
+    // Exact match turned on: the list is made again (now with the hash), then kept.
+    await api.saveSettings({ subtitleExactMatch: true });
+    expect((await api.subtitleVersions(movieId, 'en'))[0]).toMatchObject({ synced: true });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(2);
+    // Another version of the movie picked (the id now plays another file): its own list.
+    const real = VodController.prototype.playable;
+    const spy = vi.spyOn(VodController.prototype, 'playable').mockImplementation(async function (this: VodController, ...args) {
+      const out = await real.apply(this, args);
+      return out && { ...out, url: out.url.replace(/(\.\w+)$/, '-other$1') };
+    });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    spy.mockRestore();
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    // Exact match off again: the list made without the hash is still kept.
+    await api.saveSettings({ subtitleExactMatch: false });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+  });
+
+  test('a version loaded from the list keeps its language, file id and frame rate; its speed is kept with it', async () => {
+    const api = makeOnline();
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const loaded = await api.loadOnlineSubtitle(movieId, 2001, 'Swedish', { language: 'sv', fps: 25 });
+    expect(loaded).toMatchObject({ name: 'Swedish', online: { language: 'sv', fileId: 2001 }, fps: 25 });
+    expect((await api.getSubtitle(movieId))?.speed).toBeUndefined();
+    await api.setSubtitleSpeed(movieId, 23.976 / 25);
+    await api.setSubtitleDelay(movieId, 300);
+    expect(await api.getSubtitle(movieId)).toMatchObject({ speed: 23.976 / 25, delayMs: 300, online: { language: 'sv', fileId: 2001 } });
+  });
+
+  test('exact match: another file under the same id (a picked version) is hashed again; a source switch forgets the hashes', async () => {
+    const hashed: string[] = [];
+    const api = makeOnline('fake-key', async (url) => { hashed.push(url); return '0123456789abcdef'; });
+    const { sourceId } = await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(1);
+    // The id now resolves to another file (as after "pickVodVersion"): its own hash is read.
+    const real = VodController.prototype.playable;
+    const spy = vi.spyOn(VodController.prototype, 'playable').mockImplementation(async function (this: VodController, ...args) {
+      const out = await real.apply(this, args);
+      return out && { ...out, url: out.url.replace(/(\.\w+)$/, '-other$1') };
+    });
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(2);
+    expect(hashed[1]).toMatch(/-other\.\w+$/);
+    spy.mockRestore();
+    // Back to the first file: still remembered.
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(2);
+    // Switching source (even to the same one) forgets every hash.
+    await api.setActiveSource(sourceId);
+    await api.findSubtitlesOnline(movieId);
+    expect(hashed).toHaveLength(3);
+  });
+
+  test('exact match: a failed hash read is retried only after MOVIE_HASH_RETRY_MS', async () => {
+    let calls = 0;
+    const api = makeOnline('fake-key', async () => { calls++; return undefined; });
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    await api.findSubtitlesOnline(movieId);
+    clockMs = NOW + MOVIE_HASH_RETRY_MS - 1;
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toBe(1);
+    clockMs = NOW + MOVIE_HASH_RETRY_MS;
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toBe(2);
+  });
+
+  test('versions with an empty or blank language: none, and nothing is asked', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', undefined, (u, i) => { urls.push(u); return fetch(u, i); });
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    expect(await api.subtitleVersions(movieId, '')).toEqual([]);
+    expect(await api.subtitleVersions(movieId, '  ')).toEqual([]);
+    expect(urls).toEqual([]);
+  });
+
+  // A stub of the search API: `pages` answers by page number; other calls go to the fake server.
+  const pagedApi = (pages: Record<number, { total_pages?: number; ids: number[] }>, urls: string[]) =>
+    async (u: string, i?: RequestInit): Promise<Response> => {
+      const url = new URL(u);
+      if (!url.pathname.endsWith('/subtitles')) return fetch(u, i);
+      urls.push(u);
+      const page = pages[Number(url.searchParams.get('page') ?? 1)] ?? { ids: [] };
+      const data = page.ids.map((id) => ({
+        attributes: { language: 'en', download_count: id, release: `Synthetic.${id}`, files: [{ file_id: id }] },
+      }));
+      return new Response(JSON.stringify({ ...(page.total_pages ? { total_pages: page.total_pages } : {}), data }), { status: 200 });
+    };
+  const range = (from: number, n: number) => Array.from({ length: n }, (_, k) => from + k);
+
+  test('versions: page 2 only when page 1 says there is more (or, without a page count, came back full); never a third', async () => {
+    const urls: string[] = [];
+    let pages: Record<number, { total_pages?: number; ids: number[] }> = { 1: { total_pages: 3, ids: [1, 2, 3] }, 2: { total_pages: 3, ids: [3, 4] } };
+    const api = makeOnline('fake-key', undefined, (u, i) => pagedApi(pages, urls)(u, i));
+    const { sourceId } = await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const two = await api.subtitleVersions(movieId, 'en');
+    expect(urls.map((u) => new URL(u).searchParams.get('page'))).toEqual([null, '2']);
+    // Deduplicated by file id, most downloaded first.
+    expect(two.map((v) => v.fileId)).toEqual([4, 3, 2, 1]);
+
+    const count = async (p: typeof pages) => {
+      pages = p;
+      await api.setActiveSource(sourceId); // forgets the versions kept for the session
+      urls.length = 0;
+      const n = (await api.subtitleVersions(movieId, 'en')).length;
+      return [n, urls.length];
+    };
+    expect(await count({ 1: { total_pages: 1, ids: range(1, 60) }, 2: { ids: [999] } })).toEqual([60, 1]);
+    expect(await count({ 1: { ids: range(1, SUBTITLE_SEARCH_PAGE_SIZE) }, 2: { ids: [999] } })).toEqual([SUBTITLE_SEARCH_PAGE_SIZE + 1, 2]);
+    expect(await count({ 1: { ids: range(1, SUBTITLE_SEARCH_PAGE_SIZE - 1) }, 2: { ids: [999] } })).toEqual([SUBTITLE_SEARCH_PAGE_SIZE - 1, 1]);
+  });
+
+  test('exact match: the hash is read once per title with the stream\'s headers and reused by the versions search', async () => {
+    const calls: [string, unknown][] = [];
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', async (url, headers) => { calls.push([url, headers]); return '0123456789abcdef'; },
+      (u, i) => { urls.push(u); return fetch(u, i); });
+    await api.addSource({ ...xt(), userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]).toEqual({ userAgent: 'SourceAgent/1.0', referrer: 'http://example.test/source' });
+    const versions = await api.subtitleVersions(movieId, 'en');
+    expect(calls).toHaveLength(1);
+    expect(new URL(urls.at(-1)!).searchParams.get('moviehash')).toBe('0123456789abcdef');
+    expect(versions[0]).toMatchObject({ fileId: 1003, synced: true });
+    await api.findSubtitlesOnline(movieId);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('exact match: the versions search reads the hash itself when the language list did not', async () => {
+    const calls: string[] = [];
+    const api = makeOnline('fake-key', async (url) => { calls.push(url); return undefined; });
+    await api.addSource(xt());
+    await api.saveSettings({ subtitleExactMatch: true });
+    const movieId = await firstMovie(api);
+    expect((await api.subtitleVersions(movieId, 'sv')).length).toBe(2);
+    await api.subtitleVersions(movieId, 'en');
+    // A failed read is remembered too: not asked again for the same title for a while (retried after 10 minutes).
+    expect(calls).toHaveLength(1);
   });
 
   test('not set up (no client): unavailable and rejects; the service\'s own errors come through', async () => {

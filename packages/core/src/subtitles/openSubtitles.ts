@@ -16,6 +16,8 @@ export interface SubtitleSearch {
   languages?: string[];
   /** The file's OpenSubtitles hash (`fetchMovieHash`): results then mark the files timed for this exact release. */
   moviehash?: string;
+  /** 1-based result page; left out: the first. */
+  page?: number;
 }
 
 /** One subtitle file found online. */
@@ -31,6 +33,8 @@ export interface OnlineSubtitle {
   trusted: boolean;
   /** Made for the exact file playing (its hash matched): timed for it. */
   hashMatch: boolean;
+  /** The frame rate the file was timed for, when the service says (a positive number). */
+  fps?: number;
 }
 
 /** One row of the language list: how many files, the one a click loads, and all of them best first. */
@@ -81,19 +85,30 @@ export function searchParams(q: SubtitleSearch): string {
   }
   if (q.languages?.length) p.languages = [...q.languages].sort().join(',');
   if (q.moviehash) p.moviehash = q.moviehash;
+  const pg = Math.floor(q.page ?? 1);
+  if (pg > 1) p.page = String(pg);
   return Object.keys(p).sort().map((k) => `${k}=${enc(p[k] ?? '')}`).join('&');
 }
 
-const score = (s: OnlineSubtitle) => [s.hashMatch ? 0 : 1, s.trusted ? 0 : 1, s.machineTranslated ? 1 : 0, s.hearingImpaired ? 1 : 0, -s.downloads];
+/** 0: the frame rate of the video; 1: unknown; 2: another one. Without a video frame rate: all 0. */
+function fpsRank(s: OnlineSubtitle, videoFps: number | undefined): number {
+  if (!videoFps || videoFps <= 0) return 0;
+  if (!s.fps) return 1;
+  return Math.abs(s.fps - videoFps) <= 0.05 ? 0 : 2;
+}
+
+const score = (s: OnlineSubtitle, videoFps?: number) => [
+  s.hashMatch ? 0 : 1, fpsRank(s, videoFps), s.trusted ? 0 : 1, s.machineTranslated ? 1 : 0, s.hearingImpaired ? 1 : 0, -s.downloads,
+];
 
 /**
- * Files best first: a match for the exact file playing, then trusted uploaders, then human translations, then not
- * hearing-impaired, then most downloaded.
+ * Files best first: a match for the exact file playing, then (when the video's frame rate is known) files timed for
+ * that rate, then trusted uploaders, then human translations, then not hearing-impaired, then most downloaded.
  */
-export function rankSubtitles(list: readonly OnlineSubtitle[]): OnlineSubtitle[] {
+export function rankSubtitles(list: readonly OnlineSubtitle[], videoFps?: number): OnlineSubtitle[] {
   return [...list].sort((a, b) => {
-    const x = score(a);
-    const y = score(b);
+    const x = score(a, videoFps);
+    const y = score(b, videoFps);
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return (x[i] ?? 0) - (y[i] ?? 0);
     return 0;
   });
@@ -107,7 +122,7 @@ export function bestSubtitle(list: readonly OnlineSubtitle[]): OnlineSubtitle | 
 const base = (code: string) => code.toLowerCase().split(/[-_]/)[0] ?? '';
 
 /** One row per language: the preferred language (ISO 639-1, 'off': none) first, then the most files, then by code. */
-export function languageChoices(list: readonly OnlineSubtitle[], preferred: string): LanguageChoice[] {
+export function languageChoices(list: readonly OnlineSubtitle[], preferred: string, videoFps?: number): LanguageChoice[] {
   const groups = new Map<string, OnlineSubtitle[]>();
   for (const s of list) {
     const g = groups.get(s.language);
@@ -116,7 +131,7 @@ export function languageChoices(list: readonly OnlineSubtitle[], preferred: stri
   }
   const rows: LanguageChoice[] = [];
   for (const [language, group] of groups) {
-    const files = rankSubtitles(group);
+    const files = rankSubtitles(group, videoFps);
     const best = files[0];
     if (best) rows.push({ language, count: files.length, best, files, synced: best.hashMatch });
   }
@@ -179,8 +194,14 @@ export class OpenSubtitlesClient {
   }
 
   async search(q: SubtitleSearch): Promise<OnlineSubtitle[]> {
+    return (await this.searchPage(q)).subtitles;
+  }
+
+  /** One page of results plus the page count the service reports (`total_pages`; undefined when it does not say). */
+  async searchPage(q: SubtitleSearch): Promise<{ subtitles: OnlineSubtitle[]; totalPages?: number }> {
     const body = await this.call(`/subtitles?${searchParams(q)}`, { method: 'GET', headers: this.headers() });
     const data = isObj(body) && Array.isArray(body.data) ? body.data : [];
+    const pages = isObj(body) && typeof body.total_pages === 'number' && Number.isFinite(body.total_pages) ? body.total_pages : undefined;
     const out: OnlineSubtitle[] = [];
     for (const d of data) {
       const a = isObj(d) && isObj(d.attributes) ? d.attributes : undefined;
@@ -188,6 +209,7 @@ export class OpenSubtitlesClient {
       const fileId = file && typeof file.file_id === 'number' ? file.file_id : undefined;
       const language = a && typeof a.language === 'string' ? a.language : '';
       if (!a || fileId === undefined || !language) continue;
+      const fps = typeof a.fps === 'number' && Number.isFinite(a.fps) && a.fps > 0 ? a.fps : undefined;
       out.push({
         fileId,
         language,
@@ -197,9 +219,10 @@ export class OpenSubtitlesClient {
         machineTranslated: a.machine_translated === true || a.ai_translated === true,
         trusted: a.from_trusted === true,
         hashMatch: a.moviehash_match === true,
+        ...(fps ? { fps } : {}),
       });
     }
-    return out;
+    return pages === undefined ? { subtitles: out } : { subtitles: out, totalPages: pages };
   }
 
   /** The file's bytes and name. Counts against the daily download quota. */

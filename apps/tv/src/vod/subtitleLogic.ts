@@ -54,6 +54,62 @@ export const DELAY_ROW = 'subDelay';
 export const DELAY_EARLIER_ROW = 'subEarlier';
 export const DELAY_LATER_ROW = 'subLater';
 export const ANOTHER_VERSION_ROW = 'subAnother';
+export const SPEED_ROW = 'subSpeed';
+
+/** A subtitle timed for 25 fps on a 23.976 fps video (its cues come ever earlier without this). */
+export const SPEED_PAL_TO_FILM = 23.976 / 25;
+/** A subtitle timed for 23.976 fps on a 25 fps video. */
+export const SPEED_FILM_TO_PAL = 25 / 23.976;
+/** The speed choices, in Left/Right order: Normal, 25 → 23.976, 23.976 → 25. */
+export const SUBTITLE_SPEEDS: readonly number[] = [1, SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL];
+/** 1, SPEED_PAL_TO_FILM or SPEED_FILM_TO_PAL: how much faster subtitle time runs than the video's. */
+export type SubtitleSpeed = number;
+export const SPEED_HELP = 'Fixes subtitles that drift further off as the film goes on';
+
+/** Frame rates closer than this are the same rate (30 and 29.97 differ by 0.1%: no visible drift in a film). */
+const FPS_SAME = 0.5;
+/** How close videoFps / subFps must be to a factor for the automatic speed (24 vs 25 counts; 24 vs 23.976 does not differ). */
+const AUTO_SPEED_TOLERANCE = 0.005;
+
+/** The time in the subtitle file to show at the video's `positionMs`: the delay first, then the speed. */
+export function subtitleTime(positionMs: number, delayMs: number, speed: SubtitleSpeed): number {
+  return (positionMs - delayMs) * speed;
+}
+
+const knownFps = (fps: number | undefined): fps is number => fps !== undefined && Number.isFinite(fps) && fps > 0;
+
+/** The saved speed as one of SUBTITLE_SPEEDS (the nearest, within 1%); anything else (or none) is Normal. */
+export function normalizeSpeed(speed: number | undefined): SubtitleSpeed {
+  if (speed === undefined || !Number.isFinite(speed)) return 1;
+  let best = 1;
+  for (const s of SUBTITLE_SPEEDS) if (Math.abs(s - speed) < Math.abs(best - speed)) best = s;
+  return Math.abs(best - speed) / best < 0.01 ? best : 1;
+}
+
+/**
+ * The speed that fits a subtitle timed for `subFps` to a video at `videoFps`: video time to subtitle time is
+ * videoFps / subFps, snapped to the nearer of the two factors. Normal when either rate is unknown or they are the same.
+ */
+export function autoSpeed(subFps?: number, videoFps?: number): SubtitleSpeed {
+  if (!knownFps(subFps) || !knownFps(videoFps) || Math.abs(subFps - videoFps) <= FPS_SAME) return 1;
+  // Only the 24/25 pairs: 25 vs 50 or 23.976 vs 29.97 is no speed difference a fixed factor fixes.
+  const ratio = videoFps / subFps;
+  for (const s of [SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL]) if (Math.abs(ratio - s) / s <= AUTO_SPEED_TOLERANCE) return s;
+  return 1;
+}
+
+/** "Normal", "25 → 23.976", "23.976 → 25". */
+export function speedLabel(speed: SubtitleSpeed): string {
+  const s = normalizeSpeed(speed);
+  return s === SPEED_PAL_TO_FILM ? '25 → 23.976' : s === SPEED_FILM_TO_PAL ? '23.976 → 25' : 'Normal';
+}
+
+/** The next (1) or previous (-1) speed, wrapping. */
+export function stepSpeed(speed: SubtitleSpeed, dir: 1 | -1): SubtitleSpeed {
+  const n = SUBTITLE_SPEEDS.length;
+  const i = SUBTITLE_SPEEDS.indexOf(normalizeSpeed(speed));
+  return SUBTITLE_SPEEDS[(i + dir + n) % n] ?? 1;
+}
 
 /** One Left/Right press on the delay row; the pointer rows step further. */
 export const DELAY_STEP_MS = 100;
@@ -73,8 +129,8 @@ export function stepDelay(ms: number, dir: 1 | -1, step = DELAY_STEP_MS): number
 }
 
 /**
- * The "Audio & subtitles" rows after the tracks: the loaded file, its delay (while it shows) and another version
- * (a file found online with more than one), find online, the load actions, and remove.
+ * The "Audio & subtitles" rows after the tracks: the loaded file, its delay and speed (while it shows) and another
+ * version (a file found online: the row opens its language's versions), find online, the load actions, and remove.
  */
 export function subtitleExtraRows(s: {
   external?: { name: string; active: boolean };
@@ -82,8 +138,10 @@ export function subtitleExtraRows(s: {
   delayMs?: number;
   /** Pointer mode: the delay also gets earlier/later rows to click. */
   pointer?: boolean;
-  /** The loaded file came from "Find subtitles online": its language's versions and which one shows. */
-  another?: { label: string; index: number; total: number };
+  /** The loaded file's speed (Normal when not given). */
+  speed?: SubtitleSpeed;
+  /** The loaded file came from "Find subtitles online": its language's name (the row opens its versions). */
+  another?: { label: string };
   canLoadFile: boolean;
   canSearchOnline?: boolean;
 }): PickerRow[] {
@@ -95,10 +153,8 @@ export function subtitleExtraRows(s: {
       rows.push({ kind: 'list', id: DELAY_EARLIER_ROW, label: `Subtitles ${DELAY_POINTER_STEP_MS / 1000} s earlier`, checked: false });
       rows.push({ kind: 'list', id: DELAY_LATER_ROW, label: `Subtitles ${DELAY_POINTER_STEP_MS / 1000} s later`, checked: false });
     }
-    if (s.another && s.another.total > 1) {
-      const next = (s.another.index + 1) % s.another.total;
-      rows.push({ kind: 'list', id: ANOTHER_VERSION_ROW, label: `Try another ${s.another.label} version (${next + 1} of ${s.another.total})`, checked: false });
-    }
+    rows.push({ kind: 'list', id: SPEED_ROW, label: `Subtitle speed: ${speedLabel(s.speed ?? 1)} (Left/Right)`, checked: false, help: SPEED_HELP });
+    if (s.another) rows.push({ kind: 'list', id: ANOTHER_VERSION_ROW, label: `Try another ${s.another.label} version…`, checked: false });
   }
   if (s.canSearchOnline) rows.push({ kind: 'list', id: FIND_ONLINE_ROW, label: 'Find subtitles online…', checked: false });
   rows.push({ kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false });
@@ -108,7 +164,7 @@ export function subtitleExtraRows(s: {
 }
 
 /** One language found online, as the worker lists it. */
-export interface OnlineLanguage { language: string; count: number; fileId: number; files?: number[]; synced?: boolean }
+export interface OnlineLanguage { language: string; count: number; fileId: number; files?: number[]; synced?: boolean; fps?: number }
 
 const ONLINE_PREFIX = 'os:';
 
@@ -132,5 +188,48 @@ export function onlineLanguageRows(langs: readonly OnlineLanguage[]): PickerRow[
 export function onlineFileId(rowId: string): number | undefined {
   if (!rowId.startsWith(ONLINE_PREFIX)) return undefined;
   const n = Number(rowId.slice(ONLINE_PREFIX.length));
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+/** One version of a language's subtitles, as the worker lists it. */
+export interface VersionInfo { fileId: number; release: string; fps?: number; synced: boolean; downloads?: number }
+
+/** The longest version label the picker row shows whole (its text width at body size). */
+export const VERSION_LABEL_MAX = 38;
+const VERSION_PREFIX = 'v:';
+
+/** "23.976 fps", "25 fps" (three decimals at most). */
+const fpsText = (fps: number) => `${Number(fps.toFixed(3))} fps`;
+
+/**
+ * "Release.Name · 25 fps · exact match": the frame rate and the match only when known; "Version 3" without a
+ * release name. A long name is cut (with "…") so the whole label fits VERSION_LABEL_MAX.
+ */
+export function versionLabel(v: { release: string; fps?: number; synced: boolean }, n: number): string {
+  const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'exact match' : ''].filter(Boolean);
+  const tail = parts.map((t) => ` · ${t}`).join('');
+  let name = releaseName(v.release) || `Version ${n}`;
+  const room = Math.max(8, VERSION_LABEL_MAX - tail.length);
+  if (name.length > room) name = `${name.slice(0, room - 1).trimEnd()}…`;
+  return name + tail;
+}
+
+const releaseName = (release: string) => release.trim().replace(/\s+/g, ' ');
+
+/** The versions picker: one row per version, best first, the loaded one checked; the footer shows the whole release. */
+export function versionRows(versions: readonly VersionInfo[], loadedFileId?: number): PickerRow[] {
+  return versions.map((v, i) => {
+    const release = releaseName(v.release);
+    return {
+      kind: 'list', id: `${VERSION_PREFIX}${v.fileId}`, label: versionLabel(v, i + 1), checked: v.fileId === loadedFileId,
+      ...(release ? { help: release } : {}),
+    };
+  });
+}
+
+/** The file id a versions row loads; undefined for any other row. */
+export function versionFileId(rowId: string): number | undefined {
+  if (!rowId.startsWith(VERSION_PREFIX)) return undefined;
+  const n = Number(rowId.slice(VERSION_PREFIX.length));
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }

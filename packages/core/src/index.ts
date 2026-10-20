@@ -75,7 +75,7 @@ export {
 } from './search/titleIndex.ts';
 export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
 export {
-  SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleInput, type SubtitleServiceDeps,
+  SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleDetails, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';
 export {
   OpenSubtitlesClient, bestSubtitle, languageChoices, rankSubtitles, searchParams, searchTitle,

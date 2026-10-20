@@ -1,4 +1,4 @@
-import type { FetchFn } from '../types.ts';
+import type { FetchFn, StreamHeaders } from '../types.ts';
 
 /** The OpenSubtitles hash reads this much from each end of the file. */
 export const HASH_CHUNK = 65536;
@@ -23,11 +23,13 @@ export function openSubtitlesHash(size: number, head: Uint8Array, tail: Uint8Arr
 }
 
 /** One byte range of `url`: the bytes and the file's total size, or undefined when the server did not honour it. */
-async function range(fetchFn: FetchFn, url: string, from: number, to: number): Promise<{ bytes: Uint8Array; size: number } | undefined> {
+async function range(
+  fetchFn: FetchFn, url: string, from: number, to: number, headers: StreamHeaders | undefined,
+): Promise<{ bytes: Uint8Array; size: number } | undefined> {
   const ac = new AbortController();
   let res: Response;
   try {
-    res = await fetchFn(url, { headers: { Range: `bytes=${from}-${to}` }, signal: ac.signal });
+    res = await fetchFn(url, { headers: { Range: `bytes=${from}-${to}` }, signal: ac.signal, ...(headers ? { sourceHeaders: headers } : {}) });
   } catch {
     return undefined;
   }
@@ -47,9 +49,10 @@ async function range(fetchFn: FetchFn, url: string, from: number, to: number): P
 /**
  * The moviehash of a VOD file, read with two small range requests (the first also gives the size). Undefined, never
  * an error, for a playlist, a server that ignores ranges (aborted at once), a refusal or a file smaller than two
- * chunks: the search then simply goes without it.
+ * chunks: the search then simply goes without it. `headers`: the stream's User-Agent and Referer (some servers refuse
+ * the file without them), passed as `FetchInit.sourceHeaders` with both requests.
  */
-export async function fetchMovieHash(fetchFn: FetchFn, url: string): Promise<string | undefined> {
+export async function fetchMovieHash(fetchFn: FetchFn, url: string, headers?: StreamHeaders): Promise<string | undefined> {
   let path: string;
   try {
     path = new URL(url).pathname.toLowerCase();
@@ -58,9 +61,9 @@ export async function fetchMovieHash(fetchFn: FetchFn, url: string): Promise<str
   }
   // A playlist is not the film's file.
   if (path.endsWith('.m3u8') || path.endsWith('.m3u')) return undefined;
-  const head = await range(fetchFn, url, 0, HASH_CHUNK - 1);
+  const head = await range(fetchFn, url, 0, HASH_CHUNK - 1, headers);
   if (!head || head.size < HASH_CHUNK * 2 || head.bytes.byteLength !== HASH_CHUNK) return undefined;
-  const tail = await range(fetchFn, url, head.size - HASH_CHUNK, head.size - 1);
+  const tail = await range(fetchFn, url, head.size - HASH_CHUNK, head.size - 1, headers);
   if (!tail || tail.bytes.byteLength !== HASH_CHUNK) return undefined;
   return openSubtitlesHash(head.size, head.bytes, tail.bytes);
 }
