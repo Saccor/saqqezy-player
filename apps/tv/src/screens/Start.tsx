@@ -198,10 +198,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   /** Back from the rows goes to the rail; Back on the rail returns to Live TV. */
   const back = () => {
     if (area() !== 'rail') return focusArea('rail');
-    router.back({ focusRail: true });
+    router.back({ fromVod: true });
     return true;
   };
-  const goTab = (t: RailId) => goRail('start', t, () => router.back({ focusRail: true }));
+  const goTab = (t: RailId) => goRail('start', t, () => router.back({ fromVod: true }));
 
   onMount(() => {
     // Like Movies and Series: a full screen over Home; Back to Live TV resumes the channel that was playing.

@@ -186,9 +186,9 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
 });
 
 describe('returnedToLive', () => {
-  it('reads only focusRail', () => {
-    expect(returnedToLive({ focusRail: true })).toBe(true);
+  it('reads only fromVod (Back to Live TV resumes; it does not move focus to the rail)', () => {
+    expect(returnedToLive({ fromVod: true })).toBe(true);
     expect(returnedToLive({})).toBe(false);
-    expect(returnedToLive({ focusRail: false })).toBe(false);
+    expect(returnedToLive({ fromVod: false })).toBe(false);
   });
 });

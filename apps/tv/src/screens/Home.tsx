@@ -118,13 +118,14 @@ function PhoneBadge() {
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusRail?: true };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; fromVod?: true };
   // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
   const focusHint = params.focusChannelId;
   delete params.focusChannelId;
-  // One-shot from Back (or Live TV on the rail) on Start, Movies or Series: the rail takes focus and the stopped channel resumes.
-  const focusRailHint = returnedToLive(params);
-  delete params.focusRail;
+  // One-shot from Back (or Live TV on the rail) on Start, Movies or Series: the stopped channel resumes and focus lands
+  // on it in the channel list (you return to what you were watching), like any return to Home.
+  const fromVod = returnedToLive(params);
+  delete params.fromVod;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
@@ -1011,7 +1012,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // plays again through the same path as Ok (the refusal cooldown holds it; the dev resume gate applies).
         const playingId = playback.current()?.id
           ?? vodReturnTarget({
-            fromVod: focusRailHint, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
+            fromVod, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
           });
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
         // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
@@ -1036,7 +1037,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         if (resume && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
         if (!searching() && !exited()) {
-          const toRail = focusRailHint || (vodOnly && total() === 0 && router.topOverlay() === undefined);
+          // Only a source without live channels lands on the rail; a return from Start, Movies or Series lands on the list.
+          const toRail = vodOnly && total() === 0 && router.topOverlay() === undefined;
           focusArea(toRail ? 'rail' : total() > 0 ? 'list' : 'groups');
         }
       } catch (err) {

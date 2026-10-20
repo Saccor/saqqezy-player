@@ -275,7 +275,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** Back from the rows or the header goes to the rail; Back on the rail returns to Live TV. */
   const back = () => {
     if (area() !== 'rail') return focusArea('rail');
-    router.back({ focusRail: true });
+    router.back({ fromVod: true });
     return true;
   };
   const openCell = () => {
@@ -474,7 +474,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       onGreen={() => (greenOpensGrid(status()) ? openGrid(VOD_ALL) : true)}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
       <Backdrop url={shownArt()} area="strip" />
-      <Rail ref={(el) => { railNode = el; }} active={tabOfKind(kind)} onSelect={(t) => goRail(tabOfKind(kind), t, () => router.back({ focusRail: true }))}
+      <Rail ref={(el) => { railNode = el; }} active={tabOfKind(kind)} onSelect={(t) => goRail(tabOfKind(kind), t, () => router.back({ fromVod: true }))}
         onRight={() => focusArea(rows().length > 0 ? 'rows' : 'header')} onFocusChanged={(f) => { if (f) choose('rail'); }} />
       {/* The catalogue status while there is one, else the plot. */}
       <InfoStrip title={stripTile()?.title ?? ''} meta={stripMeta()} plot={statusLine() || heroDetail()?.plot} />

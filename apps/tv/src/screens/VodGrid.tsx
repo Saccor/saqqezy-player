@@ -446,7 +446,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}>
-      <Rail ref={(el) => { railNode = el; }} active={below} onSelect={(t) => { if (noOverlay()) goRailNested(below, t, () => router.back({ focusRail: true })); }}
+      <Rail ref={(el) => { railNode = el; }} active={below} onSelect={(t) => { if (noOverlay()) goRailNested(below, t, () => router.back({ fromVod: true })); }}
         onRight={() => focusArea(total() > 0 ? 'grid' : 'header')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={cats().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}

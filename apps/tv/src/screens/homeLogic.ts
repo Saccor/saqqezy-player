@@ -81,9 +81,12 @@ export function resumeTarget(s: {
   return s.lastChannelId;
 }
 
-/** Back from Movies, Series or Start (or Live TV on their rail) returns to Home with `focusRail`. */
-export function returnedToLive(params: { focusRail?: unknown }): boolean {
-  return params.focusRail === true;
+/**
+ * Back from Movies, Series or Start (or Live TV on their rail) returns to Home with `fromVod`: the channel they stopped
+ * resumes and focus lands on the channel list (you return to what you were watching), not on the rail.
+ */
+export function returnedToLive(params: { fromVod?: unknown }): boolean {
+  return params.fromVod === true;
 }
 
 /**

@@ -334,6 +334,11 @@ Spec `docs/superpowers/specs/2026-10-20-catch-up-design.md`. The URL is built in
   `ListPicker` for categories, sorts and seasons, `components/ScrollIndicator.tsx`.
 - Back: from content to the rail on Start, Movies/Series browse and the library grid; on the rail, the screen's previous
   Back. Live TV keeps its old Back chain (rail, list, exit question) until phase 2.
+- Back to Live TV (Back on the rail of Start/Movies/Series, or Live TV on their rail) passes `fromVod`: the channel that
+  was stopped resumes and focus lands on it in the channel list (you return to what you were watching), not on the rail.
+  Only a source without live channels lands on the rail.
+- The library grid is pushed over browse or Start: its rail highlights that screen's tab, and a tab choice pops the grid
+  first, then moves as that screen would (`railFromNested`, `goRailNested`).
 - Clock and wordmark: the clock is drawn in the rail on rail screens (`railRoute` in `shell/logic.ts`) and by the shell
   clock elsewhere. The wordmark is hidden on the redesigned screens (`showWordmark`).
 - Poster size: Settings → Display → Poster size (Standard 8 / Compact 10 per row), resolved by `gridLayout` in
