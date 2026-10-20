@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { failureText } from '../playback/failureText.ts';
 import { COOLDOWN_TEXT } from '../state/cooldownLogic.ts';
-import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from './messageFit.ts';
+import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, shortenToBox, stackedMessage } from './messageFit.ts';
 
 describe('stackedMessage', () => {
   it('puts the hint under the last line of the text, the whole block centred and inside the box', () => {
@@ -50,10 +50,39 @@ describe('MESSAGE_BOXES', () => {
   });
 
   it('every box keeps its lines inside its height', () => {
-    const heights = { preview: 331, guide: 270, player: 206, vodCard: 124, vodCardSmall: 124 } as const;
+    const heights = { preview: 331, guide: 270, live: 234, player: 206, vodCard: 124, vodCardSmall: 124 } as const;
     for (const [key, h] of Object.entries(heights)) {
       const b = MESSAGE_BOXES[key as keyof typeof MESSAGE_BOXES];
       expect(b.maxLines * b.lineH, key).toBeLessThanOrEqual(h);
     }
+  });
+});
+
+describe('live box (416 x 234 mini window)', () => {
+  const limit = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel');
+  const messages = [
+    failureText({ reason: 'unavailable' }, 'channel'),
+    failureText({ reason: 'unavailable', httpStatus: 404 }, 'channel'),
+    failureText({ reason: 'unsupported' }, 'channel'),
+    failureText({ reason: 'gone', httpStatus: 404 }, 'channel'),
+    failureText({ reason: 'refused', httpStatus: 429 }, 'channel'),
+    failureText({ reason: 'refused', httpStatus: 403 }, 'channel'),
+    limit,
+    COOLDOWN_TEXT,
+  ];
+
+  it('every preview message fits once shortened; only the account-limit refusal needs it', () => {
+    for (const m of messages) {
+      expect(fitsBox(shortenToBox(m, MESSAGE_BOXES.live), MESSAGE_BOXES.live), m).toBe(true);
+    }
+    expect(messages.filter((m) => !fitsBox(m, MESSAGE_BOXES.live))).toEqual([limit]);
+    expect(shortenToBox(limit, MESSAGE_BOXES.live)).toBe('Your source refused this stream (403).');
+  });
+
+  it('shortenToBox keeps a fitting message and a lone long sentence as they are', () => {
+    const box = { charsPerLine: 10, maxLines: 2, lineH: 30 };
+    expect(shortenToBox('Short one.', box)).toBe('Short one.');
+    expect(shortenToBox('One long sentence that never fits.', box)).toBe('One long sentence that never fits.');
+    expect(shortenToBox('Fits it. Second sentence is far too long.', box)).toBe('Fits it.');
   });
 });
