@@ -6,7 +6,8 @@ public test stream or to a file generated on your machine from test patterns and
 
 - Start: `pnpm fake-xtream` (port 8899) or `pnpm dev` (with the TV app). Login `test` / `test`.
 - Options through the environment: `PORT`, `CHANNELS` (default 200), `FAKE_VOD_VERSIONS=1` (each title listed as three
-  language and quality variants), `SPORTS=0`.
+  language and quality variants), `SPORTS=0`, `FAKE_CATEGORY_ORDER=reverse` (`get_live_categories` lists the live groups
+  last to first, so the provider's category order differs from the stream order).
 - Special usernames: `expired`, `slow`, `error500`, and the refusal set `refuse403`, `limit429`, `gone404`, `down500`.
   `GET /__control/refuse?on=1` makes every answer a 403 until `on=0`.
 - The source works as Xtream (server `http://127.0.0.1:8899`) or as an M3U link (`/get.php?...&type=m3u_plus` with
