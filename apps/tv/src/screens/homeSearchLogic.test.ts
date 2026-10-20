@@ -209,6 +209,20 @@ describe('routeKey', () => {
     expect(routeKey('rail', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
   });
 
+  it('rail: Right goes to the list, or to the groups when the open group is empty', () => {
+    expect(routeKey('rail', 'right', ctx())).toEqual(toList);
+    expect(routeKey('rail', 'right', ctx({ hasChannels: false }))).toEqual({ kind: 'focus', place: 'groups' });
+  });
+
+  it('rail while searching: Right and Back go to the results, or to the bar when none is selectable (never a dead end)', () => {
+    expect(routeKey('rail', 'right', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('rail', 'back', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('rail', 'right', ctx({ searching: true, hasResults: false }))).toEqual(toBar);
+    expect(routeKey('rail', 'back', ctx({ searching: true, hasResults: false }))).toEqual(toBar);
+    expect(routeKey('rail', 'right', ctx({ searching: true, keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
+    expect(routeKey('rail', 'up', ctx({ searching: true }))).toEqual(PASS);
+  });
+
   it('groups: Left opens the rail (also while searching)', () => {
     expect(routeKey('groups', 'left', ctx())).toEqual({ kind: 'focus', place: 'rail' });
     expect(routeKey('groups', 'left', ctx({ searching: true }))).toEqual({ kind: 'focus', place: 'rail' });
@@ -226,14 +240,13 @@ describe('routeKey', () => {
     expect(routeKey('bar', 'right', ctx({ searching: true }))).toEqual(STAY);
   });
 
-  it('Up from the search bar stays put (the bar is the top; the rail is on the left); the rail moves itself', () => {
+  it('Up from the search bar stays put (the bar is the top; the rail is on the left); the rail moves itself up and down', () => {
     const c = { searching: false, keyboardOpen: false, hasResults: false, hasChannels: true, atEdge: false };
     expect(routeKey('bar', 'up', c)).toEqual({ kind: 'stay' });
     expect(routeKey('bar', 'up', { ...c, searching: true })).toEqual({ kind: 'stay' });
     expect(routeKey('rail', 'down', c)).toEqual({ kind: 'pass' });
     expect(routeKey('rail', 'left', c)).toEqual({ kind: 'pass' });
     expect(routeKey('rail', 'up', c)).toEqual({ kind: 'pass' });
-    expect(routeKey('rail', 'right', c)).toEqual({ kind: 'pass' });
     expect(routeKey('rail', 'back', { ...c, hasChannels: false })).toEqual({ kind: 'pass' });
   });
 

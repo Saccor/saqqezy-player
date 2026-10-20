@@ -203,9 +203,13 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       if (key === 'done') return c.hasResults ? focusTo('list') : focusTo('bar');
       return PASS;
     case 'rail':
-      // The rail moves itself (Up/Down/Right); only Back is routed: it returns to the list first.
-      if (key === 'back') return c.hasChannels ? focusTo('list') : PASS;
-      return PASS;
+      // The rail moves itself (Up/Down). Right and Back leave it for the list (or the results); a search with no
+      // selectable result goes to the keyboard or the bar instead, so focus never sticks on the open rail.
+      if (key !== 'right' && key !== 'back') return PASS;
+      if (c.searching) return c.hasResults ? focusTo('list') : focusTo(c.keyboardOpen ? 'keyboard' : 'bar');
+      if (c.hasChannels) return focusTo('list');
+      // An empty group: Right goes to the groups; Back passes on (the exit question).
+      return key === 'right' ? focusTo('groups') : PASS;
   }
 }
 

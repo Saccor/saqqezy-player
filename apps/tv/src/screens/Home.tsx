@@ -1095,7 +1095,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         height={PREVIEW_RECT.h} color={COLORS.background} />
 
       <Rail ref={(el) => { railNode = el; }} active="live" onSelect={railSelect}
-        onRight={() => focusArea(total() > 0 ? 'list' : 'groups')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
+        onRight={() => nav('rail', 'right')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
       <SearchBar ref={(el) => { barNode = el; }} x={LIST_X} y={HEAD_Y} width={LIST_W} value={query()}
         count={searching() ? countText(sState()) : ''} editing={kbOpen()}
