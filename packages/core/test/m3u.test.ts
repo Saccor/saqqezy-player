@@ -37,6 +37,44 @@ describe('parseM3u', () => {
   });
 });
 
+describe('parseM3u – tvg-country and tvg-language', () => {
+  test('single values and comma or semicolon lists, trimmed, empties and duplicates dropped', async () => {
+    const { out } = await parse([
+      '#EXTM3U',
+      '#EXTINF:-1 tvg-country="SE" tvg-language="Swedish",Channel 001',
+      'http://example.test/1.ts',
+      '#EXTINF:-1 TVG-COUNTRY=" SE, DK ,,NO;FI " tvg-language="sv;en, sv",Channel 002',
+      'http://example.test/2.ts',
+      '#EXTINF:-1 tvg-country="" tvg-language=" , ",Channel 003',
+      'http://example.test/3.ts',
+      '#EXTINF:-1,Channel 004',
+      'http://example.test/4.ts',
+    ].join('\n'));
+    expect(out[0]?.tvgCountry).toEqual(['SE']);
+    expect(out[0]?.tvgLanguage).toEqual(['Swedish']);
+    expect(out[1]?.tvgCountry).toEqual(['SE', 'DK', 'NO', 'FI']);
+    expect(out[1]?.tvgLanguage).toEqual(['sv', 'en']);
+    for (const e of out.slice(2)) {
+      expect(e).not.toHaveProperty('tvgCountry');
+      expect(e).not.toHaveProperty('tvgLanguage');
+    }
+  });
+
+  test('entries with the same value share one list, and channels do not carry them', async () => {
+    const { out } = await parse([
+      '#EXTINF:-1 tvg-country="SE" group-title="News",Channel 001',
+      'http://example.test/1.ts',
+      '#EXTINF:-1 tvg-country="SE" group-title="News",Channel 002',
+      'http://example.test/2.ts',
+    ].join('\n'));
+    expect(out[0]?.tvgCountry).toEqual(['SE']);
+    expect(out[0]?.tvgCountry).toBe(out[1]?.tvgCountry);
+    const ch = m3uEntriesToChannels('s', out);
+    expect(ch[0]).not.toHaveProperty('tvgCountry');
+    expect(Object.keys(ch[0]!)).not.toContain('tvgLanguage');
+  });
+});
+
 describe('m3uEntriesToChannels', () => {
   test('dedupes urls, assigns ids, groups and numbers', async () => {
     const { out } = await parse(fixture);

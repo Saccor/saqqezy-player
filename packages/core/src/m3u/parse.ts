@@ -11,6 +11,12 @@ export interface M3uEntry {
   groupTitle?: string;
   tvgChno?: number;
   tvgShift?: number;
+  /**
+   * `tvg-country` and `tvg-language` as written (split on `,` / `;`, trimmed, no empties or duplicates): detection
+   * signals for the region detector, not stored on `Channel`. Entries with the same raw value share one frozen list.
+   */
+  tvgCountry?: readonly string[];
+  tvgLanguage?: readonly string[];
   /** Request headers from `#EXTVLCOPT:http-user-agent|http-referrer`, `#EXTHTTP:{…}` and the URL pipe. */
   headers?: StreamHeaders;
   /**
@@ -78,7 +84,23 @@ function parseHeader(line: string): M3uCatchupRaw | undefined {
   return out;
 }
 
-function parseExtinf(line: string): Omit<M3uEntry, 'url'> {
+/** Raw attribute value → its split list, per parse: a 50k playlist with one country allocates one list. */
+type ListCache = Map<string, readonly string[] | undefined>;
+
+/** `"SE, DK;NO"` → `['SE', 'DK', 'NO']`; undefined when nothing is left. */
+function attrList(value: string, cache: ListCache): readonly string[] | undefined {
+  if (cache.has(value)) return cache.get(value);
+  const seen = new Set<string>();
+  for (const part of value.split(/[,;]/)) {
+    const t = part.trim();
+    if (t) seen.add(t);
+  }
+  const out = seen.size ? Object.freeze([...seen]) : undefined;
+  cache.set(value, out);
+  return out;
+}
+
+function parseExtinf(line: string, lists: ListCache): Omit<M3uEntry, 'url'> {
   const body = line.slice('#EXTINF:'.length);
   let inQuote = false;
   let comma = -1;
@@ -107,6 +129,9 @@ function parseExtinf(line: string): Omit<M3uEntry, 'url'> {
     } else if (key === 'tvg-shift') {
       const n = Number.parseFloat(value);
       if (Number.isFinite(n)) info.tvgShift = Math.max(-12, Math.min(12, n));
+    } else if (key === 'tvg-country' || key === 'tvg-language') {
+      const list = attrList(value, lists);
+      if (list) info[key === 'tvg-country' ? 'tvgCountry' : 'tvgLanguage'] = list;
     } else if (key.startsWith('catchup') || key === 'timeshift' || key === 'tvg-rec') {
       const c = catchupAttr(info.catchup, key, value);
       if (c) info.catchup = c;
@@ -174,6 +199,7 @@ export async function* parseM3u(
   let tagHeaders: StreamHeaders = {};
   /** Catch-up defaults from the `#EXTM3U` header line. */
   let headerCatchup: M3uCatchupRaw | undefined;
+  const lists: ListCache = new Map();
   for await (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
@@ -187,7 +213,7 @@ export async function* parseM3u(
         // The skipped entry's header tags must not reach the next one.
         tagHeaders = {};
       }
-      pending = { info: parseExtinf(line) };
+      pending = { info: parseExtinf(line, lists) };
       pendingGroup = undefined;
       continue;
     }
