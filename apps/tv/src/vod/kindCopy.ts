@@ -24,7 +24,7 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
 };
 
 /** 12400 → "12,400" (no Intl: older TV engines). */
-function grouped(n: number): string {
+export function grouped(n: number): string {
   return String(Math.max(0, Math.floor(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
