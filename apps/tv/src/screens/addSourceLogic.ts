@@ -1,6 +1,7 @@
 /** Pure helpers for the Add source screen (validation, error copy, progress copy). Unit-tested. */
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { NewSource, SourceConfig } from '@iptv/core';
+import { headerUsable, type HeaderSupport } from '@iptv/platform';
 
 export const DEFAULT_NAME = 'My TV';
 
@@ -142,8 +143,33 @@ export interface HttpForm { userAgent: string; referrer: string }
 /** The longest User-Agent or Referer kept: core's `HEADER_VALUE_MAX` (core stays out of the main-thread bundle). */
 export const HEADER_FIELD_MAX = 512;
 
-/** Browsers forbid scripts to set these headers; only Samsung's AVPlay applies them. Empty means the platform default. */
-export const ADVANCED_HELP = 'Applies on Samsung TVs.';
+/**
+ * Advanced: what this device sends, in plain words (spec 2026-10-20-source-headers §6.1). No presets and no names:
+ * the help says what the setting does, not what to type. Empty means the platform default.
+ */
+export function advancedHelp(support: HeaderSupport): string {
+  const { lists, streams } = support;
+  const all = lists.userAgent && lists.referrer && streams.userAgent && streams.referrer;
+  if (all) return "Sent with this source's lists, guide and streams. Leave empty to use the app's default.";
+  if (!headerUsable(support, 'userAgent') && !headerUsable(support, 'referrer')) {
+    return 'This TV cannot send these headers. The values are kept but not used here.';
+  }
+  if (!lists.userAgent && !lists.referrer && streams.userAgent && !streams.referrer) {
+    return "On this TV only the User-Agent is sent, and only with streams. Lists and the guide use the TV's own.";
+  }
+  if (lists.userAgent && lists.referrer && !streams.userAgent && !streams.referrer) {
+    return "On this TV these are sent with lists and the guide only. Leave empty to use the app's default.";
+  }
+  return "On this TV only some of these are sent. Leave empty to use the app's default.";
+}
+
+/** Under a field this device cannot use: the value is kept (a later update may use it), so it stays editable. */
+export const HEADER_UNUSED_NOTE = 'Not used on this TV';
+
+/** True when no request on this device can carry `field`: the field is drawn dimmed with HEADER_UNUSED_NOTE. */
+export function headerFieldDimmed(support: HeaderSupport, field: keyof HttpForm): boolean {
+  return !headerUsable(support, field);
+}
 
 /** Advanced: the form prefilled from the stored source (empty when unset). */
 export function httpFormFromSource(src: SourceConfig): HttpForm {

@@ -3,7 +3,8 @@ import { worseCooldown, type AppEvent, type CompanionStatus, type InitState, typ
 // Type-only: @iptv/core must stay out of the main-thread bundle (it lives in the worker chunk).
 import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
-import { detectPlatform, type PlatformId } from '@iptv/platform';
+import { detectPlatform, type HeaderSupport, type PlatformId } from '@iptv/platform';
+import { tvHeaderSupport } from '../net/headerSupport.ts';
 import type { Router } from '../shell/router.ts';
 import { bootRoutes, initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority, type SourcesChanged } from './events.ts';
 
@@ -26,6 +27,9 @@ export const platformId: PlatformId = detectPlatform(
   navigator.userAgent,
   globalThis as unknown as { tizen?: unknown; webOS?: unknown },
 );
+
+/** Which of a source's User-Agent and Referer this device can send, and with what (fixed per launch). */
+export const headerSupportHere: HeaderSupport = tvHeaderSupport(platformId, import.meta.env.DEV);
 
 /**
  * Current settings, reactive: from `InitState` until the Settings screen changes one (`patchSettings`).

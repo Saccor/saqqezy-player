@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
 import { HEADER_VALUE_MAX, NAME_MAX } from '@iptv/core';
 import {
-  ADVANCED_HELP, HEADER_FIELD_MAX, connectionsLine, httpFormFromSource, withHttpSettings,
+  HEADER_FIELD_MAX, HEADER_UNUSED_NOTE, advancedHelp, connectionsLine, headerFieldDimmed, httpFormFromSource, withHttpSettings,
   DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, SOURCE_NAME_MAX, URL_MAX, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
   revealLabel, toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
@@ -157,9 +157,36 @@ describe('Advanced (User-Agent and Referer)', () => {
     expect(withHttpSettings({ ...m3u, userAgent: 'Old', referrer: 'http://example.test/' }, { userAgent: ' ', referrer: '' }))
       .toEqual(m3u);
   });
-  it('the field limit matches the stored cap; the help says where it applies', () => {
+  it('the field limit matches the stored cap', () => {
     expect(HEADER_FIELD_MAX).toBe(HEADER_VALUE_MAX);
-    expect(ADVANCED_HELP).toBe('Applies on Samsung TVs.');
+  });
+});
+
+describe('Advanced help and dimmed fields per platform (spec 2026-10-20-source-headers §6.1)', () => {
+  const T = { userAgent: true, referrer: true };
+  const F = { userAgent: false, referrer: false };
+  const all = { lists: T, streams: T };
+  const tizen = { lists: F, streams: { userAgent: true, referrer: false } };
+  const webos = { lists: F, streams: F };
+
+  it('says what is sent on this device, in plain words', () => {
+    expect(advancedHelp(all)).toBe("Sent with this source's lists, guide and streams. Leave empty to use the app's default.");
+    expect(advancedHelp(tizen)).toBe("On this TV only the User-Agent is sent, and only with streams. Lists and the guide use the TV's own.");
+    expect(advancedHelp(webos)).toBe('This TV cannot send these headers. The values are kept but not used here.');
+    expect(advancedHelp({ lists: T, streams: F })).toBe("On this TV these are sent with lists and the guide only. Leave empty to use the app's default.");
+  });
+
+  it('dims a field the platform cannot use (still editable); the note is neutral', () => {
+    expect(headerFieldDimmed(all, 'userAgent')).toBe(false);
+    expect(headerFieldDimmed(tizen, 'userAgent')).toBe(false);
+    expect(headerFieldDimmed(tizen, 'referrer')).toBe(true);
+    expect(headerFieldDimmed(webos, 'userAgent')).toBe(true);
+    expect(HEADER_UNUSED_NOTE).toBe('Not used on this TV');
+  });
+
+  it('no presets and no app, device or provider names in the copy', () => {
+    const texts = [all, tizen, webos, { lists: T, streams: F }].map(advancedHelp).concat(HEADER_UNUSED_NOTE);
+    for (const t of texts) expect(t).not.toMatch(/Mozilla|Chrome|Safari|VLC|Kodi|Samsung|LG|Smart|IPTV|provider|try /i);
   });
 });
 

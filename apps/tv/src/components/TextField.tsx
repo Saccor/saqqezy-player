@@ -38,6 +38,10 @@ export function TextField(props: {
   hint?: string;
   /** Px kept free at the right end for a control drawn over the field (Add source's pointer `Show password`). */
   endInset?: number;
+  /** The value is drawn in the dim text colour (a setting this device cannot use); focus and editing are unchanged. */
+  dimmed?: boolean;
+  /** Small right-aligned note on the label line, always shown (e.g. "Not used on this TV"); a focused `hint` wins. */
+  note?: string;
   onEnter: () => void;
   onUp?: () => boolean | void;
   onDown?: () => boolean | void;
@@ -66,10 +70,10 @@ export function TextField(props: {
       onYellow={() => props.onYellow?.() ?? false}>
       <Text x={24} y={14} fontSize={FONT.small} color={COLORS.muted}>{props.label}</Text>
       <Text x={24} y={50} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
-        fontSize={30} color={empty() && !props.editing ? COLORS.muted : COLORS.text}>{text()}</Text>
-      {props.hint && focused()
+        fontSize={30} color={(empty() && !props.editing) || props.dimmed ? COLORS.muted : COLORS.text}>{text()}</Text>
+      {(props.hint && focused()) || props.note
         ? <Text x={props.width - 324} y={14} width={300} maxWidth={300} contain="width" textAlign="right"
-          fontSize={FONT.small} color={COLORS.muted}>{props.hint}</Text>
+          fontSize={FONT.small} color={COLORS.muted}>{props.hint && focused() ? props.hint : props.note ?? ''}</Text>
         : null}
     </View>
   );

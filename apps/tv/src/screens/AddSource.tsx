@@ -9,13 +9,13 @@ import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
-import { applyInitState } from '../state/appState.ts';
+import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  ADVANCED_HELP, FIELD_MAX, HEADER_FIELD_MAX, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
+  FIELD_MAX, HEADER_FIELD_MAX, HEADER_UNUSED_NOTE, advancedHelp, headerFieldDimmed, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
   progressText, revealLabel, toUpdatedSource, validateM3u, validateXtream, withHttpSettings, type HttpForm, type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
@@ -370,8 +370,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         </Text>
         <Show when={advanced}>
           <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + 16 + BUTTON_H + 32} width={FORM_W} maxWidth={FORM_W} contain="width"
-            maxLines={2} fontSize={FONT.body} color={COLORS.muted}>
-            {`${ADVANCED_HELP} Leave a field empty to use the default.`}
+            maxLines={3} fontSize={FONT.body} color={COLORS.muted}>
+            {advancedHelp(headerSupportHere)}
           </Text>
         </Show>
         <For each={fields()}>{(f, i) => (
@@ -380,6 +380,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
             revealed={f.secret ? revealed() : undefined} editing={editing() === f.key}
             hint={f.secret && !pointerMode() ? `Yellow: ${revealed() ? 'hide' : 'show'}` : undefined}
             endInset={f.secret && pointerMode() ? REVEAL_W + REVEAL_INSET : undefined}
+            dimmed={advanced && headerFieldDimmed(headerSupportHere, f.key as keyof HttpForm)}
+            note={advanced && headerFieldDimmed(headerSupportHere, f.key as keyof HttpForm) ? HEADER_UNUSED_NOTE : undefined}
             onEnter={() => { lastItem = i(); openKeyboard(f.key); }}
             onUp={() => focusItem(i() - 1)} onDown={() => focusItem(i() + 1)}
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
