@@ -32,3 +32,18 @@ describe('parseChannelName', () => {
     expect(parseChannelName('Channel One ᴴᴰ')).toMatchObject({ display: 'Channel One', quality: 2 });
   });
 });
+
+describe('parseChannelName: long names', () => {
+  test('a long run of separators before the end is linear, not quadratic', () => {
+    const t = performance.now();
+    expect(parseChannelName('News ' + '- '.repeat(40000) + 'x').backup).toBe(false);
+    expect(parseChannelName('News ' + '- '.repeat(40000) + 'backup')).toMatchObject({ display: 'News', backup: true });
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+  test('spare tags after separators, brackets and spaces as before', () => {
+    expect(parseChannelName('Channel One - ( backup 2 )')).toMatchObject({ display: 'Channel One', backup: true });
+    expect(parseChannelName('Channel One | ALT | dead')).toMatchObject({ display: 'Channel One', backup: true });
+    expect(parseChannelName('Channel One,bkp1')).toMatchObject({ display: 'Channel One', backup: true });
+    expect(parseChannelName('Channel One [reserve]')).toMatchObject({ display: 'Channel One', backup: true });
+  });
+});

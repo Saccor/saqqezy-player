@@ -7,6 +7,7 @@ import {
 } from '../src/xtream/vod.ts';
 import { VOD_UNCATEGORIZED } from '../src/vod/types.ts';
 import type { FetchFn } from '../src/types.ts';
+import { INGEST_NAME_MAX } from '../src/constants.ts';
 
 describe('Xtream VOD parsers', () => {
   test('categories: valid, de-duplicated, junk skipped', () => {
@@ -32,6 +33,15 @@ describe('Xtream VOD parsers', () => {
       { id: 'src:m12', kind: 'movie', title: 'Synthetic Film 002', categoryId: VOD_UNCATEGORIZED, xid: 12, year: 2019 },
       { id: 'src:m13', kind: 'movie', title: 'Synthetic Film 003', categoryId: VOD_UNCATEGORIZED, xid: 13, year: 2018, rating: 10 },
     ]);
+  });
+
+  test('titles are capped at INGEST_NAME_MAX characters, without splitting a surrogate pair', () => {
+    const [movie] = parseVodStreams([{ stream_id: 31, name: 'F'.repeat(5000) }], 'src');
+    expect(movie!.title).toHaveLength(INGEST_NAME_MAX);
+    const [show] = parseSeriesList([{ series_id: 32, name: 'S'.repeat(INGEST_NAME_MAX - 1) + '😀' + 'S'.repeat(10) }], 'src');
+    expect(show!.title).toBe('S'.repeat(INGEST_NAME_MAX - 1));
+    const info = parseSeriesInfo({ episodes: { 1: [{ id: 33, episode_num: 1, title: 'E'.repeat(5000) }] } }, 'src');
+    expect(info.seasons[0]!.episodes[0]!.title).toHaveLength(INGEST_NAME_MAX);
   });
 
   test('list items keep a TMDB id when the panel sends one (groups versions of a title)', () => {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { SUBTITLE_KEEP, SubtitleError, SubtitleService } from '../src/subtitles/service.ts';
 import type { FetchFn } from '../src/types.ts';
+import { SUBTITLE_MAX_BYTES } from '../src/subtitles/parse.ts';
 
 const SRT = '1\n00:00:01,000 --> 00:00:02,000\nHello\n';
 const bytes = (s: string) => new TextEncoder().encode(s);
@@ -114,5 +115,44 @@ describe('SubtitleService', () => {
     routes['http://example.test/big.srt'] = () => new Response('x', { headers: { 'content-length': String(6 * 1024 * 1024) } });
     await expect(svc.load('s', 'i', { url: 'http://example.test/big.srt' })).rejects.toThrow('That file is too large to be subtitles.');
     expect(await svc.get('s', 'i')).toBeUndefined();
+  });
+
+  test('a body without content-length is read only up to the limit, then cancelled', async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(256 * 1024).fill(0x41);
+    routes['http://example.test/chunked.srt'] = () => new Response(new ReadableStream<Uint8Array>({
+      pull(c) {
+        // Endless: only cancelling ends it.
+        pulled += chunk.length;
+        c.enqueue(chunk);
+      },
+      cancel() { cancelled = true; },
+    }));
+    await expect(svc.load('s', 'i', { url: 'http://example.test/chunked.srt' })).rejects.toThrow(new SubtitleError('That file is too large to be subtitles.'));
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThanOrEqual(SUBTITLE_MAX_BYTES + 4 * chunk.length);
+  });
+
+  test('a chunked body under the limit is read whole', async () => {
+    const b = bytes(SRT);
+    routes['http://example.test/small.srt'] = () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(b.slice(0, 5)); c.enqueue(b.slice(5)); c.close(); },
+    }));
+    expect((await svc.load('s', 'i', { url: 'http://example.test/small.srt' })).cues).toHaveLength(1);
+  });
+
+  test('a video or audio link is refused before its body is read', async () => {
+    for (const type of ['video/mp4', 'audio/mpeg', 'Video/MP2T; charset=binary']) {
+      let pulled = false;
+      let cancelled = false;
+      routes['http://example.test/film.srt'] = () => new Response(new ReadableStream<Uint8Array>({
+        pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); },
+        cancel() { cancelled = true; },
+      }, { highWaterMark: 0 }), { headers: { 'content-type': type } });
+      await expect(svc.load('s', 'i', { url: 'http://example.test/film.srt' })).rejects.toThrow(new SubtitleError("That link is a video or audio file, not subtitles."));
+      expect(cancelled).toBe(true);
+      expect(pulled).toBe(false);
+    }
   });
 });

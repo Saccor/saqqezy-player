@@ -14,7 +14,15 @@ export interface XmltvStats { channels: number; programmes: number; skipped: num
 interface ProgState {
   epgId: string; start: number; stop: number; title?: string; desc?: string;
   categories?: string[]; live?: true; rerun?: true; subTitle?: string; icon?: string;
+  /** Written without `stop`: it gets one from the next programme on its channel. */
+  noStop?: true;
 }
+
+/**
+ * Longest a programme without `stop` (optional in the DTD) runs: it ends where the next one on its channel starts, but
+ * no later than this, and the last one on its channel runs this long.
+ */
+export const NO_STOP_MAX_MS = 4 * 3600_000;
 
 export async function* parseXmltv(
   chunks: AsyncIterable<string>,
@@ -27,6 +35,30 @@ export async function* parseXmltv(
   let prog: ProgState | null = null;
   let textTarget: 'name' | 'title' | 'desc' | 'category' | 'subTitle' | null = null;
   let text = '';
+  /** Per channel, the programme without `stop` still waiting for the next one's start: at most one per channel. */
+  const open = new Map<string, ProgState>();
+
+  const emit = (p: ProgState) => {
+    const programme: Programme = { epgId: p.epgId, start: p.start, stop: p.stop, title: p.title ?? '' };
+    if (p.desc) programme.desc = p.desc;
+    const extra: ProgrammeExtra = {};
+    if (p.categories) extra.categories = p.categories;
+    if (p.live) extra.live = true;
+    if (p.rerun) extra.rerun = true;
+    if (p.subTitle) extra.subTitle = p.subTitle;
+    if (p.icon) extra.icon = p.icon;
+    queue.push(Object.keys(extra).length ? { type: 'programme', programme, extra } : { type: 'programme', programme });
+    stats.programmes++;
+  };
+  /** Ends the channel's open programme at `next` (capped; the cap alone without a later start) and emits it. */
+  const close = (epgId: string, next?: number) => {
+    const p = open.get(epgId);
+    if (!p) return;
+    open.delete(epgId);
+    const cap = p.start + NO_STOP_MAX_MS;
+    p.stop = next !== undefined && next > p.start ? Math.min(next, cap) : cap;
+    emit(p);
+  };
 
   parser.on('error', () => { stats.skipped++; });
   parser.on('opentag', (node) => {
@@ -34,6 +66,8 @@ export async function* parseXmltv(
     if (node.name === 'channel' && a.id) channel = { id: a.id, names: [] };
     else if (node.name === 'programme') {
       prog = { epgId: a.channel ?? '', start: parseXmltvDate(a.start ?? ''), stop: parseXmltvDate(a.stop ?? '') };
+      // No stop (or an empty one) leaves it open; a stop that is there but unreadable is skipped as before.
+      if (!a.stop?.trim()) prog.noStop = true;
     } else if (node.name === 'display-name' && channel) { textTarget = 'name'; text = ''; }
     else if (!prog) return;
     else if (node.name === 'title' && prog.title === undefined) { textTarget = 'title'; text = ''; }
@@ -68,20 +102,13 @@ export async function* parseXmltv(
     } else if (node.name === 'programme' && prog) {
       const p = prog;
       prog = null;
-      if (!p.epgId || !Number.isFinite(p.start) || !Number.isFinite(p.stop) || p.stop <= p.start) {
+      if (!p.epgId || !Number.isFinite(p.start) || (!p.noStop && (!Number.isFinite(p.stop) || p.stop <= p.start))) {
         stats.skipped++;
         return;
       }
-      const programme: Programme = { epgId: p.epgId, start: p.start, stop: p.stop, title: p.title ?? '' };
-      if (p.desc) programme.desc = p.desc;
-      const extra: ProgrammeExtra = {};
-      if (p.categories) extra.categories = p.categories;
-      if (p.live) extra.live = true;
-      if (p.rerun) extra.rerun = true;
-      if (p.subTitle) extra.subTitle = p.subTitle;
-      if (p.icon) extra.icon = p.icon;
-      queue.push(Object.keys(extra).length ? { type: 'programme', programme, extra } : { type: 'programme', programme });
-      stats.programmes++;
+      if (open.size) close(p.epgId, p.start);
+      if (p.noStop) open.set(p.epgId, p);
+      else emit(p);
     }
   });
 
@@ -91,5 +118,7 @@ export async function* parseXmltv(
     for (const item of queue.splice(0)) yield item;
   }
   parser.close();
+  // The last open programme of each channel has no successor.
+  for (const epgId of [...open.keys()]) close(epgId);
   for (const item of queue.splice(0)) yield item;
 }

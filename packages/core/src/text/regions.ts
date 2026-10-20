@@ -283,7 +283,9 @@ type Sep = '|' | ':' | '-' | '[' | '(' | ' ';
 /** "SE | News", "[SE] Kids", "SE: Docs", "|SE| News", "(SE) News", "SE - News": the code and its separator. */
 const LEADING = /^([[(|])?\s*([A-Z]{2,3})\s*([\])|:\-–—])/;
 const LEADING_SPACE = /^([A-Z]{2,3})\s+[\p{L}\p{N}]/u;
-const TRAILING = /[\s|:\-–—([]+([A-Z]{2,3})[\])]?\s*$/;
+/** `[\s|:\-–—([]`: what separates a trailing code from the name ("News | SE", "News (SE)"). */
+const TRAILING_SEP = /[\s|:\-–—([]/;
+const SPACE = /\s/;
 const FLAG = /[\u{1F1E6}-\u{1F1FF}]{2}/gu;
 
 function sepOf(open: string | undefined, close: string): Sep {
@@ -388,10 +390,27 @@ function fromMembers(members: readonly string[] | undefined): GroupRegion | unde
   return bestN >= members.length * 0.6 ? regionOf([best], 0.7, 'members') : undefined;
 }
 
+/**
+ * A 2–3 letter upper-case code at the end after a separator run (`/[\s|:\-–—([]+([A-Z]{2,3})[\])]?\s*$/`), and where
+ * that run starts. Scanned from the right: the end-anchored regex backtracks quadratically on a long separator run.
+ */
+function trailingCode(name: string): { code: string; at: number } | undefined {
+  let to = name.length;
+  while (to > 0 && SPACE.test(name[to - 1]!)) to--;
+  if (to > 0 && (name[to - 1] === ']' || name[to - 1] === ')')) to--;
+  let from = to;
+  while (from > 0 && to - from < 3 && name.charCodeAt(from - 1) >= 65 && name.charCodeAt(from - 1) <= 90) from--;
+  if (to - from < 2) return undefined;
+  let at = from;
+  while (at > 0 && TRAILING_SEP.test(name[at - 1]!)) at--;
+  // No separator before the letters ("NewsSE", "ABSE"): not a code.
+  return at < from ? { code: name.slice(from, to), at } : undefined;
+}
+
 function fromTrailing(name: string): GroupRegion | undefined {
-  const m = TRAILING.exec(name);
-  if (!m || AMBIGUOUS.has(m[1]!) || name.length === m[0].length) return undefined;
-  const key = codeKey(m[1]!);
+  const m = trailingCode(name);
+  if (!m || AMBIGUOUS.has(m.code) || m.at === 0) return undefined;
+  const key = codeKey(m.code);
   return key ? regionOf([key], 0.5, 'trailing') : undefined;
 }
 

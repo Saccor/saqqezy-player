@@ -139,6 +139,25 @@ describe('detectRegions: rules', () => {
   });
 });
 
+describe('detectRegions: trailing code', () => {
+  const g = (name: string) => ({ id: `g:${name}`, name, members: [] });
+
+  test('a code at the end after a separator; not a whole-name code, not glued to a word', () => {
+    const r = detectRegions([g('Synthetic News | SE'), g('Synthetic Docs (DK) '), g('SE'), g('Synthetic NewsSE'), g('Synthetic | ABSE')]);
+    expect(r['g:Synthetic News | SE']).toMatchObject({ countries: ['SE'], via: 'trailing' });
+    expect(r['g:Synthetic Docs (DK) ']).toMatchObject({ countries: ['DK'], via: 'trailing' });
+    expect(r['g:Synthetic NewsSE']).toBeUndefined();
+    expect(r['g:Synthetic | ABSE']).toBeUndefined();
+  });
+
+  test('a long separator run before the end is linear, not quadratic', () => {
+    const t = performance.now();
+    const r = detectRegions([g('Synthetic' + ' |'.repeat(40000) + 'x'), g('Synthetic' + ' |'.repeat(40000) + 'SE')]);
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(Object.values(r).map((x) => x.countries)).toEqual([['SE']]);
+  });
+});
+
 describe('detectRegions: performance', () => {
   test('50k channels in 2k groups in under 30 ms', () => {
     const codes = ['SE', 'DK', 'FI', 'DE', 'FR', 'NL', 'PL', 'ES', 'PT', 'GR'];

@@ -55,3 +55,14 @@ describe('parseEpisodeMarker', () => {
     expect(parseEpisodeMarker('Season Opener')).toBeUndefined();
   });
 });
+
+describe('long titles', () => {
+  test('space and separator runs before the end are linear, not quadratic', () => {
+    const t = performance.now();
+    expect(splitYear('Film' + ' '.repeat(40000) + 'x').year).toBeUndefined();
+    expect(splitYear('Film' + ' '.repeat(40000) + '(2001)' + ' '.repeat(40000))).toEqual({ title: 'Film', year: 2001 });
+    expect(parseEpisodeMarker('S01E02 x' + ' -'.repeat(40000) + 'y')?.show).toMatch(/^x - - /);
+    expect(parseEpisodeMarker('Show S01E02 Pilot' + ' -'.repeat(40000))?.title).toBe('Pilot');
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+});
