@@ -169,7 +169,7 @@ describe('sync payload size (budgeted uncompressed: CompressionStream is Chromiu
 
   test('region values are checked: modes, codes and category kinds', () => {
     const bad = [
-      rec('st', 'regions', { m: 'all', c: ['SE'] }, { sfp: '' }),
+      rec('st', 'regions', { m: 'all', c: ['SE'] } as unknown as SyncValue, { sfp: '' }),
       rec('st', 'regions', { m: 'only', c: ['http://x'] }, { sfp: '' }),
       rec('gr', 'g:Film', ['Sweden']),
       rec('ch', 'film|12', true),
