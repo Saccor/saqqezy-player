@@ -541,7 +541,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   });
 
   // A focus that rests for FOCUS_REST_MS tells the worker, which may look up that channel's now/next (short EPG, only
-  // for channels without a stored guide). It never plays anything.
+  // for channels without a stored guide). The answer fills that row's guide (`getEpgRows` merges the cached short EPG;
+  // `nowNextUpdated` refetches the row). It never plays anything.
   let restReported = false;
   const focusRest = createDebounce<string>(FOCUS_REST_MS, (id) => {
     if (!alive || focusedId() !== id || !onGrid()) return;

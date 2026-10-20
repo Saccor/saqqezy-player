@@ -440,7 +440,8 @@ export class AppApi {
     return this.run('getEpgRows', async () => {
       const channels = this.index.slice(groupId, offset, count);
       // The guide grid draws the programmes it is given, never a row's now/next: lite rows, and no storage read
-      // for them (nor a background short-EPG lookup).
+      // for them (nor a background short-EPG lookup). A row with no stored programmes in the window shows its cached
+      // short-EPG answer, if any (`focusChannel` / play asked for it; announced with `nowNextUpdated`).
       const rows = this.liteRows(channels);
       const id = this.activeId;
       const settings = await this.currentSettings();
@@ -452,15 +453,18 @@ export class AppApi {
         const hi = to - Math.min(...shifts) * HOUR;
         byChannel = await this.service.programmesFor(id, this.originals(channels), lo, hi);
       }
+      const t = this.now();
+      const inWindow = (list: Programme[], hours: number) => list
+        .map((p) => applyShift(p, hours))
+        .filter((p) => p.stop > from && p.start < to);
       return {
         total: this.index.groupSize(groupId),
         rows: channels.map((c, i) => {
           const hours = shifts[i]!;
-          let programmes = (byChannel.get(c.id) ?? [])
-            .map((p) => applyShift(p, hours))
-            .filter((p) => p.stop > from && p.start < to)
-            .sort((a, b) => a.start - b.start)
-            .map(toLite);
+          let shown = inWindow(byChannel.get(c.id) ?? [], hours);
+          // Nothing stored here: the channel's cached short-EPG answer (focus rest or play; never asked from here).
+          if (shown.length === 0 && id) shown = inWindow(this.shortCache.get(id, c.id, t) ?? [], hours);
+          let programmes = shown.sort((a, b) => a.start - b.start).map(toLite);
           if (id && c.cu) programmes = this.catchup.decorate(id, c.id, programmes, hours, from, to);
           return { channel: rows[i]!, programmes };
         }),

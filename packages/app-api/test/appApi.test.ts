@@ -874,6 +874,38 @@ describe('AppApi – background short EPG', () => {
     expect(h.streams).toEqual([]);
   });
 
+  test('getEpgRows shows a cached short-EPG answer for a row without stored programmes, inside the window only', async () => {
+    let asked = 0;
+    const fetchFn: FetchFn = async (u, i) => {
+      if (u.includes('/xmltv.php')) return new Response('', { status: 500 });
+      if (u.includes('action=get_short_epg')) {
+        asked++;
+        return new Response(JSON.stringify({ epg_listings: [
+          { title: btoa('Synthetic Now'), start_timestamp: String((NOW - 600_000) / 1000), stop_timestamp: String((NOW + 1_800_000) / 1000) },
+          { title: btoa('Synthetic Next'), start_timestamp: String((NOW + 1_800_000) / 1000), stop_timestamp: String((NOW + 3_600_000) / 1000) },
+        ] }));
+      }
+      return fetch(u, i);
+    };
+    const { api } = make(storage, SourceService, fetchFn);
+    await api.addSource(xt());
+    await api.idle().catch(() => undefined);
+    const [a, b] = (await api.getEpgRows('all', 0, 2, NOW, NOW + 3 * 3600_000)).rows;
+    expect(a!.programmes).toEqual([]);
+    await api.focusChannel(a!.channel.id);
+    await api.idle();
+    expect(asked).toBe(1);
+
+    const titles = async (from: number, to: number) =>
+      (await api.getEpgRows('all', 0, 2, from, to)).rows.map((r) => r.programmes.map((p) => p.title));
+    expect(await titles(NOW, NOW + 3 * 3600_000)).toEqual([['Synthetic Now', 'Synthetic Next'], []]);
+    expect(await titles(NOW + 1_800_000, NOW + 3 * 3600_000)).toEqual([['Synthetic Next'], []]);
+    expect(await titles(NOW + 2 * 3600_000, NOW + 5 * 3600_000)).toEqual([[], []]);
+    expect(b!.programmes).toEqual([]);
+    await api.idle();
+    expect(asked).toBe(1); // getEpgRows only reads the cache
+  });
+
   test('slices and search never start a short-EPG lookup', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);
