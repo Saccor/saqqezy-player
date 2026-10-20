@@ -853,6 +853,53 @@ describe('AppApi – background short EPG', () => {
     expect(h.streams).toEqual([]);
   });
 
+  test('focusChannel reads nothing for a channel with a stored guide, for a non-Xtream source, or with a fresh short-EPG answer', async () => {
+    let reads = 0;
+    class Counting extends SourceService {
+      override async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
+        reads++;
+        return super.programmesFor(id, channels, from, to);
+      }
+    }
+    // Xtream with a guide: the focused channel is covered.
+    const { api } = make(storage, Counting);
+    await api.addSource(xt());
+    await api.refresh('epg');
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await api.focusChannel(id);
+    await api.idle();
+    expect(reads).toBe(0);
+
+    // M3U (no short EPG exists for it): nothing to look up, with or without a guide.
+    const m3u = make(new MemoryStorage(), Counting);
+    await m3u.api.addSource({ kind: 'm3u', name: 'Plain', playlistUrl: `${server.url}/get.php?username=test&password=test&type=m3u_plus` });
+    await m3u.api.idle().catch(() => undefined);
+    const mid = (await m3u.api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await m3u.api.focusChannel(mid);
+    await m3u.api.idle();
+    expect(reads).toBe(0);
+
+    // Xtream without a guide: the first focus looks up (one read) and asks the short EPG; a fresh answer skips both.
+    const h = held();
+    const bare = make(new MemoryStorage(), Counting, h.fetchFn);
+    await bare.api.addSource(xt());
+    await bare.api.idle().catch(() => undefined);
+    h.g.open();
+    const bid = (await bare.api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    reads = 0;
+    await bare.api.focusChannel(bid);
+    await bare.api.idle();
+    expect(reads).toBe(1);
+    expect(h.streams).toEqual([streamOf(bid)]);
+    await bare.api.focusChannel(undefined);
+    await bare.api.focusChannel(bid);
+    await bare.api.idle();
+    expect(reads).toBe(1);
+    expect(h.streams).toEqual([streamOf(bid)]);
+  });
+
   test('focusChannel looks up the focused channel only; a queued one that lost the focus sends no request', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);

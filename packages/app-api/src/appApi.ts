@@ -85,6 +85,8 @@ export class AppApi {
   private startCache: { sourceId: string; home: StartHome } | undefined;
   /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
   private sourceHeaders: StreamHeaders | undefined;
+  /** The active source's kind, kept from `activate` so a focus never reads the source list to learn it. */
+  private sourceKind: SourceConfig['kind'] | undefined;
   private index = new ChannelIndex([]);
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
@@ -1033,6 +1035,7 @@ export class AppApi {
         this.playingId = undefined;
       }
       this.activeId = id;
+      this.sourceKind = source?.kind;
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.setIndex(channels, layout, coverage);
@@ -1537,10 +1540,19 @@ export class AppApi {
     return out;
   }
 
-  /** The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached answer. */
+  /**
+   * The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached
+   * answer. Decided from memory where possible (no IDB traffic while browsing): only Xtream has a short EPG; a
+   * channel in the guide coverage has stored programmes; a fresh now/next answer needs nothing more.
+   */
   private async wantShortEpg(c: Channel): Promise<void> {
     const id = this.activeId;
-    if (id) await this.lookupNowNext(id, [c], this.now(), true);
+    if (!id || this.sourceKind !== 'xtream') return;
+    if (this.coverage?.has(epgKey(this.originals([c])[0]!))) return;
+    const t = this.now();
+    const hit = this.nnCache.get(c.id);
+    if (hit && t - hit.at < NOW_NEXT_TTL_MS && (hit.nn.now !== undefined || hit.nn.next !== undefined)) return;
+    await this.lookupNowNext(id, [c], t, true);
   }
 
   /** `wantShortEpg` without waiting (tracked for `idle`); a failure is noted by its name only. */
