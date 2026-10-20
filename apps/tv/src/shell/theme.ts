@@ -142,6 +142,9 @@ export const MOTION = {
   /** A screen pushed (not Back, not video screens, not cold start): fade plus a rise of `screenRise` px. */
   screenIn: token(200, EASE.enter, 'ui'),
   screenRise: 12,
+  /** The rail opening (its panel slides out, the scrim and labels fade in) and closing. Focus moves at once. */
+  railOpen: token(160, EASE.standard, 'ui'),
+  railClose: token(120, EASE.standard, 'ui'),
   /** The backdrop cross-fade. */
   backdrop: token(260, EASE.fade, 'ui'),
   /** Menus and dialogs opening: fade plus a rise of `rise` px. They close at once (unmount). */
