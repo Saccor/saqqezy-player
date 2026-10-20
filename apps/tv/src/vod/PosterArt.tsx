@@ -1,9 +1,10 @@
-import { Show, Text, View } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, type JSX } from 'solid-js';
 import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { fadeInLoaded, motionNow } from '../shell/motion.ts';
+import { COLORS, LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
@@ -56,9 +57,18 @@ export function PosterArt(props: {
         <Show when={props.pending ? undefined : shown()} keyed>
           {(u) => {
             posterCache.touch(u);
+            // Mounted almost transparent (alpha 0 would never load), then faded in over the skeleton or title card once
+            // loaded; a cache hit or a held key shows it at once (shell/motion.ts).
+            let img: ElementNode | undefined;
+            const mountedAt = motionNow();
+            const onLoaded = () => {
+              setLoadedUrl(u);
+              if (img) fadeInLoaded(img, mountedAt);
+            };
             return (
-              <View width={props.w} height={props.h} zIndex={3} borderRadius={LAYOUT.radius} src={rawViaDevProxy(u)}
-                onEvent={{ loaded: () => setLoadedUrl(u), failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
+              <View ref={(el) => { img = el; }} alpha={MOTION.startAlpha} width={props.w} height={props.h} zIndex={3}
+                borderRadius={LAYOUT.radius} src={rawViaDevProxy(u)}
+                onEvent={{ loaded: onLoaded, failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
             );
           }}
         </Show>

@@ -303,15 +303,21 @@ describe('display page items', () => {
     expect(openOnLabel('lastChannel')).toBe('Last channel');
     expect(openOnLabel('start')).toBe('Start page');
   });
-  it('rows: clock, open on, poster size, teams heading, each team, add', () => {
+  it('rows: clock, open on, poster size, motion, teams heading, each team, add', () => {
     const items = displayItems({ ...DEFAULT_SETTINGS, followedTeams: ['Northbridge FC', 'Pinecrest'] });
-    expect(items.map((i) => i.id)).toEqual(['clock', 'openOn', 'posterSize', 'teamsHeading', 'team:0', 'team:1', 'addTeam']);
+    expect(items.map((i) => i.id)).toEqual(['clock', 'openOn', 'posterSize', 'motion', 'teamsHeading', 'team:0', 'team:1', 'addTeam']);
     expect(items.find((i) => i.id === 'openOn')?.value).toBe('Last channel');
     expect(items.find((i) => i.id === 'teamsHeading')?.heading).toBe(true);
   });
   it('Display lists Poster size', () => {
     const items = displayItems({ showClock: true, openOn: 'lastChannel', followedTeams: [], posterSize: 'compact' });
     expect(items.find((i) => i.id === 'posterSize')).toMatchObject({ label: 'Poster size', value: 'Compact', adjustable: true });
+  });
+  it('Display lists Motion with the level in force (default Full)', () => {
+    const base = { showClock: true, openOn: 'lastChannel' as const, followedTeams: [], posterSize: 'standard' as const };
+    expect(displayItems(base).find((i) => i.id === 'motion')).toMatchObject({ label: 'Motion', value: 'Full', adjustable: true });
+    expect(displayItems({ ...base, motion: 'reduced' }).find((i) => i.id === 'motion')?.value).toBe('Reduced');
+    expect(displayItems({ ...base, motion: 'off' }).find((i) => i.id === 'motion')?.value).toBe('Off');
   });
   it('adding a team: empty, duplicate, full', () => {
     expect(addTeamError([], '   ')).toBe('Type a name');

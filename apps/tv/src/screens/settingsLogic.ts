@@ -288,12 +288,17 @@ const TEAMS_MAX = 50; // mirrors FOLLOWED_TEAMS_MAX in @iptv/core (the worker sa
 
 export const openOnLabel = (v: OpenOn) => (v === 'start' ? 'Start page' : 'Last channel');
 
-export function displayItems(st: Pick<AppSettings, 'showClock' | 'openOn' | 'followedTeams' | 'posterSize'>): SettingItem[] {
+const MOTION_LABEL = { full: 'Full', reduced: 'Reduced', off: 'Off' } as const;
+
+/** `motion`: the level in force (the setting, or the system's reduced-motion preference when unset; default Full). */
+export function displayItems(st: Pick<AppSettings, 'showClock' | 'openOn' | 'followedTeams' | 'posterSize' | 'motion'>): SettingItem[] {
   return [
     { id: 'clock', label: 'Show the clock', value: onOff(st.showClock), adjustable: true, help: 'Top right, and in the channel banner' },
     { id: 'openOn', label: 'Open on', value: openOnLabel(st.openOn), adjustable: true, help: 'Where the app opens: the last channel, or the Start page' },
     { id: 'posterSize', label: 'Poster size', value: st.posterSize === 'compact' ? 'Compact' : 'Standard', adjustable: true,
       help: 'Library grids: 8 posters a row, or 10' },
+    { id: 'motion', label: 'Motion', value: MOTION_LABEL[st.motion ?? 'full'], adjustable: true,
+      help: 'Full, Reduced (fades only) or Off (no animation)' },
     { id: 'teamsHeading', label: 'Teams I follow', heading: true },
     ...st.followedTeams.map((t, i): SettingItem => ({ id: `team:${i}`, label: t, help: 'Ok removes it' })),
     { id: 'addTeam', label: 'Add a team', help: 'Their matches come first on the Start page' },

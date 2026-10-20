@@ -2,6 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
+import { riseIn } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface OptionItem { id: string; label: string; value?: string }
@@ -75,7 +76,7 @@ export function OptionsMenu(props: {
     },
   });
   return (
-    <View ref={(el) => { panel = el; props.ref(el); }} x={X} y={Y} width={W} height={height()}
+    <View ref={(el) => { panel = el; props.ref(el); riseIn(el); }} x={X} y={Y} width={W} height={height()}
       color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={40}
       onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
       onChannelUp={() => true} onChannelDown={() => true} onMenu={() => true} onLongOk={() => true} onInfo={() => true}

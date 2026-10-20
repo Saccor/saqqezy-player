@@ -1,7 +1,9 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
-import { createMemo, createSignal } from 'solid-js';
+import { createEffect, createMemo, createSignal, on } from 'solid-js';
 import type { VodTile } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
+import { stopMotion, tween } from '../shell/motion.ts';
+import { MOTION } from '../shell/theme.ts';
 import { ROW_VISIBLE_COLS, cellAt, cellCount, drawnCells, type Cell, type RowModel } from '../vod/browseLogic.ts';
 import { POSTER_GAP, POSTER_H, POSTER_W, PosterTile } from './PosterTile.tsx';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -31,6 +33,8 @@ export function PosterRow(props: {
 }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
+  /** The tiles sit at fixed x's on one strip; scrolling moves only the strip (one animation, not N tile writes). */
+  let strip: ElementNode | undefined;
   let lastScroll = 0;
   const cells = () => cellCount(props.row);
   const visible = () => props.visible ?? ROW_VISIBLE_COLS;
@@ -43,6 +47,14 @@ export function PosterRow(props: {
     const r = renderRange(scroll(), visible(), drawnCells(props.row), BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
+  // The strip glides to the scroll (180 ms; linear for the key gap while a key is held). A jump of more than a window
+  // (a new row, Home/End) snaps. The pointer keeps using `scroll()`, the target, not the animated x.
+  createEffect(on(scroll, (s, prev) => {
+    if (!strip) return;
+    const x = -s * PITCH;
+    if (prev === undefined || Math.abs(s - prev) > visible()) { stopMotion(strip); strip.x = x; return; }
+    tween(strip, { x }, MOTION.rowScroll);
+  }));
   const colAt = (px: number) => {
     const c = scroll() + Math.floor(px / PITCH);
     return px % PITCH < POSTER_W && c < cells() ? c : undefined;
@@ -57,14 +69,16 @@ export function PosterRow(props: {
   });
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={POSTER_H}>
-      <For each={cols()}>{(c) => {
-        const cell = () => cellAt(props.row, c);
-        return (
-          <PosterTile x={(c - scroll()) * PITCH} y={0} w={POSTER_W} h={POSTER_H}
-            tile={tileOf(cell())} label={labelOf(cell())}
-            lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
-        );
-      }}</For>
+      <View ref={(el) => { strip = el; }} width={Math.max(1, cells()) * PITCH} height={POSTER_H}>
+        <For each={cols()}>{(c) => {
+          const cell = () => cellAt(props.row, c);
+          return (
+            <PosterTile x={c * PITCH} y={0} w={POSTER_W} h={POSTER_H}
+              tile={tileOf(cell())} label={labelOf(cell())}
+              lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
+          );
+        }}</For>
+      </View>
     </View>
   );
 }

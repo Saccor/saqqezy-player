@@ -2,7 +2,8 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { EpisodeView } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FOCUS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { useFocusScale } from '../shell/motion.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { PosterArt } from '../vod/PosterArt.tsx';
 import { cardAt, episodeMeta } from '../vod/seriesDetailLogic.ts';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -27,9 +28,12 @@ const SKELETON = 5;
  */
 export function EpisodeCard(props: { x: number; y: number; ep: EpisodeView | undefined; lit: boolean; hover?: boolean }) {
   const ep = () => props.ep;
+  let still: ElementNode | undefined;
+  // The still's scale is owned by the motion helper (animated, interruptible), never bound as a prop.
+  useFocusScale(() => still, () => props.lit);
   return (
     <View x={props.x} y={props.y} width={EP_W} height={EP_ROW_H} zIndex={props.lit ? 2 : 1}>
-      <View width={EP_W} height={EP_H} scale={props.lit ? FOCUS.scale : 1} zIndex={1}>
+      <View ref={(el) => { still = el; }} width={EP_W} height={EP_H} zIndex={1}>
         <Show when={ep()} fallback={<View width={EP_W} height={EP_H} borderRadius={LAYOUT.radius} color={COLORS.surface} />}>
           <PosterArt w={EP_W} h={EP_H} title={ep()?.title ?? ''} image={ep()?.still} watched={ep()?.watched}
             progress={ep()?.watched ? undefined : ep()?.progress} lit={props.lit} hover={props.hover}

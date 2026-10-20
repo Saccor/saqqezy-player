@@ -23,6 +23,11 @@ describe('sanitizeSettings', () => {
     for (const v of ['home', 1, null, undefined]) expect(sanitizeSettings({ openOn: v }).openOn).toBe('lastChannel');
   });
 
+  test('motion keeps known levels; anything else stays unset (follow the system)', () => {
+    for (const v of ['full', 'reduced', 'off'] as const) expect(sanitizeSettings({ motion: v }).motion).toBe(v);
+    for (const v of ['fast', 1, null, undefined]) expect('motion' in sanitizeSettings({ motion: v })).toBe(false);
+  });
+
   test('posterSize keeps known values and falls back to standard', () => {
     for (const v of ['standard', 'compact'] as const) expect(sanitizeSettings({ posterSize: v }).posterSize).toBe(v);
     for (const v of ['big', 1, null, undefined]) expect(sanitizeSettings({ posterSize: v }).posterSize).toBe('standard');

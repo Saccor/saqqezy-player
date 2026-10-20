@@ -2,6 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { Row } from '@lightningtv/solid/primitives';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
+import { riseIn } from './motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from './theme.ts';
 
 const WIDTH = 720;
@@ -26,7 +27,7 @@ export function ConfirmDialog(props: {
   usePointerBackdrop(() => scrim, undefined, true);
   usePointerTarget({ node: () => box, layer: 'overlay', global: true });
   return (
-    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
+    <View ref={(el) => { scrim = el; riseIn(el); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       <View ref={(el) => { box = el; }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - HEIGHT) / 2} width={WIDTH} height={HEIGHT}
         color={COLORS.surface} borderRadius={LAYOUT.radius * 2}>
         {/* At most three lines, ending above the buttons (a long list name used to wrap into them). */}

@@ -33,6 +33,7 @@ import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
+import { setMotionLevel } from './shell/motion.ts';
 import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
@@ -60,6 +61,8 @@ export function App() {
   // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
   const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
   createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
+  // Settings › Display › Motion (unset: the system's reduced-motion preference).
+  createEffect(() => setMotionLevel(settings()?.motion));
   // The failure text names the Xtream account's connection limit: read it for the active source, and again after a
   // refusal (a refresh may have learnt a new limit since).
   const refused = () => {

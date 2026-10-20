@@ -1,6 +1,7 @@
 import { Show, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createSignal, on, onCleanup } from 'solid-js';
-import { COLORS, LAYOUT } from './theme.ts';
+import { createEffect, createSignal, on } from 'solid-js';
+import { stopMotion, tween } from './motion.ts';
+import { COLORS, LAYOUT, MOTION } from './theme.ts';
 import { type Quad, curveLength, layoutLine, layoutOnCurve } from './wordmarkLayout.ts';
 
 /**
@@ -23,7 +24,6 @@ const SUB_BASELINE = 112;
 const FONT_STACK = '"Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif';
 /** Drawn at 2x the design size, so it stays sharp on a 4K panel scaled from the 1920x1080 design space. */
 const RES = 2;
-const FADE_MS = 200;
 
 /** Drawn bounds in the 1920x1080 design space: centred, at the top of the overscan-safe area. */
 export const WORDMARK_W = BOX_W;
@@ -109,7 +109,6 @@ export function wordmarkImage(): string | undefined {
  */
 export function Wordmark(props: { visible: boolean; defer: boolean }) {
   let node: ElementNode | undefined;
-  let fade: { stop(): unknown } | undefined;
   const [src, setSrc] = createSignal<string | undefined>(undefined);
   let drawRequested = false;
   createEffect(() => {
@@ -120,10 +119,10 @@ export function Wordmark(props: { visible: boolean; defer: boolean }) {
       if (!image) return;
       // Appears from transparent: the same fade as `visible`, so the late draw is not a pop.
       if (node && props.visible) {
-        fade?.stop();
+        stopMotion(node);
         node.alpha = 0;
         setSrc(image);
-        fade = node.animate({ alpha: 1 }, { duration: FADE_MS, easing: 'ease-in-out' }).start();
+        tween(node, { alpha: 1 }, MOTION.wordmark);
       } else {
         setSrc(image);
       }
@@ -131,16 +130,15 @@ export function Wordmark(props: { visible: boolean; defer: boolean }) {
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(draw);
     else setTimeout(draw, 0);
   });
-  // Fade with an explicit animation: the `transition` prop calls `animateProp`, which renderer 3.7 lacks.
+  // Fade through the motion helper (the `transition` prop calls `animateProp`, which renderer 3.7 lacks). A toggle
+  // mid-fade continues from the current alpha: the old `fade.stop()` reset it to the previous fade's start first, and
+  // could stop a pooled controller that already drove another node.
   createEffect(on(() => props.visible, (visible, prev) => {
     if (!node) return;
-    fade?.stop();
-    fade = undefined;
     const alpha = visible ? 1 : 0;
-    if (prev === undefined) { node.alpha = alpha; return; }
-    fade = node.animate({ alpha }, { duration: FADE_MS, easing: 'ease-in-out' }).start();
+    if (prev === undefined) { stopMotion(node); node.alpha = alpha; return; }
+    tween(node, { alpha }, MOTION.wordmark);
   }));
-  onCleanup(() => fade?.stop());
 
   return (
     <View ref={node} x={WORDMARK_X} y={WORDMARK_Y} width={WORDMARK_W} height={WORDMARK_H} skipFocus>

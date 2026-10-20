@@ -3,6 +3,8 @@ import { createSignal, onCleanup } from 'solid-js';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList } from '../../components/SettingsList.tsx';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
+import { motionLevel } from '../../shell/motion.ts';
+import { nextMotionLevel } from '../../shell/motionLogic.ts';
 import { router } from '../../shell/router.ts';
 import { COLORS, LAYOUT } from '../../shell/theme.ts';
 import { settings } from '../../state/appState.ts';
@@ -12,7 +14,7 @@ import { saveSetting, type PageProps } from './shared.ts';
 
 const KEYBOARD_ID = 'displayKeyboard';
 
-/** Display: the clock, where the app opens, and the teams whose matches come first on Start. */
+/** Display: the clock, where the app opens, poster size, motion, and the teams whose matches come first on Start. */
 export function DisplayPage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
   const [edit, setEdit] = createSignal<{ value: string; error?: string } | undefined>(undefined);
@@ -23,11 +25,13 @@ export function DisplayPage(props: PageProps) {
   const clock = () => settings()?.showClock ?? true;
   const openOn = () => settings()?.openOn ?? 'lastChannel';
   const teams = () => settings()?.followedTeams ?? [];
-  const items = () => displayItems({ showClock: clock(), openOn: openOn(), followedTeams: teams(), posterSize: settings()?.posterSize ?? 'standard' });
+  const items = () => displayItems({ showClock: clock(), openOn: openOn(), followedTeams: teams(), posterSize: settings()?.posterSize ?? 'standard', motion: motionLevel() });
 
   const onAdjust = (id: string) => {
     if (id === 'clock') { void saveSetting({ showClock: !clock() }); return true; }
     if (id === 'posterSize') { void saveSetting({ posterSize: (settings()?.posterSize ?? 'standard') === 'compact' ? 'standard' : 'compact' }); return true; }
+    // Saved as an explicit level; App applies it to shell/motion.ts.
+    if (id === 'motion') { void saveSetting({ motion: nextMotionLevel(motionLevel()) }); return true; }
     if (id === 'openOn') { void saveSetting({ openOn: openOn() === 'start' ? 'lastChannel' : 'start' }); return true; }
     return false;
   };

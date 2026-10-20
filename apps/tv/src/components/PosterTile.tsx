@@ -1,6 +1,7 @@
-import { View } from '@lightningtv/solid';
+import { View, type ElementNode } from '@lightningtv/solid';
 import type { VodTile } from '@iptv/app-api';
-import { FOCUS, TYPE } from '../shell/theme.ts';
+import { useFocusScale } from '../shell/motion.ts';
+import { TYPE } from '../shell/theme.ts';
 import { PosterArt } from '../vod/PosterArt.tsx';
 
 export { posterCache } from './posterCache.ts';
@@ -14,8 +15,11 @@ export { POSTER_GAP, POSTER_H, POSTER_W } from '../vod/posterLogic.ts';
  */
 export function PosterTile(props: { x: number; y: number; w: number; h: number; tile: VodTile | undefined; lit: boolean; hover?: boolean; label?: string }) {
   const t = () => props.tile;
+  let node: ElementNode | undefined;
+  // The scale is owned by the motion helper (animated, interruptible), never bound as a prop.
+  useFocusScale(() => node, () => props.lit);
   return (
-    <View x={props.x} y={props.y} width={props.w} height={props.h} scale={props.lit ? FOCUS.scale : 1} zIndex={props.lit ? 2 : 1}>
+    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.w} height={props.h} zIndex={props.lit ? 2 : 1}>
       <PosterArt w={props.w} h={props.h} title={t()?.title ?? ''} image={t()?.poster} progress={t()?.progress}
         lit={props.lit} hover={props.hover} label={props.label} pending={!t() && props.label === undefined} titleLines={2} titleFont={TYPE.body} />
     </View>

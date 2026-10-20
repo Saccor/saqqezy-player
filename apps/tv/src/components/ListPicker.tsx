@@ -3,6 +3,7 @@ import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
+import { riseIn } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { pickerFooter } from './listPickerLogic.ts';
 import { moveFocus, scrollTopFor } from './virtualWindow.ts';
@@ -92,7 +93,7 @@ export function ListPicker(props: {
   });
 
   return (
-    <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
+    <View ref={(el) => { scrim = el; riseIn(el); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
         width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
         onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
