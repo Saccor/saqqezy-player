@@ -196,9 +196,9 @@ describe('ChannelIndex – visibility', () => {
     const l = lay({ op: 'hideGroups', ids: ['g:Kids'] }, { op: 'renameGroup', id: 'g:News', name: 'Updates' });
     const idx = new ChannelIndex(channels, l);
     expect(idx.allProviderGroups()).toEqual([
-      { id: 'g:News', name: 'Updates', providerName: 'News', count: 2, hidden: false },
-      { id: 'g:Movies', name: 'Movies', providerName: 'Movies', count: 1, hidden: false },
-      { id: 'g:Kids', name: 'Kids', providerName: 'Kids', count: 1, hidden: true },
+      { id: 'g:News', name: 'Updates', providerName: 'News', count: 2, hidden: false, regionHidden: false, shown: false, regions: [] },
+      { id: 'g:Movies', name: 'Movies', providerName: 'Movies', count: 1, hidden: false, regionHidden: false, shown: false, regions: [] },
+      { id: 'g:Kids', name: 'Kids', providerName: 'Kids', count: 1, hidden: true, regionHidden: false, shown: false, regions: [] },
     ]);
   });
 });

@@ -4,6 +4,8 @@ import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
 import { foldChannels, type ChannelFolds } from '../live/fold.ts';
 import { searchKey } from '../text/searchKey.ts';
+import { isSure, regionKeys, type GroupRegion } from '../text/regions.ts';
+import type { RegionMode } from '../settings.ts';
 import { orderGroupChannels } from './order.ts';
 import type { Channel, GroupInfo } from '../types.ts';
 
@@ -16,7 +18,31 @@ export interface ProviderGroupInfo {
   providerName: string;
   /** Every channel in the playlist group, hidden ones included. */
   count: number;
+  /** Hidden by the user (`hiddenGroups`). */
   hidden: boolean;
+  /** Hidden by the region rule (Show only these), not by the user. */
+  regionHidden: boolean;
+  /** Shown on purpose (`shownGroups`), over the region rule. */
+  shown: boolean;
+  /** The group's region keys the rule uses: the user's override, else a sure detection; [] when none. */
+  regions: string[];
+}
+
+/** Your countries as the index applies them (report 2026-10-20 §2.2). */
+export interface ChannelRegionView {
+  /** Detected regions per group id (the cached record's `groups`). */
+  detected: Readonly<Record<string, GroupRegion>>;
+  codes: readonly string[];
+  mode: RegionMode;
+}
+
+export interface RegionState {
+  /** The mode in effect: 'off' when stale. */
+  mode: RegionMode;
+  /** The mode the settings ask for. */
+  requested: RegionMode;
+  /** Countries were chosen but no group of this source matches them: the rule is off, the UI shows a notice. */
+  stale: boolean;
 }
 
 const GROUP_PREFIX = 'g:';
@@ -79,6 +105,42 @@ function buildFold(base: Base): FoldBase {
 export interface ChannelIndexOptions {
   /** One row per live channel: duplicates of a channel fold into its row (spec 2026-10-19-live-grouping). */
   fold?: boolean;
+  /** Your countries: put first or show only these. Without it (or with mode 'off') nothing changes. */
+  regions?: ChannelRegionView;
+}
+
+/** Region keys per provider group, the groups of chosen countries, and those the rule hides. */
+interface RegionData {
+  keysOf: Map<string, string[]>;
+  chosen: Set<string>;
+  ruleHidden: Set<string>;
+  state: RegionState;
+}
+
+const NO_KEYS: string[] = [];
+const OFF_STATE: RegionState = { mode: 'off', requested: 'off', stale: false };
+
+function regionData(base: Base, lay: Layout, view: ChannelRegionView | undefined): RegionData {
+  const keysOf = new Map<string, string[]>();
+  const chosen = new Set<string>();
+  const ruleHidden = new Set<string>();
+  const requested = view?.mode ?? 'off';
+  if (!view) return { keysOf, chosen, ruleHidden, state: OFF_STATE };
+  const codes = new Set(view.codes);
+  for (const gid of base.providerOrder) {
+    const own = Object.prototype.hasOwnProperty.call(lay.groupRegion, gid) ? lay.groupRegion[gid] : undefined;
+    const d = own === undefined ? view.detected[gid] : undefined;
+    const keys = own ?? (d && isSure(d) ? regionKeys(d) : NO_KEYS);
+    keysOf.set(gid, keys);
+    if (keys.some((k) => codes.has(k))) chosen.add(gid);
+  }
+  if (requested === 'off' || codes.size === 0) return { keysOf, chosen: new Set(), ruleHidden, state: { mode: 'off', requested, stale: false } };
+  if (chosen.size === 0) return { keysOf, chosen, ruleHidden, state: { mode: 'off', requested, stale: true } };
+  if (requested === 'only') {
+    const shown = new Set(lay.shownGroups);
+    for (const [gid, keys] of keysOf) if (keys.length && !chosen.has(gid) && !shown.has(gid)) ruleHidden.add(gid);
+  }
+  return { keysOf, chosen, ruleHidden, state: { mode: requested, requested, stale: false } };
 }
 
 function groupIdOf(c: Channel): string {
@@ -143,7 +205,12 @@ export class ChannelIndex {
   /** Normalised display names of renamed channels. */
   private readonly renamedKeys: Map<string, string>;
   private readonly hiddenCh: Set<string>;
+  /** Effective hidden groups: the user's, plus those the region rule hides (never the shown ones). */
   private readonly hiddenGr: Set<string>;
+  /** The user's hidden groups only. */
+  private readonly userHiddenGr: Set<string>;
+  private readonly regionView: ChannelRegionView | undefined;
+  private readonly rd: RegionData;
   private readonly noEpg: Set<string> | undefined;
   /** Nothing hidden (channels, groups, no-guide) and nothing renamed: every channel shows as it is. */
   private readonly plain: boolean;
@@ -171,10 +238,22 @@ export class ChannelIndex {
     const old = prev && prev.base === this.base ? prev : undefined;
     const pl = old?.lay;
     const sameHiddenCh = pl !== undefined && pl.hiddenChannels === lay.hiddenChannels;
-    const sameHiddenGr = pl !== undefined && pl.hiddenGroups === lay.hiddenGroups;
+    this.regionView = opts?.regions;
+    const sameRegions = pl !== undefined && pl.groupRegion === lay.groupRegion && pl.shownGroups === lay.shownGroups
+      && old!.regionView === this.regionView;
+    const sameUserHidden = pl !== undefined && pl.hiddenGroups === lay.hiddenGroups;
+    const sameHiddenGr = sameUserHidden && sameRegions;
     const sameNames = pl !== undefined && pl.channelNames === lay.channelNames;
     this.hiddenCh = sameHiddenCh ? old!.hiddenCh : new Set(lay.hiddenChannels);
-    this.hiddenGr = sameHiddenGr ? old!.hiddenGr : new Set(lay.hiddenGroups);
+    // The effective hidden set, built once here in O(groups): `shown()` stays one set lookup per group.
+    this.rd = sameRegions ? old!.rd : regionData(this.base, lay, this.regionView);
+    this.userHiddenGr = sameUserHidden ? old!.userHiddenGr : new Set(lay.hiddenGroups);
+    if (sameHiddenGr) this.hiddenGr = old!.hiddenGr;
+    else if (this.rd.ruleHidden.size === 0) this.hiddenGr = this.userHiddenGr;
+    else {
+      this.hiddenGr = new Set(this.userHiddenGr);
+      for (const gid of this.rd.ruleHidden) this.hiddenGr.add(gid);
+    }
     if (sameNames) {
       this.renamed = old!.renamed;
       this.renamedKeys = old!.renamedKeys;
@@ -214,6 +293,7 @@ export class ChannelIndex {
   /** Same playlist and EPG coverage, different layout; reuses the playlist-derived data and unaffected cached groups. */
   withLayout(layout: Layout): ChannelIndex {
     const opts: InternalOptions = { fold: this.fb !== undefined, prev: this };
+    if (this.regionView) opts.regions = this.regionView;
     return new ChannelIndex(this.base.channels, layout, this.base.epgCoverage, opts);
   }
 
@@ -413,15 +493,25 @@ export class ChannelIndex {
     return v;
   }
 
-  /** Provider group ids: `groupOrder` ids that exist first, then the rest in provider order. */
+  /**
+   * Provider group ids: `groupOrder` ids that exist first, then the rest in provider order. With your countries on,
+   * the rest is a stable partition: chosen countries' groups first, then the others (the user's order always wins).
+   */
   private orderedProviderGroups(): string[] {
     const out: string[] = [];
     const seen = new Set<string>();
     for (const gid of this.lay.groupOrder) {
       if (this.base.members.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
     }
+    const chosen = this.rd.state.mode === 'off' ? undefined : this.rd.chosen;
+    if (chosen) for (const gid of this.base.providerOrder) if (chosen.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
     for (const gid of this.base.providerOrder) if (!seen.has(gid)) out.push(gid);
     return out;
+  }
+
+  /** Not a group of a chosen country while your countries are on: listed under "Other groups". */
+  private isOther(gid: string): boolean {
+    return this.rd.state.mode !== 'off' && !this.rd.chosen.has(gid);
   }
 
   private groupName(gid: string): string {
@@ -441,16 +531,24 @@ export class ChannelIndex {
     out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
     for (const gid of this.orderedProviderGroups()) {
       const count = this.visible(gid).length;
-      if (count > 0) out.push({ id: gid, name: this.groupName(gid), count });
+      if (count === 0) continue;
+      const info: GroupInfo = { id: gid, name: this.groupName(gid), count };
+      if (this.isOther(gid)) info.other = true;
+      out.push(info);
     }
     return out;
+  }
+
+  /** Your countries as applied to this source. */
+  regionState(): RegionState {
+    return this.rd.state;
   }
 
   /** Hidden provider groups that exist in this playlist, with their non-hidden channel counts (for Settings). */
   hiddenGroupInfos(): GroupInfo[] {
     const out: GroupInfo[] = [];
     for (const gid of this.orderedProviderGroups()) {
-      if (!this.hiddenGr.has(gid)) continue;
+      if (!this.userHiddenGr.has(gid)) continue;
       const m = this.base.members.get(gid) ?? [];
       out.push({ id: gid, name: this.groupName(gid), count: m.filter((c) => !this.hiddenCh.has(c.id)).length });
     }
@@ -464,7 +562,10 @@ export class ChannelIndex {
       name: this.groupName(gid),
       providerName: gid.slice(GROUP_PREFIX.length),
       count: this.base.members.get(gid)?.length ?? 0,
-      hidden: this.hiddenGr.has(gid),
+      hidden: this.userHiddenGr.has(gid),
+      regionHidden: this.rd.ruleHidden.has(gid),
+      shown: this.lay.shownGroups.includes(gid),
+      regions: [...(this.rd.keysOf.get(gid) ?? NO_KEYS)],
     }));
   }
 
@@ -580,7 +681,12 @@ export class ChannelIndex {
     const fi = this.fb.foldIndexOf.get(id);
     if (fi === undefined) return [];
     const members = this.fb.members[fi]!;
-    const cands = members.filter((m) => this.candidate(m));
+    let cands = members.filter((m) => this.candidate(m));
+    // Your countries on: their streams first, playlist order otherwise (a stable partition).
+    if (cands.length > 1 && this.rd.state.mode !== 'off') {
+      const mine = cands.filter((m) => this.rd.chosen.has(groupIdOf(m)));
+      if (mine.length && mine.length < cands.length) cands = [...mine, ...cands.filter((m) => !this.rd.chosen.has(groupIdOf(m)))];
+    }
     return (cands.length ? cands : members.filter((m) => !this.hiddenCh.has(m.id))).map((m) => this.display(m));
   }
 
