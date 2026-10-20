@@ -75,7 +75,7 @@ export function ActionBar(props: {
       <For each={props.actions}>{(a, i) => {
         const lit = () => focused() && cur() === i();
         const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover
-          : props.current === a.id ? COLORS.accent : COLORS.surfaceRaised);
+          : props.current === a.id ? COLORS.selected : COLORS.surfaceRaised);
         return (
           <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={BUTTON_H / 2}
             color={fill()}>
