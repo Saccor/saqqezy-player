@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fpsFromSamples, fpsFromTrackExtra, median, snapFps, type FrameSample } from './frameRate.ts';
+import { fpsFromSamples, fpsFromTrackExtra, median, noRateIsFinal, snapFps, type FrameSample } from './frameRate.ts';
 
 /** `n` callbacks one frame apart at `fps`. */
 const frames = (fps: number, n: number, from = 0): FrameSample[] =>
@@ -79,5 +79,18 @@ describe('fpsFromTrackExtra', () => {
     expect(fpsFromTrackExtra(extra('{"fps":"12500"}'))).toBeUndefined();
     expect(fpsFromTrackExtra(extra('{"fps":"500"}'))).toBeUndefined();
     expect(fpsFromTrackExtra({})).toBeUndefined();
+  });
+});
+
+describe('noRateIsFinal', () => {
+  it('a window with enough callbacks that gave no rate is final', () => {
+    expect(noRateIsFinal(15)).toBe(true);
+    expect(noRateIsFinal(30)).toBe(true);
+  });
+
+  it('a short window (a pause or a hidden page) is measured again later', () => {
+    expect(noRateIsFinal(0)).toBe(false);
+    expect(noRateIsFinal(3)).toBe(false);
+    expect(noRateIsFinal(14)).toBe(false);
   });
 });

@@ -48,6 +48,14 @@ export function fpsFromSamples(samples: readonly FrameSample[]): number | undefi
   return dt ? snapFps(1 / dt) : undefined;
 }
 
+/** The fewest callbacks a window needs before "no clear rate" is remembered (a pause or hidden page gives few). */
+const MIN_FINAL_CALLBACKS = 15;
+
+/** Whether a window with `callbacks` frame callbacks and no rate is the final answer for the file; else measure again. */
+export function noRateIsFinal(callbacks: number): boolean {
+  return callbacks >= MIN_FINAL_CALLBACKS;
+}
+
 /** Plausible frame rates a track detail may give. */
 const FPS_MIN = 1;
 const FPS_MAX = 240;

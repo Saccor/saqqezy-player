@@ -9,7 +9,7 @@ import { codecFamily } from '../vod/tracks.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';
-import { fpsFromSamples, type FrameSample } from './frameRate.ts';
+import { fpsFromSamples, noRateIsFinal, type FrameSample } from './frameRate.ts';
 import { cueTextOf, nativeHlsPreferred } from './trackSupport.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
@@ -840,8 +840,11 @@ export class Html5Player implements Player {
         return;
       }
       this.fpsSampling = undefined;
-      // No clear rate is kept too, so polling does not measure the same file again and again.
-      this.measuredFps.set(s.url, fpsFromSamples(samples) ?? null);
+      // No clear rate is kept too (null), so polling does not measure the same file again and again; but only
+      // after a full window: callbacks stop while paused or hidden, and a short window is measured again.
+      const fps = fpsFromSamples(samples);
+      if (fps === undefined && !noRateIsFinal(samples.length)) return;
+      this.measuredFps.set(s.url, fps ?? null);
       if (this.measuredFps.size > MEASURED_FPS_MAX) {
         const oldest = this.measuredFps.keys().next().value;
         if (oldest !== undefined) this.measuredFps.delete(oldest);
