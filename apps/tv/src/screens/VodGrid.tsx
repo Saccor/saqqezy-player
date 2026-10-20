@@ -13,7 +13,7 @@ import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { dwellSignal } from '../shell/dwell.ts';
-import { Rail } from '../shell/Rail.tsx';
+import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { belowTab } from '../shell/railLogic.ts';
 import { goRailNested } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -181,7 +181,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     if (a === 'retry' && !retryNode) a = 'rail';
     wantGrid = asked === 'grid' && a !== 'grid';
     setArea(a);
-    (a === 'rail' ? railNode : a === 'header' ? headerNode : a === 'retry' ? retryNode : gridNode)?.setFocus();
+    // A fallback rail stays collapsed, so the screen stays in view.
+    if (a === 'rail' && asked !== 'rail') focusRailCollapsed(railNode);
+    else (a === 'rail' ? railNode : a === 'header' ? headerNode : a === 'retry' ? retryNode : gridNode)?.setFocus();
     return true;
   };
   /** After a load: the grid when it was asked for, and never focus left on an empty grid. */

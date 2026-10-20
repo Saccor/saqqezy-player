@@ -13,7 +13,7 @@ import { PosterRow } from '../components/PosterRow.tsx';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
-import { Rail } from '../shell/Rail.tsx';
+import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
@@ -158,7 +158,9 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     }
     if (a !== asked) fallbackArea = a;
     setArea(a);
-    (a === 'rail' ? railNode : a === 'header' ? headerNode : rowsNode)?.setFocus();
+    // A fallback or restored rail stays collapsed, so the screen stays in view.
+    if (a === 'rail' && (asked !== 'rail' || restoring)) focusRailCollapsed(railNode);
+    else (a === 'rail' ? railNode : a === 'header' ? headerNode : rowsNode)?.setFocus();
     return true;
   };
 
@@ -410,7 +412,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     onCleanup(() => { for (const off of offs) off(); });
     void load();
     // The rows take the focus once they arrive (`restoreFocus`); a rail choice that opened this screen keeps the rail.
-    if (startOnRail) railNode?.setFocus();
+    if (startOnRail) focusRailCollapsed(railNode);
   });
   onCleanup(() => { alive = false; removePicker?.(); });
 

@@ -18,11 +18,11 @@ const slots = (fromH: number, toH: number) => {
 const win = { start: at(-6), end: at(48) };
 
 describe('time <-> x', () => {
-  it('maps one hour to 682 px from the view start', () => {
-    expect(PX_PER_HOUR).toBe(682);
+  it('maps one hour to 612 px from the view start', () => {
+    expect(PX_PER_HOUR).toBe(612);
     expect(timeToX(at(0), at(0))).toBe(0);
-    expect(timeToX(at(1.5), at(0))).toBe(1023);
-    expect(timeToX(at(-0.5), at(0))).toBe(-341);
+    expect(timeToX(at(1.5), at(0))).toBe(918);
+    expect(timeToX(at(-0.5), at(0))).toBe(-306);
   });
 
   it('floors to the half hour and builds the -6 h..+48 h window from it', () => {
@@ -38,8 +38,8 @@ describe('time <-> x', () => {
     expect(clampViewStart(at(47), win)).toBe(at(48) - VIEW_SPAN);
   });
 
-  it('two hours fill the 1364 px timeline', () => {
-    expect(PX_PER_HOUR * (VIEW_SPAN / HOUR)).toBe(1364);
+  it('two hours fill the 1224 px timeline', () => {
+    expect(PX_PER_HOUR * (VIEW_SPAN / HOUR)).toBe(1224);
   });
 
   it('lists the 30-minute tick marks of the view', () => {
