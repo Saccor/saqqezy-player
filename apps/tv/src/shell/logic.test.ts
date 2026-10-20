@@ -135,13 +135,13 @@ describe('toast precedence', () => {
 
 describe('showWordmark', () => {
   it('shows on the screens not yet redesigned while the video is not fullscreen', () => {
-    for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
+    for (const route of ['guide', 'search', 'settings', 'addSource'] as const) {
       expect(showWordmark(route, false, false)).toBe(true);
     }
   });
 
   it('is off on the redesigned screens and the player', () => {
-    for (const r of ['start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
+    for (const r of ['home', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
   });
 
   it('screens with the rail draw the clock in the rail', () => {

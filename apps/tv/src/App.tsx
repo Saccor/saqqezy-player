@@ -8,7 +8,7 @@ import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { GuideScreen } from './screens/Guide.tsx';
-import { HomeScreen } from './screens/Home.tsx';
+import { LiveTvScreen } from './screens/live/LiveTv.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
@@ -144,7 +144,7 @@ export function App() {
         }>
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen entry={entry} />
-            : entry.screen === 'home' ? <HomeScreen entry={entry} />
+            : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen />

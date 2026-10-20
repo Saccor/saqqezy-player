@@ -81,7 +81,7 @@ export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: bool
 }
 
 /** Screens without the brand wordmark: the redesigned ones (spec §1.4) and the player. */
-const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['player', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail']);
+const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail']);
 
 /** Screens with the left rail; the rail draws the clock there, so the shell's top-right clock is off. */
 export function railRoute(route: ScreenId | undefined): boolean {

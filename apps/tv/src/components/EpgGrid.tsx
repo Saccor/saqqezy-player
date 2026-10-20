@@ -96,6 +96,8 @@ export function EpgGrid(props: {
   x: number; y: number;
   total: number;
   top: number;
+  /** Rows shown (default `EPG_VIEW_ROWS`; pointer mode passes `EPG_POINTER_ROWS`). */
+  rows?: number;
   focusRow: number;
   /** Start of the focused block (identifies it in the focused row). */
   focusStart: number | undefined;
@@ -130,13 +132,14 @@ export function EpgGrid(props: {
   // Equal by cell: a move within one cell sets nothing.
   const [hover, setHover] = createSignal<GridHit<Block> | undefined>(undefined, { equals: sameGridHit });
   let node: ElementNode | undefined;
-  const height = RULER_H + EPG_VIEW_ROWS * EPG_ROW_H;
+  const viewRows = () => props.rows ?? EPG_VIEW_ROWS;
+  const height = () => RULER_H + viewRows() * EPG_ROW_H;
   const indices = createMemo(() => {
-    const r = renderRange(props.top, EPG_VIEW_ROWS, props.total, ROW_BUFFER);
+    const r = renderRange(props.top, viewRows(), props.total, ROW_BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
   const nowX = () => timeToX(props.now, props.viewStart);
-  const hitAt = (p: Point) => cellAt(p.x, p.y, EPG_GEOMETRY, props.top, props.total, props.viewStart, props.blocks);
+  const hitAt = (p: Point) => cellAt(p.x, p.y, { ...EPG_GEOMETRY, viewRows: viewRows() }, props.top, props.total, props.viewStart, props.blocks);
   usePointerTarget({
     node: () => node,
     onHover: (p) => setHover(p ? hitAt(p) : undefined),
@@ -159,7 +162,7 @@ export function EpgGrid(props: {
   };
 
   return (
-    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={EPG_GRID_W} height={height} clipping
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={EPG_GRID_W} height={height()} clipping
       onFocusChanged={setFocused}
       onUp={() => props.onUp()} onDown={() => props.onDown()}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onOk()}
@@ -178,7 +181,7 @@ export function EpgGrid(props: {
       )}</For>
 
       {/* Rows */}
-      <View y={RULER_H} width={EPG_GRID_W} height={EPG_VIEW_ROWS * EPG_ROW_H} clipping>
+      <View y={RULER_H} width={EPG_GRID_W} height={viewRows() * EPG_ROW_H} clipping>
         <For each={indices()}>{(i) => {
           const ch = () => props.channel(i);
           const isRow = () => i === props.focusRow;
@@ -237,7 +240,7 @@ export function EpgGrid(props: {
 
       {/* Now line: 2 px, from the ruler to the last row. */}
       <Show when={nowX() >= 0 && nowX() <= TIMELINE_W}>
-        <View x={TL_X + nowX() - 1} y={RULER_H} width={2} height={EPG_VIEW_ROWS * EPG_ROW_H - (EPG_ROW_H - CELL_H)}
+        <View x={TL_X + nowX() - 1} y={RULER_H} width={2} height={viewRows() * EPG_ROW_H - (EPG_ROW_H - CELL_H)}
           color={COLORS.accent} zIndex={5} />
       </Show>
     </View>
