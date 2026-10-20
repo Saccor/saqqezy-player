@@ -12,15 +12,16 @@ import { visibleInterval } from '../shell/visibleInterval.ts';
 import { settings } from '../state/appState.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
-import { MATCHES_COPY, gridMove, matchChipActions } from './startLogic.ts';
+import { MATCHES_COPY, activeMatchChip, gridMove, matchChipActions } from './startLogic.ts';
 
 const COLS = 5;
 const TOP = 200;
 const PITCH_X = WIDE_W + WIDE_GAP;
 const PITCH_Y = WIDE_H + WIDE_GAP + 8;
 const VISIBLE_ROWS = 4;
-/** The category chips sit on the title line, to its right. */
+/** The category chips sit on the title line, to its right, and never pass the right safe edge. */
 const CHIPS_X = LAYOUT.safeX + 560;
+const CHIPS_MAX_W = LAYOUT.width - LAYOUT.safeX - CHIPS_X;
 const CHIPS_Y = LAYOUT.safeY + 24;
 
 /** Matches in your guide, every match (the Start row's See all), with the guide's own category chips. */
@@ -45,8 +46,8 @@ export function StartSportsScreen() {
     setIndex((i) => Math.min(i, Math.max(0, list.length - 1)));
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => node?.setFocus()) });
-  const chipActions = () => matchChipActions(chips());
-  const activeChip = () => settings()?.matchCategories[0] ?? 'all';
+  const chipActions = () => matchChipActions(chips(), CHIPS_MAX_W);
+  const activeChip = () => activeMatchChip(chips(), settings()?.matchCategories ?? []);
   const firstRow = () => Math.max(0, Math.floor(index() / COLS) - VISIBLE_ROWS + 1);
   const shown = () => events().slice(firstRow() * COLS, (firstRow() + VISIBLE_ROWS) * COLS);
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -81,7 +82,7 @@ export function StartSportsScreen() {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }}>
       <Text x={LAYOUT.safeX} y={LAYOUT.safeY + 40} fontSize={TYPE.title} color={COLORS.text}>{MATCHES_COPY.title}</Text>
       <Show when={chipActions().length > 0}>
-        <ActionBar ref={(el) => { chipsNode = el; }} x={CHIPS_X} y={CHIPS_Y} actions={chipActions()} initial={activeChip()}
+        <ActionBar ref={(el) => { chipsNode = el; }} x={CHIPS_X} y={CHIPS_Y} actions={chipActions()} initial={activeChip()} current={activeChip()}
           onAction={(id) => void pickChip(id)} onDown={() => { node?.setFocus(); return true; }} />
       </Show>
       <Show when={loaded() && events().length === 0}>

@@ -143,13 +143,37 @@ export { rowSlots as startRowSlots, type RowFrame as StartRowFrame } from '../co
 export const MATCHES_COPY = { title: 'Matches in your guide', empty: 'No matches in your guide right now.' } as const;
 
 const CHIP_MIN_W = 120;
+/** A long guide text is cut (one line) rather than pushing the other chips off the screen. */
+const CHIP_MAX_W = 320;
 const CHIP_PAD = 48;
 /** Roughly the body face's average glyph width at 1080p; chips only need to fit their label. */
 const CHIP_GLYPH = 17;
+/** ActionBar's gap between buttons. */
+const CHIP_GAP = 16;
 
-/** See all's category chips: All, then the user's own guide category texts. None when the guide has no categories. */
-export function matchChipActions(categories: readonly { id: string; label: string }[]): { id: string; label: string; width: number }[] {
+/**
+ * See all's category chips: All, then the user's own guide category texts. None when the guide has no categories.
+ * Each chip is at most CHIP_MAX_W; when the bar would pass `maxTotal`, the widest chips shrink to a shared cap.
+ */
+export function matchChipActions(categories: readonly { id: string; label: string }[], maxTotal = Infinity): { id: string; label: string; width: number }[] {
   if (!categories.length) return [];
-  const chip = (id: string, label: string) => ({ id, label, width: Math.max(CHIP_MIN_W, CHIP_PAD + label.length * CHIP_GLYPH) });
-  return [chip('all', 'All'), ...categories.map((c) => chip(c.id, c.label))];
+  const chip = (id: string, label: string) => ({ id, label, width: Math.min(CHIP_MAX_W, Math.max(CHIP_MIN_W, CHIP_PAD + label.length * CHIP_GLYPH)) });
+  const out = [chip('all', 'All'), ...categories.map((c) => chip(c.id, c.label))];
+  let budget = maxTotal - CHIP_GAP * (out.length - 1);
+  if (out.reduce((s, c) => s + c.width, 0) <= budget) return out;
+  // Water-fill: the narrow chips keep their width, the rest share what is left.
+  const asc = [...out].sort((a, b) => a.width - b.width);
+  let left = asc.length;
+  for (const c of asc) {
+    const cap = Math.max(CHIP_MIN_W, Math.floor(budget / left));
+    if (c.width > cap) c.width = cap;
+    budget -= c.width;
+    left--;
+  }
+  return out;
+}
+
+/** The chip in effect: the first stored category the guide still offers, else All (a stale one does not filter). */
+export function activeMatchChip(chips: readonly { id: string }[], stored: readonly string[]): string {
+  return stored.find((id) => chips.some((c) => c.id === id)) ?? 'all';
 }

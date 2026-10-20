@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
 import {
-  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, eventMeta, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, eventMeta, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
 } from './startLogic.ts';
 import { rowSlots } from '../components/rowSlots.ts';
 
@@ -124,6 +124,25 @@ describe('See all: category chips (design note §3.7–3.8)', () => {
     expect(a.every((x) => x.width >= 120)).toBe(true);
     expect(a[1]!.width).toBeGreaterThan(a[0]!.width);
     expect(matchChipActions([])).toEqual([]);
+  });
+  test('long guide texts: each chip is capped and the bar never passes the width it gets (1080p title line)', () => {
+    const long = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, label: `Synthetic Category Number ${i} With A Long Name` }));
+    const max = 1168;
+    const a = matchChipActions(long, max);
+    expect(a).toHaveLength(7);
+    const total = a.reduce((s, x) => s + x.width, 0) + 16 * (a.length - 1);
+    expect(total).toBeLessThanOrEqual(max);
+    expect(a.every((x) => x.width >= 120)).toBe(true);
+    expect(a[0]!.width).toBe(120);
+    const one = matchChipActions([{ id: 'c', label: 'A'.repeat(60) }]);
+    expect(one[1]!.width).toBeLessThanOrEqual(320);
+  });
+  test('the active chip: a stored category among the chips, else All', () => {
+    const chips = [{ id: 'fotboll', label: 'Fotboll' }, { id: 'ishockey', label: 'Ishockey' }];
+    expect(activeMatchChip(chips, ['ishockey'])).toBe('ishockey');
+    expect(activeMatchChip(chips, ['handboll', 'fotboll'])).toBe('fotboll');
+    expect(activeMatchChip(chips, ['handboll'])).toBe('all');
+    expect(activeMatchChip(chips, [])).toBe('all');
   });
   test('neutral copy', () => {
     expect(MATCHES_COPY).toEqual({ title: 'Matches in your guide', empty: 'No matches in your guide right now.' });
