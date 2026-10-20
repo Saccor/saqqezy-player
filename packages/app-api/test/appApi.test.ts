@@ -2392,6 +2392,29 @@ describe('AppApi – sports in your guide', () => {
     expect(events[0]!.followed).toBe(true);
   });
 
+  test('matches: the fake guide fixtures (design note §4): grouped, gated, small ones in See all only, other sport last', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    const all = await api.getSportsEvents();
+    const titles = all.map((e) => e.title);
+    expect(titles.join('|')).not.toMatch(/Studio|Evening News|Build-up|Wdh/);
+    const sw = all.filter((e) => e.title.includes('Southmere'));
+    expect(sw).toHaveLength(1);
+    expect(sw[0]).toMatchObject({ title: 'Southmere v Westvale', competition: 'Northern Cup', channelCount: 3 });
+    expect(titles.at(-1)).toBe('Lakeside Open, Round 3');
+    expect(titles).toContain('Player One v Player Two');
+    const home = await api.getStartHome();
+    const row = home.rows.find((r) => r.id === 'sports')!;
+    expect(row.title).toBe('Matches in your guide');
+    const rowTitles = row.cells.flatMap((c) => (c.type === 'event' ? [c.event.title] : []));
+    // The fake guide has no country prefixes (single-country): the size cut-off is relaxed, so the one-channel match
+    // is in the row, after the broader ones. Sport with no sides is never in the row.
+    expect(rowTitles.indexOf('Player One v Player Two')).toBeGreaterThan(rowTitles.findIndex((t) => t.includes('Northbridge')));
+    expect(rowTitles).not.toContain('Lakeside Open, Round 3');
+    expect(row.cells.at(-1)).toEqual({ type: 'viewAll', target: 'sports', total: all.length });
+  });
+
   test("matches: a pinned competition comes first, a hidden one is gone; chips are the guide's own categories", async () => {
     const { api } = make();
     await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
@@ -2404,7 +2427,8 @@ describe('AppApi – sports in your guide', () => {
     await api.saveSettings({ pinnedCompetitions: [], hiddenCompetitions: ['test cup'] });
     expect((await api.getSportsEvents()).map((e) => e.title)).not.toContain('Lakeshore v Pinecrest');
     const chips = await api.getMatchFilters();
-    expect(chips.categories.map((c) => c.label)).toEqual(['Football', 'Tennis']);
+    expect(chips.categories.map((c) => c.label)).toEqual(['Football', 'Golf', 'Ishockey', 'Tennis']);
+    expect(chips.competitions).toEqual([{ id: 'northern cup', label: 'Northern Cup' }]);
     await api.saveSettings({ hiddenCompetitions: [], matchCategories: ['tennis'] });
     expect((await api.getSportsEvents()).every((e) => e.title.includes('Marlow'))).toBe(true);
   });
