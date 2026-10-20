@@ -77,4 +77,9 @@ export interface ApplyResult {
   layout: Layout;
   changed: boolean;
   rejected: { index: number; reason: string }[];
+  /**
+   * Sync clock keys (`sync/keys.ts`) of the registers the batch changed, each once: what the write path stamps.
+   * Empty when nothing synced changed (`markWatched` only touches `recent`, which stays local).
+   */
+  touched: string[];
 }

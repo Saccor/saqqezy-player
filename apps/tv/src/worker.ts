@@ -19,7 +19,7 @@ const fetchFn = withTimeout(
 );
 const service = new SourceService({ storage, fetch: fetchFn });
 // Movies and series: same storage, network path and refusal cooldown; catalogues load lazily and one stays resident.
-const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard });
+const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard, syncClock: service.syncClock });
 // Subtitles the user loads from a link or a file: fetched and kept on this device only.
 const subtitles = new SubtitleService({ storage, fetch: fetchFn });
 // Subtitles found online (OpenSubtitles.com), straight from the device. The app's key comes from

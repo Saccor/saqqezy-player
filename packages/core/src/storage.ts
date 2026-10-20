@@ -25,8 +25,21 @@ export interface Storage {
   getVodUser(sourceId: string, itemId: string): Promise<VodUserState | undefined>;
   putVodUser(sourceId: string, itemId: string, state: VodUserState): Promise<void>;
   listVodUser(sourceId: string): Promise<VodUserRecord[]>;
+  /** One sync sidecar record (`syncMeta` store): clocks, pending records. Undefined when absent. */
+  getSyncMeta(scope: string, key: string): Promise<unknown>;
+  /** Every sync sidecar record of `scope`, in no particular order. */
+  listSyncMeta(scope: string): Promise<SyncMetaEntry[]>;
+  /** Writes all entries at once (one transaction). */
+  putSyncMeta(entries: SyncMetaEntry[]): Promise<void>;
+  deleteSyncMeta(scope: string, keys: string[]): Promise<void>;
   clearAll(): Promise<void>;
 }
+
+/**
+ * A sync sidecar record. `scope` is a source id (its clocks, removed with the source) or a reserved scope starting with
+ * `#` (`#clock`, `#pending`), which outlives sources. Values are small JSON values; hot structures never live here.
+ */
+export interface SyncMetaEntry { scope: string; key: string; value: unknown }
 
 /** Longest programme we look back for when querying overlaps (the default, and the cap of a recorded look-back). */
 export const MAX_PROGRAMME_MS = 24 * 3600_000;

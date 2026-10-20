@@ -14,6 +14,8 @@ import type {
 } from '../vod/types.ts';
 import { XtreamClient, normalizeServer } from '../xtream/client.ts';
 import type { RefusalGuard } from '../net/refusalGuard.ts';
+import { SyncClock } from '../sync/clock.ts';
+import { SYNC_KIND, clockKey, pairKey, type SyncKind } from '../sync/keys.ts';
 import { clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff } from './refreshBackoff.ts';
 
 export interface VodServiceDeps {
@@ -29,6 +31,8 @@ export interface VodServiceDeps {
   guard?: RefusalGuard;
   /** Pacing of the per-category fallback (default `VOD_FALLBACK_GAP_MS`; tests use 0). */
   fallbackGapMs?: number;
+  /** Sync clock stamped by every user write (default: one built on `storage`). Share the source service's. */
+  syncClock?: SyncClock;
 }
 
 const vodAtKey = (kind: VodKind, sourceId: string) => `vodAt:${kind}:${sourceId}`;
@@ -47,6 +51,8 @@ export class VodService {
   private readonly guard: RefusalGuard | undefined;
   private readonly fallbackGapMs: number | undefined;
   private readonly locks = new Map<string, Promise<void>>();
+  /** Stamped after each user write that took effect (never on reads, refreshes or playback start). */
+  readonly syncClock: SyncClock;
 
   constructor(deps: VodServiceDeps) {
     this.storage = deps.storage;
@@ -55,6 +61,7 @@ export class VodService {
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
     this.guard = deps.guard;
     this.fallbackGapMs = deps.fallbackGapMs;
+    this.syncClock = deps.syncClock ?? new SyncClock({ storage: deps.storage, now: this.now });
   }
 
   async loadCatalog(sourceId: string, kind: VodKind): Promise<VodCatalog> {
@@ -179,33 +186,39 @@ export class VodService {
   }
 
   saveProgress(sourceId: string, itemId: string, positionMs: number, durationMs: number, series?: SeriesPointer): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => applyProgress(prev, positionMs, durationMs, this.now(), series));
+    return this.updateUser(sourceId, itemId, SYNC_KIND.progress, (prev) => applyProgress(prev, positionMs, durationMs, this.now(), series));
   }
 
   setFavourite(sourceId: string, itemId: string, on: boolean): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => setFavourite(prev, on));
+    return this.updateUser(sourceId, itemId, SYNC_KIND.favourite, (prev) => setFavourite(prev, on));
   }
 
   setWatched(
     sourceId: string, itemId: string, on: boolean, series?: SeriesPointer, opts?: { keepUpdatedAt?: boolean },
   ): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => setWatched(prev, on, this.now(), series, opts));
+    return this.updateUser(sourceId, itemId, SYNC_KIND.progress, (prev) => setWatched(prev, on, this.now(), series, opts));
   }
 
   clearProgress(sourceId: string, itemId: string): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => clearProgress(prev));
+    return this.updateUser(sourceId, itemId, SYNC_KIND.progress, (prev) => clearProgress(prev));
   }
 
   setTracks(sourceId: string, itemId: string, tracks: { audio?: string; subtitle?: string }): Promise<VodUserState | undefined> {
-    return this.updateUser(sourceId, itemId, (prev) => setTracks(prev, tracks));
+    return this.updateUser(sourceId, itemId, SYNC_KIND.tracks, (prev) => setTracks(prev, tracks));
   }
 
-  /** Read-modify-write under a per-source lock; a removed source drops the write. */
-  private updateUser(sourceId: string, itemId: string, fn: (prev: VodUserState | undefined) => VodUserState): Promise<VodUserState | undefined> {
+  /**
+   * Read-modify-write under a per-source lock; a removed source drops the write. The write stamps the sync clock of
+   * its register (`kind`), also when `updatedAt` stays (mark unwatched, `keepUpdatedAt`, Remove from Continue).
+   */
+  private updateUser(
+    sourceId: string, itemId: string, kind: SyncKind, fn: (prev: VodUserState | undefined) => VodUserState,
+  ): Promise<VodUserState | undefined> {
     return this.withLock(`vodUser:${sourceId}`, async () => {
       if (!(await this.source(sourceId))) return undefined;
       const next = fn(await this.storage.getVodUser(sourceId, itemId));
       await this.storage.putVodUser(sourceId, itemId, next);
+      await this.syncClock.stamp(sourceId, [clockKey(kind, itemId)]);
       return next;
     });
   }
@@ -223,6 +236,8 @@ export class VodService {
       if (on) keys.add(key);
       else keys.delete(key);
       await this.storage.setMeta(meta, keys.size ? [...keys] : null);
+      // A source removed meanwhile gets no clock (its scope would never be cleaned up).
+      if (await this.source(sourceId)) await this.syncClock.stamp(sourceId, [clockKey(SYNC_KIND.split, pairKey(kind, key))]);
       return keys;
     });
   }
@@ -247,6 +262,7 @@ export class VodService {
       const keys = Object.keys(picks);
       for (const old of keys.slice(0, Math.max(0, keys.length - VOD_PICKS_MAX))) delete picks[old];
       await this.storage.setMeta(meta, picks);
+      if (await this.source(sourceId)) await this.syncClock.stamp(sourceId, [clockKey(SYNC_KIND.pick, pairKey(kind, key))]);
     });
   }
 

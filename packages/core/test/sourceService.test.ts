@@ -74,6 +74,27 @@ describe('SourceService – m3u', () => {
     expect((await service.loadIndex(source.id)).groupSize('fav')).toBe(1);
   });
 
+  test('saveLayout stamps the touched registers; a load, a migration or a save without keys stamps nothing', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const loaded = await service.loadIndex(source.id);
+    expect(await storage.listSyncMeta(source.id)).toEqual([]);
+    const first = loaded.slice('all', 0, 1)[0]!;
+    const res = applyOps(loaded.layout(), [{ op: 'hideChannels', ids: [first.id] }, { op: 'markWatched', id: first.id }]);
+    await service.saveLayout(source.id, res.layout, res.touched);
+    const clocks = await service.syncClock.clocks(source.id);
+    expect([...clocks.keys()]).toEqual([`hc:${first.id}`]);
+    const zap = applyOps(res.layout, [{ op: 'markWatched', id: 'other' }]);
+    await service.saveLayout(source.id, zap.layout, zap.touched);
+    expect((await service.syncClock.clocks(source.id)).size).toBe(1);
+  });
+
+  test('saveLayout for a removed source stamps nothing', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.deleteSource(source.id);
+    await service.saveLayout(source.id, emptyLayout(), ['hc:x']);
+    expect(await storage.listSyncMeta(source.id)).toEqual([]);
+  });
+
   test('loadLayout returns an empty layout when nothing is stored', async () => {
     const { source } = await service.addSource(m3uInput);
     expect(await service.loadLayout(source.id)).toEqual(emptyLayout());

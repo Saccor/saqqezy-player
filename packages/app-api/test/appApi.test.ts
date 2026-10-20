@@ -1352,6 +1352,18 @@ describe('AppApi – layout', () => {
     expect((await again.getChannelSlice('list:evening', 0, 1)).rows[0]!.name).toBe('Morning desk');
   });
 
+  test('layout edits stamp the sync clock; zapping (markWatched) never writes sync state', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const sourceId = (await api.init()).activeSourceId!;
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    await api.markWatched(id, 'all');
+    expect(await storage.listSyncMeta(sourceId)).toEqual([]);
+    await api.toggleFavourite(id);
+    await api.applyLayoutOps([{ op: 'hideChannels', ids: [id] }]);
+    expect((await storage.listSyncMeta(sourceId)).map((e) => e.key).sort()).toEqual([`hc:${id}`, `lm:fav|${id}`, 'lq:fav']);
+  });
+
   test('layoutChanged carries the version and origin; no-op batches emit nothing', async () => {
     const { api, events } = make();
     await api.addSource(xt());

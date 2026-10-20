@@ -372,3 +372,48 @@ describe('normalizeLayout', () => {
     expect(Object.keys(l.channelNames)).toEqual(['s:1']);
   });
 });
+
+describe('applyOps sync clock keys (touched)', () => {
+  const touched = (layout: Layout, ops: LayoutOp[]) => applyOps(layout, ops).touched.slice().sort();
+
+  test('each op names the registers it changed', () => {
+    let l = emptyLayout();
+    expect(touched(l, [{ op: 'createList', id: 'kids', name: 'Kids' }])).toEqual(['ln:kids', 'lo:']);
+    l = applyOps(l, [{ op: 'createList', id: 'kids', name: 'Kids' }, { op: 'createList', id: 'docs', name: 'Docs' }]).layout;
+    expect(touched(l, [{ op: 'renameList', listId: 'kids', name: 'Family' }])).toEqual(['ln:kids']);
+    expect(touched(l, [{ op: 'moveList', listId: 'docs', toIndex: 1 }])).toEqual(['lo:']);
+    expect(touched(l, [{ op: 'addToList', listId: 'kids', channelIds: ['s:a', 's:b'] }])).toEqual(['lm:kids|s:a', 'lm:kids|s:b', 'lq:kids']);
+    l = applyOps(l, [{ op: 'addToList', listId: 'kids', channelIds: ['s:a', 's:b'] }]).layout;
+    // Only ids whose membership changes are stamped.
+    expect(touched(l, [{ op: 'addToList', listId: 'kids', channelIds: ['s:a', 's:c'] }])).toEqual(['lm:kids|s:c', 'lq:kids']);
+    expect(touched(l, [{ op: 'removeFromList', listId: 'kids', channelIds: ['s:a', 's:z'] }])).toEqual(['lm:kids|s:a', 'lq:kids']);
+    expect(touched(l, [{ op: 'moveInList', listId: 'kids', channelId: 's:b', toIndex: 0 }])).toEqual(['lq:kids']);
+    expect(touched(l, [{ op: 'deleteList', listId: 'kids' }])).toEqual(['co:list:kids', 'ln:kids', 'lo:', 'so:list:kids']);
+    expect(touched(l, [{ op: 'hideChannels', ids: ['s:a', 's:a', 's:b'] }])).toEqual(['hc:s:a', 'hc:s:b']);
+    l = applyOps(l, [{ op: 'hideChannels', ids: ['s:a'] }, { op: 'hideGroups', ids: ['g:News'] }]).layout;
+    expect(touched(l, [{ op: 'unhideChannels', ids: ['s:a', 's:b'] }])).toEqual(['hc:s:a']);
+    expect(touched(l, [{ op: 'hideGroups', ids: ['g:News', 'g:Film'] }])).toEqual(['hg:g:Film']);
+    expect(touched(l, [{ op: 'unhideGroups', ids: ['g:News'] }])).toEqual(['hg:g:News']);
+    expect(touched(l, [{ op: 'renameChannel', id: 's:a', name: 'Channel One' }])).toEqual(['cn:s:a']);
+    expect(touched(l, [{ op: 'renameGroup', id: 'g:News', name: 'Local' }])).toEqual(['gn:g:News']);
+    expect(touched(l, [{ op: 'setGroupOrder', ids: ['g:News', 'g:Film'] }])).toEqual(['go:']);
+    expect(touched(l, [{ op: 'setChannelOrder', groupId: 'g:News', ids: ['s:a'] }])).toEqual(['co:g:News']);
+    expect(touched(l, [{ op: 'setSort', groupId: 'g:News', mode: 'name' }])).toEqual(['so:g:News']);
+    expect(touched(l, [{ op: 'setHideNoEpg', value: true }])).toEqual(['ne:']);
+  });
+
+  test('markWatched (recent stays local, zapping path), no-ops and rejected ops touch nothing', () => {
+    const l = emptyLayout();
+    expect(touched(l, [{ op: 'markWatched', id: 's:a' }])).toEqual([]);
+    expect(touched(l, [{ op: 'setHideNoEpg', value: false }])).toEqual([]);
+    expect(touched(l, [{ op: 'renameList', listId: 'missing', name: 'X' }])).toEqual([]);
+    expect(touched(l, [{ op: 'unhideChannels', ids: ['s:a'] }])).toEqual([]);
+  });
+
+  test('a batch reports every changed register once', () => {
+    const r = applyOps(emptyLayout(), [
+      { op: 'hideChannels', ids: ['s:a'] }, { op: 'unhideChannels', ids: ['s:a'] }, { op: 'markWatched', id: 's:b' },
+    ]);
+    expect(r.touched).toEqual(['hc:s:a']);
+  });
+});

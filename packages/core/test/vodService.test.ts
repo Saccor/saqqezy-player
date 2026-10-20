@@ -378,3 +378,64 @@ describe('VodService versions', () => {
     expect(await svc.getVodPicks('x', 'movie')).toEqual({});
   });
 });
+
+describe('VodService sync clock bumps', () => {
+  const clockOf = async (sourceId: string) => new Map((await storage.listSyncMeta(sourceId)).map((e) => [e.key, e.value as string]));
+
+  test('every user write path stamps its register (progress, watched, unwatched, keepUpdatedAt, clear, favourite, tracks)', async () => {
+    const steps: [string, () => Promise<unknown>][] = [
+      ['vp:x:m10', () => svc.saveProgress('x', 'x:m10', 600_000, 3600_000)],
+      ['vp:x:m10', () => svc.setWatched('x', 'x:m10', true)],
+      // Mark unwatched keeps `updatedAt` but must still move the sync clock.
+      ['vp:x:m10', () => svc.setWatched('x', 'x:m10', false)],
+      ['vp:x:e1', () => svc.setWatched('x', 'x:e1', true, { id: 'x:s5', season: 1, episode: 1 }, { keepUpdatedAt: true })],
+      // "Remove from Continue watching".
+      ['vp:x:m10', () => svc.clearProgress('x', 'x:m10')],
+      ['vf:x:m10', () => svc.setFavourite('x', 'x:m10', true)],
+      ['vt:x:m10', () => svc.setTracks('x', 'x:m10', { audio: 'eng' })],
+    ];
+    let prev = new Map<string, string>();
+    for (const [key, step] of steps) {
+      await step();
+      const cur = await clockOf('x');
+      expect(cur.get(key), key).toBeDefined();
+      if (prev.has(key)) expect(cur.get(key)! > prev.get(key)!, key).toBe(true);
+      for (const [k, v] of prev) if (k !== key) expect(cur.get(k)).toBe(v);
+      prev = cur;
+    }
+  });
+
+  test('version picks and splits stamp their title key', async () => {
+    await svc.setVodPick('x', 'movie', 't:42', 'x:m10');
+    await svc.setVodSplit('x', 'series', 'y:synthetic|2020', true);
+    const c = await clockOf('x');
+    expect([...c.keys()].sort()).toEqual(['vk:movie|t:42', 'vs:series|y:synthetic|2020']);
+  });
+
+  test('a write dropped because the source is gone stamps nothing; reads stamp nothing', async () => {
+    await svc.getUser('x', 'x:m10');
+    await svc.listUser('x');
+    await svc.loadCatalog('x', 'movie');
+    expect(await storage.listSyncMeta('x')).toEqual([]);
+    await storage.deleteSource('x');
+    await svc.saveProgress('x', 'x:m10', 600_000, 3600_000);
+    await svc.setFavourite('x', 'x:m10', true);
+    expect(await storage.listSyncMeta('x')).toEqual([]);
+  });
+
+  test('a shared clock is used when given', async () => {
+    const { SyncClock } = await import('../src/sync/clock.ts');
+    const syncClock = new SyncClock({ storage, now: () => now, nodeId: () => 'shared' });
+    const shared = new VodService({ storage, fetch: fetchFn, now: () => now, syncClock });
+    await shared.setFavourite('x', 'x:m10', true);
+    expect((await clockOf('x')).get('vf:x:m10')!.endsWith('shared')).toBe(true);
+    expect(shared.syncClock).toBe(syncClock);
+  });
+});
+
+test('a pick or split for a removed source leaves no clock behind', async () => {
+  await storage.deleteSource('x');
+  await svc.setVodPick('x', 'movie', 't:42', 'x:m10');
+  await svc.setVodSplit('x', 'movie', 't:42', true);
+  expect(await storage.listSyncMeta('x')).toEqual([]);
+});

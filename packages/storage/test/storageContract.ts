@@ -191,8 +191,43 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(await s.listVodUser('s10')).toEqual([{ itemId: 'a', state: user(3) }]);
     });
 
+    test('syncMeta: batch put, get, list per scope, delete', async () => {
+      const s = await make();
+      await s.putSyncMeta([
+        { scope: 's1', key: 'vp:s1:m1', value: 'a' },
+        { scope: 's1', key: 'hc:s1:x1', value: 'b' },
+        { scope: 'clock', key: 'node', value: 'abc123' },
+      ]);
+      expect(await s.getSyncMeta('s1', 'vp:s1:m1')).toBe('a');
+      expect(await s.getSyncMeta('s1', 'missing')).toBeUndefined();
+      expect((await s.listSyncMeta('s1')).sort((a, b) => (a.key < b.key ? -1 : 1))).toEqual([
+        { scope: 's1', key: 'hc:s1:x1', value: 'b' },
+        { scope: 's1', key: 'vp:s1:m1', value: 'a' },
+      ]);
+      await s.putSyncMeta([{ scope: 's1', key: 'vp:s1:m1', value: { t: 'c' } }]);
+      expect(await s.getSyncMeta('s1', 'vp:s1:m1')).toEqual({ t: 'c' });
+      await s.deleteSyncMeta('s1', ['vp:s1:m1', 'missing']);
+      expect((await s.listSyncMeta('s1')).map((e) => e.key)).toEqual(['hc:s1:x1']);
+      expect(await s.listSyncMeta('clock')).toEqual([{ scope: 'clock', key: 'node', value: 'abc123' }]);
+    });
+
+    test("deleteSource removes that source's syncMeta scope only (s1 vs s10, global scopes kept)", async () => {
+      const s = await make();
+      await s.putSource(src);
+      await s.putSyncMeta([
+        { scope: 's1', key: 'k', value: 1 },
+        { scope: 's10', key: 'k', value: 2 },
+        { scope: 'pending', key: 'k', value: 3 },
+      ]);
+      await s.deleteSource('s1');
+      expect(await s.listSyncMeta('s1')).toEqual([]);
+      expect(await s.getSyncMeta('s10', 'k')).toBe(2);
+      expect(await s.getSyncMeta('pending', 'k')).toBe(3);
+    });
+
     test('clearAll wipes everything', async () => {
       const s = await make();
+      await s.putSyncMeta([{ scope: 'clock', key: 'node', value: 'abc123' }]);
       await s.putSource(src);
       await s.replaceChannels('s1', [chan(1)]);
       await s.setMeta('activeSource', 's1');
@@ -204,6 +239,7 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(await s.getMeta('activeSource')).toBeUndefined();
       expect(await s.getVod('s1', 'movie')).toBeUndefined();
       expect(await s.listVodUser('s1')).toEqual([]);
+      expect(await s.listSyncMeta('clock')).toEqual([]);
     });
   });
 }
