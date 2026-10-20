@@ -79,6 +79,10 @@ export const NO_GUIDE_INFO = 'No guide information';
 export const nowLine = (p: { title: string }): string => `Now · ${p.title}`;
 /** `Next · 20:00–21:30 · <title>`: the programme after it, with its time range. */
 export const nextLine = (p: { title: string; start: number; stop: number }): string => `Next · ${formatRange(p.start, p.stop)} · ${p.title}`;
+/** The live banner's next line: `Next · 21:00  <title>` (start time only), or '' when nothing is known. */
+export function bannerNextLine(next: { start: number; title: string } | undefined): string {
+  return next ? `Next · ${formatClock(new Date(next.start))}  ${next.title}` : '';
+}
 /** One line for both: the Player's info banner and Start's hero say the same thing about a channel. */
 export function nowNextLine(c: { now?: { title: string }; next?: { title: string; start: number; stop: number } }): string {
   if (!c.now) return NO_GUIDE_INFO;

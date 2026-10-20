@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface OptionItem { id: string; label: string; value?: string }
 
@@ -83,7 +83,7 @@ export function OptionsMenu(props: {
       onEnter={() => { const it = props.items[sel()]; if (it) props.onChoose(it.id); return true; }}>
       {/* The click-outside area: the whole screen. No colour: it draws nothing. */}
       <View ref={(el) => { backdrop = el; }} x={-X} y={-Y} width={LAYOUT.width} height={LAYOUT.height} />
-      <Text x={PAD} y={PAD} width={W - PAD * 2} maxWidth={W - PAD * 2} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
+      <Text x={PAD} y={PAD} width={W - PAD * 2} maxWidth={W - PAD * 2} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
       <For each={shown()}>{(it, v) => {
         const i = () => v() + top();
         const labelW = () => (it.value ? LABEL_W_WITH_VALUE : W - PAD * 2 - 48);
@@ -91,10 +91,10 @@ export function OptionsMenu(props: {
           <View x={PAD} y={PAD + HEAD + v() * (ITEM_H + ITEM_GAP)} width={W - PAD * 2} height={ITEM_H}
             borderRadius={LAYOUT.radius}
             color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}>
-            <Text x={24} y={(ITEM_H - FONT.body) / 2 - 4} width={labelW()} maxWidth={labelW()} contain="width"
-              maxLines={1} fontSize={FONT.body} color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
-            <Text x={W - PAD * 2 - 24 - VALUE_W} y={(ITEM_H - FONT.body) / 2 - 4} width={VALUE_W} maxWidth={VALUE_W} contain="width"
-              textAlign="right" maxLines={1} fontSize={FONT.body}
+            <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={labelW()} maxWidth={labelW()} contain="width"
+              maxLines={1} fontSize={TYPE.body} color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
+            <Text x={W - PAD * 2 - 24 - VALUE_W} y={(ITEM_H - TYPE.body) / 2 - 4} width={VALUE_W} maxWidth={VALUE_W} contain="width"
+              textAlign="right" maxLines={1} fontSize={TYPE.body}
               color={sel() === i() ? COLORS.onFocus : COLORS.muted}>{it.value ?? ''}</Text>
           </View>
         );

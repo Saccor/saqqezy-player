@@ -1,6 +1,6 @@
 import { For, Show, Text, View } from '@lightningtv/solid';
 import { createSignal, onCleanup } from 'solid-js';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 
 /** The pill's size, shared by the live Player and the VOD player so a status reads the same on both. */
@@ -41,7 +41,7 @@ export function StatusPill(props: { text: string; spinner?: boolean; zIndex?: nu
         <Spinner x={PAD_X - 2} y={(STATUS_PILL_H - SPINNER_W) / 2} />
       </Show>
       <Text x={textX()} y={(STATUS_PILL_H - TYPE.body) / 2 - 4} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
-        textAlign={props.spinner ? 'left' : 'center'} fontSize={TYPE.body} color={COLORS.text}>{props.text}</Text>
+        textAlign={props.spinner ? 'left' : 'center'} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.text}</Text>
     </View>
   );
 }

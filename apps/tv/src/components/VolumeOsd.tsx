@@ -2,8 +2,9 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { onUnmappedKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
+import { NUMBER_ENTRY_H, NUMBER_ENTRY_Y } from './NumberEntry.tsx';
 import { fractionAt } from '../vod/timelineLogic.ts';
 import { volume, volumeRecent, volumeSet, volumeStep, volumeSupported, volumeToggleMute } from '../video/volume.ts';
 import { volumeKeyStep, volumePercent } from '../video/volumeLogic.ts';
@@ -13,8 +14,8 @@ const KNOB = 20;
 const PCT_W = 64;
 const OSD_W = 340;
 const OSD_H = 64;
-/** Below the shell's clock (top right, one heading line). */
-const OSD_Y = LAYOUT.safeY + 56;
+/** Below the Player's number entry box (top right, under the clock), so a volume change never covers typed digits. */
+const OSD_Y = NUMBER_ENTRY_Y + NUMBER_ENTRY_H + 16;
 
 /**
  * The volume control: a pill with a speaker (click: mute), a slider (click or drag: set) and the level; the wheel over
@@ -76,8 +77,8 @@ export function VolumeControl(props: {
         color={silent() ? COLORS.muted : COLORS.accent} />
       <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
         color={COLORS.text} />
-      <Text x={props.width - PCT_W - 16} y={(props.height - FONT.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
-        textAlign="right" maxLines={1} fontSize={FONT.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
+      <Text x={props.width - PCT_W - 16} y={(props.height - TYPE.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
+        textAlign="right" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
     </View>
   );
 }
