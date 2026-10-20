@@ -33,7 +33,7 @@ vi.mock('hls.js', () => {
     default: FakeHls,
     ErrorDetails: {
       MANIFEST_INCOMPATIBLE_CODECS_ERROR: 'a', BUFFER_ADD_CODEC_ERROR: 'b', BUFFER_INCOMPATIBLE_CODECS_ERROR: 'c',
-      MANIFEST_PARSING_ERROR: 'd',
+      MANIFEST_PARSING_ERROR: 'd', MANIFEST_LOAD_ERROR: 'manifestLoadError', LEVEL_LOAD_ERROR: 'levelLoadError',
     },
     ErrorTypes: { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' },
   };
@@ -238,16 +238,52 @@ describe('Html5Player – live delay and recovery signals', () => {
     player.destroy();
   });
 
-  test('HTTP 410 is gone, not a refusal: NETWORK with the status on both engines, no in-place hls.js recovery', async () => {
+  test('HTTP 410 is gone, not a refusal: NETWORK with the status on both engines', async () => {
     const { player, events } = makePlayer();
     await player.open('http://example.test/a.ts');
     created.mpegts.at(-1)!.error!('NetworkError', 'HttpStatusCodeInvalid', { code: 410 });
     expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 410 })]);
     await player.open('http://example.test/a.m3u8');
     const hls = created.hls.at(-1)!;
-    hls.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'x', response: { code: 410 } });
+    hls.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'manifestLoadError', response: { code: 410 } });
     expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 410 })]);
-    expect(hls.calls).not.toContain('startLoad');
+    // A fragment 410 still tries one in-place reload first; what surfaces after it is NETWORK with the status, never AUTH.
+    await player.open('http://example.test/b.m3u8');
+    const frag = created.hls.at(-1)!;
+    const before = events.length;
+    frag.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'fragLoadError', response: { code: 410 } });
+    expect(frag.calls).toContain('startLoad');
+    expect(events.length).toBe(before);
+    frag.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'fragLoadError', response: { code: 410 } });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 410 })]);
+    player.destroy();
+  });
+
+  test('a manifest or playlist load answered 400/404/410/5xx reports NETWORK with the status at once (no in-place reload)', async () => {
+    const { player, events } = makePlayer();
+    for (const [details, code] of [['manifestLoadError', 404], ['levelLoadError', 404], ['manifestLoadError', 400], ['levelLoadError', 500], ['manifestLoadError', 502]] as const) {
+      await player.open('http://example.test/archive.m3u8');
+      const hls = created.hls.at(-1)!;
+      hls.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details, response: { code } });
+      expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: code, detail: details })]);
+      expect(hls.calls).not.toContain('startLoad');
+    }
+    // 503 stays a refusal (AUTH); a manifest error without a status keeps the in-place reload.
+    await player.open('http://example.test/archive.m3u8');
+    created.hls.at(-1)!.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'manifestLoadError', response: { code: 503 } });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'AUTH', httpStatus: 503 })]);
+    await player.open('http://example.test/archive.m3u8');
+    const timeout = created.hls.at(-1)!;
+    timeout.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'manifestLoadError', response: { code: 0 } });
+    expect(timeout.calls).toContain('startLoad');
+    player.destroy();
+  });
+
+  test('mpegts.js 404 carries the status as NETWORK', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/archive.ts');
+    created.mpegts.at(-1)!.error!('NetworkError', 'HttpStatusCodeInvalid', { code: 404 });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 404 })]);
     player.destroy();
   });
 

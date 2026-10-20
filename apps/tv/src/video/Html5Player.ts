@@ -69,8 +69,13 @@ const HLS_CODEC_ERRORS = new Set<string>([
  * it is reported as NETWORK with its status and takes the supervisor's "gone" path, with no cooldown on the host.
  */
 const AUTH_STATUSES = new Set([401, 403, 429, 458, 503, 509]);
-/** The stream is not there (anymore): NETWORK with the status, never an in-place hls.js reload. */
-const GONE_STATUSES = new Set([404, 410]);
+/**
+ * hls.js manifest or media-playlist loads answered with a status that will not change on an in-place reload (bad
+ * request, not there, gone, server error): reported at once as NETWORK with the status, so the supervisor decides
+ * (a missing catch-up programme ends as Not available in seconds instead of after the in-place reloads).
+ */
+const HLS_PLAYLIST_LOAD_ERRORS = new Set<string>([ErrorDetails.MANIFEST_LOAD_ERROR, ErrorDetails.LEVEL_LOAD_ERROR]);
+const finalLoadStatus = (st: number): boolean => st === 400 || st === 404 || st === 410 || (st >= 500 && st < 600);
 /** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
 const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
 
@@ -293,12 +298,13 @@ export class Html5Player implements Player {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
-        if (network && status !== undefined && GONE_STATUSES.has(status)) {
+        if (network && status !== undefined && HLS_PLAYLIST_LOAD_ERRORS.has(data.details) && finalLoadStatus(status)) {
           this.emit(s, 'error', { code: 'NETWORK', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
         if (this.recoverHls(s, hls, network ? 'network' : 'media')) return;
-        this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error', detail: data.details });
+        const known = network && status !== undefined && status > 0 ? { httpStatus: status } : {};
+        this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error', ...known, detail: data.details });
       });
       hls.loadSource(src);
       hls.attachMedia(v);

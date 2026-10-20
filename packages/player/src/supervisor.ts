@@ -169,7 +169,7 @@ export class PlaybackSupervisor {
   /** The gap the next open keeps after the last one (drawn per open). */
   private openGapMs = 0;
   private headers: StreamHeaders | undefined;
-  /** The status probe ran (or started) in this play(). */
+  /** The status probe ran (or started) in this play() (VOD: on the current URL; an alternate may be probed again). */
   private probedThisPlay = false;
   /** What the failure status carries: the last known HTTP status and a refusal's Retry-After. */
   private failInfo: { httpStatus?: number; retryAfterMs?: number } = {};
@@ -591,7 +591,7 @@ export class PlaybackSupervisor {
     } else if (s === 'error') {
       this.note({ k: 'error', code: d?.code ?? 'UNKNOWN', httpStatus: d?.httpStatus, detail: d?.detail, engine: this.player.health?.().engine });
       if (d?.httpStatus !== undefined) this.failInfo = { httpStatus: d.httpStatus };
-      this.fail(d?.code);
+      this.fail(d?.code, false, undefined, d?.httpStatus);
     } else if (s === 'idle' && this.started) {
       // A non-live stream played to its end: nothing to recover, so the ladder stops (no reconnect).
       this.stalledWhilePlaying = false;
@@ -718,7 +718,7 @@ export class PlaybackSupervisor {
    * `open()`) is not inline: the teardown is deferred one macrotask through the retry timer (0 ms), so it never
    * runs inside an engine callback.
    */
-  private fail(code?: ErrorCode, inline = false, cause?: ReconnectCause): void {
+  private fail(code?: ErrorCode, inline = false, cause?: ReconnectCause, httpStatus?: number): void {
     if (!this.active || this.busy()) return; // a reconnect (or a probe) is already pending
     const why: ReconnectCause = cause ?? code ?? 'NETWORK';
     const wasPlaying = this.isPlaying;
@@ -728,6 +728,13 @@ export class PlaybackSupervisor {
     this.endAttempt();
     // The source ending (EOS) or refusing (AUTH) the stream is not a playback stall.
     if (wasPlaying && code !== 'EOS' && code !== 'AUTH') this.countStall(this.now());
+    // VOD (catch-up) before anything played: an engine that saw 404/410 itself takes the probe's "gone" branch at
+    // once, instead of reopening a programme the archive does not have. Live keeps the NETWORK path (the other
+    // format may still play), as does a title that played (a reopen at the position).
+    if (code === 'NETWORK' && this.vod && !this.playedThisPlay && (httpStatus === 404 || httpStatus === 410)) {
+      this.onGone(httpStatus, inline);
+      return;
+    }
     if (code === 'NETWORK' && beforeFirstFrame && !statusAware && this.mayProbe()) {
       if (inline) {
         this.runProbe(why);
@@ -830,16 +837,22 @@ export class PlaybackSupervisor {
     }
     this.failInfo = { httpStatus: status };
     if (status === 404 || status === 410) {
-      // Catch-up: the other archive URL form, once, before anything played.
-      if (this.vod && !this.playedThisPlay && this.nextUrl(false)) {
-        this.vodReopens = 0;
-        return;
-      }
-      this.givingUp = false;
-      this.terminal('gone');
+      this.onGone(status, false);
       return;
     }
     this.afterFail('NETWORK', false, why);
+  }
+
+  /** The source answered 404/410 (from the probe, or from an engine that sees statuses): the stream is not there. */
+  private onGone(status: number, inline: boolean): void {
+    this.failInfo = { httpStatus: status };
+    // Catch-up: the other archive URL form, once, before anything played.
+    if (this.vod && !this.playedThisPlay && this.nextUrl(inline)) {
+      this.vodReopens = 0;
+      return;
+    }
+    this.givingUp = false;
+    this.terminal('gone');
   }
 
   /** The failure's path once its code is known (the part of `fail` after the attempt has ended). */
@@ -1018,6 +1031,9 @@ export class PlaybackSupervisor {
     this.note({ k: 'alternate', urlIndex: this.urlIndex });
     this.fails = 0;
     this.authRetried = false;
+    // Catch-up: the alternate archive form is another URL (often another path or script), so its own status may be
+    // asked once too; a missing programme then ends as Not available in seconds. Live keeps one probe per play.
+    if (this.vod) this.probedThisPlay = false;
     const switchNow = () => this.restart(() => this.emit({ kind: 'loading' }));
     const wait = this.gapWait();
     if (inline && wait === 0) {

@@ -1617,18 +1617,60 @@ describe('PlaybackSupervisor: status probe', () => {
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: 404 });
   });
 
-  it('catch-up (vodAlternate): a primary that is gone (404) switches to the alternate at once; its failures end it', async () => {
-    const { player, sup, statuses, probe } = probed({ status: 404 });
+  it('catch-up (vodAlternate): a primary that is gone (404) switches to the alternate at once; the alternate is probed too', async () => {
+    const { player, sup, statuses, calls } = probed({ status: 404 });
+    const t0 = Date.now();
     sup.play(A, B, { vod: true, vodAlternate: true });
     player.emit('error', { code: 'NETWORK' });
     await settle();
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, B]);
-    // One probe per play: the alternate's failures take the VOD reopen path, then the play ends.
-    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); await settle(); vi.advanceTimersByTime(8000); }
-    expect(probe).toHaveBeenCalledTimes(1);
-    expect(player.opened).toEqual([A, B, B, B, B]);
-    expect(statuses.at(-1)).toMatchObject({ kind: 'failed', reason: 'unavailable' });
+    // The alternate is another URL: its own probe answers 404 too, so the play ends as gone in seconds.
+    player.emit('error', { code: 'NETWORK' });
+    await settle();
+    expect(calls.map((c) => c.url)).toEqual([A, B]);
+    expect(player.opened).toEqual([A, B]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: 404 });
+    expect(Date.now() - t0).toBeLessThan(3000);
+  });
+
+  it('catch-up: an engine that reports 404/410 itself ends as gone within a few seconds, primary then alternate', () => {
+    for (const status of [404, 410]) {
+      const { player, sup, statuses } = setup();
+      (player as FakePlayer & { supportsStatus?: () => boolean }).supportsStatus = () => true;
+      const t0 = Date.now();
+      sup.play(A, B, { vod: true, vodAlternate: true });
+      player.emit('error', { code: 'NETWORK', httpStatus: status });
+      vi.advanceTimersByTime(1000); // the minimum gap since the last open
+      expect(player.opened).toEqual([A, B]);
+      player.emit('error', { code: 'NETWORK', httpStatus: status });
+      vi.advanceTimersByTime(0);
+      expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: status });
+      expect(Date.now() - t0).toBeLessThan(3000);
+      vi.advanceTimersByTime(60_000);
+      expect(player.opened).toEqual([A, B]); // nothing more is opened
+      sup.dispose();
+    }
+  });
+
+  it('a live channel keeps the NETWORK path on an engine 404 (the other format may still play); after a frame VOD does too', () => {
+    const live = setup();
+    (live.player as FakePlayer & { supportsStatus?: () => boolean }).supportsStatus = () => true;
+    live.sup.play(A, B);
+    live.player.emit('error', { code: 'NETWORK', httpStatus: 404 });
+    vi.advanceTimersByTime(1000);
+    expect(live.player.opened).toEqual([A, A]);
+    expect(live.statuses.some((st) => st.kind === 'failed')).toBe(false);
+    live.sup.dispose();
+
+    const vod = setup();
+    (vod.player as FakePlayer & { supportsStatus?: () => boolean }).supportsStatus = () => true;
+    vod.sup.play(A, B, { vod: true, vodAlternate: true });
+    vod.player.emit('playing');
+    vod.player.emit('error', { code: 'NETWORK', httpStatus: 404 });
+    vi.advanceTimersByTime(1000);
+    expect(vod.player.opened).toEqual([A, A]); // a reopen at the position, not gone
+    expect(vod.statuses.some((st) => st.kind === 'failed')).toBe(false);
   });
 
   it('never probes while the source is blocked', async () => {
