@@ -1,0 +1,21 @@
+#EXTM3U
+#EXTINF:-1 tvg-country="SE" tvg-language="Swedish" group-title="Mixed",Synthetic A
+http://example.test/live/1543520098.ts
+#EXTINF:-1 tvg-country="SE" group-title="Mixed",Synthetic B
+http://example.test/live/1820131166.ts
+#EXTINF:-1 tvg-country="se" group-title="Mixed",Synthetic C
+http://example.test/live/2919012532.ts
+#EXTINF:-1 tvg-country="DK" group-title="Mixed",Synthetic D
+http://example.test/live/2039624435.ts
+#EXTINF:-1 tvg-country="SE" group-title="Global",Synthetic E
+http://example.test/live/272819674.ts
+#EXTINF:-1 tvg-country="DK" group-title="Global",Synthetic F
+http://example.test/live/534019185.ts
+#EXTINF:-1 tvg-country="NO" group-title="Global",Synthetic G
+http://example.test/live/17921811.ts
+#EXTINF:-1 tvg-country="FI" group-title="Global",Synthetic H
+http://example.test/live/1929623846.ts
+#EXTINF:-1 tvg-country="UK" group-title="Uk Mixed",Synthetic I
+http://example.test/live/2810514078.ts
+#EXTINF:-1 tvg-country="GB" group-title="Uk Mixed",Synthetic J
+http://example.test/live/2546724708.ts

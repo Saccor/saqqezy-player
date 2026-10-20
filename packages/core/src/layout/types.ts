@@ -8,11 +8,25 @@ export interface UserList {
   channelIds: string[];
 }
 
+/**
+ * Shape version of a stored layout (not the edit counter `version`). 2 added `shownGroups` and `groupRegion`
+ * (report 2026-10-20 §2.2); `normalizeLayout` migrates older layouts by defaulting them.
+ */
+export const LAYOUT_SCHEMA = 2;
+/** Most region keys in one `groupRegion` entry. */
+export const GROUP_REGION_MAX = 10;
+
 export interface Layout {
+  /** Edit counter: +1 per applied batch. */
   version: number;
+  schema: number;
   lists: UserList[];
   hiddenChannels: string[];
   hiddenGroups: string[];
+  /** Groups shown on purpose: beats the region rule (`hiddenGroups` still beats this). */
+  shownGroups: string[];
+  /** The user's region keys for a group (countries, `lang:xx`), over detection; [] = no country. */
+  groupRegion: Record<string, string[]>;
   groupOrder: string[];
   channelOrder: Record<string, string[]>;
   channelNames: Record<string, string>;
@@ -40,9 +54,12 @@ export function isValidId(x: unknown): x is string {
 export function emptyLayout(): Layout {
   return {
     version: 0,
+    schema: LAYOUT_SCHEMA,
     lists: [{ id: FAV_LIST_ID, name: 'Favourites', channelIds: [] }],
     hiddenChannels: [],
     hiddenGroups: [],
+    shownGroups: [],
+    groupRegion: {},
     groupOrder: [],
     channelOrder: {},
     channelNames: {},
@@ -65,6 +82,12 @@ export type LayoutOp =
   | { op: 'unhideChannels'; ids: string[] }
   | { op: 'hideGroups'; ids: string[] }
   | { op: 'unhideGroups'; ids: string[] }
+  /** Shows groups on purpose: unhides them and lets them beat the region rule. */
+  | { op: 'showGroups'; ids: string[] }
+  /** Returns groups to the region rule (drops them from `shownGroups`). */
+  | { op: 'unshowGroups'; ids: string[] }
+  /** The user's region keys for a group; null returns it to detection. */
+  | { op: 'setGroupRegion'; id: string; codes: string[] | null }
   | { op: 'renameChannel'; id: string; name: string | null }
   | { op: 'renameGroup'; id: string; name: string | null }
   | { op: 'setGroupOrder'; ids: string[] }

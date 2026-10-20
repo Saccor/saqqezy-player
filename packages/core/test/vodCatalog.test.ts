@@ -117,7 +117,7 @@ describe('VodCatalog grouped', () => {
       { id: 'c', kind: 'movie', name: 'Drama', count: 1 },
     ],
   };
-  const g = new VodCatalog('movie', gl).withGroups(groupVod(gl));
+  const g = new VodCatalog('movie', gl).withGroups(groupVod(gl, undefined, { mergeCategories: true }));
 
   test('one row per title, with the lead id, display title, newest added and best rating', () => {
     expect(g.grouped).toBe(true);

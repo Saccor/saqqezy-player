@@ -7,6 +7,9 @@ import { VodCatalog } from '../vod/catalog.ts';
 import { fetchXtreamCatalog, VodFetchCancelled, xtreamVodApi } from '../vod/fetchXtream.ts';
 import { emptyVodList, seasonsOf } from '../vod/list.ts';
 import {
+  applyVodOps, normalizeVodLayout, vodLayoutKey, type VodApplyResult, type VodLayout, type VodLayoutOp,
+} from '../vod/layout.ts';
+import {
   applyProgress, clearProgress, setFavourite, setTracks, setWatched,
 } from '../vod/progress.ts';
 import type {
@@ -239,6 +242,25 @@ export class VodService {
       // A source removed meanwhile gets no clock (its scope would never be cleaned up).
       if (await this.source(sourceId)) await this.syncClock.stamp(sourceId, [clockKey(SYNC_KIND.split, pairKey(kind, key))]);
       return keys;
+    });
+  }
+
+  /** The user's category layout (hidden, order, shown) per source and kind. */
+  async getVodLayout(sourceId: string, kind: VodKind): Promise<VodLayout> {
+    return normalizeVodLayout(await this.storage.getMeta<unknown>(vodLayoutKey(kind, sourceId)));
+  }
+
+  /** Applies category ops under a per-source lock and stamps what changed; a removed source writes nothing. */
+  applyVodLayoutOps(sourceId: string, kind: VodKind, ops: readonly VodLayoutOp[]): Promise<VodApplyResult> {
+    const meta = vodLayoutKey(kind, sourceId);
+    return this.withLock(meta, async () => {
+      const before = await this.getVodLayout(sourceId, kind);
+      const res = applyVodOps(before, kind, ops);
+      if (!res.changed) return res;
+      if (!(await this.source(sourceId))) return { layout: before, changed: false, rejected: res.rejected, touched: [] };
+      await this.storage.setMeta(meta, res.layout);
+      if (res.touched.length) await this.syncClock.stamp(sourceId, res.touched);
+      return res;
     });
   }
 

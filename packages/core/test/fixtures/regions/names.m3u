@@ -1,0 +1,17 @@
+#EXTM3U
+#EXTINF:-1 group-title="🇸🇪 Synthetic News",Synthetic Flag
+http://example.test/live/f1.ts
+#EXTINF:-1 group-title="SVERIGE",Synthetic Native
+http://example.test/live/2875622137.ts
+#EXTINF:-1 group-title="Deutschland Synthetic",Synthetic Native Two
+http://example.test/live/3243620552.ts
+#EXTINF:-1 group-title="Synthetic Weekly (FI)",Synthetic Trailing
+http://example.test/live/2359630676.ts
+#EXTINF:-1 group-title="NORDIC",Synthetic Region
+http://example.test/live/64756537.ts
+#EXTINF:-1 group-title="SCANDINAVIA Synthetic",Synthetic Region Two
+http://example.test/live/85445986.ts
+#EXTINF:-1 group-title="Swedish Synthetic Docs",Synthetic Adjective
+http://example.test/live/1524521093.ts
+#EXTINF:-1 group-title="TURKEY SYNTHETIC",Synthetic Caps Word
+http://example.test/live/840211341.ts

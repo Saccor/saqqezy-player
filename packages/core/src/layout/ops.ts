@@ -1,9 +1,10 @@
 import { GROUP_ALL, GROUP_FAV, RECENT_MAX } from '../constants.ts';
 import {
-  emptyLayout, FAV_LIST_ID, MAX_ID_LEN, MAX_IDS, MAX_LISTS, MAX_OPS_PER_BATCH, NAME_MAX, isValidId,
+  emptyLayout, FAV_LIST_ID, GROUP_REGION_MAX, LAYOUT_SCHEMA, MAX_ID_LEN, MAX_IDS, MAX_LISTS, MAX_OPS_PER_BATCH, NAME_MAX, isValidId,
   type ApplyResult, type Layout, type LayoutOp, type SortMode, type UserList,
 } from './types.ts';
 import { SYNC_KIND, clockKey, pairKey } from '../sync/keys.ts';
+import { regionCode } from '../settings.ts';
 
 const LIST_ID_RE = /^[a-z0-9-]{1,32}$/;
 const SORT_MODES: readonly string[] = ['provider', 'number', 'name'];
@@ -204,6 +205,64 @@ function setHidden(l: Layout, key: 'hiddenChannels' | 'hiddenGroups', ids: strin
   return OK(true);
 }
 
+const isGroupId = (x: string): boolean => x.startsWith(GROUP_PREFIX) && x.length > GROUP_PREFIX.length && safeKey(x);
+
+/** `hideGroups`: hidden, and no longer shown on purpose (so an unhide returns the group to the region rule). */
+function hideGroups(l: Layout, ids: string[]): Outcome {
+  const r = setHidden(l, 'hiddenGroups', ids, true);
+  if (!r.ok) return r;
+  const shown = removeFromSet(l.shownGroups, ids);
+  if (shown) l.shownGroups = shown;
+  return OK(r.changed || shown !== null);
+}
+
+/** `showGroups`: unhidden and shown on purpose. `unshowGroups`: back to the region rule. */
+function showGroups(l: Layout, ids: string[], show: boolean): Outcome {
+  if (!idList(ids)) return NO('invalid id');
+  if (!show) {
+    const next = removeFromSet(l.shownGroups, ids);
+    if (!next) return OK(false);
+    l.shownGroups = next;
+    return OK(true);
+  }
+  const groups = ids.filter(isGroupId);
+  if (groups.length !== ids.length) return NO('invalid group id');
+  const unhidden = removeFromSet(l.hiddenGroups, groups);
+  const shown = union(l.shownGroups, groups);
+  if (shown === 'cap') return NO('too many entries');
+  if (unhidden) l.hiddenGroups = unhidden;
+  if (shown) l.shownGroups = shown;
+  return OK(unhidden !== null || shown !== null);
+}
+
+/** Valid region keys of an override (deduped), or null when any is invalid or there are too many. */
+function regionList(x: unknown): string[] | null {
+  if (!Array.isArray(x) || x.length > GROUP_REGION_MAX) return null;
+  const out: string[] = [];
+  for (const v of x) {
+    const c = regionCode(v);
+    if (!c) return null;
+    if (!out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
+function setGroupRegion(l: Layout, id: string, codes: string[] | null): Outcome {
+  if (!isStr(id) || !isGroupId(id)) return NO('invalid group id');
+  const exists = has(l.groupRegion, id);
+  if (codes === null) {
+    if (!exists) return OK(false);
+    l.groupRegion = withoutKey(l.groupRegion, id);
+    return OK(true);
+  }
+  const next = regionList(codes);
+  if (next === null) return NO('invalid region');
+  if (exists && sameArray(next, l.groupRegion[id] as string[])) return OK(false);
+  if (!exists && Object.keys(l.groupRegion).length >= MAX_IDS) return NO('too many entries');
+  l.groupRegion = withKey(l.groupRegion, id, next);
+  return OK(true);
+}
+
 function rename(l: Layout, key: 'channelNames' | 'groupNames', id: string, name: string | null): Outcome {
   if (!isStr(id) || !safeKey(id)) return NO('invalid id');
   if (name !== null && !isStr(name)) return NO('invalid name');
@@ -274,8 +333,11 @@ function applyOne(l: Layout, op: LayoutOp): Outcome {
     case 'moveInList': return moveInList(l, op.listId, op.channelId, op.toIndex);
     case 'hideChannels': return setHidden(l, 'hiddenChannels', op.ids, true);
     case 'unhideChannels': return setHidden(l, 'hiddenChannels', op.ids, false);
-    case 'hideGroups': return setHidden(l, 'hiddenGroups', op.ids, true);
+    case 'hideGroups': return hideGroups(l, op.ids);
     case 'unhideGroups': return setHidden(l, 'hiddenGroups', op.ids, false);
+    case 'showGroups': return showGroups(l, op.ids, true);
+    case 'unshowGroups': return showGroups(l, op.ids, false);
+    case 'setGroupRegion': return setGroupRegion(l, op.id, op.codes);
     case 'renameChannel': return rename(l, 'channelNames', op.id, op.name);
     case 'renameGroup': return rename(l, 'groupNames', op.id, op.name);
     case 'setGroupOrder': return setGroupOrder(l, op.ids);
@@ -326,8 +388,20 @@ function opClockKeys(l: Layout, op: LayoutOp): string[] {
     case 'unhideChannels':
       return flipped(l.hiddenChannels, op.ids, op.op === 'hideChannels').map((id) => clockKey(K.hiddenChannel, id));
     case 'hideGroups':
+      return [
+        ...flipped(l.hiddenGroups, op.ids, true).map((id) => clockKey(K.hiddenGroup, id)),
+        ...flipped(l.shownGroups, op.ids, false).map((id) => clockKey(K.shownGroup, id)),
+      ];
     case 'unhideGroups':
-      return flipped(l.hiddenGroups, op.ids, op.op === 'hideGroups').map((id) => clockKey(K.hiddenGroup, id));
+      return flipped(l.hiddenGroups, op.ids, false).map((id) => clockKey(K.hiddenGroup, id));
+    case 'showGroups':
+      return [
+        ...flipped(l.hiddenGroups, op.ids, false).map((id) => clockKey(K.hiddenGroup, id)),
+        ...flipped(l.shownGroups, op.ids, true).map((id) => clockKey(K.shownGroup, id)),
+      ];
+    case 'unshowGroups':
+      return flipped(l.shownGroups, op.ids, false).map((id) => clockKey(K.shownGroup, id));
+    case 'setGroupRegion': return [clockKey(K.groupRegion, op.id)];
     case 'renameChannel': return [clockKey(K.channelName, op.id)];
     case 'renameGroup': return [clockKey(K.groupName, op.id)];
     case 'setGroupOrder': return [clockKey(K.groupOrder, '')];
@@ -382,7 +456,11 @@ export function isLayoutOp(x: unknown): x is LayoutOp {
     case 'unhideChannels':
     case 'hideGroups':
     case 'unhideGroups':
+    case 'showGroups':
+    case 'unshowGroups':
     case 'setGroupOrder': return idList(x['ids']);
+    case 'setGroupRegion': return isValidId(x['id']) && (x['codes'] === null || (Array.isArray(x['codes'])
+      && x['codes'].length <= GROUP_REGION_MAX && x['codes'].every((c) => isStr(c) && c.length <= 8)));
     case 'renameChannel':
     case 'renameGroup': return isValidId(x['id']) && (x['name'] === null || nameStr(x['name']));
     case 'setChannelOrder': return isValidId(x['groupId']) && (x['ids'] === null || idList(x['ids']));
@@ -461,12 +539,28 @@ export function normalizeLayout(x: unknown): Layout {
       if (validGroupId(k) && isStr(v) && SORT_MODES.includes(v)) sort[k] = v as SortMode;
     }
   }
+  // Schema 1 → 2: `shownGroups` and `groupRegion` start empty.
+  const groupRegion: Record<string, string[]> = {};
+  if (isRec(x['groupRegion'])) {
+    for (const [k, v] of Object.entries(x['groupRegion'])) {
+      if (!isGroupId(k) || !Array.isArray(v)) continue;
+      const codes: string[] = [];
+      for (const c of v.slice(0, GROUP_REGION_MAX * 2)) {
+        const r = regionCode(c);
+        if (r && !codes.includes(r)) codes.push(r);
+      }
+      groupRegion[k] = codes.slice(0, GROUP_REGION_MAX);
+    }
+  }
   const version = x['version'];
   return {
     version: typeof version === 'number' && Number.isSafeInteger(version) && version > 0 ? version : 0,
+    schema: LAYOUT_SCHEMA,
     lists: cleanLists(x['lists']),
     hiddenChannels: cleanIds(x['hiddenChannels']),
     hiddenGroups: cleanIds(x['hiddenGroups']),
+    shownGroups: cleanIds(x['shownGroups']).filter(isGroupId),
+    groupRegion,
     groupOrder: cleanIds(x['groupOrder']).filter((g) => g.startsWith(GROUP_PREFIX) && g.length > GROUP_PREFIX.length),
     channelOrder,
     channelNames: cleanNames(x['channelNames']),

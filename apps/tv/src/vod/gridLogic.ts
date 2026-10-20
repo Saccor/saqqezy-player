@@ -75,10 +75,11 @@ export function keepFailedPages<T>(fresh: ReadonlyMap<number, T[]>, failed: numb
   return out;
 }
 
-export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', title: 'A–Z', rating: 'Rating' };
+export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', provider: 'Provider order', title: 'A–Z', rating: 'Rating' };
 
 export function sortsFor(hasRecent: boolean): VodSort[] {
-  return hasRecent ? ['added', 'title', 'rating'] : ['title', 'rating'];
+  // Provider order is the default without added dates (M3U); Xtream keeps Recently added first (owner decision 2).
+  return hasRecent ? ['added', 'provider', 'title', 'rating'] : ['provider', 'title', 'rating'];
 }
 
 export interface SortStore { getItem(k: string): string | null; setItem(k: string, v: string): void }

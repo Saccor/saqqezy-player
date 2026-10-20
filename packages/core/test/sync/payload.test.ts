@@ -42,6 +42,14 @@ const sample: SyncRecord[] = [
   rec('st', 'subtitleLanguage', 'swe', { sfp: '' }),
   rec('st', 'preferredLanguages', ['swe', 'eng'], { sfp: '' }),
   rec('st', 'combineDuplicates', true, { sfp: '' }),
+  rec('st', 'combineCategories', false, { sfp: '' }),
+  rec('st', 'regions', { m: 'first', c: ['SE', 'lang:en'] }, { sfp: '' }),
+  rec('sg', 'g:Synthetic News', true),
+  rec('gr', 'g:Synthetic News', ['SE', 'lang:sv']),
+  rec('gr', 'g:Film', null),
+  rec('ch', 'movie|12', true),
+  rec('cs', 'series|Synthetic Drama', false),
+  rec('cq', 'movie', ['12', '7']),
   rec('vf', 'm9', true, { sfp: FP2, pk: 't:7' }),
 ];
 
@@ -66,7 +74,7 @@ describe('sync payload', () => {
   });
 
   test('only the §6.3 settings sync; device-tuned and local ones never do', () => {
-    expect([...SYNCED_SETTINGS].sort()).toEqual(['audioLanguage', 'combineDuplicates', 'followedTeams', 'preferredLanguages', 'regions', 'subtitleLanguage']);
+    expect([...SYNCED_SETTINGS].sort()).toEqual(['audioLanguage', 'combineCategories', 'combineDuplicates', 'followedTeams', 'preferredLanguages', 'regions', 'subtitleLanguage']);
     const local = ['epgOffsetHours', 'preferredFormat', 'liveDelay', 'showClock', 'sleepTimerMinutes', 'openOn', 'posterSize', 'volume', 'recent'];
     const p = encodePayload(local.map((k) => rec('st', k, 1 as unknown as SyncValue, { sfp: '' })), T);
     expect(decodePayload(p)).toEqual([]);
@@ -157,5 +165,16 @@ describe('sync payload size (budgeted uncompressed: CompressionStream is Chromiu
   test('a typical delta (one progress save, a favourite) is far below the 64 KB delta cap', () => {
     const p = encodePayload([sample[0]!, sample[2]!], T);
     expect(payloadBytes(p)).toBeLessThan(DELTA_MAX_BYTES / 100);
+  });
+
+  test('region values are checked: modes, codes and category kinds', () => {
+    const bad = [
+      rec('st', 'regions', { m: 'all', c: ['SE'] } as unknown as SyncValue, { sfp: '' }),
+      rec('st', 'regions', { m: 'only', c: ['http://x'] }, { sfp: '' }),
+      rec('gr', 'g:Film', ['Sweden']),
+      rec('ch', 'film|12', true),
+      rec('cq', 'tv', ['1']),
+    ];
+    expect(decodePayload(encodePayload(bad, T))).toEqual([]);
   });
 });

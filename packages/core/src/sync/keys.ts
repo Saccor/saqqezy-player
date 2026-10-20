@@ -35,6 +35,16 @@ export const SYNC_KIND = {
   channelOrder: 'co',
   sort: 'so',
   hideNoEpg: 'ne',
+  /** Group shown on purpose, over the region rule (element set). Key: group id. */
+  shownGroup: 'sg',
+  /** The user's region for a group (region keys, null = detection). Key: group id. */
+  groupRegion: 'gr',
+  /** Movies/series category hidden (element set). Key: `<kind>|<category id>`. */
+  hiddenCategory: 'ch',
+  /** Movies/series category shown on purpose, over the region rule (element set). Key: `<kind>|<category id>`. */
+  shownCategory: 'cs',
+  /** Movies/series category order (whole array). Key: kind. */
+  categoryOrder: 'cq',
   /** A synced setting (the §6.3 subset). Key: setting name. */
   setting: 'st',
 } as const;

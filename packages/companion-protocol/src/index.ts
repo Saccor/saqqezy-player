@@ -33,10 +33,10 @@ export {
   INFLATE_SLICE_BYTES,
 } from './frames.ts';
 export { ReplayWindow } from './replay.ts';
-export type { CompanionChannel, CompanionSourceSummary, CompanionState } from './state.ts';
+export type { CompanionChannel, CompanionRegions, CompanionSourceSummary, CompanionState } from './state.ts';
 export {
   type PhoneToTv, type TvToPhone, isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, isUnknownTvMessage, MAX_FIELD_LEN,
-  HEADERS_PROTOCOL, PHONE_TO_TV_TYPES, PING_INTERVAL_MS, PROTOCOL_VERSION, TV_TO_PHONE_TYPES, type TvHeaderSupport,
+  HEADERS_PROTOCOL, PHONE_TO_TV_TYPES, PING_INTERVAL_MS, PROTOCOL_VERSION, REGIONS_PROTOCOL, TV_TO_PHONE_TYPES, type TvHeaderSupport,
 } from './messages.ts';
 export {
   type FrameTransport,

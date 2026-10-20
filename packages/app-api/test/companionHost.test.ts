@@ -3,7 +3,7 @@ import { SourceService, type LayoutOp } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
-  isTvToPhone, MAX_MESSAGE_BYTES, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
+  isTvToPhone, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
   type CompanionState, type TvHeaderSupport, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { AppApi } from '../src/appApi.ts';
@@ -180,7 +180,7 @@ describe('CompanionHost', () => {
     expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
 
     const welcome = await hello(p);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2 });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION });
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBe('My phone');
     // Paired: the session now lives up to 60 minutes from its start.
@@ -281,6 +281,24 @@ describe('CompanionHost', () => {
     await p.next('stateUnchanged');
   });
 
+  test('changing only Your countries pushes a fresh state with the new regions', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    await s.api.idle();
+    const { p } = await pairQr(s);
+    await hello(p, PROTOCOL_VERSION);
+    await settle(400);
+    p.inbox.length = 0;
+    const version = (await s.api.getLayout()).version;
+    await s.api.setRegions({ codes: ['SE', 'DK'], mode: 'first' });
+    const pushed = await p.next('state', (m) => m.state.regions?.mode === 'first');
+    expect(pushed.state.regions).toMatchObject({ mode: 'first', codes: ['SE', 'DK'] });
+    expect(pushed.state.version).toBe(version);
+    await s.api.setRegions({ codes: ['FI'], mode: 'only' });
+    const again = await p.next('state', (m) => m.state.regions?.mode === 'only');
+    expect(again.state.regions).toMatchObject({ mode: 'only', codes: ['FI'] });
+  });
+
   test('no state is pushed while no companion is connected', async () => {
     const s = setup();
     await s.api.addSource(xt());
@@ -340,7 +358,7 @@ describe('CompanionHost', () => {
     await s.api.addSource(xt());
     const { p } = await pairQr(s);
     const welcome = await hello(p, 2);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2, headers: headerSupport });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION, headers: headerSupport });
   });
 
   test('protocol 2: getSource returns the stored User-Agent and Referer to a v2 phone', async () => {

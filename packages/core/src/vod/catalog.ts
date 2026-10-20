@@ -1,6 +1,7 @@
 import { searchKey } from '../text/searchKey.ts';
 import type { VodGroup, VodGroups } from './grouping.ts';
 import { buildVodSearchIndex, type VodSearchIndex } from './searchIndex.ts';
+import type { VodCategoryView } from './layout.ts';
 import { QUALITY_UNKNOWN } from './titleParse.ts';
 import { VOD_ALL, type Episode, type VodCategory, type VodItem, type VodKind, type VodList, type VodSort } from './types.ts';
 
@@ -24,15 +25,45 @@ export class VodCatalog {
   private readonly orders = new Map<string, number[]>();
   /** Row indexes per category, built in one pass on first use. */
   private buckets: Map<string, number[]> | undefined;
+  /** With a view: 1 for rows listed in at least one visible category. */
+  private readonly visibleRows: Uint8Array | undefined;
+  private readonly visibleCount: number;
 
-  constructor(readonly kind: VodKind, private readonly list: VodList, private readonly groups?: VodGroups, ids?: Map<string, VodItem>) {
+  constructor(
+    readonly kind: VodKind, private readonly list: VodList, private readonly groups?: VodGroups, ids?: Map<string, VodItem>,
+    private readonly view?: VodCategoryView,
+  ) {
     this.ids = ids ?? new Map(list.items.map((i) => [i.id, i]));
     this.rows = groups ? groups.groups.map((g) => groupRow(list.items, g)) : list.items;
+    this.visibleCount = this.rows.length;
+    if (view && view.hidden.size) {
+      const vis = new Uint8Array(this.rows.length);
+      let n = 0;
+      for (let i = 0; i < this.rows.length; i++) {
+        const cats = groups ? groups.groups[i]!.categoryIds : [this.rows[i]!.categoryId];
+        if (cats.some((c) => !view.hidden.has(c))) { vis[i] = 1; n++; }
+      }
+      this.visibleRows = vis;
+      this.visibleCount = n;
+    }
   }
 
   /** The same stored list seen with `groups` (or plain, when undefined). Shares the id map; caches start empty. */
   withGroups(groups: VodGroups | undefined): VodCatalog {
-    return new VodCatalog(this.kind, this.list, groups, this.ids);
+    return new VodCatalog(this.kind, this.list, groups, this.ids, this.view);
+  }
+
+  /**
+   * The same catalogue seen through a category view (`vodCategoryView`): `categories()` lists the visible ones in view
+   * order; All, category slices, size and search leave out titles listed only in hidden categories. `byId`, `rowOf`
+   * and `members` still find everything (Continue watching, favourites and versions never disappear).
+   */
+  withView(view: VodCategoryView | undefined): VodCatalog {
+    return new VodCatalog(this.kind, this.list, this.groups, this.ids, view);
+  }
+
+  private visible(i: number): boolean {
+    return this.visibleRows === undefined || this.visibleRows[i] === 1;
   }
 
   get grouped(): boolean {
@@ -50,7 +81,7 @@ export class VodCatalog {
   }
 
   get size(): number {
-    return this.rows.length;
+    return this.visibleCount;
   }
 
   get truncated(): boolean {
@@ -68,7 +99,10 @@ export class VodCatalog {
   }
 
   categories(): VodCategory[] {
-    return [...(this.groups ? this.groups.categories : this.list.categories)];
+    const all = this.groups ? this.groups.categories : this.list.categories;
+    if (!this.view) return [...all];
+    const byId = new Map(all.map((c) => [c.id, c]));
+    return this.view.order.flatMap((id) => byId.get(id) ?? []);
   }
 
   byId(id: string): VodItem | undefined {
@@ -121,7 +155,7 @@ export class VodCatalog {
 
   /** The best-rated titles (at most `n`; unrated ones never) and how many titles have a rating at all. */
   topRated(n: number): { rows: VodItem[]; rated: number } {
-    this.rated ??= this.rows.reduce((k, it) => (it.rating === undefined ? k : k + 1), 0);
+    this.rated ??= this.rows.reduce((k, it, i) => (it.rating === undefined || !this.visible(i) ? k : k + 1), 0);
     const take = Math.min(Math.max(0, Math.floor(n)), this.rated);
     // The rating order puts unrated titles last, so the first `rated` entries are exactly the rated ones.
     return { rows: take ? this.slice(VOD_ALL, 'rating', 0, take).rows : [], rated: this.rated };
@@ -137,6 +171,7 @@ export class VodCatalog {
     const better = (a: { i: number; pos: number }, b: { i: number; pos: number }) => a.pos - b.pos || this.byTitle(a.i, b.i);
     const top: { i: number; pos: number }[] = [];
     for (let i = 0; i < this.rows.length; i++) {
+      if (!this.visible(i)) continue;
       const pos = this.key(i).indexOf(q);
       if (pos < 0) continue;
       const hit = { i, pos };
@@ -175,7 +210,12 @@ export class VodCatalog {
   }
 
   private bucket(categoryId: string): number[] {
-    if (categoryId === VOD_ALL) return this.rows.map((_, i) => i);
+    if (categoryId === VOD_ALL) {
+      const out: number[] = [];
+      for (let i = 0; i < this.rows.length; i++) if (this.visible(i)) out.push(i);
+      return out;
+    }
+    if (this.view?.hidden.has(categoryId)) return [];
     if (!this.buckets) {
       const b = new Map<string, number[]>();
       const put = (cat: string, i: number) => {
@@ -198,6 +238,7 @@ export class VodCatalog {
     const items = this.rows;
     const order = this.bucket(categoryId);
     if (sort === 'title') order.sort((a, b) => this.byTitle(a, b));
+    else if (sort === 'provider') { /* bucket order is list order */ }
     else if (sort === 'added') order.sort((a, b) => (items[b]!.added ?? -1) - (items[a]!.added ?? -1) || a - b);
     else order.sort((a, b) => (items[b]!.rating ?? -1) - (items[a]!.rating ?? -1) || this.byTitle(a, b));
     if (order.length) this.orders.set(cacheKey, order);

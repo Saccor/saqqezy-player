@@ -54,7 +54,9 @@ test('vod grouping: 60k movies (15k titles × 4 versions) in 80 language-split c
   console.log(`grouping 60k: best ${bestMs.toFixed(0)} ms, median ${groupMs.toFixed(0)} ms (of 5), ${groups.groups.length} titles, ${groups.categories.length} categories, `
     + `+${heapMb.toFixed(1)} MB with the grouped view, home rows ${homeMs.toFixed(0)} ms`);
   expect(groups.groups).toHaveLength(15_000);
-  expect(groups.categories).toHaveLength(20);
+  // Provider categories by default (report 2026-10-20 §2.1 Bug B); merged across languages they are 20.
+  expect(groups.categories).toHaveLength(80);
+  expect(groupVod(list, undefined, { mergeCategories: true }).categories).toHaveLength(20);
   // The spec's target (measured 2026-10-20: about 205 ms before the parse fast paths and once-per-group keys, about
   // 115 ms after). Best of 5 so a busy machine does not fail it; the median keeps a looser guard.
   expect(bestMs).toBeLessThan(150);

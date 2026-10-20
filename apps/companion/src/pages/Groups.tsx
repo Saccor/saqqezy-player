@@ -4,7 +4,7 @@ import { sendAndSync } from '../components/controls.ts';
 import { InlineRename } from '../components/InlineRename.tsx';
 import { SortableList } from '../components/SortableList.tsx';
 import { createNarrow } from '../components/VirtualList.tsx';
-import { providerGroups, type GroupView } from '../logic/groups.ts';
+import { groupShowOps, providerGroups, type GroupView } from '../logic/groups.ts';
 import { groupOrderOps } from '../logic/reorder.ts';
 import { sendOps } from '../state/actions.ts';
 import { groupModel } from '../state/derived.ts';
@@ -31,7 +31,7 @@ function GroupsOverview(props: { onOpen: (id: string) => void }) {
   const narrow = createNarrow();
   const groups = createMemo((): GroupView[] => {
     const l = layout();
-    return l ? providerGroups(groupModel(), l) : [];
+    return l ? providerGroups(groupModel(), l, store.state?.regions) : [];
   });
   const ids = () => groups().map((g) => g.id);
 
@@ -82,22 +82,23 @@ function GroupsOverview(props: { onOpen: (id: string) => void }) {
                 >
                   {row.handle()}
                   <div class="srow-main">
-                    <span class="row-title one-line" classList={{ 'is-hidden': g().hidden }}>{g().name}</span>
+                    <span class="row-title one-line" classList={{ 'is-hidden': g().hidden || g().regionHidden }}>{g().name}</span>
                     <span class="row-sub one-line">
                       {g().count.toLocaleString('en-US')} {g().count === 1 ? 'channel' : 'channels'}
                       <Show when={g().name !== g().providerName}> · was “{g().providerName}”</Show>
                       <Show when={g().hidden}> · Hidden</Show>
+                      <Show when={!g().hidden && g().regionHidden}> · Hidden by your countries</Show>
                     </span>
                   </div>
                   <div class="srow-move">{row.moveButtons()}</div>
                   <div class="srow-actions">
                     <label class="switch">
-                      <input type="checkbox" role="switch" checked={!g().hidden}
+                      <input type="checkbox" role="switch" checked={!g().hidden && !g().regionHidden}
                         aria-label={`Show ${g().name} on TV`}
                         onChange={(e) => {
                           const el = e.currentTarget;
-                          const ops: LayoutOp[] = [{ op: el.checked ? 'unhideGroups' : 'hideGroups', ids: [g().id] }];
-                          void sendAndSync(() => sendOps(ops), [el], () => !g().hidden);
+                          const ops: LayoutOp[] = groupShowOps(g(), el.checked, store.tvProtocol);
+                          void sendAndSync(() => sendOps(ops), [el], () => !g().hidden && !g().regionHidden);
                         }} />
                       <span class="switch-track" aria-hidden="true" />
                       <span class="switch-text">Show</span>
