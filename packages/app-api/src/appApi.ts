@@ -1272,7 +1272,8 @@ export class AppApi {
     rejected.sort((a, b) => a.index - b.index);
     if (!res.changed) return { version, rejected };
 
-    await this.service.saveLayout(id, res.layout);
+    // Stamps the sync clocks of what changed (`markWatched` alone touches none: zapping writes no sync state).
+    await this.service.saveLayout(id, res.layout, res.touched);
     this.index = this.index.withLayout(res.layout);
     if (before.hiddenChannels !== res.layout.hiddenChannels || before.hiddenGroups !== res.layout.hiddenGroups || before.hideNoEpg !== res.layout.hideNoEpg) this.sportsMapping++;
     this.favSet = undefined;

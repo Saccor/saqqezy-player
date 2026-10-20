@@ -3,6 +3,7 @@ import {
   emptyLayout, FAV_LIST_ID, MAX_ID_LEN, MAX_IDS, MAX_LISTS, MAX_OPS_PER_BATCH, NAME_MAX, isValidId,
   type ApplyResult, type Layout, type LayoutOp, type SortMode, type UserList,
 } from './types.ts';
+import { SYNC_KIND, clockKey, pairKey } from '../sync/keys.ts';
 
 const LIST_ID_RE = /^[a-z0-9-]{1,32}$/;
 const SORT_MODES: readonly string[] = ['provider', 'number', 'name'];
@@ -289,6 +290,56 @@ function applyOne(l: Layout, op: LayoutOp): Outcome {
   }
 }
 
+// ---------- sync clock keys ----------
+
+/** Ids of `ids` whose membership in `cur` the op flips (adding: not in `cur`; removing: in `cur`), each once. */
+function flipped(cur: readonly string[], ids: readonly string[], adding: boolean): string[] {
+  if (!Array.isArray(ids)) return [];
+  const set = new Set(cur);
+  const out = new Set<string>();
+  for (const id of ids) if (set.has(id) !== adding) out.add(id);
+  return [...out];
+}
+
+/**
+ * Clock keys of the registers `op` changes, computed on the layout before it applies (so only real flips of
+ * element sets are named). Only used when the op applied and changed something.
+ */
+function opClockKeys(l: Layout, op: LayoutOp): string[] {
+  const K = SYNC_KIND;
+  switch (op.op) {
+    case 'createList': return [clockKey(K.listName, op.id), clockKey(K.listOrder, '')];
+    case 'renameList': return [clockKey(K.listName, op.listId)];
+    case 'deleteList': {
+      const key = LIST_PREFIX + op.listId;
+      return [clockKey(K.listName, op.listId), clockKey(K.listOrder, ''), clockKey(K.sort, key), clockKey(K.channelOrder, key)];
+    }
+    case 'moveList': return [clockKey(K.listOrder, '')];
+    case 'addToList':
+    case 'removeFromList': {
+      const list = findList(l, op.listId);
+      const ids = list ? flipped(list.channelIds, op.channelIds, op.op === 'addToList') : [];
+      return [...ids.map((id) => clockKey(K.listMember, pairKey(op.listId, id))), clockKey(K.listChannels, op.listId)];
+    }
+    case 'moveInList': return [clockKey(K.listChannels, op.listId)];
+    case 'hideChannels':
+    case 'unhideChannels':
+      return flipped(l.hiddenChannels, op.ids, op.op === 'hideChannels').map((id) => clockKey(K.hiddenChannel, id));
+    case 'hideGroups':
+    case 'unhideGroups':
+      return flipped(l.hiddenGroups, op.ids, op.op === 'hideGroups').map((id) => clockKey(K.hiddenGroup, id));
+    case 'renameChannel': return [clockKey(K.channelName, op.id)];
+    case 'renameGroup': return [clockKey(K.groupName, op.id)];
+    case 'setGroupOrder': return [clockKey(K.groupOrder, '')];
+    case 'setChannelOrder': return [clockKey(K.channelOrder, op.groupId)];
+    case 'setSort': return [clockKey(K.sort, op.groupId)];
+    case 'setHideNoEpg': return [clockKey(K.hideNoEpg, '')];
+    // `recent` stays on the device (§6.3), and zapping must never write sync state.
+    case 'markWatched': return [];
+    default: return [];
+  }
+}
+
 /**
  * Pure: applies ops in order to a shallow copy of `layout` (see `cloneLayout`); the input is never mutated.
  * Fields no op touched are shared with the input, so treat results as immutable. Rejected ops are reported and skipped.
@@ -296,15 +347,20 @@ function applyOne(l: Layout, op: LayoutOp): Outcome {
 export function applyOps(layout: Layout, ops: LayoutOp[]): ApplyResult {
   const work = cloneLayout(layout);
   const rejected: ApplyResult['rejected'] = [];
+  const touched = new Set<string>();
   let changed = false;
   ops.forEach((op, index) => {
+    // `markWatched` (every zap) skips the key work entirely.
+    const keys = op.op === 'markWatched' ? [] : opClockKeys(work, op);
     const r = applyOne(work, op);
-    if (r.ok) changed ||= r.changed;
-    else rejected.push({ index, reason: r.reason });
+    if (r.ok) {
+      changed ||= r.changed;
+      if (r.changed) for (const k of keys) touched.add(k);
+    } else rejected.push({ index, reason: r.reason });
   });
-  if (!changed) return { layout: cloneLayout(layout), changed: false, rejected };
+  if (!changed) return { layout: cloneLayout(layout), changed: false, rejected, touched: [] };
   work.version = layout.version + 1;
-  return { layout: work, changed: true, rejected };
+  return { layout: work, changed: true, rejected, touched: [...touched] };
 }
 
 // ---------- validation ----------

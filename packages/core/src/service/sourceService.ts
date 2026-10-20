@@ -29,6 +29,7 @@ import type {
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
 import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type ArchiveListing, type XtreamAccount } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
+import { SyncClock } from '../sync/clock.ts';
 import {
   REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
   type RefreshWhat,
@@ -58,6 +59,8 @@ export interface SourceServiceDeps {
   bodyIdleMs?: number;
   /** Refusal cooldown shared by every request to a source (default: one built on `storage`). */
   guard?: RefusalGuard;
+  /** Sync clock stamped by layout writes (default: one built on `storage`); pass the same one to `VodService`. */
+  syncClock?: SyncClock;
 }
 
 const PROGRESS_EVERY = 2000;
@@ -120,6 +123,8 @@ export class SourceService {
   private readonly bodyIdleMs: number;
   /** Every request to a source goes through it: nothing is sent while the source is in its refusal cooldown. */
   readonly guard: RefusalGuard;
+  /** The device's sync clock: layout writes stamp it here; share it with `VodService`. */
+  readonly syncClock: SyncClock;
   private readonly locks = new Map<string, Promise<void>>();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
@@ -136,6 +141,7 @@ export class SourceService {
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
     this.guard = deps.guard ?? new RefusalGuard({ storage: this.storage, now: this.now });
+    this.syncClock = deps.syncClock ?? new SyncClock({ storage: this.storage, now: this.now });
   }
 
   listSources(): Promise<SourceConfig[]> {
@@ -365,14 +371,18 @@ export class SourceService {
    * Persists the layout of source `id`; a no-op once the source is gone. Layout writes are serialised on their
    * own lock, so a user's edit never waits behind a running playlist or guide download.
    */
-  saveLayout(id: string, layout: Layout): Promise<void> {
-    return this.withLock(`layout:${id}`, () => this.saveLayoutLocked(id, layout));
+  saveLayout(id: string, layout: Layout, touched: readonly string[] = []): Promise<void> {
+    return this.withLock(`layout:${id}`, () => this.saveLayoutLocked(id, layout, touched));
   }
 
-  /** The write of `saveLayout`; the caller holds the `layout:<id>` lock. */
-  private async saveLayoutLocked(id: string, layout: Layout): Promise<void> {
+  /**
+   * The write of `saveLayout`; the caller holds the `layout:<id>` lock. `touched` (`applyOps(...).touched`) is
+   * stamped on the sync clock after the layout is stored; a migration or a zap (`markWatched`) passes none.
+   */
+  private async saveLayoutLocked(id: string, layout: Layout, touched: readonly string[] = []): Promise<void> {
     if (!(await this.sourceExists(id))) return;
     await this.storage.setMeta(`layout:${id}`, layout);
+    if (touched.length) await this.syncClock.stamp(id, touched);
   }
 
   /** epgKeys with stored guide data, or undefined when no guide has been loaded (so a no-EPG filter is skipped). */
