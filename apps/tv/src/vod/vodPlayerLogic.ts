@@ -1,3 +1,5 @@
+import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
+import type { StreamInfo, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import { oneSpace } from './tracks.ts';
 
@@ -63,10 +65,13 @@ export function knownDuration(engineMs: number | undefined, fallbackMs: number |
 /** What a remembered subtitle choice stores for "Subtitles off" (`trackKey` always contains ':', so never this). */
 export const SUBTITLE_KEY_OFF = 'off';
 
-/** A subtitle cue for display: whitespace runs collapsed per line, blank lines dropped; '' when nothing is left. */
+/**
+ * A subtitle cue for display: markup removed and line breaks kept (`subtitleText`, also applied where each engine
+ * hands its text over), whitespace runs collapsed per line, blank lines dropped; '' when nothing is left.
+ */
 export function cueText(text: string | null): string {
   if (!text) return '';
-  return text.split(/\r?\n/).map(oneSpace).filter(Boolean).join('\n');
+  return subtitleText(text);
 }
 
 /** The next-episode card: "Next: S2 · E5 · Title in 7 s". */
@@ -141,6 +146,18 @@ export function tracksKeyId(p: VodPlayable): string {
  * The toast when the picture plays but the device decodes none of the sound (desktop browsers lack AC-3 / E-AC-3,
  * common in films). With more than one audio track, another one may play.
  */
+export const DV_COLOURS_TEXT = "Colours may look wrong on this TV: this video is in Dolby Vision, which it can't show.";
+
+/**
+ * Warn that the colours may be wrong: the video is Dolby Vision without a base layer this display can show (profile 5,
+ * or DV named only in the title), and the display has no Dolby Vision (`dv5` caps 'none'; unknown never warns). The
+ * player's own DV-only fourCC overrides what the source says.
+ */
+export function dvColoursWarning(hint: VideoRange | undefined, info: StreamInfo, dv5: Support | undefined): boolean {
+  if (dv5 !== 'none') return false;
+  return wrongColoursWithoutDv(dvFromFourCC(info.videoCodec) ?? hint);
+}
+
 export function noSoundText(audioTrackCount: number): string {
   const base = "No sound: this device can't play this video's audio format.";
   return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;

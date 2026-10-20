@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
+  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -137,6 +137,10 @@ describe('cueText', () => {
     expect(cueText('  One  line ')).toBe('One line');
     expect(cueText('First\r\n\n  Second   part')).toBe('First\nSecond part');
   });
+  it('turns markup that reached it into plain lines (one sanitiser for every path)', () => {
+    expect(cueText('<i>One</i><BR>Two&nbsp;too<BR')).toBe('One\nTwo too');
+    expect(cueText('{\\an8}<br/>')).toBe('');
+  });
 });
 
 describe('titleLengthMs', () => {
@@ -237,6 +241,28 @@ describe('resumeBarShown', () => {
     expect(resumeBarShown(0, 600_000)).toBe(false);
     expect(resumeBarShown(60_000, 0)).toBe(false);
     expect(resumeBarShown(60_000, Number.NaN)).toBe(false);
+  });
+});
+
+describe('dvColoursWarning', () => {
+  const P5 = { hdr: 'dv', dvProfile: 5, dvFallback: 'none' } as const;
+  it('warns for DV without a base layer on a display without DV only', () => {
+    expect(dvColoursWarning(P5, {}, 'none')).toBe(true);
+    expect(dvColoursWarning({ hdr: 'dv' }, {}, 'none')).toBe(true);
+    expect(dvColoursWarning(P5, {}, 'decode')).toBe(false);
+    expect(dvColoursWarning(P5, {}, undefined)).toBe(false);
+    expect(dvColoursWarning({ hdr: 'dv', dvProfile: 8, dvFallback: 'hdr10' }, {}, 'none')).toBe(false);
+    expect(dvColoursWarning(undefined, {}, 'none')).toBe(false);
+  });
+
+  it('the player reading a DV-only fourCC is enough, and overrides the source', () => {
+    expect(dvColoursWarning(undefined, { videoCodec: 'dvhe', hdr: 'dv' }, 'none')).toBe(true);
+    expect(dvColoursWarning({ hdr: 'hdr10' }, { videoCodec: 'dvh1' }, 'none')).toBe(true);
+    expect(dvColoursWarning(undefined, { videoCodec: 'HEVC' }, 'none')).toBe(false);
+  });
+
+  it('copy', () => {
+    expect(DV_COLOURS_TEXT).toBe("Colours may look wrong on this TV: this video is in Dolby Vision, which it can't show.");
   });
 });
 

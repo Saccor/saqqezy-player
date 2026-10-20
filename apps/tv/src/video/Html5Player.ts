@@ -1,5 +1,6 @@
-import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } from 'hls.js';
-import mpegts from 'mpegts.js';
+import type Hls from 'hls.js';
+import type { ErrorData, LevelLoadedData } from 'hls.js';
+import type mpegts from 'mpegts.js';
 import type {
   AspectMode, EngineName, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo,
   StreamHeaders, TrackInfo,
@@ -58,11 +59,32 @@ interface Session {
 
 const HLS_MIME = 'application/vnd.apple.mpegurl';
 const TS_MIME = 'video/mp2t';
-const HLS_CODEC_ERRORS = new Set<string>([
-  ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR,
-  ErrorDetails.BUFFER_ADD_CODEC_ERROR,
-  ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR,
-]);
+
+type MseEngines = typeof import('./mseEngines.ts');
+let mseEngines: Promise<MseEngines> | undefined;
+let loadedEngines: MseEngines | undefined;
+
+/**
+ * Loads hls.js and mpegts.js (a separate chunk) once. `Html5Player` starts this when it is created and `open()`
+ * waits for it, so an AVPlay-only platform never loads the engines.
+ */
+export function loadMseEngines(): Promise<MseEngines> {
+  mseEngines ??= import('./mseEngines.ts').then((m) => (loadedEngines = m));
+  return mseEngines;
+}
+
+/** The loaded engines; only called on paths that run after `open()` awaited `loadMseEngines()`. */
+function engines(): MseEngines {
+  if (!loadedEngines) throw new Error('MSE engines used before loadMseEngines() resolved');
+  return loadedEngines;
+}
+
+function isHlsCodecError(details: string): boolean {
+  const { ErrorDetails } = engines();
+  return details === ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR
+    || details === ErrorDetails.BUFFER_ADD_CODEC_ERROR
+    || details === ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR;
+}
 
 /**
  * Refusals (core's REFUSAL_STATUSES): reported as AUTH, so the supervisor stops and the cooldown starts. 410 is not
@@ -75,14 +97,17 @@ const AUTH_STATUSES = new Set([401, 403, 429, 458, 503, 509]);
  * request, not there, gone, server error): reported at once as NETWORK with the status, so the supervisor decides
  * (a missing catch-up programme ends as Not available in seconds instead of after the in-place reloads).
  */
-const HLS_PLAYLIST_LOAD_ERRORS = new Set<string>([ErrorDetails.MANIFEST_LOAD_ERROR, ErrorDetails.LEVEL_LOAD_ERROR]);
+const hlsPlaylistLoadError = (details: string): boolean => {
+  const { ErrorDetails } = engines(); // read lazily: hls.js loads on demand (mseEngines.ts)
+  return details === ErrorDetails.MANIFEST_LOAD_ERROR || details === ErrorDetails.LEVEL_LOAD_ERROR;
+};
 const finalLoadStatus = (st: number): boolean => st === 400 || st === 404 || st === 410 || (st >= 500 && st < 600);
 /** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
 const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
 
 /** An MSE error from mpegts.js that only concerns the audio SourceBuffer (`addSourceBuffer('audio/mp4;…')`). */
 function isAudioMseError(detail: string, info: { msg?: unknown } | undefined): boolean {
-  return detail === mpegts.ErrorDetails.MEDIA_MSE_ERROR && typeof info?.msg === 'string' && /['"(]audio\//.test(info.msg);
+  return detail === engines().mpegts.ErrorDetails.MEDIA_MSE_ERROR && typeof info?.msg === 'string' && /['"(]audio\//.test(info.msg);
 }
 const EOS_MESSAGE = 'Stream ended';
 /** Diagnostics names for each engine and for `<video>` MediaError codes (journal `detail`; never a URL). */
@@ -164,6 +189,8 @@ export class Html5Player implements Player {
     this.preferNativeHls = opts.preferNativeHls ?? true;
     this.isTv = opts.isTv ?? false;
     this.autoMute = new AutoMute(this.video);
+    // Fetch the engines now, off the critical path, so the first open() rarely has to wait for them.
+    void loadMseEngines().catch(() => undefined);
   }
 
   /**
@@ -256,6 +283,24 @@ export class Html5Player implements Player {
 
     this.emit(s, 'loading');
 
+    if (loadedEngines) {
+      this.startChosen(s, path, src);
+      return Promise.resolve();
+    }
+    return loadMseEngines().then(
+      () => { if (this.session === s && !s.dead) this.startChosen(s, path, src); },
+      () => {
+        // The engine chunk did not load (a broken package): forget the failure so the next open() tries again.
+        mseEngines = undefined;
+        if (this.session === s && !s.dead) this.emit(s, 'error', { code: 'MEDIA', message: 'The player failed to load', detail: 'engineLoad' });
+      },
+    );
+  }
+
+  /** Picks the engine for `path` and starts it (the MSE engines are loaded). */
+  private startChosen(s: Session, path: string, src: string): void {
+    const { Hls, mpegts } = engines();
+    const v = this.video;
     const choice = chooseEngine(path, {
       nativeHls: v.canPlayType(HLS_MIME) !== '',
       nativeTs: v.canPlayType(TS_MIME) !== '',
@@ -266,17 +311,17 @@ export class Html5Player implements Player {
     if (choice.engine === 'none') {
       const message = choice.reason === 'hls' ? 'HLS is not supported here' : 'MPEG-TS is not supported here';
       this.emit(s, 'error', { code: 'UNSUPPORTED', message, detail: 'noEngine' });
-      return Promise.resolve();
+      return;
     }
     if (choice.engine === 'native' && choice.fallback) s.fallback = choice.fallback;
     this.startEngine(s, choice.engine, src);
     if (choice.engine === 'mpegts') this.playAfterCushion(s);
     else this.playSession(s);
-    return Promise.resolve();
   }
 
   private startEngine(s: Session, kind: 'native' | 'hls' | 'mpegts', src: string): void {
     const v = this.video;
+    const { Hls, ErrorDetails, ErrorTypes, mpegts } = engines();
     s.tried.push(kind);
     if (kind === 'native') {
       s.engine = { kind: 'native' };
@@ -296,7 +341,7 @@ export class Html5Player implements Player {
         // with no playable codec at all, are reported.
         if (!data.fatal && data.details !== ErrorDetails.MANIFEST_INCOMPATIBLE_CODECS_ERROR) return;
         // After mpegts.js rejected the stream, a manifest that hls.js cannot parse means neither engine fits.
-        if (HLS_CODEC_ERRORS.has(data.details)
+        if (isHlsCodecError(data.details)
           || (s.tried.includes('mpegts') && data.details === ErrorDetails.MANIFEST_PARSING_ERROR)) {
           this.emit(s, 'error', { code: 'UNSUPPORTED', message: 'Playback error', detail: data.details });
           return;
@@ -307,7 +352,7 @@ export class Html5Player implements Player {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
-        if (network && status !== undefined && HLS_PLAYLIST_LOAD_ERRORS.has(data.details) && finalLoadStatus(status)) {
+        if (network && status !== undefined && hlsPlaylistLoadError(data.details) && finalLoadStatus(status)) {
           this.emit(s, 'error', { code: 'NETWORK', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
@@ -639,7 +684,7 @@ export class Html5Player implements Player {
   private retryAsHls(s: Session): boolean {
     const next = nextEngineAfterFailure(s.extensionless ? '' : '.', s.tried, 'format', {
       nativeHls: this.video.canPlayType(HLS_MIME) !== '',
-      hlsJs: Hls.isSupported(),
+      hlsJs: engines().Hls.isSupported(),
     });
     if (!next) return false;
     const old = s.engine;

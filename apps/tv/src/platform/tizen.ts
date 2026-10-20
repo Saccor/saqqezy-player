@@ -1,4 +1,5 @@
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
+import type { PanelCaps } from '../video/adaptiveInfo.ts';
 import type { AvplayLike, Size } from '../video/AvplayPlayer.ts';
 
 /** The part of the `tizen` global this app uses. */
@@ -12,7 +13,13 @@ export interface TizenLike {
 
 /** The part of the `webapis` global this app uses. */
 export interface WebapisLike {
-  avplay?: AvplayLike;
+  avplay?: AvplayLike & { getVersion?(): string };
+  productinfo?: { isUdPanelSupported?(): boolean; is8KPanelSupported?(): boolean };
+  avinfo?: { isHdrTvSupport?(): boolean };
+  appcommon?: {
+    AppCommonScreenSaverState?: { SCREEN_SAVER_OFF: unknown; SCREEN_SAVER_ON: unknown };
+    setScreenSaver(state: unknown, success?: () => void, error?: (e: unknown) => void): void;
+  };
 }
 
 interface TizenGlobals { tizen?: TizenLike; webapis?: WebapisLike }
@@ -67,6 +74,53 @@ export function exit(g: TizenGlobals = globals()): void {
 /** `webapis.avplay` when running as a Tizen app with the AVPlay privilege, else undefined. */
 export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
   return g.webapis?.avplay;
+}
+
+/**
+ * What the panel can show, read once and synchronously: UHD, 8K, HDR TV and the AVPlay version. Every call is
+ * feature-detected and tried on its own; a boolean is true only when the call returned `true`, so a missing API,
+ * a throw or a monitor-class display all read as Full HD (today's behaviour); `answered` records which calls gave a real answer. Never throws.
+ */
+export function readPanelCaps(g: TizenGlobals = globals()): PanelCaps {
+  /** undefined = no answer (missing, threw, or not a boolean). */
+  const ask = (fn: () => unknown): boolean | undefined => {
+    try {
+      const v = fn();
+      return typeof v === 'boolean' ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const w = g.webapis;
+  const uhd = ask(() => w?.productinfo?.isUdPanelSupported?.());
+  const eightK = ask(() => w?.productinfo?.is8KPanelSupported?.());
+  const hdrTv = ask(() => w?.avinfo?.isHdrTvSupport?.());
+  const caps: PanelCaps = { uhd: uhd === true, eightK: eightK === true, hdrTv: hdrTv === true };
+  const answered: NonNullable<PanelCaps['answered']> = {};
+  if (uhd !== undefined) answered.uhd = true;
+  if (eightK !== undefined) answered.eightK = true;
+  if (hdrTv !== undefined) answered.hdrTv = true;
+  if (Object.keys(answered).length > 0) caps.answered = answered;
+  try {
+    const v = w?.avplay?.getVersion?.();
+    if (typeof v === 'string' && v) caps.avplayVersion = v;
+  } catch {
+    // version stays unknown
+  }
+  return caps;
+}
+
+/** Turns the TV's screensaver off (fullscreen video) or back on. False when the API is missing or refused. */
+export function setScreenSaver(state: 'on' | 'off', g: TizenGlobals = globals()): boolean {
+  const ac = g.webapis?.appcommon;
+  const states = ac?.AppCommonScreenSaverState;
+  if (!ac || !states) return false;
+  try {
+    ac.setScreenSaver(state === 'off' ? states.SCREEN_SAVER_OFF : states.SCREEN_SAVER_ON);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

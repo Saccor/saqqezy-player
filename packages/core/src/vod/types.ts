@@ -56,6 +56,8 @@ export interface Episode {
   still?: string;
   ext?: string;
   url?: string;
+  /** From the source's probe data (Xtream episode `info.video`). */
+  video?: VideoRange;
   /** M3U episodes: request headers from the playlist entry. */
   headers?: StreamHeaders;
 }
@@ -74,7 +76,18 @@ export interface VodList {
   partial?: boolean;
 }
 
+/** The picture's dynamic range, from source metadata, the title or the player (`vod/videoRange.ts`). */
+export interface VideoRange {
+  hdr: 'sdr' | 'hdr10' | 'hlg' | 'dv';
+  /** Dolby Vision profile (5, 7, 8…), when the source says. */
+  dvProfile?: number;
+  /** Dolby Vision: what a display without DV shows. 'none' = no base layer (profile 5): wrong colours. Absent: unknown. */
+  dvFallback?: 'hdr10' | 'hlg' | 'sdr' | 'none';
+}
+
 export interface MovieDetail {
+  /** From the source's probe data (Xtream `info.video`), when it sends it. */
+  video?: VideoRange;
   plot?: string;
   runtimeMin?: number;
   genre?: string;

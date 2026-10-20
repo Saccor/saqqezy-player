@@ -101,6 +101,9 @@ export interface DeviceInfo {
   devicePixelRatio?: number;
   /** `designScale()` from the video layer. */
   designScale?: number;
+  /** The renderer canvas's drawing buffer in device pixels (TVs cap it at 1920x1080, see `renderScale.ts`). */
+  renderWidth?: number;
+  renderHeight?: number;
   userAgent?: string;
   /** Tizen only: `tizen.systeminfo` platform.version capability. */
   tizenPlatformVersion?: string;
@@ -121,13 +124,14 @@ export function uaVersions(ua: string | undefined): string {
   return parts.length > 0 ? parts.join(' \u00b7 ') : 'unknown';
 }
 
-/** Display and engine lines: viewport, screen, pixel ratio, design scale, (Tizen) platform version and model, engine. */
+/** Display and engine lines: viewport, screen, pixel ratio, design scale, render buffer, (Tizen) platform version and model, engine. */
 export function screenLines(d: DeviceInfo, platform: string): [string, string][] {
   const scale = isNum(d.designScale) ? d.designScale.toFixed(2) : 'unknown';
   const ratio = isNum(d.devicePixelRatio) ? String(Math.round(d.devicePixelRatio * 100) / 100) : 'unknown';
   const lines: [string, string][] = [
     ['Viewport', `${size(d.innerWidth, d.innerHeight)} \u00b7 design scale ${scale}`],
     ['Screen', `${size(d.screenWidth, d.screenHeight)} \u00b7 pixel ratio ${ratio}`],
+    ['Render', size(d.renderWidth, d.renderHeight)],
   ];
   if (platform === 'tizen') {
     const version = d.tizenPlatformVersion ? clean(d.tizenPlatformVersion) : '';

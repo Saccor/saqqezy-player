@@ -1,4 +1,4 @@
-import { detectPlatform, mapKey, type LogicalKey, type PlatformId } from '@iptv/platform';
+import { detectPlatform, keyTableFor, mapKey, type KeyTable, type LogicalKey } from '@iptv/platform';
 import type { KeyMap } from '@lightningtv/solid';
 import { noteNavKeyDown, noteNavKeyUp, noteOkPress } from '../shell/motion.ts';
 import { isNavKey } from '../shell/motionLogic.ts';
@@ -15,7 +15,8 @@ export const LONG_PRESS_MS = 600;
 
 const LOGICAL_KEYS: UiKey[] = [
   'Up', 'Down', 'Left', 'Right', 'Ok', 'LongOk', 'Back', 'Menu', 'Info', 'ChannelUp', 'ChannelDown',
-  'PlayPause', 'Red', 'Green', 'Yellow', 'Blue',
+  'PlayPause', 'Play', 'Pause', 'Stop', 'FastForward', 'Rewind', 'VolumeUp', 'VolumeDown', 'Mute',
+  'Red', 'Green', 'Yellow', 'Blue',
   'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
 ];
 
@@ -111,7 +112,7 @@ export function sendKey(key: UiKey): void {
  */
 export function installKeys(
   target: Window = window,
-  platform: PlatformId = detectPlatform(navigator.userAgent, target as unknown as { tizen?: unknown; webOS?: unknown }),
+  table: KeyTable = keyTableFor(detectPlatform(navigator.userAgent, target as unknown as { tizen?: unknown; webOS?: unknown; __IPTV_HOST__?: unknown })),
 ): () => void {
   const forwarded = new WeakSet<Event>();
   /** Keys typed into a field whose keyup must not reach the remote mapping either. */
@@ -162,7 +163,7 @@ export function installKeys(
       typed.add(e.code || e.key);
       return;
     }
-    const key = mapKey(platform, e);
+    const key = mapKey(table, e);
     if (!key) {
       for (const fn of [...rawListeners]) {
         try {
@@ -198,7 +199,7 @@ export function installKeys(
       e.preventDefault();
       return;
     }
-    const key = mapKey(platform, e);
+    const key = mapKey(table, e);
     if (!key) return;
     e.preventDefault();
     if (key === 'Ok') {

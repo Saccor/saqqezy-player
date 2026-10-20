@@ -56,6 +56,11 @@ describe('parseSubtitles', () => {
     ]);
   });
 
+  test('<br> and \\N become line breaks; a bad numeric entity does not throw; a cue of only markup is dropped', () => {
+    const text = '1\n00:00:01,000 --> 00:00:02,000\nOne<BR>Two\\NThree &#99999999;\n\n2\n00:00:03,000 --> 00:00:04,000\n<i></i>{\\an8}\n';
+    expect(parseSubtitles(text)).toEqual([{ startMs: 1000, endMs: 2000, text: 'One\nTwo\nThree &#99999999;' }]);
+  });
+
   test('broken blocks are skipped; cues come out sorted by start', () => {
     const text = '1\n00:00:09,000 --> 00:00:10,000\nNine\n\n2\nnot a time\nJunk\n\n3\n00:00:02,000 --> 00:00:01,000\nBackwards\n\n4\n00:00:05,000 --> 00:00:06,000\n\n5\n00:00:01,000 --> 00:00:02,000\nOne\n';
     expect(parseSubtitles(text)).toEqual([

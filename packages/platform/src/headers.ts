@@ -1,4 +1,4 @@
-import type { PlatformId } from './keys.ts';
+import type { PlatformId } from './host.ts';
 
 /** Every target the header matrix knows: the web platforms plus the native shells (beta plans). */
 export type HeaderPlatform = PlatformId | 'pc' | 'androidtv';

@@ -5,7 +5,7 @@ export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'dri
 
 /** One thing the player did. Never a URL or credentials (CLAUDE.md rules 6-7); `t` is clock ms (Date.now). */
 export type JournalEvent =
-  | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
+  | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible' | 'resume_restore' | 'resume_reopen'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
   | { k: 'play'; t: number; channel?: string; preset: LivePreset; urls: number }
   | { k: 'open'; t: number; attempt: number; urlIndex: number }
   | { k: 'playing'; t: number; attempt: number; firstFrameMs?: number; engine?: EngineName }
@@ -24,7 +24,12 @@ export type JournalEvent =
   | { k: 'catchupMissing'; t: number; mode?: string; httpStatus?: number }
   | { k: 'stop'; t: number }
   /** `refererDropped`: a play asked for a Referer this engine cannot send (AVPlay). Once per app run; never the value. */
-  | { k: 'note'; t: number; what: 'refererDropped' };
+  | { k: 'note'; t: number; what: 'refererDropped' }
+  /** An app-level fault. `name` is an error class name (a token), never a message. */
+  | { k: 'app'; t: number; what: 'error' | 'rejection' | 'workerError' | 'workerCrash' | 'workerRestart' | 'workerGaveUp'; name?: string }
+  | { k: 'audio'; t: number; action: 'switch' | 'none'; from?: string; to?: string; because?: 'codec' | 'language' }
+  | { k: 'engineSwitch'; t: number; from: EngineName; to: EngineName; reason: string }
+  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' };
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 /** A journal event before its time stamp is added. */
@@ -42,7 +47,7 @@ export interface JournalOptions {
 
 const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop', 'note', 'rateWait',
-  'catchupMissing',
+  'catchupMissing', 'app', 'audio', 'engineSwitch', 'beta',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
 const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;

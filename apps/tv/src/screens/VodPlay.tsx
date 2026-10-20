@@ -8,7 +8,7 @@ import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { StatusPill } from '../components/StatusPill.tsx';
-import { onLogicalKey } from '../input/keys.ts';
+import { onLogicalKey, sendKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
@@ -17,6 +17,9 @@ import { CATCHUP_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from '../vod/catchupLogic.ts';
+import { streamInfoLines } from '../playback/streamInfo.ts';
+import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { staticCaps } from '@iptv/player';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
@@ -31,11 +34,11 @@ import { volumeStep, volumeSupported } from '../video/volume.ts';
 import { BUTTON_H } from '../components/Button.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import {
-  commitDelayMs, dragScrub, holdPress, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
+  commitDelayMs, dragScrub, holdPress, mediaKeyAction, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
-  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
+  DV_COLOURS_TEXT, NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, dvColoursWarning, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import { pickAudioTrack } from '../vod/tracks.ts';
@@ -49,6 +52,9 @@ import {
 const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const SUB_URL_ID = 'vodSubtitleLink';
+const INFO_ID = 'vodStreamInfo';
+/** Whether this display shows Dolby Vision profile 5 ('none' on Samsung; unknown elsewhere until probed). */
+const DV5 = staticCaps(platformId, 'native').display.hdr.dv5?.value;
 const SUB_ONLINE_ID = 'vodSubtitleOnline';
 const SUB_VERSIONS_ID = 'vodSubtitleVersions';
 /** OpenSubtitles' free plan asks for this line wherever its subtitles are picked. */
@@ -192,6 +198,24 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let lastReopenAt: number | undefined;
   let reopenTimer: ReturnType<typeof setTimeout> | undefined;
   let reopenSeq = 0;
+  let dvWarned = false;
+  // Stream info (Info key): codec, resolution and dynamic range. Never the URL path (`streamInfoLines`).
+  const [infoOn, setInfoOn] = createSignal(false);
+  const [infoTick, setInfoTick] = createSignal(0);
+  const toggleInfo = () => {
+    if (infoOn()) {
+      setInfoOn(false);
+      router.removeOverlay(INFO_ID);
+    } else {
+      setInfoOn(true);
+      router.pushOverlay(INFO_ID, () => setInfoOn(false));
+    }
+    return true;
+  };
+  const infoLines = () => {
+    infoTick();
+    return streamInfoLines(player.streamInfo(), player.currentUrl(), playback.status(), p.video);
+  };
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
   /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
@@ -1097,6 +1121,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     focusTimeline();
     return scrubKey(key);
   };
+  /** Play, Pause, Stop, Fast-forward and Rewind (remote media keys); Stop is Back. */
+  const mediaKey = (key: 'Play' | 'Pause' | 'Stop' | 'FastForward' | 'Rewind') => {
+    const act = mediaKeyAction(key, { paused: playback.paused(), blocked: failed() !== undefined || ended() });
+    if (act === 'stop') { sendKey('Back'); return true; } // the same path as a Back press (layers close first)
+    if (act === 'toggle') togglePause();
+    else if (act === 'forward') scrubPress(1, SKIP_LONG_MS, 'skip');
+    else if (act === 'back') scrubPress(-1, SKIP_LONG_MS, 'skip');
+    return true;
+  };
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the picker first
     if (scrub() !== undefined || dragging()) {
@@ -1219,6 +1252,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         soundWarned = true;
         showToast(noSoundText(playback.audioTracks().length));
       }
+      // Dolby Vision without a base layer on a display without DV (Samsung): say so once, as the picture starts.
+      if (!dvWarned && playing && dvColoursWarning(p.video, player.streamInfo(), DV5)) {
+        dvWarned = true;
+        showToast(DV_COLOURS_TEXT);
+      }
+      if (infoOn() && shapeTicks % 4 === 0) setInfoTick((v) => v + 1);
     }, TICK_MS);
     const saver = setInterval(() => {
       if (status()?.kind === 'playing' && !playback.paused()) save();
@@ -1275,6 +1314,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     router.removeOverlay(SUB_ONLINE_ID);
     removeVersions?.();
     router.removeOverlay(SUB_VERSIONS_ID);
+    router.removeOverlay(INFO_ID);
     stopOurs();
   });
 
@@ -1311,7 +1351,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onLeft={() => rootScrub('Left')} onRight={() => rootScrub('Right')}
       onUp={focusTimeline} onDown={focusTimeline}
       onPlayPause={() => (failed() || ended() ? true : togglePause())}
-      onChannelUp={nextNow} onChannelDown={prevNow}>
+      onPlay={() => mediaKey('Play')} onPause={() => mediaKey('Pause')} onStop={() => mediaKey('Stop')}
+      onFastForward={() => mediaKey('FastForward')} onRewind={() => mediaKey('Rewind')}
+      onChannelUp={nextNow} onChannelDown={prevNow} onInfo={toggleInfo}>
+
+      <Show when={infoOn()}>
+        <StreamInfoPanel lines={infoLines()} />
+      </Show>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
       {/* A dark outline (offset copies) keeps the text readable on bright pictures without a font shadow. */}

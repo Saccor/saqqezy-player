@@ -26,6 +26,11 @@ describe('sanitizeEvent', () => {
     expect(sanitizeEvent({ k: 'catchupMissing', t: 1, mode: 'http://x.test/a?u=1' })).toEqual({ k: 'catchupMissing', t: 1 });
   });
 
+  it('keeps the background-return page events', () => {
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume_restore' })).toEqual({ k: 'page', t: 1, what: 'resume_restore' });
+    expect(sanitizeEvent({ k: 'page', t: 1, what: 'resume_reopen' })).toEqual({ k: 'page', t: 1, what: 'resume_reopen' });
+  });
+
   it('drops unknown kinds, a missing or non-finite time, and non-objects', () => {
     expect(sanitizeEvent({ k: 'nope', t: 1 })).toBeUndefined();
     expect(sanitizeEvent({ k: 'stop' })).toBeUndefined();
@@ -141,5 +146,18 @@ describe('PlaybackJournal', () => {
     expect(() => { j.add(stop(1)); j.flush(); j.clear(); }).not.toThrow();
     j.add(stop(2));
     expect(j.entries()).toEqual([stop(2)]);
+  });
+});
+
+describe('new kinds', () => {
+  it.each([
+    { k: 'app', t: 1, what: 'workerCrash' },
+    { k: 'app', t: 1, what: 'error', name: 'TypeError' },
+    { k: 'audio', t: 1, action: 'switch', from: 'dts', to: 'aac', because: 'codec' },
+    { k: 'engineSwitch', t: 1, from: 'mpegts.js', to: 'native', reason: 'noAudio' },
+    { k: 'beta', t: 1, what: 'manifestOk' },
+  ])('keeps %j', (e) => expect(sanitizeEvent(e)).toEqual(e));
+  it('drops a name that is free text', () => {
+    expect(sanitizeEvent({ k: 'app', t: 1, what: 'error', name: 'http://x/y' })).toEqual({ k: 'app', t: 1, what: 'error' });
   });
 });

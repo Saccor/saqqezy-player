@@ -1,6 +1,6 @@
-import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VideoRange, VodKind } from '@iptv/core';
 
-export type { ArchiveState, SourceCooldown, StreamHeaders };
+export type { ArchiveState, SourceCooldown, StreamHeaders, VideoRange };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
@@ -362,6 +362,8 @@ export interface VodPlayable {
   resumeMs: number;
   durationMs?: number;
   tracks: VodTracks;
+  /** The picture's dynamic range, when the source or the title tells (Dolby Vision warning). */
+  video?: VideoRange;
   /** Episodes: pass back with every `saveVodProgress` / `setVodWatched`. */
   series?: SeriesPointer;
   /** Episodes: what the next-episode card offers. */

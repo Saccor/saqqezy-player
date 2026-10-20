@@ -1,7 +1,7 @@
 import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
-import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject } from '../platform/tizen.ts';
+import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
@@ -11,6 +11,7 @@ import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
 import { createSharedSleepTimer } from './sleepTimer.ts';
+import { onBackOnline } from '../state/backOnline.ts';
 
 /**
  * The app's single playback stack: one video layer, one player, one `PlaybackSupervisor`. The Home preview and
@@ -39,7 +40,15 @@ function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(
     // AVPlay works in design space, so a window resize needs no relayout.
     // `journal` is read at open time, after this module has finished loading.
     const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
-    return { player: new AvplayPlayer(avplay, { displaySpace: AVPLAY_DISPLAY_SPACE, note }), layer: { relayout: () => {} } };
+    const player = new AvplayPlayer(avplay, {
+      displaySpace: AVPLAY_DISPLAY_SPACE,
+      note,
+      screenSaver: (s) => { setScreenSaver(s); },
+      panel: readPanelCaps(),
+    });
+    // The app is going away: hand the screensaver back to the TV.
+    window.addEventListener('pagehide', () => { setScreenSaver('on'); });
+    return { player, layer: { relayout: () => {} } };
   }
   const layer = createVideoLayer(root);
   // Native HLS only on TVs. Desktop Chrome reports native HLS too, but its built-in player cannot decode HEVC in
@@ -102,7 +111,13 @@ export const playback = createPlaybackController(
     answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
     current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
   },
+  (what) => journal.add({ k: 'page', t: Date.now(), what }),
 );
+
+// Engines that can suspend (AVPlay) get the multitasking path: live closes, VOD suspends (spec 3.1).
+const canSuspend = typeof player.suspend === 'function';
+// A live channel closed in the background while the network was down reopens once it is back.
+onBackOnline(globalThis.window, () => playback.networkBack());
 
 // Hidden pages present no frames: the stall ladder pauses while hidden. Back from the background after a while,
 // the stream is behind, so jump to live.
@@ -114,9 +129,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) journal.flush();
   if (document.hidden) {
     hiddenAt = Date.now();
+    if (canSuspend) playback.suspendForBackground();
     return;
   }
-  if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
+  if (canSuspend) playback.resumeFromBackground({ networkUp: navigator.onLine !== false });
+  else if (hiddenAt !== undefined) supervisor.onResume(Date.now() - hiddenAt);
   hiddenAt = undefined;
 });
 

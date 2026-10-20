@@ -4,6 +4,25 @@ export const SEEK_STEP_MS = 10_000;
 /** The control row's long skip (±30 s). */
 export const SKIP_LONG_MS = 30_000;
 
+/** What a media key does in the VOD player: toggle pause, skip 30 s either way, leave (as Back), or nothing. */
+export type MediaKeyAction = 'toggle' | 'forward' | 'back' | 'stop' | 'none';
+
+/**
+ * Play only resumes and Pause only pauses (never the other way). Nothing touches playback once it failed or ended
+ * (blocked); Stop always leaves.
+ */
+export function mediaKeyAction(
+  key: 'Play' | 'Pause' | 'Stop' | 'FastForward' | 'Rewind',
+  s: { paused: boolean; blocked: boolean },
+): MediaKeyAction {
+  if (key === 'Stop') return 'stop';
+  if (s.blocked) return 'none';
+  if (key === 'FastForward') return 'forward';
+  if (key === 'Rewind') return 'back';
+  if (key === 'Play') return s.paused ? 'toggle' : 'none';
+  return s.paused ? 'none' : 'toggle';
+}
+
 /** Step for a press while the key has been held `heldMs`. */
 export function seekStep(heldMs: number): number {
   if (heldMs >= 6000) return 120_000;

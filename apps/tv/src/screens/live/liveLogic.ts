@@ -1,5 +1,5 @@
 /** Live TV (UI revamp phase 2): the merged channel guide's pure layout, keys, OK and menu rules. */
-import { mapKey } from '@iptv/platform';
+import { keyTableFor, mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
 import { CATCHUP_COPY } from '../../copy.ts';
 import { LAYOUT, TYPE } from '../../shell/theme.ts';
@@ -156,6 +156,9 @@ export function liveMenuItems(o: {
   ];
 }
 
+/** The browser key table: which letters the remote layer maps (m Menu, i Info). */
+const BROWSER_KEYS = keyTableFor('browser');
+
 /**
  * A hardware key that hands off to Search (seeded with it): a letter or a digit (Live TV gives digits no meaning; number
  * entry lives in the Player), without Ctrl, Cmd or Alt. Letters the remote layer maps (m Menu, i Info) stay remote keys.
@@ -165,7 +168,7 @@ export function liveTypedChar(e: { key: string; ctrlKey: boolean; metaKey: boole
   const ch = e.key;
   const digit = ch >= '0' && ch <= '9';
   if (!digit && ch.toLowerCase() === ch.toUpperCase()) return undefined; // not a letter
-  return digit || mapKey('browser', { key: ch, keyCode: 0 }) === undefined ? ch : undefined;
+  return digit || mapKey(BROWSER_KEYS, { key: ch, keyCode: 0 }) === undefined ? ch : undefined;
 }
 
 export const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';

@@ -64,6 +64,9 @@ class FakeAvplay implements AvplayLike {
   getState(): string { this.hit('getState'); return this.state; }
   getDuration(): number { this.hit('getDuration'); return this.durationMs; }
   setSilentSubtitle(on: boolean): void { this.hit('setSilentSubtitle'); this.silent.push(on); }
+  restores: [string, number, boolean][] = [];
+  suspend(): void { this.hit('suspend'); }
+  restore(url: string, ms: number, prepare: boolean): void { this.hit('restore'); this.restores.push([url, ms, prepare]); }
 }
 
 function setup() {
@@ -251,6 +254,15 @@ describe('AvplayPlayer: position, tracks and stream info', () => {
     expect(p.streamInfo()).toEqual({ width: 1280, height: 720, videoCodec: 'H264', audioCodec: 'AAC', bitrate: 3000000 });
     av.throwOn.add('getCurrentStreamInfo');
     expect(p.streamInfo()).toEqual({});
+  });
+
+  test('streamInfo: a Dolby Vision-only fourCC reads as DV', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.current = [{ index: 0, type: 'VIDEO', extra_info: '{"fourCC":"dvh1","Width":"3840","Height":"2160"}' }];
+    expect(p.streamInfo()).toEqual({ width: 3840, height: 2160, videoCodec: 'dvh1', hdr: 'dv' });
+    av.current = [{ index: 0, type: 'VIDEO', extra_info: '{"fourCC":"HEVC","Width":"3840","Height":"2160"}' }];
+    expect(p.streamInfo().hdr).toBeUndefined();
   });
 
   test('currentUrl() is the URL in flight, gone after stop', async () => {
@@ -776,6 +788,17 @@ describe('AvplayPlayer: VOD controls', () => {
     expect(av.calls.filter((c) => c === 'play')).toHaveLength(1);
   });
 
+  test('subtitle cues: AVPlay markup becomes plain lines; a cue of only markup clears', async () => {
+    const { av, p } = setup();
+    const cues: (string | null)[] = [];
+    p.onSubtitle((t) => cues.push(t));
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    av.listener!.onsubtitlechange?.(2000, '<SYNC Start=1000><P Class=ENCC><i>Hello</i><BR>there&nbsp;you<BR', 0, 0);
+    av.listener!.onsubtitlechange?.(2000, '<br>', 0, 0);
+    expect(cues).toEqual(['Hello\nthere you', null]);
+  });
+
   test('subtitle cues: emitted for the current session, cleared on select, Off, seek, stop and a new open', async () => {
     const { av, p } = setup();
     av.tracks = [{ index: 2, type: 'TEXT', extra_info: '{}' }];
@@ -939,5 +962,325 @@ describe('AvplayPlayer: User-Agent, close before open, status awareness', () => 
     await p.closed();
     expect(av.calls).toContain('close');
     expect((p as Player).supportsStatus?.() ?? false).toBe(false);
+  });
+});
+
+describe('AvplayPlayer: suspend / resume', () => {
+  async function vodPlaying() {
+    const s = setup();
+    await s.p.open(URL_A, 1, { live: false });
+    s.av.prepared[0]!.ok();
+    s.av.time = 90_000;
+    return s;
+  }
+  test('VOD: suspend() calls avplay.suspend; resume() restores at the position without prepare', async () => {
+    const { av, p } = await vodPlaying();
+    p.suspend!();
+    expect(av.calls).toContain('suspend');
+    expect(p.resume!()).toBe(true);
+    expect(av.restores).toEqual([[URL_A, 90_000, false]]);
+  });
+  test('resume() is false when restore throws (caller reopens)', async () => {
+    const { av, p } = await vodPlaying();
+    p.suspend!();
+    av.throwOn.add('restore');
+    expect(p.resume!()).toBe(false);
+  });
+  test('live sessions are not suspended, and resume() without suspend is false', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    p.suspend!();
+    expect(av.calls).not.toContain('suspend');
+    expect(p.resume!()).toBe(false);
+  });
+  test('resume() keeps a paused session paused and arms no watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    av.state = 'PAUSED';
+    p.suspend!();
+    av.calls = [];
+    expect(p.resume!()).toBe(true);
+    expect(av.calls).toContain('pause');
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: no play time within 5 s → error NETWORK restoreTimeout', async () => {
+    vi.useFakeTimers();
+    const { p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    vi.advanceTimersByTime(5_001);
+    expect(events.at(-1)?.[0]).toBe('error');
+    expect(events.at(-1)?.[1]?.detail).toBe('restoreTimeout');
+    vi.useRealTimers();
+  });
+  test('restore watchdog: polled position moving past the saved one counts as success (no oncurrentplaytime)', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.time = 92_000;
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: state PLAYING counts as success', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.state = 'PLAYING';
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s]) => s === 'error')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('restore watchdog: a throwing getState with a stuck position still errors', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.throwOn.add('getState');
+    vi.advanceTimersByTime(5_001);
+    expect(events.at(-1)?.[1]?.detail).toBe('restoreTimeout');
+    vi.useRealTimers();
+  });
+  test('suspend() releases a held frame and clears a pending prepare watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = setup();
+    await p.open(URL_A, 1, { live: false });
+    p.holdLastFrame!();
+    p.suspend!();
+    expect(av.still.at(-1)).toBe('false');
+    vi.advanceTimersByTime(120_000);
+    expect(events.some(([, d]) => d?.detail === 'prepareTimeout')).toBe(false);
+    vi.useRealTimers();
+  });
+  test('oncurrentplaytime clears the restore watchdog', async () => {
+    vi.useFakeTimers();
+    const { av, p, events } = await vodPlaying();
+    p.suspend!();
+    p.resume!();
+    av.listener!.oncurrentplaytime!(91_000);
+    vi.advanceTimersByTime(6_000);
+    expect(events.some(([s, d]) => s === 'error' && d?.detail === 'restoreTimeout')).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+describe('AvplayPlayer: screensaver', () => {
+  function withSaver() {
+    const av = new FakeAvplay();
+    const saver: string[] = [];
+    const p = new AvplayPlayer(av, { screenSaver: (s) => saver.push(s) });
+    return { av, p, saver };
+  }
+  test('fullscreen playing → off; pause → on; play → off; stop → on', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    expect(saver.at(-1)).toBe('off');
+    p.pause!();
+    expect(saver.at(-1)).toBe('on');
+    p.play!();
+    expect(saver.at(-1)).toBe('off');
+    p.stop();
+    expect(saver.at(-1)).toBe('on');
+  });
+  test('preview rect never turns it off', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect({ x: 100, y: 100, w: 640, h: 360 });
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    expect(saver).not.toContain('off');
+  });
+  test('error → on, but a held last frame keeps it off until the reopen', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    p.holdLastFrame!();
+    av.listener!.onerror!('PLAYER_ERROR_CONNECTION_FAILED');
+    expect(saver.at(-1)).toBe('off');
+    p.releaseLastFrame!();
+    expect(saver.at(-1)).toBe('on');
+  });
+  test('a hold outliving stop is capped: saver returns to on after 30 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p, saver } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      p.stop();
+      expect(saver.at(-1)).toBe('off');
+      vi.advanceTimersByTime(30_000);
+      expect(saver.at(-1)).toBe('on');
+      expect(av.still.at(-1)).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test('a second hold does not extend the 30 s cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      vi.advanceTimersByTime(20_000);
+      p.holdLastFrame!();
+      vi.advanceTimersByTime(10_001);
+      expect(av.still.at(-1)).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test('a hold released early never fires the cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { av, p } = withSaver();
+      p.setRect('fullscreen');
+      await p.open(URL_A, 1);
+      av.prepared[0]!.ok();
+      p.holdLastFrame!();
+      p.releaseLastFrame!();
+      const n = av.still.length;
+      vi.advanceTimersByTime(60_000);
+      expect(av.still.length).toBe(n);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test('suspend → on', async () => {
+    const { av, p, saver } = withSaver();
+    p.setRect('fullscreen');
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    p.suspend!();
+    expect(saver.at(-1)).toBe('on');
+  });
+});
+
+describe('AvplayPlayer: audio track facts', () => {
+  async function withTracks(tracks: AvplayTrack[], activeIndex: number) {
+    const s = setup();
+    s.av.tracks = tracks;
+    s.av.current = tracks.filter((t) => t.index === activeIndex || t.type === 'VIDEO');
+    await s.p.open(URL_A, 1, { live: false });
+    s.av.prepared[0]!.ok();
+    return s;
+  }
+  const vid: AvplayTrack = { index: 0, type: 'VIDEO', extra_info: '{"fourCC":"H264","Width":"1920","Height":"1080"}' };
+  const dts: AvplayTrack = { index: 1, type: 'AUDIO', extra_info: '{"fourCC":"DTS","language":"eng","channels":"6"}' };
+  const aac: AvplayTrack = { index: 2, type: 'AUDIO', extra_info: '{"fourCC":"AAC","language":"eng","channels":"2"}' };
+
+  test('audioTracks carries codec, channels and supported', async () => {
+    const { p } = await withTracks([vid, dts, aac], 1);
+    expect(p.audioTracks()).toEqual([
+      expect.objectContaining({ id: '1', codec: 'DTS', channels: 6, supported: 'no', active: true }),
+      expect.objectContaining({ id: '2', codec: 'AAC', channels: 2, active: false }),
+    ]);
+    expect(p.audioTracks()[1]!.supported).not.toBe('no');
+  });
+  test('soundUndecodable: true when every audio track is none in the Tizen caps', async () => {
+    expect((await withTracks([vid, dts], 1)).p.soundUndecodable()).toBe(true);
+  });
+  test('soundUndecodable: false while a decodable or unknown track exists', async () => {
+    expect((await withTracks([vid, dts, aac], 1)).p.soundUndecodable()).toBe(false);
+    const odd: AvplayTrack = { index: 3, type: 'AUDIO', extra_info: '{"fourCC":"ZZZ"}' };
+    expect((await withTracks([vid, odd], 3)).p.soundUndecodable()).toBe(false);
+  });
+  test('soundUndecodable: true when the picture plays and AVPlay lists no audio at all', async () => {
+    expect((await withTracks([vid], 0)).p.soundUndecodable()).toBe(true);
+  });
+  test('soundUndecodable: false before the stream has started', async () => {
+    const s = setup();
+    s.av.tracks = [vid, dts];
+    await s.p.open(URL_A, 1, { live: false });
+    expect(s.p.soundUndecodable()).toBe(false);
+  });
+  test('soundUndecodable: false when nothing is open', () => {
+    expect(setup().p.soundUndecodable()).toBe(false);
+  });
+
+  // Spellings named by tizen.md section 4.1 and the codec golden vectors. UNVERIFIED against real firmware.
+  test.each([
+    // `codec` is the track-label family (main's TrackInfo.codec), from the normalised name (caps/codecs.ts).
+    ['DTS', 'DTS'], ['DCA', 'DTS'], ['dtsc', 'DTS'], ['dtse', 'DTS-HD'], ['dtsh', 'DTS-HD'],
+    ['TRUEHD', 'TrueHD'], ['MLP', 'TrueHD'], ['AC3', 'AC-3'], ['EAC3', 'E-AC-3'],
+    ['AAC', 'AAC'], ['MP3', 'MP3'], ['MPEG', 'MP2'], ['OPUS', 'Opus'], ['AC-4', 'AC-4'], ['LPCM', 'PCM'],
+  ])('fourCC %s gets codec %s', async (fourCC, codec) => {
+    const t: AvplayTrack = { index: 1, type: 'AUDIO', extra_info: JSON.stringify({ fourCC }) };
+    const { p } = await withTracks([vid, t], 1);
+    expect(p.audioTracks()[0]!.codec).toBe(codec);
+  });
+});
+
+describe('AvplayPlayer: panel caps', () => {
+  test('UHD panel: ADAPTIVE_INFO carries FIXED_MAX_RESOLUTION in one call', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: true, eightK: false, hdrTv: true } });
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=3840X2160']]);
+  });
+  test("no panel info: today's STARTBITRATE=LOWEST", async () => {
+    const { av, p } = setup();
+    await p.open(URL_B, 1);
+    expect(av.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']);
+  });
+  test('capsProbe: max height and HDR from the panel', () => {
+    const p = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: true, answered: { uhd: true, eightK: true, hdrTv: true } } });
+    expect(p.capsProbe()).toEqual({
+      display: {
+        maxHeight: { value: 2160, evidence: 'probe' },
+        hdr: {
+          hdr10: { value: 'decode', evidence: 'probe' },
+          hdr10plus: { value: 'decode', evidence: 'probe' },
+          hlg: { value: 'decode', evidence: 'probe' },
+        },
+      },
+    });
+    expect(new AvplayPlayer(new FakeAvplay()).capsProbe()).toEqual({});
+  });
+  test('no API answered (monitor, throwing or missing APIs): capsProbe is empty, ADAPTIVE_INFO unchanged', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: false, eightK: false, hdrTv: false } });
+    expect(p.capsProbe()).toEqual({});
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']]);
+  });
+  test('answered-false panel still reports 1080p and no HDR', async () => {
+    const av = new FakeAvplay();
+    const p = new AvplayPlayer(av, { panel: { uhd: false, eightK: false, hdrTv: false, answered: { uhd: true, eightK: true, hdrTv: true } } });
+    expect(p.capsProbe()).toEqual({
+      display: {
+        maxHeight: { value: 1080, evidence: 'probe' },
+        hdr: {
+          hdr10: { value: 'none', evidence: 'probe' },
+          hdr10plus: { value: 'none', evidence: 'probe' },
+          hlg: { value: 'none', evidence: 'probe' },
+        },
+      },
+    });
+    await p.open(URL_B, 1);
+    expect(av.props.filter(([k]) => k === 'ADAPTIVE_INFO')).toEqual([['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST']]);
+  });
+  test('partial answers: only answered facts are reported', () => {
+    const hdrOnly = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: false, eightK: false, hdrTv: true, answered: { hdrTv: true } } });
+    expect(Object.keys(hdrOnly.capsProbe().display ?? {})).toEqual(['hdr']);
+    const uhdOnly = new AvplayPlayer(new FakeAvplay(), { panel: { uhd: true, eightK: false, hdrTv: false, answered: { uhd: true } } });
+    expect(uhdOnly.capsProbe()).toEqual({ display: { maxHeight: { value: 2160, evidence: 'probe' } } });
+  });
+  test('panelCaps returns a copy, undefined without panel facts', () => {
+    const panel = { uhd: true, eightK: false, hdrTv: false };
+    const p = new AvplayPlayer(new FakeAvplay(), { panel });
+    expect(p.panelCaps()).toEqual(panel);
+    expect(p.panelCaps()).not.toBe(panel);
+    expect(new AvplayPlayer(new FakeAvplay()).panelCaps()).toBeUndefined();
   });
 });

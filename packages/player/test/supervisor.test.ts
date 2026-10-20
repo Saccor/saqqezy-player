@@ -1010,6 +1010,34 @@ describe('PlaybackSupervisor – per-source open rate', () => {
     expect(journal.some((e) => e.k === 'rateWait')).toBe(false);
   });
 
+  it('an automatic play() waits for room and counts against the cap', () => {
+    let wait = 5000;
+    const taken: string[] = [];
+    const { player, sup } = setup({ openRate: { waitMs: () => wait, take: (k) => { taken.push(k); } } });
+    sup.play(A, undefined, { sourceKey: 'src', automatic: true });
+    vi.advanceTimersByTime(4000);
+    expect(player.opened).toEqual([]);
+    wait = 0;
+    vi.advanceTimersByTime(5000);
+    expect(player.opened).toEqual([A]);
+    expect(taken).toEqual(['src']);
+  });
+
+  it('an automatic play() keeps the fail count and the reconnect budget', () => {
+    const { player, sup } = setup({ budget: [{ windowMs: 600_000, max: 1 }] });
+    sup.play(A, undefined, { sourceKey: 'src' });
+    player.emit('playing');
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(2000); // the one budgeted reconnect is spent
+    expect(player.opened).toEqual([A, A]);
+    sup.play(A, undefined, { sourceKey: 'src', automatic: true });
+    vi.advanceTimersByTime(2000);
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(60_000);
+    // A user play() would have reset the budget and reconnected again right away.
+    expect(player.opened).toEqual([A, A, A]); // no further reconnect: the budget was kept
+  });
+
   it('a reconnect waits for room, counts against the cap, and journals the wait', () => {
     let wait = 0;
     const taken: string[] = [];

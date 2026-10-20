@@ -740,6 +740,37 @@ describe('VodController tracks', () => {
   });
 });
 
+describe('VodController video range on playable', () => {
+  test('a movie: the range of the cached detail, never a fetch of its own', async () => {
+    const { c, fake } = detailFake(2);
+    fake.movieDetail.mockImplementation(async () => ({ plot: 'P', video: { hdr: 'dv' as const, dvProfile: 5, dvFallback: 'none' as const } }));
+    expect((await c.playable(movieId(1)))!.video).toBeUndefined();
+    expect(fake.movieDetail).not.toHaveBeenCalled();
+    await c.movie(movieId(1));
+    expect((await c.playable(movieId(1)))!.video).toEqual({ hdr: 'dv', dvProfile: 5, dvFallback: 'none' });
+  });
+
+  test('a movie with no probe data: a DV tag in its title', async () => {
+    const { c, fake } = detailFake(0);
+    fake.storedCatalog.mockImplementation(async (_id: string, kind: VodKind) => new VodCatalog(kind, {
+      items: [{ id: movieId(1), kind, title: 'Synthetic Film 2160p DV', categoryId: '1' }], categories: [{ id: '1', kind, name: 'Cat', count: 1 }],
+    }));
+    c.reset('src');
+    expect((await c.playable(movieId(1)))!.video).toEqual({ hdr: 'dv' });
+  });
+
+  test('an episode: its own range from the series detail', async () => {
+    const { c, fake } = detailFake(0, 1);
+    fake.seriesDetail.mockImplementation(async (_s: string, it: VodItem) => {
+      const seasons = seasonsOf(it.id);
+      seasons[0]!.episodes[0]!.video = { hdr: 'hdr10' };
+      return { plot: 'P', seasons };
+    });
+    expect((await c.playable(epId(showId(1), 1), showId(1)))!.video).toEqual({ hdr: 'hdr10' });
+    expect((await c.playable(epId(showId(1), 2), showId(1)))!.video).toBeUndefined();
+  });
+});
+
 describe('VodController detail views vs reset', () => {
   test('a reset while the catalogue loads: movie resolves undefined and fetches no detail', async () => {
     const { c, fake } = detailFake(2);

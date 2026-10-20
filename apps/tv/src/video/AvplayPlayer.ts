@@ -1,10 +1,23 @@
 import type {
-  AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, MediaCapsProbe, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { dvFromFourCC, subtitleText } from '@iptv/core';
+import { audioCodecOf, staticCaps, type AudioCodec } from '@iptv/player';
 import { codecFamily } from '../vod/tracks.ts';
+import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
+import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { fpsFromTrackExtra } from './frameRate.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
+
+/** What the research documents for AVPlay on Tizen (DTS and TrueHD are `none` since 2018). */
+const TIZEN_CAPS = staticCaps('tizen', 'avplay');
+
+/** Track-label codec family per normalised AVPlay audio codec (the same spelling as `codecFamily` where both know it). */
+const AUDIO_LABEL: Readonly<Record<AudioCodec, string>> = {
+  aac: 'AAC', mp2: 'MP2', mp3: 'MP3', ac3: 'AC-3', eac3: 'E-AC-3', eac3joc: 'E-AC-3', truehd: 'TrueHD', dts: 'DTS', dtshd: 'DTS-HD',
+  opus: 'Opus', flac: 'FLAC', ac4: 'AC-4', pcm: 'PCM',
+};
 
 /** The part of Samsung's `webapis.avplay` this player uses (injected, so it is testable without a TV). */
 export interface AvplayLike {
@@ -33,6 +46,10 @@ export interface AvplayLike {
   getDuration?(): number;
   /** true hides the subtitles. */
   setSilentSubtitle?(silent: boolean): void;
+  /** Releases the decoder and network while the app is hidden (Tizen multitasking). */
+  suspend?(): void;
+  /** Re-opens after `suspend()`: `resumeMs` start position; `bPrepare` false lets AVPlay prepare itself. */
+  restore?(url: string, resumeMs: number, bPrepare: boolean): void;
 }
 
 export interface AvplayListener {
@@ -157,6 +174,8 @@ interface Session {
   watchdog?: ReturnType<typeof setTimeout>;
   /** Guards the VOD start seek: if firmware never calls back, playback starts anyway. */
   seekWatchdog?: ReturnType<typeof setTimeout>;
+  /** After `resume()`: no play time within `RESTORE_TIMEOUT_MS` means the restore failed. */
+  restoreWatchdog?: ReturnType<typeof setTimeout>;
   /** False when opened as a file/VOD (`open(…, { live: false })`): never live, no live window. */
   live: boolean;
   /** VOD start position (ms), sought once prepared, before `play()`. */
@@ -169,10 +188,14 @@ const MESSAGE = 'Playback error';
 const PREPARE_TIMEOUT_MS = 15_000;
 /** The VOD start seek gets this long to call back before playback starts anyway. */
 const START_SEEK_TIMEOUT_MS = 3_000;
+/** After a restore, AVPlay must report play time within this long, or the caller reopens the title. */
+const RESTORE_TIMEOUT_MS = 5_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_MS = 1_000;
+/** A held frame never outlives this (as in Html5Player), so the screensaver cannot stay off over a failure screen. */
+const HOLD_MAX_MS = 30_000;
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -196,15 +219,49 @@ export class AvplayPlayer implements Player {
   private readonly prepareTimeoutMs: number;
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
+  private suspended: { url: string; positionMs: number; wasPaused: boolean } | undefined;
+  private readonly saver: ReturnType<typeof createScreenSaverGuard> | undefined;
+  /** Ends a held frame that outlived playback (see `HOLD_MAX_MS`). */
+  private holdTimer: ReturnType<typeof setTimeout> | undefined;
+  private video = false;
+  private userPaused = false;
+
+  private readonly panel: PanelCaps | undefined;
 
   constructor(
     private readonly avplay: AvplayLike,
     /** `note`: diagnostics for the playback journal (`refererDropped`), never with a header value. */
-    opts: { displaySpace?: Size; prepareTimeoutMs?: number; note?: (what: 'refererDropped') => void } = {},
+    opts: {
+      displaySpace?: Size; prepareTimeoutMs?: number; note?: (what: 'refererDropped') => void;
+      screenSaver?: (s: 'on' | 'off') => void; panel?: PanelCaps;
+    } = {},
   ) {
     this.note = opts.note;
+    this.panel = opts.panel;
+    this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
     this.space = opts.displaySpace ?? DESIGN;
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
+  }
+
+  /** What the panel adds to the static Tizen caps (spec §3.3 item 4); empty without panel facts. */
+  capsProbe(): MediaCapsProbe {
+    const p = this.panel;
+    const a = p?.answered;
+    if (!p || !a) return {};
+    const cap = <T>(value: T) => ({ value, evidence: 'probe' as const });
+    const display: NonNullable<MediaCapsProbe['display']> = {};
+    // Only facts an API answered: an unanswered query must never cap a display at 1080p or claim no HDR.
+    if (a.eightK && p.eightK) display.maxHeight = cap(4320);
+    else if (a.uhd) display.maxHeight = cap(p.uhd ? 2160 : 1080);
+    if (a.hdrTv) {
+      const hdr = p.hdrTv ? 'decode' : 'none';
+      display.hdr = { hdr10: cap(hdr), hdr10plus: cap(hdr), hlg: cap(hdr) };
+    }
+    return Object.keys(display).length > 0 ? { display } : {};
+  }
+
+  panelCaps(): PanelCaps | undefined {
+    return this.panel ? { ...this.panel } : undefined;
   }
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
@@ -212,6 +269,7 @@ export class AvplayPlayer implements Player {
     const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
+    this.userPaused = false;
     this.lastPosition = 0;
     this.windowCache = undefined;
     this.emit(s, 'loading');
@@ -221,12 +279,17 @@ export class AvplayPlayer implements Player {
       av.setListener({
         onbufferingstart: () => this.emit(s, 'buffering'),
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
-        oncurrentplaytime: (ms) => { if (!s.dead && typeof ms === 'number') this.lastPosition = ms; },
+        oncurrentplaytime: (ms) => {
+          if (s.dead || typeof ms !== 'number') return;
+          this.lastPosition = ms;
+          clearTimeout(s.restoreWatchdog);
+        },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
-        // A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
+        // AVPlay passes the source's markup through (SAMI <BR>, <i>, <font>, entities): plain lines out, and a cue
+        // of only markup clears the line. A cue shows for its `duration` (ms); the next cue, a seek, a track change or stop clears it sooner.
         onsubtitlechange: (duration, text) => {
           if (s.dead || s !== this.session || s.textOff) return;
-          this.showCue(typeof text === 'string' && text !== '' ? text : null, Number(duration));
+          this.showCue((typeof text === 'string' && subtitleText(text)) || null, Number(duration));
         },
         // A live stream that "completes" has dropped: report it so the supervisor reconnects. A non-live stream
         // simply ended: 'idle', which never reconnects. Unknown (the query failed) keeps the reconnect.
@@ -285,7 +348,8 @@ export class AvplayPlayer implements Player {
     try {
       this.avplay.play();
       s.started = true;
-      this.releaseLastFrame();
+      this.video = true;
+      this.releaseLastFrame(); // also refreshes the screensaver
       this.emit(s, 'playing');
     } catch (e) {
       this.emit(s, 'error', { code: mapAvplayError(e), message: MESSAGE, detail: avplayErrorName(e) || undefined });
@@ -298,12 +362,64 @@ export class AvplayPlayer implements Player {
     s.dead = true;
     clearTimeout(s.watchdog);
     clearTimeout(s.seekWatchdog);
+    clearTimeout(s.restoreWatchdog);
+    this.suspended = undefined;
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
+    this.video = false;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
     try { this.avplay.close(); } catch { /* ignore */ }
+    this.updateSaver();
+  }
+
+  /** VOD only: live sessions are closed and reopened by the controller instead. */
+  suspend(): void {
+    const s = this.session;
+    if (!s || s.live || !this.avplay.suspend) return;
+    this.suspended = { url: s.url, positionMs: this.position(), wasPaused: this.paused() };
+    this.releaseLastFrame();
+    clearTimeout(s.watchdog);
+    try {
+      this.avplay.suspend();
+    } catch {
+      this.suspended = undefined;
+      return;
+    }
+    this.video = false;
+    this.updateSaver();
+  }
+
+  /** True when AVPlay restored the session; false means the caller reopens it. */
+  resume(): boolean {
+    const sp = this.suspended;
+    const s = this.session;
+    this.suspended = undefined;
+    if (!sp || !s || !this.avplay.restore) return false;
+    try {
+      this.avplay.restore(sp.url, sp.positionMs, false);
+    } catch {
+      return false;
+    }
+    this.applyDisplay();
+    this.video = true;
+    this.userPaused = sp.wasPaused;
+    this.updateSaver();
+    if (sp.wasPaused) {
+      try { this.avplay.pause?.(); } catch { /* stays playing */ }
+      return true;
+    }
+    clearTimeout(s.restoreWatchdog);
+    s.restoreWatchdog = setTimeout(() => {
+      if (s.dead || s !== this.session) return;
+      // `oncurrentplaytime` is not guaranteed after `restore()`: PLAYING or a moved position also prove it worked.
+      let playing = false;
+      try { playing = this.avplay.getState?.() === 'PLAYING'; } catch { /* unknown */ }
+      if (playing || this.position() > sp.positionMs) return;
+      this.emit(s, 'error', { code: 'NETWORK', message: MESSAGE, detail: 'restoreTimeout' });
+    }, RESTORE_TIMEOUT_MS);
+    return true;
   }
 
   /** `stop()` closes AVPlay synchronously: the previous stream is closed once `close()` has returned. */
@@ -314,6 +430,7 @@ export class AvplayPlayer implements Player {
   setRect(rect: Rect | 'fullscreen'): void {
     this.rect = rect === 'fullscreen' ? FULL : { ...rect };
     if (this.session) this.applyDisplay();
+    this.updateSaver();
   }
 
   setAspect(mode: AspectMode): void {
@@ -342,13 +459,27 @@ export class AvplayPlayer implements Player {
       n++;
       const x = parseExtra(t);
       const language = str(x.language);
+      // `codec` is the display family ("AC-3", for track labels); the caps check uses the normalised name.
+      const norm = audioCodecOf(str(x.fourCC));
+      const codec = (norm && AUDIO_LABEL[norm]) ?? codecFamily(str(x.fourCC));
+      const channels = num(x.channels); // key name unverified against real firmware
       const info: TrackInfo = { id: String(t.index), label: language ?? `Track ${n}`, active: t.index === activeIndex };
       if (language) info.language = language;
-      const codec = codecFamily(str(x.fourCC));
       if (codec) info.codec = codec;
+      if (channels) info.channels = channels;
+      if (norm && TIZEN_CAPS.audio[norm]?.value === 'none') info.supported = 'no';
       out.push(info);
     }
     return out;
+  }
+
+  /** The picture plays but no listed audio track is decodable here (DTS/TrueHD only), or none is listed at all. */
+  soundUndecodable(): boolean {
+    const s = this.session;
+    if (!s || !s.started) return false;
+    const tracks = this.audioTracks();
+    if (tracks.length === 0) return this.currentTracks().some((t) => t.type === 'VIDEO');
+    return tracks.every((t) => t.supported === 'no');
   }
 
   selectAudioTrack(id: string): void {
@@ -374,6 +505,8 @@ export class AvplayPlayer implements Player {
         if (w) info.width = w;
         if (h) info.height = h;
         if (codec) info.videoCodec = codec;
+        // dvh1/dvhe: a Dolby Vision stream with no base layer, which Samsung panels show with wrong colours.
+        if (dvFromFourCC(codec)) info.hdr = 'dv';
         if (bitrate) info.bitrate = bitrate;
         const fps = fpsFromTrackExtra(x);
         if (fps) info.fps = fps;
@@ -440,6 +573,8 @@ export class AvplayPlayer implements Player {
     } catch {
       // ignore: keeps playing
     }
+    this.userPaused = true;
+    this.updateSaver();
   }
 
   play(): void {
@@ -450,6 +585,8 @@ export class AvplayPlayer implements Player {
     } catch {
       // ignore: stays paused
     }
+    this.userPaused = false;
+    this.updateSaver();
   }
 
   paused(): boolean {
@@ -542,22 +679,32 @@ export class AvplayPlayer implements Player {
 
   holdLastFrame(): void {
     if (!this.avplay.setVideoStillMode) return;
+    if (this.stillOn) return; // a hold is already running: its 30 s cap must not be re-armed
     try {
       this.avplay.setVideoStillMode('true');
       this.stillOn = true;
+      clearTimeout(this.holdTimer);
+      this.holdTimer = setTimeout(() => this.releaseLastFrame(), HOLD_MAX_MS);
     } catch {
       // not supported here: a black frame during the reconnect, as before
     }
+    this.updateSaver();
   }
 
   releaseLastFrame(): void {
-    if (!this.stillOn) return;
+    clearTimeout(this.holdTimer);
+    this.holdTimer = undefined;
+    if (!this.stillOn) {
+      this.updateSaver();
+      return;
+    }
     this.stillOn = false;
     try {
       this.avplay.setVideoStillMode?.('false');
     } catch {
       // ignore
     }
+    this.updateSaver();
   }
 
   onState(fn: (s: PlayerState, detail?: StateDetail) => void): () => void {
@@ -619,7 +766,7 @@ export class AvplayPlayer implements Player {
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.play));
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.resume));
     attempt(() => av.setTimeoutForBuffering?.(b.timeout));
-    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', 'STARTBITRATE=LOWEST'));
+    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', adaptiveInfo(this.panel ?? { uhd: false, eightK: false, hdrTv: false })));
     if (userAgent) attempt(() => av.setStreamingProperty?.('USER_AGENT', userAgent));
   }
 
@@ -693,8 +840,19 @@ export class AvplayPlayer implements Player {
     }
   }
 
+  /** Screensaver off only while a picture plays fullscreen (see `desiredScreenSaver`). */
+  private updateSaver(): void {
+    this.saver?.update({
+      fullscreen: isFullscreen(this.rect), video: this.video || this.stillOn, paused: this.userPaused,
+    });
+  }
+
   private emit(s: Session, state: PlayerState, detail: StateDetail = {}): void {
     if (s.dead || s !== this.session) return;
+    if (state === 'error' || state === 'idle') {
+      this.video = false;
+      this.updateSaver();
+    }
     if (state === 'error') clearTimeout(s.watchdog); // one error per attempt: the prepare watchdog must not add another
     const d: StateDetail = s.attemptId === undefined ? detail : { ...detail, attemptId: s.attemptId };
     for (const fn of [...this.listeners]) {

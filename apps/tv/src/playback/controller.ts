@@ -1,5 +1,6 @@
 import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
+import { onHidden, onVisible, type BackgroundAction } from './backgroundPolicy.ts';
 import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
@@ -22,7 +23,7 @@ export interface PlaybackController {
    * VOD: plays a finite title from `startMs`. `current` becomes a stand-in channel (`vod:<itemId>`, empty name: no
    * titles reach the playback journal). No live-delay logic; the open-rate cap and refusal cooldown still apply.
    */
-  playVod(p: VodPlayable, startMs: number): void;
+  playVod(p: VodPlayable, startMs: number, automatic?: boolean): void;
   pause(): void;
   resume(): void;
   /** Absolute position in ms (clamped by the supervisor to [0, duration - 1 s]). */
@@ -45,6 +46,18 @@ export interface PlaybackController {
   textTracks(): TrackInfo[];
   /** `null`: subtitles off. */
   selectTextTrack(id: string | null): void;
+  /**
+   * The app went to the background (Tizen multitasking). Live: the stream is closed, the channel stays current. VOD:
+   * the engine suspends and remembers the position. Nothing playing (or held by a cooldown): nothing happens.
+   */
+  suspendForBackground(): void;
+  /**
+   * Back in the foreground. Live reopens (or waits for `networkBack` when `networkUp` is false); VOD asks the engine to
+   * restore and reopens at the saved position when it cannot.
+   */
+  resumeFromBackground(s: { networkUp: boolean }): void;
+  /** The network is back: reopens the live channel that was waiting for it, once. */
+  networkBack(): void;
   /** Stops the stream and supersedes every pending request (see `begin`). */
   stop(): void;
   /**
@@ -97,12 +110,14 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
  */
 export function createPlaybackController(
-  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable'>,
+  player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable' | 'suspend' | 'resume'>,
   supervisor: Pick<PlaybackSupervisor, 'play' | 'stop' | 'onStatus' | 'pause' | 'resume' | 'seek' | 'positionMs' | 'durationMs' | 'paused' | 'startedAttempts' | 'onSubtitle' | 'liveInfo'>,
   onStatusChange: (s: SupervisorStatus | undefined) => void = () => { /* no listener */ },
   kind: PlayerKind = 'HTML5',
   sourceKey: () => string | undefined = () => undefined,
   gate?: CooldownGate,
+  /** Told how a return from the background was handled (the playback journal). */
+  onResumed: (what: 'resume_restore' | 'resume_reopen') => void = () => { /* no listener */ },
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -156,7 +171,8 @@ export function createPlaybackController(
     if (pos !== undefined && pos > pendingVod.startMs) pendingVod.startMs = pos;
   };
   const startPlay = (
-    url: string, alt: string | undefined, opts: { channel?: string; vod?: boolean; startMs?: number; vodAlternate?: boolean }, headers?: StreamHeaders,
+    url: string, alt: string | undefined,
+    opts: { channel?: string; vod?: boolean; startMs?: number; vodAlternate?: boolean; automatic?: boolean }, headers?: StreamHeaders,
   ) => {
     held = false;
     const key = sourceKey();
@@ -177,10 +193,29 @@ export function createPlaybackController(
     report(undefined);
   };
 
+  let away: BackgroundAction = { kind: 'none' };
+  let waitingNetwork = false;
+  /** Between `suspendForBackground` and `resumeFromBackground`: nothing opens by itself. */
+  let inBackground = false;
+  /** The VOD title was paused by the user when the app went away. */
+  let vodWasPaused = false;
+  /** Opens the current live channel again, through the same hold/cooldown decision as `playChannel`. */
+  const reopenLive = () => {
+    const cur = current();
+    if (!cur || pendingVod) return;
+    if (gate?.blocked(cur)) {
+      hold();
+      return;
+    }
+    // Not the user's open: it waits for room under the source's open rate and counts against it.
+    startPlay(cur.url, cur.alternateUrl, { channel: cur.name, automatic: true }, cur.headers);
+    onResumed('resume_reopen');
+  };
+
   return {
     playChannel(ch) {
       const cur = current();
-      if (cur?.id === ch.id && !held && status()?.kind !== 'failed') {
+      if (cur?.id === ch.id && !held && !waitingNetwork && status()?.kind !== 'failed') {
         // Same stream: keep it running, but take the fresh info (a rename, now/next). The urls stay those of
         // the open stream.
         if (cur !== ch) {
@@ -193,6 +228,7 @@ export function createPlaybackController(
       }
       pendingVod = undefined;
       vodOpened = false;
+      waitingNetwork = false;
       setCurrent(ch);
       // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(ch)) {
@@ -204,13 +240,14 @@ export function createPlaybackController(
       gate?.current?.(ch);
       return true;
     },
-    playVod(p, startMs) {
+    playVod(p, startMs, automatic) {
       token++;
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
       if (p.cooldownKey !== undefined) stand.cooldownKey = p.cooldownKey;
       if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
       pendingVod = { p, startMs };
       vodOpened = false;
+      waitingNetwork = false;
       setCurrent(stand);
       // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(stand)) {
@@ -218,9 +255,14 @@ export function createPlaybackController(
         gate.current?.(stand);
         return;
       }
-      // Catch-up's stand-in title has a second archive URL form; real VOD has one URL.
-      if (p.alternateUrl !== undefined) startPlay(p.url, p.alternateUrl, { vod: true, startMs, vodAlternate: true }, p.headers);
-      else startPlay(p.url, undefined, { vod: true, startMs }, p.headers);
+      // Catch-up's stand-in title has a second archive URL form; real VOD has one URL. A reopen after a fallback or a
+      // background return is automatic (it waits for room under the source's open rate).
+      const vodOpts: { vod: true; startMs: number; vodAlternate?: boolean; automatic?: boolean } = { vod: true, startMs };
+      if (automatic) vodOpts.automatic = true;
+      if (p.alternateUrl !== undefined) {
+        vodOpts.vodAlternate = true;
+        startPlay(p.url, p.alternateUrl, vodOpts, p.headers);
+      } else startPlay(p.url, undefined, vodOpts, p.headers);
       gate?.current?.(stand);
     },
     pause: () => supervisor.pause(),
@@ -247,7 +289,8 @@ export function createPlaybackController(
       if (current() !== undefined && !held && kind !== 'playing') hold();
     },
     resumeHeld() {
-      if (!held) return;
+      // Hidden: nothing opens. `resumeFromBackground` opens the held title once the app is visible again.
+      if (!held || inBackground) return;
       const v = pendingVod;
       if (v) {
         updateVodStart();
@@ -257,8 +300,59 @@ export function createPlaybackController(
       const cur = current();
       if (cur) this.playChannel(cur);
     },
+    suspendForBackground() {
+      if (inBackground) return; // already away: a second hide must not overwrite the pending close/suspend
+      inBackground = true;
+      if (waitingNetwork) {
+        // Closed already and waiting for the network: still closed, and it reopens only after coming back.
+        waitingNetwork = false;
+        away = { kind: 'close-live' };
+        return;
+      }
+      const kind = status()?.kind;
+      const live = !pendingVod && current() !== undefined && kind !== undefined && kind !== 'failed';
+      const playing = held ? 'none' : pendingVod ? (vodOpened ? 'vod' : 'none') : live ? 'live' : 'none';
+      away = onHidden({ playing, positionMs: supervisor.positionMs() });
+      if (away.kind === 'close-live') {
+        supervisor.stop();
+        playKey = undefined;
+        report(undefined); // nothing plays now: the UI must not show "playing" over a black plane
+      } else if (away.kind === 'suspend-vod') {
+        vodWasPaused = supervisor.paused();
+        player.suspend?.();
+      }
+    },
+    resumeFromBackground(s) {
+      inBackground = false;
+      const next = onVisible(away, s);
+      away = { kind: 'none' };
+      if (next.kind === 'reopen-live') {
+        reopenLive();
+      } else if (next.kind === 'wait-network') {
+        waitingNetwork = true;
+      } else if (next.kind === 'resume-vod') {
+        if (player.resume?.() ?? false) {
+          onResumed('resume_restore');
+        } else if (pendingVod) {
+          onResumed('resume_reopen');
+          this.playVod(pendingVod.p, next.positionMs, true);
+          // A paused title stays paused: the supervisor pauses it at its first frame.
+          if (vodWasPaused) supervisor.pause();
+        }
+      } else if (held) {
+        this.resumeHeld(); // the cooldown may have ended while hidden; playChannel re-holds if it still blocks
+      }
+    },
+    networkBack() {
+      if (!waitingNetwork || inBackground) return;
+      waitingNetwork = false;
+      reopenLive();
+    },
     stop() {
       token++;
+      waitingNetwork = false;
+      inBackground = false;
+      away = { kind: 'none' };
       held = false;
       pendingVod = undefined;
       vodOpened = false;

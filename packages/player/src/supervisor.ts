@@ -95,6 +95,11 @@ export interface PlayOptions {
   vodAlternate?: boolean;
   /** Request headers for this stream, passed to every open. */
   headers?: StreamHeaders;
+  /**
+   * The app reopens the stream by itself (coming back from the background), not the user: the open waits for room under
+   * the per-source open rate and counts against it, and the fail count and reconnect budget are kept, not reset.
+   */
+  automatic?: boolean;
 }
 
 /** Same values as `REFUSAL_STATUSES` in @iptv/core (this package does not depend on core). */
@@ -267,7 +272,7 @@ export class PlaybackSupervisor {
       ? [url]
       : [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
     this.urlIndex = 0;
-    this.fails = 0;
+    if (opts.automatic !== true) this.fails = 0;
     this.authRetried = false;
     this.refusedBeforePlay = false;
     this.refusedIndex = undefined;
@@ -277,7 +282,7 @@ export class PlaybackSupervisor {
     this.probedThisPlay = false;
     this.failInfo = {};
     this.giveUpStep = 0;
-    this.budget.reset();
+    if (opts.automatic !== true) this.budget.reset();
     this.stalls = 0;
     this.reconnects = 0;
     this.rate = 1;
@@ -304,7 +309,7 @@ export class PlaybackSupervisor {
     this.emit({ kind: 'loading' });
     // A new play() never overlaps the old stream's teardown and keeps the minimum gap after the last open. It is the
     // user's open: the open-rate cap neither holds nor counts it.
-    this.afterClosed(() => this.openAfterGap(false));
+    this.afterClosed(() => this.openAfterGap(opts.automatic === true));
   }
 
   stop(): void {
