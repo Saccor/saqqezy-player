@@ -10,9 +10,14 @@ export const ART_FADE_MS = 200;
  * alpha 0 (it is not renderable), so its `loaded` event would never come.
  */
 const START_ALPHA = 0.001;
+/**
+ * Cover fitting (renderer 3.7 `textureOptions.resizeMode`): the image fills the box at its own aspect, centred, and the
+ * overflow is cropped through the texture coordinates. A 2:3 poster in the wide strip box is never stretched.
+ */
+const COVER = { resizeMode: { type: 'cover' } } as const;
 
 /**
- * An image box that cross-fades: a new `url` is drawn on a second image node above the current one and fades in over
+ * An image box that cross-fades (cover-fitted, never stretched): a new `url` is drawn on a second image node above the current one and fades in over
  * 200 ms once its texture has loaded; then the old node goes. No `url`: nothing is drawn. `onFailed` reports an image
  * that could not load, once per layer; when it was the new (top) image every layer goes, so the box is empty and the
  * screen's fallback can show.
@@ -45,7 +50,7 @@ export function CrossFadeArt(props: { url: string | undefined; x: number; y: num
     onCleanup(() => fade?.stop());
     return (
       <View ref={(el) => { node = el; }} zIndex={p.z} width={props.width} height={props.height} alpha={START_ALPHA}
-        src={rawViaDevProxy(url)} onEvent={{ loaded: onLoaded, failed: onFailed }} />
+        src={rawViaDevProxy(url)} textureOptions={COVER} onEvent={{ loaded: onLoaded, failed: onFailed }} />
     );
   };
 
