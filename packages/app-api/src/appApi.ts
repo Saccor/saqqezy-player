@@ -1270,14 +1270,24 @@ export class AppApi {
     return this.run('saveSettings', () => this.applySettings(partial));
   }
 
-  /** `saveSettings` body; a restore passes `stamp: false` (it adopts the stamps it brings). */
-  private async applySettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
+  /**
+   * `saveSettings` body; a restore passes `stamp: false` (it adopts the stamps it brings) and `locked: true` (it holds
+   * the index lock, so a rebuild for Combine channels or Your countries runs inline; `refold`/`reregion` would wait
+   * for that lock forever).
+   */
+  private async applySettings(partial: Partial<AppSettings>, opts: { stamp?: boolean; locked?: boolean } = {}): Promise<AppSettings> {
     const before = await this.currentSettings();
-    this.settings = await this.service.saveSettings(partial, opts);
+    this.settings = await this.service.saveSettings(partial, { stamp: opts.stamp });
     // Cached now/next was picked on the old offset's timeline.
     this.invalidateNowNext();
-    if (before.combineChannels !== this.settings.combineChannels) await this.refold();
-    else if (!sameRegions(before.regions, this.settings.regions)) await this.reregion();
+    const refold = before.combineChannels !== this.settings.combineChannels;
+    const reregion = !sameRegions(before.regions, this.settings.regions);
+    if (opts.locked && (refold || reregion)) {
+      this.setIndex(this.channels, this.index.layout(), this.coverage);
+      this.invalidateNowNext();
+      this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+    } else if (refold) await this.refold();
+    else if (reregion) await this.reregion();
     const regroup = before.combineDuplicates !== this.settings.combineDuplicates
       || before.combineCategories !== this.settings.combineCategories || !sameRegions(before.regions, this.settings.regions);
     if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
@@ -1354,7 +1364,7 @@ export class AppApi {
       loadLayout: (id) => (id === this.activeId ? Promise.resolve(this.index.layout()) : this.service.loadLayout(id)),
       applyLayout: (id, ops) => this.applyRestoredLayout(id, ops),
       getSettings: () => this.currentSettings(),
-      saveSettings: (patch) => this.applySettings(patch, { stamp: false }),
+      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
     });
     return this.backupSvc;
   }

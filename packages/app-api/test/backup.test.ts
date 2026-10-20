@@ -58,6 +58,25 @@ describe('AppApi backup and restore', () => {
     expect(b.events.find((e) => e.type === 'backupRestored')).toMatchObject({ type: 'backupRestored', applied: res.applied, origin: 'local' });
   });
 
+  test('a restore that changes Your countries finishes (the index rebuild runs inside the restore lock)', async () => {
+    const a = make();
+    await a.api.addSource(xt());
+    await a.api.setRegions({ mode: 'first', codes: ['SE'] });
+    const file = await a.api.backupToFile();
+
+    const b = make();
+    await b.api.addSource(xt());
+    const res = await Promise.race([
+      b.api.restoreFromFile(file.data, file.code),
+      new Promise<'hung'>((r) => setTimeout(() => r('hung'), 3000)),
+    ]);
+    expect(res).not.toBe('hung');
+    expect((await b.api.getSettings()).regions).toEqual({ mode: 'first', codes: ['SE'] });
+    // The index follows the restored setting, and the next edit is not stuck behind a held lock.
+    expect((await b.api.getRegions()).mode).toBe('first');
+    await b.api.applyLayoutOps([{ op: 'setHideNoEpg', value: true }]);
+  });
+
   test('a wrong code or a damaged file is refused with a clear error', async () => {
     const a = await tvWithEdits();
     const file = await a.api.backupToFile();
