@@ -321,3 +321,23 @@ Spec `docs/superpowers/specs/2026-10-20-catch-up-design.md`. The URL is built in
 - Search parks a fullscreen video (left by Back from the Player) at Home's `PREVIEW_RECT` on mount, so the wordmark returns there.
 - The `transition` prop does not work with renderer 3.7 (`@lightningtv/solid` calls `lng.animateProp`, which the renderer lacks): animate with `node.animate({...}, settings).start()` instead.
 - Bold text: `fontStyle={'bold' as 'normal'}`. The canvas engine uses `${fontStyle} ${fontSize}px …` as the CSS font for measuring and drawing; `fontWeight` renames the family instead and `richText` is not forwarded by `@lightningtv/solid`.
+
+## UI system (revamp phase 1)
+
+- Tokens: `shell/theme.ts` (`COLORS`, `TYPE`, `SPACE`, `LAYOUT`, `FOCUS`, `MOTION`, `STRONG`). `FONT` is legacy until phase 3.
+  `shell/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; after removing some, run
+  `pnpm exec tsx apps/tv/src/shell/tokenLint.ts --write`.
+- Focus: cards use `FocusRing` + `FOCUS.scale`; rows, cells and buttons use a `COLORS.focus` fill with `COLORS.onFocus`.
+  `COLORS.accent` is for progress and position marks only.
+- Shared pieces: `shell/Rail.tsx` (+ `railLogic.ts`, `railNav.ts`), `components/InfoStrip.tsx` (feed it from
+  `shell/dwell.ts` `dwellSignal`), `vod/Backdrop.tsx` (`strip` / `detail`), `components/DropdownHeader.tsx` with
+  `ListPicker` for categories, sorts and seasons, `components/ScrollIndicator.tsx`.
+- Back: from content to the rail on Start, Movies/Series browse and the library grid; on the rail, the screen's previous
+  Back. Live TV keeps its old Back chain (rail, list, exit question) until phase 2.
+- Clock and wordmark: the clock is drawn in the rail on rail screens (`railRoute` in `shell/logic.ts`) and by the shell
+  clock elsewhere. The wordmark is hidden on the redesigned screens (`showWordmark`).
+- Poster size: Settings → Display → Poster size (Standard 8 / Compact 10 per row), resolved by `gridLayout` in
+  `vod/gridLogic.ts`.
+- Play/Resume is the first item of the poster menu (`createPosterMenu`) on browse, grid and details.
+- Memory: grids render visible rows + the peek row only. Posters still decode at natural size (no resize in renderer
+  3.7), so Compact (up to 40 posters drawn) is the density ceiling until a decode-time resize lands.
