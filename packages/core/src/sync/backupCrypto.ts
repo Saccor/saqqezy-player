@@ -105,20 +105,39 @@ function codeBytes(code: string): Uint8Array {
 
 export interface SealedBackup extends Omit<BackupKeys, 'enc'> { envelope: BackupEnvelope }
 
+/**
+ * Keys for a new backup under `code` (fresh salt): the fingerprint key comes first, because the snapshot's refs are
+ * built with it; `seal` then encrypts the snapshot JSON.
+ */
+export interface BackupSealer extends Omit<BackupKeys, 'enc'> {
+  seal(plaintext: Uint8Array, now: number): Promise<BackupEnvelope>;
+}
+
+export async function newBackupKeys(code: string, opts: { iterations?: number } = {}): Promise<BackupSealer> {
+  const i = opts.iterations ?? BACKUP_PBKDF2_ITERATIONS;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keys = await deriveKeys(codeBytes(code), salt, i);
+  const s = toBase64(salt);
+  return {
+    fpKey: keys.fpKey,
+    fpRaw: keys.fpRaw,
+    async seal(plaintext, now) {
+      if (plaintext.length > BACKUP_PLAINTEXT_MAX) throw new BackupError('tooLarge', 'The backup is too large.');
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const at = Math.floor(now);
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad(BACKUP_SCHEMA, i, s, at) }, keys.enc, plaintext);
+      return { f: 'iptv-backup', v: BACKUP_SCHEMA, i, s, iv: toBase64(iv), at, ct: toBase64(new Uint8Array(ct)) };
+    },
+  };
+}
+
 /** Seals `plaintext` (the snapshot JSON) under `code`. */
 export async function sealBackup(
   plaintext: Uint8Array, code: string, opts: { now: number; iterations?: number },
 ): Promise<SealedBackup> {
   if (plaintext.length > BACKUP_PLAINTEXT_MAX) throw new BackupError('tooLarge', 'The backup is too large.');
-  const i = opts.iterations ?? BACKUP_PBKDF2_ITERATIONS;
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const keys = await deriveKeys(codeBytes(code), salt, i);
-  const s = toBase64(salt);
-  const at = Math.floor(opts.now);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad(BACKUP_SCHEMA, i, s, at) }, keys.enc, plaintext);
-  const envelope: BackupEnvelope = { f: 'iptv-backup', v: BACKUP_SCHEMA, i, s, iv: toBase64(iv), at, ct: toBase64(new Uint8Array(ct)) };
-  return { envelope, fpKey: keys.fpKey, fpRaw: keys.fpRaw };
+  const keys = await newBackupKeys(code, opts);
+  return { envelope: await keys.seal(plaintext, opts.now), fpKey: keys.fpKey, fpRaw: keys.fpRaw };
 }
 
 export interface OpenedBackup extends Omit<BackupKeys, 'enc'> { plaintext: Uint8Array; at: number }

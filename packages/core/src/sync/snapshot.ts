@@ -1,6 +1,6 @@
 import { GROUP_FAV } from '../constants.ts';
-import type { Layout, LayoutOp, SortMode } from '../layout/types.ts';
-import type { AppSettings } from '../settings.ts';
+import { emptyLayout, type Layout, type LayoutOp, type SortMode } from '../layout/types.ts';
+import { DEFAULT_SETTINGS, type AppSettings } from '../settings.ts';
 import type { VodKind, VodUserRecord, VodUserState } from '../vod/types.ts';
 import { encodeHlc, hlcWall, isHlc } from './hlc.ts';
 import { SYNC_KIND, clockKey, pairKey, parseClockKey, type SyncKind } from './keys.ts';
@@ -59,7 +59,8 @@ export function exportSource(s: SourceState, opts: ExportOptions): SyncRecord[] 
   /** Emits a record for a register that holds a value now. */
   const put = (k: SyncKind, key: string, refSid: string, v: SyncValue, opt: { pk?: string; wall?: number } = {}) => {
     const t = s.clocks.get(clockKey(k, key));
-    if (t === undefined && opts.unstamped === 'skip') return;
+    // Unstamped state that only holds the empty layout's default says nothing worth restoring.
+    if (t === undefined && (opts.unstamped === 'skip' || isDefault(k, key, v))) return;
     const ref: SyncRecord['ref'] = { sfp: s.sfp, sid: refSid };
     if (opt.pk !== undefined) ref.pk = opt.pk;
     out.push({ k, ref, t: t ?? synthetic(opt.wall), v });
@@ -145,6 +146,19 @@ export function exportSource(s: SourceState, opts: ExportOptions): SyncRecord[] 
   return out;
 }
 
+const EMPTY = emptyLayout();
+/** The register holds what a fresh layout holds (no lists, no order, Favourites empty, `hideNoEpg` off). */
+function isDefault(k: SyncKind, key: string, v: SyncValue): boolean {
+  switch (k) {
+    case K.listOrder: return JSON.stringify(v) === JSON.stringify(EMPTY.lists.map((x) => x.id));
+    case K.listName: return key === GROUP_FAV && v === EMPTY.lists[0]!.name;
+    case K.listChannels: return key === GROUP_FAV && Array.isArray(v) && v.length === 0;
+    case K.groupOrder: return Array.isArray(v) && v.length === 0;
+    case K.hideNoEpg: return v === EMPTY.hideNoEpg;
+    default: return false;
+  }
+}
+
 function progressValue(sourceId: string, s: VodUserState): ProgressValue {
   const out: ProgressValue = { p: Math.max(0, Math.floor(s.position)), d: Math.max(0, Math.floor(s.duration)), w: s.watched };
   if (s.series) {
@@ -158,11 +172,13 @@ function progressValue(sourceId: string, s: VodUserState): ProgressValue {
 export function exportSettings(settings: AppSettings, clocks: ReadonlyMap<string, string>, opts: ExportOptions): SyncRecord[] {
   const out: SyncRecord[] = [];
   const rec = settings as unknown as Record<string, unknown>;
+  const defaults = DEFAULT_SETTINGS as unknown as Record<string, unknown>;
   for (const name of SYNCED_SETTINGS) {
     if (!(name in rec)) continue;
     const t = clocks.get(clockKey(K.setting, name));
-    if (t === undefined && opts.unstamped === 'skip') continue;
     const v = rec[name];
+    // Unstamped defaults are left out, like the empty layout's.
+    if (t === undefined && (opts.unstamped === 'skip' || JSON.stringify(v) === JSON.stringify(defaults[name]))) continue;
     out.push({ k: K.setting, ref: { sfp: '', sid: name }, t: t ?? synthetic(), v: (Array.isArray(v) ? v.slice() : v) as SyncValue });
   }
   return out;

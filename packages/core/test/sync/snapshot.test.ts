@@ -67,7 +67,7 @@ describe('snapshot export', () => {
     expect(bySid(rs, 'hg')).toEqual([['g:Synthetic Shopping', true]]);
     expect(bySid(rs, 'lm').sort()).toEqual([['fav|x2', true], ['fav|x6', false], ['kids|x1', true], ['kids|x3', true]]);
     expect(bySid(rs, 'lq').sort()).toEqual([['fav', ['x2']], ['kids', ['x3', 'x1']]]);
-    expect(bySid(rs, 'ln').sort()).toEqual([['fav', 'Favourites'], ['kids', 'Kids'], ['old', null]]);
+    expect(bySid(rs, 'ln').sort()).toEqual([['kids', 'Kids'], ['old', null]]); // an unstamped default (Favourites' name) is left out
     expect(bySid(rs, 'lo')).toEqual([['', ['fav', 'kids']]]);
     expect(bySid(rs, 'cn').sort()).toEqual([['x1', 'Morning desk'], ['x4', null]]);
     expect(bySid(rs, 'gn')).toEqual([['g:Synthetic News', 'News']]);
@@ -102,7 +102,8 @@ describe('snapshot export', () => {
     const settings = { ...DEFAULT_SETTINGS, subtitleLanguage: 'swe', preferredLanguages: ['swe'], epgOffsetHours: 2 };
     const rs = exportSettings(settings, new Map([['st:subtitleLanguage', st(T)]]), { unstamped: 'synthetic' });
     expect(rs.every((r) => r.k === 'st' && r.ref.sfp === '')).toBe(true);
-    expect(rs.map((r) => r.ref.sid).sort()).toEqual(['audioLanguage', 'combineDuplicates', 'followedTeams', 'preferredLanguages', 'subtitleLanguage']);
+    // Unstamped defaults (audio, combineDuplicates, followedTeams) are left out; device-tuned epgOffsetHours never syncs.
+    expect(rs.map((r) => r.ref.sid).sort()).toEqual(['preferredLanguages', 'subtitleLanguage']);
     expect(rs.find((r) => r.ref.sid === 'subtitleLanguage')!.t).toBe(st(T));
     expect(exportSettings(settings, new Map([['st:subtitleLanguage', st(T)]]), { unstamped: 'skip' }).map((r) => r.ref.sid)).toEqual(['subtitleLanguage']);
   });

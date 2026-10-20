@@ -380,14 +380,29 @@ export class SourceService {
    */
   loadLayout(id: string): Promise<Layout> {
     // Read, migrate and write under the layout lock, so a concurrent save can never be overwritten.
+    return this.withLock(`layout:${id}`, () => this.loadLayoutLocked(id));
+  }
+
+  private async loadLayoutLocked(id: string): Promise<Layout> {
+    const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
+    if (stored !== undefined && stored !== null) return normalizeLayout(stored);
+    const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
+    if (!isUserFlags(flags)) return emptyLayout();
+    const layout = normalizeLayout(layoutFromFlags(flags));
+    await this.saveLayoutLocked(id, layout);
+    return layout;
+  }
+
+  /**
+   * Read-modify-write of a stored layout under its lock, stamping nothing (a restore adopts the stamps it brings).
+   * `fn` returns the next layout, or undefined to leave it. For a source that is not the active one; the active
+   * source's layout goes through AppApi, which owns its index.
+   */
+  updateLayout(id: string, fn: (layout: Layout) => Layout | undefined): Promise<Layout | undefined> {
     return this.withLock(`layout:${id}`, async () => {
-      const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
-      if (stored !== undefined && stored !== null) return normalizeLayout(stored);
-      const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
-      if (!isUserFlags(flags)) return emptyLayout();
-      const layout = normalizeLayout(layoutFromFlags(flags));
-      await this.saveLayoutLocked(id, layout);
-      return layout;
+      const next = fn(await this.loadLayoutLocked(id));
+      if (next) await this.saveLayoutLocked(id, next);
+      return next;
     });
   }
 

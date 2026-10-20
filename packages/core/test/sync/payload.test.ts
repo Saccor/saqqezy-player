@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import type { Channel, Programme, SourceConfig } from '../../src/types.ts';
 import type { VodList } from '../../src/vod/types.ts';
+import { MemoryStorage } from '../../../storage/src/memoryStorage.ts';
+import { applyOps } from '../../src/layout/ops.ts';
+import { SourceService } from '../../src/service/sourceService.ts';
+import { VodService } from '../../src/service/vodService.ts';
+import { BackupService } from '../../src/sync/backup.ts';
+import { openBackup } from '../../src/sync/backupCrypto.ts';
+import { SyncClock } from '../../src/sync/clock.ts';
 import { encodeHlc } from '../../src/sync/hlc.ts';
 import {
   DELTA_MAX_BYTES, SNAPSHOT_MAX_BYTES, SYNCED_SETTINGS, decodePayload, encodePayload, payloadBytes,
@@ -126,6 +133,36 @@ describe('sync payload', () => {
     expect(json).not.toContain('Synthetic Morning Show');
     // The two valid records (x102 hidden, m1 favourite) survive without their passengers.
     expect(decodePayload(JSON.parse(json)).map((r) => `${r.k}:${r.ref.sid}`).sort()).toEqual(['hc:x102', 'vf:m1']);
+  });
+
+  test('a backup snapshot made on a device holding all of it carries none of it either', async () => {
+    const storage = new MemoryStorage();
+    const now = () => T;
+    const clock = new SyncClock({ storage, now, nodeId: () => 'nodeaa' });
+    const fetchNone = () => Promise.reject(new Error('offline'));
+    const service = new SourceService({ storage, fetch: fetchNone, now, syncClock: clock });
+    const vodSvc = new VodService({ storage, fetch: fetchNone, now, syncClock: clock });
+    const source: SourceConfig = { kind: 'xtream', id: 'a1', name: 'Mine', server: 'panel.example.test', username: 'viewer01', password: 'pw-secret' };
+    await storage.putSource(source);
+    await storage.replaceChannels('a1', [
+      { id: 'a1:x101', sourceId: 'a1', name: 'Synthetic News HD', url: 'http://stream.example.test/live/101.ts', group: 'Synthetic', number: 1, logo: 'http://img.example.test/101.png' } as Channel,
+    ]);
+    await storage.replaceVod('a1', 'movie', { items: [{ id: 'a1:m1', kind: 'movie', title: 'Synthetic Film 01', categoryId: '1', url: 'http://stream.example.test/movie/1.mkv' }], categories: [{ id: '1', kind: 'movie', name: 'Synthetic Drama', count: 1 }] } as VodList);
+    await storage.addProgrammes('a1', [{ epgId: 'synthetic.news', start: T, stop: T + 3600_000, title: 'Synthetic Morning Show', desc: 'A synthetic description.' } as Programme]);
+    const edit = applyOps(await service.loadLayout('a1'), [{ op: 'hideChannels', ids: ['a1:x101'] }, { op: 'addToList', listId: 'fav', channelIds: ['a1:x101'] }, { op: 'markWatched', id: 'a1:x101' }]);
+    await service.saveLayout('a1', edit.layout, edit.touched);
+    await vodSvc.saveProgress('a1', 'a1:m1', 600_000, 7200_000);
+    const backup = new BackupService({
+      storage, clock, now, iterations: 1000, vod: vodSvc,
+      loadLayout: (id) => service.loadLayout(id), applyLayout: async () => {},
+      getSettings: () => service.getSettings(), saveSettings: async () => {},
+    });
+    const made = await backup.create();
+    const json = new TextDecoder().decode((await openBackup(made.envelope, made.code)).plaintext);
+    for (const needle of ['Synthetic News HD', 'stream.example.test', 'img.example.test', 'Synthetic Film 01', 'Synthetic Drama', 'synthetic.news', 'Synthetic Morning Show', 'pw-secret', 'viewer01', 'panel.example.test', '://', 'recent']) {
+      expect(json, needle).not.toContain(needle);
+    }
+    expect(decodePayload(JSON.parse(json).p).map((r) => `${r.k}:${r.ref.sid}`).sort()).toEqual(['hc:x101', 'lm:fav|x101', 'lq:fav', 'vp:m1']);
   });
 
   test('the value type admits no catalogue objects', () => {
