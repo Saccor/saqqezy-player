@@ -239,6 +239,11 @@ export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
   return `Nothing matches "${s.query}"`;
 }
 
+/** A subtle note beside the first row while the next query runs over the shown rows (with no rows the message says it). */
+export function searchingNote(s: SearchState<SearchRows>): string | undefined {
+  return s.busy && hasResults(s.results) ? 'Searching…' : undefined;
+}
+
 export interface SearchMemory {
   query: string;
   area: SearchArea;

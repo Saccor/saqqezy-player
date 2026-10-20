@@ -21,7 +21,11 @@ export type WideCell = StartCell | ProgrammeCell;
  * A landscape tile for a channel, a sports event (Start page) or a programme (Search). Logos and icons come only from
  * the user's own data.
  */
-export function WideTile(props: { x: number; y: number; cell: WideCell; lit: boolean; hover?: boolean; now: number }) {
+export function WideTile(props: {
+  x: number; y: number; cell: WideCell; lit: boolean; hover?: boolean; now: number;
+  /** Channels: "105 · Name" in the context line, so duplicates (HD/SD, regional) can be told apart (Search). */
+  channelNumbers?: boolean;
+}) {
   const image = () => {
     const c = props.cell;
     if (c.type === 'channel') return c.channel.logo;
@@ -33,7 +37,7 @@ export function WideTile(props: { x: number; y: number; cell: WideCell; lit: boo
   // title. View all: just the label.
   const contextLine = () => {
     const c = props.cell;
-    if (c.type === 'channel') return c.channel.name;
+    if (c.type === 'channel') return props.channelNumbers ? `${c.channel.number} · ${c.channel.name}` : c.channel.name;
     if (c.type === 'event') return `${eventWhen(c.event, props.now)} · ${channelsLabel(c.event.channelCount)}`;
     if (c.type === 'programme') return programmeContext(c, props.now);
     return '';

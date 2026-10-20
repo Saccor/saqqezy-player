@@ -23,7 +23,7 @@ import { visibleInterval } from '../shell/visibleInterval.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
   LIVE_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, VOD_ROW_LABEL, channelToPlay, clampSearchFocus, createSearchMemory, createSearcher, focusedCell,
-  laterRoute, moveSearch, pendingNotes, rerunsSearch, resultsMessage, searchRows, settleFocus, vodRoute, vodRowModel,
+  laterRoute, moveSearch, pendingNotes, rerunsSearch, resultsMessage, searchRows, searchingNote, settleFocus, vodRoute, vodRowModel,
   type SearchFocus, type SearchRows, type SearchState,
 } from './searchLogic.ts';
 
@@ -117,7 +117,10 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
   const onChange = (v: string) => {
     memory.returning = false;
     memory.query = v;
-    setFocus(KEYBOARD); // typing happens on the keyboard (remote, pointer or a physical keyboard)
+    // Typing happens on the keyboard (remote, pointer or a physical keyboard). A physical keyboard can type while the
+    // rows hold key focus: move it to the keyboard, so focus never sits on an unlit row.
+    if (rowsFocused()) place(KEYBOARD);
+    else setFocus(KEYBOARD);
     setQuery(v);
     searcher.setQuery(v);
   };
@@ -220,22 +223,30 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     searcher.dispose();
   });
 
-  /** Drawn rows (an empty row is not drawn), top to bottom, with their y. */
-  const drawn = createMemo(() => {
+  /**
+   * Drawn rows (an empty row is not drawn), top to bottom. Plain area strings, compared by value: `<For>` keys by
+   * identity, so new objects on every busy or settled state would dispose and rebuild the rows and all their tiles
+   * on each keystroke (posters flash, low-end TVs churn nodes). Each row's y is computed reactively instead.
+   */
+  const drawn = createMemo<RowArea[]>(
+    () => (['vod', 'live'] as const).filter((a) => (a === 'vod' ? rows().vod : rows().live).length > 0),
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) },
+  );
+  const rowY = (area: RowArea) => {
     let y = RESULTS_Y;
-    const out: { area: RowArea; y: number }[] = [];
-    for (const area of ['vod', 'live'] as const) {
-      if ((area === 'vod' ? rows().vod : rows().live).length === 0) continue;
-      out.push({ area, y });
-      y += rowHeight(area) + ROW_GAP;
+    for (const a of drawn()) {
+      if (a === area) return y;
+      y += rowHeight(a) + ROW_GAP;
     }
-    return out;
-  });
+    return y;
+  };
   const notesY = () => {
     const d = drawn();
     const last = d[d.length - 1];
-    return last ? last.y + rowHeight(last.area) + ROW_GAP : RESULTS_Y;
+    return last ? rowY(last) + rowHeight(last) + ROW_GAP : RESULTS_Y;
   };
+  const searching = () => searchingNote(state());
   /** Pending notes under the rows; with no rows the message (which names the first pending note) stands alone. */
   const notes = () => (drawn().length > 0 ? pendingNotes(rows()) : []);
   const message = () => resultsMessage(state());
@@ -264,14 +275,19 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)}
         onEnter={() => { memory.userNavigated(); return open(); }}
         onLongOk={() => true} onMenu={() => true}>
-        <For each={drawn()}>{(r) => {
-          const focusCol = () => (focus().area === r.area ? focus().col : undefined);
-          const lit = () => rowsFocused() && focus().area === r.area;
+        <For each={drawn()}>{(area, i) => {
+          const focusCol = () => (focus().area === area ? focus().col : undefined);
+          const lit = () => rowsFocused() && focus().area === area;
           return (
-            <View y={r.y}>
-              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r.area === 'vod' ? VOD_ROW_LABEL : LIVE_ROW_LABEL}</Text>
-              <Show when={r.area === 'vod'} fallback={
-                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={liveRow()} now={now()} visible={LIVE_VISIBLE}
+            <View y={rowY(area)}>
+              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : LIVE_ROW_LABEL}</Text>
+              {/* While the next query runs over these rows: a subtle note on the first row's label line. */}
+              <Show when={i() === 0 && searching()}>
+                <Text x={0} y={(TYPE.body - TYPE.meta) / 2} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={1} textAlign="right"
+                  fontSize={TYPE.meta} color={COLORS.muted}>{searching()!}</Text>
+              </Show>
+              <Show when={area === 'vod'} fallback={
+                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={liveRow()} now={now()} visible={LIVE_VISIBLE} channelNumbers
                   focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell('live', c)} onWheel={onWheel} />
               }>
                 <PosterRow x={0} y={LABEL_H} width={RESULTS_W} row={vodRow()} visible={VOD_VISIBLE}

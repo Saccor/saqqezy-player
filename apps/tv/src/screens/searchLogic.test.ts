@@ -15,6 +15,7 @@ import {
   rerunsSearch,
   resultsMessage,
   searchRows,
+  searchingNote,
   settleFocus,
   VOD_PENDING_NOTE,
   VOD_ROW_LABEL,
@@ -274,6 +275,17 @@ describe('resultsMessage', () => {
     expect(resultsMessage(st({ results: searchRows(result({ vodPending: true })) }))).toBe('No channels match "xyz" · Movies and series are being prepared');
     expect(resultsMessage(st({ results: searchRows(result({ guidePending: true, vodPending: true })) })))
       .toBe('No channels match "xyz" · Guide results are being prepared');
+  });
+});
+
+describe('searchingNote', () => {
+  const st = (p: Partial<SearchState<SearchRows>>): SearchState<SearchRows> => ({ query: 'xyz', results: NO_ROWS, busy: false, failed: false, ...p });
+  const some = searchRows(result({ channels: [row(1)] }));
+  it('shows while a query runs over the shown rows only', () => {
+    expect(searchingNote(st({ busy: true, results: some }))).toBe('Searching…');
+    expect(searchingNote(st({ busy: false, results: some }))).toBeUndefined();
+    // No rows: the results message says Searching… instead.
+    expect(searchingNote(st({ busy: true }))).toBeUndefined();
   });
 });
 
