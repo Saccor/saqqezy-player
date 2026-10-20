@@ -24,7 +24,7 @@
     "trending:dev": "pnpm --filter @iptv/trending run dev",
     "trending:deploy": "pnpm --filter @iptv/trending run deploy",
     "fake-phone": "node --import tsx scripts/dev/fake-phone.mjs",
-    "site:deploy": "pnpm dlx wrangler pages deploy apps/site --project-name saqqezy-player --branch main --commit-dirty=true"
+    "site:deploy": "cd apps/site && pnpm dlx wrangler deploy"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
