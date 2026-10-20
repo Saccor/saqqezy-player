@@ -85,3 +85,4 @@ export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from '
 export { groupEvents, type GroupInput, type SportsGroup } from './sports/group.ts';
 export { isFollowed } from './sports/follow.ts';
 export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
+export * from './sync/index.ts';
