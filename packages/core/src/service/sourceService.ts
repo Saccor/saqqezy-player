@@ -24,7 +24,7 @@ import { splitLines } from '../text/lines.ts';
 import { emptyVodList } from '../vod/list.ts';
 import type { VodKind, VodList } from '../vod/types.ts';
 import type {
-  Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, XtreamSourceConfig,
+  Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, SourceHttpSettings, XtreamSourceConfig,
 } from '../types.ts';
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
 import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type ArchiveListing, type XtreamAccount } from '../xtream/client.ts';
@@ -178,8 +178,14 @@ export class SourceService {
   updateSource(input: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(input.id, async () => {
       const prev = (await this.storage.listSources()).find((s) => s.id === input.id);
-      const kept = !('catchupOffsetMin' in input) && prev?.catchupOffsetMin !== undefined
-        ? { ...input, catchupOffsetMin: prev.catchupOffsetMin } : input;
+      const kept: SourceConfig = !('catchupOffsetMin' in input) && prev?.catchupOffsetMin !== undefined
+        ? { ...input, catchupOffsetMin: prev.catchupOffsetMin } : { ...input };
+      // An M3U's panel clock comes from its xc probe: an edit without the fields keeps the stored one until a probe
+      // answers (a successful probe replaces it, no xc channels or a manual time drop it).
+      if (kept.kind === 'm3u' && prev?.kind === 'm3u' && !('serverTimeZone' in kept) && !('serverOffsetMin' in kept)) {
+        if (prev.serverTimeZone !== undefined) kept.serverTimeZone = prev.serverTimeZone;
+        if (prev.serverOffsetMin !== undefined) kept.serverOffsetMin = prev.serverOffsetMin;
+      }
       let source = withCleanCatchupOffset(withCleanHttpSettings(kept));
       const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
       source = withAccount(source, account);
@@ -746,23 +752,28 @@ export class SourceService {
 
   /**
    * M3U with `xc` channels and Auto catch-up time (spec §4.5): one `player_api.php` login with the first `xc`
-   * channel's credentials, for the panel's zone and clock. A failure answers an empty account (the zone is then UTC).
+   * channel's credentials and the source's User-Agent and Referer, for the panel's zone and clock. No `xc` channel or a
+   * manual time answers an empty account (no clock is kept); a failed probe answers undefined, so the stored clock stays.
    */
-  private async probeXcClock(source: M3uSourceConfig, channels: Channel[]): Promise<XtreamAccount> {
+  private async probeXcClock(source: M3uSourceConfig, channels: Channel[]): Promise<XtreamAccount | undefined> {
     if (source.catchupOffsetMin !== undefined) return {};
     const first = channels.find((c) => c.catchup?.mode === 'xc');
     const parts = first && parseXcLiveUrl(first.url);
     if (!parts) return {};
     try {
+      const login = { server: parts.server, username: parts.user, password: parts.pass };
+      const http: SourceHttpSettings = {};
+      if (source.userAgent) http.userAgent = source.userAgent;
+      if (source.referrer) http.referrer = source.referrer;
       const { serverTimeZone, serverOffsetMin } = await new XtreamClient(
-        { server: parts.server, username: parts.user, password: parts.pass }, this.guard.wrap(source.id, this.fetchFn), { idleMs: this.bodyIdleMs },
+        { ...login, ...http }, this.guard.wrap(source.id, this.fetchFn), { idleMs: this.bodyIdleMs },
       ).authenticate();
       const out: XtreamAccount = {};
       if (serverTimeZone) out.serverTimeZone = serverTimeZone;
       if (serverOffsetMin !== undefined) out.serverOffsetMin = serverOffsetMin;
       return out;
     } catch {
-      return {};
+      return undefined;
     }
   }
 

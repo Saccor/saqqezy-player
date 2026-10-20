@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { SourceService } from '@iptv/core';
+import { SourceService, type FetchFn } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { archiveDays, parseWallClock, wallClockIn } from '../src/catchup.ts';
 import { startFakeXtream } from '../src/server.ts';
@@ -141,6 +141,39 @@ describe('catch-up ingest end to end (SourceService)', () => {
     expect(older.get(c1!.id)).toEqual([]);
     const table = await s.archiveTable(source.id, 2, 'c2.test');
     expect(table!.filter((p) => p.hasArchive).length).toBeGreaterThan(3 * 48 - 2);
+  });
+
+  test('the M3U xc clock probe and get_simple_data_table carry the source User-Agent and Referer', async () => {
+    const seen: { url: string; headers: unknown }[] = [];
+    const recording: FetchFn = (u, i) => {
+      seen.push({ url: u, headers: i?.sourceHeaders });
+      return fetch(u, i);
+    };
+    const s = new SourceService({ storage: new MemoryStorage(), fetch: recording, now: () => NOW, shortEpgGapMs: 0 });
+    const headers = { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' };
+    await s.addSource({ kind: 'm3u', name: 'M3U', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test`, ...headers });
+    const probe = seen.filter((r) => r.url.includes('player_api.php'));
+    expect(probe).toHaveLength(1);
+    expect(probe[0]!.headers).toEqual(headers);
+    const { source } = await s.addSource({ kind: 'xtream', name: 'X', server: server.url, username: 'test', password: 'test', ...headers });
+    expect(await s.archiveTable(source.id, 2, 'c2.test')).toBeDefined();
+    const table = seen.filter((r) => r.url.includes('get_simple_data_table'));
+    expect(table).toHaveLength(1);
+    expect(table[0]!.headers).toEqual(headers);
+  });
+
+  test('a failed M3U xc clock probe keeps the stored panel clock (the zone does not fall back to UTC)', async () => {
+    let failProbe = false;
+    const flaky: FetchFn = (u, i) => (failProbe && u.includes('player_api.php') ? Promise.reject(new TypeError('fetch failed')) : fetch(u, i));
+    const s = new SourceService({ storage: new MemoryStorage(), fetch: flaky, now: () => NOW, shortEpgGapMs: 0 });
+    const { source } = await s.addSource({ kind: 'm3u', name: 'M3U', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test` });
+    expect(source).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
+    failProbe = true;
+    await s.refreshPlaylist(source.id);
+    expect((await s.listSources())[0]).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
+    // A TV edit (the login form has no clock fields) with the probe failing keeps it too.
+    await s.updateSource({ kind: 'm3u', id: source.id, name: 'Renamed', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test` });
+    expect((await s.listSources())[0]).toMatchObject({ name: 'Renamed', serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
   });
 
   test('M3U: every mode resolved, templates interned and stored, the xc probe gives the panel zone', async () => {
