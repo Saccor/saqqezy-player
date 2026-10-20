@@ -4,9 +4,9 @@
  * rank with `rankMatches`; v1 records keep the old rules until the next guide refresh.
  */
 import {
-  MATCHES_ALL_CAP, MATCHES_ROW_CAP, MATCH_FLAGS, SPORTS_INDEX_VERSION, competitionKey, foldText, groupEvents, isFollowed,
+  MATCHES_ALL_CAP, MATCHES_ROW_CAP, MATCH_FLAGS, SPORTS_INDEX_VERSION, categoryKey, competitionKey, groupEvents, isFollowed,
   isSportCategory, matchFilters, parseChannelName, rankMatches, reairKeys,
-  type ChannelIndex, type GroupInput, type MatchEvent, type MatchFilters, type SportsCandidate, type SportsGroup, type SportsIndexRecord, type Storage,
+  type ChannelIndex, type CountryScope, type GroupInput, type MatchEvent, type MatchFilters, type SportsCandidate, type SportsGroup, type SportsIndexRecord, type Storage,
 } from '@iptv/core';
 import type { SportsEventTile } from './types.ts';
 
@@ -47,8 +47,8 @@ export interface SportsView {
   /** Events still on (stop after now), sorted by start. */
   events: SportsGroup<EventAiring>[];
   meta: ReadonlyMap<string, EventMeta>;
-  /** The channels airing events share at most one country prefix. */
-  singleCountry: boolean;
+  /** Country prefixes on the channels airing events: one, several, or none seen at all (G8 cut-off). */
+  countryScope: CountryScope;
   /** Folded category → the guide's own text. */
   labels: ReadonlyMap<string, string>;
 }
@@ -64,7 +64,11 @@ export interface MatchSettings {
   countries?: readonly string[];
 }
 
-export interface MatchTiles { row: SportsEventTile[]; all: SportsEventTile[]; total: number }
+export interface MatchTiles {
+  row: SportsEventTile[]; all: SportsEventTile[]; total: number;
+  /** A stored category filter applies to this guide (Start then always offers View all, the way back to the chips). */
+  filtered: boolean;
+}
 
 export class SportsController {
   private cache: { sourceId: string; builtAt: number; built: number; gen: number; mapping: number; offset: number; view: SportsView } | undefined;
@@ -103,7 +107,7 @@ export class SportsController {
    */
   async view(sourceId: string, rec: SportsIndexRecord | undefined, index: ChannelIndex, offsetHours: number, mappingVersion = 0): Promise<SportsView> {
     const aliases = await this.loadAliases();
-    if (!rec) return { v2: false, events: [], meta: new Map(), singleCountry: true, labels: new Map() };
+    if (!rec) return { v2: false, events: [], meta: new Map(), countryScope: 'unknown', labels: new Map() };
     const c = this.cache;
     if (!c || c.sourceId !== sourceId || c.built !== rec.built || c.gen !== rec.gen || c.mapping !== mappingVersion || c.offset !== offsetHours || this.deps.now() - c.builtAt >= REGROUP_MS) {
       const now = this.deps.now();
@@ -117,16 +121,7 @@ export class SportsController {
   }
 
   /** Competition and category chips from the user's guide (empty for a v1 record). */
-  filters(view: SportsView): MatchFilters {
-    if (!view.v2) return { competitions: [], categories: [] };
-    const list: { comp?: string; breadth: number; cats: readonly string[] }[] = [];
-    for (const e of view.events) {
-      const m = view.meta.get(e.key);
-      if (!m || m.reair) continue;
-      list.push(m.comp === undefined ? { breadth: m.breadth, cats: m.cats } : { comp: m.comp, breadth: m.breadth, cats: m.cats });
-    }
-    return matchFilters(list, view.labels);
-  }
+  filters(view: SportsView): MatchFilters { return viewFilters(view); }
 
   private buildV1(rec: SportsIndexRecord, index: ChannelIndex, offsetHours: number, aliases: ReadonlyMap<string, string>, now: number) {
     const items: GroupInput<EventAiring>[] = [];
@@ -140,7 +135,7 @@ export class SportsController {
       }
     }
     const { events, learned } = groupEvents(items, aliases, (a) => a.gk);
-    return { view: { v2: false, events, meta: new Map(), singleCountry: true, labels: new Map() } satisfies SportsView, learned };
+    return { view: { v2: false, events, meta: new Map(), countryScope: 'unknown', labels: new Map() } satisfies SportsView, learned };
   }
 
   private buildV2(rec: SportsIndexRecord, index: ChannelIndex, offsetHours: number, aliases: ReadonlyMap<string, string>, now: number) {
@@ -152,6 +147,7 @@ export class SportsController {
       const chans = index.channelsForEpgKey(cand.epgKey);
       if (!chans.length) continue;
       // Usually one shift for every copy of a guide channel: one item per guide key, not per playlist copy (R13).
+      // When combining, channelsForEpgKey already returns one channel per fold row, so items stay ≈ candidates × rows.
       const byShift = new Map<number, string[]>();
       for (const ch of chans) {
         const s = ch.epgShift ?? 0;
@@ -180,7 +176,7 @@ export class SportsController {
     const { events, learned } = groupEvents(items, aliases, (a) => `${a.gk}|${a.start}`);
     const reairs = reairKeys(events);
 
-    const catFold = (rec.categories ?? []).map((t) => foldText(t.trim()));
+    const catFold = (rec.categories ?? []).map(categoryKey);
     const catSport = catFold.map(isSportCategory);
     const labels = new Map<string, string>();
     (rec.categories ?? []).forEach((t, i) => { if (!labels.has(catFold[i]!)) labels.set(catFold[i]!, t); });
@@ -229,8 +225,30 @@ export class SportsController {
       if (comp !== undefined) m.comp = comp;
       meta.set(e.key, m);
     }
-    return { view: { v2: true, events, meta, singleCountry: allCountries.size <= 1, labels } satisfies SportsView, learned };
+    const countryScope: CountryScope = allCountries.size === 0 ? 'unknown' : allCountries.size === 1 ? 'one' : 'many';
+    return { view: { v2: true, events, meta, countryScope, labels } satisfies SportsView, learned };
   }
+}
+
+function viewFilters(view: SportsView): MatchFilters {
+  if (!view.v2) return { competitions: [], categories: [] };
+  const list: { comp?: string; breadth: number; cats: readonly string[] }[] = [];
+  for (const e of view.events) {
+    const m = view.meta.get(e.key);
+    if (!m || m.reair) continue;
+    list.push(m.comp === undefined ? { breadth: m.breadth, cats: m.cats } : { comp: m.comp, breadth: m.breadth, cats: m.cats });
+  }
+  return matchFilters(list, view.labels);
+}
+
+/**
+ * The stored categories this guide offers as chips now. One from another source or an older guide is ignored, so a
+ * filter never hides every match with no chip left to undo it.
+ */
+export function activeCategories(view: SportsView, stored: readonly string[]): string[] {
+  if (!stored.length || !view.v2) return [];
+  const chips = new Set(viewFilters(view).categories.map((c) => c.id));
+  return stored.filter((c) => chips.has(c));
 }
 
 function groupItem(cand: SportsCandidate, start: number, stop: number, airing: EventAiring): GroupInput<EventAiring> {
@@ -255,12 +273,16 @@ export function eventTiles(events: SportsGroup<EventAiring>[], now: number, foll
   return tiles.sort((a, b) => Number(b.followed) - Number(a.followed) || Number(airing(b)) - Number(airing(a)) || a.start - b.start);
 }
 
-/** The Start row (focus set) and See all: v2 ranked by `rankMatches`, v1 in the old order. */
+/**
+ * The Start row (focus set) and See all: v2 ranked by `rankMatches`, v1 in the old order. Only the stored categories
+ * this guide still offers filter (`activeCategories`); `filtered` says one does.
+ */
 export function matchTiles(view: SportsView, now: number, s: MatchSettings, aliases: ReadonlyMap<string, string>): MatchTiles {
   if (!view.v2) {
     const tiles = eventTiles(view.events, now, s.followed, aliases);
-    return { row: tiles.slice(0, MATCHES_ROW_CAP), all: tiles.slice(0, MATCHES_ALL_CAP), total: tiles.length };
+    return { row: tiles.slice(0, MATCHES_ROW_CAP), all: tiles.slice(0, MATCHES_ALL_CAP), total: tiles.length, filtered: false };
   }
+  const categories = activeCategories(view, s.categories);
   const chosen = new Set(s.countries ?? []);
   const byEvent = new Map<MatchEvent, SportsGroup<EventAiring>>();
   const list: MatchEvent[] = [];
@@ -273,7 +295,7 @@ export function matchTiles(view: SportsView, now: number, s: MatchSettings, alia
     byEvent.set(me, e);
     list.push(me);
   }
-  const r = rankMatches(list, { now, pinned: s.pinned, hidden: s.hidden, categories: s.categories, singleCountry: view.singleCountry });
+  const r = rankMatches(list, { now, pinned: s.pinned, hidden: s.hidden, categories, countryScope: view.countryScope });
   const tile = (x: { event: MatchEvent; onAir: boolean }): SportsEventTile => {
     const e = byEvent.get(x.event)!;
     const m = view.meta.get(e.key)!;
@@ -284,5 +306,5 @@ export function matchTiles(view: SportsView, now: number, s: MatchSettings, alia
     if (m.comp !== undefined) t.competition = m.comp;
     return t;
   };
-  return { row: r.row.map(tile), all: r.all.map(tile), total: r.total };
+  return { row: r.row.map(tile), all: r.all.map(tile), total: r.total, filtered: categories.length > 0 };
 }

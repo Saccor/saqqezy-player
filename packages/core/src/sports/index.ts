@@ -3,7 +3,7 @@ import type { Programme } from '../types.ts';
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
 import { copyString } from '../search/titleIndex.ts';
 import { EVENT_THRESHOLD, mayBeEvent, scoreProgramme } from './detect.ts';
-import { foldText, normSide } from './match.ts';
+import { categoryKey, foldText, normSide } from './match.ts';
 
 const H = 3600_000;
 /** 3 h back / 24 h ahead, widened by the largest guide offset (±12 h); the query narrows it after the shift. */
@@ -55,7 +55,7 @@ export class SportsIndexBuilder {
   private catId(text: string): number | undefined {
     const t = text.trim();
     if (!t) return undefined;
-    const f = foldText(t);
+    const f = categoryKey(t);
     let id = this.catIds.get(f);
     if (id === undefined) {
       if (this.catTexts.length >= CATEGORIES_MAX) return undefined;

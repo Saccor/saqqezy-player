@@ -623,11 +623,12 @@ export class AppApi {
         safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
         safe(() => this.toRows(favs), [] as ChannelRow[]),
         safe(() => this.toRows(recents), [] as ChannelRow[]),
-        safe(() => this.matchTiles(), { row: [], all: [], total: 0 } as MatchTiles),
+        safe(() => this.matchTiles(), { row: [], all: [], total: 0, filtered: false } as MatchTiles),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
       const parts: StartParts = { favourites, recents: recentRows, sports: sports.row, sportsTotal: sports.total };
+      if (sports.filtered) parts.sportsFiltered = true;
       if (lastRows[0]) parts.lastChannel = lastRows[0];
       // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
       if (movie || series) {

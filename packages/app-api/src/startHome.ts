@@ -7,6 +7,8 @@ export const START_TITLES: Record<StartRowId, string> = {
   newLibrary: 'New in your library',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',
 };
+/** The matches row while a category filter is on (neutral copy; the chips themselves are the guide's own text). */
+export const START_SPORTS_FILTERED_TITLE = `${START_TITLES.sports} (filtered)`;
 export const START_CAPS = { continue: 12, live: 30, sports: 12, trending: 20, new: 20, top: 20 } as const;
 /** A Top rated row shows only when the library has at least this many rated titles of that kind. */
 export const START_TOP_MIN = 6;
@@ -40,6 +42,8 @@ export interface StartParts {
   sports: SportsEventTile[];
   /** Every match See all lists (the View all count); `sports.length` when unknown. */
   sportsTotal?: number;
+  /** A category filter applies: View all always shows (the only way back to the chips) and the title says so. */
+  sportsFiltered?: boolean;
   newMovies?: CountedPart;
   newSeries?: CountedPart;
   /** The best-rated titles (the provider's `rating`; unrated ones never) and how many are rated. */
@@ -69,8 +73,8 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
 
   const sports: StartCell[] = p.sports.slice(0, START_CAPS.sports).map((event) => ({ type: 'event', event }));
   const sportsTotal = Math.max(p.sportsTotal ?? 0, p.sports.length);
-  if (sportsTotal > sports.length) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
-  rows.push(row('sports', sports));
+  if (sportsTotal > sports.length || p.sportsFiltered) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
+  rows.push(row('sports', sports, p.sportsFiltered ? START_SPORTS_FILTERED_TITLE : undefined));
 
   rows.push(newRow(p, fromCache('newLibrary')));
 

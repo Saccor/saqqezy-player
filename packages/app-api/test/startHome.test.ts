@@ -55,6 +55,17 @@ describe('assembleStartHome: row order', () => {
     expect(h.rows[0]!.cells[4]).toEqual({ type: 'viewAll', target: 'sports', total: 9 });
     expect(assembleStartHome({ ...base, sports: [ev(1)], sportsTotal: 1 }, NOW).rows[0]!.cells).toHaveLength(1);
   });
+
+  test('a category filter on: View all always shows (the way back to the chips), the row stays at 0 matches, the title says so', () => {
+    const few = assembleStartHome({ ...base, sports: [ev(1), ev(2)], sportsTotal: 2, sportsFiltered: true }, NOW);
+    expect(few.rows[0]!.title).toBe('Matches in your guide (filtered)');
+    expect(few.rows[0]!.cells).toHaveLength(3);
+    expect(few.rows[0]!.cells[2]).toEqual({ type: 'viewAll', target: 'sports', total: 2 });
+    const none = assembleStartHome({ ...base, sports: [], sportsTotal: 0, sportsFiltered: true }, NOW);
+    expect(none.rows.map((r) => r.id)).toEqual(['sports']);
+    expect(none.rows[0]!.cells).toEqual([{ type: 'viewAll', target: 'sports', total: 0 }]);
+    expect(assembleStartHome({ ...base, sports: [], sportsTotal: 0 }, NOW).rows).toEqual([]);
+  });
 });
 
 describe('assembleStartHome: Continue watching', () => {

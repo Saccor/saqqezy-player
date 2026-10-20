@@ -191,6 +191,36 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(r.sc.filters(r.view).categories).toEqual([{ id: 'fotboll', label: 'Fotboll' }, { id: 'ishockey', label: 'Ishockey' }]);
     const f = await tiles(v2(progs), new ChannelIndex(channels(2)), { categories: ['fotboll'] });
     expect(f.all.map((t) => t.title)).toEqual(['Northbridge FC v Eastport']);
+    expect(f.filtered).toBe(true);
+    expect(r.filtered).toBe(false);
+  });
+
+  test('a stored category this guide does not offer is ignored: every match shows, unfiltered', async () => {
+    const progs: P[] = [
+      { key: 'k0', title: 'Northbridge FC v Eastport', cats: ['Fotboll'] },
+      { key: 'k1', title: 'Lakeshore v Pinecrest', cats: ['Ishockey'] },
+    ];
+    const stale = await tiles(v2(progs), new ChannelIndex(channels(2)), { categories: ['handboll'] });
+    expect(stale.all.map((t) => t.title).sort()).toEqual(['Lakeshore v Pinecrest', 'Northbridge FC v Eastport']);
+    expect(stale.filtered).toBe(false);
+    const none = await tiles(v2(progs.map((p) => ({ ...p, cats: ['Sport'] }))), new ChannelIndex(channels(2)), { categories: ['fotboll'] });
+    expect(none.all).toHaveLength(2);
+    expect(none.filtered).toBe(false);
+    const mixed = await tiles(v2(progs), new ChannelIndex(channels(2)), { categories: ['handboll', 'ishockey'] });
+    expect(mixed.all.map((t) => t.title)).toEqual(['Lakeshore v Pinecrest']);
+    expect(mixed.filtered).toBe(true);
+  });
+
+  test('category chip ids survive the setting: inner double spaces collapse and match again', async () => {
+    const progs: P[] = [
+      { key: 'k0', title: 'Northbridge FC v Eastport', cats: ['Fotboll'] },
+      { key: 'k1', title: 'Lakeshore v Pinecrest', cats: ['Ice  Hockey'] },
+    ];
+    const r = await tiles(v2(progs), new ChannelIndex(channels(2)));
+    const chip = r.sc.filters(r.view).categories.find((c) => c.label === 'Ice  Hockey')!;
+    expect(chip.id).toBe('ice hockey');
+    const f = await tiles(v2(progs), new ChannelIndex(channels(2)), { categories: [chip.id] });
+    expect(f.all.map((t) => t.title)).toEqual(['Lakeshore v Pinecrest']);
   });
 
   test('a small match on one key stays in See all; on a chosen-country or single-country guide it shows (fixture 12)', async () => {
@@ -205,6 +235,11 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(multi.all.map((t) => t.title)).toContain('Player One v Player Two');
     const single = await tiles(v2(progs), new ChannelIndex(channels(31, 1, () => 'SE: ')));
     expect(single.row.map((t) => t.title)).toContain('Player One v Player Two');
+    // No prefixes at all is unknown, not single-country: the cut-off is relaxed (10 %), not turned off.
+    const unknown = await tiles(v2(progs), new ChannelIndex(channels(31)));
+    expect(unknown.view.countryScope).toBe('unknown');
+    expect(unknown.row.map((t) => t.title)).not.toContain('Player One v Player Two');
+    expect(unknown.row).toHaveLength(4);
     const chosen = await tiles(v2(progs), new ChannelIndex(channels(31, 1, (k) => (k === 30 ? 'SE: ' : 'UK: '))), { countries: ['SE'] });
     expect(chosen.row.map((t) => t.title)).toContain('Player One v Player Two');
   });
@@ -227,15 +262,19 @@ describe('SportsController v2: Matches in your guide', () => {
       const start = T + (((m * 37) % (34 * 60)) - 12 * 60) * 60_000;
       b.add({ epgId: key, title: `${teams[(m * 2) % 400]} v ${teams[(m * 2 + 1) % 400]}`, start, stop: start + 115 * 60_000 }, { categories: ['Football'] }, key);
     }
-    const index = new ChannelIndex([...channels(300, 3), ...channels(300, 2, () => '', 2000)]);
-    const sc = new SportsController({ storage: new MemoryStorage(), now: () => NOW2 });
     const slack = process.env.CI ? 3 : 1;
-    const t0 = performance.now();
-    const view = await sc.view('s', b.record(1, NOW2), index, 0);
-    matchTiles(view, NOW2, S0, sc.aliases());
-    expect(performance.now() - t0).toBeLessThan(300 * slack);
-    const t1 = performance.now();
-    matchTiles(view, NOW2, S0, sc.aliases());
-    expect(performance.now() - t1).toBeLessThan(10 * slack);
+    const record = b.record(1, NOW2);
+    for (const fold of [false, true]) {
+      // Combining folds the copies of a guide channel into one row: channelsForEpgKey then returns one channel per row.
+      const index = new ChannelIndex([...channels(300, 3), ...channels(300, 2, () => '', 2000)], undefined, undefined, { fold });
+      const sc = new SportsController({ storage: new MemoryStorage(), now: () => NOW2 });
+      const t0 = performance.now();
+      const view = await sc.view('s', record, index, 0);
+      matchTiles(view, NOW2, S0, sc.aliases());
+      expect(performance.now() - t0).toBeLessThan(300 * slack);
+      const t1 = performance.now();
+      matchTiles(view, NOW2, S0, sc.aliases());
+      expect(performance.now() - t1).toBeLessThan(10 * slack);
+    }
   });
 });

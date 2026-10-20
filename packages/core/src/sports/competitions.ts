@@ -3,6 +3,7 @@
  * user's own guide and ordered by its data. Pure.
  */
 import { FOLLOWED_TEAM_LEN } from '../settings.ts';
+import { categoryKey } from './match.ts';
 import { competitionKey } from './rank.ts';
 import { BROAD_SPORT_CATEGORIES, DVB_CODE, FOOTBALL_CATEGORIES } from './words.ts';
 
@@ -11,13 +12,7 @@ export const CATEGORY_CHIPS_MAX = 6;
 /** A competition is offered once it names this many events. */
 const COMPETITION_MIN_EVENTS = 2;
 
-/**
- * The stored and compared form of a guide category text: the settings' normaliser (folded, inner spaces collapsed,
- * trimmed), so a chosen chip id survives `sanitizeSettings` unchanged.
- */
-export function categoryKey(text: string): string {
-  return competitionKey(text).trim();
-}
+export { categoryKey };
 
 export interface MatchChip { id: string; label: string }
 export interface MatchFilters { competitions: MatchChip[]; categories: MatchChip[] }

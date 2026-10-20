@@ -1,6 +1,6 @@
 /** Is this guide programme a sports event, and what are its two sides? Pure; spec §5.2. */
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
-import { foldText } from './match.ts';
+import { categoryKey, foldText } from './match.ts';
 import { LIVE_WORDS, MATCH_FLAGS, descFlags, isGenericCategory, isSportCategory, isStage, tagFlags } from './words.ts';
 
 export const EVENT_THRESHOLD = 3;
@@ -122,7 +122,7 @@ export function mayBeEvent(title: string, extra?: ProgrammeExtra): boolean {
   const cats = extra?.categories;
   if (cats) {
     for (let i = 0; i < cats.length; i++) {
-      if (isSportCategory(foldText(cats[i]!.trim()))) return true;
+      if (isSportCategory(categoryKey(cats[i]!))) return true;
     }
   }
   return stripLive(title).live;
@@ -131,7 +131,7 @@ export function mayBeEvent(title: string, extra?: ProgrammeExtra): boolean {
 export function scoreProgramme(p: { title: string; start: number; stop: number; desc?: string }, extra?: ProgrammeExtra): Detection {
   let score = 0;
   const raw = extra?.categories ?? [];
-  const cats = raw.map((c) => foldText(c.trim()));
+  const cats = raw.map(categoryKey);
   const sportCat = cats.some(isSportCategory);
   if (sportCat) score += 2;
   if (cats.includes('0x42')) score -= 3;
