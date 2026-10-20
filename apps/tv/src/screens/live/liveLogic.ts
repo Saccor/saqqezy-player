@@ -164,3 +164,6 @@ export function sameCell(
   if (hit.row !== focus.row) return false;
   return hit.area === 'channels' ? focus.place === 'channels' : focus.place === 'grid' && hit.start === focus.focusStart;
 }
+
+/** The pointer bar's buttons (Live TV's bottom row in pointer mode). */
+export const LIVE_POINTER_LABELS = { earlier: '‹ Earlier', later: 'Later ›', search: '⌕ Search', settings: '⚙ Settings' } as const;

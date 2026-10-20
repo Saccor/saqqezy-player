@@ -6,8 +6,6 @@
  * Left/Right (`stepLeft` / `stepRight`) move the anchor to the neighbouring block and scroll the view when needed.
  */
 
-import type { ScreenId } from '../shell/router.ts';
-
 export const MINUTE = 60_000;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
@@ -21,15 +19,6 @@ export const WINDOW_AHEAD = 48 * HOUR;
 /** Rows are fetched for the visible 2 h plus this much either side. */
 export const PREFETCH = 2 * HOUR;
 export const NO_INFO = 'No information';
-
-/**
- * Where a channel chosen in the guide plays. Opened from the Player (`▦ Guide`), the guide goes back to it with the new
- * channel id instead of pushing a second Player (each Player → Guide → Player cycle grew the stack by two). From
- * anywhere else it pushes one.
- */
-export function guidePlayAction(below: ScreenId | undefined): 'back' | 'push' {
-  return below === 'player' ? 'back' : 'push';
-}
 
 export interface TimeRange { start: number; end: number }
 export interface ProgrammeLike { title: string; start: number; stop: number; desc?: string; archive?: boolean }
@@ -47,7 +36,6 @@ export type HStep =
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export const timeToX = (t: number, viewStart: number): number => ((t - viewStart) * PX_PER_HOUR) / HOUR;
-export const xToTime = (x: number, viewStart: number): number => viewStart + (x * HOUR) / PX_PER_HOUR;
 export const floorHalfHour = (t: number): number => Math.floor(t / HALF_HOUR) * HALF_HOUR;
 
 /** Guide history at most (spec 2026-10-20-catch-up §5.1, decision 1). */
@@ -265,20 +253,6 @@ export function pageTime(view: HView, dir: 1 | -1, win: TimeRange): HStep {
   return scrollBy(view, dir * VIEW_SPAN, win) ?? { kind: 'none' };
 }
 
-export type GuideClick = 'focus' | 'ok';
-
-/**
- * A pointer click in the grid. A channel name acts like Ok in the channel column (watch). A programme cell that is
- * not the focused one takes focus; a click on the focused cell acts like Ok (watch if on air, else toggle details).
- */
-export function guideClick(
-  hit: { area: 'channels' } | { area: 'grid'; row: number; start: number },
-  focus: { row: number; area: 'grid' | 'channels'; focusStart: number | undefined },
-): GuideClick {
-  if (hit.area === 'channels') return 'ok';
-  return focus.area === 'grid' && hit.row === focus.row && hit.start === focus.focusStart ? 'ok' : 'focus';
-}
-
 /** Time range to have loaded for a view: the visible span plus `PREFETCH` either side, inside the window. */
 export function prefetchRange(viewStart: number, win: TimeRange, span = VIEW_SPAN): TimeRange {
   return { start: Math.max(win.start, viewStart - PREFETCH), end: Math.min(win.end, viewStart + span + PREFETCH) };
@@ -325,17 +299,3 @@ export function dayLabel(t: number, now: number): string {
   if (days === -1) return 'Yesterday';
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
-
-/** `On now`, `Starts in 1 h 5 min` or `Ended`. */
-export function relativeLabel(b: { start: number; stop: number }, now: number): string {
-  if (isOnAir(b, now)) return 'On now';
-  if (b.stop <= now) return 'Ended';
-  const mins = Math.ceil((b.start - now) / MINUTE);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `Starts in ${m} min`;
-  return m === 0 ? `Starts in ${h} h` : `Starts in ${h} h ${m} min`;
-}
-
-/** Pointer-only buttons by the grid. */
-export const GUIDE_POINTER_LABELS = { groups: 'Groups', earlier: '‹ Earlier', later: 'Later ›' } as const;

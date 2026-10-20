@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import {
   GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
-  liveMenuItems, liveOkAction, timeLeftLabel,
+  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel,
 } from './liveLogic.ts';
+
+describe('LIVE_POINTER_LABELS', () => {
+  test('uses the spec copy', () => {
+    expect(LIVE_POINTER_LABELS).toEqual({ earlier: '‹ Earlier', later: 'Later ›', search: '⌕ Search', settings: '⚙ Settings' });
+  });
+});
 
 describe('liveLogic layout', () => {
   test('preview, info and grid positions', () => {

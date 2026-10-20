@@ -1,4 +1,4 @@
-/** Pure helpers for the Home screen (unit-tested). */
+/** Pure helpers shared by Live TV, Start, Search and the Player's banner (unit-tested). */
 import type { SupervisorStatus } from '@iptv/player';
 import { failureText } from '../playback/failureText.ts';
 import { formatClock } from '../shell/logic.ts';
@@ -20,44 +20,6 @@ export function pickGroup(groups: readonly GroupLite[], wanted: string | undefin
   if (wanted !== undefined && groups.some((g) => g.id === wanted)) return wanted;
   if (groups.some((g) => g.id === 'all')) return 'all';
   return groups[0]?.id;
-}
-
-/**
- * Row to focus: the channel's position when it was found (`byId >= 0`), else the remembered row index
- * clamped to the list, else the first row.
- */
-export function restoreIndex(byId: number, remembered: number | undefined, total: number): number {
-  if (total <= 0) return 0;
-  if (byId >= 0) return Math.min(byId, total - 1);
-  return Math.max(0, Math.min(remembered ?? 0, total - 1));
-}
-
-/**
- * The channel to focus when a group opens: the first candidate (in order, duplicates and blanks skipped) that
- * is in the group. Home passes the playing channel, the remembered channel, then the last channel from init.
- */
-export async function resolveFocus(
-  candidates: readonly (string | undefined)[],
-  indexOf: (id: string) => Promise<number>,
-): Promise<{ id: string | undefined; index: number }> {
-  const tried = new Set<string>();
-  for (const id of candidates) {
-    if (id === undefined || tried.has(id)) continue;
-    tried.add(id);
-    const index = await indexOf(id);
-    if (index >= 0) return { id, index };
-  }
-  return { id: undefined, index: -1 };
-}
-
-/**
- * What the preview panel describes: the focused channel (with a "Starting…" hint) while its preview is
- * pending, otherwise the channel that is playing or has failed, otherwise the focused one.
- */
-export function panelChannel<T>(focused: T | undefined, playing: T | undefined, pending: boolean):
-  { channel: T | undefined; starting: boolean } {
-  if (pending && focused !== undefined) return { channel: focused, starting: true };
-  return { channel: playing ?? focused, starting: false };
 }
 
 /**
@@ -106,21 +68,11 @@ export function vodReturnTarget(s: {
   return s.returnId;
 }
 
-/**
- * `nowNextUpdated` for `changed`: the preview panel's info for the playing channel must be re-read when that
- * channel is in the update and is not the focused row (the focused row comes from the slice cache, which the
- * same event already refreshes).
- */
-export function playingInfoStale(changed: readonly string[], playingId: string | undefined, focusedId: string | undefined): boolean {
-  return playingId !== undefined && playingId !== focusedId && changed.includes(playingId);
-}
-
 /** `HH:MM–HH:MM` in local time. */
 export function formatRange(start: number, stop: number): string {
   return `${formatClock(new Date(start))}–${formatClock(new Date(stop))}`;
 }
 
-/** Elapsed fraction (0..1) of a programme at `now`. */
 /** The banner's and Start's text when a channel has no programme on now. */
 export const NO_GUIDE_INFO = 'No guide information';
 /** `Now · <title>`: the programme on now (its time range and progress are drawn separately). */
@@ -133,6 +85,7 @@ export function nowNextLine(c: { now?: { title: string }; next?: { title: string
   return c.next ? `${nowLine(c.now)} · ${nextLine(c.next)}` : nowLine(c.now);
 }
 
+/** Elapsed fraction (0..1) of a programme at `now`. */
 export function progressOf(p: { start: number; stop: number } | undefined, now: number): number {
   if (!p || p.stop <= p.start) return 0;
   return Math.max(0, Math.min(1, (now - p.start) / (p.stop - p.start)));

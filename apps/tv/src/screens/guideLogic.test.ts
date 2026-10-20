@@ -1,22 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HALF_HOUR, HOUR, NO_INFO, dayLabel, relativeLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
+  HALF_HOUR, HOUR, NO_INFO, dayLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
-  timeToX, xToTime, monogram, GUIDE_POINTER_LABELS, guideClick, guidePlayAction, pageTime, type Block,
+  timeToX, monogram, pageTime, type Block,
 } from './guideLogic.ts';
 
-describe('guidePlayAction', () => {
-  it('goes back to a Player below instead of stacking a second one', () => {
-    expect(guidePlayAction('player')).toBe('back');
-  });
-
-  it('pushes the Player from any other screen (Home, Start, Search) or the root', () => {
-    expect(guidePlayAction('home')).toBe('push');
-    expect(guidePlayAction('start')).toBe('push');
-    expect(guidePlayAction('search')).toBe('push');
-    expect(guidePlayAction(undefined)).toBe('push');
-  });
-});
 
 const T0 = Date.UTC(2026, 0, 10, 12, 0); // a half-hour boundary
 const at = (h: number) => T0 + h * HOUR;
@@ -30,13 +18,11 @@ const slots = (fromH: number, toH: number) => {
 const win = { start: at(-6), end: at(48) };
 
 describe('time <-> x', () => {
-  it('maps one hour to 682 px from the view start, and back', () => {
+  it('maps one hour to 682 px from the view start', () => {
     expect(PX_PER_HOUR).toBe(682);
     expect(timeToX(at(0), at(0))).toBe(0);
     expect(timeToX(at(1.5), at(0))).toBe(1023);
     expect(timeToX(at(-0.5), at(0))).toBe(-341);
-    expect(xToTime(341, at(0))).toBe(at(0.5));
-    expect(xToTime(timeToX(at(2.25), at(1)), at(1))).toBe(at(2.25));
   });
 
   it('floors to the half hour and builds the -6 h..+48 h window from it', () => {
@@ -221,14 +207,6 @@ describe('labels', () => {
     expect(dayLabel(local(9, 22), local(10, 8))).toBe('Yesterday');
     expect(dayLabel(local(13, 9), local(10, 8))).toBe('Tue 13 Jan');
   });
-  it('says whether a programme is on now, upcoming or over', () => {
-    const b = { start: local(10, 14), stop: local(10, 14, 30) };
-    expect(relativeLabel(b, local(10, 14, 10))).toBe('On now');
-    expect(relativeLabel(b, local(10, 13, 15))).toBe('Starts in 45 min');
-    expect(relativeLabel(b, local(10, 11, 55))).toBe('Starts in 2 h 5 min');
-    expect(relativeLabel(b, local(10, 12))).toBe('Starts in 2 h');
-    expect(relativeLabel(b, local(10, 14, 30))).toBe('Ended');
-  });
 });
 
 describe('guideOpenTarget', () => {
@@ -260,7 +238,7 @@ describe('guideOpenTarget', () => {
   });
 });
 
-describe('pointer: paging and clicks', () => {
+describe('pointer: paging', () => {
   it('Later and Earlier move the view by 2 h and keep the anchor inside it', () => {
     expect(pageTime({ viewStart: at(0), anchor: at(1) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(2), anchor: at(2) });
     expect(pageTime({ viewStart: at(0), anchor: at(1) }, -1, win)).toEqual({ kind: 'scroll', viewStart: at(-2), anchor: at(0) - 1 });
@@ -270,22 +248,6 @@ describe('pointer: paging and clicks', () => {
     expect(pageTime({ viewStart: at(-6), anchor: at(-5) }, -1, win)).toEqual({ kind: 'none' });
     expect(pageTime({ viewStart: at(45), anchor: at(46) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(46), anchor: at(46) });
     expect(pageTime({ viewStart: at(46), anchor: at(47) }, 1, win)).toEqual({ kind: 'none' });
-  });
-
-  it('a click on an unfocused cell focuses it; on the focused cell it is Ok', () => {
-    const focus = { row: 3, area: 'grid' as const, focusStart: at(1) };
-    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, focus)).toBe('ok');
-    expect(guideClick({ area: 'grid', row: 3, start: at(2) }, focus)).toBe('focus');
-    expect(guideClick({ area: 'grid', row: 4, start: at(1) }, focus)).toBe('focus');
-    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, { ...focus, area: 'channels' })).toBe('focus');
-  });
-
-  it('a click on a channel name is Ok (watch)', () => {
-    expect(guideClick({ area: 'channels' }, { row: 0, area: 'grid', focusStart: undefined })).toBe('ok');
-  });
-
-  it('uses the spec copy', () => {
-    expect(GUIDE_POINTER_LABELS).toEqual({ groups: 'Groups', earlier: '‹ Earlier', later: 'Later ›' });
   });
 });
 

@@ -1,6 +1,5 @@
 /**
- * Live TV's pointer (mouse, pointer remote), ported from the Guide's `onCellClick` / `onGridWheel` / `pageBy` and
- * Home's `clickVideo` and bottom row, plus the type-to-search hand-off. A click on a cell focuses it and acts like OK;
+ * Live TV's pointer (mouse, pointer remote), plus the type-to-search hand-off. A click on a cell focuses it and acts like OK;
  * a right click opens the menu on it; the wheel moves rows (the horizontal wheel steps time). Not unit-tested: the
  * pure rules are `sameCell` and `liveTypedChar`.
  */
@@ -11,9 +10,7 @@ import { captureTextInput } from '../../input/keys.ts';
 import type { GridHit } from '../../input/pointerLogic.ts';
 import { router } from '../../shell/router.ts';
 import type { Block } from '../guideLogic.ts';
-import { GUIDE_POINTER_LABELS } from '../guideLogic.ts';
-import { HOME_POINTER_LABELS } from '../homeSearchLogic.ts';
-import { liveTypedChar, sameCell, type LivePlace } from './liveLogic.ts';
+import { LIVE_POINTER_LABELS, liveTypedChar, sameCell, type LivePlace } from './liveLogic.ts';
 
 export interface LivePointerDeps {
   row: () => number;
@@ -84,10 +81,10 @@ export function createLivePointer(d: LivePointerDeps) {
 
   /** The bottom row in pointer mode (the hint line is gone in phase 2). */
   const bar: PointerBarItem[] = [
-    { id: 'earlier', label: GUIDE_POINTER_LABELS.earlier, onPress: () => { if (!blocked()) d.pageTime(-1); } },
-    { id: 'later', label: GUIDE_POINTER_LABELS.later, onPress: () => { if (!blocked()) d.pageTime(1); } },
-    { id: 'search', label: HOME_POINTER_LABELS.search, onPress: () => { if (!blocked()) router.push('search'); } },
-    { id: 'settings', label: HOME_POINTER_LABELS.settings, onPress: () => { if (!blocked()) router.push('settings'); } },
+    { id: 'earlier', label: LIVE_POINTER_LABELS.earlier, onPress: () => { if (!blocked()) d.pageTime(-1); } },
+    { id: 'later', label: LIVE_POINTER_LABELS.later, onPress: () => { if (!blocked()) d.pageTime(1); } },
+    { id: 'search', label: LIVE_POINTER_LABELS.search, onPress: () => { if (!blocked()) router.push('search'); } },
+    { id: 'settings', label: LIVE_POINTER_LABELS.settings, onPress: () => { if (!blocked()) router.push('settings'); } },
   ];
 
   return { onCellClick, onCellMenu, onWheel, onVideoClick, bar };
