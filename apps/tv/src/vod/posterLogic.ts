@@ -38,3 +38,15 @@ export function barWidth(progress: number | undefined, width: number): number {
   if (progress === undefined || Number.isNaN(progress)) return 0;
   return Math.round(Math.max(0, Math.min(1, progress)) * width);
 }
+
+export type PosterFace = 'skeleton' | 'card' | 'image';
+
+/**
+ * What a poster shows: a skeleton while its tile (`pending`) or its image is on the way, the image once loaded, and
+ * the title on a coloured card when there is no image or it failed.
+ */
+export function posterFace(p: { pending: boolean; image: string | undefined; loaded: boolean; failed: boolean }): PosterFace {
+  if (p.pending) return 'skeleton';
+  if (!p.image || p.failed) return 'card';
+  return p.loaded ? 'image' : 'skeleton';
+}

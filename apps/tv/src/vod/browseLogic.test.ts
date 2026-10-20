@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
 import {
-  cellAt, cellCount, clampFocus, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
+  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
   type RowModel,
 } from './browseLogic.ts';
 
@@ -192,5 +192,12 @@ describe('browseLogic', () => {
     expect(visibleRowIndexes(2, 3, false)).toEqual([2]);
     expect(visibleRowIndexes(0, 3, true)).toEqual([0]);
     expect(visibleRowIndexes(0, 0, false)).toEqual([]);
+  });
+
+  test('drawn cells: a row still loading fills its strip with skeleton tiles (only the first takes focus)', () => {
+    expect(drawnCells(row('a', 40, 0, false))).toBe(ROW_VISIBLE_COLS + 1);
+    expect(cellCount(row('a', 40, 0, false))).toBe(1);
+    expect(drawnCells(row('a', 40, 30))).toBe(31);
+    expect(drawnCells(row('a', 3, 3))).toBe(3);
   });
 });

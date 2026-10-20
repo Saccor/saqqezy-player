@@ -32,6 +32,11 @@ export function cellCount(r: RowModel): number {
   return r.items.length + (r.total > r.items.length ? 1 : 0);
 }
 
+/** Tiles drawn: a row still loading fills its strip with skeleton tiles (its first one is the focusable loading cell). */
+export function drawnCells(r: RowModel): number {
+  return r.loaded ? cellCount(r) : ROW_VISIBLE_COLS + 1;
+}
+
 export function cellAt(r: RowModel, col: number): Cell {
   if (!r.loaded) return { kind: 'loading' };
   const t = r.items[col];
