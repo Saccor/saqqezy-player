@@ -157,4 +157,80 @@ describe('EpgCache stale marks', () => {
     await cache.ensure(0, 12, B, B + CHUNK);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+
+  /** A fetch whose answers wait for `release(n)`; each answer carries its call number in the titles. */
+  function heldFetch() {
+    const waits: (() => void)[] = [];
+    let calls = 0;
+    const fn = vi.fn((_g: string, offset: number, _count: number, from: number) => {
+      const n = ++calls;
+      return new Promise<{ total: number; rows: { channel: Ch; programmes: Prog[] }[] }>((resolve) => {
+        waits[n] = () => resolve({ total: 1, rows: [{ channel: { id: `c${offset}` }, programmes: [{ title: `call${n}`, start: from, stop: from + H }] }] });
+      });
+    });
+    return { fn, release: (n: number) => waits[n]?.() };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it.each([
+    ['staleAll', (c: EpgCache<Ch, Prog>) => c.staleAll()],
+    ['stalePage', (c: EpgCache<Ch, Prog>) => c.stalePage(0)],
+    ['staleChannels', (c: EpgCache<Ch, Prog>) => { c.staleChannels(['c0'], (x) => x.id); }],
+  ])('%s during an in-flight fetch: the next ensure refetches, and the older answer is stored stale', async (_name, stale) => {
+    const h = heldFetch();
+    const cache = new EpgCache<Ch, Prog>(h.fn, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 1);
+    const first = cache.ensure(0, 1, B, B + H);
+    stale(cache);
+    const second = cache.ensure(0, 1, B, B + H);
+    expect(h.fn).toHaveBeenCalledTimes(2); // not the in-flight request of the older epoch
+    h.release(1);
+    await first;
+    // The older answer is readable but stale: an ensure while the newer one is in flight shares that one.
+    expect(cache.programmes(0).map((p) => p.title)).toEqual(['call1']);
+    void cache.ensure(0, 1, B, B + H);
+    expect(h.fn).toHaveBeenCalledTimes(2);
+    h.release(2);
+    await second;
+    expect(cache.programmes(0).map((p) => p.title)).toEqual(['call2']);
+    await cache.ensure(0, 1, B, B + H);
+    expect(h.fn).toHaveBeenCalledTimes(2); // the newer answer is fresh
+  });
+
+  it('invalidate (another source, same group id): the old rows go, an old answer never lands, the next ensure refetches', async () => {
+    const h = heldFetch();
+    const cache = new EpgCache<Ch, Prog>(h.fn, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 1);
+    const first = cache.ensure(0, 1, B, B + H);
+    h.release(1);
+    await first;
+    const pending = cache.ensure(0, 1, B + CHUNK, B + CHUNK + H);
+    cache.invalidate();
+    expect(cache.programmes(0)).toEqual([]);
+    const next = cache.ensure(0, 1, B, B + H);
+    expect(h.fn).toHaveBeenCalledTimes(3);
+    h.release(2);
+    await pending;
+    expect(cache.covered(0)).toEqual([]);
+    h.release(3);
+    await next;
+    expect(cache.programmes(0).map((p) => p.title)).toEqual(['call3']);
+  });
+
+  it('an older answer landing after a newer one does not replace it', async () => {
+    const h = heldFetch();
+    const cache = new EpgCache<Ch, Prog>(h.fn, { rowsPerPage: 20, chunkMs: CHUNK });
+    cache.setGroup('all', 1);
+    const first = cache.ensure(0, 1, B, B + H);
+    cache.staleAll();
+    const second = cache.ensure(0, 1, B, B + H);
+    h.release(2);
+    await second;
+    h.release(1);
+    await first;
+    await tick();
+    expect(cache.programmes(0).map((p) => p.title)).toEqual(['call2']);
+    await cache.ensure(0, 1, B, B + H);
+    expect(h.fn).toHaveBeenCalledTimes(2);
+  });
 });

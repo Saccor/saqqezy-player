@@ -162,6 +162,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     (g, o, c, f, t) => api.getEpgRows(g, o, c, f, t),
     { rowsPerPage: 20, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: () => setVersion((v) => v + 1) },
   );
+  /** The source the cached rows belong to (a remote source switch invalidates them). */
+  let cacheSourceId = sourceId;
 
   const viewRows = () => (pointerMode() ? EPG_POINTER_ROWS : EPG_VIEW_ROWS);
   const total = () => { version(); return cache.total() ?? 0; };
@@ -642,7 +644,13 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       }),
       // A companion switched, added or deleted a source: drop the picker of the old source and re-read.
       onEvent('sourcesChanged', (e) => {
-        if ((e as SourcesChanged).origin !== 'remote') return;
+        const ev = e as SourcesChanged;
+        if (ev.origin !== 'remote') return;
+        // Another source's rows are never valid, not even under the same group id: drop them (answers in flight too).
+        if (ev.activeSourceId !== cacheSourceId) {
+          cacheSourceId = ev.activeSourceId;
+          cache.invalidate();
+        }
         dismissPicker();
         liveMenu.dismissAll();
         void loadCatchupDays();
