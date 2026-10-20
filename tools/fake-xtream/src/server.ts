@@ -23,19 +23,26 @@ export interface FakeXtreamOptions {
   now?: () => number;
   /**
    * Generated test media (default: `tools/fake-xtream/media`). When `multitrack/master.m3u8` exists there
-   * (`scripts/make-multitrack.mjs`), movie 1 plays it: two audio and two subtitle tracks.
+   * (`scripts/make-multitrack.mjs`), movie 1 plays it: two audio and two subtitle tracks. `ac3/film.mkv`
+   * (`make-ac3.mjs`) is movie 2; `multiaudio/film.{mkv,mp4,ts}` (`make-multiaudio.mjs`) is movie 3.
    */
   mediaDir?: string;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
 const MEDIA_TYPES: Record<string, string> = {
-  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt', mkv: 'video/x-matroska',
+  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt', mkv: 'video/x-matroska', mp4: 'video/mp4',
 };
 /** Movie stream id that plays the multi-track title when it was generated. */
 const MULTITRACK_MOVIE = 1;
 /** Movie stream id that plays the AC-3 sound file (`scripts/make-ac3.mjs`) when it was generated, listed as mkv. */
 const AC3_MOVIE = 2;
+/**
+ * Movie stream id that plays the two-audio movie (`scripts/make-multiaudio.mjs`) when it was generated: the container
+ * the stream URL asks for (.mkv, .mp4 or .ts), else the mkv. Listed as mkv.
+ */
+const MULTIAUDIO_MOVIE = 3;
+const MULTIAUDIO_EXTS = ['mkv', 'mp4', 'ts'];
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -56,8 +63,15 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const now = opts.now ?? Date.now;
   const mediaDir = opts.mediaDir ?? DEFAULT_MEDIA_DIR;
   const ac3File = () => existsSync(join(mediaDir, 'ac3', 'film.mkv'));
-  /** A movie's container: mkv for the AC-3 file when it exists, else the shared HLS extension. */
-  const movieExt = (n: number) => (n === AC3_MOVIE && ac3File() ? 'mkv' : VOD_EXT);
+  const multiaudioFile = (ext: string) => existsSync(join(mediaDir, 'multiaudio', `film.${ext}`));
+  /** Where a two-audio movie request goes: the asked-for container when generated, else the mkv, else nothing. */
+  const multiaudioPath = (ext: string): string | undefined => {
+    if (MULTIAUDIO_EXTS.includes(ext) && multiaudioFile(ext)) return `/media/multiaudio/film.${ext}`;
+    return multiaudioFile('mkv') ? '/media/multiaudio/film.mkv' : undefined;
+  };
+  /** A movie's container: mkv for the generated AC-3 and two-audio files when they exist, else the shared HLS extension. */
+  const movieExt = (n: number) =>
+    ((n === AC3_MOVIE && ac3File()) || (n === MULTIAUDIO_MOVIE && multiaudioFile('mkv')) ? 'mkv' : VOD_EXT);
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
   const mvs = movies(opts.movies ?? 120, now(), opts.versions === true);
   const srs = seriesList(opts.series ?? 12, opts.versions === true);
@@ -112,13 +126,16 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       const movie = stream[1] === 'movie' ? Number(stream[4]) : undefined;
       const multitrack = movie === MULTITRACK_MOVIE && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));
       const ac3 = movie === AC3_MOVIE && ac3File();
-      const location = multitrack ? `${base}/media/multitrack/master.m3u8` : ac3 ? `${base}/media/ac3/film.mkv` : TEST_STREAM;
+      const multiaudio = movie === MULTIAUDIO_MOVIE ? multiaudioPath(stream[5]!) : undefined;
+      const location = multitrack ? `${base}/media/multitrack/master.m3u8`
+        : ac3 ? `${base}/media/ac3/film.mkv`
+          : multiaudio ? `${base}${multiaudio}` : TEST_STREAM;
       res.writeHead(302, { location });
       return res.end();
     }
 
     // Generated test media: one folder level, plain file names only (no traversal).
-    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt|mkv)$/.exec(url.pathname);
+    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt|mkv|mp4)$/.exec(url.pathname);
     if (media) {
       const file = join(mediaDir, media[1]!, `${media[2]}.${media[3]}`);
       return readFile(file, (err, body) => {
