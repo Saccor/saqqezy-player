@@ -52,8 +52,13 @@ const PAD = 16;
 const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: ROW_PITCH, hitH: CELL_H };
 const SCROLL_X = 1860;
 const SCROLL_H = LAYOUT.height - LAYOUT.safeY - GRID_Y; // 876
-/** The focused title and meta at the top right: a box ending at the grid's right edge. */
-const INFO_W = 900;
+/** The focused title and meta at the top right: two right-aligned lines in a box ending at the grid's right edge. */
+const INFO_W = 760;
+/** The category header ends at least this far left of the info box. */
+const HEAD_INFO_GAP = 24;
+const HEAD_PAD_X = 20; // DropdownHeader draws its pill this far left of x
+const HEAD_MAX_W = GRID_W - INFO_W - HEAD_INFO_GAP + HEAD_PAD_X;
+const META_DY = 36;
 const CATEGORIES_ID = 'grid-categories';
 
 type Area = 'rail' | 'header' | 'grid' | 'retry';
@@ -173,7 +178,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   /** After a load: the grid when it was asked for, and never focus left on an empty grid. */
   const settleFocus = () => {
     if (!noOverlay()) return;
-    if ((wantGrid && total() > 0) || (area() === 'grid' && total() === 0)) focusArea('grid');
+    // A failed load lands on the new Try again button (focusArea falls back to it); area 'retry' never rests on a dead node.
+    if ((wantGrid && (total() > 0 || failed())) || (area() === 'grid' && total() === 0) || area() === 'retry') focusArea('grid');
   };
 
   /** Reloads the first page of the current category and sort. */
@@ -383,7 +389,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         console.warn('VOD categories failed', errName(err));
         setFailed(true);
-        if (noOverlay()) focusArea('retry');
+        settleFocus();
         return;
       }
       if (!alive) return;
@@ -400,7 +406,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   onMount(() => { void start(); });
   /** Try again: re-reads the categories when there are none, else the current category. */
   const retry = () => {
-    // The button goes while loading: a fallback holds the focus, and the grid takes it once titles arrive.
+    // The button goes while loading: clear `failed` first so the fallback is the header (not the unmounting button);
+    // wantGrid stays set, so the grid takes the focus when titles arrive and a new failure lands on the new button.
+    setFailed(false);
     focusArea('grid');
     void (cats().length === 0 ? start() : reset());
   };
@@ -416,9 +424,10 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   /** The focused title and its meta, once focus rests. */
   const shown = dwellSignal(() => tileAt(focus()));
-  const info = () => {
+  const infoTitle = () => shown()?.title ?? '';
+  const infoMeta = () => {
     const t = shown();
-    return t ? `${t.title}   ${joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t))}` : '';
+    return t ? joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t)) : '';
   };
   /** Back from the grid or the header goes to the rail; Back on the rail returns to where the grid was opened from. */
   const back = () => {
@@ -433,11 +442,13 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         onRight={() => focusArea(total() > 0 ? 'grid' : 'header')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={cats().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}
-          x={GRID_X} y={HEAD_Y} label={cat()?.name ?? ''} onPress={openPicker}
+          x={GRID_X} y={HEAD_Y} label={cat()?.name ?? ''} maxWidth={HEAD_MAX_W} onPress={openPicker}
           onDown={() => focusArea('grid')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) setArea('header'); }} />
       </Show>
-      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + 12} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
-        fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{info()}</Text>
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + 2} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+        fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{infoTitle()}</Text>
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + META_DY} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+        fontSize={TYPE.meta} color={COLORS.muted}>{infoMeta()}</Text>
       <View ref={(el) => { gridNode = el; }} x={GRID_X - PAD} y={GRID_Y - PAD} width={GRID_W + PAD * 2} height={LAYOUT.height - (GRID_Y - PAD)} clipping
         onFocusChanged={(f: boolean) => { if (f) setArea('grid'); }}
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}

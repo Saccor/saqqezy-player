@@ -18,6 +18,8 @@ export function DropdownHeader(props: {
   x: number; y: number;
   label: string;
   size?: number;
+  /** Clamps the pill's width; a longer label truncates. */
+  maxWidth?: number;
   align?: 'left' | 'right';
   onPress: () => void;
   onUp?: () => boolean; onDown?: () => boolean; onLeft?: () => boolean; onRight?: () => boolean;
@@ -28,7 +30,7 @@ export function DropdownHeader(props: {
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
   const size = () => props.size ?? TYPE.title;
-  const w = () => dropdownWidth(props.label, size());
+  const w = () => Math.min(dropdownWidth(props.label, size()), props.maxWidth ?? Infinity);
   const textW = () => w() - PAD_X * 2 - CHEVRON - 12;
   const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.transparent);
   const ink = () => (focused() ? COLORS.onFocus : COLORS.text);
