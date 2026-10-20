@@ -137,6 +137,8 @@ export const MOTION = {
   rowShift: token(220, EASE.standard, 'scroll'),
   /** A poster image fading in over its skeleton or title card once loaded. */
   imageIn: token(160, EASE.fade, 'image'),
+  /** The info strip's new title and meta fading in once the dwell settles (no fade-out: it would add delay). */
+  textIn: token(140, EASE.enter, 'ui'),
   /** The backdrop cross-fade. */
   backdrop: token(260, EASE.fade, 'ui'),
   /** Menus and dialogs opening: fade plus a rise of `rise` px. They close at once (unmount). */
