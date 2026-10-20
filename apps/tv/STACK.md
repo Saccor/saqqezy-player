@@ -180,6 +180,32 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - **Exact match:** Settings → Playback → Exact-match subtitles (off by default). When on, the worker reads the VOD file's OpenSubtitles hash (`fetchMovieHash`: two 64 KB range requests over the app's fetch, aborted at once if the server ignores ranges; nothing for playlists) and sends it with the search; files made for that exact release rank first and their language reads "· matches this file". It costs one short extra provider connection while the title plays, which one-connection accounts may refuse (the search then goes without it). Not verified against a real provider.
 - Not yet: OpenSubtitles user sign-in (20 downloads a day), automatic sync from the audio (PC app), Tizen USB files.
 
+## Trending rows (Start)
+
+- **What:** Start's "Trending movies" and "Trending series" rows show only titles the library has, in the order of a
+  public feed (spec `docs/superpowers/specs/2026-10-20-trending-design.md`; the Worker is `services/trending`).
+- **Feed address:** `VITE_TRENDING_URL` (the base, e.g. `https://trending.example.com/trending`; files are
+  `<base>/v1/{movie,series}.<lang>.json`). In `vite dev`, unset means the fake provider's synthetic feed
+  `http://127.0.0.1:8899/__trending`; a production build without it has no trending rows and never asks
+  (`src/net/trendingConfig.ts`, unit-tested).
+- **Worker side:** `worker.ts` passes `trending: { baseUrl, fetch }` to `AppApi`, which builds app-api's
+  `TrendingService`: a bare GET (`credentials: 'omit'`, `referrerPolicy: 'no-referrer'`, no headers, no conditional
+  request) straight from the device with a 15 s timeout, not through the dev proxy (the feed answers CORS). The last
+  copy per kind and language is in meta (`trending:<kind>:<lang>`), refreshed at most every 6 h, failures back off
+  (1 min … 6 h). Language: the device language's primary subtag (the UI has no language setting yet); a 404 falls back
+  to `en` for 24 h (`trending:missing`).
+- **Matching:** `VodController.snapStart` matches the resident catalogue with core's `matchTrending` (grouping keys:
+  `t:<tmdb>`, `y:<base>|<year>` ±1, `n:<base>` for unambiguous names), one tile per title, so the rows follow the
+  other VOD rows' caching: a kind that is not resident keeps its last snapshot, and the Start cache keeps the row.
+  The index is built once per catalogue (about 50 ms at 60k titles); a match takes under 1 ms.
+- **Rows:** after "Sports in your guide", before "Recently added movies"; at least 4 tiles, at most 20, no View all.
+- **About:** Settings → About credits Wikimedia and Wikidata whenever trending is on, and TMDB ("This product uses the
+  TMDB API but is not endorsed or certified by TMDB.") when the build sets `VITE_TMDB_ATTRIBUTION=1`
+  (`apps/tv/.env.development` sets it for dev).
+- **Try it:** `pnpm dev`, add the fake source, open Movies and Series once each (so each catalogue has been resident),
+  then Start. The fake feed lists two titles that are not in the catalogue ("Synthetic Absent Film/Series"); they
+  must never show.
+
 ## App shell (Task 5)
 
 - `src/shell/router.ts` (pure, unit-tested) holds the screen stack (`push`, `replace`, `reset`, `back`, `current`, `below`: the screen a pop reveals) and the overlay stack (`pushOverlay(id, onClose)` returns a remover that does not call `onClose`). `App.tsx` mirrors it into a signal and renders the current entry with `<Show when={current()} keyed>`, so each push/pop re-creates the screen.

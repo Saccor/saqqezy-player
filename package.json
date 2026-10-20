@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:perf": "vitest run --config vitest.perf.config.ts",
-    "typecheck": "tsc -p packages/core && tsc -p packages/companion-protocol && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p services/relay && tsc -p packages/platform && tsc -p packages/player && tsc -p apps/tv && tsc -p apps/companion",
+    "typecheck": "tsc -p packages/core && tsc -p packages/companion-protocol && tsc -p packages/storage && tsc -p tools/fake-xtream && tsc -p packages/app-api && tsc -p services/relay && tsc -p services/trending && tsc -p packages/platform && tsc -p packages/player && tsc -p apps/tv && tsc -p apps/companion",
     "fake-xtream": "pnpm --filter @iptv/fake-xtream start",
     "dev": "node scripts/dev.mjs",
     "dev:stable": "node scripts/dev.mjs --stable",
@@ -21,6 +21,8 @@
     "relay:dev": "pnpm --filter @iptv/relay run dev",
     "relay:test:int": "node services/relay/scripts/integration.mjs",
     "relay:deploy": "pnpm --filter @iptv/relay run deploy",
+    "trending:dev": "pnpm --filter @iptv/trending run dev",
+    "trending:deploy": "pnpm --filter @iptv/trending run deploy",
     "fake-phone": "node --import tsx scripts/dev/fake-phone.mjs"
   },
   "devDependencies": {

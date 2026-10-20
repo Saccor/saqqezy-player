@@ -22,6 +22,7 @@ refusal cooldowns; live delay and recovery; and a dev proxy that logs with crede
 - **Try it:** [docs/try-v1.md](docs/try-v1.md) (install, start, keyboard map, test login)
 - **Manage from your phone, local test:** [docs/try-v1.md](docs/try-v1.md#6-manage-from-your-phone-local-test)
 - **Deploy the relay and the companion web app (Cloudflare):** [docs/deploy-companion.md](docs/deploy-companion.md)
+- **Deploy the trending feed (Start page rows, Cloudflare):** [docs/deploy-trending.md](docs/deploy-trending.md)
 - **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). The Samsung build has
   not yet been verified on a real TV.
 - **What comes later:** [docs/backlog.md](docs/backlog.md)
@@ -56,6 +57,7 @@ The full rules are in [CLAUDE.md](CLAUDE.md). In short:
 | `apps/tv` | `@iptv/tv` | The TV app: Lightning 3 + SolidJS screens, HTML5 and AVPlay players, dev proxy. Stack notes: `apps/tv/STACK.md` |
 | `apps/companion` | `@iptv/companion` | The companion web app (SolidJS, Cloudflare Pages): pairing, sources, lists, groups, display |
 | `services/relay` | `@iptv/relay` | Cloudflare Worker + Durable Object that forwards opaque encrypted frames between one TV and one phone; stores nothing. See `services/relay/README.md` |
+| `services/trending` | `@iptv/trending` | Cloudflare Worker (cron every 6 h) that publishes the public trending feed from Wikimedia pageviews and Wikidata (CC0), TMDB as a beta-only booster; sees no user data. See `services/trending/README.md` |
 | `tools/fake-xtream` | `@iptv/fake-xtream` | Local fake provider with synthetic channels and guide at `http://127.0.0.1:8899` (`test` / `test`) |
 | `tools/tizen` | — | Samsung `.wgt` packaging (`build-wgt.mjs`, icon generator). See `tools/tizen/README.md` |
 
@@ -78,6 +80,8 @@ Requires Node 22+ and pnpm 10 (`corepack enable`). Run `pnpm install` first.
 | `pnpm relay:dev` | The companion relay, fully local (`wrangler dev`) on `127.0.0.1:8787`; never-paired sessions expire after 60 s |
 | `pnpm relay:test:int` | Relay integration checks against the running `pnpm relay:dev` (takes about a minute) |
 | `pnpm relay:deploy` | Deploys the relay to Cloudflare with the production settings (see [docs/deploy-companion.md](docs/deploy-companion.md)) |
+| `pnpm trending:dev` | The trending Worker locally (`wrangler dev`, local R2) on `127.0.0.1:8788`; its cron calls Wikimedia for real, so pass `--var CONTACT:<url>`. Not needed for the TV: `pnpm dev` serves a synthetic feed |
+| `pnpm trending:deploy` | Deploys the trending Worker (`--var CONTACT:<url>` required; see [docs/deploy-trending.md](docs/deploy-trending.md)) |
 | `pnpm companion:dev` | The companion web app dev server (http://localhost:5174) |
 | `pnpm build:companion` | Production build of the companion into `apps/companion/dist` (set `VITE_RELAY_URL`) |
 | `pnpm fake-phone '<QR URL or code>'` | Dev tool: a fake companion that pairs with the TV through the dev relay |

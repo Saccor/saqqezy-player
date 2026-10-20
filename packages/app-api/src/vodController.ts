@@ -1,6 +1,7 @@
 import {
   QUALITY_LABELS, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  buildVodSearchIndex, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
+  buildVodSearchIndex, buildTrendingIndex, matchTrending, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
+  type TrendingFeed, type TrendingIndex,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
   type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState, type VodGroup, type VodMember,
 } from '@iptv/core';
@@ -25,7 +26,11 @@ const START_ITEMS = 20;
  * One kind's Start page rows (spec §2, phase 2.5): Continue watching, Recently added (with the "See all" total) and
  * Top rated (the provider's `rating`, best first, unrated titles skipped; `topTotal` is how many titles are rated).
  */
-export interface StartVodRows { continue: VodTile[]; recent: VodTile[]; recentTotal: number; top: VodTile[]; topTotal: number }
+export interface StartVodRows {
+  continue: VodTile[]; recent: VodTile[]; recentTotal: number; top: VodTile[]; topTotal: number;
+  /** Trending titles this catalogue has, in feed order (spec 2026-10-20-trending-design §5); undefined without a feed. */
+  trending?: VodTile[];
+}
 /** Movie and series details kept in memory (most recently used). */
 export const VOD_DETAIL_CACHE = 50;
 /** "More in <category>" on the movie detail. */
@@ -55,6 +60,8 @@ export interface VodControllerDeps {
   settings?: () => Promise<{ combineDuplicates: boolean; preferredLanguages: string[] }>;
   /** The device language ("sv-SE"), for preferred languages left empty. */
   locale?: () => string | undefined;
+  /** The current trending feed of a kind (TrendingService.feed); without it Start has no trending rows. */
+  trending?: (kind: VodKind) => TrendingFeed | undefined;
 }
 
 /** How catalogues are combined for the active source (loaded once per source; dropped when the settings change). */
@@ -92,6 +99,9 @@ export class VodController {
   /** Bumped by `reset` only (not `invalidate`): the user's own state survives an invalidate but never crosses a source change. */
   private sourceEpoch = 0;
   private readonly startSnaps = new Map<VodKind, StartVodRows>();
+  private readonly trendingOf: VodControllerDeps['trending'];
+  /** The resident catalogue's trending index (its titles' grouping keys), built on the first Start snapshot. */
+  private trendIndex: { catalog: VodCatalog; groups: readonly VodGroup[]; index: TrendingIndex } | undefined;
   private resident: { kind: VodKind; catalog: VodCatalog } | undefined;
   private loading: { kind: VodKind; p: Promise<VodCatalog | undefined> } | undefined;
   protected user: Map<string, VodUserState> | undefined;
@@ -135,6 +145,7 @@ export class VodController {
     this.record = deps.record;
     this.settingsOf = deps.settings;
     this.locale = deps.locale ?? (() => undefined);
+    this.trendingOf = deps.trending;
   }
 
   reset(sourceId: string | undefined): void {
@@ -239,8 +250,29 @@ export class VodController {
       top: top.rows.map((item) => this.tile(item)),
       topTotal: top.rated,
     };
+    const feed = this.trendingOf?.(kind);
+    if (feed) snap.trending = this.trendingTiles(kind, catalog, feed);
     if (this.epoch === epoch) this.startSnaps.set(kind, snap);
     return snap;
+  }
+
+  /**
+   * The catalogue's titles the feed names, one tile per title (all its versions), feed order. Matches the grouping
+   * keys: the catalogue's own groups when titles are combined, else a grouping built once for this (one card per
+   * item stays the view; each title shows its lead version).
+   */
+  private trendingTiles(kind: VodKind, catalog: VodCatalog, feed: TrendingFeed): VodTile[] {
+    let t = this.trendIndex;
+    if (t?.catalog !== catalog) {
+      const groups = (catalog.titleGroups ?? groupVod(catalog.source)).groups;
+      t = { catalog, groups, index: buildTrendingIndex(groups) };
+      this.trendIndex = t;
+    }
+    const items = catalog.source.items;
+    return matchTrending(feed, kind, t.index, START_ITEMS).map((g) => {
+      const lead = items[t.groups[g]!.lead]!;
+      return this.tile(catalog.rowOf(lead.id) ?? lead);
+    });
   }
 
   async home(kind: VodKind): Promise<VodHome> {
@@ -621,9 +653,11 @@ export class VodController {
     p.then(forget, forget);
   }
 
+  /** Drops the Search indexes and the trending index (all three callers drop or replace the resident catalogue). */
   private dropIndexes(): void {
     this.indexes.clear();
     this.indexJob = undefined;
+    this.trendIndex = undefined;
   }
 
   async idle(): Promise<void> {

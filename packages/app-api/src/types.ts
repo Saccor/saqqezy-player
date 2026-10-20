@@ -291,7 +291,8 @@ export interface SportsEventTile {
   start: number; stop: number; channelCount: number; followed: boolean;
 }
 
-export type StartRowId = 'continue' | 'live' | 'sports' | 'newMovies' | 'newSeries' | 'topMovies' | 'topSeries';
+export type StartRowId =
+  | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newMovies' | 'newSeries' | 'topMovies' | 'topSeries';
 export type StartCell =
   | { type: 'vod'; tile: VodTile }
   | { type: 'channel'; channel: ChannelRow; last?: true }

@@ -15,6 +15,7 @@ import {
 } from './streamFormat.ts';
 import { SportsController, eventTiles } from './sportsController.ts';
 import { assembleStartHome, type StartParts } from './startHome.ts';
+import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
@@ -72,6 +73,11 @@ export interface AppApiDeps {
    * exact matches; undefined when it cannot be read.
    */
   fileHash?: (url: string) => Promise<string | undefined>;
+  /**
+   * The public trending feed (spec 2026-10-20-trending-design §4): its base URL and the fetch to read it with (a bare
+   * GET; nothing about the user is sent). Without it Start has no trending rows and nothing is ever requested.
+   */
+  trending?: { baseUrl: string; fetch: (url: string, init: RequestInit) => Promise<Response> };
 }
 
 export class AppApi {
@@ -147,6 +153,7 @@ export class AppApi {
   private readonly subtitles: SubtitleService | undefined;
   private readonly onlineSubtitles: OpenSubtitlesClient | undefined;
   private readonly fileHash: ((url: string) => Promise<string | undefined>) | undefined;
+  private readonly trending: TrendingService | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -171,11 +178,21 @@ export class AppApi {
     this.subtitles = deps.subtitles;
     this.onlineSubtitles = deps.onlineSubtitles;
     this.fileHash = deps.fileHash;
+    const uiLanguage = () => (typeof navigator === 'undefined' ? undefined : navigator.language);
+    this.trending = deps.trending?.baseUrl.trim()
+      ? new TrendingService({
+        baseUrl: deps.trending.baseUrl.trim(), fetch: deps.trending.fetch, storage: deps.storage, now: this.now,
+        // The UI has no language setting yet: the device language stands in for it.
+        language: uiLanguage, record: (where, err) => { this.record(where, err); },
+      })
+      : undefined;
+    const trending = this.trending;
     this.vodc = deps.vod
       ? new VodController({
         vod: deps.vod, emit: this.emit, record: (where, err) => this.record(where, err),
         settings: () => this.currentSettings(),
-        locale: () => (typeof navigator === 'undefined' ? undefined : navigator.language),
+        locale: uiLanguage,
+        ...(trending ? { trending: (kind: VodKind) => trending.feed(kind) } : {}),
       })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
@@ -486,6 +503,8 @@ export class AppApi {
       const last = lastId ? this.index.get(lastId) : undefined;
       const favs = this.index.slice(GROUP_FAV, 0, 30);
       const liveChans = favs.length ? favs : this.index.slice(GROUP_RECENT, 0, 30);
+      // The stored trending copies (a meta read; never waits on the network) before the VOD rows match against them.
+      await safe(() => this.trending?.prime() ?? Promise.resolve(), undefined);
       const [lastRows, liveNow, sports, movie, series] = await Promise.all([
         safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
         safe(() => this.toRows(liveChans), [] as ChannelRow[]),
@@ -500,6 +519,14 @@ export class AppApi {
       if (series) parts.newSeries = { items: series.recent, total: series.recentTotal };
       if (movie) parts.topMovies = { items: movie.top, total: movie.topTotal };
       if (series) parts.topSeries = { items: series.top, total: series.topTotal };
+      if (!this.trending) {
+        // No feed configured: known empty, so a row cached by another build never lingers.
+        parts.trendingMovies = [];
+        parts.trendingSeries = [];
+      } else {
+        if (movie?.trending) parts.trendingMovies = movie.trending;
+        if (series?.trending) parts.trendingSeries = series.trending;
+      }
       const cached = this.startCache?.sourceId === id ? this.startCache.home : await this.getStartHomeCached();
       const home = assembleStartHome(parts, this.now(), cached);
       // Switched away or deleted meanwhile: never mix sources, and persist nothing.
@@ -974,6 +1001,7 @@ export class AppApi {
       await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
     }
     await this.vodc?.idle();
+    await this.trending?.idle();
   }
 
   // ---- internals ----

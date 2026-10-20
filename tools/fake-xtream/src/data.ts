@@ -74,8 +74,9 @@ export const SERIES_GROUPS = ['Drama', 'Comedy', 'Kids'] as const;
 /** VOD fakes use the m3u8 extension so the dev player picks hls.js for the HLS test stream. */
 export const VOD_EXT = 'm3u8';
 
-export interface FakeMovie { n: number; name: string; categoryId: string; year: number; rating: string; added: number }
-export interface FakeSeries { n: number; name: string; categoryId: string; seasons: number; perSeason: number }
+/** `title`: the title number (the same for every version of a title in versions mode). */
+export interface FakeMovie { n: number; title: number; name: string; categoryId: string; year: number; rating: string; added: number }
+export interface FakeSeries { n: number; title: number; name: string; categoryId: string; seasons: number; perSeason: number }
 
 const pad = (n: number, w: number) => String(n).padStart(w, '0');
 
@@ -93,6 +94,7 @@ export function movies(count: number, now: number, versions = false): FakeMovie[
     const t = titleOf(n, versions);
     return {
       n,
+      title: t,
       name: variant(n, versions, `Synthetic Film ${pad(t, 3)} (${2000 + (t % 25)})`),
       categoryId: String((i % MOVIE_GROUPS.length) + 1),
       year: 2000 + (t % 25),
@@ -105,7 +107,7 @@ export function movies(count: number, now: number, versions = false): FakeMovie[
 export function seriesList(count: number, versions = false): FakeSeries[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
-    return { n, name: variant(n, versions, `Synthetic Series ${pad(titleOf(n, versions), 2)}`), categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
+    return { n, title: titleOf(n, versions), name: variant(n, versions, `Synthetic Series ${pad(titleOf(n, versions), 2)}`), categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
   });
 }
 

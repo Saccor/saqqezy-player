@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { assembleStartHome, START_TOP_MIN } from '../src/startHome.ts';
+import { assembleStartHome, START_TOP_MIN, START_TRENDING_MIN } from '../src/startHome.ts';
 import type { ChannelRow, SportsEventTile, StartHome, VodTile } from '../src/types.ts';
 
 const chan = (n: number): ChannelRow => ({ id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
@@ -62,5 +62,33 @@ describe('assembleStartHome', () => {
 
   test('nothing at all: no rows', () => {
     expect(assembleStartHome({ liveNow: [], sports: [] }, 1).rows).toEqual([]);
+  });
+
+  test('trending rows: after Sports, before Recently added; at least 4 tiles, at most 20, no View all', () => {
+    const many = (from: number, n: number) => Array.from({ length: n }, (_, i) => vod(from + i));
+    const h = assembleStartHome({
+      liveNow: [chan(1)], sports: [ev(1)],
+      newMovies: { items: many(100, 3), total: 3 },
+      trendingMovies: many(500, 25), trendingSeries: many(600, START_TRENDING_MIN),
+    }, 3);
+    expect(h.rows.map((r) => [r.id, r.title])).toEqual([
+      ['live', 'Live now'], ['sports', 'Sports in your guide'],
+      ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'], ['newMovies', 'Recently added movies'],
+    ]);
+    expect(h.rows[2]!.cells).toHaveLength(20);
+    expect(h.rows[2]!.cells.every((c) => c.type === 'vod')).toBe(true);
+    expect(h.rows[3]!.cells).toHaveLength(START_TRENDING_MIN);
+
+    const few = assembleStartHome({ liveNow: [], sports: [], trendingMovies: many(1, START_TRENDING_MIN - 1), trendingSeries: [] }, 4);
+    expect(few.rows).toEqual([]);
+  });
+
+  test('unknown trending parts keep the cached rows; known short ones drop them', () => {
+    const cached: StartHome = { at: 1, rows: [
+      { id: 'trendingMovies', title: 'Trending movies', cells: [{ type: 'vod', tile: vod(7) }] },
+      { id: 'trendingSeries', title: 'Trending series', cells: [{ type: 'vod', tile: vod(8) }] },
+    ] };
+    expect(assembleStartHome({ liveNow: [], sports: [] }, 2, cached).rows.map((r) => r.id)).toEqual(['trendingMovies', 'trendingSeries']);
+    expect(assembleStartHome({ liveNow: [], sports: [], trendingMovies: [], trendingSeries: [vod(1)] }, 2, cached).rows).toEqual([]);
   });
 });

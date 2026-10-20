@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   SourceService, VodCatalog, VodService,
-  type Episode, type FetchFn, type Season, type VodItem, type VodKind, type VodList, type VodUserRecord, type VodUserState,
+  type Episode, type FetchFn, type Season, type TrendingFeed, type VodItem, type VodKind, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -1380,5 +1380,60 @@ describe('VodController.startRows', () => {
     c.reset(sourceId);
     expect(await p).toBeUndefined();
     expect(await c.startRows('movie')).toBeUndefined();
+  });
+});
+
+describe('VodController.startRows trending', () => {
+  const feed = (kind: VodKind, items: { tmdb?: number; year?: number; titles: string[] }[]): TrendingFeed =>
+    ({ v: 1, kind, lang: 'en', at: '2026-10-20T00:00:00Z', items: items.map((it, i) => ({ rank: i + 1, wd: `Q${900_000 + i}`, ...it })) });
+
+  async function withFeed(feeds: Partial<Record<VodKind, TrendingFeed>>, settings?: { combineDuplicates: boolean; preferredLanguages: string[] }) {
+    const deps = { storage, fetch: fetchFn, now: () => NOW, fallbackGapMs: 0 };
+    const sources = new SourceService(deps);
+    const vod = new VodService(deps);
+    const { source } = await sources.addSource({ kind: 'xtream', name: 'Fake', server: server.url, username: 'test', password: 'test' });
+    const asked: VodKind[] = [];
+    const c = new VodController({
+      vod, emit: () => undefined, record: (_w, err) => (err instanceof Error ? err : new Error(String(err))),
+      ...(settings ? { settings: async () => settings } : {}),
+      trending: (kind) => { asked.push(kind); return feeds[kind]; },
+    });
+    c.reset(source.id);
+    return { c, asked };
+  }
+
+  test('the library\'s own tiles in feed order; titles it does not have never appear', async () => {
+    const { c } = await withFeed({
+      movie: feed('movie', [
+        { year: 2003, titles: ['Synthetic Film 003'] },
+        { year: 2030, titles: ['Synthetic Absent Film'] },
+        { year: 2002, titles: ['Synthetic Film 001'] }, // one year off: 001 is from 2001
+        { year: 2005, titles: ['Synthetic Film 005'] },
+      ]),
+    });
+    await c.home('movie');
+    await c.idle();
+    await c.home('movie');
+    const rows = (await c.startRows('movie'))!;
+    expect(rows.trending!.map((t) => t.title)).toEqual(['Synthetic Film 003', 'Synthetic Film 001', 'Synthetic Film 005']);
+    expect(rows.trending![0]!.poster).toMatch(/\/poster\/m3\.svg$/);
+  });
+
+  test('combined titles: one tile per title, its clean name and its versions', async () => {
+    const { c } = await withFeed({ movie: feed('movie', [{ year: 2003, titles: ['Synthetic Film 003'] }]) },
+      { combineDuplicates: true, preferredLanguages: [] });
+    await c.home('movie');
+    await c.idle();
+    await c.home('movie');
+    const rows = (await c.startRows('movie'))!;
+    expect(rows.trending!.map((t) => t.title)).toEqual(['Synthetic Film 003']);
+  });
+
+  test('no movie feed: no trending part for movies (the cached row stays)', async () => {
+    const { c } = await withFeed({ series: feed('series', [{ titles: ['Synthetic Film 003'] }]) });
+    await c.home('movie');
+    await c.idle();
+    await c.home('movie');
+    expect((await c.startRows('movie'))!.trending).toBeUndefined();
   });
 });
