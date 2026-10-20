@@ -39,6 +39,8 @@ export function Keyboard(props: {
   onToggleReveal?: () => void;
   /** Called when Right is pressed on the rightmost key (inline use: move focus to a neighbouring list). */
   onEdgeRight?: () => void;
+  /** Called when Left is pressed on the leftmost key (inline use: move focus to the rail). */
+  onEdgeLeft?: () => void;
   /** Called when Up is pressed on the top row (inline use: move focus to a field above). */
   onEdgeUp?: () => void;
   /** Replaces the default footer hint. */
@@ -110,7 +112,7 @@ export function Keyboard(props: {
   return (
     <View ref={(el) => { root = el; props.ref?.(el); }} x={props.x} y={props.y} width={L.width} height={L.height} zIndex={30}
       color={COLORS.surface} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.muted }}
-      onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => move('left')}
+      onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => moveOrEdge('left', props.onEdgeLeft)}
       onRight={() => moveOrEdge('right', props.onEdgeRight)}
       onEnter={() => {
         const c = cursor();

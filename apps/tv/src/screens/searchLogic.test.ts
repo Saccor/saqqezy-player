@@ -1,24 +1,27 @@
 import type { ChannelRow, SearchResult, VodTile } from '@iptv/app-api';
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 import {
-  countText,
-  laterRoute,
-  listTop,
+  channelToPlay,
+  clampSearchFocus,
   createSearchMemory,
   createSearcher,
-  flattenResults,
+  focusedCell,
   GUIDE_PENDING_NOTE,
-  isSelectable,
-  listRows,
-  nextFocus,
+  laterRoute,
+  moveSearch,
+  NO_ROWS,
+  pendingNotes,
+  programmeContext,
   rerunsSearch,
   resultsMessage,
-  scrollAnchor,
-  selectableCount,
-  vodLine,
-  vodRoute,
+  searchRows,
+  settleFocus,
   VOD_PENDING_NOTE,
-  type SearchRow,
+  VOD_ROW_LABEL,
+  vodRoute,
+  vodRowModel,
+  type LiveCell,
+  type SearchRows,
   type SearchState,
 } from './searchLogic.ts';
 
@@ -31,15 +34,14 @@ const result = (over: Partial<SearchResult> = {}): SearchResult => ({
 const tile = (kind: 'movie' | 'series', n: number, extra: Partial<VodTile> = {}): VodTile => ({
   id: `s:${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false, ...extra,
 });
-const chRow = (n: number): SearchRow => ({ kind: 'channel', channel: row(n) });
 
 describe('createSearcher', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
   const setup = (run: (q: string) => Promise<string[]>) => {
-    const states: SearchState<string>[] = [];
-    const s = createSearcher(run, (st) => states.push(st));
+    const states: SearchState<string[]>[] = [];
+    const s = createSearcher(run, (st) => states.push(st), { empty: [] });
     return { s, states, last: () => states[states.length - 1]! };
   };
 
@@ -102,112 +104,143 @@ describe('createSearcher', () => {
   });
 });
 
-describe('flattenResults', () => {
-  test('sections in order with headers; empty sections omitted', () => {
-    const rows = flattenResults(result({
-      channels: [row(1)],
-      later: [{ title: 'Later Show', channel: row(2), start: 2, stop: 3, more: 0 }],
-    }));
-    expect(rows.map((r) => r.kind)).toEqual(['header', 'channel', 'header', 'later']);
-    expect(rows[0]).toEqual({ kind: 'header', label: 'Channels' });
-    expect(rows[2]).toEqual({ kind: 'header', label: 'Coming up' });
+describe('searchRows', () => {
+  const now = (n: number) => ({ channel: row(n), title: `Now ${n}`, start: 0, stop: 1 });
+  const later = (n: number) => ({ title: `Later ${n}`, channel: row(n), start: 2, stop: 3, more: 0 });
+
+  test('movies before series in the VOD row', () => {
+    const r = searchRows(result({ movies: [tile('movie', 1), tile('movie', 2)], series: [tile('series', 1)] }));
+    expect(r.vod).toEqual([tile('movie', 1), tile('movie', 2), tile('series', 1)]);
+    expect(r.live).toEqual([]);
   });
 
-  test('on now sits between channels and coming up', () => {
-    const rows = flattenResults(result({
-      channels: [row(1)],
-      onNow: [{ channel: row(3), title: 'Now Show', start: 0, stop: 1 }],
-      later: [{ title: 'Later Show', channel: row(2), start: 2, stop: 3, more: 1 }],
-    }));
-    expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'On now', 'Coming up']);
-  });
-
-  test('movies and series follow channels, before the programme sections', () => {
-    const rows = flattenResults(result({
-      channels: [row(1)],
-      movies: [tile('movie', 1), tile('movie', 2)],
-      series: [tile('series', 1)],
-      onNow: [{ channel: row(3), title: 'Now Show', start: 0, stop: 1 }],
-    }));
-    expect(rows.filter((r) => r.kind === 'header').map((r) => (r as { label: string }).label)).toEqual(['Channels', 'Movies', 'Series', 'On now']);
-    expect(rows.map((r) => r.kind)).toEqual(['header', 'channel', 'header', 'vod', 'vod', 'header', 'vod', 'header', 'onNow']);
-    expect(rows[3]).toEqual({ kind: 'vod', tile: tile('movie', 1) });
-    expect(rows.map(isSelectable)).toEqual([false, true, false, true, true, false, true, false, true]);
-  });
-
-  test('a pending movie and series index adds its note (after the guide one)', () => {
-    expect(flattenResults(result({ channels: [row(1)], vodPending: true })).at(-1)).toEqual({ kind: 'note', label: VOD_PENDING_NOTE });
-    expect(flattenResults(result({ guidePending: true, vodPending: true }))).toEqual([
-      { kind: 'note', label: GUIDE_PENDING_NOTE }, { kind: 'note', label: VOD_PENDING_NOTE },
+  test('channels, then on now, then later in the live row', () => {
+    const r = searchRows(result({ channels: [row(1)], onNow: [now(2)], later: [later(3)] }));
+    expect(r.live).toEqual([
+      { type: 'channel', channel: row(1) },
+      { type: 'programme', when: 'onNow', hit: now(2) },
+      { type: 'programme', when: 'later', hit: later(3) },
     ]);
+    expect(r.vod).toEqual([]);
   });
 
-  test('pending note after the results, and on its own when nothing is selectable', () => {
-    expect(flattenResults(result({ channels: [row(1)], guidePending: true })).at(-1)).toEqual({ kind: 'note', label: GUIDE_PENDING_NOTE });
-    expect(flattenResults(result({ guidePending: true }))).toEqual([{ kind: 'note', label: GUIDE_PENDING_NOTE }]);
-    expect(flattenResults(result({}))).toEqual([]);
+  test('carries the pending flags', () => {
+    expect(searchRows(result({ guidePending: true }))).toEqual({ vod: [], live: [], guidePending: true, vodPending: false });
+    expect(searchRows(result({ vodPending: true })).vodPending).toBe(true);
+    expect(searchRows(result())).toEqual(NO_ROWS);
   });
 
-  test('listRows shows rows only when something is selectable', () => {
-    const lone = flattenResults(result({ guidePending: true }));
-    expect(listRows(lone)).toEqual([]);
-    const some = flattenResults(result({ channels: [row(1)], guidePending: true }));
-    expect(listRows(some)).toBe(some);
+  test('pending notes: the guide first, then movies and series', () => {
+    expect(pendingNotes(searchRows(result({ guidePending: true, vodPending: true })))).toEqual([GUIDE_PENDING_NOTE, VOD_PENDING_NOTE]);
+    expect(pendingNotes(searchRows(result({ vodPending: true })))).toEqual([VOD_PENDING_NOTE]);
+    expect(pendingNotes(NO_ROWS)).toEqual([]);
   });
 
-  test('selectable rows exclude headers and notes', () => {
-    const rows = flattenResults(result({ channels: [row(1), row(2)], guidePending: true }));
-    expect(rows.map(isSelectable)).toEqual([false, true, true, false]);
-    expect(selectableCount(rows)).toBe(2);
-    expect(isSelectable(undefined)).toBe(false);
+  test('the VOD row as a poster row model: loaded, no View all', () => {
+    const r = searchRows(result({ movies: [tile('movie', 1)], series: [tile('series', 1)] }));
+    expect(vodRowModel(r)).toEqual({ id: 'search-vod', title: VOD_ROW_LABEL, total: 2, items: r.vod, loaded: true });
+  });
+
+  test('the focused cell of each row', () => {
+    const r = searchRows(result({ channels: [row(1)], movies: [tile('movie', 1)] }));
+    expect(focusedCell(r, { area: 'vod', col: 0 })).toEqual({ type: 'vod', tile: tile('movie', 1) });
+    expect(focusedCell(r, { area: 'live', col: 0 })).toEqual({ type: 'channel', channel: row(1) });
+    expect(focusedCell(r, { area: 'live', col: 5 })).toBeUndefined();
+    expect(focusedCell(r, { area: 'keyboard', col: 0 })).toBeUndefined();
   });
 });
 
-describe('nextFocus', () => {
-  const later = (n: number) => ({ title: `Show ${n}`, channel: row(n), start: 2, stop: 3, more: 0 });
-  // Full answer: header, 3 channels, header, 20 coming-up rows (rows 0..25).
-  const full = flattenResults(result({ channels: [row(1), row(2), row(3)], later: Array.from({ length: 20 }, (_, i) => later(i + 10)) }));
-  // The same query while the guide index is loading: channels and the pending note only.
-  const pending = flattenResults(result({ channels: [row(1), row(2), row(3)], guidePending: true }));
-  const base = { returning: false, memoryFocus: 0, prevFocus: 0, query: 'sh', settledQuery: '', viewRows: 9 };
+describe('programmeContext', () => {
+  const at = (h: number, m = 0, day = 20) => new Date(2026, 9, day, h, m).getTime();
+  test('on now: the time range and the channel', () => {
+    const c: LiveCell = { type: 'programme', when: 'onNow', hit: { channel: row(4), title: 'X', start: at(20), stop: at(21, 30) } };
+    expect(programmeContext(c, at(20, 10))).toBe('20:00–21:30 · Channel 4');
+  });
+  test('later: the day and start time, the channel, and further airings', () => {
+    const hit = { channel: row(5), title: 'Y', start: at(9, 5, 21), stop: at(10, 0, 21), more: 0 };
+    expect(programmeContext({ type: 'programme', when: 'later', hit }, at(20))).toBe('Tomorrow 09:05 · Channel 5');
+    expect(programmeContext({ type: 'programme', when: 'later', hit: { ...hit, more: 2 } }, at(20))).toBe('Tomorrow 09:05 · Channel 5 · +2 more');
+  });
+});
 
-  it('a fresh query goes to the first selectable row at the top', () => {
-    expect(nextFocus({ ...base, rows: full, prevFocus: 7 })).toEqual({ focus: 1, top: 0, consumeReturning: false, focusList: false });
+describe('moveSearch', () => {
+  const both = searchRows(result({ movies: [tile('movie', 1), tile('movie', 2), tile('movie', 3)], channels: [row(1), row(2)] }));
+  const liveOnly = searchRows(result({ channels: [row(1), row(2)] }));
+  const vodOnly = searchRows(result({ movies: [tile('movie', 1)] }));
+
+  test('Left and Right move along a row and stop at its end', () => {
+    expect(moveSearch({ area: 'vod', col: 1 }, 'right', both)).toEqual({ area: 'vod', col: 2 });
+    expect(moveSearch({ area: 'vod', col: 2 }, 'right', both)).toEqual({ area: 'vod', col: 2 });
+    expect(moveSearch({ area: 'vod', col: 2 }, 'left', both)).toEqual({ area: 'vod', col: 1 });
   });
 
-  it('a plain re-run of the same query keeps the focused row and the scroll', () => {
-    expect(nextFocus({ ...base, rows: full, prevFocus: 7, settledQuery: 'sh' })).toEqual({ focus: 7, consumeReturning: false, focusList: false });
+  test('Up and Down move between non-empty rows, keeping the column where it fits', () => {
+    expect(moveSearch({ area: 'vod', col: 1 }, 'down', both)).toEqual({ area: 'live', col: 1 });
+    expect(moveSearch({ area: 'vod', col: 2 }, 'down', both)).toEqual({ area: 'live', col: 1 });
+    expect(moveSearch({ area: 'live', col: 0 }, 'up', both)).toEqual({ area: 'vod', col: 0 });
+    expect(moveSearch({ area: 'vod', col: 0 }, 'up', both)).toEqual({ area: 'vod', col: 0 });
+    expect(moveSearch({ area: 'live', col: 1 }, 'down', both)).toEqual({ area: 'live', col: 1 });
+  });
+
+  test('an empty row is skipped: Up and Down stay put', () => {
+    expect(moveSearch({ area: 'live', col: 1 }, 'up', liveOnly)).toEqual({ area: 'live', col: 1 });
+    expect(moveSearch({ area: 'vod', col: 0 }, 'down', vodOnly)).toEqual({ area: 'vod', col: 0 });
+  });
+
+  test('Left at column 0 goes to the keyboard', () => {
+    expect(moveSearch({ area: 'vod', col: 0 }, 'left', both)).toBe('keyboard');
+    expect(moveSearch({ area: 'live', col: 0 }, 'left', both)).toBe('keyboard');
+  });
+
+  test("the keyboard's right edge goes to the first non-empty row; its left edge to the rail", () => {
+    expect(moveSearch({ area: 'keyboard', col: 0 }, 'right', both)).toEqual({ area: 'vod', col: 0 });
+    expect(moveSearch({ area: 'keyboard', col: 0 }, 'right', liveOnly)).toEqual({ area: 'live', col: 0 });
+    expect(moveSearch({ area: 'keyboard', col: 0 }, 'right', NO_ROWS)).toBe('keyboard');
+    expect(moveSearch({ area: 'keyboard', col: 0 }, 'left', both)).toBe('rail');
+  });
+});
+
+describe('clampSearchFocus', () => {
+  const liveOnly = searchRows(result({ channels: [row(1), row(2)] }));
+  test('a focus on a row that emptied moves to the other row, or to the keyboard', () => {
+    expect(clampSearchFocus({ area: 'vod', col: 3 }, liveOnly)).toEqual({ area: 'live', col: 1 });
+    expect(clampSearchFocus({ area: 'live', col: 1 }, NO_ROWS)).toEqual({ area: 'keyboard', col: 0 });
+    expect(clampSearchFocus({ area: 'live', col: 9 }, liveOnly)).toEqual({ area: 'live', col: 1 });
+    expect(clampSearchFocus({ area: 'keyboard', col: 0 }, liveOnly)).toEqual({ area: 'keyboard', col: 0 });
+  });
+});
+
+describe('settleFocus', () => {
+  const later = (n: number) => ({ title: `S${n}`, channel: row(n + 10), start: 2, stop: 3, more: 0 });
+  const full = searchRows(result({ movies: [tile('movie', 1)], channels: [row(1), row(2), row(3)], later: [0, 1, 2, 3, 4].map(later) }));
+  const pending = searchRows(result({ channels: [row(1), row(2), row(3)], guidePending: true }));
+  const base = {
+    returning: false, memory: { area: 'live' as const, col: 6 }, current: { area: 'keyboard' as const, col: 0 }, query: 'sh', settledQuery: '',
+  };
+
+  it('a new query keeps the keyboard focused', () => {
+    expect(settleFocus({ ...base, rows: full })).toEqual({ focus: { area: 'keyboard', col: 0 }, consumeReturning: false });
+  });
+
+  it('a new query while in a row starts that row at column 0', () => {
+    expect(settleFocus({ ...base, rows: full, current: { area: 'live', col: 4 } })).toEqual({ focus: { area: 'live', col: 0 }, consumeReturning: false });
+  });
+
+  it('a re-run of the same query keeps the focused cell', () => {
+    expect(settleFocus({ ...base, rows: full, current: { area: 'live', col: 4 }, settledQuery: 'sh' }))
+      .toEqual({ focus: { area: 'live', col: 4 }, consumeReturning: false });
+  });
+
+  it('returning restores the saved area and column at once on a full answer', () => {
+    expect(settleFocus({ ...base, rows: full, returning: true })).toEqual({ focus: { area: 'live', col: 6 }, consumeReturning: true });
   });
 
   it('a pending answer while returning sets a provisional focus and keeps returning', () => {
-    const d = nextFocus({ ...base, rows: pending, returning: true, memoryFocus: 20, settledQuery: '' });
-    expect(d.consumeReturning).toBe(false);
-    expect(d.focus).toBe(3);
-    expect(d.focusList).toBe(true);
+    expect(settleFocus({ ...base, rows: pending, returning: true })).toEqual({ focus: { area: 'live', col: 2 }, consumeReturning: false });
   });
 
-  it('the full answer after a pending one restores the saved row exactly', () => {
-    const provisional = nextFocus({ ...base, rows: pending, returning: true, memoryFocus: 20 });
-    const d = nextFocus({ ...base, rows: full, returning: true, memoryFocus: 20, prevFocus: provisional.focus, settledQuery: 'sh' });
-    expect(d).toEqual({ focus: 20, top: 12, consumeReturning: true, focusList: true });
-  });
-
-  it('a full answer while returning restores at once', () => {
-    expect(nextFocus({ ...base, rows: full, returning: true, memoryFocus: 6 })).toEqual({ focus: 6, top: 0, consumeReturning: true, focusList: true });
-  });
-
-  it('an answer still waiting for movies and series only sets a provisional focus too', () => {
-    const vodPending = flattenResults(result({ channels: [row(1), row(2), row(3)], vodPending: true }));
-    const d = nextFocus({ ...base, rows: vodPending, returning: true, memoryFocus: 20 });
-    expect(d.consumeReturning).toBe(false);
-    expect(d.focus).toBe(3);
-  });
-
-  it('an empty or failed answer is safe and keeps returning', () => {
-    expect(nextFocus({ ...base, rows: [] })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
-    expect(nextFocus({ ...base, rows: [], returning: true, memoryFocus: 20 })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
-    const lone = flattenResults(result({ guidePending: true }));
-    expect(nextFocus({ ...base, rows: lone, returning: true, memoryFocus: 20, settledQuery: 'sh' })).toEqual({ focus: 0, top: 0, consumeReturning: false, focusList: false });
+  it('an empty answer while returning keeps the current focus and keeps returning', () => {
+    expect(settleFocus({ ...base, rows: NO_ROWS, returning: true })).toEqual({ focus: { area: 'keyboard', col: 0 }, consumeReturning: false });
   });
 });
 
@@ -220,50 +253,53 @@ describe('rerunsSearch', () => {
 });
 
 describe('resultsMessage', () => {
-  const st = (p: Partial<SearchState<SearchRow>>): SearchState<SearchRow> => ({ query: 'xyz', results: [], busy: false, failed: false, ...p });
+  const st = (p: Partial<SearchState<SearchRows>>): SearchState<SearchRows> => ({ query: 'xyz', results: NO_ROWS, busy: false, failed: false, ...p });
   it('covers each state', () => {
     expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels, programmes, movies and series');
     expect(resultsMessage(st({ busy: true }))).toBe('Searching…');
     expect(resultsMessage(st({}))).toBe('Nothing matches "xyz"');
-    expect(resultsMessage(st({ results: [chRow(1)] }))).toBeUndefined();
+    expect(resultsMessage(st({ results: searchRows(result({ channels: [row(1)] })) }))).toBeUndefined();
+    expect(resultsMessage(st({ results: searchRows(result({ movies: [tile('movie', 1)] })) }))).toBeUndefined();
     expect(resultsMessage(st({ failed: true }))).toBe("Couldn't search right now.");
   });
 
   it('says the guide is being prepared when nothing matches yet and the guide is pending', () => {
-    const pending = flattenResults(result({ guidePending: true }));
+    const pending = searchRows(result({ guidePending: true }));
     expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Guide results are being prepared');
     expect(resultsMessage(st({ results: pending, busy: true }))).toBe('Searching…');
-    expect(resultsMessage(st({ results: flattenResults(result({ channels: [row(1)], guidePending: true })) }))).toBeUndefined();
+    expect(resultsMessage(st({ results: searchRows(result({ channels: [row(1)], guidePending: true })) }))).toBeUndefined();
   });
 
   it('says movies and series are being prepared when only they are pending', () => {
-    const pending = flattenResults(result({ vodPending: true }));
-    expect(resultsMessage(st({ results: pending }))).toBe('No channels match "xyz" · Movies and series are being prepared');
-    expect(resultsMessage(st({ results: flattenResults(result({ guidePending: true, vodPending: true })) })))
+    expect(resultsMessage(st({ results: searchRows(result({ vodPending: true })) }))).toBe('No channels match "xyz" · Movies and series are being prepared');
+    expect(resultsMessage(st({ results: searchRows(result({ guidePending: true, vodPending: true })) })))
       .toBe('No channels match "xyz" · Guide results are being prepared');
   });
 });
 
-describe('movie and series rows', () => {
-  test('Ok opens the detail screen of the kind with the tile', () => {
+describe('what Ok does', () => {
+  test('a movie or series opens the detail screen of its kind with the tile', () => {
     const m = tile('movie', 1);
     const s = tile('series', 2);
-    expect(vodRoute({ kind: 'vod', tile: m })).toEqual({ screen: 'movieDetail', params: { id: m.id, tile: m } });
-    expect(vodRoute({ kind: 'vod', tile: s })).toEqual({ screen: 'seriesDetail', params: { id: s.id, tile: s } });
-    expect(vodRoute({ kind: 'channel', channel: row(1) })).toBeUndefined();
+    expect(vodRoute({ type: 'vod', tile: m })).toEqual({ screen: 'movieDetail', params: { id: m.id, tile: m } });
+    expect(vodRoute({ type: 'vod', tile: s })).toEqual({ screen: 'seriesDetail', params: { id: s.id, tile: s } });
+    expect(vodRoute({ type: 'channel', channel: row(1) })).toBeUndefined();
     expect(vodRoute(undefined)).toBeUndefined();
   });
 
-  test('a coming-up row returns to Live TV at that channel and time; other rows do not', () => {
+  test('a coming-up programme returns to Live TV at that channel and time; other cells do not', () => {
     const hit = { title: 'Later Show', channel: row(7), start: 1_700_000_000_000, stop: 1_700_000_360_000, more: 0 };
-    expect(laterRoute({ kind: 'later', hit })).toEqual({ screen: 'home', params: { channelId: 's:7', at: 1_700_000_000_000 } });
-    expect(laterRoute({ kind: 'channel', channel: row(1) })).toBeUndefined();
+    expect(laterRoute({ type: 'programme', when: 'later', hit })).toEqual({ screen: 'home', params: { channelId: 's:7', at: 1_700_000_000_000 } });
+    expect(laterRoute({ type: 'channel', channel: row(1) })).toBeUndefined();
     expect(laterRoute(undefined)).toBeUndefined();
   });
 
-  test('a compact line: title, then year when known', () => {
-    expect(vodLine(tile('movie', 1, { year: 2004 }))).toBe('Synthetic movie 1 · 2004');
-    expect(vodLine(tile('series', 1))).toBe('Synthetic series 1');
+  test('a channel or an on-now programme plays its channel', () => {
+    expect(channelToPlay({ type: 'channel', channel: row(1) })).toEqual(row(1));
+    expect(channelToPlay({ type: 'programme', when: 'onNow', hit: { channel: row(2), title: 'N', start: 0, stop: 1 } })).toEqual(row(2));
+    expect(channelToPlay({ type: 'programme', when: 'later', hit: { channel: row(3), title: 'L', start: 0, stop: 1, more: 0 } })).toBeUndefined();
+    expect(channelToPlay({ type: 'vod', tile: tile('movie', 1) })).toBeUndefined();
+    expect(channelToPlay(undefined)).toBeUndefined();
   });
 });
 
@@ -272,8 +308,8 @@ describe('stable results while searching', () => {
   afterEach(() => vi.useRealTimers());
 
   it('keeps the previous results visible while the next query is busy', async () => {
-    const states: SearchState<string>[] = [];
-    const s = createSearcher(async (q: string) => [`${q}-hit`], (st) => states.push(st));
+    const states: SearchState<string[]>[] = [];
+    const s = createSearcher(async (q: string) => [`${q}-hit`], (st) => states.push(st), { empty: [] });
     s.setQuery('a');
     vi.advanceTimersByTime(150);
     await flush();
@@ -283,71 +319,40 @@ describe('stable results while searching', () => {
     await flush();
     expect(states[states.length - 1]).toEqual({ query: 'ab', results: ['ab-hit'], busy: false, failed: false });
   });
-
-  it('countText shows a subtle Searching… while busy, otherwise the count', () => {
-    expect(countText({ query: 'a', results: [chRow(1)], busy: true, failed: false })).toBe('Searching…');
-    expect(countText({ query: 'a', results: [], busy: true, failed: false })).toBe('');
-    expect(countText({ query: 'a', results: [chRow(1)], busy: false, failed: false })).toBe('1 result');
-    expect(countText({ query: 'a', results: [chRow(1), chRow(2)], busy: false, failed: false })).toBe('2 results');
-    expect(countText({ query: '', results: [], busy: false, failed: false })).toBe('');
-  });
-
-  it('countText counts selectable rows only, not headers or notes', () => {
-    const rows: SearchRow[] = [{ kind: 'header', label: 'Channels' }, chRow(1), { kind: 'note', label: GUIDE_PENDING_NOTE }];
-    expect(countText({ query: 'a', results: rows, busy: false, failed: false })).toBe('1 result');
-  });
 });
 
 describe('search memory', () => {
-  it('Back to the previous screen forgets the query and the returning flag', () => {
-    const m = createSearchMemory();
-    m.query = 'abc'; m.focus = 4; m.returning = true;
-    m.leaveBack();
-    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: '', focus: 0, returning: false });
-  });
-
-  it('going to the Player or Guide keeps the query, the focused row and sets returning', () => {
+  it('Back to the previous screen forgets the query, the position and the returning flag', () => {
     const m = createSearchMemory();
     m.query = 'abc';
-    m.leaveTo(3);
-    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 3, returning: true });
+    m.leaveTo({ area: 'live', col: 4 });
+    m.leaveBack();
+    expect({ query: m.query, area: m.area, col: m.col, returning: m.returning }).toEqual({ query: '', area: 'keyboard', col: 0, returning: false });
+  });
+
+  it('opening a result keeps the query, the area and the column, and sets returning (round trip)', () => {
+    const m = createSearchMemory();
+    m.query = 'abc';
+    m.leaveTo({ area: 'vod', col: 3 });
+    expect({ query: m.query, area: m.area, col: m.col, returning: m.returning }).toEqual({ query: 'abc', area: 'vod', col: 3, returning: true });
+    const rows = searchRows(result({ movies: [1, 2, 3, 4, 5].map((n) => tile('movie', n)) }));
+    const d = settleFocus({
+      rows, returning: m.returning, memory: { area: m.area, col: m.col }, current: { area: 'keyboard', col: 0 }, query: 'abc', settledQuery: '',
+    });
+    expect(d).toEqual({ focus: { area: 'vod', col: 3 }, consumeReturning: true });
   });
 
   it('a key handled in the results cancels a pending restore, so the user position wins', () => {
     const m = createSearchMemory();
     m.query = 'abc';
-    m.leaveTo(20);
+    m.leaveTo({ area: 'live', col: 2 });
     m.userNavigated();
-    expect({ query: m.query, focus: m.focus, returning: m.returning }).toEqual({ query: 'abc', focus: 20, returning: false });
-    // The following full answer then keeps the user's row (a plain re-run), not the saved one.
-    const rows = flattenResults(result({ channels: [row(1), row(2), row(3)] }));
-    const d = nextFocus({ rows, returning: m.returning, memoryFocus: m.focus, prevFocus: 2, query: 'abc', settledQuery: 'abc', viewRows: 9 });
-    expect(d.focus).toBe(2);
-    expect(d.consumeReturning).toBe(false);
+    expect(m.returning).toBe(false);
+    const rows = searchRows(result({ channels: [row(1), row(2), row(3)] }));
+    const d = settleFocus({
+      rows, returning: m.returning, memory: { area: m.area, col: m.col }, current: { area: 'live', col: 1 }, query: 'abc', settledQuery: 'abc',
+    });
+    expect(d).toEqual({ focus: { area: 'live', col: 1 }, consumeReturning: false });
   });
 });
 
-describe('scrollAnchor and listTop', () => {
-  const hdr = (label: string): SearchRow => ({ kind: 'header', label });
-  const rows: SearchRow[] = [hdr('Channels'), chRow(1), chRow(2), chRow(3), hdr('On now'), chRow(4), chRow(5)];
-
-  it('anchors on the header just above the focused row', () => {
-    expect(scrollAnchor(rows, 1)).toBe(0);
-    expect(scrollAnchor(rows, 5)).toBe(4);
-  });
-  it('anchors on the row itself when no header sits above it', () => {
-    expect(scrollAnchor(rows, 2)).toBe(2);
-    expect(scrollAnchor(rows, 0)).toBe(0);
-  });
-  it('scrolling up reveals the header above the first row of a section', () => {
-    expect(listTop(rows, 1, 1, 3)).toBe(0);
-    expect(listTop(rows, 5, 5, 3)).toBe(4);
-  });
-  it('scrolling down keeps the focused row visible and never passes the end', () => {
-    expect(listTop(rows, 6, 0, 3)).toBe(4);
-    expect(listTop(rows, 3, 0, 3)).toBe(1);
-  });
-  it('does not move when the focus is inside the window', () => {
-    expect(listTop(rows, 2, 1, 3)).toBe(1);
-  });
-});

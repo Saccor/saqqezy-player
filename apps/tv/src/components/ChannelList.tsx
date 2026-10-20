@@ -14,18 +14,15 @@ export const ROW_H = 84;
 const NUM_W = 76;
 const LOGO_W = 104;
 const LOGO_H = 60;
-export const NUM_W_PX = NUM_W;
-export const LOGO_W_PX = LOGO_W;
-export const LOGO_H_PX = LOGO_H;
-export const BAR_H = 4;
-export const ROW_FOCUS_FILL = COLORS.focus;
-export const TRACK = COLORS.track;
+const BAR_H = 4;
+const ROW_FOCUS_FILL = COLORS.focus;
+const TRACK = COLORS.track;
 /** The `⋯` options button at the right end of the hovered row (pointer mode). */
 const DOTS_W = ROW_OPTIONS_W;
 const DOTS_H = ROW_OPTIONS_H;
 const DOTS_PAD = ROW_OPTIONS_PAD;
 
-export function Logo(props: { x: number; y: number; url: string | undefined; number: number; focused: boolean }) {
+function Logo(props: { x: number; y: number; url: string | undefined; number: number; focused: boolean }) {
   // The tile outlives the row it was mounted for (rows are re-used while scrolling and refetched on the tick), so a
   // failed load is remembered by URL: that URL shows the number tile, the next channel's logo loads as usual.
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
@@ -49,7 +46,7 @@ export function Logo(props: { x: number; y: number; url: string | undefined; num
 }
 
 /** One channel row (number, logo, name, now line, progress), positioned by the caller. */
-export function ChannelRowView(props: {
+function ChannelRowView(props: {
   y: number; width: number; row: ChannelRow | undefined; lit: boolean; isFocus: boolean;
   now: number; playingId: string | undefined; showNext?: boolean;
   /** The pointer is over the row (pointer mode): a subtle fill, never focus. */
