@@ -1,4 +1,4 @@
-import { MAX_PROGRAMME_MS, type Channel, type Programme, type SourceConfig, type Storage, type VodKind, type VodList, type VodUserRecord, type VodUserState } from '@iptv/core';
+import { MAX_PROGRAMME_MS, type Channel, type Programme, type SourceConfig, type Storage, type SyncMetaEntry, type VodKind, type VodList, type VodUserRecord, type VodUserState } from '@iptv/core';
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -9,6 +9,7 @@ export class MemoryStorage implements Storage {
   private programmes = new Map<string, Programme[]>();
   private vod = new Map<string, VodList>();
   private vodUser = new Map<string, Map<string, VodUserState>>();
+  private syncMeta = new Map<string, Map<string, unknown>>();
 
   async listSources() { return [...this.sources.values()].map(clone); }
   async putSource(source: SourceConfig) { this.sources.set(source.id, clone(source)); }
@@ -20,6 +21,7 @@ export class MemoryStorage implements Storage {
     for (const key of [...this.meta.keys()]) if (key.endsWith(`:${id}`)) this.meta.delete(key);
     for (const key of [...this.vod.keys()]) if (key.startsWith(`${id}\u0000`)) this.vod.delete(key);
     this.vodUser.delete(id);
+    this.syncMeta.delete(id);
   }
 
   async getChannels(sourceId: string) { return clone(this.channels.get(sourceId) ?? []); }
@@ -61,6 +63,22 @@ export class MemoryStorage implements Storage {
     return [...(this.vodUser.get(sourceId) ?? new Map<string, VodUserState>()).entries()].map(([itemId, state]) => ({ itemId, state: clone(state) }));
   }
 
+  async getSyncMeta(scope: string, key: string) { return clone(this.syncMeta.get(scope)?.get(key)); }
+  async listSyncMeta(scope: string): Promise<SyncMetaEntry[]> {
+    return [...(this.syncMeta.get(scope) ?? new Map<string, unknown>()).entries()].map(([key, value]) => ({ scope, key, value: clone(value) }));
+  }
+  async putSyncMeta(entries: SyncMetaEntry[]) {
+    for (const { scope, key, value } of entries) {
+      const m = this.syncMeta.get(scope) ?? new Map<string, unknown>();
+      m.set(key, clone(value));
+      this.syncMeta.set(scope, m);
+    }
+  }
+  async deleteSyncMeta(scope: string, keys: string[]) {
+    const m = this.syncMeta.get(scope);
+    for (const k of keys) m?.delete(k);
+  }
+
   async clearAll() {
     this.sources.clear();
     this.channels.clear();
@@ -68,5 +86,6 @@ export class MemoryStorage implements Storage {
     this.programmes.clear();
     this.vod.clear();
     this.vodUser.clear();
+    this.syncMeta.clear();
   }
 }

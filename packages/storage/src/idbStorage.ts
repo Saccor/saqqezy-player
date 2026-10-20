@@ -1,10 +1,10 @@
 import {
   MAX_PROGRAMME_MS,
-  type Channel, type Programme, type SourceConfig, type Storage, type VodKind, type VodList, type VodUserRecord, type VodUserState,
+  type Channel, type Programme, type SourceConfig, type Storage, type SyncMetaEntry, type VodKind, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 
-const DB_VERSION = 2;
-const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser'];
+const DB_VERSION = 3;
+const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser', 'syncMeta'];
 type ProgRecord = Programme & { sourceId: string };
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
@@ -51,6 +51,10 @@ export class IdbStorage implements Storage {
           if (e.oldVersion < 2) {
             db.createObjectStore('vod', { keyPath: ['sourceId', 'kind'] });
             db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
+          }
+          if (e.oldVersion < 3) {
+            // Sync sidecar (clocks, pending records): hot structures (layout, vodUser) keep their shape.
+            db.createObjectStore('syncMeta', { keyPath: ['scope', 'key'] });
           }
         };
         // Another tab holds an older version open and does not let go: fail now instead of waiting forever.
@@ -106,6 +110,7 @@ export class IdbStorage implements Storage {
     const sourceRange = IDBKeyRange.bound([id], [id, []]);
     tx.objectStore('vod').delete(sourceRange);
     tx.objectStore('vodUser').delete(sourceRange);
+    tx.objectStore('syncMeta').delete(sourceRange);
     this.deleteProgrammesIn(tx, id);
     await done(tx);
   }
@@ -222,6 +227,34 @@ export class IdbStorage implements Storage {
     const db = await this.db();
     const recs = await req(db.transaction('vodUser').objectStore('vodUser').getAll(IDBKeyRange.bound([sourceId], [sourceId, []])));
     return (recs as { itemId: string; state: VodUserState }[]).map(({ itemId, state }) => ({ itemId, state }));
+  }
+
+  async getSyncMeta(scope: string, key: string): Promise<unknown> {
+    const db = await this.db();
+    const rec = await req(db.transaction('syncMeta').objectStore('syncMeta').get([scope, key]));
+    return (rec as SyncMetaEntry | undefined)?.value;
+  }
+
+  async listSyncMeta(scope: string): Promise<SyncMetaEntry[]> {
+    const db = await this.db();
+    const recs = await req(db.transaction('syncMeta').objectStore('syncMeta').getAll(IDBKeyRange.bound([scope], [scope, []])));
+    return (recs as SyncMetaEntry[]).map(({ scope: sc, key, value }) => ({ scope: sc, key, value }));
+  }
+
+  async putSyncMeta(entries: SyncMetaEntry[]): Promise<void> {
+    if (!entries.length) return;
+    const tx = (await this.db()).transaction('syncMeta', 'readwrite');
+    const store = tx.objectStore('syncMeta');
+    for (const { scope, key, value } of entries) store.put({ scope, key, value });
+    await done(tx);
+  }
+
+  async deleteSyncMeta(scope: string, keys: string[]): Promise<void> {
+    if (!keys.length) return;
+    const tx = (await this.db()).transaction('syncMeta', 'readwrite');
+    const store = tx.objectStore('syncMeta');
+    for (const key of keys) store.delete([scope, key]);
+    await done(tx);
   }
 
   async clearAll(): Promise<void> {

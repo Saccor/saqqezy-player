@@ -31,6 +31,48 @@ describe('IdbStorage open', () => {
     expect(await s.getVod('s1', 'movie')).toEqual({ items: [], categories: [] });
   });
 
+  test('upgrades a version-2 database to version 3 (syncMeta) and keeps every hot structure as it was', async () => {
+    const factory = new IDBFactory();
+    const layout = { version: 4, lists: [], hiddenChannels: ['s1:x1'], hiddenGroups: [], groupOrder: [], channelOrder: {}, channelNames: {}, groupNames: {}, sort: {}, hideNoEpg: false, recent: [] };
+    const state = { position: 120_000, duration: 3600_000, watched: false, favourite: true, updatedAt: 5 };
+    await new Promise<void>((resolve, reject) => {
+      const open = factory.open('upgrade-v2-db', 2);
+      open.onupgradeneeded = () => {
+        const db = open.result;
+        db.createObjectStore('sources', { keyPath: 'id' });
+        db.createObjectStore('channels', { keyPath: 'sourceId' });
+        db.createObjectStore('meta');
+        db.createObjectStore('programmes', { autoIncrement: true }).createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+        db.createObjectStore('vod', { keyPath: ['sourceId', 'kind'] });
+        db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
+        const tx = open.transaction!;
+        tx.objectStore('sources').put({ id: 's1', kind: 'm3u', name: 'Old', playlistUrl: 'http://example.test/a.m3u' });
+        tx.objectStore('meta').put(layout, 'layout:s1');
+        tx.objectStore('vodUser').put({ sourceId: 's1', itemId: 's1:m1', state });
+      };
+      open.onsuccess = () => {
+        open.result.close();
+        resolve();
+      };
+      open.onerror = () => reject(open.error);
+    });
+    const s = new IdbStorage(factory, 'upgrade-v2-db');
+    expect((await s.listSources()).map((x) => x.name)).toEqual(['Old']);
+    expect(await s.getMeta('layout:s1')).toEqual(layout);
+    expect(await s.getVodUser('s1', 's1:m1')).toEqual(state);
+    expect(await s.listSyncMeta('s1')).toEqual([]);
+    await s.putSyncMeta([{ scope: 's1', key: 'vf:s1:m1', value: 'x' }]);
+    expect(await s.getSyncMeta('s1', 'vf:s1:m1')).toBe('x');
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const open = factory.open('upgrade-v2-db');
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    expect(db.version).toBe(3);
+    expect([...db.objectStoreNames].sort()).toEqual(['channels', 'meta', 'programmes', 'sources', 'syncMeta', 'vod', 'vodUser']);
+    db.close();
+  });
+
   test('a blocked open rejects with a clear error and the next call opens again', async () => {
     let opens = 0;
     const blocked = {
