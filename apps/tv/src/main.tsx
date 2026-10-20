@@ -2,6 +2,7 @@ import { Config, createRenderer, registerDefaultShaders } from '@lightningtv/sol
 import type { RendererMain } from '@lightningjs/renderer';
 import { WebGlRenderer } from '@lightningjs/renderer/webgl';
 import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
+import { CorsWebPlatform } from './shell/corsPlatform.ts';
 import { App } from './App.tsx';
 import { api } from './api.ts';
 import { router } from './shell/router.ts';
@@ -33,6 +34,8 @@ const { render, renderer } = createRenderer(
     clearColor: 0x00000000,
     renderEngine: WebGlRenderer,
     fontEngines: [CanvasTextRenderer],
+    // SVG posters and logos load with CORS, so a cross-origin SVG no longer taints the canvas (shell/svgLoad.ts).
+    platform: CorsWebPlatform,
     // Poster and backdrop textures on a 1 GB TV. Images are decoded at their natural size: renderer 3.7 has no
     // decode-time resize (ImageTexture `sx/sy/sw/sh` only crop, and its image worker never passes `resizeWidth` /
     // `resizeHeight` to `createImageBitmap`), so a 600×900 poster shown at 188×282 still costs ~2 MB of GPU memory.

@@ -215,6 +215,20 @@ describe('fake xtream VOD end to end', () => {
     return { storage, sources: new SourceService(deps), vod: new VodService(deps) };
   };
 
+  test('poster and backdrop art is readable cross-origin, so the TV canvas can draw it untainted', async () => {
+    for (const path of ['/poster/m1.svg', '/poster/s3.svg', '/poster/b2.svg', '/poster/e1010101.svg']) {
+      const res = await fetch(`${server.url}${path}`, { headers: { origin: 'http://localhost:5173' } });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('image/svg+xml');
+      // '*' (no credentials): what an <img crossOrigin="anonymous"> needs; the Lightning renderer loads SVGs that way.
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
+      expect(await res.text()).toMatch(/^<svg /);
+    }
+    const missing = await fetch(`${server.url}/poster/nope.svg`);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('access-control-allow-origin')).toBe('*');
+  });
+
   test('movies and series via Xtream, per category', async () => {
     const { sources, vod } = both();
     const { source } = await sources.addSource(x('test'));
