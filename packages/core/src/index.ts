@@ -90,6 +90,9 @@ export {
 export { subtitleText } from './subtitles/markup.ts';
 export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
 export {
+  SYNC_MIN_CUES, SYNC_MIN_PLAYED_MS, SYNC_SPEEDS, alignSubtitle, syncSampleReady, type SyncResult, type SyncSample, type SyncSetting,
+} from './subtitles/align.ts';
+export {
   SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleDetails, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';
 export {

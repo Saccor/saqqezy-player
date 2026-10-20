@@ -22,7 +22,7 @@ export function PlaybackPage(props: PageProps) {
   const sleep = (): number => settings()?.sleepTimerMinutes ?? 0;
   const subLang = () => settings()?.subtitleLanguage ?? 'off';
   const audioLang = () => settings()?.audioLanguage ?? 'auto';
-  const exact = () => settings()?.subtitleExactMatch ?? false;
+  const exact = () => settings()?.subtitleExactMatch ?? true;
   const combine = () => settings()?.combineDuplicates ?? true;
   const prefLang = () => preferredLanguageOption(settings()?.preferredLanguages);
   const items = (): SettingItem[] => [
@@ -37,7 +37,7 @@ export function PlaybackPage(props: PageProps) {
     { id: 'audioLanguage', label: 'Audio language', value: audioLanguageLabel(audioLang()), adjustable: true,
       help: 'Movies, series and channels start with sound in this language when they have it' },
     { id: 'subtitleExactMatch', label: 'Exact-match subtitles', value: onOff(exact()), adjustable: true,
-      help: 'Online subtitles timed for your exact file. Reads a little of it: one extra connection.' },
+      help: 'Online subtitles timed for your exact file. Reads a little of it (never on one-connection accounts).' },
     { id: 'combineDuplicates', label: 'Combine duplicates', value: onOff(combine()), adjustable: true,
       help: 'Movies and series: one card per title. Languages and qualities are under Versions.' },
     { id: 'preferredLanguage', label: 'Preferred language', value: preferredLanguageLabel(prefLang()), adjustable: true,

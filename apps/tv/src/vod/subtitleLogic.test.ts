@@ -6,7 +6,7 @@ import {
   SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, languageName, stepDelay,
   onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
   SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
-  subtitleTime, versionFileId, versionLabel, versionRows,
+  subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName,
 } from './subtitleLogic.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
@@ -110,6 +110,8 @@ describe('online subtitles', () => {
 
   it('a language whose best version matches the exact file says so', () => {
     expect(onlineLanguageRows([{ language: 'en', count: 3, fileId: 1003, synced: true }])[0]).toMatchObject({ label: 'English · matches this file' });
+    expect(onlineLanguageRows([{ language: 'en', count: 1, fileId: 7, cc: true }])[0]).toMatchObject({ label: 'English CC', id: 'os:7' });
+    expect(onlineLanguageRows([{ language: 'en', count: 1, fileId: 8, cc: true, synced: true }])[0]).toMatchObject({ label: 'English CC · matches this file' });
   });
 
   it('the find row comes first among the extra rows when the service is set up', () => {
@@ -151,6 +153,22 @@ describe('subtitle delay', () => {
     const none = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false });
     expect(none.some((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toBe(false);
     for (const id of [DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, ANOTHER_VERSION_ROW, SPEED_ROW]) expect(id).not.toMatch(/^(a|s|os|v):|^off$/);
+  });
+
+  it('the source\'s own files come first, named by label or language; the loaded one is checked and not listed twice', () => {
+    const source = [{ url: 'http://p.test/1.srt', language: 'en' }, { url: 'http://p.test/2.srt', label: 'Svenska' }];
+    expect(sourceSubtitleName(source[0]!)).toBe('English (from source)');
+    const rows = subtitleExtraRows({ source, canLoadFile: false });
+    expect(rows.slice(0, 2)).toEqual([
+      { kind: 'list', id: 'src:0', label: 'Subtitles: English (from source)', checked: false },
+      { kind: 'list', id: 'src:1', label: 'Subtitles: Svenska (from source)', checked: false },
+    ]);
+    const loaded = subtitleExtraRows({ source, external: { name: 'English (from source)', active: true }, canLoadFile: false });
+    expect(loaded[0]).toMatchObject({ id: 'src:0', checked: true });
+    expect(loaded.some((r) => r.kind === 'list' && r.id === SUBTITLE_EXT_ROW)).toBe(false);
+    expect(loaded.some((r) => r.kind === 'list' && r.id === DELAY_ROW)).toBe(true);
+    expect(sourceRowIndex('src:1')).toBe(1);
+    expect(sourceRowIndex('s:1')).toBeUndefined();
   });
 });
 
@@ -228,6 +246,7 @@ describe('subtitle versions', () => {
   it('release, frame rate and exact match, parts only when known', () => {
     expect(versionLabel({ release: 'Rel.2020', fps: 25, synced: true }, 1)).toBe('Rel.2020 · 25 fps · exact match');
     expect(versionLabel({ release: 'Synthetic.Release', fps: 23.976, synced: false }, 1)).toBe('Synthetic.Release · 23.976 fps');
+    expect(versionLabel({ release: 'Rel', synced: false, hearingImpaired: true }, 1)).toBe('Rel · CC');
     expect(versionLabel({ release: 'Synthetic.Release', synced: false }, 1)).toBe('Synthetic.Release');
     expect(versionLabel({ release: '  ', synced: false }, 3)).toBe('Version 3');
     expect(versionLabel({ release: '', fps: 29.97003, synced: false }, 2)).toBe('Version 2 · 29.97 fps');

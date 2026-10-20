@@ -60,6 +60,8 @@ export interface Episode {
   video?: VideoRange;
   /** The audio's language from the source's probe data (Xtream episode `info.audio`), ISO 639-1. */
   audioLang?: string;
+  /** Subtitle files the source lists for this episode. */
+  subtitles?: SourceSubtitle[];
   /** M3U episodes: request headers from the playlist entry. */
   headers?: StreamHeaders;
 }
@@ -87,11 +89,19 @@ export interface VideoRange {
   dvFallback?: 'hdr10' | 'hlg' | 'sdr' | 'none';
 }
 
+/**
+ * A subtitle file the source lists for a title: an absolute http(s) link (it may carry the account's credentials, so
+ * it is never logged or shown), its language (ISO 639-1) and its label when the source gives them.
+ */
+export interface SourceSubtitle { url: string; language?: string; label?: string }
+
 export interface MovieDetail {
   /** From the source's probe data (Xtream `info.video`), when it sends it. */
   video?: VideoRange;
   /** The audio's language from the source's probe data (Xtream `info.audio`), ISO 639-1. */
   audioLang?: string;
+  /** Subtitle files the source lists for this title (Xtream `info.subtitles[]`). */
+  subtitles?: SourceSubtitle[];
   plot?: string;
   runtimeMin?: number;
   genre?: string;

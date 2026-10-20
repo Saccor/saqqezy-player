@@ -97,5 +97,6 @@ describe('mediaBadges', () => {
     expect(mediaBadges({ info: {}, audio: [], text: plain })).toEqual(['Swedish subtitles']);
     expect(mediaBadges({ info: {}, audio: [], text: plain, external: 'Danish' })).toEqual(['Danish subtitles']);
     expect(mediaBadges({ info: {}, audio: [], text: [], external: '' })).toEqual(['Subtitles']);
+    expect(mediaBadges({ info: {}, audio: [], text: [], external: 'English', externalCc: true })).toEqual(['English CC']);
   });
 });

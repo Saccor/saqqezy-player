@@ -43,11 +43,12 @@ import {
   DV_COLOURS_TEXT, NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, dvColoursWarning, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
+import { SyncRecorder, syncReferenceTrack } from '../vod/syncRecorder.ts';
 import { pickAudioTrack } from '../vod/tracks.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
-  REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, stepDelay, type OnlineLanguage,
-  pickSubtitle, subtitleExtraRows, SPEED_ROW, autoSpeed, normalizeSpeed, stepSpeed, subtitleTime, versionFileId, versionRows,
+  REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, sourceRowIndex, sourceSubtitleName, stepDelay, type OnlineLanguage,
+  delayLabel, pickSubtitle, subtitleExtraRows, SPEED_ROW, autoSpeed, normalizeSpeed, stepSpeed, subtitleTime, versionFileId, versionRows,
   type SubtitleSpeed, type VersionInfo,
 } from '../vod/subtitleLogic.ts';
 
@@ -63,6 +64,9 @@ const SUB_VERSIONS_ID = 'vodSubtitleVersions';
 const ONLINE_ATTRIBUTION = 'Subtitles provided by OpenSubtitles.com';
 /** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
 const EXT_SUB_POLL_MS = 250;
+/** Automatic sync asks the worker once this much video is recorded, then at most this often. */
+const SYNC_ASK_AFTER_MS = 4 * 60_000;
+const SYNC_ASK_EVERY_MS = 30_000;
 /** A file picker exists on computers only (TV engines have no file dialog). */
 const CAN_LOAD_FILE = !isTvPlatform(platformId);
 const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
@@ -203,6 +207,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let reopenTimer: ReturnType<typeof setTimeout> | undefined;
   let reopenSeq = 0;
   let dvWarned = false;
+  // Automatic subtitle sync (spec 2026-10-21 §4): listening to the stream's own track (unseen) while a loaded file shows.
+  let sync: { recorder: SyncRecorder; trackId: string; key: string; nextAskAt: number; asking: boolean } | undefined;
+  /** The file sync is done with (synced, given up, or the user set its delay or speed): never listened to again. */
+  let syncFinishedFor: string | undefined;
   // Stream info (Info key): codec, resolution and dynamic range. Never the URL path (`streamInfoLines`).
   const [infoOn, setInfoOn] = createSignal(false);
   const [infoTick, setInfoTick] = createSignal(0);
@@ -262,9 +270,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!visible()) return [];
     now();
     const ext = external();
+    const extLang = ext?.language ?? ext?.online?.language;
     return mediaBadges({
       info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(),
-      ...(ext && chosen.subtitle === SUBTITLE_KEY_EXT ? { external: ext.online ? onlineLanguageLabel(ext.online.language) : '' } : {}),
+      ...(ext && chosen.subtitle === SUBTITLE_KEY_EXT ? { external: extLang ? onlineLanguageLabel(extLang) : '', externalCc: ext.cc === true } : {}),
     });
   }, [], { equals: (a, b) => a.join('|') === b.join('|') });
   /** The playhead and duration only while the stream is this title's (never a held title's or another one's). */
@@ -541,7 +550,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       chosen: chosen.subtitle, texts, hasExternal: external() !== undefined, preferred: settings()?.subtitleLanguage ?? 'off',
     });
     if (pick.kind === 'external' || pick.kind === 'off') {
-      if (texts.some((t) => t.active)) playback.selectTextTrack(null);
+      // The track automatic sync listens to stays on (unseen) while the loaded file shows.
+      if (texts.some((t) => t.active && !(pick.kind === 'external' && t.id === sync?.trackId))) playback.selectTextTrack(null);
     } else if (pick.kind === 'track') {
       const t = texts.find((x) => x.id === pick.id);
       if (t && !t.active) playback.selectTextTrack(t.id);
@@ -551,6 +561,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** Shows (or stops showing) the loaded subtitle file; the cue on screen is cleared either way. */
   const showExternal = (on: boolean) => {
+    if (!on) stopSync(false);
     if (on === extOn()) return;
     setExtOn(on);
     setCue('');
@@ -562,10 +573,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const on = extOn();
     // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
     const base = trackRows(playback.audioTracks(), playback.textTracks())
-      .map((r) => (r.kind === 'list' && r.id === SUBTITLES_OFF && on ? { ...r, checked: false } : r));
+      .map((r) => (r.kind === 'list' && on && (r.id === SUBTITLES_OFF || r.id.startsWith('s:')) ? { ...r, checked: false } : r));
     // Catch-up: the stream's own tracks only (a loaded file would be kept per title, and catch-up keeps nothing).
     if (cu) return base;
     return [...base, ...subtitleExtraRows({
+      ...(p.subtitles ? { source: p.subtitles } : {}),
       external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
       delayMs: subDelay(), speed: subSpeed(), pointer: pointerMode(),
       ...(ext?.online && onlineOk() ? { another: { label: onlineLanguageLabel(ext.online.language) } } : {}),
@@ -620,7 +632,21 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       refreshRows();
       return;
     }
-    if (row.id === SUBTITLE_EXT_ROW) {
+    const srcIndex = sourceRowIndex(row.id);
+    if (srcIndex !== undefined) {
+      const sub = p.subtitles?.[srcIndex];
+      const ext = external();
+      // Already loaded: just turn it on; else download it (a failure is a toast, the picker stays).
+      if (sub && ext && ext.name === sourceSubtitleName(sub)) useExternal();
+      else if (sub) {
+        void loadWith(() => api.loadSourceSubtitle(p.itemId, sub)).then((error) => {
+          if (!alive) return;
+          if (error) showToast(error);
+          refreshRows();
+        });
+        return;
+      }
+    } else if (row.id === SUBTITLE_EXT_ROW) {
       useExternal();
     } else if (row.id === SUBTITLES_OFF) {
       playback.selectTextTrack(null);
@@ -658,6 +684,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** Left/Right on the delay row (or a pointer row): move the loaded file's cues; saved shortly after the last press. */
   const changeDelay = (dir: 1 | -1, step?: number) => {
+    finishSync(); // the user sets it: automatic sync stops for this file
     const next = stepDelay(subDelay(), dir, step);
     setSubDelay(next);
     refreshRows();
@@ -685,6 +712,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const changeSpeed = (dir: 1 | -1) => {
     const ext = external();
     if (!ext) return;
+    finishSync();
     setSpeedFor(ext, stepSpeed(subSpeed(), dir));
     refreshRows();
   };
@@ -720,7 +748,74 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
+  // ---- automatic sync against the stream's own subtitles (spec 2026-10-21 §4) ----
+
+  const syncKey = (ext: LoadedSubtitle) => `${ext.name}|${ext.cues.length}`;
+
+  /** Starts listening when a loaded file shows and the stream has a track to compare with (not catch-up). */
+  const startSync = () => {
+    const ext = external();
+    if (sync || cu || !ext || !extOn() || syncFinishedFor === syncKey(ext)) return;
+    const ref = syncReferenceTrack(playback.textTracks(), ext.language ?? ext.online?.language);
+    if (!ref) return;
+    if (!ref.active) playback.selectTextTrack(ref.id);
+    sync = { recorder: new SyncRecorder(), trackId: ref.id, key: syncKey(ext), nextAskAt: 0, asking: false };
+  };
+  /** Stops listening. `release`: the stream's track goes off again (only while the loaded file is still the choice). */
+  const stopSync = (release: boolean) => {
+    const s = sync;
+    sync = undefined;
+    if (release && s && chosen.subtitle === SUBTITLE_KEY_EXT && playback.textTracks().some((t) => t.id === s.trackId && t.active)) {
+      playback.selectTextTrack(null);
+    }
+  };
+  const finishSync = () => {
+    const ext = external();
+    if (ext) syncFinishedFor = syncKey(ext);
+    stopSync(true);
+  };
+  /** Each tick: record, and every 30 s (once 4 min are recorded) ask the worker for a better delay and speed. */
+  const syncTick = (at: number | undefined, playing: boolean) => {
+    if (!sync) {
+      if (playing && shapeTicks % 4 === 0) startSync();
+      return;
+    }
+    const ext = external();
+    // Another file, the file off, or the stream's track turned off elsewhere: listen again from the start later.
+    if (!ext || !extOn() || syncKey(ext) !== sync.key || !playback.textTracks().some((t) => t.id === sync!.trackId && t.active)) {
+      stopSync(false);
+      return;
+    }
+    if (at === undefined || !Number.isFinite(at)) return;
+    sync.recorder.tick(at, playing && !playback.paused());
+    if (sync.recorder.exhausted()) {
+      finishSync();
+      return;
+    }
+    const t = Date.now();
+    if (sync.asking || t < sync.nextAskAt || sync.recorder.playedMs() < SYNC_ASK_AFTER_MS) return;
+    const s = sync;
+    s.asking = true;
+    s.nextAskAt = t + SYNC_ASK_EVERY_MS;
+    api.syncSubtitle(p.itemId, s.recorder.sample(), { delayMs: subDelay(), speed: subSpeed() }).then((res) => {
+      s.asking = false;
+      if (!alive || sync !== s || !res) return;
+      const cur = external();
+      if (!cur) return;
+      setSubDelay(res.delayMs);
+      api.setSubtitleDelay(p.itemId, res.delayMs).catch((err) => console.warn('Subtitle delay save failed', errName(err)));
+      if (normalizeSpeed(res.speed) !== subSpeed()) setSpeedFor(cur, normalizeSpeed(res.speed));
+      finishSync();
+      refreshRows();
+      showToast(`Subtitles synced to the video (${delayLabel(res.delayMs)})`);
+    }, (err) => {
+      s.asking = false;
+      console.warn('Subtitle sync failed', errName(err));
+    });
+  };
+
   const removeExternal = () => {
+    stopSync(true);
     api.clearSubtitle(p.itemId).catch((err) => console.warn('Subtitle remove failed', errName(err)));
     setSubSpeed(1);
     setExternal(undefined);
@@ -814,8 +909,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const fileId = onlineFileId(row.id);
     if (fileId === undefined || subBusy()) return;
     const lang = onlineLangs.find((l) => l.fileId === fileId);
-    const label = lang ? onlineLanguageLabel(lang.language) : row.label;
-    const details = lang ? { language: lang.language, ...(lang.fps ? { fps: lang.fps } : {}) } : undefined;
+    const label = lang ? `${onlineLanguageLabel(lang.language)}${lang.cc ? ' CC' : ''}` : row.label;
+    const details = lang ? { language: lang.language, ...(lang.fps ? { fps: lang.fps } : {}), ...(lang.cc ? { cc: true } : {}) } : undefined;
     void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
       if (!alive) return;
       closeOnline();
@@ -879,8 +974,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       focusBarOrRoot();
       return;
     }
-    const label = onlineLanguageLabel(list.language);
-    const details = { language: list.language, ...(v.fps ? { fps: v.fps } : {}) };
+    const label = `${onlineLanguageLabel(list.language)}${v.hearingImpaired ? ' CC' : ''}`;
+    const details = { language: list.language, ...(v.fps ? { fps: v.fps } : {}), ...(v.hearingImpaired ? { cc: true } : {}) };
     void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
       if (!alive) return;
       closeVersions();
@@ -1273,6 +1368,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         showToast(DV_COLOURS_TEXT);
       }
       if (infoOn() && shapeTicks % 4 === 0) setInfoTick((v) => v + 1);
+      syncTick(at, playing);
     }, TICK_MS);
     const saver = setInterval(() => {
       if (status()?.kind === 'playing' && !playback.paused()) save();
@@ -1291,7 +1387,14 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Left' || e.key === 'Right') hold = undefined; };
     document.addEventListener('keyup', onKeyUp);
     const offKeys = onLogicalKey(() => bump());
-    const offSubs = playback.onSubtitle((text) => { if (alive && !extOn()) setCue(cueText(text)); });
+    const offSubs = playback.onSubtitle((text) => {
+      if (!alive) return;
+      if (!extOn()) setCue(cueText(text));
+      else if (sync) {
+        const at = trustedPos();
+        if (at !== undefined && Number.isFinite(at)) sync.recorder.cue(text !== null && text.trim() !== '', at);
+      }
+    });
     // The subtitles loaded earlier for this title: shown when chosen (the tracks may already have been applied).
     // Catch-up keeps no subtitles of its own.
     if (!cu) api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });

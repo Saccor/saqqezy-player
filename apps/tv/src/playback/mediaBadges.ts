@@ -16,6 +16,8 @@ export interface MediaBadgeInput {
   text: readonly TrackInfo[];
   /** A loaded subtitle file is showing: its language name ('' when unknown). */
   external?: string;
+  /** The loaded file is made for the hearing impaired. */
+  externalCc?: boolean;
 }
 
 /** "4K", "1440p", "1080p", "720p" or "SD" by the picture's size (wide and cropped films by their width); "1080i" interlaced. */
@@ -78,7 +80,8 @@ function trackLanguage(t: TrackInfo): string | undefined {
 const HEARING_IMPAIRED = /\b(sdh|cc|hoh|hearing)\b/i;
 const FORCED = /\bforced\b/i;
 
-function subtitleBadge(text: readonly TrackInfo[], external: string | undefined): string | undefined {
+function subtitleBadge(text: readonly TrackInfo[], external: string | undefined, externalCc?: boolean): string | undefined {
+  if (external !== undefined && externalCc) return external ? `${external} CC` : 'CC';
   if (external !== undefined) return external ? `${external} subtitles` : 'Subtitles';
   const t = text.find((x) => x.active);
   if (!t) return undefined;
@@ -89,7 +92,7 @@ function subtitleBadge(text: readonly TrackInfo[], external: string | undefined)
 }
 
 export function mediaBadges(input: MediaBadgeInput): string[] {
-  const { info, hint, audio, text, external } = input;
+  const { info, hint, audio, text, external, externalCc } = input;
   const a = audio.find((t) => t.active) ?? (audio.length === 1 ? audio[0] : undefined);
   const sound = [
     channelsLabel(a?.channels ?? info.audioChannels),
@@ -103,7 +106,7 @@ export function mediaBadges(input: MediaBadgeInput): string[] {
     videoCodecLabel(info.videoCodec),
     a ? trackLanguage(a) : undefined,
     sound || undefined,
-    subtitleBadge(text, external),
+    subtitleBadge(text, external, externalCc),
     info.bitrate && info.bitrate > 0 ? formatBitrate(info.bitrate) : undefined,
   ].filter((b): b is string => Boolean(b));
 }

@@ -4,7 +4,7 @@ import {
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
-import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, MOVIE_HASH_RETRY_MS, SUBTITLE_SEARCH_PAGE_SIZE, scrub } from '../src/appApi.ts';
+import { APP_API_METHODS, AppApi, LIVE_AUDIO_MAX, MOVIE_HASH_RETRY_MS, SUBTITLE_SEARCH_PAGE_SIZE, scrub, sourceSubtitleName } from '../src/appApi.ts';
 import { worseCooldown } from '../src/index.ts';
 import { VodController } from '../src/vodController.ts';
 import type { AppEvent } from '../src/types.ts';
@@ -2306,6 +2306,45 @@ describe('subtitles from a link or a file', () => {
     await expect(bare.loadSubtitle('m1', { url: 'http://example.test/a.srt' })).rejects.toThrow('Loading subtitles is not available.');
     expect(await bare.getSubtitle('m1')).toBeUndefined();
   });
+
+  test('a file the source lists: its language kept, named by label or language, never by its link', async () => {
+    const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const subtitles = new SubtitleService({ storage, fetch: async () => new Response(SRT) });
+    const api = new AppApi({ service, storage, subtitles, emit: () => undefined, now: () => NOW });
+    live.push(api);
+    await api.addSource(xt());
+    const got = await api.loadSourceSubtitle('m1', { url: 'http://panel.test/subtitle/user/secret/1.srt', language: 'en' });
+    expect(got).toMatchObject({ name: 'English (from source)', language: 'en' });
+    expect(JSON.stringify(got)).not.toContain('secret');
+    expect(sourceSubtitleName({ url: 'http://x.test/a.srt', label: 'Forced' })).toBe('Forced (from source)');
+    expect(sourceSubtitleName({ url: 'http://x.test/a.srt' })).toBe('Subtitles (from source)');
+  });
+
+  test('syncSubtitle lines the loaded file up with the recorded sample; nothing without a file or a clear answer', async () => {
+    const ts = (ms: number) => new Date(ms).toISOString().slice(11, 23).replace('.', ',');
+    const srtOf = (starts: number[]) => starts.map((s, i) => `${i + 1}\n${ts(s)} --> ${ts(s + 2000)}\nLine ${i + 1}\n`).join('\n');
+    // Synthetic dialogue over 10 minutes: irregular gaps (a real film), and a perfectly regular 6 s rhythm.
+    const irregular: number[] = [];
+    for (let t = 1000, i = 0; t < 600_000; i++) { irregular.push(t); t += 2500 + ((i * 7919) % 5000); }
+    const regular = Array.from({ length: 100 }, (_, i) => i * 6000 + 1000);
+    let srt = srtOf(irregular);
+    const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const subtitles = new SubtitleService({ storage, fetch: async () => new Response(srt) });
+    const api = new AppApi({ service, storage, subtitles, emit: () => undefined, now: () => NOW });
+    live.push(api);
+    await api.addSource(xt());
+    // The stream's own track showed every line 1.5 s later than the file has it.
+    const sampleOf = (starts: number[]) => ({
+      cues: starts.map((s) => [s + 1500, s + 3500] as [number, number]), played: [[0, 600_000]] as [number, number][],
+    });
+    expect(await api.syncSubtitle('m1', sampleOf(irregular), { delayMs: 0, speed: 1 })).toBeUndefined();
+    await api.loadSubtitle('m1', { url: 'http://example.test/a.srt' });
+    expect(await api.syncSubtitle('m1', sampleOf(irregular), { delayMs: 0, speed: 1 })).toMatchObject({ delayMs: 1500, speed: 1 });
+    // A perfectly regular rhythm fits every 6 s just as well: no single clear answer, so nothing changes.
+    srt = srtOf(regular);
+    await api.loadSubtitle('m2', { url: 'http://example.test/b.srt' });
+    expect(await api.syncSubtitle('m2', sampleOf(regular), { delayMs: 0, speed: 1 })).toBeUndefined();
+  });
 });
 
 describe('subtitles found online (fake OpenSubtitles service)', () => {
@@ -2335,10 +2374,14 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await api.refreshVod('movie');
     const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
     const langs = await api.findSubtitlesOnline(movieId);
-    expect(langs.map((l) => [l.language, l.count])).toEqual([['sv', 2], ['en', 3], ['de', 1], ['es', 1], ['fr', 1]]);
-    // The best Swedish file: the trusted one; every version best first, none timed for this exact file.
+    // A language with hearing-impaired files too gets a CC row right after its regular one.
+    expect(langs.map((l) => [l.language, l.count, l.cc ?? false])).toEqual([
+      ['sv', 1, false], ['sv', 1, true], ['en', 2, false], ['en', 1, true], ['de', 1, false], ['es', 1, false], ['fr', 1, false],
+    ]);
+    // The best Swedish file: the trusted one; each row's versions are its own kind, none timed for this exact file.
     expect(langs[0]!.fileId).toBe(2001);
-    expect(langs[0]!.files).toEqual([2001, 2002]);
+    expect(langs[0]!.files).toEqual([2001]);
+    expect(langs[1]!.files).toEqual([2002]);
     expect(langs.every((l) => !l.synced)).toBe(true);
     const loaded = await api.loadOnlineSubtitle(movieId, langs[0]!.fileId, 'Swedish');
     expect(loaded.name).toBe('Swedish');
@@ -2358,15 +2401,27 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await api.addSource(xt());
     await api.refreshVod('movie');
     const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
-    // Off (the default): no hash is read.
+    // Turned off: no hash is read.
+    await api.saveSettings({ subtitleExactMatch: false });
     expect((await api.findSubtitlesOnline(movieId))[0]!.synced).toBe(false);
     expect(hashed).toEqual([]);
+    // On (the default).
     await api.saveSettings({ subtitleExactMatch: true, subtitleLanguage: 'en' });
     const langs = await api.findSubtitlesOnline(movieId);
     expect(hashed).toHaveLength(1);
     expect(hashed[0]).toMatch(/\/movie\/test\/test\/\d+\.m3u8$/);
     expect(langs[0]).toMatchObject({ language: 'en', fileId: 1003, synced: true });
-    expect(langs[0]!.files).toEqual([1003, 1001, 1002]);
+    expect(langs[0]!.files).toEqual([1003, 1001]);
+  });
+
+  test('exact match never reads the file on an account limited to one connection', async () => {
+    hashed.length = 0;
+    const api = makeOnline('fake-key', async (url) => { hashed.push(url); return '0123456789abcdef'; });
+    await api.addSource(xt('single'));
+    await api.refreshVod('movie');
+    const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
+    expect((await api.findSubtitlesOnline(movieId)).every((l) => !l.synced)).toBe(true);
+    expect(hashed).toEqual([]);
   });
 
   test('exact match on but no hash (refused, or a playlist): the search still works', async () => {
@@ -2375,7 +2430,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     await api.saveSettings({ subtitleExactMatch: true });
     await api.refreshVod('movie');
     const movieId = (await api.getVodSlice('movie', 'all', 'title', 0, 1)).rows[0]!.id;
-    expect((await api.findSubtitlesOnline(movieId)).length).toBe(5);
+    expect((await api.findSubtitlesOnline(movieId)).length).toBe(7);
   });
 
   const firstMovie = async (api: AppApi) => {
@@ -2392,8 +2447,9 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     // Without a frame rate: the trusted PAL file, as before.
     expect(plain[0]).toMatchObject({ language: 'sv', fileId: 2001, release: 'Synthetic.Release.sv.1', fps: 25 });
     const film = await api.findSubtitlesOnline(movieId, undefined, 23.976);
-    expect(film[0]).toMatchObject({ language: 'sv', fileId: 2002, release: 'Synthetic.Release.sv.2', fps: 23.976 });
-    expect(film[0]!.files).toEqual([2002, 2001]);
+    // The 23.976 Swedish file is the hearing-impaired one: it leads the Swedish CC row; the regular row keeps the PAL file.
+    expect(film[0]).toMatchObject({ language: 'sv', fileId: 2001, fps: 25 });
+    expect(film[1]).toMatchObject({ language: 'sv', cc: true, fileId: 2002, release: 'Synthetic.Release.sv.2', fps: 23.976 });
     // A language with only a PAL file still offers it, its fps on the row.
     expect(film.find((l) => l.language === 'de')).toMatchObject({ fileId: 3001, fps: 25 });
   });
@@ -2408,7 +2464,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     expect(new URL(urls[0]!).searchParams.get('languages')).toBe('en');
     expect(new URL(urls[0]!).searchParams.get('page')).toBeNull();
     expect(versions.map((v) => v.fileId)).toEqual([1002, 1003, 1001]);
-    expect(versions[0]).toEqual({ fileId: 1002, release: 'Synthetic.Release.en.2', fps: 23.976, synced: false, downloads: 800 });
+    expect(versions[0]).toEqual({ fileId: 1002, release: 'Synthetic.Release.en.2', fps: 23.976, synced: false, downloads: 800, hearingImpaired: true });
     expect('fps' in versions[1]!).toBe(false);
   });
 
@@ -2436,6 +2492,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
       (u, i) => { if (new URL(u).pathname.endsWith('/subtitles')) urls.push(u); return fetch(u, i); });
     await api.addSource(xt());
     const movieId = await firstMovie(api);
+    await api.saveSettings({ subtitleExactMatch: false });
     await api.subtitleVersions(movieId, 'en');
     expect(urls).toHaveLength(1);
     // Exact match turned on: the list is made again (now with the hash), then kept.

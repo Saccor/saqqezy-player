@@ -527,8 +527,11 @@ export class VodController {
       // M3U: the playlist entry's own headers (AppApi merges them over the source's settings).
       if (item.headers) movie.headers = { ...item.headers };
       // The picture's range: from a detail already loaded (playing never waits for one), else a DV tag in the title.
-      const video = (this.details.get(itemId) as MovieDetail | undefined)?.video ?? dvFromTitle(item.title);
+      const cached = this.details.get(itemId) as MovieDetail | undefined;
+      const video = cached?.video ?? dvFromTitle(item.title);
       if (video) movie.video = { ...video };
+      // The source's own subtitle files, likewise from a detail already loaded (the detail page loads it).
+      if (cached?.subtitles) movie.subtitles = cached.subtitles.map((x) => ({ ...x }));
       return movie;
     }
     const s = user.get(itemId);
@@ -556,6 +559,7 @@ export class VodController {
     if (ep.headers) out.headers = { ...ep.headers };
     const video = ep.video ?? dvFromTitle(ep.title);
     if (video) out.video = { ...video };
+    if (ep.subtitles) out.subtitles = ep.subtitles.map((x) => ({ ...x }));
     if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
     const prev = prevEpisode(detail.seasons, itemId);
     if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };

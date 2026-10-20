@@ -54,7 +54,8 @@ export interface FakeXtreamOptions {
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
 const MEDIA_TYPES: Record<string, string> = {
-  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt', mkv: 'video/x-matroska', mp4: 'video/mp4',
+  m3u8: 'application/vnd.apple.mpegurl', ts: 'video/mp2t', vtt: 'text/vtt', srt: 'application/x-subrip', mkv: 'video/x-matroska',
+  mp4: 'video/mp4',
 };
 /** Movie stream id that plays the multi-track title when it was generated. */
 const MULTITRACK_MOVIE = 1;
@@ -188,7 +189,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     }
 
     // Generated test media: one folder level, plain file names only (no traversal).
-    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt|mkv|mp4)$/.exec(url.pathname);
+    const media = /^\/media\/([a-z0-9-]+)\/([a-z0-9_-]+)\.(m3u8|ts|vtt|srt|mkv|mp4)$/.exec(url.pathname);
     if (media) {
       const file = join(mediaDir, media[1]!, `${media[2]}.${media[3]}`);
       return readFile(file, (err, body) => {
@@ -212,7 +213,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     const isValid = (u: string, p: string) =>
       (u === 'test' || u === 'slow' || u === 'expired' || u === 'vodall' || RETRY_USERS.includes(u)) && p === 'test';
     if (opts.catchup && handleCatchup(req, res, url, base, chs, now(), isValid, (u) => STREAM_STATUS[u])) return;
-    const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall' || RETRY_USERS.includes(user)) && pass === 'test';
+    const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall' || user === 'single' || RETRY_USERS.includes(user)) && pass === 'test';
 
     if (url.pathname === '/player_api.php') {
       if (user === 'down500') return send(res, 500, '{}');
@@ -220,7 +221,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       if (!action) {
         if (!valid) return send(res, 200, JSON.stringify({ user_info: { auth: 0 } }));
         return send(res, 200, JSON.stringify({
-          user_info: { auth: 1, status: user === 'expired' ? 'Expired' : 'Active', exp_date: String(Math.floor(now() / 1000) + 30 * 86400), max_connections: '1' },
+          user_info: { auth: 1, status: user === 'expired' ? 'Expired' : 'Active', exp_date: String(Math.floor(now() / 1000) + 30 * 86400), max_connections: user === 'single' ? '1' : '2' },
           server_info: opts.catchup ? serverInfo(base, now()) : { url: base, timezone: 'UTC' },
         }));
       }
@@ -276,6 +277,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
             backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`, tmdb_id: String(900000 + m.n),
             // ffprobe-shaped, as panels that probe their files send it; every fifth file is untagged.
             audio: { codec_name: 'aac', channels: 2, tags: { language: m.n % 5 === 0 ? 'und' : 'eng' } },
+            // The multi-track movie lists its own subtitle file, timed 3 s late (automatic sync should fix it).
+            ...(m.n === MULTITRACK_MOVIE && existsSync(join(mediaDir, 'multitrack', 'subs_eng_late.srt'))
+              ? { subtitles: [{ id: 1, title: 'English', language: 'eng', url: `${base}/media/multitrack/subs_eng_late.srt` }] }
+              : {}),
           },
           movie_data: { stream_id: m.n, name: m.name, container_extension: movieExt(m.n) },
         }));

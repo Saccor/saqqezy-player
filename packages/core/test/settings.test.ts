@@ -11,7 +11,7 @@ describe('sanitizeSettings', () => {
   test('defaults are as specified', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
+      liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: true,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
       regions: { codes: [], mode: 'off' }, combineCategories: false,
       pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [],
@@ -65,9 +65,9 @@ describe('sanitizeSettings', () => {
     for (const v of ['english', 'xx', 3, null, undefined]) expect(sanitizeSettings({ subtitleLanguage: v }).subtitleLanguage).toBe('off');
   });
 
-  test('subtitleExactMatch is a boolean, off by default (it reads a little of the video from the provider)', () => {
-    expect(sanitizeSettings({ subtitleExactMatch: true }).subtitleExactMatch).toBe(true);
-    for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ subtitleExactMatch: v }).subtitleExactMatch).toBe(false);
+  test('subtitleExactMatch is a boolean, on by default; a stored Off stays off', () => {
+    expect(sanitizeSettings({ subtitleExactMatch: false }).subtitleExactMatch).toBe(false);
+    for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ subtitleExactMatch: v }).subtitleExactMatch).toBe(true);
   });
 
   test('combineChannels is a boolean, off by default until the TV UI for sources lands', () => {

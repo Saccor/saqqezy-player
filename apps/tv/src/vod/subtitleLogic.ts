@@ -128,11 +128,34 @@ export function stepDelay(ms: number, dir: 1 | -1, step = DELAY_STEP_MS): number
   return Math.max(-DELAY_MAX_MS, Math.min(DELAY_MAX_MS, next)) + 0;
 }
 
+/** A subtitle file the source lists, as the player gets it (`VodPlayable.subtitles`; its link is never shown). */
+export interface SourceSubtitleInfo { url: string; language?: string; label?: string }
+
+const SOURCE_PREFIX = 'src:';
+
+/**
+ * A source file's name: its label, else its language, then where it comes from. The worker names a loaded source
+ * file the same way (`sourceSubtitleName` in app-api), so the picker can tell which one is loaded.
+ */
+export function sourceSubtitleName(sub: SourceSubtitleInfo): string {
+  const what = sub.label?.trim() || (sub.language ? languageName(sub.language) : undefined) || 'Subtitles';
+  return `${what} (from source)`;
+}
+
+/** The index of the source file a picker row loads; undefined for any other row. */
+export function sourceRowIndex(rowId: string): number | undefined {
+  if (!rowId.startsWith(SOURCE_PREFIX)) return undefined;
+  const n = Number(rowId.slice(SOURCE_PREFIX.length));
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
+}
+
 /**
  * The "Audio & subtitles" rows after the tracks: the loaded file, its delay and speed (while it shows) and another
  * version (a file found online: the row opens its language's versions), find online, the load actions, and remove.
  */
 export function subtitleExtraRows(s: {
+  /** Subtitle files the source lists (`VodPlayable.subtitles`): a row each, first. */
+  source?: readonly SourceSubtitleInfo[];
   external?: { name: string; active: boolean };
   /** The loaded file's delay (the row shows while the file is on). */
   delayMs?: number;
@@ -146,7 +169,17 @@ export function subtitleExtraRows(s: {
   canSearchOnline?: boolean;
 }): PickerRow[] {
   const rows: PickerRow[] = [];
-  if (s.external) rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${s.external.name} (loaded)`, checked: s.external.active });
+  // The loaded file is one of the source's: its source row is checked and it is not listed a second time.
+  let loadedIsSource = false;
+  (s.source ?? []).forEach((sub, i) => {
+    const name = sourceSubtitleName(sub);
+    const isLoaded = s.external?.name === name;
+    loadedIsSource ||= isLoaded;
+    rows.push({ kind: 'list', id: `${SOURCE_PREFIX}${i}`, label: `Subtitles: ${name}`, checked: isLoaded && s.external?.active === true });
+  });
+  if (s.external && !loadedIsSource) {
+    rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${s.external.name} (loaded)`, checked: s.external.active });
+  }
   if (s.external?.active) {
     rows.push({ kind: 'list', id: DELAY_ROW, label: `Subtitle delay: ${delayLabel(s.delayMs ?? 0)} (Left/Right)`, checked: false });
     if (s.pointer) {
@@ -164,7 +197,7 @@ export function subtitleExtraRows(s: {
 }
 
 /** One language found online, as the worker lists it. */
-export interface OnlineLanguage { language: string; count: number; fileId: number; files?: number[]; synced?: boolean; fps?: number }
+export interface OnlineLanguage { language: string; count: number; fileId: number; files?: number[]; synced?: boolean; fps?: number; cc?: boolean }
 
 const ONLINE_PREFIX = 'os:';
 
@@ -178,10 +211,10 @@ export function onlineLanguageLabel(code: string): string {
 
 /** The "Subtitles online" picker: one row per language, its id carrying the file a click loads. */
 export function onlineLanguageRows(langs: readonly OnlineLanguage[]): PickerRow[] {
-  return langs.map((l) => ({
-    kind: 'list', id: `${ONLINE_PREFIX}${l.fileId}`, checked: false,
-    label: l.synced ? `${onlineLanguageLabel(l.language)} · matches this file` : onlineLanguageLabel(l.language),
-  }));
+  return langs.map((l) => {
+    const name = l.cc ? `${onlineLanguageLabel(l.language)} CC` : onlineLanguageLabel(l.language);
+    return { kind: 'list', id: `${ONLINE_PREFIX}${l.fileId}`, checked: false, label: l.synced ? `${name} · matches this file` : name };
+  });
 }
 
 /** The file id a "Subtitles online" row loads; undefined for any other row. */
@@ -192,7 +225,7 @@ export function onlineFileId(rowId: string): number | undefined {
 }
 
 /** One version of a language's subtitles, as the worker lists it. */
-export interface VersionInfo { fileId: number; release: string; fps?: number; synced: boolean; downloads?: number }
+export interface VersionInfo { fileId: number; release: string; fps?: number; synced: boolean; downloads?: number; hearingImpaired?: boolean }
 
 /** The longest version label the picker row shows whole (its text width at body size). */
 export const VERSION_LABEL_MAX = 38;
@@ -202,11 +235,11 @@ const VERSION_PREFIX = 'v:';
 const fpsText = (fps: number) => `${Number(fps.toFixed(3))} fps`;
 
 /**
- * "Release.Name · 25 fps · exact match": the frame rate and the match only when known; "Version 3" without a
+ * "Release.Name · 25 fps · exact match · CC": the frame rate, the match and CC (hearing impaired) only when known; "Version 3" without a
  * release name. A long name is cut (with "…") so the whole label fits VERSION_LABEL_MAX.
  */
-export function versionLabel(v: { release: string; fps?: number; synced: boolean }, n: number): string {
-  const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'exact match' : ''].filter(Boolean);
+export function versionLabel(v: { release: string; fps?: number; synced: boolean; hearingImpaired?: boolean }, n: number): string {
+  const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'exact match' : '', v.hearingImpaired ? 'CC' : ''].filter(Boolean);
   const tail = parts.map((t) => ` · ${t}`).join('');
   let name = releaseName(v.release) || `Version ${n}`;
   const room = Math.max(8, VERSION_LABEL_MAX - tail.length);

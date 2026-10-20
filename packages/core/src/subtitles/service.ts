@@ -14,10 +14,17 @@ export interface LoadedSubtitle {
   fps?: number;
   /** A file found online: its language and which version it is. */
   online?: { language: string; fileId: number };
+  /** The file's language, when known (a file found online or listed by the source): ISO 639-1, maybe with a region. */
+  language?: string;
+  /** Made for the hearing impaired (CC/SDH), when known. */
+  cc?: boolean;
 }
 
-/** What is known about a file found online, kept with it. */
-export interface SubtitleDetails { language?: string; fileId?: number; fps?: number }
+/**
+ * What is known about a file, kept with it: its language, which online version it is, the frame rate it was timed for,
+ * and a display name to use instead of the one taken from the link (a source's link can carry credentials).
+ */
+export interface SubtitleDetails { language?: string; fileId?: number; fps?: number; name?: string; cc?: boolean }
 
 /** The subtitle delay's limit either way. */
 export const SUBTITLE_DELAY_MAX_MS = 60_000;
@@ -81,9 +88,11 @@ export class SubtitleService {
     if (bytes.byteLength > SUBTITLE_MAX_BYTES) throw new SubtitleError(TOO_LARGE);
     const cues = parseSubtitles(decodeSubtitle(bytes));
     if (cues.length === 0) throw new SubtitleError('No subtitles found. Use an .srt or .vtt file.');
-    const loaded: LoadedSubtitle = { name, cues };
+    const loaded: LoadedSubtitle = { name: details?.name ?? name, cues };
     const fps = details?.fps;
     if (fps !== undefined && Number.isFinite(fps) && fps > 0) loaded.fps = fps;
+    if (details?.language) loaded.language = details.language;
+    if (details?.cc) loaded.cc = true;
     if (details?.language && details.fileId !== undefined) loaded.online = { language: details.language, fileId: details.fileId };
     const key = keyOf(sourceId, itemId);
     await this.serial(async () => {
