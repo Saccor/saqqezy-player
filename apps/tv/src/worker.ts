@@ -5,6 +5,7 @@ import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-
 import { rawViaDevProxy, unwrapDevProxyResponse } from './net/devProxy.ts';
 import { routedFetch } from './net/routedFetch.ts';
 import { tvHeaderSupport } from './net/headerSupport.ts';
+import { trendingBaseUrl } from './net/trendingConfig.ts';
 import { detectPlatform } from '@iptv/platform';
 
 // All parsing, storage and networking for the UI runs here, off the UI thread.
@@ -37,6 +38,19 @@ const onlineSubtitles = OPENSUBTITLES_KEY
   })
   : undefined;
 
+// Trending rows on Start: a public feed (services/trending) matched against the library on this device. The request
+// is a bare GET (no credentials, no referrer, nothing about the user); dev reads the fake provider's synthetic feed.
+// Without VITE_TRENDING_URL a production build has no trending rows and never asks.
+const TRENDING_URL = trendingBaseUrl({
+  VITE_TRENDING_URL: import.meta.env.VITE_TRENDING_URL as string | undefined, DEV: import.meta.env.DEV,
+});
+/** The feed's own fetch: straight from the device (the feed answers CORS), cut off after API_TIMEOUT_MS. */
+const trendingFetch = (url: string, init: RequestInit): Promise<Response> => {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), API_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
+};
+
 // Phone companion. The relay only ever sees ciphertext; never log these URLs (they carry the session id).
 const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787').replace(/\/+$/, '');
 const COMPANION_ORIGIN = (import.meta.env.VITE_COMPANION_ORIGIN as string | undefined) || 'http://localhost:5174';
@@ -51,6 +65,7 @@ const api = new AppApi({
   onlineSubtitles,
   // Exact-match subtitles (a Settings choice): two 64 KB range reads of the VOD file over the app's fetch.
   fileHash: (url) => fetchMovieHash(fetchFn, url),
+  ...(TRENDING_URL ? { trending: { baseUrl: TRENDING_URL, fetch: trendingFetch } } : {}),
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,
   companion: (appApi, onStatus) => new CompanionHost({

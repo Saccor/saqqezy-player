@@ -7,6 +7,7 @@ import {
   channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
 } from './data.ts';
 import { handleOpenSubtitles } from './openSubtitles.ts';
+import { movieTmdb, seriesTmdb, trendingFeed } from './trending.ts';
 
 export interface FakeXtreamOptions {
   port?: number;
@@ -106,6 +107,15 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       return send(res, 200, JSON.stringify({ refusing, refused: refusedCount }));
     }
     if (await handleOpenSubtitles(req, res, url, base)) return;
+    // The synthetic trending feed (what services/trending publishes), English only: other languages 404.
+    const trend = /^\/__trending\/v1\/(movie|series)\.([a-z]{2,3})\.json$/.exec(url.pathname);
+    if (trend) {
+      if (trend[2] !== 'en') return send(res, 404, 'not found', 'text/plain');
+      const kind = trend[1] as 'movie' | 'series';
+      const titles = kind === 'movie' ? Math.ceil(mvs.length / (opts.versions ? 3 : 1)) : Math.ceil(srs.length / (opts.versions ? 3 : 1));
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=21600' });
+      return res.end(JSON.stringify(trendingFeed(kind, titles, now())));
+    }
     if (refusing) {
       refusedCount++;
       return send(res, 403, '');
@@ -189,6 +199,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         return send(res, 200, JSON.stringify(mvs.filter((m) => !catFilter || m.categoryId === catFilter).map((m) => ({
           num: m.n, name: m.name, stream_type: 'movie', stream_id: m.n, stream_icon: `${base}/poster/m${m.n}.svg`,
           rating: m.rating, added: String(m.added), category_id: m.categoryId, container_extension: movieExt(m.n),
+          ...(movieTmdb(m.title) ? { tmdb: String(movieTmdb(m.title)) } : {}),
         }))));
       }
       if (action === 'get_vod_info') {
@@ -210,6 +221,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         return send(res, 200, JSON.stringify(srs.filter((s) => !catFilter || s.categoryId === catFilter).map((s) => ({
           num: s.n, name: s.name, series_id: s.n, cover: `${base}/poster/s${s.n}.svg`, rating: (6 + ((s.n * 3) % 35) / 10).toFixed(1),
           last_modified: String(Math.floor(now() / 1000) - s.n * 7200), category_id: s.categoryId, releaseDate: '2021-01-01',
+          ...(seriesTmdb(s.title) ? { tmdb: String(seriesTmdb(s.title)) } : {}),
         }))));
       }
       if (action === 'get_series_info') {

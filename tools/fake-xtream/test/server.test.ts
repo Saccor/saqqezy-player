@@ -2,9 +2,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { SourceService, SourceAuthError, VodService } from '@iptv/core';
+import { SourceService, SourceAuthError, VodService, buildTrendingIndex, groupVod, matchTrending, parseTrendingFeed } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '../src/server.ts';
+import { ABSENT_MOVIE, ABSENT_SERIES } from '../src/trending.ts';
 
 const NOW = Date.UTC(2026, 9, 13, 18, 10);
 let server: Awaited<ReturnType<typeof startFakeXtream>>;
@@ -318,4 +319,49 @@ test('sports option: synthetic matches on numbered channels, with a highlight sh
   } finally {
     await s.close();
   }
+});
+
+describe('fake trending feed', () => {
+  const both = () => {
+    const storage = new MemoryStorage();
+    const deps = { storage, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+    return { sources: new SourceService(deps), vod: new VodService(deps) };
+  };
+  const feedUrl = (kind: string, lang = 'en') => `${server.url}/__trending/v1/${kind}.${lang}.json`;
+
+  test('movie and series feeds in English, with CORS; other languages are 404', async () => {
+    const res = await fetch(feedUrl('movie'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    const feed = await res.json();
+    expect(feed).toMatchObject({ v: 1, kind: 'movie', lang: 'en' });
+    expect(feed.items.map((i: { rank: number }) => i.rank)).toEqual(feed.items.map((_: unknown, k: number) => k + 1));
+    expect(feed.items.every((i: { wd: string }) => /^Q9\d{6}$/.test(i.wd))).toBe(true);
+    expect((await fetch(feedUrl('series', 'sv'))).status).toBe(404);
+    expect((await fetch(feedUrl('music'))).status).toBe(404);
+  });
+
+  test('every third title carries a tmdb id in the lists, the same id as in the feed', async () => {
+    const api = (q: string) => fetch(`${server.url}/player_api.php?username=test&password=test&${q}`).then((r) => r.json());
+    const movies: { stream_id: number; tmdb?: string }[] = await api('action=get_vod_streams');
+    expect(movies.find((m) => m.stream_id === 3)?.tmdb).toBe('900003');
+    expect(movies.find((m) => m.stream_id === 4)?.tmdb).toBeUndefined();
+    const series: { series_id: number; tmdb?: string }[] = await api('action=get_series');
+    expect(series.find((s) => s.series_id === 6)?.tmdb).toBe('800006');
+  });
+
+  test('matched against the fake catalogue: most feed titles are found, the absent ones never', async () => {
+    const { sources, vod } = both();
+    const { source } = await sources.addSource(x('test'));
+    for (const kind of ['movie', 'series'] as const) {
+      await vod.refresh(source.id, kind);
+      const catalog = await vod.loadCatalog(source.id, kind);
+      const groups = groupVod(catalog.source).groups;
+      const feed = parseTrendingFeed(await (await fetch(feedUrl(kind))).json(), kind)!;
+      const hits = matchTrending(feed, kind, buildTrendingIndex(groups), 150).map((g) => groups[g]!.display);
+      expect(hits).not.toContain(kind === 'movie' ? ABSENT_MOVIE : ABSENT_SERIES);
+      expect(hits).toHaveLength(feed.items.length - 1);
+      expect(feed.items.some((i) => i.tmdb === undefined && i.year === undefined)).toBe(kind === 'series');
+    }
+  });
 });
