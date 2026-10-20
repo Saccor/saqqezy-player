@@ -107,3 +107,33 @@ describe('AppApi regions', () => {
     expect(st.groups.find((g) => g.id === 'g:DK | Synthetic Docs')).toMatchObject({ hidden: false, regionHidden: true });
   });
 });
+
+describe('AppApi regions: first mode plays your country first', () => {
+  const FOLD = [
+    '#EXTM3U',
+    ...entry('DK | Synthetic Nordic', 'DK | Synthetic One FHD', 11, 'tvg-id="one.example" '),
+    ...entry('SE | Synthetic Nordic', 'SE | Synthetic One HD', 12, 'tvg-id="one.example" '),
+    ...entry('SE | Synthetic Kids', 'SE | Synthetic Two', 13),
+    '',
+  ].join('\n');
+  const foldFetch: FetchFn = async (u) => (u === 'http://example.test/f.m3u' ? new Response(FOLD) : new Response('', { status: 404 }));
+
+  test('a chosen-country HD stream beats another country FHD in getPlayable and liveSources', async () => {
+    const service = new SourceService({ storage, fetch: foldFetch, now: () => NOW });
+    const api = new AppApi({ service, storage, emit: () => {}, now: () => NOW });
+    live.push(api);
+    await api.addSource({ kind: 'm3u', name: 'Synthetic', playlistUrl: 'http://example.test/f.m3u' });
+    await api.idle();
+    await api.saveSettings({ combineChannels: true });
+    // Off: best quality first, so the DK FHD stream leads.
+    const row = (await api.getChannelSlice('all', 0, 10)).rows.find((r) => r.sourceCount === 2)!;
+    expect(row).toBeDefined();
+    const dk = (await api.liveSources(row.id))[0]!.id;
+    expect((await api.getPlayable(row.id))!.url).toBe('http://a.example.test/live/11.ts');
+    await api.setRegions({ codes: ['SE'], mode: 'first' });
+    const sources = await api.liveSources(row.id);
+    expect(sources).toHaveLength(2);
+    expect(sources[0]!.id).not.toBe(dk);
+    expect((await api.getPlayable(row.id))!.url).toBe('http://a.example.test/live/12.ts');
+  });
+});

@@ -683,12 +683,17 @@ export class ChannelIndex {
     return fi === undefined ? undefined : this.fb!.folds.folds[fi]!.key;
   }
 
-  /** A channel's quality rank and spare-feed tag, from its playlist name. Undefined when not folding. */
-  memberInfo(id: string): { quality: number; backup: boolean } | undefined {
+  /**
+   * A channel's quality rank and spare-feed tag, from its playlist name, and `chosen` when Your countries is on and
+   * its group is one of them (sources play those first). Undefined when not folding.
+   */
+  memberInfo(id: string): { quality: number; backup: boolean; chosen: boolean } | undefined {
     const at = this.fb?.pos.get(id);
     if (at === undefined) return undefined;
     const f = this.fb!.folds;
-    return { quality: f.memberQuality[at]!, backup: f.memberBackup[at] === 1 };
+    const c = this.base.byId.get(id);
+    const chosen = this.rd.state.mode !== 'off' && c !== undefined && this.rd.chosen.has(groupIdOf(c));
+    return { quality: f.memberQuality[at]!, backup: f.memberBackup[at] === 1, chosen };
   }
 
   /**

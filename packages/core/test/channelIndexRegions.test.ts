@@ -83,6 +83,10 @@ describe('ChannelIndex regions', () => {
     expect(only.slice('all', 0, 20).find((c) => c.id === 's:1' || c.id === 's:3')?.sources).toBeUndefined();
     const first = new ChannelIndex(channels, undefined, undefined, { fold: true, regions: view('first', ['SE']) });
     expect(first.sources('s:1').map((c) => c.id)).toEqual(['s:3', 's:1']);
+    expect(first.memberInfo('s:3')?.chosen).toBe(true);
+    expect(first.memberInfo('s:1')?.chosen).toBe(false);
+    const off = new ChannelIndex(channels, undefined, undefined, { fold: true, regions: view('off', ['SE']) });
+    expect(off.memberInfo('s:3')?.chosen).toBe(false);
   });
 
   test('withLayout keeps the regions and rebuilds the effective set', () => {

@@ -2057,9 +2057,12 @@ export class AppApi {
     const key = this.index.foldKey(rowId);
     const last = key === undefined ? undefined : await this.liveMem.pick(id, key);
     const cands = await Promise.all(members.map(async (c) => {
-      const info = this.index.memberInfo(c.id) ?? { quality: 4, backup: false };
+      const info = this.index.memberInfo(c.id) ?? { quality: 4, backup: false, chosen: false };
       const blocked = (await this.service.guard.status(streamCooldownKey(id, c.url))).state !== 'clear';
-      return { c, id: c.id, quality: info.quality, backup: info.backup, blocked, bad: blocked || this.liveMem.isBad(c.id) };
+      return {
+        c, id: c.id, quality: info.quality, backup: info.backup, preferred: info.chosen, blocked,
+        bad: blocked || this.liveMem.isBad(c.id),
+      };
     }));
     const dupName = new Set<string>();
     const seen = new Set<string>();
