@@ -33,11 +33,13 @@ port = 8787
 enabled = false
 
 [env.production.vars]
-# Placeholder: replace with the real companion origin before deploying.
-ALLOWED_ORIGINS = "https://manage.example.com"
-# Add hosted TV origins to the same comma-separated list, for example:
-#   ALLOWED_ORIGINS = "https://manage.example.com,https://tv.example.com"
-# (hosted TV web builds such as Titan OS, and any other TV build served over https).
+# The companion page (`pnpm companion:deploy`), then the localhost entries: TV dev builds on this computer
+# (`pnpm dev` serves 5173; 5180 is a second local TV dev server) that pair through the production relay.
+# The Origin check is hygiene only (any non-browser client can send any Origin); security comes from the
+# end-to-end encryption.
+ALLOWED_ORIGINS = "https://saqqezy-companion.sacco-rezais.workers.dev,http://localhost:5173,http://localhost:5180"
+# Add hosted TV origins to the same comma-separated list (hosted TV web builds such as Titan OS, and any
+# other TV build served over https).
 # Packaged Tizen/webOS builds send Origin null or file://, which role=tv accepts without a listing.
 
 [[env.production.durable_objects.bindings]]

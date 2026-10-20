@@ -18,6 +18,7 @@
     "build:tizen": "node tools/tizen/build-wgt.mjs",
     "companion:dev": "pnpm --filter @iptv/companion dev",
     "build:companion": "pnpm --filter @iptv/companion build",
+    "companion:deploy": "node scripts/companion-deploy.mjs",
     "relay:dev": "pnpm --filter @iptv/relay run dev",
     "relay:test:int": "node services/relay/scripts/integration.mjs",
     "relay:deploy": "pnpm --filter @iptv/relay run deploy",
