@@ -77,7 +77,15 @@ export function fullscreenVideoRoute(route: ScreenId | undefined): boolean {
  * screen overlay is open, because the shell draws the mark above the screen and so above the screen's overlays.
  */
 export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: boolean, overlayOpen: boolean): boolean {
-  return route !== 'player' && !rectIsFullscreen && !overlayOpen;
+  return !(route && NO_WORDMARK.has(route)) && !rectIsFullscreen && !overlayOpen;
+}
+
+/** Screens without the brand wordmark: the redesigned ones (spec §1.4) and the player. */
+const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['player', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail']);
+
+/** Screens with the left rail; the rail draws the clock there, so the shell's top-right clock is off. */
+export function railRoute(route: ScreenId | undefined): boolean {
+  return route === 'home' || route === 'start' || route === 'vod' || route === 'vodGrid';
 }
 
 /** The wordmark is drawn at the latest this long after the shell mounts, even if Home has not shown rows yet. */

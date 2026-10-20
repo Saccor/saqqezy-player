@@ -8,36 +8,36 @@ import { canFromStart } from '../vod/catchupLogic.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
+import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
 import { WIDE_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
+import { dwellSignal } from '../shell/dwell.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
+import { Rail } from '../shell/Rail.tsx';
+import { goRail } from '../shell/railNav.ts';
+import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
 import { nowNextLine } from './homeLogic.ts';
-import { TAB_H, tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
+import { Backdrop } from '../vod/Backdrop.tsx';
+import { metaLine } from '../vod/posterLogic.ts';
+import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
   cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
-/**
- * Layout (1080p design space): a compact hero (title and one meta line) under the tab bar, so two poster rows show in
- * full on a 16:9 screen and the third peeks in with its title and a strip of tiles (`startRowSlots`).
- */
-const HERO_X = LAYOUT.safeX;
-const HERO_Y = TAB_BAR_Y + TAB_H + 30;
-const HERO_W = 1100;
-const HERO_META_Y = HERO_Y + 64;
-const ROW_Y = HERO_META_Y + 70;
-const LABEL_H = 44;
+/** Layout (1080p design space, spec §2.2): the info strip at the top, rows from y 262 at x 160. */
+const ROW_X = LAYOUT.contentX;
+const ROW_Y = 262;
+const LABEL_H = 42;
 const ROW_GAP = 36;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
@@ -47,10 +47,10 @@ const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H
 /** Per source: focus by identity and the last column per row (kept across visits, like VodBrowse). */
 const memories = new Map<string, { focus: StartMemory; cols: Map<string, number> }>();
 
-/** Start: the tab bar, a hero for the focused cell, and rows built from the user's own data (spec §2). */
+/** Start: the rail, an info strip for the focused cell, and rows built from the user's own data (spec §2). */
 export function StartScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { focus?: 'rail' };
-  const startOnTabs = params.focus === 'rail';
+  const startOnRail = params.focus === 'rail';
   delete params.focus;
   const memKey = initState()?.activeSourceId ?? '';
   const memory = memories.get(memKey) ?? { focus: { row: 0, col: 0 }, cols: new Map<string, number>() };
@@ -58,15 +58,15 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const [home, setHome] = createSignal<StartHome | undefined>(undefined);
   const [focus, setFocus] = createSignal<StartFocus>({ row: memory.focus.row, col: memory.focus.col });
-  const [area, setArea] = createSignal<'tabs' | 'rows'>(startOnTabs ? 'tabs' : 'rows');
+  const [area, setArea] = createSignal<'rail' | 'rows'>(startOnRail ? 'rail' : 'rows');
   const [now, setNow] = createSignal(Date.now());
-  let tabsNode: ElementNode | undefined;
+  let railNode: ElementNode | undefined;
   let rowsNode: ElementNode | undefined;
   let wheelNode: ElementNode | undefined;
   let alive = true;
   let gen = 0;
-  /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). Only user moves change it. */
-  let preferredArea: 'tabs' | 'rows' = startOnTabs ? 'tabs' : 'rows';
+  /** What the user chose; `area` may sit on a fallback (rail while there are no rows). Only user moves change it. */
+  let preferredArea: 'rail' | 'rows' = startOnRail ? 'rail' : 'rows';
 
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
@@ -77,11 +77,11 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     memory.focus = { ...f, ...(r ? { rowId: r.id } : {}), ...(c ? { cellId: cellId(c) } : {}) };
   };
   /** `user`: a key or pointer move (it becomes the preference); false for focus the screen moves by itself. */
-  const focusArea = (a: 'tabs' | 'rows', user = true) => {
+  const focusArea = (a: 'rail' | 'rows', user = true) => {
     if (user) preferredArea = a;
-    const target = a === 'rows' && rows().length === 0 ? 'tabs' : a;
+    const target = a === 'rows' && rows().length === 0 ? 'rail' : a;
     setArea(target);
-    (target === 'tabs' ? tabsNode : rowsNode)?.setFocus();
+    (target === 'rail' ? railNode : rowsNode)?.setFocus();
     return true;
   };
 
@@ -92,8 +92,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       setHome(h);
       setFocus(locateStart(h.rows, memory.focus));
     });
-    if (h.rows.length === 0 && area() === 'rows') focusArea('tabs', false);
-    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, screenOverlayOpen()) === 'rows') {
+    if (h.rows.length === 0 && area() === 'rows') focusArea('rail', false);
+    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea === 'rail' ? 'tabs' : 'rows', screenOverlayOpen()) === 'rows') {
       // The rows node mounts with the rows; focus it once it exists.
       queueMicrotask(() => { if (alive && !screenOverlayOpen()) focusArea('rows', false); });
     }
@@ -179,8 +179,9 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
+    if (key === 'left' && focus().col === 0) return focusArea('rail');
     const r = moveStart(rows(), focus(), key, memory.cols);
-    if ('edge' in r) return focusArea('tabs');
+    if ('edge' in r) return true; // Up from the top row: nothing above (the strip is not focusable)
     setFocus(r.focus);
     remember();
     return true;
@@ -194,12 +195,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   usePointerTarget({ node: () => wheelNode, enabled: () => rows().length > 0, onWheel });
 
-  const back = () => { router.back({ focusTabs: true }); return true; };
-  const goTab = (t: TabId) => {
-    const nav = tabNavigation('start', t);
-    if (nav.action === 'back') back();
-    else if (nav.action === 'replace') router.replace(nav.to.screen, tabParams(nav.to));
+  /** Back from the rows goes to the rail; Back on the rail returns to Live TV. */
+  const back = () => {
+    if (area() !== 'rail') return focusArea('rail');
+    router.back({ focusRail: true });
+    return true;
   };
+  const goTab = (t: RailId) => goRail('start', t, () => router.back({ focusRail: true }));
 
   onMount(() => {
     // Like Movies and Series: a full screen over Home; Back to Live TV resumes the channel that was playing.
@@ -213,28 +215,26 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; memory.cols.clear(); void load(); }),
     ];
     // Stale-while-revalidate: re-read the rows every 30 s while the page is visible (and once when it becomes visible
-    // again), so Live now and Sports move on with the guide; the hero's times follow `now`.
+    // again), so Live now and Sports move on with the guide; the strip's times follow `now`.
     const stopTick = visibleInterval(() => { setNow(Date.now()); void load(); }, REVALIDATE_MS);
     onCleanup(() => { for (const off of offs) off(); stopTick(); });
-    queueMicrotask(() => focusArea(startOnTabs ? 'tabs' : 'rows', false));
+    queueMicrotask(() => focusArea(startOnRail ? 'rail' : 'rows', false));
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
 
-  const heroTitle = () => {
+  /** What the strip says about the focused cell. */
+  const stripOf = (): { title: string; meta: string; art?: string } => {
     const c = focusedCell();
-    if (!c) return '';
-    if (c.type === 'vod') return c.tile.title;
-    if (c.type === 'channel') return c.channel.name;
-    if (c.type === 'event') return c.event.title;
-    return rows()[focus().row]?.title ?? '';
+    if (!c) return { title: '', meta: '' };
+    if (c.type === 'vod') {
+      const t = c.tile;
+      return { title: t.title, meta: joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t)), art: t.poster };
+    }
+    if (c.type === 'channel') return { title: c.channel.now?.title ?? c.channel.name, meta: joinMeta(c.channel.name, nowNextLine(c.channel)) };
+    if (c.type === 'event') return { title: c.event.title, meta: joinMeta(eventWhen(c.event, now()), channelsLabel(c.event.channelCount), c.event.subTitle) };
+    return { title: rows()[focus().row]?.title ?? '', meta: '' };
   };
-  const heroLine = () => {
-    const c = focusedCell();
-    if (c?.type === 'channel') return nowNextLine(c.channel);
-    if (c?.type === 'event') return [eventWhen(c.event, now()), channelsLabel(c.event.channelCount), c.event.subTitle].filter(Boolean).join(' · ');
-    if (c?.type === 'vod') return c.tile.year ? String(c.tile.year) : '';
-    return '';
-  };
+  const strip = dwellSignal(stripOf);
   /**
    * The focused row on top and the rows after it below, down to a peek of the next one's title and tiles; in pointer
    * mode only rows that fit above the shell's bottom button row.
@@ -249,14 +249,15 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
-      <TabBar ref={(el) => { tabsNode = el; }} active="start" onSelect={goTab} onDown={() => focusArea('rows')}
-        onFocusChanged={(f) => { if (f) setArea('tabs'); }} />
+      <Backdrop url={strip().art} area="strip" />
+      <Rail ref={(el) => { railNode = el; }} active="start" onSelect={goTab} onRight={() => focusArea('rows')}
+        onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={home() !== undefined && rows().length === 0}>
-        <Text x={HERO_X} y={HERO_Y + 60} fontSize={FONT.heading} color={COLORS.text}>{emptyStartText()}</Text>
+        <Text x={ROW_X} y={STRIP_Y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
+          fontSize={TYPE.title} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
       <Show when={rows().length > 0}>
-        <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>{heroTitle()}</Text>
-        <Text x={HERO_X} y={HERO_META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{heroLine()}</Text>
+        <InfoStrip title={strip().title} meta={strip().meta} />
         <View ref={(el) => { rowsNode = el; }} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
           onFocusChanged={(f: boolean) => { if (f) { setArea('rows'); preferredArea = 'rows'; } }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
@@ -268,12 +269,12 @@ export function StartScreen(props: { entry: ScreenEntry }) {
             const lit = () => area() === 'rows' && i === focus().row;
             return (
               <View y={rowY(i)}>
-                <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
+                <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
                 <Show when={rowKind(r()) === 'poster'} fallback={
-                  <WideRow x={LAYOUT.safeX} y={LABEL_H} width={LAYOUT.width - LAYOUT.safeX} row={r()} now={now()} focusCol={focusCol()} lit={lit()}
+                  <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()}
                     onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                 }>
-                  <PosterRow x={LAYOUT.safeX} y={LABEL_H} width={LAYOUT.width - LAYOUT.safeX} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
+                  <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
                     onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                 </Show>
               </View>

@@ -1,7 +1,9 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
+import { settings } from '../state/appState.ts';
 import { iconTexture } from '../vod/icons.ts';
+import { Clock } from './Clock.tsx';
 import type { TabId } from '../vod/tabLogic.ts';
 import { RAIL_ICON, RAIL_ITEMS, RAIL_LABELS, RAIL_OPEN_W, RAIL_ROW_H, railIcon, railItemAt, railY, stepRail, type RailId } from './railLogic.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from './theme.ts';
@@ -41,6 +43,9 @@ export function Rail(props: {
       <Show when={focused()}>
         <View x={RAIL_OPEN_W} width={LAYOUT.width - RAIL_OPEN_W} height={LAYOUT.height} color={COLORS.scrim} />
         <View width={RAIL_OPEN_W} height={LAYOUT.height} color={COLORS.background} />
+      </Show>
+      <Show when={settings()?.showClock === true}>
+        <Clock x={0} y={LAYOUT.safeY} width={LAYOUT.railW} align="center" size={TYPE.meta} />
       </Show>
       <For each={RAIL_ITEMS}>{(id) => {
         const lit = () => focused() && cursor() === id;

@@ -26,7 +26,7 @@ import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
-  OFFLINE_BADGE_W, OFFLINE_BADGE_X, showWordmark, WORDMARK_MAX_WAIT_MS,
+  OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
@@ -174,7 +174,7 @@ export function App() {
         Hidden until settings are loaded, so a disabled clock never flashes. Not over fullscreen video: the Player's info
         banner has its own clock (two clocks showed together) and VodPlay's bar is the only chrome on the picture.
       */}
-      <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds())}><Clock /></Show>
+      <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds()) && !railRoute(current()?.screen)}><Clock /></Show>
       <Toast />
       <Show when={exitOpen()}>
         <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
