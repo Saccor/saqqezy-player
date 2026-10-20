@@ -24,7 +24,10 @@ export const LIMITS = {
   queueMaxAgeMs: 60_000,
   /** Reconnect-queue bytes across all sessions in one isolate. */
   isolateQueueMaxBytes: 32 * 1024 * 1024,
-  /** New sessions per IP (IPv4 address or IPv6 /64) per window (per isolate, in memory only). */
+  /**
+   * New sessions per IP (IPv4 address or IPv6 /64) per window: per isolate in memory, and across
+   * isolates via the NEW_SESSION_LIMITER binding (wrangler.toml `[[ratelimits]]`, same numbers).
+   */
   newSessionsPerIp: 10,
   newSessionWindowMs: 60_000,
 } as const;
@@ -134,6 +137,44 @@ export async function ipLimitKey(ip: string): Promise<string> {
   let hex = '';
   for (let i = 0; i < 16; i++) hex += (mac[i] as number).toString(16).padStart(2, '0');
   return hex;
+}
+
+/**
+ * The key for the shared (cross-isolate) new-session limit: hex of SHA-256 over a fixed label and
+ * the address prefix (IPv4 address or IPv6 /64), truncated to 16 bytes. It must be the same in
+ * every isolate, so unlike `ipLimitKey` it cannot use a per-isolate random key. It goes only to
+ * Cloudflare's rate-limit counter (which already sees the connecting IP); we never store or log it.
+ */
+export async function sharedLimitKey(ip: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(`iptv-relay/new-session/v1:${ipPrefix(ip)}`),
+  ));
+  let hex = '';
+  for (let i = 0; i < 16; i++) hex += (digest[i] as number).toString(16).padStart(2, '0');
+  return hex;
+}
+
+/** The shape of Cloudflare's Workers Rate Limiting binding (`[[ratelimits]]` in wrangler.toml). */
+export interface RateLimitBinding {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
+/**
+ * The new-session check. The in-memory, per-isolate limiter is the first line (no network call
+ * for an obvious flood); the shared Rate Limiting binding then enforces the limit across isolates.
+ * Without a binding (local dev, tests) the in-memory limit alone decides. If the binding errors,
+ * the in-memory decision stands, so a rate-limit outage never blocks every pairing.
+ */
+export async function allowNewSession(
+  ip: string, now: number, local: IpRateLimiter, binding: RateLimitBinding | undefined,
+): Promise<boolean> {
+  if (!local.allow(await ipLimitKey(ip), now)) return false;
+  if (!binding) return true;
+  try {
+    return (await binding.limit({ key: await sharedLimitKey(ip) })).success;
+  } catch {
+    return true;
+  }
 }
 
 /**
