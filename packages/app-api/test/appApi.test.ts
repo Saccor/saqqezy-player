@@ -2551,7 +2551,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     const movieId = await firstMovie(api);
     expect((await api.subtitleVersions(movieId, 'sv')).length).toBe(2);
     await api.subtitleVersions(movieId, 'en');
-    // A failed read is remembered too: never asked again for the same title this session.
+    // A failed read is remembered too: not asked again for the same title for a while (retried after 10 minutes).
     expect(calls).toHaveLength(1);
   });
 

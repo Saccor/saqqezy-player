@@ -695,6 +695,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   /** The loaded file now showing: its delay and speed (Normal until set, or set to match the video's frame rate). */
   const useLoaded = (loaded: LoadedSubtitle) => {
+    // A delay change still waiting to be saved belonged to the previous file.
+    if (delaySaveTimer !== undefined) {
+      clearTimeout(delaySaveTimer);
+      delaySaveTimer = undefined;
+    }
     setExternal(loaded);
     setSubDelay(loaded.delayMs ?? 0);
     setSubSpeed(normalizeSpeed(loaded.speed));
@@ -706,6 +711,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const loadWith = async (load: () => Promise<LoadedSubtitle>, toastName?: string): Promise<string | undefined> => {
     if (subBusy()) return undefined;
     setSubBusy(true);
+    // The previous file must not get an automatic speed while the new one downloads.
+    autoSpeedTries = 0;
     try {
       const loaded = await load();
       if (!alive) return undefined;
