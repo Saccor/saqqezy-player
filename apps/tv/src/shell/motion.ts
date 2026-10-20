@@ -146,6 +146,22 @@ export function useFocusScale(node: () => ElementNode | undefined, lit: () => bo
   }));
 }
 
+/** The clock motion uses (ms, monotonic). */
+export const motionNow = now;
+
+/**
+ * Shows an image node mounted at `MOTION.startAlpha` once its texture has loaded: a 160 ms fade, or at once when it
+ * loaded within `MOTION.cacheHit` ms of `mountedAt` (a cache hit) or while a navigation key is held.
+ */
+export function fadeInLoaded(node: ElementNode, mountedAt: number): void {
+  if (now() - mountedAt < MOTION.cacheHit || navKeyHeld()) {
+    stopMotion(node);
+    node.alpha = 1;
+    return;
+  }
+  tween(node, { alpha: 1 }, MOTION.imageIn);
+}
+
 /**
  * Opens a menu, dialog or toast: from `MOTION.startAlpha` and `MOTION.rise` px lower to its place, with `token`. Call it
  * from the overlay's outermost `ref` (whose `alpha` and `y` no Solid prop changes later). Focus is not affected: the
