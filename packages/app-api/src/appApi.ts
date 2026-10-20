@@ -9,6 +9,7 @@ import {
 import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
+import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
@@ -90,6 +91,8 @@ export class AppApi {
   private index = new ChannelIndex([]);
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
+  /** The channels' guide-shift span, from `setIndex` (programme search needs its widest shift per keystroke). */
+  private shifts: ShiftSpan = { min: 0, max: 0 };
   /** epgKeys with stored guide data for the active source; undefined until a guide was loaded. */
   private coverage: Set<string> | undefined;
   /** Lazily built: `channels` by id, to look renamed channels' guide up under their playlist name. */
@@ -1102,6 +1105,7 @@ export class AppApi {
   /** Swaps in a fresh index. Caller holds the index lock. */
   private setIndex(channels: Channel[], layout: Layout, coverage: Set<string> | undefined): void {
     this.channels = channels;
+    this.shifts = shiftSpan(channels);
     this.coverage = coverage;
     this.originalById = undefined;
     this.index = new ChannelIndex(channels, layout, coverage);
@@ -1311,8 +1315,7 @@ export class AppApi {
     const settings = await this.currentSettings();
     const t = this.now();
     const shiftOf = (c: Channel) => (settings.epgOffsetHours + (c.epgShift ?? 0)) * HOUR;
-    let maxShift = Math.abs(settings.epgOffsetHours) * HOUR;
-    for (const c of this.channels) maxShift = Math.max(maxShift, Math.abs(shiftOf(c)));
+    const maxShift = maxShiftMs(this.shifts, settings.epgOffsetHours);
     const onNow: { c: Channel; title: string; start: number; stop: number }[] = [];
     const later: { c: Channel; title: string; start: number; stop: number; more: number }[] = [];
     for (const m of queryTitles(data, query, t - maxShift, SEARCH_TITLES)) {

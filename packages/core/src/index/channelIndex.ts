@@ -22,6 +22,7 @@ const GROUP_PREFIX = 'g:';
 const LIST_PREFIX = 'list:';
 /** `src` holds display channels, so the name sort uses the user's renames. */
 const channelName = (c: Channel): string => c.name;
+const NO_CHANNELS: readonly Channel[] = Object.freeze([]);
 
 /** Layout-independent data, computed once per playlist and shared by `withLayout` rebuilds. */
 interface Base {
@@ -107,6 +108,8 @@ export class ChannelIndex {
   private readonly hiddenCh: Set<string>;
   private readonly hiddenGr: Set<string>;
   private readonly noEpg: Set<string> | undefined;
+  /** Nothing hidden (channels, groups, no-guide) and nothing renamed: every channel shows as it is. */
+  private readonly plain: boolean;
   private readonly visibleCache = new Map<string, Channel[]>();
 
   /**
@@ -143,6 +146,7 @@ export class ChannelIndex {
       }
     }
     this.noEpg = lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
+    this.plain = this.hiddenCh.size === 0 && this.hiddenGr.size === 0 && this.renamed.size === 0 && !this.noEpg?.size;
 
     // Carry over cached groups whose inputs did not change (layout fields are copy-on-write, so
     // unchanged fields keep their identity). Membership inputs shared by every group:
@@ -319,8 +323,11 @@ export class ChannelIndex {
     return this.visible(GROUP_ALL).find((c) => c.number === n);
   }
 
-  /** Visible display channels whose playlist epgKey is `key`, in number order (programme search). */
-  channelsForEpgKey(key: string): Channel[] {
+  /**
+   * Visible display channels whose playlist epgKey is `key`, in number order (programme search). With nothing hidden
+   * or renamed, the shared per-key array itself: no copy per call (several per search keystroke).
+   */
+  channelsForEpgKey(key: string): readonly Channel[] {
     if (!this.base.byEpgKey) {
       const m = new Map<string, Channel[]>();
       for (const c of this.base.byNumber) {
@@ -331,7 +338,9 @@ export class ChannelIndex {
       }
       this.base.byEpgKey = m;
     }
-    return (this.base.byEpgKey.get(key) ?? []).filter((c) => this.shown(c)).map((c) => this.display(c));
+    const all = this.base.byEpgKey.get(key) ?? NO_CHANNELS;
+    if (this.plain) return all;
+    return all.filter((c) => this.shown(c)).map((c) => this.display(c));
   }
 
   neighbour(groupId: string, channelId: string, delta: number): Channel | undefined {

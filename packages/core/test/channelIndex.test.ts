@@ -15,7 +15,7 @@ const channels = [ch(3, 'News'), ch(1, 'Movies'), ch(2, 'News', 'Nyheter Åtta')
 function lay(...ops: LayoutOp[]): Layout {
   return applyOps(emptyLayout(), ops).layout;
 }
-const ids = (cs: Channel[]): string[] => cs.map((c) => c.id);
+const ids = (cs: readonly Channel[]): string[] => cs.map((c) => c.id);
 
 describe('ChannelIndex – v1 behaviour', () => {
   test('groups: fav first, all second, provider groups in first-appearance order', () => {
@@ -356,6 +356,20 @@ describe('ChannelIndex – search keys and epgKey lookup', () => {
     expect(idx.channelsForEpgKey('x.test').map((c) => [c.id, c.name])).toEqual([['s:2', 'Two'], ['s:5', 'Renamed Five']]);
     expect(ids(idx.channelsForEpgKey('name:no id'))).toEqual(['s:4']);
     expect(idx.channelsForEpgKey('missing')).toEqual([]);
+  });
+
+  test('channelsForEpgKey: nothing hidden or renamed returns the same array per key, no copy per call', () => {
+    const cs = [ch(1, 'A', 'One', 'x.test'), ch(2, 'B', 'Two', 'x.test'), ch(3, 'A', 'Three', 'y.test')];
+    const idx = new ChannelIndex(cs);
+    const first = idx.channelsForEpgKey('x.test');
+    expect(ids(first)).toEqual(['s:1', 's:2']);
+    expect(idx.channelsForEpgKey('x.test')).toBe(first);
+    expect(idx.channelsForEpgKey('missing')).toBe(idx.channelsForEpgKey('other missing'));
+    // Hiding or renaming one channel: filtered and renamed results again.
+    expect(ids(idx.withLayout(lay({ op: 'hideChannels', ids: ['s:1'] })).channelsForEpgKey('x.test'))).toEqual(['s:2']);
+    expect(idx.withLayout(lay({ op: 'renameChannel', id: 's:2', name: 'Renamed' })).channelsForEpgKey('x.test').map((c) => c.name))
+      .toEqual(['One', 'Renamed']);
+    expect(new ChannelIndex(cs, { ...emptyLayout(), hideNoEpg: true }, new Set(['y.test'])).channelsForEpgKey('x.test')).toEqual([]);
   });
 
   test('channelsForEpgKey excludes hidden channels and hidden groups', () => {
