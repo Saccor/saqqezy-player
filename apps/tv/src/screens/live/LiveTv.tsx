@@ -233,9 +233,13 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   // The info block follows the focus once it rests.
   // Equal while it shows the same thing: arriving prefetch pages rebuild the objects but must not restart the dwell.
+  // On the channel cell it shows the row's programme on air now.
   const infoSource = createMemo(() => {
     const channel = focusChannel();
-    return channel ? { channel, block: place() === 'channels' ? undefined : focusBlock() } : undefined;
+    if (!channel) return undefined;
+    if (place() !== 'channels') return { channel, block: focusBlock() };
+    const onNow = rowBlocks()[blockIndexAt(rowBlocks(), now())]; // the nearest block when none airs now
+    return { channel, block: onNow && isOnAir(onNow, now()) ? onNow : undefined };
   }, undefined, { equals: sameInfo });
   const shown = dwellSignal(infoSource);
 

@@ -2,9 +2,10 @@
 import { mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
 import { CATCHUP_COPY } from '../../copy.ts';
-import { LAYOUT } from '../../shell/theme.ts';
+import { LAYOUT, TYPE } from '../../shell/theme.ts';
 import { guideOkAction } from '../../vod/catchupLogic.ts';
-import { pickGroup, type GroupLite } from '../homeLogic.ts';
+import { dayLabel } from '../guideLogic.ts';
+import { formatRange, pickGroup, type GroupLite } from '../homeLogic.ts';
 import { buildChannelMenu, emptyGroupText, type ChannelMenuAction, type ListLite } from '../homeMenuLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -52,6 +53,26 @@ export function liveOkAction(o: {
   const g = guideOkAction(o.archive, o.onAir);
   if (g !== 'live') return g;
   return o.channelId === o.playingId || o.channelId === o.requestedId ? 'fullscreen' : 'preview';
+}
+
+/**
+ * The info block's progress track: at `minX` after today's "20:00–21:30" (about 132 px at meta size), `w` wide, then
+ * `gap` before the time left.
+ */
+export const INFO_TRACK = { minX: 152, w: 160, gap: 16 } as const;
+/** Lightning measures text late, so the time line's width is estimated: 0.6 em a character at meta size. */
+const INFO_CHAR_W = 0.6 * TYPE.meta;
+
+/**
+ * The info block's time line: "20:00–21:30" for a programme starting today, else "Yesterday · 23:00–01:00",
+ * "Tomorrow · …" or "Thu 22 Oct · …" (`dayLabel`). `trackX`: where the progress track starts, clear of the text.
+ */
+export function infoTimeLine(start: number, stop: number, now: number): { text: string; trackX: number } {
+  const range = formatRange(start, stop);
+  const day = dayLabel(start, now);
+  if (day === 'Today') return { text: range, trackX: INFO_TRACK.minX };
+  const text = `${day} · ${range}`;
+  return { text, trackX: Math.max(INFO_TRACK.minX, Math.ceil(text.length * INFO_CHAR_W) + INFO_TRACK.gap) };
 }
 
 /** "12 min left", "1 h 5 min left", "2 h left"; '' once it has ended. Minutes round up. */
