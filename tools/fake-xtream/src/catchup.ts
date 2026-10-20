@@ -96,7 +96,7 @@ const inWindow = (start: number | undefined, now: number, days: number) =>
   start !== undefined && Number.isFinite(start) && start <= now && start >= now - days * DAY - 60_000;
 
 /**
- * The playlist `/catchup.m3u`: one entry per mode on synthetic channels whose guide has history (tvg-id of fake
+ * The playlist `/catchup.m3u` (every entry its own URL, so none is merged as a duplicate): one entry per mode on synthetic channels whose guide has history (tvg-id of fake
  * channels 1, 2, 5 and 9), an archive that always answers 404, and a template the app cannot read.
  */
 export function catchupM3u(base: string, user: string, pass: string): string {
@@ -107,7 +107,7 @@ export function catchupM3u(base: string, user: string, pass: string): string {
     ...e(`tvg-id="c1.test" catchup="default" catchup-days="7" catchup-source="${base}/archive/1/index.m3u8?start={utc}&end={utcend}"`,
       'Catch-up default', `${base}/plain/1.m3u8`),
     ...e(`tvg-id="c1.test" catchup="default" catchup-days="7" catchup-correction="0" catchup-source="${base}/archive/1/{Y}-{m}-{d}/{H}-{M}.m3u8?minutes={duration:60}"`,
-      'Catch-up wall clock', `${base}/plain/1.m3u8`),
+      'Catch-up wall clock', `${base}/plain/1.m3u8?v=wall`),
     ...e(`tvg-id="c5.test" catchup="append" catchup-days="7" catchup-source="?utc={utc}&lutc={lutc}"`,
       'Catch-up append', `${base}/plain/5.m3u8?token=synthetic`),
     ...e('tvg-id="c9.test" catchup="shift"', 'Catch-up shift', `${base}/plain/9.m3u8`),
@@ -115,9 +115,9 @@ export function catchupM3u(base: string, user: string, pass: string): string {
     ...e('tvg-id="c1.test" catchup="xc" catchup-days="7"', 'Catch-up xc', `${live}/1.ts`),
     ...e('tvg-id="c2.test"', 'Catch-up inferred', `${base}/plain/2.m3u8`),
     ...e(`tvg-id="c5.test" catchup="default" catchup-days="7" catchup-source="${base}/archive/gone/index.m3u8?start={utc}&end={utcend}"`,
-      'Catch-up not available', `${base}/plain/5.m3u8`),
+      'Catch-up not available', `${base}/plain/5.m3u8?v=gone`),
     ...e(`tvg-id="c1.test" catchup="default" catchup-days="7" catchup-source="${base}/archive/1/index.m3u8?start={unknown}"`,
-      'Catch-up unsupported', `${base}/plain/1.m3u8`),
+      'Catch-up unsupported', `${base}/plain/1.m3u8?v=unsupported`),
   ].join('\n') + '\n';
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { formatOffset, intlZonesWork, pickZone, serverOffsetFrom, wallClock, zoneLabel, type CatchupZone } from '../src/catchup/zone.ts';
+import { formatOffset, intlZonesWork, pickZone, serverOffsetFrom, wallClock, withCleanCatchupOffset, zoneLabel, type CatchupZone } from '../src/catchup/zone.ts';
 
 const STHLM: CatchupZone = { kind: 'iana', name: 'Europe/Stockholm' };
 const hm = (ms: number, z: CatchupZone) => {
@@ -70,4 +70,12 @@ test('server offset from time_now and timestamp_now, rounded to 15 min', () => {
   expect(serverOffsetFrom('soon', ts)).toBeUndefined();
   expect(serverOffsetFrom('2026-10-20 20:10:00', 'x')).toBeUndefined();
   expect(serverOffsetFrom('2026-10-25 20:10:00', ts)).toBeUndefined(); // a clock days off is no zone
+});
+
+test('the user offset is kept on the 15 min grid inside −12 h … +14 h, or dropped', () => {
+  expect(withCleanCatchupOffset({ a: 1, catchupOffsetMin: 67 })).toEqual({ a: 1, catchupOffsetMin: 60 });
+  expect(withCleanCatchupOffset({ catchupOffsetMin: -9999 })).toEqual({ catchupOffsetMin: -720 });
+  expect(withCleanCatchupOffset({ catchupOffsetMin: 9999 })).toEqual({ catchupOffsetMin: 840 });
+  expect(withCleanCatchupOffset({ a: 1, catchupOffsetMin: Number.NaN })).toEqual({ a: 1 });
+  expect(withCleanCatchupOffset<{ a: number; catchupOffsetMin?: number }>({ a: 1 })).toEqual({ a: 1 });
 });

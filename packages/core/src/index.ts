@@ -13,7 +13,7 @@ export { CATCHUP_DEFAULT_DAYS, CATCHUP_MAX_DAYS, CATCHUP_MAX_TEMPLATES, CatchupC
 export { renderTemplate, templateStepMs, validTemplate, type TemplateTimes } from './catchup/template.ts';
 export { parseXcLiveUrl, xcDurationMin, xcStart, xcTimeshiftPhpUrl, xcTimeshiftUrl, type XcParts } from './catchup/xc.ts';
 export {
-  formatOffset, intlZonesWork, pickZone, serverOffsetFrom, wallClock, zoneLabel,
+  CATCHUP_OFFSET_MAX, CATCHUP_OFFSET_MIN, formatOffset, intlZonesWork, pickZone, serverOffsetFrom, wallClock, withCleanCatchupOffset, zoneLabel,
   type CatchupZone, type WallClock, type ZoneChoice, type ZoneHow, type ZoneInputs,
 } from './catchup/zone.ts';
 export { m3uEntriesToChannels } from './m3u/toChannels.ts';

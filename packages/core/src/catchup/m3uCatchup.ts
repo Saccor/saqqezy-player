@@ -22,10 +22,28 @@ const MODES: Record<string, CatchupMode> = {
   xc: 'xc', xtream: 'xc',
 };
 
+/**
+ * Equal catch-up records share one object (never mutate a channel's `catchup`): structured clone writes a shared
+ * object once and back-references it, so 50k channels with one template cost about nothing in IDB and in
+ * `structuredClone` (spec §8).
+ */
+export class SharedCatchup {
+  private readonly byKey = new Map<string, ChannelCatchup>();
+
+  get(c: ChannelCatchup): ChannelCatchup {
+    const key = `${c.mode}|${c.days}|${c.tpl ?? ''}|${c.corrMin ?? ''}`;
+    const hit = this.byKey.get(key);
+    if (hit) return hit;
+    this.byKey.set(key, c);
+    return c;
+  }
+}
+
 /** Interned templates and counts for one playlist ingest. */
 export class CatchupCollector {
   readonly templates: string[] = [];
   private readonly index = new Map<string, number>();
+  readonly shared = new SharedCatchup();
   channels = 0;
   unsupported = 0;
 
@@ -94,5 +112,5 @@ export function resolveCatchup(raw: M3uCatchupRaw | undefined, url: string, col:
   }
   if (raw.corrMin !== undefined) out.corrMin = raw.corrMin;
   col.channels++;
-  return out;
+  return col.shared.get(out);
 }

@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { SourceService } from '@iptv/core';
+import { MemoryStorage } from '@iptv/storage';
 import { archiveDays, parseWallClock, wallClockIn } from '../src/catchup.ts';
 import { startFakeXtream } from '../src/server.ts';
 
@@ -116,4 +118,42 @@ test('without the catchup option the live streams have no archive and the zone s
   } finally {
     await s.close();
   }
+});
+
+describe('catch-up ingest end to end (SourceService)', () => {
+  const svc = () => new SourceService({ storage: new MemoryStorage(), fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+
+  test('Xtream: archive channels, the panel clock on the source, 7 days of guide only where the archive has them', async () => {
+    const s = svc();
+    const { source, result } = await s.addSource({ kind: 'xtream', name: 'Fake', server: server.url, username: 'test', password: 'test' });
+    expect(result.catchupChannels).toBe(6);
+    expect(source).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
+    const idx = await s.loadIndex(source.id);
+    const [c1, c2, c3] = idx.slice('all', 0, 3);
+    expect([c1!.catchup, c2!.catchup, c3!.catchup]).toEqual([{ mode: 'xc', days: 7 }, { mode: 'xc', days: 3 }, undefined]);
+    await s.refreshEpg(source.id);
+    const old = await s.programmesFor(source.id, [c1!, c2!, c3!], NOW - 7 * 86_400_000, NOW - 7 * 3600_000);
+    expect(old.get(c1!.id)!.length).toBeGreaterThan(6 * 48);
+    expect(old.get(c2!.id)).toEqual([]);
+    expect(old.get(c3!.id)).toEqual([]);
+    const table = await s.archiveTable(source.id, 2, 'c2.test');
+    expect(table!.filter((p) => p.hasArchive).length).toBeGreaterThan(3 * 48 - 2);
+  });
+
+  test('M3U: every mode resolved, templates interned and stored, the xc probe gives the panel zone', async () => {
+    const s = svc();
+    const { source, result } = await s.addSource({
+      kind: 'm3u', name: 'Catch-up M3U', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test`,
+      epgUrl: `${server.url}/xmltv.php?username=test&password=test`,
+    });
+    expect(result).toMatchObject({ channelCount: 9, catchupChannels: 8, catchupUnsupported: 1 });
+    expect(source).toMatchObject({ serverTimeZone: 'Europe/Stockholm', serverOffsetMin: 120 });
+    const chans = (await s.loadIndex(source.id)).slice('all', 0, 20);
+    expect(chans.map((c) => c.catchup?.mode)).toEqual(['default', 'default', 'append', 'shift', 'flussonic', 'xc', 'shift', 'default', undefined]);
+    expect(await s.catchupTemplates(source.id)).toHaveLength(4);
+    // A manual catch-up time skips the probe.
+    const manual = await s.addSource({ kind: 'm3u', name: 'Manual', playlistUrl: `${server.url}/catchup.m3u?username=test&password=test`, catchupOffsetMin: 61 });
+    expect(manual.source.catchupOffsetMin).toBe(60);
+    expect(manual.source.serverTimeZone).toBeUndefined();
+  });
 });

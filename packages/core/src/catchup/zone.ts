@@ -123,3 +123,17 @@ export function serverOffsetFrom(timeNow: unknown, timestampNow: unknown): numbe
   const min = Math.round((wall - ts * 1000) / 60_000 / 15) * 15;
   return min >= -12 * 60 && min <= 14 * 60 ? min : undefined;
 }
+
+/** The user's Catch-up time range: −12 h … +14 h in 15 min steps. */
+export const CATCHUP_OFFSET_MIN = -12 * 60;
+export const CATCHUP_OFFSET_MAX = 14 * 60;
+
+/** `source` with a valid `catchupOffsetMin` (rounded to 15 min, clamped) or none (Auto). */
+export function withCleanCatchupOffset<T extends { catchupOffsetMin?: number }>(source: T): T {
+  const { catchupOffsetMin: v, ...rest } = source;
+  const out = rest as T;
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    out.catchupOffsetMin = Math.max(CATCHUP_OFFSET_MIN, Math.min(CATCHUP_OFFSET_MAX, Math.round(v / 15) * 15));
+  }
+  return out;
+}
