@@ -142,6 +142,24 @@ describe('reairKeys (gate G3, design note §3.5)', () => {
     const golf = (start: number): GroupInput<string> => ({ nt: 'lakeside open', title: 'Lakeside Open', start: T0 + start * M, stop: T0 + (start + 120) * M, live: false, airing: 'g' });
     expect(reairKeys(groupEvents([golf(0), golf(600)], new Map(), id).events).size).toBe(0);
   });
+  test('an earlier short preview slot (under 60 min, not live) or a narrower earlier airing never makes a later match a re-air', () => {
+    const preview = groupEvents([
+      item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'p', 0, 30),
+      ...Array.from({ length: 6 }, (_, i) => item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 240, 115)),
+    ], new Map(), id).events;
+    expect(preview).toHaveLength(2);
+    expect(reairKeys(preview).size).toBe(0);
+    const narrow = groupEvents([
+      item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'p', 0, 115),
+      ...Array.from({ length: 6 }, (_, i) => item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 240, 115)),
+    ], new Map(), id).events;
+    expect(reairKeys(narrow).size).toBe(0);
+    const shortLive = groupEvents([
+      item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'a', 0, 50, true),
+      item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'b', 240, 115),
+    ], new Map(), id).events;
+    expect([...reairKeys(shortLive)]).toEqual([shortLive[1]!.key]);
+  });
   test('known gap: a re-air whose first airing fell out of the window is not caught by the pair rule (fixture 10)', () => {
     const { events } = groupEvents([item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'late', 330, 115)], new Map(), id);
     expect(reairKeys(events).size).toBe(0);

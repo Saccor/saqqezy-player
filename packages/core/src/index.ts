@@ -90,9 +90,9 @@ export { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from './spor
 export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from './sports/quality.ts';
 export { groupEvents, reairKeys, type GroupInput, type SportsGroup } from './sports/group.ts';
 export {
-  MATCHES_ALL_CAP, MATCHES_ROW_CAP, competitionKey, matchScore, rankMatches, type MatchEvent, type RankOptions, type RankedMatch, type RankedMatches,
+  MATCHES_ALL_CAP, MATCHES_ROW_CAP, competitionKey, matchScore, rankMatches, type CountryScope, type MatchEvent, type RankOptions, type RankedMatch, type RankedMatches,
 } from './sports/rank.ts';
-export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, matchFilters, type MatchChip, type MatchFilters } from './sports/competitions.ts';
+export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, categoryKey, matchFilters, type MatchChip, type MatchFilters } from './sports/competitions.ts';
 export { isFollowed } from './sports/follow.ts';
 export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_INDEX_VERSION, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
 export * from './sync/index.ts';

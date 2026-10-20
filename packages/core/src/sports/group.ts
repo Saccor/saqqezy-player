@@ -137,19 +137,27 @@ export function groupEvents<A>(
   return { events, learned };
 }
 
+/** An earlier cluster counts for G3 only if it would pass G5 itself: a short untagged preview slot is no match. */
+const REAIR_MIN_LEN_MS = 60 * 60_000;
+
 /**
  * Re-airs by pairing (gate G3): a match whose pair already had an earlier event that ended before this one started,
- * unless this one is live-marked. Title-only events are never marked. `events` sorted by start (as groupEvents returns).
+ * unless this one is live-marked. The earlier event must itself look like the match (60 min or more, or live-marked)
+ * and be carried at least as widely (airings), so a preview slot or a one-channel replay never hides the real match in
+ * a guide that never marks live. Title-only events are never marked. `events` sorted by start (as groupEvents returns).
  */
 export function reairKeys<A>(events: readonly SportsGroup<A>[]): Set<string> {
   const out = new Set<string>();
-  const firstStop = new Map<string, number>();
+  const earlier = new Map<string, { stop: number; n: number }[]>();
   for (const e of events) {
     if (!e.key.startsWith('p:')) continue;
     const pair = e.key.slice(0, e.key.lastIndexOf('@'));
-    const prev = firstStop.get(pair);
-    if (prev !== undefined && prev <= e.start && !e.live) out.add(e.key);
-    if (prev === undefined || e.stop < prev) firstStop.set(pair, e.stop);
+    const prev = earlier.get(pair);
+    const n = e.airings.length;
+    if (prev && !e.live && prev.some((p) => p.stop <= e.start && p.n >= n)) out.add(e.key);
+    if (e.live || e.stop - e.start >= REAIR_MIN_LEN_MS) {
+      if (prev) prev.push({ stop: e.stop, n }); else earlier.set(pair, [{ stop: e.stop, n }]);
+    }
   }
   return out;
 }

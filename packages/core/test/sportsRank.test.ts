@@ -18,7 +18,7 @@ const ev = (o: Partial<MatchEvent> & { inMin?: number; len?: number } = {}): Mat
   const { inMin: _i, len: _l, ...rest } = o;
   return { ...e, ...rest };
 };
-const opts = (o: Partial<RankOptions> = {}): RankOptions => ({ now: NOW, pinned: [], hidden: [], categories: [], singleCountry: false, ...o });
+const opts = (o: Partial<RankOptions> = {}): RankOptions => ({ now: NOW, pinned: [], hidden: [], categories: [], countryScope: 'many', ...o });
 const titles = (list: readonly { event: MatchEvent }[]) => list.map((r) => r.event.title);
 
 describe('rankMatches gates (design note §3.5)', () => {
@@ -107,7 +107,17 @@ describe('rankMatches gates (design note §3.5)', () => {
     const top = ev({ title: 'Top', breadth: 24 });
     const small = [1, 1, 1, 1].map((b, i) => ev({ title: `Small ${i}`, breadth: b, inMin: 60 + i }));
     expect(rankMatches([top, ...small], opts()).row).toHaveLength(4);
-    expect(rankMatches([top, ...small], opts({ singleCountry: true })).row).toHaveLength(5);
+    expect(rankMatches([top, ...small], opts({ countryScope: 'one' })).row).toHaveLength(5);
+  });
+
+  test('G8 with no country prefixes seen keeps a relaxed cut-off: 10 % of the top breadth, at least 1', () => {
+    const top = ev({ title: 'Top', breadth: 24 });
+    const mid = [3, 3].map((b, i) => ev({ title: `Mid ${i}`, breadth: b, inMin: 50 + i }));
+    const small = Array.from({ length: 8 }, (_, i) => ev({ title: `Small ${i}`, breadth: 1, inMin: 60 + i }));
+    const r = rankMatches([top, ...mid, ...small], opts({ countryScope: 'unknown' }));
+    expect(titles(r.row)).toEqual(['Top', 'Mid 0', 'Mid 1', 'Small 0']);
+    const flat = Array.from({ length: 6 }, (_, i) => ev({ title: `Flat ${i}`, breadth: 1, inMin: 60 + i }));
+    expect(rankMatches(flat, opts({ countryScope: 'unknown' })).row).toHaveLength(6);
   });
 
   test('caps: the row shows 12, See all 100', () => {

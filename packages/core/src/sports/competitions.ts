@@ -2,6 +2,7 @@
  * The chips of Matches in your guide (design note §3.7): competition texts and category texts, both taken from the
  * user's own guide and ordered by its data. Pure.
  */
+import { FOLLOWED_TEAM_LEN } from '../settings.ts';
 import { competitionKey } from './rank.ts';
 import { BROAD_SPORT_CATEGORIES, DVB_CODE, FOOTBALL_CATEGORIES } from './words.ts';
 
@@ -9,6 +10,14 @@ export const COMPETITION_CHIPS_MAX = 12;
 export const CATEGORY_CHIPS_MAX = 6;
 /** A competition is offered once it names this many events. */
 const COMPETITION_MIN_EVENTS = 2;
+
+/**
+ * The stored and compared form of a guide category text: the settings' normaliser (folded, inner spaces collapsed,
+ * trimmed), so a chosen chip id survives `sanitizeSettings` unchanged.
+ */
+export function categoryKey(text: string): string {
+  return competitionKey(text).trim();
+}
 
 export interface MatchChip { id: string; label: string }
 export interface MatchFilters { competitions: MatchChip[]; categories: MatchChip[] }
@@ -31,7 +40,8 @@ export function matchFilters(
       }
     }
     for (const c of new Set(e.cats)) {
-      if (BROAD_SPORT_CATEGORIES.has(c) || DVB_CODE.test(c) || !labels.has(c)) continue;
+      // Longer texts would be cut when stored, and a cut id never matches again.
+      if (BROAD_SPORT_CATEGORIES.has(c) || DVB_CODE.test(c) || !labels.has(c) || c.length > FOLLOWED_TEAM_LEN) continue;
       cats.set(c, (cats.get(c) ?? 0) + 1);
     }
   }

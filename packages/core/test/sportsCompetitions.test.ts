@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, matchFilters } from '../src/sports/competitions.ts';
+import { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, categoryKey, matchFilters } from '../src/sports/competitions.ts';
+import { sanitizeSettings } from '../src/settings.ts';
 
 const labels = new Map([['fotboll', 'Fotboll'], ['ishockey', 'Ishockey'], ['sport', 'Sport'], ['0x43', '0x43'], ['tennis', 'Tennis']]);
 
@@ -32,5 +33,14 @@ describe('matchFilters (design note §3.7)', () => {
     const f = matchFilters(events, l);
     expect(f.competitions).toHaveLength(COMPETITION_CHIPS_MAX);
     expect(f.categories).toHaveLength(CATEGORY_CHIPS_MAX);
+  });
+  test("category keys use the setting's normaliser; texts the setting cannot store are never chips", () => {
+    expect(categoryKey('  Ice  Hockey ')).toBe('ice hockey');
+    expect(categoryKey('Fútbol')).toBe('futbol');
+    const long = 'A Very Long Guide Category Text Beyond Forty';
+    const l = new Map([[categoryKey('Ice  Hockey'), 'Ice  Hockey'], [categoryKey(long), long]]);
+    const chips = matchFilters([{ breadth: 1, cats: [categoryKey('Ice  Hockey'), categoryKey(long)] }], l).categories;
+    expect(chips).toEqual([{ id: 'ice hockey', label: 'Ice  Hockey' }]);
+    expect(sanitizeSettings({ matchCategories: chips.map((c) => c.id) }).matchCategories).toEqual(['ice hockey']);
   });
 });

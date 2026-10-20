@@ -20,6 +20,14 @@ const ON_AIR_BACK_MS = 3 * H;
 const MIN_LEN_MS = 60 * M;
 /** G8: a row match needs at least this share of the top breadth (multi-country guides). */
 const FOCUS_SHARE = 0.25;
+/** G8 when no channel name carries a country prefix: big playlists often keep the country in group titles only. */
+const FOCUS_SHARE_UNKNOWN = 0.1;
+
+/**
+ * What the channel names say about countries: `one` prefix seen, `many`, or `unknown` (no prefix at all). Only `one`
+ * turns the G8 size cut-off off; `unknown` relaxes it.
+ */
+export type CountryScope = 'one' | 'many' | 'unknown';
 
 export interface MatchEvent {
   title: string; start: number; stop: number;
@@ -53,8 +61,8 @@ export interface RankOptions {
   hidden: readonly string[];
   /** Folded category texts; empty: every category. */
   categories: readonly string[];
-  /** The guide's channels share one country (or none): the G8 size cut-off is relaxed. */
-  singleCountry: boolean;
+  /** G8 cut-off: `one` → 1, `unknown` → max(1, ceil(0.1 × top)), `many` → max(2, ceil(0.25 × top)). */
+  countryScope: CountryScope;
 }
 
 export interface RankedMatch<E> { event: E; score: number; onAir: boolean; match: boolean }
@@ -138,7 +146,9 @@ export function rankMatches<E extends MatchEvent>(events: readonly E[], o: RankO
   // G8: the row keeps the broadly carried matches, plus followed, pinned and chosen-country ones; fill to MATCHES_MIN.
   let top = 0;
   for (const m of ms) if (m.event.breadth > top) top = m.event.breadth;
-  const cut = o.singleCountry ? 1 : Math.max(2, Math.ceil(FOCUS_SHARE * top));
+  const cut = o.countryScope === 'one' ? 1
+    : o.countryScope === 'unknown' ? Math.max(1, Math.ceil(FOCUS_SHARE_UNKNOWN * top))
+    : Math.max(2, Math.ceil(FOCUS_SHARE * top));
   const row: RankedMatch<E>[] = [];
   const skipped: RankedMatch<E>[] = [];
   for (const m of ms) {
