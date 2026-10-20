@@ -5,9 +5,11 @@ import { favToggleLabel } from '../copy.ts';
 /** The poster options menu. Pure: no Solid, no Lightning. */
 export type PosterAction = 'play' | 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
 
+/** Play resumes a started movie (progress) or a series in Continue watching (its episode `badge`): say Resume. */
 export function buildPosterMenu(tile: VodTile, inContinue: boolean): { action: PosterAction; label: string }[] {
+  const resumes = (tile.progress !== undefined && tile.progress > 0) || tile.badge !== undefined;
   const items: { action: PosterAction; label: string }[] = [
-    { action: 'play', label: tile.progress !== undefined && tile.progress > 0 ? 'Resume' : 'Play' },
+    { action: 'play', label: resumes ? 'Resume' : 'Play' },
     { action: tile.favourite ? 'favRemove' : 'favAdd', label: favToggleLabel(tile.favourite) },
   ];
   // Series are marked watched per episode (Plan 5).

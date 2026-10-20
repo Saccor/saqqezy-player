@@ -10,6 +10,11 @@ describe('posterMenuLogic', () => {
     expect(buildPosterMenu(tile, false)[0]).toEqual({ action: 'play', label: 'Play' });
     expect(buildPosterMenu({ ...tile, progress: 0.4 }, true)[0]).toEqual({ action: 'play', label: 'Resume' });
   });
+  test('a series in Continue watching (its episode badge) resumes that episode: Resume', () => {
+    const series = { id: 's1', kind: 'series', title: 'Synthetic Series', categoryId: 'c', watched: false, favourite: false } as const;
+    expect(buildPosterMenu({ ...series, badge: 'S2 E4' }, true)[0]).toEqual({ action: 'play', label: 'Resume' });
+    expect(buildPosterMenu(series, false)[0]).toEqual({ action: 'play', label: 'Play' });
+  });
   test('items follow the tile state and the row', () => {
     expect(buildPosterMenu(movie(), false).map((i) => i.action)).toEqual(['play', 'favAdd', 'watched', 'cancel']);
     expect(buildPosterMenu(movie({ favourite: true, watched: true }), true).map((i) => i.action))
