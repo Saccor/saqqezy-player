@@ -1,11 +1,12 @@
 import {
   QUALITY_LABELS, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
-  buildVodSearchIndex, buildTrendingIndex, matchTrending, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
+  buildVodSearchIndex, buildTrendingIndex, matchTrendingHits, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
   type TrendingFeed, type TrendingIndex,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
   type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState, type VodGroup, type VodMember,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
+import type { StartTimedTile, StartTrendTile } from './startHome.ts';
 import type {
   AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
 } from './types.ts';
@@ -27,9 +28,15 @@ const START_ITEMS = 20;
  * Top rated (the provider's `rating`, best first, unrated titles skipped; `topTotal` is how many titles are rated).
  */
 export interface StartVodRows {
-  continue: VodTile[]; recent: VodTile[]; recentTotal: number; top: VodTile[]; topTotal: number;
-  /** Trending titles this catalogue has, in feed order (spec 2026-10-20-trending-design §5); undefined without a feed. */
-  trending?: VodTile[];
+  /** Newest first, each with when it was last played (Start merges the kinds by it). */
+  continue: StartTimedTile[]; recent: VodTile[]; recentTotal: number; top: VodTile[]; topTotal: number;
+  /**
+   * Trending titles this catalogue has, in feed order, each with whether it matched strongly (spec
+   * 2026-10-20-trending-design §5; report §5.2); undefined without a feed.
+   */
+  trending?: StartTrendTile[];
+  /** The matched feed's build time (ISO 8601), for "this week". */
+  trendingAt?: string;
 }
 /** Movie and series details kept in memory (most recently used). */
 export const VOD_DETAIL_CACHE = 50;
@@ -248,14 +255,14 @@ export class VodController {
     const records = await this.records();
     const top = catalog.topRated(START_ITEMS);
     const snap: StartVodRows = {
-      continue: this.continueItems(kind, catalog, records).slice(0, START_ITEMS),
+      continue: this.continueEntries(kind, catalog, records).slice(0, START_ITEMS),
       recent: catalog.hasAddedDates ? catalog.recentlyAdded(START_ITEMS).map((item) => this.tile(item)) : [],
       recentTotal: catalog.hasAddedDates ? Math.min(catalog.size, VOD_RECENT_MAX) : 0,
       top: top.rows.map((item) => this.tile(item)),
       topTotal: top.rated,
     };
     const feed = this.trendingOf?.(kind);
-    if (feed) snap.trending = this.trendingTiles(kind, catalog, feed);
+    if (feed) Object.assign(snap, this.trendingPart(kind, catalog, feed));
     else if (this.trendingSettledOf) this.fillTrendingLater(kind, catalog, epoch);
     if (this.epoch === epoch) this.startSnaps.set(kind, snap);
     return snap;
@@ -275,7 +282,7 @@ export class VodController {
       if (!feed || this.epoch !== epoch || !snap || snap.trending) return;
       // A newer resident catalogue of this kind (a partial first load completing) has the fuller list.
       const r = this.resident;
-      snap.trending = this.trendingTiles(kind, r?.kind === kind ? r.catalog : catalog, feed);
+      Object.assign(snap, this.trendingPart(kind, r?.kind === kind ? r.catalog : catalog, feed));
     }, () => undefined);
     this.pending.add(p);
     const forget = () => { this.pending.delete(p); };
@@ -287,7 +294,7 @@ export class VodController {
    * keys: the catalogue's own groups when titles are combined, else a grouping built once for this (one card per
    * item stays the view; each title shows its lead version).
    */
-  private trendingTiles(kind: VodKind, catalog: VodCatalog, feed: TrendingFeed): VodTile[] {
+  private trendingPart(kind: VodKind, catalog: VodCatalog, feed: TrendingFeed): Pick<StartVodRows, 'trending' | 'trendingAt'> {
     let t = this.trendIndex;
     if (t?.catalog !== catalog) {
       const groups = (catalog.titleGroups ?? groupVod(catalog.source)).groups;
@@ -296,10 +303,11 @@ export class VodController {
       if (this.resident?.catalog === catalog) this.trendIndex = t;
     }
     const items = catalog.source.items;
-    return matchTrending(feed, kind, t.index, START_ITEMS).map((g) => {
-      const lead = items[t.groups[g]!.lead]!;
-      return this.tile(catalog.rowOf(lead.id) ?? lead);
+    const trending = matchTrendingHits(feed, kind, t.index, START_ITEMS).map((h): StartTrendTile => {
+      const lead = items[t.groups[h.group]!.lead]!;
+      return { tile: this.tile(catalog.rowOf(lead.id) ?? lead), strong: h.strong };
     });
+    return feed.at ? { trending, trendingAt: feed.at } : { trending };
   }
 
   async home(kind: VodKind): Promise<VodHome> {
@@ -1025,6 +1033,11 @@ export class VodController {
 
   /** Continue watching tiles for this kind, newest first; items no longer in the catalogue are skipped. */
   protected continueItems(kind: VodKind, catalog: VodCatalog, records: VodUserRecord[]): VodTile[] {
+    return this.continueEntries(kind, catalog, records).map((e) => e.tile);
+  }
+
+  /** `continueItems` with when each was last played: a movie's record, a series' latest episode record. */
+  private continueEntries(kind: VodKind, catalog: VodCatalog, records: VodUserRecord[]): StartTimedTile[] {
     // One tile per title: its first (newest) version in the list wins.
     const seen = new Set<string>();
     const once = (id: string): VodItem | undefined => {
@@ -1034,19 +1047,25 @@ export class VodController {
       return row;
     };
     if (kind === 'movie') {
+      const at = new Map(records.map((r) => [r.itemId, r.state.updatedAt]));
       return continueMovies(records).flatMap((id) => {
         const item = once(id);
-        return item ? [this.tile(item)] : [];
+        return item ? [{ tile: this.tile(item), at: at.get(id) ?? 0 }] : [];
       });
     }
     const byId = new Map(records.map((r) => [r.itemId, r.state]));
+    const seriesAt = new Map<string, number>();
+    for (const r of records) {
+      const sid = r.state.series?.id;
+      if (sid && r.state.updatedAt > (seriesAt.get(sid) ?? -Infinity)) seriesAt.set(sid, r.state.updatedAt);
+    }
     return continueSeries(records).flatMap((e) => {
       const item = once(e.seriesId);
       if (!item) return [];
       const extra: Partial<VodTile> = { badge: episodeLabel(e.season, e.episode) };
       const ep = byId.get(e.episodeId);
       if (e.resumeMs > 0 && ep && ep.duration > 0) extra.progress = Math.min(1, e.resumeMs / ep.duration);
-      return [this.tile(item, extra)];
+      return [{ tile: this.tile(item, extra), at: seriesAt.get(e.seriesId) ?? 0 }];
     });
   }
 
