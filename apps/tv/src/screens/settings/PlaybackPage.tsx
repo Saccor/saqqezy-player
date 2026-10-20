@@ -5,14 +5,14 @@ import { settings } from '../../state/appState.ts';
 import {
   FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel, onOff, sleepDefaultLabel,
 } from '../settingsLogic.ts';
-import { SUBTITLE_LANGUAGE_OPTIONS, subtitleLanguageLabel } from '../../vod/subtitleLogic.ts';
+import { AUDIO_LANGUAGE_OPTIONS, SUBTITLE_LANGUAGE_OPTIONS, audioLanguageLabel, subtitleLanguageLabel } from '../../vod/subtitleLogic.ts';
 import {
   PREFERRED_LANGUAGE_OPTIONS, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor,
 } from '../../vod/versionsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
 /**
- * Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle language, exact-match subtitles,
+ * Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle and audio languages, exact-match subtitles,
  * and for movies and series: combine duplicates and the preferred language.
  */
 export function PlaybackPage(props: PageProps) {
@@ -21,6 +21,7 @@ export function PlaybackPage(props: PageProps) {
   const liveDelay = () => settings()?.liveDelay ?? 'balanced';
   const sleep = (): number => settings()?.sleepTimerMinutes ?? 0;
   const subLang = () => settings()?.subtitleLanguage ?? 'off';
+  const audioLang = () => settings()?.audioLanguage ?? 'auto';
   const exact = () => settings()?.subtitleExactMatch ?? false;
   const combine = () => settings()?.combineDuplicates ?? true;
   const prefLang = () => preferredLanguageOption(settings()?.preferredLanguages);
@@ -33,6 +34,8 @@ export function PlaybackPage(props: PageProps) {
       help: 'Starts with every channel you watch full screen' },
     { id: 'subtitleLanguage', label: 'Subtitle language', value: subtitleLanguageLabel(subLang()), adjustable: true,
       help: 'Movies and series start with subtitles in this language when they have them' },
+    { id: 'audioLanguage', label: 'Audio language', value: audioLanguageLabel(audioLang()), adjustable: true,
+      help: 'Movies, series and channels start with sound in this language when they have it' },
     { id: 'subtitleExactMatch', label: 'Exact-match subtitles', value: onOff(exact()), adjustable: true,
       help: 'Online subtitles timed for your exact file. Reads a little of it: one extra connection.' },
     { id: 'combineDuplicates', label: 'Combine duplicates', value: onOff(combine()), adjustable: true,
@@ -70,6 +73,10 @@ export function PlaybackPage(props: PageProps) {
     }
     if (id === 'subtitleLanguage') {
       void saveSetting({ subtitleLanguage: cycleOption(SUBTITLE_LANGUAGE_OPTIONS, subLang(), dir) });
+      return true;
+    }
+    if (id === 'audioLanguage') {
+      void saveSetting({ audioLanguage: cycleOption(AUDIO_LANGUAGE_OPTIONS, audioLang(), dir) });
       return true;
     }
     return false;

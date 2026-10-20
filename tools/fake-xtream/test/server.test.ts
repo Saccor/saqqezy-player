@@ -51,6 +51,37 @@ describe('fake xtream + SourceService end to end', () => {
     expect(res.headers.get('location')).toBe('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   });
 
+  test('movie 3 plays the generated two-audio movie as the container the URL asks for, mkv by default', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-media-'));
+    mkdirSync(join(dir, 'multiaudio'));
+    writeFileSync(join(dir, 'multiaudio', 'film.mkv'), 'mkv');
+    writeFileSync(join(dir, 'multiaudio', 'film.ts'), 'ts');
+    const withMedia = await startFakeXtream({ port: 0, channels: 1, mediaDir: dir, now: () => NOW });
+    try {
+      for (const [ext, file] of [['mkv', 'film.mkv'], ['ts', 'film.ts'], ['mp4', 'film.mkv'], ['m3u8', 'film.mkv']]) {
+        const r = await fetch(`${withMedia.url}/movie/test/test/3.${ext}`, { redirect: 'manual' });
+        expect(r.headers.get('location'), ext).toBe(`${withMedia.url}/media/multiaudio/${file}`);
+      }
+      const list = await (await fetch(`${withMedia.url}/player_api.php?username=test&password=test&action=get_vod_streams`)).json() as
+        { stream_id: number; container_extension: string }[];
+      expect(list.find((m) => m.stream_id === 3)?.container_extension).toBe('mkv');
+      expect(list.find((m) => m.stream_id === 4)?.container_extension).toBe('m3u8');
+      const mkv = await fetch(`${withMedia.url}/media/multiaudio/film.mkv`);
+      expect(mkv.headers.get('content-type')).toBe('video/x-matroska');
+      expect(await mkv.text()).toBe('mkv');
+      expect((await fetch(`${withMedia.url}/media/multiaudio/film.mp4`)).status).toBe(404);
+    } finally {
+      await withMedia.close();
+    }
+    const noMedia = await startFakeXtream({ port: 0, channels: 1, mediaDir: join(dir, 'none'), now: () => NOW });
+    try {
+      const movie3 = await fetch(`${noMedia.url}/movie/test/test/3.mkv`, { redirect: 'manual' });
+      expect(movie3.headers.get('location')).toBe('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+    } finally {
+      await noMedia.close();
+    }
+  });
+
   test('movie 1 plays the generated multi-track title when present, served with its playlists and cues', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fake-media-'));
     mkdirSync(join(dir, 'multitrack'));

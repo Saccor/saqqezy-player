@@ -1,6 +1,8 @@
-import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
-import type { PickerRow } from '../screens/homeMenuLogic.ts';
+import { oneSpace } from './tracks.ts';
+
+/** Track helpers (keys, labels, rows): moved to `tracks.ts`; re-exported so existing imports keep working. */
+export { LANGUAGE_NAMES, SUBTITLES_OFF, findTrack, oneSpace, trackKey, trackRows } from './tracks.ts';
 
 export const OVERLAY_HIDE_MS = 4000;
 export const NEXT_COUNTDOWN_S = 10;
@@ -63,34 +65,6 @@ export function knownDuration(engineMs: number | undefined, fallbackMs: number |
   return ok(fallbackMs) ? fallbackMs : undefined;
 }
 
-/**
- * What a remembered track choice stores: `<language>:<label>` (language may be empty). Engine ids change per open, and
- * two tracks often share a language (main and commentary), so both are kept.
- */
-export function trackKey(t: TrackInfo): string {
-  return `${t.language ?? ''}:${t.label}`;
-}
-
-/**
- * The track matching a remembered choice: language and label, then the language alone, then the label alone. A key
- * without ':' (an older bare language or label) matches by language, then by label.
- */
-export function findTrack(tracks: readonly TrackInfo[], want: string | undefined): TrackInfo | undefined {
-  if (!want) return undefined;
-  const at = want.indexOf(':');
-  if (at < 0) return tracks.find((t) => t.language === want) ?? tracks.find((t) => t.label === want);
-  const lang = want.slice(0, at);
-  const label = want.slice(at + 1);
-  return tracks.find((t) => (t.language ?? '') === lang && t.label === label)
-    ?? (lang ? tracks.find((t) => t.language === lang) : undefined)
-    ?? tracks.find((t) => t.label === label);
-}
-
-/** Collapses runs of whitespace (a double space breaks Lightning text layout) and trims. */
-export function oneSpace(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
-}
-
 /** What a remembered subtitle choice stores for "Subtitles off" (`trackKey` always contains ':', so never this). */
 export const SUBTITLE_KEY_OFF = 'off';
 
@@ -98,49 +72,6 @@ export const SUBTITLE_KEY_OFF = 'off';
 export function cueText(text: string | null): string {
   if (!text) return '';
   return text.split(/\r?\n/).map(oneSpace).filter(Boolean).join('\n');
-}
-
-/** Picker row id for "Subtitles off": unprefixed, so no track row (`a:<id>`, `s:<id>`) can produce it. */
-export const SUBTITLES_OFF = 'off';
-
-/** English names for the language codes streams commonly carry (ISO 639-1 and 639-2, both 639-2 forms). */
-export const LANGUAGE_NAMES: Record<string, string> = {
-  ar: 'Arabic', ara: 'Arabic', cs: 'Czech', ces: 'Czech', cze: 'Czech', da: 'Danish', dan: 'Danish', de: 'German',
-  deu: 'German', ger: 'German', el: 'Greek', ell: 'Greek', gre: 'Greek', en: 'English', eng: 'English', es: 'Spanish',
-  spa: 'Spanish', fa: 'Persian', fas: 'Persian', per: 'Persian', fi: 'Finnish', fin: 'Finnish', fr: 'French',
-  fra: 'French', fre: 'French', he: 'Hebrew', heb: 'Hebrew', hi: 'Hindi', hin: 'Hindi', hu: 'Hungarian',
-  hun: 'Hungarian', id: 'Indonesian', ind: 'Indonesian', it: 'Italian', ita: 'Italian', ja: 'Japanese', jpn: 'Japanese',
-  ko: 'Korean', kor: 'Korean', nb: 'Norwegian', nob: 'Norwegian', no: 'Norwegian', nor: 'Norwegian', nl: 'Dutch',
-  nld: 'Dutch', dut: 'Dutch', pl: 'Polish', pol: 'Polish', pt: 'Portuguese', por: 'Portuguese', ro: 'Romanian',
-  ron: 'Romanian', rum: 'Romanian', ru: 'Russian', rus: 'Russian', sv: 'Swedish', swe: 'Swedish', th: 'Thai',
-  tha: 'Thai', tr: 'Turkish', tur: 'Turkish', uk: 'Ukrainian', ukr: 'Ukrainian', vi: 'Vietnamese', vie: 'Vietnamese',
-  zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
-};
-
-/**
- * A track's display label: a bare language code (AVPlay labels tracks by language only) becomes its English name;
- * any other label is kept. Labels that repeat get " (2)", " (3)" in list order.
- */
-function trackLabels(tracks: readonly TrackInfo[]): string[] {
-  const seen = new Map<string, number>();
-  return tracks.map((t) => {
-    const raw = oneSpace(t.label);
-    const base = LANGUAGE_NAMES[raw.toLowerCase()] ?? raw;
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return n === 1 ? base : `${base} (${n})`;
-  });
-}
-
-/** "Audio & subtitles" picker rows: audio tracks, then subtitles, then "Subtitles off"; the active ones are checked. */
-export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[]): PickerRow[] {
-  const audioLabels = trackLabels(audio);
-  const textLabels = trackLabels(text);
-  return [
-    ...audio.map((t, i): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: `Audio: ${audioLabels[i]}`, checked: t.active })),
-    ...text.map((t, i): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: `Subtitles: ${textLabels[i]}`, checked: t.active })),
-    { kind: 'list', id: SUBTITLES_OFF, label: 'Subtitles off', checked: !text.some((t) => t.active) },
-  ];
 }
 
 /** The next-episode card: "Next: S2 · E5 · Title in 7 s". */

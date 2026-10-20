@@ -5,6 +5,7 @@ import type {
   TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
+import { codecFamily } from '../vod/tracks.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';
@@ -709,6 +710,8 @@ export class Html5Player implements Player {
       return e.hls.audioTracks.map((t, i) => {
         const info: TrackInfo = { id: String(i), label: t.name || t.lang || `Track ${i + 1}`, active: i === active };
         if (t.lang) info.language = t.lang;
+        const codec = codecFamily(t.audioCodec);
+        if (codec) info.codec = codec;
         return info;
       });
     }

@@ -7,6 +7,7 @@ import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
+import { StatusPill } from '../components/StatusPill.tsx';
 import { onLogicalKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
@@ -30,9 +31,10 @@ import {
 } from '../vod/seekLogic.ts';
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
-  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, findTrack, knownDuration, nextCardText, noSoundText,
+  NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
+import { pickAudioTrack } from '../vod/tracks.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
   REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, stepDelay, type OnlineLanguage,
@@ -211,7 +213,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     api.saveVodProgress(p.itemId, Math.max(0, Math.min(at, d)), d, p.series).catch((err) => console.warn('Progress save failed', errName(err)));
   };
 
-  /** Stops the stream only while it is still this title's (a replace to the next episode has already started that one). */
+  /**
+   * Stops the stream only while it is still this title's: never one that has since replaced it (the next episode's
+   * screen starts its own, and a held live channel may already be back).
+   */
   const stopOurs = () => {
     if (playback.current()?.id === standId) playback.stop();
   };
@@ -334,7 +339,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const texts = playback.textTracks();
     tracksAppliedShape = trackShape(audios, texts);
     shapeTicks = 0;
-    const a = findTrack(audios, chosen.audio);
+    // The remembered choice, else the preferred language from Settings (applied, never remembered as the user's choice).
+    const a = pickAudioTrack(audios, chosen.audio, settings()?.audioLanguage ?? 'auto');
     if (a && !a.active) playback.selectAudioTrack(a.id);
     applySubtitle(texts);
   };
@@ -990,7 +996,6 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
   // Toasts end above a subtitle, else above the overlay's title.
   useToastFloor(() => (cue() ? subY() - LAYOUT.gap : visible() ? TITLE_Y - LAYOUT.gap : undefined));
-  const PILL_W = 420;
 
   return (
     <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height}
@@ -1045,11 +1050,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={statusText() && !failed()}>
-        <View zIndex={20} x={(LAYOUT.width - PILL_W) / 2} y={LAYOUT.safeY} width={PILL_W} height={64} color={COLORS.panel}
-          borderRadius={32}>
-          <Text y={(64 - FONT.body) / 2 - 4} width={PILL_W} maxWidth={PILL_W} contain="width" textAlign="center"
-            fontSize={FONT.body} color={COLORS.text}>{statusText()}</Text>
-        </View>
+        <StatusPill text={statusText()} zIndex={20} />
       </Show>
 
       <Show when={failed() || (countdown() !== undefined && p.next)}>

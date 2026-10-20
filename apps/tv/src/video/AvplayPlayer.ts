@@ -1,6 +1,7 @@
 import type {
   AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
+import { codecFamily } from '../vod/tracks.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
@@ -326,9 +327,12 @@ export class AvplayPlayer implements Player {
     for (const t of all) {
       if (t.type !== 'AUDIO') continue;
       n++;
-      const language = str(parseExtra(t).language);
+      const x = parseExtra(t);
+      const language = str(x.language);
       const info: TrackInfo = { id: String(t.index), label: language ?? `Track ${n}`, active: t.index === activeIndex };
       if (language) info.language = language;
+      const codec = codecFamily(str(x.fourCC));
+      if (codec) info.codec = codec;
       out.push(info);
     }
     return out;

@@ -1,7 +1,10 @@
 import type { TrackInfo } from '@iptv/player';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
-import { LANGUAGE_NAMES, SUBTITLE_KEY_OFF, findTrack } from './vodPlayerLogic.ts';
+import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
+import { findTrack, languageName, preferredTrack } from './tracks.ts';
 
+/** `languageName` and `preferredTrack` moved to `tracks.ts`; re-exported so existing imports keep working. */
+export { languageName, preferredTrack } from './tracks.ts';
 
 /**
  * The Settings choices for the subtitle language: the same list as core's `SUBTITLE_LANGUAGES` (a test keeps them
@@ -12,30 +15,12 @@ export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = [
   'pl', 'pt', 'ro', 'ru', 'es', 'sv', 'th', 'tr', 'uk', 'vi',
 ];
 
-/** A language code's English name ("pt-BR", "ENG" and "ger" too); undefined when unknown. */
-export function languageName(code: string): string | undefined {
-  return LANGUAGE_NAMES[code.toLowerCase().split(/[-_]/)[0] ?? ''];
-}
-
 export const subtitleLanguageLabel = (code: string): string => (code === 'off' ? 'Off' : languageName(code) ?? code);
 
-const isForced = (t: TrackInfo) => /\bforced\b/i.test(t.label);
+/** The Settings choices for the audio language: 'auto' (the stream's default track), then the subtitle languages. */
+export const AUDIO_LANGUAGE_OPTIONS: readonly string[] = ['auto', ...SUBTITLE_LANGUAGE_OPTIONS.filter((c) => c !== 'off')];
 
-/**
- * The subtitle track in the preferred language (`code`, ISO 639-1; 'off': none): by the track's language tag, else
- * by a label that names the language or is its bare code. A full track wins over a forced one (forced tracks only
- * cover foreign-language lines).
- */
-export function preferredTrack(tracks: readonly TrackInfo[], code: string): TrackInfo | undefined {
-  const name = code === 'off' ? undefined : languageName(code);
-  if (!name) return undefined;
-  const byLang = tracks.filter((t) => t.language !== undefined && languageName(t.language) === name);
-  const lower = name.toLowerCase();
-  const matches = byLang.length > 0
-    ? byLang
-    : tracks.filter((t) => t.label.toLowerCase().includes(lower) || languageName(t.label.trim()) === name);
-  return matches.find((t) => !isForced(t)) ?? matches[0];
-}
+export const audioLanguageLabel = (code: string): string => (code === 'auto' ? 'Stream default' : languageName(code) ?? code);
 
 /** What a remembered subtitle choice stores for "the file the user loaded" (`trackKey` always contains ':'). */
 export const SUBTITLE_KEY_EXT = 'ext';

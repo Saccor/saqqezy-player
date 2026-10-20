@@ -1,4 +1,4 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
@@ -7,6 +7,7 @@ import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { StatusPill } from '../components/StatusPill.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { VolumeOsd } from '../components/VolumeOsd.tsx';
@@ -29,6 +30,7 @@ import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
+import { pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
   playerStatusText, sleepLabel, wheelZapAllowed,
@@ -45,32 +47,17 @@ const SLEEP_ID = 'stillWatching';
 /** DEV-only (`?sleepTest=1`): sleep choices run in seconds-scale (x0.05) so the dialog can be reached quickly. */
 const SLEEP_SCALE = import.meta.env.DEV && new URLSearchParams(location.search).has('sleepTest') ? 0.05 : 1;
 
-/** Session-only choices (not persisted): aspect for every channel, audio track per channel. */
+/** Session-only choice (not persisted): aspect for every channel. */
 let sessionAspect: AspectMode = 'auto';
-const audioChoice = new Map<string, string>();
+/**
+ * The audio track chosen per channel (a `trackKey`), read from the worker once per channel and kept here for the
+ * session: `has` means the worker was asked, an undefined value means it remembers nothing.
+ */
+const audioChoice = new Map<string, string | undefined>();
 
 /** Wraps channel lookups; in DEV, `?failTest=1` turns channel 1 into an unreachable stream. */
 function lookup(p: Promise<PlayableChannel | undefined>): Promise<PlayableChannel | undefined> {
   return import.meta.env.DEV ? p.then(withFailTest) : p;
-}
-
-function Spinner(props: { x: number; y: number }) {
-  const [tick, setTick] = createSignal(0);
-  // Mounted only while a status shows; sleeps while the page is hidden.
-  const stop = visibleInterval(() => setTick((v) => (v + 1) % 8), 120);
-  onCleanup(stop);
-  const dots = [0, 1, 2, 3, 4, 5, 6, 7];
-  return (
-    <View x={props.x} y={props.y} width={36} height={36}>
-      <For each={dots}>{(i) => {
-        const a = (i / 8) * Math.PI * 2;
-        return (
-          <View x={15 + Math.cos(a) * 13} y={15 + Math.sin(a) * 13} width={6} height={6} borderRadius={3}
-            color={(i - tick() + 8) % 8 === 0 ? COLORS.focus : COLORS.muted} />
-        );
-      }}</For>
-    </View>
-  );
 }
 
 /**
@@ -201,10 +188,24 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   // ---- audio track memory ----
 
+  /**
+   * Once a channel plays: the remembered track for it, else the preferred language from Settings (`pickAudioTrack`;
+   * a language pick is applied but not remembered as the user's choice). The memory is read from the worker the first
+   * time a channel plays this session.
+   */
+  const applyAudio = async (id: string) => {
+    if (!audioChoice.has(id)) {
+      const key = await api.getLiveAudio(id).catch(() => undefined);
+      if (!audioChoice.has(id)) audioChoice.set(id, key);
+    }
+    if (!alive || playback.current()?.id !== id || playback.status()?.kind !== 'playing') return;
+    const t = pickAudioTrack(player.audioTracks(), audioChoice.get(id), settings()?.audioLanguage ?? 'auto');
+    if (t && !t.active) player.selectAudioTrack(t.id);
+  };
+
   createEffect(on(() => [playback.status()?.kind, playback.current()?.id] as const, ([kind, id]) => {
     if (kind !== 'playing' || !id) return;
-    const want = audioChoice.get(id);
-    if (want !== undefined && player.audioTracks().some((t) => t.id === want && !t.active)) player.selectAudioTrack(want);
+    void applyAudio(id);
   }));
 
   // ---- sleep timer ----
@@ -286,15 +287,18 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const page = menuPage();
     if (page === 'audio') {
       const tracks = player.audioTracks();
-      if (tracks.length === 0) return [{ id: 'back', label: 'No other audio tracks' }];
+      if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this stream' }];
+      if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
+      const labels = trackLabels(tracks);
       return [
-        ...tracks.map((t) => ({ id: `track:${t.id}`, label: t.label, value: t.active ? 'Selected' : '' })),
+        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
         { id: 'back', label: 'Back' },
       ];
     }
-    const active = player.audioTracks().find((t) => t.active);
+    const tracks = player.audioTracks();
+    const activeAt = tracks.findIndex((t) => t.active);
     return [
-      { id: 'audio', label: 'Audio track', value: active?.label ?? 'Default' },
+      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks)[activeAt] ?? 'Default' : 'Default' },
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
@@ -311,9 +315,14 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       queueMicrotask(() => menuNode?.setFocus());
     } else if (id.startsWith('track:')) {
       const trackId = id.slice('track:'.length);
+      const t = player.audioTracks().find((x) => x.id === trackId);
       player.selectAudioTrack(trackId);
       const cur = playback.current();
-      if (cur) audioChoice.set(cur.id, trackId);
+      if (cur && t) {
+        const key = trackKey(t);
+        audioChoice.set(cur.id, key);
+        api.setLiveAudio(cur.id, key).catch((err) => console.warn('Audio choice save failed', err));
+      }
       setMenuPage('main');
       queueMicrotask(() => menuNode?.setFocus());
     } else if (id === 'aspect') {
@@ -479,7 +488,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   // The cooldown message replaces the stream status: nothing is open while it shows.
   const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
   const showClock = () => settings()?.showClock === true;
-  const TOAST_W = 460;
   const CENTRE_W = 1100;
   const CENTRE_BOX = MESSAGE_BOXES.player;
   const centreH = (text: string) => Math.max(160, messageLines(text, CENTRE_BOX) * CENTRE_BOX.lineH + 80);
@@ -493,13 +501,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       onMenu={unlessModal(openMenu)} onLongOk={unlessModal(openMenu)} onRed={unlessModal(previous)} {...digitHandlers}>
       <Show when={status()} keyed>{(s) => (
         s.kind === 'toast'
-          ? (
-            <View x={(LAYOUT.width - TOAST_W) / 2} y={LAYOUT.safeY} width={TOAST_W} height={64} color={COLORS.panel}
-              borderRadius={32} zIndex={25}>
-              <Spinner x={22} y={14} />
-              <Text x={72} y={(64 - FONT.body) / 2 - 4} fontSize={FONT.body} color={COLORS.text}>{s.text}</Text>
-            </View>
-          )
+          ? <StatusPill text={s.text} spinner zIndex={25} />
           : (
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}

@@ -755,7 +755,7 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
   test('settings default, merge, sanitise and persist under meta key settings', async () => {
     expect(await service.getSettings()).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
-      liveDelay: 'balanced', subtitleLanguage: 'off', subtitleExactMatch: false,
+      liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [],
     });
     const saved = await service.saveSettings({ epgOffsetHours: 99, preferredFormat: 'm3u8' });
