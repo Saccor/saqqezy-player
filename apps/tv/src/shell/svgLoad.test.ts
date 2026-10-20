@@ -14,19 +14,27 @@ describe('svgCrossOrigin', () => {
 /** A fake Image and 2D canvas: records the order of `crossOrigin` and `src`, and what was drawn. */
 function fakeDeps() {
   const log: string[] = [];
-  const img = {
+  const makeImg = () => ({
     width: 40, height: 60, onload: null as null | (() => void), onerror: null as null | ((e: unknown) => void),
     set crossOrigin(v: string) { log.push(`crossOrigin=${v}`); },
     set src(v: string) { log.push(`src=${v}`); },
-  };
+  });
+  const imgs: ReturnType<typeof makeImg>[] = [];
   const ctx = {
     imageSmoothingEnabled: false,
     drawImage: (_i: unknown, x: number, y: number, w: number, h: number) => log.push(`draw ${x},${y},${w}x${h}`),
     getImageData: (x: number, y: number, w: number, h: number) => ({ x, y, w, h }),
   };
   const canvas = { width: 0, height: 0, getContext: () => ctx };
-  const deps: SvgDeps = { image: () => img as unknown as HTMLImageElement, canvas: () => canvas as unknown as HTMLCanvasElement };
-  return { log, img, canvas, deps };
+  const deps: SvgDeps = {
+    image: () => {
+      const img = makeImg();
+      imgs.push(img);
+      return img as unknown as HTMLImageElement;
+    },
+    canvas: () => canvas as unknown as HTMLCanvasElement,
+  };
+  return { log, get img() { return imgs.at(-1)!; }, imgs, canvas, deps };
 }
 
 describe('loadSvgCors', () => {
@@ -50,10 +58,30 @@ describe('loadSvgCors', () => {
     expect(f.log.at(-1)).toBe('draw 0,0,40x60');
   });
 
-  test('a load error (no CORS, 404) rejects, so the renderer retries and the tile shows its fallback', async () => {
+  test('a server without CORS: one retry without crossOrigin (packaged TV apps may draw it untainted)', async () => {
     const f = fakeDeps();
     const p = loadSvgCors('http://x.test/a.svg', 10, 10, null, null, null, null, f.deps);
+    f.img.onerror!(new Error('cors'));
+    expect(f.imgs).toHaveLength(2);
+    expect(f.log).toEqual(['crossOrigin=anonymous', 'src=http://x.test/a.svg', 'src=http://x.test/a.svg']);
+    f.img.onload!();
+    expect(await p).toEqual({ data: { x: 0, y: 0, w: 10, h: 10 }, premultiplyAlpha: false });
+  });
+
+  test('a load error on the retry too (404) rejects, so the renderer retries and the tile shows its fallback', async () => {
+    const f = fakeDeps();
+    const p = loadSvgCors('http://x.test/a.svg', 10, 10, null, null, null, null, f.deps);
+    f.img.onerror!(new Error('cors'));
     f.img.onerror!(new Error('blocked'));
     await expect(p).rejects.toThrow('blocked');
+    expect(f.imgs).toHaveLength(2);
+  });
+
+  test('a data: URL that fails is not retried', async () => {
+    const f = fakeDeps();
+    const p = loadSvgCors('data:image/svg+xml,<bad', 10, 10, null, null, null, null, f.deps);
+    f.img.onerror!(new Error('bad'));
+    await expect(p).rejects.toThrow('bad');
+    expect(f.imgs).toHaveLength(1);
   });
 });

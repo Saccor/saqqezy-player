@@ -4,9 +4,10 @@
  * `@lightningjs/renderer` 3.7 draws an SVG through an `<img>` onto a 2D canvas and reads it back with
  * `getImageData`, but never sets `img.crossOrigin`. A cross-origin SVG therefore taints the canvas even when its
  * server sends `Access-Control-Allow-Origin` (the fake provider's posters did), and `getImageData` throws a
- * `SecurityError`: the tile stays a plain block. With `crossOrigin = 'anonymous'` a CORS-enabled server works; one
- * without CORS fails to load (`onerror`), which is no worse than the SecurityError it gave before, and the renderer's
- * retry and the tile's fallback take over. Raster images are unaffected: the renderer fetches them with XHR and
+ * `SecurityError`: the tile stays a plain block. With `crossOrigin = 'anonymous'` a CORS-enabled server works. One
+ * without CORS fails that load (`onerror`); the image is then loaded once more without `crossOrigin`, as before this
+ * change: packaged TV apps (Tizen .wgt, webOS .ipk) may draw it untainted, and elsewhere `getImageData` throws and
+ * the renderer's retry and the tile's fallback take over. Raster images are unaffected: the renderer fetches them with XHR and
  * decodes with `createImageBitmap`, which needs CORS anyway (or the dev proxy in `vite dev`).
  */
 export interface SvgDeps {
@@ -34,23 +35,26 @@ export function loadSvgCors(
       return;
     }
     ctx.imageSmoothingEnabled = true;
-    const img = deps.image();
-    img.onload = () => {
-      try {
-        const w = width || img.width;
-        const h = height || img.height;
-        canvas.width = w;
-        canvas.height = h;
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve({ data: ctx.getImageData(sx ?? 0, sy ?? 0, sw ?? w, sh ?? h), premultiplyAlpha: false });
-      } catch (err) {
-        reject(err);
-      }
+    const load = (cors: 'anonymous' | undefined) => {
+      const img = deps.image();
+      img.onload = () => {
+        try {
+          const w = width || img.width;
+          const h = height || img.height;
+          canvas.width = w;
+          canvas.height = h;
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve({ data: ctx.getImageData(sx ?? 0, sy ?? 0, sw ?? w, sh ?? h), premultiplyAlpha: false });
+        } catch (err) {
+          reject(err);
+        }
+      };
+      // A CORS load that failed (no CORS headers, or a real error): once more without crossOrigin, then give up.
+      img.onerror = (err) => (cors ? load(undefined) : reject(err));
+      // Before `src`: the request mode is fixed when loading starts.
+      if (cors) img.crossOrigin = cors;
+      img.src = url;
     };
-    img.onerror = (err) => reject(err);
-    // Before `src`: the request mode is fixed when loading starts.
-    const cors = svgCrossOrigin(url);
-    if (cors) img.crossOrigin = cors;
-    img.src = url;
+    load(svgCrossOrigin(url));
   });
 }
