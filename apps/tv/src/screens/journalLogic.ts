@@ -77,6 +77,8 @@ export function eventText(e: JournalEvent): string {
       return 'Retrying in the background';
     case 'stop':
       return 'Stopped';
+    case 'note':
+      return 'Referer not sent: this TV cannot send it';
   }
 }
 

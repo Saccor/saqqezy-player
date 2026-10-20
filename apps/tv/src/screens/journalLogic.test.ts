@@ -53,6 +53,7 @@ describe('eventText', () => {
     [{ k: 'failed', t, reason: 'refused' }, 'Gave up: source refused'],
     [{ k: 'giveUpRetry', t }, 'Retrying in the background'],
     [{ k: 'stop', t }, 'Stopped'],
+    [{ k: 'note', t, what: 'refererDropped' }, 'Referer not sent: this TV cannot send it'],
   ])('%j → %s', (e, text) => {
     expect(eventText(e)).toBe(text);
   });

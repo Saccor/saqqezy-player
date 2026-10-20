@@ -902,6 +902,17 @@ describe('AvplayPlayer: User-Agent, close before open, status awareness', () => 
     expect(av.props.filter(([t]) => t !== 'ADAPTIVE_INFO')).toEqual([['USER_AGENT', 'SyntheticAgent/1.0']]);
   });
 
+  test('a Referer (no AVPlay property) is noted once per app run, with no value', async () => {
+    const av = new FakeAvplay();
+    const notes: unknown[][] = [];
+    const p = new AvplayPlayer(av, { note: (...a: unknown[]) => notes.push(a) });
+    await p.open(URL_A, 1);
+    expect(notes).toEqual([]);
+    await p.open(URL_A, 2, { headers: { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.test/' } });
+    await p.open(URL_A, 3, { headers: { referrer: 'http://ref.test/' } });
+    expect(notes).toEqual([['refererDropped']]);
+  });
+
   test('no User-Agent without headers (or with an empty one)', async () => {
     const { av, p } = setup();
     await p.open(URL_A, 1);

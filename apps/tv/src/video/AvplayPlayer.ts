@@ -189,12 +189,19 @@ export class AvplayPlayer implements Player {
   private aspect: AspectMode = 'auto';
   private lastPosition = 0;
   private readonly space: Size;
+  private readonly note: ((what: 'refererDropped') => void) | undefined;
+  private refererNoted = false;
   private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
   private readonly prepareTimeoutMs: number;
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
 
-  constructor(private readonly avplay: AvplayLike, opts: { displaySpace?: Size; prepareTimeoutMs?: number } = {}) {
+  constructor(
+    private readonly avplay: AvplayLike,
+    /** `note`: diagnostics for the playback journal (`refererDropped`), never with a header value. */
+    opts: { displaySpace?: Size; prepareTimeoutMs?: number; note?: (what: 'refererDropped') => void } = {},
+  ) {
+    this.note = opts.note;
     this.space = opts.displaySpace ?? DESIGN;
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
   }
@@ -229,6 +236,11 @@ export class AvplayPlayer implements Player {
         },
       });
       this.applyBuffering(opts.headers?.userAgent);
+      // AVPlay has no Referer property: say so once per app run (the value is never recorded).
+      if (opts.headers?.referrer && !this.refererNoted) {
+        this.refererNoted = true;
+        this.note?.('refererDropped');
+      }
       this.applyDisplay();
       s.watchdog = setTimeout(() => {
         // Some live HLS streams never call either prepareAsync callback: report it so the supervisor retries.

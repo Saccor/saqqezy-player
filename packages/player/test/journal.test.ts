@@ -25,6 +25,11 @@ describe('sanitizeEvent', () => {
     expect(sanitizeEvent('stop')).toBeUndefined();
   });
 
+  it('keeps a header note (a token, never a value)', () => {
+    expect(sanitizeEvent({ k: 'note', t: 1, what: 'refererDropped' })).toEqual({ k: 'note', t: 1, what: 'refererDropped' });
+    expect(sanitizeEvent({ k: 'note', t: 1, what: 'http://ref.test/' })).toEqual({ k: 'note', t: 1 });
+  });
+
   it('trims the channel name, keeps only safe detail ids, drops non-finite numbers and undefined fields', () => {
     const long = `  ${'x'.repeat(80)}  `;
     expect(sanitizeEvent({ k: 'play', t: 1, channel: long, preset: 'balanced', urls: 2 }))

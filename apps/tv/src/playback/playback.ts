@@ -37,7 +37,9 @@ function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(
   if (avplay) {
     mountAvplayObject(root);
     // AVPlay works in design space, so a window resize needs no relayout.
-    return { player: new AvplayPlayer(avplay, { displaySpace: AVPLAY_DISPLAY_SPACE }), layer: { relayout: () => {} } };
+    // `journal` is read at open time, after this module has finished loading.
+    const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
+    return { player: new AvplayPlayer(avplay, { displaySpace: AVPLAY_DISPLAY_SPACE, note }), layer: { relayout: () => {} } };
   }
   const layer = createVideoLayer(root);
   // Native HLS only on TVs. Desktop Chrome reports native HLS too, but its built-in player cannot decode HEVC in
