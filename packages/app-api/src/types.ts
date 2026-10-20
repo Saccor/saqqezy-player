@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveState, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
 export type { ArchiveState, SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -369,3 +369,23 @@ export type StartCell =
   | { type: 'viewAll'; target: 'sports' | 'movie' | 'series'; total: number; order?: 'rating' };
 export interface StartRow { id: StartRowId; title: string; cells: StartCell[] }
 export interface StartHome { rows: StartRow[]; at: number }
+
+/** One detected country (or `lang:xx`) of the active source, with what it covers. */
+export interface RegionCount { code: string; label: string; groups: number; channels: number }
+
+/** Your countries for the active source (report 2026-10-20 §2.2, §4.1): what the picker and Manage groups show. */
+export interface RegionsOverview {
+  mode: RegionMode;
+  codes: string[];
+  /** Countries chosen but none of this source's groups match: the rule is off; the UI shows a notice. */
+  stale: boolean;
+  /** Detected countries, largest first (by channels). */
+  countries: RegionCount[];
+  /** Groups with a guess below the cut-off ("Not sure"), no override. */
+  notSure: { groups: number; channels: number };
+  /** Groups with no region at all. */
+  other: { groups: number; channels: number };
+}
+
+/** `show`: shown on purpose; `hide`: hidden; `rule`: back to the region rule. */
+export type GroupVisibility = 'show' | 'hide' | 'rule';

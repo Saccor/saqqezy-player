@@ -1,6 +1,7 @@
 import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
-  applyShift, emptyLayout, orderLiveSources,
+  applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
+  isVodLayoutOpBatch, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
@@ -25,6 +26,7 @@ import type {
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
   OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
+  GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -99,6 +101,12 @@ export class AppApi {
   /** The active source's kind, kept from `activate` so a focus never reads the source list to learn it. */
   private sourceKind: SourceConfig['kind'] | undefined;
   private index = new ChannelIndex([]);
+  /** The active source's cached region record (undefined until one exists: then nothing is region-filtered). */
+  private regionRec: { sourceId: string; rec: RegionsRecord } | undefined;
+  /** The view handed to the index; kept while its inputs are the same, so `withLayout` reuses region work. */
+  private regionView: { rec: RegionsRecord; key: string; view: ChannelRegionView } | undefined;
+  /** Region rebuilds in flight (awaited by the test-only `idle`). */
+  private readonly regionJobs = new Set<Promise<void>>();
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
   /** The channels' guide-shift span, from `setIndex` (programme search needs its widest shift per keystroke). */
@@ -762,6 +770,57 @@ export class AppApi {
   }
 
   /**
+   * Your countries for the active source: the setting, whether it is stale here, and the detected countries with
+   * group and channel counts (largest first), plus "Not sure" and no-region totals. Counts every channel, hidden or not.
+   */
+  getRegions(): Promise<RegionsOverview> {
+    return this.run('getRegions', async () => {
+      const s = (await this.currentSettings()).regions;
+      const rr = this.regionRec;
+      const detected = rr && rr.sourceId === this.activeId ? rr.rec.groups : {};
+      const own = this.index.layout().groupRegion;
+      const by = new Map<string, RegionCount>();
+      const notSure = { groups: 0, channels: 0 };
+      const other = { groups: 0, channels: 0 };
+      for (const g of this.index.allProviderGroups()) {
+        if (g.regions.length) {
+          for (const code of g.regions) {
+            let c = by.get(code);
+            if (!c) by.set(code, (c = { code, label: countryLabel(code), groups: 0, channels: 0 }));
+            c.groups++;
+            c.channels += g.count;
+          }
+          continue;
+        }
+        const d = Object.prototype.hasOwnProperty.call(own, g.id) ? undefined : detected[g.id];
+        const bucket = d && !isSure(d) && regionKeys(d).length ? notSure : other;
+        bucket.groups++;
+        bucket.channels += g.count;
+      }
+      const countries = [...by.values()].sort((a, b) => b.channels - a.channels || b.groups - a.groups);
+      return { mode: s.mode, codes: [...s.codes], stale: this.index.regionState().stale, countries, notSure, other };
+    });
+  }
+
+  /** Saves your countries (codes and mode); the index is rebuilt with them. */
+  setRegions(regions: RegionSettings): Promise<RegionSettings> {
+    return this.run('setRegions', async () => (await this.saveSettings({ regions })).regions);
+  }
+
+  /** Shows, hides, or returns to the region rule provider groups of the active source (one layout batch). */
+  setGroupVisibility(ids: string[], visibility: GroupVisibility): Promise<LayoutOpsResult> {
+    const ops: LayoutOp[] = visibility === 'show' ? [{ op: 'showGroups', ids }]
+      : visibility === 'hide' ? [{ op: 'hideGroups', ids }]
+        : [{ op: 'unhideGroups', ids }, { op: 'unshowGroups', ids }];
+    return this.applyLayoutOps(ops);
+  }
+
+  /** The user's region for a group (`null`: back to detection; `[]`: no country). */
+  setGroupRegion(id: string, codes: string[] | null): Promise<LayoutOpsResult> {
+    return this.applyLayoutOps([{ op: 'setGroupRegion', id, codes }]);
+  }
+
+  /**
    * Whether the active source's TV guide coverage is known (a guide has been downloaded), and whether the source
    * has a guide address at all (an M3U with a guide URL, or any Xtream source). Both false without an active source.
    */
@@ -868,6 +927,20 @@ export class AppApi {
 
   getVodCategories(kind: VodKind): Promise<VodCategoryView[]> {
     return this.run('getVodCategories', () => this.vodFor(kind).categories(kind));
+  }
+
+  /** Your countries over this kind's categories (counts are categories and titles). */
+  getVodRegions(kind: VodKind): Promise<RegionsOverview> {
+    return this.run('getVodRegions', () => this.vodFor(kind).regions(kind));
+  }
+
+  /** Hides, shows (over the region rule) or orders movie or series categories of the active source. */
+  applyVodLayoutOps(kind: VodKind, ops: VodLayoutOp[]): Promise<LayoutOpsResult> {
+    return this.run('applyVodLayoutOps', async () => {
+      if (!isVodLayoutOpBatch(ops)) throw new Error('Unrecognised change.');
+      const res = await this.vodFor(kind).applyLayoutOps(kind, ops);
+      return { version: res?.layout.version ?? 0, rejected: res?.rejected ?? [] };
+    });
   }
 
   getVodSlice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
@@ -1078,7 +1151,9 @@ export class AppApi {
       // Cached now/next was picked on the old offset's timeline.
       this.invalidateNowNext();
       if (before.combineChannels !== this.settings.combineChannels) await this.refold();
-      const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
+      else if (!sameRegions(before.regions, this.settings.regions)) await this.reregion();
+      const regroup = before.combineDuplicates !== this.settings.combineDuplicates
+        || before.combineCategories !== this.settings.combineCategories || !sameRegions(before.regions, this.settings.regions);
       if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
       return this.settings;
     });
@@ -1123,8 +1198,8 @@ export class AppApi {
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
   async idle(): Promise<void> {
-    while (this.queues.size || this.shortJobs.size || this.titleJobs.size) {
-      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
+    while (this.queues.size || this.shortJobs.size || this.titleJobs.size || this.regionJobs.size) {
+      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs, ...this.regionJobs]);
     }
     await this.vodc?.idle();
     await this.trending?.idle();
@@ -1216,13 +1291,16 @@ export class AppApi {
   /** Makes `id` the in-memory active source and loads its cached index; both are swapped in together. */
   private activate(id: string | undefined): Promise<void> {
     return this.withIndex(async () => {
-      const [channels, layout, coverage, sources] = id
+      const [channels, layout, coverage, sources, , regions] = id
         ? await Promise.all([
           this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id), this.service.listSources(),
           // Combine duplicate channels decides how the index is built: read beside the rest, never after it.
           this.currentSettings(),
+          // Detected at ingest: one small read beside the rest. A cold start never runs detection.
+          this.service.loadRegions(id),
         ])
-        : [[], emptyLayout(), undefined, []];
+        : [[], emptyLayout(), undefined, [], undefined, undefined];
+      this.regionRec = id && regions ? { sourceId: id, rec: regions } : undefined;
       const source = sources.find((s) => s.id === id);
       if (id !== this.activeId) {
         // Another source: its channels are neither focused nor playing yet.
@@ -1236,7 +1314,51 @@ export class AppApi {
       this.catchup.reset();
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
+      if (id && !regions && channels.length) this.redetectLater(id);
     });
+  }
+
+  /**
+   * No current region record (an older detector version, or none yet): rebuilt from the stored channels after the
+   * index is swapped in, never before; then the index is rebuilt with it.
+   */
+  private redetectLater(id: string): void {
+    const job = (async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (this.activeId !== id) return;
+      const rec = await this.service.redetectRegions(id).catch((err: unknown) => { this.record('redetectRegions', err); return undefined; });
+      if (!rec) return;
+      let swapped = false;
+      await this.withIndex(async () => {
+        if (this.activeId !== id) return;
+        this.regionRec = { sourceId: id, rec };
+        this.setIndex(this.channels, this.index.layout(), this.coverage);
+        swapped = true;
+      });
+      if (swapped) this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+    })();
+    this.regionJobs.add(job);
+    void job.finally(() => this.regionJobs.delete(job));
+  }
+
+  /** Your countries changed: the same channels and layout under another region view. */
+  private async reregion(): Promise<void> {
+    await this.withIndex(async () => {
+      this.setIndex(this.channels, this.index.layout(), this.coverage);
+    });
+    this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+  }
+
+  /** The region view of the active source under the current settings; undefined without a record. */
+  private regionViewFor(): ChannelRegionView | undefined {
+    const r = this.regionRec;
+    if (!r || r.sourceId !== this.activeId) return undefined;
+    const s = (this.settings ?? DEFAULT_SETTINGS).regions;
+    const key = `${s.mode}|${s.codes.join(',')}`;
+    if (this.regionView?.rec === r.rec && this.regionView.key === key) return this.regionView.view;
+    const view: ChannelRegionView = { detected: r.rec.groups, codes: [...s.codes], mode: s.mode };
+    this.regionView = { rec: r.rec, key, view };
+    return view;
   }
 
   /** Combine duplicate channels was switched: the same channels, layout and guide, folded or not. */
@@ -1253,7 +1375,10 @@ export class AppApi {
   private rebuildIndex(id: string): Promise<void> {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
-      const [channels, coverage] = await Promise.all([this.storage.getChannels(id), this.service.loadEpgCoverage(id)]);
+      const [channels, coverage, regions] = await Promise.all([
+        this.storage.getChannels(id), this.service.loadEpgCoverage(id), this.service.loadRegions(id),
+      ]);
+      this.regionRec = regions ? { sourceId: id, rec: regions } : undefined;
       this.catchup.reset();
       this.setIndex(channels, this.index.layout(), coverage);
       this.invalidateNowNext();
@@ -1276,7 +1401,8 @@ export class AppApi {
     this.shifts = shiftSpan(channels);
     this.coverage = coverage;
     const fold = (this.settings ?? DEFAULT_SETTINGS).combineChannels;
-    this.index = new ChannelIndex(channels, layout, coverage, { fold });
+    const regions = this.regionViewFor();
+    this.index = new ChannelIndex(channels, layout, coverage, regions ? { fold, regions } : { fold });
     this.favSet = undefined;
     this.companionStale();
     this.titles = undefined;
@@ -2050,6 +2176,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
   'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
+  'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
@@ -2063,3 +2190,7 @@ const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle'>, (typeof APP_API_METHOD
 void exhaustive;
 
 const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });
+
+function sameRegions(a: RegionSettings, b: RegionSettings): boolean {
+  return a.mode === b.mode && a.codes.join() === b.codes.join();
+}

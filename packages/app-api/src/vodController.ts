@@ -4,11 +4,14 @@ import {
   type TrendingFeed, type TrendingIndex,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
   type SubtitleSearch, type VodList, type VodUserRecord, type VodUserState, type VodGroup, type VodMember,
+  countryLabel, detectVodRegions, emptyVodLayout, vodCategoryView,
+  type GroupRegion, type RegionSettings, type VodApplyResult, type VodLayout, type VodLayoutOp,
 } from '@iptv/core';
 import { toRpcError, type RpcError } from './rpc.ts';
 import type { StartTimedTile, StartTrendTile } from './startHome.ts';
 import type {
   AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
+  RegionCount, RegionsOverview,
 } from './types.ts';
 
 export const VOD_ROW_CONTINUE = 'vod:continue';
@@ -64,7 +67,13 @@ export interface VodControllerDeps {
    * The settings that shape catalogues. Without it, titles are never combined (each item is its own card), as
    * before duplicates were combined.
    */
-  settings?: () => Promise<{ combineDuplicates: boolean; preferredLanguages: string[] }>;
+  settings?: () => Promise<{
+    combineDuplicates: boolean; preferredLanguages: string[];
+    /** Merge categories across languages (off: provider categories). */
+    combineCategories?: boolean;
+    /** Your countries: the same rule as Live TV groups, over categories. */
+    regions?: RegionSettings;
+  }>;
   /** The device language ("sv-SE"), for preferred languages left empty. */
   locale?: () => string | undefined;
   /** The current trending feed of a kind (TrendingService.feed); without it Start has no trending rows. */
@@ -80,6 +89,10 @@ interface GroupConfig {
   langs: string[];
   splits: Record<VodKind, Set<string>>;
   picks: Record<VodKind, Record<string, string>>;
+  mergeCategories: boolean;
+  regions: RegionSettings;
+  /** The user's category layout per kind. */
+  layouts: Record<VodKind, VodLayout>;
 }
 
 /** A version as ordered for Play: the item and what the ordering needs. */
@@ -419,7 +432,7 @@ export class VodController {
     const detail = await this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item));
     if (this.epoch !== epoch) return undefined;
     const s = user.get(item.id);
-    const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
+    const sort: VodSort = catalog.hasAddedDates ? 'added' : 'provider';
     const more = catalog.slice(row.categoryId, sort, 0, VOD_MORE_ITEMS + 1).rows
       .filter((i) => i.id !== row.id).slice(0, VOD_MORE_ITEMS).map((i) => this.tile(i));
     const view: MovieView = {
@@ -845,9 +858,13 @@ export class VodController {
           this.vod.getVodPicks(src, 'movie'), this.vod.getVodPicks(src, 'series'),
         ]).catch(() => [new Set<string>(), new Set<string>(), {}, {}] as const)
         : [new Set<string>(), new Set<string>(), {}, {}];
+      const [ml, sl] = await Promise.all([this.vod.getVodLayout(src, 'movie'), this.vod.getVodLayout(src, 'series')])
+        .catch(() => [emptyVodLayout(), emptyVodLayout()] as const);
       const cfg: GroupConfig = {
         sourceEpoch, combine: s.combineDuplicates, langs: [...s.preferredLanguages],
         splits: { movie: ms, series: ss }, picks: { movie: mp, series: sp },
+        mergeCategories: s.combineCategories === true, regions: s.regions ?? { codes: [], mode: 'off' },
+        layouts: { movie: ml, series: sl },
       };
       if (this.sourceEpoch === sourceEpoch && this.cfgGen === gen) this.cfg = cfg;
       return cfg;
@@ -858,11 +875,80 @@ export class VodController {
     return p;
   }
 
-  /** The catalogue as the settings show it: combined into titles, or one card per item. */
+  /**
+   * The catalogue as the settings show it: combined into titles or one card per item, provider categories (or merged
+   * across languages when asked), seen through the user's category layout and the region rule.
+   */
   private shape(catalog: VodCatalog): VodCatalog {
     const cfg = this.cfg;
-    if (!cfg || cfg.sourceEpoch !== this.sourceEpoch || !cfg.combine) return catalog;
-    return catalog.withGroups(groupVod(catalog.source, cfg.splits[catalog.kind]));
+    if (!cfg || cfg.sourceEpoch !== this.sourceEpoch) return catalog;
+    // Merging categories is part of combining (it needs the title groups); with one card per item it does nothing.
+    const merge = cfg.combine && cfg.mergeCategories;
+    const shaped = cfg.combine ? catalog.withGroups(groupVod(catalog.source, cfg.splits[catalog.kind], { mergeCategories: merge })) : catalog;
+    // Merged categories have lost their language prefix: the region rule needs provider categories.
+    const regions = merge ? undefined : { detected: this.detectedOf(catalog.source), codes: cfg.regions.codes, mode: cfg.regions.mode };
+    const plainLayout = cfg.layouts[catalog.kind];
+    const view = vodCategoryView(shaped.categories(), plainLayout, regions);
+    return shaped.withView(view);
+  }
+
+  /** Detected regions of a stored list's categories, computed once per list object (category names only change with it). */
+  private readonly detected = new WeakMap<VodList, Record<string, GroupRegion>>();
+  private detectedOf(list: VodList): Record<string, GroupRegion> {
+    let d = this.detected.get(list);
+    if (!d) this.detected.set(list, (d = detectVodRegions(list)));
+    return d;
+  }
+
+  /** The view of the resident (or loaded) catalogue of `kind`, after the config is read. */
+  private async shapedView(kind: VodKind): Promise<{ catalog: VodCatalog; cfg: GroupConfig | undefined } | undefined> {
+    const catalog = this.sourceId ? await this.catalog(kind) : undefined;
+    return catalog ? { catalog, cfg: this.cfg } : undefined;
+  }
+
+  /** Your countries over this kind's categories: detected countries with category and title counts, largest first. */
+  async regions(kind: VodKind): Promise<RegionsOverview> {
+    const got = await this.shapedView(kind);
+    const s = got?.cfg?.regions ?? { codes: [], mode: 'off' as const };
+    const out: RegionsOverview = {
+      mode: s.mode, codes: [...s.codes], stale: false, countries: [], notSure: { groups: 0, channels: 0 }, other: { groups: 0, channels: 0 },
+    };
+    if (!got || (got.cfg?.combine && got.cfg.mergeCategories)) return out;
+    const { catalog } = got;
+    const detected = this.detectedOf(catalog.source);
+    const all = (catalog.titleGroups ? catalog.titleGroups.categories : catalog.source.categories);
+    const view = vodCategoryView(all, got.cfg?.layouts[kind] ?? emptyVodLayout(), { detected, codes: s.codes, mode: s.mode });
+    out.stale = view.state.stale;
+    const by = new Map<string, RegionCount>();
+    for (const c of all) {
+      const keys = view.keysOf.get(c.id) ?? [];
+      if (!keys.length) {
+        const bucket = detected[c.id] ? out.notSure : out.other;
+        bucket.groups++;
+        bucket.channels += c.count;
+        continue;
+      }
+      for (const code of keys) {
+        let r = by.get(code);
+        if (!r) by.set(code, (r = { code, label: countryLabel(code), groups: 0, channels: 0 }));
+        r.groups++;
+        r.channels += c.count;
+      }
+    }
+    out.countries = [...by.values()].sort((a, b) => b.channels - a.channels || b.groups - a.groups);
+    return out;
+  }
+
+  /** Applies category layout ops for the active source and kind; screens reload with the new view. */
+  async applyLayoutOps(kind: VodKind, ops: VodLayoutOp[]): Promise<VodApplyResult | undefined> {
+    const id = this.sourceId;
+    if (!id) return undefined;
+    const res = await this.vod.applyVodLayoutOps(id, kind, ops);
+    if (res.changed && this.sourceId === id) {
+      if (this.cfg) this.cfg.layouts[kind] = res.layout;
+      this.regroup();
+    }
+    return res;
   }
 
   /** Drops the resident catalogue and Search indexes so they are rebuilt with the current grouping; screens reload. */
@@ -1024,7 +1110,7 @@ export class VodController {
     if (catalog.hasAddedDates) {
       push(VOD_ROW_RECENT, LABELS[VOD_ROW_RECENT]!, Math.min(catalog.size, VOD_RECENT_MAX), () => catalog.recentlyAdded(VOD_ROW_ITEMS).map((item) => this.tile(item)));
     }
-    const sort: VodSort = catalog.hasAddedDates ? 'added' : 'title';
+    const sort: VodSort = catalog.hasAddedDates ? 'added' : 'provider';
     for (const c of catalog.categories()) {
       push(c.id, c.name, c.count, () => catalog.slice(c.id, sort, 0, VOD_ROW_ITEMS).rows.map((item) => this.tile(item)));
     }
