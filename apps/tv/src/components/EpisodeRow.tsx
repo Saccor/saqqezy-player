@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { EpisodeView } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FOCUS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, FOCUS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { PosterArt } from '../vod/PosterArt.tsx';
 import { cardAt, episodeMeta } from '../vod/seriesDetailLogic.ts';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -33,7 +33,7 @@ export function EpisodeCard(props: { x: number; y: number; ep: EpisodeView | und
         <Show when={ep()} fallback={<View width={EP_W} height={EP_H} borderRadius={LAYOUT.radius} color={COLORS.surface} />}>
           <PosterArt w={EP_W} h={EP_H} title={ep()?.title ?? ''} image={ep()?.still} watched={ep()?.watched}
             progress={ep()?.watched ? undefined : ep()?.progress} lit={props.lit} hover={props.hover}
-            titleFont={FONT.body} titleLines={2} titleBottom={96} />
+            titleFont={TYPE.body} titleLines={2} titleBottom={96} />
         </Show>
       </View>
       <Show when={ep()} fallback={
@@ -43,11 +43,11 @@ export function EpisodeCard(props: { x: number; y: number; ep: EpisodeView | und
         </View>
       }>
         <Text y={EP_H + 16} width={EP_W} maxWidth={EP_W} contain="width" maxLines={1} zIndex={1}
-          fontSize={FONT.small} color={COLORS.muted}>{ep() ? episodeMeta(ep()!) : ''}</Text>
+          fontSize={TYPE.meta} color={COLORS.muted}>{ep() ? episodeMeta(ep()!) : ''}</Text>
         <Text y={EP_H + 46} width={EP_W} maxWidth={EP_W} contain="width" maxLines={1} zIndex={1}
-          fontSize={FONT.body} color={COLORS.text}>{ep()?.title ?? ''}</Text>
+          fontSize={TYPE.body} color={COLORS.text}>{ep()?.title ?? ''}</Text>
         <Text y={EP_H + 84} width={EP_W} maxWidth={EP_W} contain="width" maxLines={2} zIndex={1}
-          fontSize={FONT.small} color={COLORS.muted}>{ep()?.plot ?? ''}</Text>
+          fontSize={TYPE.meta} color={COLORS.muted}>{ep()?.plot ?? ''}</Text>
       </Show>
     </View>
   );

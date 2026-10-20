@@ -3,7 +3,7 @@ import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { moveFocus, scrollTopFor } from './virtualWindow.ts';
 
 const WIDTH = 640;
@@ -95,7 +95,7 @@ export function ListPicker(props: {
         onMenu={() => true} onLongOk={() => true}
         onEnter={() => { const r = props.rows[current()]; if (r) props.onPick(r); return true; }}>
         <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
-          fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
+          fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
         <For each={visible()}>{(v) => {
           const focused = () => current() === v.i;
           const hovered = () => pointerMode() && hover() === v.i;
@@ -103,18 +103,18 @@ export function ListPicker(props: {
           return (
             <View x={PAD} y={PAD + HEAD + (v.i - scrollTop()) * STEP} width={WIDTH - PAD * 2} height={ITEM_H}
               borderRadius={LAYOUT.radius} color={focused() ? COLORS.focus : hovered() ? COLORS.hover : COLORS.background}>
-              <Text x={24} y={(ITEM_H - FONT.body) / 2 - 4} width={WIDTH - PAD * 2 - 48 - CHECK_W}
-                maxWidth={WIDTH - PAD * 2 - 48 - CHECK_W} contain="width" maxLines={1} fontSize={FONT.body}
+              <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48 - CHECK_W}
+                maxWidth={WIDTH - PAD * 2 - 48 - CHECK_W} contain="width" maxLines={1} fontSize={TYPE.body}
                 color={v.row.kind === 'new' && !focused() ? COLORS.muted : fg()}>{v.row.label}</Text>
               <Show when={v.row.kind === 'list' && v.row.checked}>
-                <Text x={WIDTH - PAD * 2 - 24 - CHECK_W + 16} y={(ITEM_H - FONT.body) / 2 - 4} fontSize={FONT.body}
+                <Text x={WIDTH - PAD * 2 - 24 - CHECK_W + 16} y={(ITEM_H - TYPE.body) / 2 - 4} fontSize={TYPE.body}
                   color={fg()}>{'✓'}</Text>
               </Show>
             </View>
           );
         }}</For>
         <Text x={PAD} y={PAD + HEAD + shown() * STEP} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width"
-          maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
+          maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
           {more() ? `${more()} · ${hint()}` : hint()}
         </Text>
       </View>

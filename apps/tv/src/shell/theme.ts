@@ -68,9 +68,6 @@ export const TYPE = {
   numberEntry: 72,
 } as const;
 
-/** Legacy names, kept until phase 3 moves every screen to `TYPE`. `small` is now the 24 px minimum. */
-export const FONT = { title: TYPE.display, heading: 32, body: TYPE.body, small: TYPE.meta } as const;
-
 export const SPACE = { xs: 4, s: 8, m: 12, l: 16, xl: 24, xxl: 32, xxxl: 48 } as const;
 
 /** 1920x1080 design space with a 5% overscan-safe margin; content starts right of the collapsed rail. */

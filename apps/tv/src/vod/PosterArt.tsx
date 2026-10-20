@@ -3,7 +3,7 @@ import { createSignal, type JSX } from 'solid-js';
 import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
@@ -46,13 +46,13 @@ export function PosterArt(props: {
       <View width={props.w} height={props.h} zIndex={1} borderRadius={LAYOUT.radius}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>
-        <Text x={12} y={props.h / 2 - FONT.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
-          zIndex={2} fontSize={FONT.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
+        <Text x={12} y={props.h / 2 - TYPE.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
+          zIndex={2} fontSize={TYPE.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
       </Show>
       <Show when={props.label === undefined}>
         {/* Title card text: only on the card (no poster, or it failed), never on a skeleton. */}
         <Text alpha={face() === 'card' ? 1 : 0} x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
-          maxLines={props.titleLines ?? 3} zIndex={2} fontSize={props.titleFont ?? FONT.small} color={COLORS.text}>{props.title}</Text>
+          maxLines={props.titleLines ?? 3} zIndex={2} fontSize={props.titleFont ?? TYPE.meta} color={COLORS.text}>{props.title}</Text>
         <Show when={props.pending ? undefined : shown()} keyed>
           {(u) => {
             posterCache.touch(u);
@@ -69,7 +69,7 @@ export function PosterArt(props: {
         </Show>
         <Show when={props.watched}>
           <View x={props.w - 44} y={10} width={34} height={34} zIndex={4} borderRadius={17} color={COLORS.panel}>
-            <Text y={4} width={34} maxWidth={34} contain="width" textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'✓'}</Text>
+            <Text y={4} width={34} maxWidth={34} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>{'✓'}</Text>
           </View>
         </Show>
         {props.children}

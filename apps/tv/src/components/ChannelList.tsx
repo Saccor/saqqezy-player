@@ -31,7 +31,7 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
       color={props.focused ? COLORS.onFocusTrack : COLORS.surface}>
       <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed fallback={
         <Text y={(LOGO_H - TYPE.meta) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
-          fontSize={TYPE.meta} color={COLORS.muted}>{`${props.number}`}</Text>
+          fontSize={TYPE.meta} color={props.focused ? COLORS.onFocusMuted : COLORS.muted}>{`${props.number}`}</Text>
       }>
         {(url) => {
           logoCache.touch(url);

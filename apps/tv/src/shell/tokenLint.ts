@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 export interface TokenCounts { colour: number; fontSize: number; scale: number }
 
 const COLOUR = /0x[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b/g;
-const FONT_SIZE = /fontSize=\{\d+\}/g;
+/** A `fontSize={…}` expression (no nested braces), and the numeric literals inside one (`a ? 36 : TYPE.title`). */
+const FONT_SIZE = /fontSize=\{([^{}]*)\}/g;
+const NUMBER = /(?<![\w.])\d+(?:\.\d+)?/g;
 const SCALE = /scale=\{[^}]*\b1\.\d+/g;
 /** Files where literals belong, or that are not UI. */
 // components/QrCode.tsx: scanners need pure white and black modules, so it keeps its literals.
@@ -19,7 +21,7 @@ const SKIP = new Set(['shell/theme.ts', 'shell/tokenLint.ts', 'shell/contrast.ts
 export function countTokens(text: string): TokenCounts {
   return {
     colour: text.match(COLOUR)?.length ?? 0,
-    fontSize: text.match(FONT_SIZE)?.length ?? 0,
+    fontSize: [...text.matchAll(FONT_SIZE)].reduce((n, m) => n + (m[1]?.match(NUMBER)?.length ?? 0), 0),
     scale: text.match(SCALE)?.length ?? 0,
   };
 }

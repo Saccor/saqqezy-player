@@ -1,7 +1,7 @@
 import { Text } from '@lightningtv/solid';
 import { createSignal, onCleanup } from 'solid-js';
 import { formatClock, msToNextMinute } from './logic.ts';
-import { COLORS, FONT, LAYOUT } from './theme.ts';
+import { COLORS, LAYOUT, TYPE } from './theme.ts';
 
 const WIDTH = 120;
 
@@ -19,6 +19,6 @@ export function Clock(props: { x?: number; y?: number; width?: number; align?: '
 
   return (
     <Text x={props.x ?? LAYOUT.width - LAYOUT.safeX - WIDTH} y={props.y ?? LAYOUT.safeY} width={props.width ?? WIDTH} maxWidth={props.width ?? WIDTH} contain="width"
-      textAlign={props.align ?? 'right'} fontSize={props.size ?? FONT.heading} color={COLORS.text} zIndex={10}>{`${now()}`}</Text>
+      textAlign={props.align ?? 'right'} fontSize={props.size ?? TYPE.body} color={COLORS.text} zIndex={10}>{`${now()}`}</Text>
   );
 }

@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface ContextMenuItem<A extends string> { action: A; label: string }
 
@@ -77,13 +77,13 @@ export function ContextMenu<A extends string>(props: {
         onMenu={() => true} onLongOk={() => true}
         onEnter={() => { props.onChoose(props.items[sel()]?.action ?? props.cancel); return true; }}>
         <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
-          fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
+          fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
         <For each={props.items}>{(it, i) => (
           <View x={PAD} y={PAD + HEAD + i() * (ITEM_H + 12)} width={WIDTH - PAD * 2} height={ITEM_H}
             borderRadius={LAYOUT.radius}
             color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.background}>
-            <Text x={24} y={(ITEM_H - FONT.body) / 2 - 4} width={WIDTH - PAD * 2 - 48} maxWidth={WIDTH - PAD * 2 - 48}
-              contain="width" maxLines={1} fontSize={FONT.body}
+            <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48} maxWidth={WIDTH - PAD * 2 - 48}
+              contain="width" maxLines={1} fontSize={TYPE.body}
               color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
           </View>
         )}</For>

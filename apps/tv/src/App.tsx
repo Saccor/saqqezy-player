@@ -29,7 +29,7 @@ import {
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { router } from './shell/router.ts';
-import { COLORS, FONT, LAYOUT } from './shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
@@ -44,8 +44,8 @@ function OfflineBadge() {
   return (
     <View x={OFFLINE_BADGE_X} y={LAYOUT.safeY - 4} width={OFFLINE_BADGE_W} height={BADGE_H}
       color={COLORS.surface} borderRadius={BADGE_H / 2} border={{ width: 2, color: COLORS.muted }} zIndex={10}>
-      <Text y={(BADGE_H - FONT.small) / 2 - 3} width={OFFLINE_BADGE_W} maxWidth={OFFLINE_BADGE_W} contain="width" textAlign="center"
-        maxLines={1} fontSize={FONT.small} color={COLORS.text}>{'Offline · saved list'}</Text>
+      <Text y={(BADGE_H - TYPE.meta) / 2 - 3} width={OFFLINE_BADGE_W} maxWidth={OFFLINE_BADGE_W} contain="width" textAlign="center"
+        maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{'Offline · saved list'}</Text>
     </View>
   );
 }

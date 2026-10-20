@@ -19,12 +19,17 @@ export interface SettingItem {
   heading?: boolean;
 }
 
-export const SETTING_ROW_H = 104;
+/** A row's pitch: drawn 72 high with an 8 px gap under it. */
+export const SETTING_ROW_H = 80;
 const VALUE_W = 380;
 /** Pointer: the clickable `‹` and `›` ends of an adjustable row's value column. */
 const STEP_HIT_W = 56;
 /** The space under each drawn row. */
-const ROW_GAP = 12;
+const ROW_GAP = 8;
+const DRAWN_H = SETTING_ROW_H - ROW_GAP;
+/** Two-line rows: the label, then the help line under it. */
+const LABEL_Y = 10;
+const HELP_Y = 42;
 
 /**
  * A settings page's rows: one focusable node (rows only draw), Up/Down move the selection, Ok calls `onOk`,
@@ -120,21 +125,21 @@ export function SettingsList(props: {
         const active = () => isSel() && focused();
         const hovered = () => pointerMode() && hover() === i;
         const stepper = () => it()?.adjustable === true && (active() || hovered());
-        const valueY = (SETTING_ROW_H - 12 - TYPE.body) / 2 - 4;
+        const valueY = (DRAWN_H - TYPE.body) / 2 - 4;
         // Rows are reused across item changes (keyed by index), so the heading style is reactive too.
         const heading = () => it()?.heading === true;
         const labelW = () => (heading() ? props.width - 56 : props.width - VALUE_W - 56);
         const dim = () => it()?.disabled === true;
         return (
-          <View x={0} y={(i - top()) * SETTING_ROW_H} width={props.width} height={SETTING_ROW_H - 12}
+          <View x={0} y={(i - top()) * SETTING_ROW_H} width={props.width} height={DRAWN_H}
             borderRadius={LAYOUT.radius}
             color={active() ? COLORS.focus : isSel() ? COLORS.surface : hovered() ? COLORS.hover : COLORS.transparent}>
-            <Text x={28} y={heading() ? SETTING_ROW_H - 12 - TYPE.meta - 10 : it()?.help ? 14 : (SETTING_ROW_H - 12 - TYPE.body) / 2 - 4}
+            <Text x={28} y={heading() ? DRAWN_H - TYPE.meta - 10 : it()?.help ? LABEL_Y : valueY}
               width={labelW()} maxWidth={labelW()} contain="width" maxLines={1}
               fontSize={heading() ? TYPE.meta : TYPE.body} fontStyle={heading() ? STRONG.fontStyle : 'normal'}
               color={heading() ? COLORS.muted : dim() ? (active() ? COLORS.onFocusMuted : COLORS.muted) : active() ? COLORS.onFocus : COLORS.text}>{it()?.label ?? ''}</Text>
             <Show when={!heading() && it()?.help}>
-              <Text x={28} y={54} width={props.width - VALUE_W - 56} maxWidth={props.width - VALUE_W - 56} contain="width"
+              <Text x={28} y={HELP_Y} width={props.width - VALUE_W - 56} maxWidth={props.width - VALUE_W - 56} contain="width"
                 maxLines={1} fontSize={TYPE.meta} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{it()?.help ?? ''}</Text>
             </Show>
             {/* Focused (or, in pointer mode, hovered) adjustable row: a stepper (‹ value ›); otherwise the value right-aligned. */}

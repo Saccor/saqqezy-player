@@ -4,7 +4,7 @@ import { api } from '../../api.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { journal, playback, supervisor } from '../../playback/playback.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
-import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { platformId } from '../../state/appState.ts';
 import { readDeviceInfo } from '../../platform/deviceInfo.ts';
 import { diagnosticsLines, liveLines, onOff } from '../settingsLogic.ts';
@@ -55,7 +55,7 @@ export function DiagnosticsPage(props: PageProps) {
   onCleanup(() => { alive = false; props.register(undefined); });
 
   const linesY = SETTING_ROW_H * 2 + LAYOUT.gap;
-  const maxLines = Math.floor((props.height - linesY) / LINE_H);
+  const maxLines = () => Math.floor((props.height - linesY) / LINE_H);
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
       <Show when={!logOpen()} fallback={
@@ -65,12 +65,12 @@ export function DiagnosticsPage(props: PageProps) {
         <SettingsList ref={props.register} x={0} y={0} width={props.width} height={SETTING_ROW_H * 2}
           items={items()} selected={sel()} onSelect={setSel} onAdjust={(id) => toggle(id)} onOk={ok}
           onLeftEdge={props.onLeftEdge} />
-        <For each={lines().slice(0, maxLines)}>{(line, i) => (
+        <For each={lines().slice(0, maxLines())}>{(line, i) => (
           <View x={28} y={linesY + i() * LINE_H} width={props.width - 56} height={LINE_H}>
-            <Text width={LABEL_W - 16} maxWidth={LABEL_W - 16} contain="width" maxLines={1} fontSize={FONT.small}
+            <Text width={LABEL_W - 16} maxWidth={LABEL_W - 16} contain="width" maxLines={1} fontSize={TYPE.meta}
               color={COLORS.muted}>{line[0]}</Text>
             <Text x={LABEL_W} width={props.width - 56 - LABEL_W} maxWidth={props.width - 56 - LABEL_W} contain="width"
-              maxLines={1} fontSize={FONT.small} color={COLORS.text}>{line[1]}</Text>
+              maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{line[1]}</Text>
           </View>
         )}</For>
       </Show>
