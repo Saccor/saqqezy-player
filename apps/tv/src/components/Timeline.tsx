@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { jumpLabel, type Scrub } from '../vod/seekLogic.ts';
 import { bubbleX, fractionAt } from '../vod/timelineLogic.ts';
 import { clock } from '../vod/vodPlayerLogic.ts';
@@ -96,9 +96,9 @@ export function Timeline(props: {
               borderRadius={MARKER_W / 2} color={COLORS.text} />
             <View x={bx()} y={-BUBBLE_H - 4} width={BUBBLE_W} height={BUBBLE_H} borderRadius={LAYOUT.radius} color={COLORS.panel}>
               <Text y={8} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
-                fontSize={FONT.heading} color={COLORS.text}>{clock(s().targetMs)}</Text>
+                fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{clock(s().targetMs)}</Text>
               <Text y={50} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
-                fontSize={FONT.small} color={COLORS.muted}>{jumpLabel(s().targetMs - s().fromMs)}</Text>
+                fontSize={TYPE.meta} color={COLORS.muted}>{jumpLabel(s().targetMs - s().fromMs)}</Text>
             </View>
           </View>
         );
@@ -109,8 +109,8 @@ export function Timeline(props: {
           <View x={(hoverX() ?? 0) - 1} y={barY() - 4} width={2} height={barH() + 8} color={COLORS.text} />
           <View x={bubbleX(hoverX() ?? 0, HOVER_W, 0, props.width)} y={-HOVER_H + 4} width={HOVER_W} height={HOVER_H}
             borderRadius={LAYOUT.radius} color={COLORS.panel}>
-            <Text y={(HOVER_H - FONT.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
-              maxLines={1} fontSize={FONT.body} color={COLORS.text}>
+            <Text y={(HOVER_H - TYPE.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
+              maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
               {clock(fractionAt(hoverX() ?? 0, props.width) * (props.durMs ?? 0))}
             </Text>
           </View>
