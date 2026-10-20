@@ -342,9 +342,8 @@ Spec `docs/superpowers/specs/2026-10-20-catch-up-design.md`. The URL is built in
 
 ## UI system (revamp phase 1)
 
-- Tokens: `shell/theme.ts` (`COLORS`, `TYPE`, `SPACE`, `LAYOUT`, `FOCUS`, `MOTION`, `STRONG`). `FONT` is legacy until phase 3.
-  `shell/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; after removing some, run
-  `pnpm exec tsx apps/tv/src/shell/tokenLint.ts --write`.
+- Tokens: `shell/theme.ts` (`COLORS`, `TYPE`, `SPACE`, `LAYOUT`, `FOCUS`, `MOTION`, `STRONG`). The legacy `FONT` is gone (phase 3).
+  `shell/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; see "UI system (revamp phase 3)".
 - Focus: cards use `FocusRing` + `FOCUS.scale`; rows, cells and buttons use a `COLORS.focus` fill with `COLORS.onFocus`.
   `COLORS.accent` is for progress and position marks only.
 - Shared pieces: `shell/Rail.tsx` (+ `railLogic.ts`, `railNav.ts`), `components/InfoStrip.tsx` (feed it from
@@ -364,3 +363,14 @@ Spec `docs/superpowers/specs/2026-10-20-catch-up-design.md`. The URL is built in
 - Play/Resume is the first item of the poster menu (`createPosterMenu`) on browse, grid and details.
 - Memory: grids render visible rows + the peek row only. Posters still decode at natural size (no resize in renderer
   3.7), so Compact (up to 40 posters drawn) is the density ceiling until a decode-time resize lands.
+
+## UI system (revamp phase 3)
+
+- All screens are on tokens. Legacy `FONT` is removed: `FONT.heading` sites became `TYPE.title` (screen titles) or `TYPE.body` + `STRONG` (panel, dialog and overlay titles).
+- Token lint is at zero: `tokenLint.baseline.json` is `{}` and a test asserts it, so any new colour, fontSize or focus-scale literal fails `pnpm test`. The regex counts every numeric literal inside `fontSize={...}`. `QrCode` is in `SKIP`. Use a token or add one to `theme.ts`.
+- New tokens: `COLORS.buffered`, `scrubAhead`, `scrubBack`, `subtitleOutline`, `imageTrack`, and `TITLE_CARD_COLOURS`.
+- One focus style everywhere: fills, no borders. Pills go through `Button`. The `ManageOnPhone` rows look like `Button` but keep their single-node focus.
+- Live banner (`components/InfoBanner.tsx`): `BANNER_H` 210, no panel; the `banner` fade in `vod/scrim.ts`. Logo 96 px with a monogram fallback. Line 1 is number + name + clock; the title is `TYPE.playerTitle`; the progress track is full width. `bannerNextLine` gives "Next · 21:00 Title"; the Next line sits in a keyed `Show` (it clipped when not keyed). `VolumeOsd` sits below `NumberEntry`.
+- Search (`screens/Search.tsx`, `searchLogic.ts`): the rail is visible (`goRailFrom`); the keyboard starts at x 160. Two rows: "Movies & series" (`PosterRow`, 4 visible) and "Live & guide" (`WideRow`, 2 visible; programme cells with a progress bar; channel numbers are shown on Search only). `searchRows`, `moveSearch` and `settleFocus` decide focus. A "Searching…" note shows while a query is in flight. Rows are keyed by area strings so they keep their nodes while typing.
+- Settings: the rail is visible (`goRailFrom`); the menu starts at x 160 with 72 px rows; list rows are 80 px (label y 10, help y 42); there is no hint bar. `shellBackX('settings')` is `contentX`.
+- Rail: `active: RailId`, so Search and Settings can be the current item. `railFromNested` handles them: the rail's own id does nothing (`[]`), Search to Settings and back use `replaceScreen`, and a tab pops the screen and navigates from below.
