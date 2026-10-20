@@ -1,4 +1,6 @@
 import { existsSync, readFile } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
@@ -73,6 +75,15 @@ const STREAM_STATUS: Record<string, { status: number; headers?: Record<string, s
   gone404: { status: 404 },
 };
 const RETRY_USERS = ['refuse403', 'limit429', 'gone404', 'down500'];
+
+/** Passes the parts through, letting other requests in every 64 parts so a long stream never starves them. */
+async function* yielding(parts: Iterable<string>): AsyncGenerator<string> {
+  let n = 0;
+  for (const part of parts) {
+    yield part;
+    if (++n % 64 === 0) await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const showcase = opts.showcase === true;
@@ -296,8 +307,9 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       if (!valid) return send(res, 401, '');
       res.writeHead(200, { 'content-type': 'application/xml' });
       const history = opts.catchup ? (c: (typeof guided)[number], fmt: (ms: number) => string) => xmltvHistory(c, now(), fmt, showcase) : undefined;
-      for (const part of xmltv(guided, now(), opts.sports === true, history, showcase)) res.write(part);
-      return res.end();
+      // Streamed with backpressure: with 50k channels and catch-up the guide is ~2 GB, far too much to buffer.
+      // Aborted clients make pipeline destroy the source, which stops the generator; that error is expected.
+      return pipeline(Readable.from(yielding(xmltv(guided, now(), opts.sports === true, history, showcase))), res).catch(() => {});
     }
 
     if (url.pathname === '/get.php') {
