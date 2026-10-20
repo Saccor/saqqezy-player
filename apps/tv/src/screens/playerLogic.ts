@@ -68,7 +68,6 @@ export function bannerNowNextStale(
   return bannerOn && playingId !== undefined && shownId === playingId && changed.includes(playingId);
 }
 
-/** True while a modal layer owns the keys: the "Still watching?" dialog or the options menu. */
 /**
  * What leaving the Player passes to the screen it reveals. Only Home takes a channel to focus (`focusChannelId`) and
  * honours the preview hold after a sleep stop; Start, Search or the Guide below get neither, so they never carry a
@@ -79,6 +78,7 @@ export function playerLeave(below: ScreenId | undefined, lastChannelId: string |
   return { ...(toHome && lastChannelId !== undefined ? { params: { focusChannelId: lastChannelId } } : {}), holdPreview: toHome };
 }
 
+/** True while a modal layer owns the keys: the "Still watching?" dialog or the options menu. */
 export function isModalOpen(sleepKind: string, menuPage: string | undefined): boolean {
   return sleepKind === 'asking' || menuPage != null;
 }

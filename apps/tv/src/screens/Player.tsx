@@ -442,7 +442,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const detachSleep = sleepTimer.attach({ onChange: onSleepChange, onExpire: () => { if (alive) sleepStop(); } });
     onCleanup(detachSleep);
     const defaultSleep = settings()?.sleepTimerMinutes ?? 0;
-    if (defaultSleep > 0 && sleepTimer.state().kind === 'off') sleepTimer.set(defaultSleep * SLEEP_SCALE);
+    if (defaultSleep > 0 && sleepTimer.state().kind === 'off' && !sleepTimer.userOff()) sleepTimer.set(defaultSleep * SLEEP_SCALE);
     // The previous screen's focused node is gone: take focus so the keys reach this screen.
     root?.setFocus();
     // The ticks sleep while the page is hidden (visibleInterval).

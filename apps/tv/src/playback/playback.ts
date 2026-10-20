@@ -136,6 +136,12 @@ export const previewHold = {
 
 /**
  * The Player's sleep timer, one for the app: it survives Player remounts (the Guide, Home and back). When it runs
- * out while no Player is on screen to ask "Still watching?", playback simply stops.
+ * out while no Player is on screen to ask "Still watching?", live playback simply stops. A film or episode
+ * (`vod:` ids, VodPlay's own screen) is never cut: the timer belongs to live TV.
  */
-export const sleepTimer = createSharedSleepTimer({ onExpireUnattended: () => playback.stop() });
+export const sleepTimer = createSharedSleepTimer({ onExpireUnattended: () => { if (!isVodId(playback.current()?.id)) playback.stop(); } });
+
+/** VodPlay's playables carry a `vod:` id (see `liveReturn.ts`). */
+export function isVodId(id: string | undefined): boolean {
+  return id !== undefined && id.startsWith('vod:');
+}

@@ -161,6 +161,18 @@ describe('createSharedSleepTimer (one timer across Player visits)', () => {
     expect(shared.state()).toEqual({ kind: 'off' });
   });
 
+  it("remembers the user's Off until the timer is armed again (a remount must not re-arm the default)", () => {
+    const shared = createSharedSleepTimer();
+    expect(shared.userOff()).toBe(false);
+    shared.set(30);
+    expect(shared.userOff()).toBe(false);
+    shared.set(0);
+    expect(shared.userOff()).toBe(true);
+    expect(shared.state()).toEqual({ kind: 'off' });
+    shared.set(15);
+    expect(shared.userOff()).toBe(false);
+  });
+
   it('a stale detach from an earlier Player does not detach the current one', () => {
     const shared = createSharedSleepTimer();
     const first = player();

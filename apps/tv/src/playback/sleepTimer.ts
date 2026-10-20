@@ -92,6 +92,11 @@ export interface SleepListener { onChange(s: SleepState): void; onExpire(): void
 
 export interface SharedSleepTimer extends Omit<SleepTimer, 'dispose'> {
   /**
+   * True after the user turned the timer off (`set(0)`) until it is armed again: a Player that remounts (back from
+   * the Guide) must not re-arm the Settings default over an explicit Off.
+   */
+  userOff(): boolean;
+  /**
    * The Player on screen: it sees every change from now on, and the current state at once when the timer is not
    * off (an armed timer shows its minutes; an open question reopens its dialog). Returns the detach; a later attach
    * replaces an earlier one.
@@ -106,6 +111,7 @@ export interface SharedSleepTimer extends Omit<SleepTimer, 'dispose'> {
  */
 export function createSharedSleepTimer(opts: { onExpireUnattended?(): void; askSeconds?: number; now?: () => number } = {}): SharedSleepTimer {
   let listener: SleepListener | undefined;
+  let userOff = false;
   const inner = createSleepTimer({
     onChange: (s) => listener?.onChange(s),
     onExpire: () => (listener ? listener.onExpire() : opts.onExpireUnattended?.()),
@@ -113,8 +119,9 @@ export function createSharedSleepTimer(opts: { onExpireUnattended?(): void; askS
     ...(opts.now ? { now: opts.now } : {}),
   });
   return {
-    set: (minutes) => inner.set(minutes),
+    set: (minutes) => { userOff = minutes <= 0; inner.set(minutes); },
     stillWatching: () => inner.stillWatching(),
+    userOff: () => userOff,
     state: () => inner.state(),
     minutesLeft: () => inner.minutesLeft(),
     attach(l) {

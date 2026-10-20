@@ -137,6 +137,7 @@ export class VodController {
     this.progress.clear();
     this.failures.clear();
     this.startSnaps.clear();
+    this.revalidating.clear();
     this.resident = undefined;
     this.loading = undefined;
     this.user = undefined;

@@ -1575,14 +1575,16 @@ export class AppApi {
   }
 
   /**
-   * The focused or playing channel `c`: a background short-EPG lookup unless it has a stored guide or a good cached
-   * answer. Decided from memory where possible (no IDB traffic while browsing): only Xtream has a short EPG; a
-   * channel in the guide coverage has stored programmes; a fresh now/next answer needs nothing more.
+   * The focused or playing channel `c`: a background short-EPG lookup unless a fresh now/next answer already has
+   * something for it. Decided from memory while browsing (no IDB traffic): only Xtream has a short EPG, and every
+   * row the UI read in the last minute sits in `nnCache`. An empty fresh answer (the stored guide ran out, or the
+   * channel is not in the guide) and a channel nobody read yet go through `lookupNowNext`, which reads once and
+   * then asks the short EPG for whatever is still missing. Guide coverage alone is not enough: a covered channel
+   * whose programmes ended must still get the short-EPG fallback.
    */
   private async wantShortEpg(c: Channel): Promise<void> {
     const id = this.activeId;
     if (!id || this.sourceKind !== 'xtream') return;
-    if (this.coverage?.has(epgKey(this.originals([c])[0]!))) return;
     const t = this.now();
     const hit = this.nnCache.get(c.id);
     if (hit && t - hit.at < NOW_NEXT_TTL_MS && (hit.nn.now !== undefined || hit.nn.next !== undefined)) return;

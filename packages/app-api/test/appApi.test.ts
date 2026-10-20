@@ -934,6 +934,26 @@ describe('AppApi – background short EPG', () => {
     expect(h.streams).toEqual([streamOf(bid)]);
   });
 
+  test('focusChannel still asks the short EPG for a covered channel whose stored guide has run out', async () => {
+    // The guide is imported at NOW; two days later every stored programme is in the past, but the channel is still
+    // in the coverage. The fallback must not be skipped on coverage alone.
+    const st = new MemoryStorage();
+    const { api } = make(st);
+    await api.addSource(xt());
+    await api.refresh('epg');
+    const id = (await api.getChannelSlice('all', 0, 1)).rows[0]!.id;
+    const h = held();
+    const LATER = NOW + 2 * 24 * 3600_000;
+    const service = new SourceService({ storage: st, fetch: h.fetchFn, now: () => LATER, shortEpgGapMs: 0 });
+    const later = new AppApi({ service, storage: st, emit: () => {}, now: () => LATER, appVersion: '1.2.3' });
+    await later.init();
+    h.g.open();
+    expect((await later.getChannelSlice('all', 0, 1)).rows[0]!.now).toBeUndefined();
+    await later.focusChannel(id);
+    await later.idle();
+    expect(h.streams).toEqual([streamOf(id)]);
+  });
+
   test('focusChannel looks up the focused channel only; a queued one that lost the focus sends no request', async () => {
     const h = held();
     const { api } = make(storage, SourceService, h.fetchFn);

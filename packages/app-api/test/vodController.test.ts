@@ -401,6 +401,22 @@ describe('VodController races', () => {
     expect(events.map((e) => e.type)).toContain('vodLoading');
   });
 
+  test('a reset while needsRefresh is out lets the new source ask its own staleness question', async () => {
+    const { c, fake } = fakeController();
+    fake.storedCatalog = async () => new VodCatalog('movie', listOf('movie', 1, 2));
+    const gate = deferred<boolean>();
+    let asked = 0;
+    fake.needsRefresh = () => { asked++; return asked === 1 ? gate.promise : Promise.resolve(false); };
+    expect((await c.home('movie')).status).toBe('ready');
+    expect(asked).toBe(1);
+    c.reset('other');
+    expect((await c.home('movie')).status).toBe('ready');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toBe(2);
+    gate.resolve(true);
+    await c.idle();
+  });
+
   test('a finished fetch wins over an older stored read of the same kind', async () => {
     const { c, fake } = fakeController();
     const fetchGate = deferred<{ count: number; truncated: boolean; list: VodList }>();
