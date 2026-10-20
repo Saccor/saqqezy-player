@@ -9,6 +9,8 @@ export type ScreenId = 'addSource' | 'home' | 'player' | 'search' | 'settings' |
 export type ScreenParams = Record<string, unknown>;
 export interface ScreenEntry { screen: ScreenId; params: ScreenParams }
 export type BackResult = 'overlay' | 'screen' | 'root';
+/** How the screen stack last changed: `back` is a screen pop or `backTo`. */
+export type ScreenChange = 'push' | 'replace' | 'reset' | 'back';
 
 export interface Router {
   push(screen: ScreenId, params?: ScreenParams): void;
@@ -29,6 +31,8 @@ export interface Router {
   /** The screen `n` (default 1) under the current one; `below()` is what a screen pop reveals (undefined on the root). */
   below(n?: number): ScreenEntry | undefined;
   depth(): number;
+  /** How the current screen was reached (undefined before the first screen); overlays do not change it. */
+  lastChange(): ScreenChange | undefined;
   /** Registers an overlay on top (moving it there if `id` is already open). The remover does not call `onClose`. */
   pushOverlay(id: string, onClose: () => void): () => void;
   removeOverlay(id: string): void;
@@ -43,6 +47,7 @@ interface Overlay { id: string; onClose: () => void; token: object }
 export function createRouter(): Router {
   const stack: ScreenEntry[] = [];
   let layers: Overlay[] = [];
+  let change: ScreenChange | undefined;
   const screenFns = new Set<(c: ScreenEntry | undefined) => void>();
   const overlayFns = new Set<(ids: string[]) => void>();
 
@@ -53,16 +58,19 @@ export function createRouter(): Router {
   const router: Router = {
     push(screen, params) {
       stack.push(entry(screen, params));
+      change = 'push';
       emitScreen();
     },
     replace(screen, params) {
       if (stack.length > 0) stack.pop();
       stack.push(entry(screen, params));
+      change = 'replace';
       emitScreen();
     },
     reset(screen, params) {
       stack.length = 0;
       stack.push(entry(screen, params));
+      change = 'reset';
       emitScreen();
     },
     back(params) {
@@ -81,6 +89,7 @@ export function createRouter(): Router {
         stack.pop();
         const revealed = stack[stack.length - 1];
         if (params && revealed) revealed.params = { ...revealed.params, ...params };
+        change = 'back';
         emitScreen();
         return 'screen';
       }
@@ -94,12 +103,14 @@ export function createRouter(): Router {
       stack.length = i + 1;
       const target = stack[i]!;
       if (params) target.params = { ...target.params, ...params };
+      change = 'back';
       emitScreen();
       return true;
     },
     current: () => stack[stack.length - 1],
     below: (n = 1) => stack[stack.length - 1 - n],
     depth: () => stack.length,
+    lastChange: () => change,
     pushOverlay(id, onClose) {
       const token = {};
       layers = [...layers.filter((o) => o.id !== id), { id, onClose, token }];

@@ -139,6 +139,9 @@ export const MOTION = {
   imageIn: token(160, EASE.fade, 'image'),
   /** The info strip's new title and meta fading in once the dwell settles (no fade-out: it would add delay). */
   textIn: token(140, EASE.enter, 'ui'),
+  /** A screen pushed (not Back, not video screens, not cold start): fade plus a rise of `screenRise` px. */
+  screenIn: token(200, EASE.enter, 'ui'),
+  screenRise: 12,
   /** The backdrop cross-fade. */
   backdrop: token(260, EASE.fade, 'ui'),
   /** Menus and dialogs opening: fade plus a rise of `rise` px. They close at once (unmount). */

@@ -1,3 +1,4 @@
+import type { ScreenChange, ScreenId } from './router.ts';
 import { EASE, MOTION, type MotionToken } from './theme.ts';
 
 /**
@@ -106,4 +107,16 @@ export function nextMotionLevel(level: MotionLevel): MotionLevel {
 export function parseMotionLevel(stored: unknown, prefersReduced: boolean): MotionLevel {
   if (typeof stored === 'string' && (MOTION_LEVELS as readonly string[]).includes(stored)) return stored as MotionLevel;
   return prefersReduced ? 'reduced' : 'full';
+}
+
+/** Screens that show video: they appear at once (the picture must not fade, and decoding owns the GPU). */
+const VIDEO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['player', 'vodPlay', 'home']);
+
+/**
+ * Whether a screen reached by `change` fades in (motion research §4 #9): only going forward (a push or a replace),
+ * never to a video screen, on cold start (a reset) or on Back. `railStays`: both screens draw the rail (a rail tab,
+ * Search, Settings), so nothing fades: the whole screen fading would blink the rail that stays in place.
+ */
+export function screenEnters(change: ScreenChange | undefined, screen: ScreenId, railStays = false): boolean {
+  return (change === 'push' || change === 'replace') && !VIDEO_SCREENS.has(screen) && !railStays;
 }

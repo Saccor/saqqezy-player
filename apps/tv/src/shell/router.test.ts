@@ -216,3 +216,24 @@ describe('router overlays and layered Back', () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('router lastChange', () => {
+  it('names the last screen change: push, replace, reset or back (a pop or backTo); overlays do not change it', () => {
+    const r = createRouter();
+    expect(r.lastChange()).toBeUndefined();
+    r.reset('home');
+    expect(r.lastChange()).toBe('reset');
+    r.push('vod');
+    expect(r.lastChange()).toBe('push');
+    r.replace('start');
+    expect(r.lastChange()).toBe('replace');
+    r.pushOverlay('menu', () => undefined);
+    r.back();
+    expect(r.lastChange()).toBe('replace');
+    r.back();
+    expect(r.lastChange()).toBe('back');
+    r.push('search');
+    r.backTo('home');
+    expect(r.lastChange()).toBe('back');
+  });
+});

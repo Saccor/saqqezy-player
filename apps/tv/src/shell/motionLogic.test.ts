@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { EASE, MOTION } from './theme.ts';
-import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, type MotionContext } from './motionLogic.ts';
+import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, type MotionContext } from './motionLogic.ts';
 
 const ctx = (o: Partial<MotionContext> = {}): MotionContext => ({ level: 'full', cadence: 'normal', gap: undefined, live: 0, ...o });
 
@@ -125,5 +125,27 @@ describe('parseMotionLevel', () => {
     expect(parseMotionLevel(undefined, true)).toBe('reduced');
     expect(parseMotionLevel(undefined, false)).toBe('full');
     expect(parseMotionLevel('bogus', false)).toBe('full');
+  });
+});
+
+describe('screenEnters', () => {
+  test('a screen pushed or switched to (rail tabs replace) fades in', () => {
+    expect(screenEnters('push', 'movieDetail')).toBe(true);
+    expect(screenEnters('replace', 'vod')).toBe(true);
+    expect(screenEnters('push', 'settings')).toBe(true);
+  });
+
+  test('not between two rail screens: the rail stays put, so the screen does not blink it', () => {
+    expect(screenEnters('replace', 'vod', true)).toBe(false);
+    expect(screenEnters('push', 'search', true)).toBe(false);
+  });
+
+  test('never for video screens (Player, VodPlay, Live TV), cold start (reset) or Back', () => {
+    expect(screenEnters('push', 'player')).toBe(false);
+    expect(screenEnters('replace', 'vodPlay')).toBe(false);
+    expect(screenEnters('push', 'home')).toBe(false);
+    expect(screenEnters('reset', 'start')).toBe(false);
+    expect(screenEnters('back', 'vod')).toBe(false);
+    expect(screenEnters(undefined, 'vod')).toBe(false);
   });
 });

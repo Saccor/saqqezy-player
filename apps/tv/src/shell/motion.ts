@@ -1,9 +1,9 @@
 import type { ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on } from 'solid-js';
-import { TOAST_OVERLAY_ID } from './logic.ts';
-import { router } from './router.ts';
+import { railRoute, TOAST_OVERLAY_ID } from './logic.ts';
+import { router, type ScreenEntry } from './router.ts';
 import { FOCUS, MOTION, type MotionToken } from './theme.ts';
-import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, type MotionLevel, type PropClass } from './motionLogic.ts';
+import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, screenEnters, type MotionLevel, type PropClass } from './motionLogic.ts';
 
 /**
  * The one way the TV app animates (motion research §4 #1). The `transition` prop is broken on our stack (renderer 3.7 has
@@ -197,4 +197,22 @@ export function riseIn(node: ElementNode, token: MotionToken = MOTION.menuIn): v
     if (levelNow() === 'full') node.y = y + MOTION.rise;
     tween(node, { alpha: 1, y }, token);
   });
+}
+
+/**
+ * The screen host's enter cue on a screen change from `from`: a pushed screen (`screenEnters`) fades in from `MOTION.startAlpha`
+ * and rises `MOTION.screenRise` px in 200 ms; any other change (Back, cold start, a video screen) shows it at once,
+ * also cutting short an enter still running. Focus is live from the start: nothing waits for the fade.
+ */
+export function screenEnter(host: ElementNode, entry: ScreenEntry | undefined, from: ScreenEntry | undefined): void {
+  stopMotion(host);
+  const railStays = railRoute(entry?.screen) && railRoute(from?.screen);
+  if (!entry || !screenEnters(router.lastChange(), entry.screen, railStays) || levelNow() === 'off') {
+    host.alpha = 1;
+    host.y = 0;
+    return;
+  }
+  host.alpha = MOTION.startAlpha;
+  host.y = levelNow() === 'full' ? MOTION.screenRise : 0;
+  tween(host, { alpha: 1, y: 0 }, MOTION.screenIn);
 }
