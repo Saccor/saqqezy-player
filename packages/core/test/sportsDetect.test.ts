@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { EVENT_THRESHOLD, mayBeEvent, scoreProgramme } from '../src/sports/detect.ts';
+import { EVENT_THRESHOLD, mayBeEvent, parseMatch, scoreProgramme } from '../src/sports/detect.ts';
+import { MATCH_FLAGS } from '../src/sports/words.ts';
 
 const H = 3600_000;
 const p = (title: string, hours = 2) => ({ title, start: 0, stop: hours * H });
@@ -73,5 +74,79 @@ describe('scoreProgramme', () => {
   });
   test('a plain sports category alone is not an event', () => {
     expect(isEvent('Golf Weekly', { categories: ['Sports'] })).toBe(false);
+  });
+});
+
+describe('parseMatch (index v2, design note §3.2)', () => {
+  test('the strongest separator wins and a competition prefix is peeled (fixture 2)', () => {
+    for (const t of ['Northern Cup - Northbridge FC v Eastport', 'Northern Cup | Northbridge FC v Eastport', 'Northern Cup: Northbridge FC v Eastport']) {
+      const m = parseMatch(t)!;
+      expect(m.sides).toEqual(['Northbridge FC', 'Eastport']);
+      expect(m.comp).toBe('Northern Cup');
+      expect(m.strong).toBe(true);
+      expect(m.title).toBe('Northbridge FC v Eastport');
+    }
+  });
+  test('suffixes are peeled: live, tags and stages; a short plain suffix is the competition (fixture 3)', () => {
+    expect(parseMatch('Northbridge FC v Eastport - Live')).toMatchObject({ sides: ['Northbridge FC', 'Eastport'], live: true });
+    expect(parseMatch('Northbridge FC v Eastport - Live')!.comp).toBeUndefined();
+    expect(parseMatch('Northbridge FC v Eastport (R)')!.sides).toEqual(['Northbridge FC', 'Eastport']);
+    const staged = parseMatch('Northbridge FC v Eastport, Round 12')!;
+    expect(staged.sides).toEqual(['Northbridge FC', 'Eastport']);
+    expect(staged.comp).toBeUndefined();
+    expect(parseMatch('Northbridge FC v Eastport | Test Cup')!.comp).toBe('Test Cup');
+    expect(parseMatch('Northbridge FC v Eastport: Höjdpunkter')!.sides).toEqual(['Northbridge FC', 'Eastport']);
+  });
+  test('weak separators split only without a strong one; a stage prefix is not a competition', () => {
+    expect(parseMatch('Northbridge FC - Eastport (Wdh.)')).toMatchObject({ sides: ['Northbridge FC', 'Eastport'], strong: false });
+    const t = parseMatch('Final: A. Marlow - J. Okafor')!;
+    expect(t.sides).toEqual(['A. Marlow', 'J. Okafor']);
+    expect(t.comp).toBeUndefined();
+    expect(parseMatch('Lakeshore x Pinecrest - Live')).toMatchObject({ sides: ['Lakeshore', 'Pinecrest'], strong: false, live: true });
+  });
+  test('a side has at most 5 words and no tag word', () => {
+    expect(parseMatch('Evening News - Weekend Edition')).toBeUndefined();
+    expect(parseMatch('One Two Three Four Five Six v Eastport')).toBeUndefined();
+    expect(parseMatch('Matchday Studio')).toBeUndefined();
+  });
+});
+
+describe('tag flags (design note §3.3)', () => {
+  const flagsOf = (title: string, extra?: Parameters<typeof scoreProgramme>[1], desc?: string, hours = 2) =>
+    scoreProgramme({ title, start: 0, stop: hours * H, ...(desc ? { desc } : {}) }, extra).flags;
+  test('replay tags in several languages, the rerun flag and a desc mention (fixture 8)', () => {
+    for (const t of ['Northbridge FC - Eastport (Wdh.)', 'Northbridge FC v Eastport (R)', 'Northbridge FC v Eastport - Repetición',
+      'Northbridge FC v Eastport - Rediffusion', 'Northbridge FC v Eastport (repris)']) {
+      expect(flagsOf(t) & MATCH_FLAGS.replay).toBeTruthy();
+    }
+    expect(flagsOf('Northbridge FC v Eastport', { rerun: true }) & MATCH_FLAGS.rerun).toBeTruthy();
+    expect(flagsOf('Northbridge FC v Eastport', undefined, 'Wiederholung vom Samstag') & MATCH_FLAGS.replay).toBeTruthy();
+    expect(flagsOf('Northbridge FC v Eastport')).toBe(0);
+  });
+  test('highlights and studio tags in the title or sub-title (fixtures 6–8)', () => {
+    expect(flagsOf('Northbridge FC v Eastport: Höjdpunkter') & MATCH_FLAGS.highlights).toBeTruthy();
+    expect(flagsOf('Northbridge FC v Eastport - Resumen') & MATCH_FLAGS.highlights).toBeTruthy();
+    expect(flagsOf('Northbridge FC v Eastport', { subTitle: 'Extended highlights' }) & MATCH_FLAGS.highlights).toBeTruthy();
+    expect(flagsOf('Northbridge v Eastport: Build-up') & MATCH_FLAGS.studio).toBeTruthy();
+    expect(flagsOf('LIVE: Matchday Studio') & MATCH_FLAGS.studio).toBeTruthy();
+  });
+  test('a desc never sets studio or highlights (a live match desc may mention the build-up)', () => {
+    expect(flagsOf('Northbridge FC v Eastport', undefined, 'Live, with build-up, analysis and all the goals.')).toBe(0);
+  });
+  test('live marker and weak separator bits', () => {
+    expect(flagsOf('LIVE: Northbridge FC v Eastport') & MATCH_FLAGS.live).toBeTruthy();
+    expect(flagsOf('Northbridge FC - Eastport') & MATCH_FLAGS.weakSep).toBeTruthy();
+    expect(flagsOf('Northbridge FC v Eastport') & MATCH_FLAGS.weakSep).toBe(0);
+  });
+  test('detection keeps the competition: prefix, then sub-title, then a non-generic category', () => {
+    expect(scoreProgramme(p('Northern Cup: Northbridge FC v Eastport'), { categories: ['Football'] }).comp).toBe('Northern Cup');
+    expect(scoreProgramme(p('Lakeshore v Pinecrest'), { categories: ['Sports'], subTitle: 'Test Cup: Round 3' }).comp).toBe('Test Cup');
+    expect(scoreProgramme(p('Lakeshore v Pinecrest'), { categories: ['Sports', 'Northern League'] }).comp).toBe('Northern League');
+    expect(scoreProgramme(p('Lakeshore v Pinecrest'), { categories: ['Sports', 'Football', 'Live', '0x43'] }).comp).toBeUndefined();
+    expect(scoreProgramme(p('Lakeshore v Pinecrest'), { categories: ['Sports'], subTitle: 'Round 3' }).comp).toBeUndefined();
+  });
+  test('sport signal and separator strength are reported', () => {
+    expect(scoreProgramme(p('Lakeshore v Pinecrest'), { categories: ['Fotboll'] })).toMatchObject({ sportCat: true, strong: true });
+    expect(scoreProgramme(p('Lakeshore - Pinecrest'), { live: true })).toMatchObject({ sportCat: false, strong: false });
   });
 });
