@@ -7,6 +7,8 @@ export const STRIP_W = 940;
 /** Title, meta and two plot lines end here (rows start below 230). */
 export const STRIP_H = 176;
 const META_Y = 66;
+/** Title and meta only (no plot): where the strip's text ends (Start, which never shows a plot). */
+export const STRIP_TEXT_H = META_Y + 30;
 const PLOT_Y = 106;
 const PLOT_LINE_H = 36;
 

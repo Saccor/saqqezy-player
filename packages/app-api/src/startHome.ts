@@ -64,6 +64,14 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
   const fromCache = (id: StartRowId) => cached?.rows.find((r) => r.id === id);
   const rows: (StartRow | undefined)[] = [];
 
+  const sports: StartCell[] = p.sports.slice(0, START_CAPS.sports).map((event) => ({ type: 'event', event }));
+  const sportsTotal = Math.max(p.sportsTotal ?? 0, p.sports.length);
+  if (sportsTotal > sports.length || p.sportsFiltered) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
+  const sportsRow = row('sports', sports, p.sportsFiltered ? START_SPORTS_FILTERED_TITLE : undefined);
+  // Matches on top while there are any (owner feedback 2026-10-20); a filtered row with only View all keeps its place.
+  const matchesFirst = p.sports.length > 0;
+  if (matchesFirst) rows.push(sportsRow);
+
   rows.push(continueRow(p, at, fromCache('continue')));
   rows.push(row('live', onNowCells(p)));
 
@@ -71,10 +79,7 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
   const trendSeries = p.trendingSeries === undefined ? fromCache('trendingSeries') : trendRow('trendingSeries', p.trendingSeries, at);
   rows.push(trendMovies, trendSeries);
 
-  const sports: StartCell[] = p.sports.slice(0, START_CAPS.sports).map((event) => ({ type: 'event', event }));
-  const sportsTotal = Math.max(p.sportsTotal ?? 0, p.sports.length);
-  if (sportsTotal > sports.length || p.sportsFiltered) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
-  rows.push(row('sports', sports, p.sportsFiltered ? START_SPORTS_FILTERED_TITLE : undefined));
+  if (!matchesFirst) rows.push(sportsRow);
 
   rows.push(newRow(p, fromCache('newLibrary')));
 

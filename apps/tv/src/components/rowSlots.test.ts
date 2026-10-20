@@ -31,4 +31,13 @@ describe('rowSlots', () => {
     expect(slots([2000], 0, 'whole', 978)).toEqual([[0, 290]]);
     expect(slots([], 0, 'peek')).toEqual([]);
   });
+
+  test("Start's compact frame (rows from 184, gap 28): matches, on now, two poster rows show at 1080p", () => {
+    const start = { top: 184, gap: 28, bottom: 1080, peek: 62 };
+    const C = 42 + 100; // label + compact tile
+    const Q = 42 + 280; // label + poster
+    expect(rowSlots([C, C, Q, Q, Q], 0, start, 'peek').map((s) => [s.index, s.y])).toEqual([[0, 184], [1, 354], [2, 524], [3, 874]]);
+    // Pointer mode keeps the bottom button row (y 978) free: whole rows only.
+    expect(rowSlots([C, C, Q, Q, Q], 0, { ...start, bottom: 978 }, 'whole').map((s) => s.index)).toEqual([0, 1, 2]);
+  });
 });
