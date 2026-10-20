@@ -400,3 +400,20 @@ describe('showcase mode', () => {
     }
   });
 });
+
+describe('deadLive: a live stream variant that never plays (failover testing)', () => {
+  test('streams whose name ends with the suffix answer 404; the others still redirect', async () => {
+    const dead = await startFakeXtream({ port: 0, channels: 8, versions: true, deadLive: ' 4K', now: () => NOW });
+    try {
+      const list = await (await fetch(`${dead.url}/player_api.php?username=test&password=test&action=get_live_streams`)).json() as
+        { stream_id: number; name: string }[];
+      const k4 = list.find((c) => c.name.endsWith(' 4K'))!;
+      const hd = list.find((c) => c.name.endsWith(' HD'))!;
+      const get = (id: number) => fetch(`${dead.url}/live/test/test/${id}.ts`, { redirect: 'manual' });
+      expect((await get(k4.stream_id)).status).toBe(404);
+      expect((await get(hd.stream_id)).status).toBe(302);
+    } finally {
+      await dead.close();
+    }
+  });
+});

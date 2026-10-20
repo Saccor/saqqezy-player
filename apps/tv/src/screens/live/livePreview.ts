@@ -8,7 +8,18 @@ import { api } from '../../api.ts';
 import { retrySource } from '../../playback/cooldown.ts';
 import { devResume } from '../../playback/devResume.ts';
 import { playback } from '../../playback/playback.ts';
+import { rowIdOf } from '../../playback/sourceLogic.ts';
 import { router } from '../../shell/router.ts';
+
+/**
+ * The playable for row (or stream) `id`: the stream on screen exactly when `id` is its row, so a return from the Player or
+ * OK on the playing row never swaps a combined channel's stream; else (and after a failure) the row's best stream.
+ */
+function playableFor(id: string) {
+  const cur = playback.current();
+  const keep = cur && (cur.id === id || rowIdOf(cur) === id) && playback.status()?.kind !== 'failed';
+  return keep ? api.getPlayable(cur.id, { exact: true }) : api.getPlayable(id);
+}
 
 export function createLivePreview(alive: () => boolean) {
   // The channel an OK (or the startup resume) is fetching right now: its getPlayable has not answered yet.
@@ -28,7 +39,7 @@ export function createLivePreview(alive: () => boolean) {
     const token = playback.begin();
     setRequested(id);
     try {
-      const ch = await api.getPlayable(id);
+      const ch = await playableFor(id);
       if (alive() && ch && playback.isLatest(token)) playback.playChannel(ch);
     } catch (err) {
       console.warn('Preview failed', err instanceof Error ? err.name : 'Error');
@@ -40,7 +51,7 @@ export function createLivePreview(alive: () => boolean) {
   /** OK on a channel that is not playing: it plays in the mini window, and counts as watched in group `g`. */
   const playHere = (id: string, g: string) => {
     void playById(id).then(() => {
-      if (alive() && playback.current()?.id === id) void api.markWatched(id, g).catch(() => undefined);
+      if (alive() && playback.currentRowId() === id) void api.markWatched(id, g).catch(() => undefined);
     });
   };
 
@@ -76,7 +87,7 @@ export function createLivePreview(alive: () => boolean) {
     setRequested(undefined);
     void (async () => {
       try {
-        const ch = await api.getPlayable(id);
+        const ch = await playableFor(id);
         if (!alive() || !ch || !playback.isLatest(token)) return;
         // Same channel: the stream keeps running and only the rect changes (no reconnect).
         playback.playChannel(ch);
@@ -105,7 +116,28 @@ export function createLivePreview(alive: () => boolean) {
     await retrySource(ch);
   };
 
-  return { requested, pausedNote, playById, playHere, resumeLast, stopPreview, openFullscreen, retryHere };
+  /**
+   * Choose source: `sourceId` plays first for row `rowId` from now on, and plays in the preview now (a new tune). Counts
+   * as watched in group `g`.
+   */
+  const playSource = async (rowId: string, sourceId: string, g: string | undefined) => {
+    userPlayed();
+    const token = playback.begin();
+    setRequested(rowId);
+    try {
+      await api.pickLiveSource(rowId, sourceId).catch(() => undefined);
+      const ch = await api.getPlayable(sourceId, { exact: true });
+      if (!alive() || !ch || !playback.isLatest(token)) return;
+      playback.playChannel(ch);
+      if (g !== undefined) void api.markWatched(rowId, g).catch(() => undefined);
+    } catch (err) {
+      console.warn('Choose source failed', err instanceof Error ? err.name : 'Error');
+    } finally {
+      if (requested() === rowId) setRequested(undefined);
+    }
+  };
+
+  return { requested, pausedNote, playById, playHere, resumeLast, stopPreview, openFullscreen, retryHere, playSource };
 }
 
 export type LivePreview = ReturnType<typeof createLivePreview>;

@@ -28,6 +28,13 @@ describe('buildChannelMenu', () => {
       .toEqual(['Add to favourites', 'Add to list…', 'Hide channel', 'Rename…', 'Cancel']);
   });
 
+  it('a combined channel offers "Choose source…" after "Add to list…"', () => {
+    const m = buildChannelMenu({ ...base, sources: 3 });
+    expect(actions(m)).toEqual(['toggleFavourite', 'addToList', 'chooseSource', 'hide', 'rename', 'cancel']);
+    expect(m[2]!.label).toBe('Choose source…');
+    expect(actions(buildChannelMenu({ ...base, sources: 1 }))).not.toContain('chooseSource');
+  });
+
   it('a favourite offers "Remove from favourites" as the first item', () => {
     const m = buildChannelMenu({ ...base, isFavourite: true });
     expect(m[0]).toEqual({ action: 'toggleFavourite', label: 'Remove from favourites' });

@@ -3,6 +3,7 @@ import type { ChannelRow } from '@iptv/app-api';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
 import { NO_INFO, isOnAir, type Block } from '../guideLogic.ts';
 import { progressOf } from '../homeLogic.ts';
+import { sourcesLine } from '../../playback/sourceLogic.ts';
 import { INFO_TRACK, INFO_W, INFO_X, infoTimeLine, timeLeftLabel } from './liveLogic.ts';
 
 const TITLE_Y = 36;
@@ -14,7 +15,8 @@ const DESC_LINES_EXPANDED = 3;
 const TRACK_H = 4;
 
 /**
- * The focused programme, right of the mini video: "{number} · {channel}", the title, the time range (with the day
+ * The focused programme, right of the mini video: "{number} · {channel}" (plus "4K · 3 sources" for a combined
+ * channel), the title, the time range (with the day
  * when it is not today, `infoTimeLine`; progress and time left while it is on air) and the description (2 lines, 3
  * when `expanded`). With no block it shows the
  * channel's `now` when the row carries one, else the guide's "No information" with no time line. The screen feeds
@@ -30,7 +32,9 @@ export function LiveInfo(props: { block?: Block; channel?: ChannelRow; now: numb
   };
   const channelLine = () => {
     const c = props.channel;
-    return c ? `${c.number} · ${c.name}` : '';
+    if (!c) return '';
+    const sources = sourcesLine(c.quality, c.sourceCount);
+    return sources ? `${c.number} · ${c.name} · ${sources}` : `${c.number} · ${c.name}`;
   };
   const onAir = () => {
     const p = prog();

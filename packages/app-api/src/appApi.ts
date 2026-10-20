@@ -2298,12 +2298,19 @@ export class AppApi {
   /** Rows without now/next (the Guide draws its own programmes): no storage read at all. */
   private liteRows(channels: Channel[]): ChannelRow[] {
     const favs = this.favourites();
-    return channels.map((c) => {
-      const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id) };
-      if (c.logo) row.logo = c.logo;
-      if (c.cu) row.archiveDays = c.cu.days;
-      return row;
-    });
+    return channels.map((c) => this.baseRow(c, favs));
+  }
+
+  /** A row without now/next: a combined channel carries its stream count and best quality, and is a favourite when any stream is. */
+  private baseRow(c: Channel, favs: ReadonlySet<string>): ChannelRow {
+    const favourite = favs.has(c.id) || (c.quality !== undefined && this.index.memberIds(c.id).some((m) => favs.has(m)));
+    const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite };
+    if (c.logo) row.logo = c.logo;
+    if (c.cu) row.archiveDays = c.cu.days;
+    if (c.sources !== undefined) row.sourceCount = c.sources;
+    const q = c.quality === undefined ? '' : QUALITY_LABELS[c.quality] ?? '';
+    if (q) row.quality = q;
+    return row;
   }
 
   /** Rows with now/next from the stored guide and cached short-EPG answers. Never starts a short-EPG lookup. */
@@ -2313,14 +2320,7 @@ export class AppApi {
     const favs = this.favourites();
     return channels.map((c) => {
       const pair = nn.get(c.id);
-      // A combined channel is a favourite when any of its streams is.
-      const favourite = favs.has(c.id) || (c.quality !== undefined && this.index.memberIds(c.id).some((m) => favs.has(m)));
-      const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite };
-      if (c.logo) row.logo = c.logo;
-      if (c.cu) row.archiveDays = c.cu.days;
-      if (c.sources !== undefined) row.sourceCount = c.sources;
-      const q = c.quality === undefined ? '' : QUALITY_LABELS[c.quality] ?? '';
-      if (q) row.quality = q;
+      const row = this.baseRow(c, favs);
       if (pair?.now) row.now = toLite(pair.now);
       if (pair?.next) row.next = toLite(pair.next);
       return row;

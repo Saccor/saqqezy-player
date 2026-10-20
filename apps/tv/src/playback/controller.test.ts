@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Rect, SupervisorStatus } from '@iptv/player';
-import type { VodPlayable } from '@iptv/app-api';
+import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
 import { createPlaybackController, type CooldownStream, type PlaybackController } from './controller.ts';
 
 function fakes() {
@@ -725,5 +725,137 @@ describe('background', () => {
     ctl.suspendForBackground();
     ctl.resumeFromBackground({ networkUp: true });
     expect(f.supervisor.play.mock.calls.at(-1)?.[2]).toMatchObject({ vod: true, startMs: 42_000, automatic: true });
+  });
+});
+
+describe('playback controller – failover between the streams of a combined channel', () => {
+  const src = (id: string, blocked = false) => ({ id, label: id, bad: blocked, blocked });
+  const row = (id: string, ids: string[], extra: Partial<PlayableChannel> = {}): PlayableChannel =>
+    ({ ...ch(id), rowId: 'row', name: 'Channel One', sources: ids.map((x) => src(x)), ...extra });
+  function setup(blockedIds: string[] = []) {
+    const f = fakes();
+    const fetched: string[] = [];
+    const failed: string[] = [];
+    const switched: string[] = [];
+    let answer: (id: string) => PlayableChannel | undefined = (id) => row(id, [id]);
+    const deps = {
+      fetch: vi.fn(async (id: string) => { fetched.push(id); return answer(id); }),
+      failed: (id: string) => { failed.push(id); },
+      switched: (c: PlayableChannel) => { switched.push(c.id); },
+    };
+    const gate = {
+      blocked: (s: CooldownStream) => blockedIds.some((b) => s.url.includes(`/${b}.ts`)),
+      refused: vi.fn(), answered: vi.fn(), current: vi.fn(),
+    };
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', gate, undefined, deps);
+    return { f, pb, gate, fetched, failed, switched, setAnswer: (fn: typeof answer) => { answer = fn; } };
+  }
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it('an unavailable stream fails over to the next source, as an automatic open', async () => {
+    const { f, pb, fetched, failed, switched } = setup();
+    pb.playChannel(row('a', ['a', 'b', 'c']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    // No error shows while the next source starts.
+    expect(pb.status()).toEqual({ kind: 'loading' });
+    await flush();
+    expect(failed).toEqual(['a']);
+    expect(fetched).toEqual(['b']);
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('b').url, ch('b').alternateUrl, { sourceKey: 'src-1', channel: 'Channel One', automatic: true });
+    expect(pb.current()?.id).toBe('b');
+    expect(pb.current()?.sources?.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+    expect(switched).toEqual(['b']);
+  });
+
+  it('the row stays the same across a failover', async () => {
+    const { f, pb } = setup();
+    pb.playChannel(row('a', ['a', 'b']));
+    expect(pb.currentRowId()).toBe('row');
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(pb.current()?.id).toBe('b');
+    expect(pb.currentRowId()).toBe('row');
+    pb.playChannel(ch('z'));
+    expect(pb.currentRowId()).toBe('z');
+    pb.stop();
+    expect(pb.currentRowId()).toBeUndefined();
+  });
+
+  it('a gone stream fails over too; a refused one never does', async () => {
+    const one = setup();
+    one.pb.playChannel(row('a', ['a', 'b']));
+    one.f.emit({ kind: 'failed', reason: 'gone' });
+    await flush();
+    expect(one.fetched).toEqual(['b']);
+    const two = setup();
+    two.pb.playChannel(row('a', ['a', 'b']));
+    two.f.emit({ kind: 'failed', reason: 'refused' });
+    await flush();
+    expect(two.fetched).toEqual([]);
+    expect(two.pb.status()).toEqual({ kind: 'failed', reason: 'refused' });
+    expect(two.gate.refused).toHaveBeenCalledTimes(1);
+  });
+
+  it('at most two failovers per tune; a new tune starts again', async () => {
+    const { f, pb, fetched } = setup();
+    pb.playChannel(row('a', ['a', 'b', 'c', 'd']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(fetched).toEqual(['b', 'c']);
+    expect(pb.status()).toEqual({ kind: 'failed', reason: 'unavailable' });
+    pb.playChannel(row('a', ['a', 'b', 'c', 'd']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(fetched).toEqual(['b', 'c', 'b']);
+  });
+
+  it('skips blocked sources and does nothing for a single stream', async () => {
+    const { f, pb, fetched } = setup();
+    pb.playChannel({ ...row('a', []), sources: [src('a'), src('b', true), src('c')] });
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(fetched).toEqual(['c']);
+    pb.playChannel(ch('z'));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(fetched).toEqual(['c']);
+  });
+
+  it('a next stream whose host waits is held, not opened', async () => {
+    const { f, pb, gate } = setup(['b']);
+    pb.playChannel(row('a', ['a', 'b']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(f.supervisor.play).toHaveBeenCalledTimes(1);
+    expect(pb.current()?.id).toBe('b');
+    expect(gate.current).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'b' }));
+  });
+
+  it('a stream the worker no longer has ends the failover with the failure', async () => {
+    const { f, pb, setAnswer } = setup();
+    setAnswer(() => undefined);
+    pb.playChannel(row('a', ['a', 'b']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(pb.status()).toEqual({ kind: 'failed', reason: 'unavailable' });
+    expect(pb.current()?.id).toBe('a');
+  });
+
+  it('a newer play wins over a failover in flight; VOD never fails over', async () => {
+    const { f, pb, fetched } = setup();
+    pb.playChannel(row('a', ['a', 'b']));
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    pb.playChannel(ch('other'));
+    await flush();
+    expect(pb.current()?.id).toBe('other');
+    expect(f.supervisor.play).toHaveBeenCalledTimes(2);
+    pb.playVod({ kind: 'movie', itemId: 'm1', url: 'http://example.test/movie/1.mp4', title: 'T', resumeMs: 0, tracks: {} }, 0);
+    f.emit({ kind: 'failed', reason: 'unavailable' });
+    await flush();
+    expect(fetched).toEqual(['b']);
   });
 });

@@ -4,6 +4,7 @@ import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
+import { badgeWidth, cellBadge } from '../playback/sourceLogic.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { iconTexture } from '../vod/icons.ts';
@@ -46,6 +47,8 @@ const LOGO = 40;
 const LOGO_X = 8 + NUM_W + 12;
 const NAME_X = LOGO_X + LOGO + 12;
 const NAME_W = CHANNEL_W - BLOCK_GAP - NAME_X - 12;
+/** Between the name and a combined channel's badge. */
+const BADGE_GAP = 8;
 /** The archive glyph (catch-up marks): drawn before a past block's title, at the end of an on-air one. */
 const MARK = 20;
 /** Text sits a little above the exact middle so the glyphs look centred. */
@@ -193,6 +196,10 @@ export function EpgGrid(props: {
           const ch = () => props.channel(i);
           const isRow = () => i === props.focusRow;
           const chLit = () => isRow() && focused() && props.area === 'channels';
+          // A combined channel's badge ("4K", or "×3") at the cell's right end; the name takes what is left.
+          const badge = () => cellBadge(ch()?.quality, ch()?.sourceCount);
+          const badgeW = () => badgeWidth(badge());
+          const nameW = () => (badgeW() > 0 ? NAME_W - badgeW() - BADGE_GAP : NAME_W);
           const all = createMemo<Block[]>((prev) => reuse(prev, props.blocks(i)));
           const visible = createMemo(() => {
             const from = props.viewStart;
@@ -207,10 +214,15 @@ export function EpgGrid(props: {
                   fontSize={TYPE.meta} color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
                 <Logo url={ch()?.logo} name={ch()?.name} />
-                <Text x={NAME_X} y={TEXT_Y} width={NAME_W} maxWidth={NAME_W} contain="width" maxLines={1}
+                <Text x={NAME_X} y={TEXT_Y} width={nameW()} maxWidth={nameW()} contain="width" maxLines={1}
                   fontSize={TYPE.meta} color={chLit() ? COLORS.onFocus : COLORS.text}>
                   {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
+                <Show when={badgeW() > 0}>
+                  <Text x={NAME_X + NAME_W - badgeW()} y={TEXT_Y} width={badgeW()} maxWidth={badgeW()} contain="width"
+                    textAlign="right" maxLines={1} fontSize={TYPE.meta}
+                    color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{badge()}</Text>
+                </Show>
               </View>
               <View x={TL_X} width={TIMELINE_W} height={CELL_H}>
                 <For each={visible()}>{(b) => {

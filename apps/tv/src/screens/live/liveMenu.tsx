@@ -1,7 +1,7 @@
 /**
  * Live TV's one menu (Menu / long OK on the grid and the channel cell), ported from Home's channel menu runner
  * (openMenu / rebuildMenu / choose / applyOps, the list picker and the rename keyboard) plus the Guide's programme items
- * ("From the start", "Go to day…"). Back closes the layers top first: keyboard, picker, menu. Not unit-tested: the pure
+ * ("From the start", "Go to day…") and a combined channel's "Choose source…". Back closes the layers top first: keyboard, picker, menu. Not unit-tested: the pure
  * rules live in liveLogic.ts and homeMenuLogic.ts.
  */
 import { Show, View, type ElementNode, type JSX } from '@lightningtv/solid';
@@ -13,8 +13,10 @@ import { createChoiceMenu } from '../../components/choiceMenu.tsx';
 import { ContextMenu } from '../../components/ContextMenu.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { ListPicker } from '../../components/ListPicker.tsx';
-import { favChangedToast, CATCHUP_COPY } from '../../copy.ts';
+import { favChangedToast, CATCHUP_COPY, SOURCE_COPY } from '../../copy.ts';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
+import { playback } from '../../playback/playback.ts';
+import { sourceOptions } from '../../playback/sourceLogic.ts';
 import { router } from '../../shell/router.ts';
 import { COLORS, LAYOUT } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
@@ -27,6 +29,7 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const DAYS_ID = 'liveDays';
+const SOURCES_ID = 'liveSources';
 const FAV_LIST_ID = 'fav';
 
 /** The menu, opened on a channel; `inListId` is set while the user browses that list. */
@@ -52,6 +55,8 @@ export interface LiveMenuDeps {
   /** "Go to day…": the day targets, and what a pick does. */
   dayTargets: () => { label: string; at: number }[];
   goToDay: (at: number) => void;
+  /** "Choose source…": `sourceId` plays now for row `rowId`, and first from now on. */
+  playSource: (rowId: string, sourceId: string) => void;
 }
 
 export function createLiveMenu(d: LiveMenuDeps) {
@@ -66,6 +71,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
   let removeKeyboard: (() => void) | undefined;
 
   const days = createChoiceMenu(DAYS_ID, () => { if (d.alive()) d.refocus(); });
+  const sources = createChoiceMenu(SOURCES_ID, () => { if (d.alive()) d.refocus(); });
 
   /** Focuses the topmost open layer (a layer just opened has its node only after this tick), else the screen. */
   const focusTop = () => queueMicrotask(() => {
@@ -85,9 +91,12 @@ export function createLiveMenu(d: LiveMenuDeps) {
   const dismissPicker = () => { if (picker()) { removePicker?.(); closePicker(); } };
   const dismissMenu = () => { if (menu()) { removeMenu?.(); closeMenu(); } };
   // The day choice closes like Back: its pending choice answers undefined and focus returns to the screen.
-  const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); days.close({ answer: true }); };
+  const dismissAll = () => {
+    dismissKeyboard(); dismissPicker(); dismissMenu(); days.close({ answer: true }); sources.close({ answer: true });
+  };
 
-  const open = () => menu() !== undefined || picker() !== undefined || edit() !== undefined || days.isOpen();
+  const open = () => menu() !== undefined || picker() !== undefined || edit() !== undefined || days.isOpen()
+    || sources.isOpen();
 
   /** User lists as the groups show them (names and order), for the menu's "Remove from" label. */
   const listsFromGroups = (): ListLite[] => d.groups().flatMap((g) => {
@@ -97,7 +106,9 @@ export function createLiveMenu(d: LiveMenuDeps) {
 
   const itemsFor = (s: Omit<MenuState, 'items'>) => liveMenuItems({
     // The guide never shows hidden channels (they are hidden everywhere), so the menu always offers Hide.
-    channel: { inListId: s.inListId, isHidden: false, isFavourite: s.isFavourite, lists: listsFromGroups() },
+    channel: {
+      inListId: s.inListId, isHidden: false, isFavourite: s.isFavourite, lists: listsFromGroups(), sources: s.row.sourceCount,
+    },
     fromStart: s.fromStart !== undefined, goToDay: s.goToDay,
   });
 
@@ -179,6 +190,22 @@ export function createLiveMenu(d: LiveMenuDeps) {
     if (d.alive() && at !== undefined) d.goToDay(at);
   };
 
+  /** "Choose source…": the row's streams, best first; a pick plays it and remembers it. */
+  const chooseSource = async (row: ChannelRow) => {
+    let list;
+    try {
+      list = await api.liveSources(row.id);
+    } catch (err) {
+      console.warn('Load sources failed', err instanceof Error ? err.name : 'Error');
+      if (d.alive()) showToast(SOURCE_COPY.loadFailed);
+      return;
+    }
+    if (!d.alive() || list.length === 0 || open()) return;
+    const playing = playback.currentRowId() === row.id ? playback.current()?.id : undefined;
+    const pick = await sources.choose(`${SOURCE_COPY.choose} · ${row.name}`, sourceOptions(list, playing));
+    if (d.alive() && pick !== undefined) d.playSource(row.id, pick);
+  };
+
   const choose = async (action: LiveMenuAction) => {
     const m = menu();
     if (!m) return;
@@ -189,6 +216,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     dismissMenu();
     if (action === 'fromStart') { m.fromStart?.(); return; }
     if (action === 'goToDay') { await chooseDay(); return; }
+    if (action === 'chooseSource') { await chooseSource(r); return; }
     let ok = false;
     if (action === 'toggleFavourite') {
       const isFav = m.isFavourite;
@@ -247,10 +275,11 @@ export function createLiveMenu(d: LiveMenuDeps) {
     removePicker?.();
     removeMenu?.();
     days.close({ answer: true }); // settles the pending choice; its refocus and pick are no-ops once not alive
+    sources.close({ answer: true });
     for (const id of [KEYBOARD_ID, PICKER_ID, MENU_ID]) router.removeOverlay(id);
   };
 
-  /** The layers, over the rail (zIndex 50): menu 60, picker 64, keyboard 70, day choice 80. */
+  /** The layers, over the rail (zIndex 50): menu 60, picker 64, keyboard 70, day and source choices 80. */
   const LayersView = (): JSX.Element => {
     const pointerOn = () => edit() === undefined;
     return (
@@ -286,6 +315,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
           );
         }}</Show>
         <days.View />
+        <sources.View />
       </>
     );
   };

@@ -123,7 +123,7 @@ export async function locateFocus(o: {
 interface InfoProg { title: string; start: number; stop: number; desc?: string }
 /** What the info block shows: the focused channel and its focused block (none on the channel cell). */
 export interface InfoSource {
-  channel: { id: string; number: number; name: string; now?: InfoProg };
+  channel: { id: string; number: number; name: string; now?: InfoProg; sourceCount?: number; quality?: string };
   block?: InfoProg & { filler: boolean };
 }
 
@@ -137,6 +137,7 @@ export function sameInfo(a: InfoSource | undefined, b: InfoSource | undefined): 
   const ca = a.channel;
   const cb = b.channel;
   if (ca.id !== cb.id || ca.number !== cb.number || ca.name !== cb.name) return false;
+  if (ca.sourceCount !== cb.sourceCount || ca.quality !== cb.quality) return false;
   if ((a.block === undefined) !== (b.block === undefined)) return false;
   if (a.block && b.block) return a.block.filler === b.block.filler && sameProg(a.block, b.block);
   return sameProg(ca.now, cb.now);
@@ -146,7 +147,7 @@ export type LiveMenuAction = ChannelMenuAction | 'fromStart' | 'goToDay';
 
 /** One menu for Menu / long Ok: the programme's items first, then the channel's (spec phase 2 decisions). */
 export function liveMenuItems(o: {
-  channel: { inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[] };
+  channel: { inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[]; sources?: number };
   fromStart: boolean; goToDay: boolean;
 }): { action: LiveMenuAction; label: string }[] {
   return [

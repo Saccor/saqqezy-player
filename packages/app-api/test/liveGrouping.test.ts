@@ -93,6 +93,17 @@ describe('AppApi – combined live channels', () => {
     expect(all[1]!.quality).toBeUndefined();
   });
 
+  test('guide rows carry the badge fields and the folded favourite too', async () => {
+    const { api } = await setup();
+    const ids = await memberIds(api);
+    await api.applyLayoutOps([{ op: 'addToList', listId: 'fav', channelIds: [ids[2]!] }], 'remote');
+    const rows = (await api.getEpgRows('all', 0, 50, NOW, NOW + 3_600_000)).rows.map((r) => r.channel);
+    expect(rows[0]).toMatchObject({ name: 'Channel One', sourceCount: 4, quality: '4K', favourite: true });
+    expect(rows[1]!.sourceCount).toBeUndefined();
+    expect(rows[1]!.quality).toBeUndefined();
+    expect(rows[1]!.favourite).toBe(false);
+  });
+
   test('a row plays its best source and lists every source in order', async () => {
     const { api, all } = await setup();
     const ids = await memberIds(api);

@@ -375,7 +375,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       rememberGroup = true;
       openGroup(r.id, 0);
       const seq = groupSeq;
-      const playingId = playback.current()?.id;
+      const playingId = playback.currentRowId();
       if (playingId !== undefined) {
         void api.indexOf(r.id, playingId).catch(() => -1).then((i) => {
           if (alive && seq === groupSeq && i >= 0) setFocusRow(i);
@@ -412,7 +412,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       channelId: ch.id,
       onAir: b === undefined || isOnAir(b, Date.now()),
       archive: b === undefined ? 'none' : stateOf(ch, b),
-      playingId: playback.current()?.id,
+      playingId: playback.currentRowId(),
       requestedId: preview.requested(),
     });
     memory.channelId = ch.id;
@@ -489,6 +489,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       });
       if (groupCount() > 0) focusPlace('grid');
     },
+    playSource: (rowId, sourceId) => {
+      memory.channelId = rowId;
+      void preview.playSource(rowId, sourceId, groupId());
+    },
   });
 
   /**
@@ -542,7 +546,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     pageTime: (dir) => applyStep(pageTime(view(), dir, win())),
     ok,
     openMenu,
-    videoChannel: () => preview.requested() ?? playback.current()?.id,
+    videoChannel: () => preview.requested() ?? playback.currentRowId(),
     // The open group when the video shows the focused channel, else All (as on Home).
     openVideo: (id) => {
       const t = videoClickGroup(id, focusedId(), groupId());
@@ -624,7 +628,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     playback.setRect(LIVE_PREVIEW_RECT);
     void loadCatchupDays(); // in parallel with the groups: it only widens the window back in time
     // Back from Movies or Series: the channel they stopped counts as the playing one (focus and resume).
-    const playingId = playback.current()?.id
+    const playingId = playback.currentRowId()
       ?? vodReturnTarget({ fromVod, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused() });
     startResume(playingId);
 
@@ -783,7 +787,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
       <EpgGrid ref={(el) => { gridNode = el; }} x={EPG_GRID_X} y={GRID_Y} total={total()} top={top()} rows={viewRows()}
         focusRow={row()} focusStart={focusBlock()?.start} area={place() === 'channels' ? 'channels' : 'grid'}
-        viewStart={viewStart()} now={now()} playingId={playback.current()?.id}
+        viewStart={viewStart()} now={now()} playingId={playback.currentRowId()}
         channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...gridKeys}
         onCellClick={pointer.onCellClick} onCellContextMenu={pointer.onCellMenu} onPointerWheel={pointer.onWheel}
         pointerEnabled={pointerOn()} />

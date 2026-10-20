@@ -6,6 +6,8 @@ import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
 import { createVideoLayer } from '../video/videoLayer.ts';
+import { SOURCE_COPY } from '../copy.ts';
+import { showToast } from '../shell/Toast.tsx';
 import { createPlaybackController } from './controller.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
@@ -112,6 +114,12 @@ export const playback = createPlaybackController(
     current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
   },
   (what) => journal.add({ k: 'page', t: Date.now(), what }),
+  // A combined channel: its next stream takes over when one fails (never after a refusal; at most two per tune).
+  {
+    fetch: (id) => api.getPlayable(id, { exact: true }),
+    failed: (id) => { api.reportSourceFailed(id).catch(reportFailed); },
+    switched: () => showToast(SOURCE_COPY.switched),
+  },
 );
 
 // Engines that can suspend (AVPlay) get the multitasking path: live closes, VOD suspends (spec 3.1).
