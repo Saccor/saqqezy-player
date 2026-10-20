@@ -9,8 +9,10 @@ export {
 } from './vodController.ts';
 export { formatOf, type StreamFormat } from './streamFormat.ts';
 export { worseCooldown } from './cooldown.ts';
+export { CatchupController, REFINE_EVERY_MS } from './catchupController.ts';
 export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } from './rpc.ts';
 export type {
+  ArchiveState, CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, SportsEventTile, StartCell, StartHome, StartRow, StartRowId, TitleHit,
   EpisodeView, MovieView, OnlineSubtitleLanguage, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,

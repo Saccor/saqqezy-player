@@ -6,6 +6,7 @@ import {
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   type LoadedSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
 } from '@iptv/core';
+import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
 import { toRpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
@@ -16,6 +17,7 @@ import { SportsController, eventTiles } from './sportsController.ts';
 import { assembleStartHome, type StartParts } from './startHome.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
+  CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
   OnlineSubtitleLanguage, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
@@ -144,6 +146,7 @@ export class AppApi {
   private readonly subtitles: SubtitleService | undefined;
   private readonly onlineSubtitles: OpenSubtitlesClient | undefined;
   private readonly fileHash: ((url: string) => Promise<string | undefined>) | undefined;
+  private readonly catchup: CatchupController;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -176,6 +179,11 @@ export class AppApi {
       })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
+    this.catchup = new CatchupController({
+      service: this.service, now: this.now,
+      onRefined: (channelId) => this.emit({ type: 'archiveRefined', channelId }),
+      note: (message) => this.note('catchup', message),
+    });
   }
 
   // ---- lifecycle & sources ----
@@ -428,14 +436,55 @@ export class AppApi {
         total: this.index.groupSize(groupId),
         rows: channels.map((c, i) => {
           const hours = shifts[i]!;
-          const programmes = (byChannel.get(c.id) ?? [])
+          let programmes = (byChannel.get(c.id) ?? [])
             .map((p) => applyShift(p, hours))
             .filter((p) => p.stop > from && p.start < to)
             .sort((a, b) => a.start - b.start)
             .map(toLite);
+          if (id && c.catchup) programmes = this.catchup.decorate(id, c.id, programmes, hours, from, to);
           return { channel: rows[i]!, programmes };
         }),
       };
+    });
+  }
+
+  /**
+   * The archive URL of the programme of `channelId` that starts at `start` (displayed time), from `offsetMs` into it
+   * (spec 2026-10-20-catch-up §3.4). Anything but a past archived programme or the current one answers `notAvailable`.
+   */
+  getCatchupPlayable(channelId: string, start: number, offsetMs = 0): Promise<CatchupPlayable | CatchupNotAvailable> {
+    return this.run('getCatchupPlayable', async () => {
+      const ctx = await this.catchupContext(channelId);
+      if (!ctx) return { notAvailable: 'none' };
+      const prog = (await this.programmeAt(ctx, start)) ?? this.catchup.refinedProgramme(ctx, start);
+      if (!prog) return { notAvailable: 'none' };
+      const state = this.catchup.state(ctx, prog);
+      if (!playableState(state)) return { notAvailable: state };
+      const built = await this.catchup.build(ctx, prog, offsetMs);
+      if (!built) return { notAvailable: 'none' };
+      const out: CatchupPlayable = {
+        kind: 'catchup', channelId, channelName: this.index.get(channelId)?.name ?? ctx.channel.name, title: prog.title,
+        start: prog.start, stop: prog.stop, openedAtMs: built.openStart - prog.start, url: built.url, stepMs: built.stepMs,
+      };
+      if (built.alternateUrl) out.alternateUrl = built.alternateUrl;
+      const headers = mergeHeaders(this.sourceHeaders, ctx.channel.headers);
+      if (headers) out.headers = headers;
+      const next = (await this.programmeAt(ctx, prog.stop)) ?? this.catchup.refinedAfter(ctx, prog.stop);
+      if (next && this.catchup.state(ctx, next) === 'available') out.next = { start: next.start, stop: next.stop, title: next.title };
+      await this.addStreamCooldown(out);
+      return out;
+    });
+  }
+
+  /**
+   * Xtream: the source's own archive listings for the focused Guide row (one request per channel per 30 min, one in
+   * flight, spaced by the short-EPG slot). Emits `archiveRefined` when they arrive. A no-op for other sources.
+   */
+  refineArchive(channelId: string): Promise<void> {
+    return this.run('refineArchive', async () => {
+      if (this.sourceKind !== 'xtream') return;
+      const ctx = await this.catchupContext(channelId);
+      if (ctx) await this.catchup.refine(ctx);
     });
   }
 
@@ -943,7 +992,7 @@ export class AppApi {
   diagnostics(): Promise<DiagnosticsInfo> {
     return this.run('diagnostics', async () => {
       const sources = await Promise.all((await this.service.listSources()).map(async (s) => {
-        const stats = await this.storage.getMeta<{ channelCount?: number; skipped?: number }>(`parseStats:${s.id}`);
+        const stats = await this.storage.getMeta<{ channelCount?: number; skipped?: number; catchupChannels?: number; catchupUnsupported?: number }>(`parseStats:${s.id}`);
         return {
           id: s.id,
           name: s.name,
@@ -952,6 +1001,7 @@ export class AppApi {
           skipped: stats?.skipped ?? 0,
           playlistAt: (await this.storage.getMeta<number>(`playlistAt:${s.id}`)) ?? 0,
           epgAt: (await this.storage.getMeta<number>(`epgAt:${s.id}`)) ?? 0,
+          ...catchupDiagnostics(s, stats),
         };
       }));
       return {
@@ -1072,6 +1122,7 @@ export class AppApi {
       this.sourceKind = source?.kind;
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
+      this.catchup.reset();
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
@@ -1082,6 +1133,7 @@ export class AppApi {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
       const [channels, coverage] = await Promise.all([this.storage.getChannels(id), this.service.loadEpgCoverage(id)]);
+      this.catchup.reset();
       this.setIndex(channels, this.index.layout(), coverage);
       this.invalidateNowNext();
     });
@@ -1637,12 +1689,32 @@ export class AppApi {
     this.shortJobs.add(job);
   }
 
+  /** The active source's catch-up context for `channelId` (undefined without catch-up). */
+  private async catchupContext(channelId: string): Promise<CatchupContext | undefined> {
+    const id = this.activeId;
+    const shown = this.index.get(channelId);
+    if (!id || !shown?.catchup) return undefined;
+    const [channel] = this.originals([shown]);
+    const source = (await this.service.listSources()).find((s) => s.id === id);
+    if (!source || !channel) return undefined;
+    const settings = await this.currentSettings();
+    return { sourceId: id, source, channel, shiftHours: settings.epgOffsetHours + (channel.epgShift ?? 0) };
+  }
+
+  /** The stored programme of the context's channel that starts at `start` (displayed). */
+  private async programmeAt(ctx: CatchupContext, start: number): Promise<Programme | undefined> {
+    const stored = start - ctx.shiftHours * HOUR;
+    const found = await this.service.programmesFor(ctx.sourceId, [ctx.channel], stored - 60_000, stored + 60_000);
+    return (found.get(ctx.channel.id) ?? []).map((p) => applyShift(p, ctx.shiftHours)).find((p) => Math.abs(p.start - start) < 60_000);
+  }
+
   /** Rows without now/next (the Guide draws its own programmes): no storage read at all. */
   private liteRows(channels: Channel[]): ChannelRow[] {
     const favs = this.favourites();
     return channels.map((c) => {
       const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id) };
       if (c.logo) row.logo = c.logo;
+      if (c.catchup) row.archiveDays = c.catchup.days;
       return row;
     });
   }
@@ -1658,6 +1730,7 @@ export class AppApi {
         id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id),
       };
       if (c.logo) row.logo = c.logo;
+      if (c.catchup) row.archiveDays = c.catchup.days;
       if (pair?.now) row.now = toLite(pair.now);
       if (pair?.next) row.next = toLite(pair.next);
       return row;
@@ -1732,6 +1805,15 @@ export class AppApi {
   }
 }
 
+/** Diagnostics fields for a source's catch-up: counts from the last ingest and how times are written. */
+function catchupDiagnostics(s: SourceConfig, stats: { catchupChannels?: number; catchupUnsupported?: number } | undefined) {
+  const out: { catchupChannels?: number; catchupUnsupported?: number; catchupTime?: string } = {};
+  if (stats?.catchupChannels) out.catchupChannels = stats.catchupChannels;
+  if (stats?.catchupUnsupported) out.catchupUnsupported = stats.catchupUnsupported;
+  if (out.catchupChannels || out.catchupUnsupported) out.catchupTime = CatchupController.zoneText(s);
+  return out;
+}
+
 function listGroupId(listId: string): string {
   return listId === FAV_LIST_ID ? GROUP_FAV : `list:${listId}`;
 }
@@ -1770,7 +1852,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached',
+  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
