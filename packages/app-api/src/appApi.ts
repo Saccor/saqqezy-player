@@ -1128,6 +1128,7 @@ export class AppApi {
     }
     await this.vodc?.idle();
     await this.trending?.idle();
+    await this.service.syncClock.idle();
   }
 
   // ---- internals ----

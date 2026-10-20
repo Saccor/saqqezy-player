@@ -81,11 +81,23 @@ describe('SourceService – m3u', () => {
     const first = loaded.slice('all', 0, 1)[0]!;
     const res = applyOps(loaded.layout(), [{ op: 'hideChannels', ids: [first.id] }, { op: 'markWatched', id: first.id }]);
     await service.saveLayout(source.id, res.layout, res.touched);
+    await service.syncClock.idle(); // stamps are stored after the layout write
     const clocks = await service.syncClock.clocks(source.id);
     expect([...clocks.keys()]).toEqual([`hc:${first.id}`]);
     const zap = applyOps(res.layout, [{ op: 'markWatched', id: 'other' }]);
     await service.saveLayout(source.id, zap.layout, zap.touched);
+    await service.syncClock.idle();
     expect((await service.syncClock.clocks(source.id)).size).toBe(1);
+  });
+
+  test('deleting a source drops stamps that were still queued for it', async () => {
+    const { source } = await service.addSource(m3uInput);
+    const loaded = await service.loadIndex(source.id);
+    const res = applyOps(loaded.layout(), [{ op: 'setHideNoEpg', value: true }]);
+    await service.saveLayout(source.id, res.layout, res.touched);
+    await service.deleteSource(source.id);
+    await service.syncClock.idle();
+    expect(await storage.listSyncMeta(source.id)).toEqual([]);
   });
 
   test('saveLayout for a removed source stamps nothing', async () => {

@@ -67,6 +67,59 @@ describe('SyncClock', () => {
     expect([...(await clock.clocks('s1'))]).toEqual([['vp:s1:m1', t]]);
   });
 
+  test('stamps queued behind a running write go out as one storage write, in call order', async () => {
+    const storage = new MemoryStorage();
+    const put = storage.putSyncMeta.bind(storage);
+    const writes: number[] = [];
+    let release: () => void = () => {};
+    let held = false;
+    storage.putSyncMeta = async (e) => {
+      writes.push(e.length);
+      if (held) {
+        held = false;
+        await new Promise<void>((r) => { release = r; });
+      }
+      return put(e);
+    };
+    const clock = new SyncClock({ storage, now: () => T, nodeId: () => 'node01' });
+    await clock.stamp('s0', ['vf:a']); // loads the clock (node write) and stores one stamp
+    held = true;
+    writes.length = 0;
+    const first = clock.stamp('s1', ['hc:x0']);
+    await new Promise((r) => setTimeout(r, 0));
+    const rest = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => clock.stamp('s1', [`hc:x${i}`, 'hc:same']));
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    const stamps = [await first, ...(await Promise.all(rest))];
+    expect(writes).toHaveLength(2);
+    expect(new Set(stamps).size).toBe(11);
+    expect([...stamps].sort()).toEqual(stamps);
+    // The key written by every queued write holds the newest stamp.
+    expect(await storage.getSyncMeta('s1', 'hc:same')).toBe(stamps[10]);
+    expect(await storage.getSyncMeta(CLOCK_SCOPE, 'last')).toBe(stamps[10]);
+  });
+
+  test('idle() waits until every queued stamp is stored', async () => {
+    const storage = new MemoryStorage();
+    const clock = new SyncClock({ storage, now: () => T, nodeId: () => 'node01' });
+    void clock.stamp('s1', ['vf:m1']);
+    void clock.stamp('s1', ['vf:m2']);
+    await clock.idle();
+    expect((await storage.listSyncMeta('s1')).length).toBe(2);
+  });
+
+  test('adopt() stores given stamps as they are and moves the clock past the newest', async () => {
+    const storage = new MemoryStorage();
+    const clock = new SyncClock({ storage, now: () => T, nodeId: () => 'node01' });
+    const remote = encodeHlc({ wall: T + 5000, counter: 3, node: 'remote' });
+    const older = encodeHlc({ wall: T - 5000, counter: 0, node: 'remote' });
+    await clock.adopt('s1', [{ key: 'hc:x1', t: remote }, { key: 'hc:x2', t: older }]);
+    expect(await storage.getSyncMeta('s1', 'hc:x1')).toBe(remote);
+    expect(await storage.getSyncMeta('s1', 'hc:x2')).toBe(older);
+    const next = await clock.stamp('s1', ['hc:x3']);
+    expect(compareHlc(next, remote)).toBeGreaterThan(0);
+  });
+
   test('a storage failure rejects the stamp but the next one works', async () => {
     const storage = new MemoryStorage();
     let fail = true;

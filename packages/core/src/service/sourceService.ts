@@ -245,6 +245,10 @@ export class SourceService {
         for (const key of [`layout:${id}`, `flags:${id}`]) {
           if ((await this.storage.getMeta<unknown>(key)) != null) await this.storage.setMeta(key, null);
         }
+        // Stamps of an earlier layout write are stored after it returned: wait for them, then drop what they left.
+        await this.syncClock.idle();
+        const left = await this.storage.listSyncMeta(id);
+        if (left.length) await this.storage.deleteSyncMeta(id, left.map((e) => e.key));
       });
       if ((await this.getActiveSourceId()) === id) {
         const [next] = await this.storage.listSources();
@@ -378,11 +382,19 @@ export class SourceService {
   /**
    * The write of `saveLayout`; the caller holds the `layout:<id>` lock. `touched` (`applyOps(...).touched`) is
    * stamped on the sync clock after the layout is stored; a migration or a zap (`markWatched`) passes none.
+   *
+   * The stamp is asked for inside the lock (so stamps follow the order of layout writes) but not awaited: a bulk
+   * edit (50k hidden channels) returns after the layout write, and the clock stores its stamps batched in the
+   * background (`syncClock.idle()` waits for them). A failed stamp write only costs that edit its sync stamp.
    */
   private async saveLayoutLocked(id: string, layout: Layout, touched: readonly string[] = []): Promise<void> {
     if (!(await this.sourceExists(id))) return;
     await this.storage.setMeta(`layout:${id}`, layout);
-    if (touched.length) await this.syncClock.stamp(id, touched);
+    if (touched.length) {
+      this.syncClock.stamp(id, touched).catch((err: unknown) => {
+        console.warn('Sync stamp write failed', err instanceof Error ? err.name : 'Error');
+      });
+    }
   }
 
   /** epgKeys with stored guide data, or undefined when no guide has been loaded (so a no-EPG filter is skipped). */
