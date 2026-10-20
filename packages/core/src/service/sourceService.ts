@@ -1,3 +1,4 @@
+import { EPG_BACK_MS } from '../constants.ts';
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
 import { epgLongestKey, lookBackFor, type EpgLongestRecord } from '../epg/lookBack.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
@@ -68,6 +69,13 @@ const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
 export const catchupTemplatesKey = (id: string) => `catchupTemplates:${id}`;
 /** Guide history kept for catch-up channels, at most (spec §5.1). */
 export const CATCHUP_GUIDE_DAYS = 7;
+/**
+ * The extra guide history a source may store, as hours per channel of the source (spec §8): the catch-up channels
+ * share it. With 6 h back and 48 h ahead (54 h per channel today), 30 h more per channel keeps the stored programme
+ * count under 1.6x today's whatever the share of catch-up channels: 10 % of them keep the full 7 days, while a source
+ * whose every channel has catch-up keeps 36 h of history (refined Xtream rows still fill older days on focus).
+ */
+export const CATCHUP_HISTORY_BUDGET_MS = 30 * 3600_000;
 /** Short-EPG requests in flight at once, across all sources (spec 2026-10-15-gentle-source §3.2). */
 const SHORT_EPG_CONCURRENCY = 1;
 /** Short-EPG lookups waiting for the slot; past this the oldest waiters are dropped (they resolve to nothing). */
@@ -852,13 +860,20 @@ function accountChanged(a: SourceConfig, b: SourceConfig): boolean {
       && (a.maxConnections !== b.maxConnections || a.activeConnections !== b.activeConnections));
 }
 
-/** Guide look-back per epg key for catch-up channels: their archive days, capped at `CATCHUP_GUIDE_DAYS`. */
+/**
+ * Guide look-back per epg key for catch-up channels: their archive days, capped at `CATCHUP_GUIDE_DAYS` and by the
+ * source's history budget (`CATCHUP_HISTORY_BUDGET_MS` per channel, shared by the catch-up channels).
+ */
 export function catchupBackLimits(channels: Channel[]): Map<string, number> {
   const out = new Map<string, number>();
+  let withCatchup = 0;
+  for (const c of channels) if (c.catchup) withCatchup++;
+  if (withCatchup === 0) return out;
+  const budgetMs = EPG_BACK_MS + Math.floor((CATCHUP_HISTORY_BUDGET_MS * channels.length) / withCatchup / 3_600_000) * 3_600_000;
   for (const c of channels) {
     if (!c.catchup) continue;
     const key = epgKey(c);
-    const ms = Math.min(c.catchup.days, CATCHUP_GUIDE_DAYS) * 86_400_000;
+    const ms = Math.min(c.catchup.days * 86_400_000, CATCHUP_GUIDE_DAYS * 86_400_000, budgetMs);
     if (ms > (out.get(key) ?? 0)) out.set(key, ms);
   }
   return out;

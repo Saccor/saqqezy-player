@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
-import { SourceService, emptyIfUnsupported } from '../src/service/sourceService.ts';
+import { CATCHUP_GUIDE_DAYS, CATCHUP_HISTORY_BUDGET_MS, SourceService, catchupBackLimits, emptyIfUnsupported } from '../src/service/sourceService.ts';
+import { EPG_BACK_MS } from '../src/constants.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
-import type { FetchFn } from '../src/types.ts';
+import type { Channel, FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
 import { MAX_PROGRAMME_MS } from '../src/storage.ts';
 
@@ -1475,5 +1476,30 @@ describe('SourceService – source headers on list requests (spec 2026-10-20-sou
     await service.refreshEpg(source.id);
     expect(seen.map((s) => s.url)).toEqual(['http://example.test/p.m3u', 'http://example.test/epg.xml']);
     for (const s of seen) expect(s.init && 'sourceHeaders' in s.init).toBe(false);
+  });
+});
+
+describe('catchupBackLimits: the catch-up channels share a history budget', () => {
+  const H = 3_600_000;
+  const chans = (n: number, every: number, days = 7): Channel[] => Array.from({ length: n }, (_, i) => ({
+    id: `s:${i}`, sourceId: 's', name: `C${i}`, url: `http://s.test/${i}.ts`, epgId: `c${i}`, group: 'G', number: i + 1,
+    ...(i % every === 0 ? { catchup: { mode: 'xc' as const, days } } : {}),
+  }));
+
+  test('a few catch-up channels keep their archive days, capped at 7', () => {
+    const back = catchupBackLimits(chans(100, 10, 3));
+    expect(back.get('c0')).toBe(3 * 24 * H);
+    expect(back.get('c1')).toBeUndefined();
+    expect(catchupBackLimits(chans(100, 10, 30)).get('c0')).toBe(CATCHUP_GUIDE_DAYS * 24 * H);
+  });
+
+  test('when every channel has catch-up, each keeps 6 h + 30 h of history; at half, 6 h + 60 h', () => {
+    expect(catchupBackLimits(chans(100, 1)).get('c0')).toBe(36 * H);
+    expect(catchupBackLimits(chans(100, 2)).get('c0')).toBe(66 * H);
+    expect(catchupBackLimits(chans(100, 1)).get('c0')).toBe(EPG_BACK_MS + CATCHUP_HISTORY_BUDGET_MS);
+  });
+
+  test('no catch-up channels: no limits', () => {
+    expect(catchupBackLimits(chans(10, 1000).map(({ catchup: _c, ...c }) => c)).size).toBe(0);
   });
 });

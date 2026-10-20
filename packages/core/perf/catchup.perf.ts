@@ -58,12 +58,14 @@ test('50k channels with one shared catch-up template: record size and structured
   expect(tCaught / tPlain).toBeLessThan(1.2);
 });
 
-test('guide ingest window: 10 % catch-up channels keep 7 days, stored programmes stay under 1.6x today', () => {
+/** Stored programmes with and without the catch-up history, for a 5000-channel source with `share` of catch-up channels. */
+function ingestWindow(share: number): { today: number; withCatchup: number; ms: number; backH: number } {
   const now = Date.UTC(2026, 9, 20, 18, 0);
   const n = 5000;
+  const every = Math.round(1 / share);
   const chans: Channel[] = Array.from({ length: n }, (_, i) => {
     const c: Channel = { id: `s:${i}`, sourceId: 's', name: `Channel ${i}`, url: `http://s.test/${i}.ts`, group: 'G', number: i + 1, epgId: `c${i}.test` };
-    if (i % 10 === 0) c.catchup = { mode: 'xc', days: 7 };
+    if (i % every === 0) c.catchup = { mode: 'xc', days: 7 };
     return c;
   });
   const back = catchupBackLimits(chans);
@@ -80,7 +82,20 @@ test('guide ingest window: 10 % catch-up channels keep 7 days, stored programmes
     }
   }
   const ms = performance.now() - t0;
-  console.log(`ingest window: ${today} -> ${withCatchup} programmes (${(withCatchup / today).toFixed(2)}x), ${ms.toFixed(0)} ms for ${n * 528} checks`);
-  expect(withCatchup / today).toBeLessThan(1.6);
-  expect(withCatchup).toBeGreaterThan(today);
+  console.log(`ingest window, ${share * 100} % catch-up: ${today} -> ${withCatchup} programmes (${(withCatchup / today).toFixed(2)}x), `
+    + `history ${(back.get('c0.test')! / 3_600_000).toFixed(0)} h, ${ms.toFixed(0)} ms for ${n * 528} checks`);
+  return { today, withCatchup, ms, backH: back.get('c0.test')! / 3_600_000 };
+}
+
+test('guide ingest window: 10 % catch-up channels keep 7 days, stored programmes stay under 1.6x today', () => {
+  const r = ingestWindow(0.1);
+  expect(r.backH).toBe(7 * 24);
+  expect(r.withCatchup / r.today).toBeLessThan(1.6);
+  expect(r.withCatchup).toBeGreaterThan(r.today);
+});
+
+test('guide ingest window: 100 % catch-up channels share the history budget, stored programmes stay under 1.6x today', () => {
+  const r = ingestWindow(1);
+  expect(r.withCatchup / r.today).toBeLessThan(1.6);
+  expect(r.backH).toBeGreaterThanOrEqual(24); // at least a day of history on every channel
 });

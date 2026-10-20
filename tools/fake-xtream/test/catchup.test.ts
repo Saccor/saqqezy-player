@@ -123,7 +123,7 @@ test('without the catchup option the live streams have no archive and the zone s
 describe('catch-up ingest end to end (SourceService)', () => {
   const svc = () => new SourceService({ storage: new MemoryStorage(), fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
 
-  test('Xtream: archive channels, the panel clock on the source, 7 days of guide only where the archive has them', async () => {
+  test('Xtream: archive channels, the panel clock on the source, guide history only where the archive has it, within the budget', async () => {
     const s = svc();
     const { source, result } = await s.addSource({ kind: 'xtream', name: 'Fake', server: server.url, username: 'test', password: 'test' });
     expect(result.catchupChannels).toBe(6);
@@ -132,10 +132,13 @@ describe('catch-up ingest end to end (SourceService)', () => {
     const [c1, c2, c3] = idx.slice('all', 0, 3);
     expect([c1!.catchup, c2!.catchup, c3!.catchup]).toEqual([{ mode: 'xc', days: 7 }, { mode: 'xc', days: 3 }, undefined]);
     await s.refreshEpg(source.id);
-    const old = await s.programmesFor(source.id, [c1!, c2!, c3!], NOW - 7 * 86_400_000, NOW - 7 * 3600_000);
-    expect(old.get(c1!.id)!.length).toBeGreaterThan(6 * 48);
-    expect(old.get(c2!.id)).toEqual([]);
+    // Half the 12 channels have catch-up: they share the history budget, 6 h + 30 h x 12 / 6 = 66 h each (spec §8).
+    const old = await s.programmesFor(source.id, [c1!, c2!, c3!], NOW - 65 * 3600_000, NOW - 7 * 3600_000);
+    expect(old.get(c1!.id)!.length).toBeGreaterThanOrEqual(2 * 57);
+    expect(old.get(c2!.id)).toEqual([]); // its feed has the usual 6 h of history only
     expect(old.get(c3!.id)).toEqual([]);
+    const older = await s.programmesFor(source.id, [c1!], NOW - 7 * 86_400_000, NOW - 67 * 3600_000);
+    expect(older.get(c1!.id)).toEqual([]);
     const table = await s.archiveTable(source.id, 2, 'c2.test');
     expect(table!.filter((p) => p.hasArchive).length).toBeGreaterThan(3 * 48 - 2);
   });
