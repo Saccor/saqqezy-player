@@ -14,17 +14,19 @@ const LOGO = 56;
 /** A landscape tile for a channel or a sports event (Start page). Logos and icons come only from the user's own data. */
 export function WideTile(props: { x: number; y: number; cell: StartCell; lit: boolean; hover?: boolean; now: number }) {
   const image = () => (props.cell.type === 'channel' ? props.cell.channel.logo : props.cell.type === 'event' ? props.cell.event.icon : undefined);
-  const line1 = () => {
+  // The bold main line names the thing to watch; the muted line above it gives context (drawn only when non-empty and
+  // different from the main line). Channel: name / programme. Event: when · channels / title. View all: just the label.
+  const contextLine = () => {
     const c = props.cell;
     if (c.type === 'channel') return c.channel.name;
-    if (c.type === 'event') return c.event.title;
-    return c.type === 'viewAll' ? 'View all' : '';
-  };
-  const line2 = () => {
-    const c = props.cell;
-    if (c.type === 'channel') return c.channel.now?.title ?? 'No guide information';
     if (c.type === 'event') return `${eventWhen(c.event, props.now)} · ${channelsLabel(c.event.channelCount)}`;
     return '';
+  };
+  const mainLine = () => {
+    const c = props.cell;
+    if (c.type === 'channel') return c.channel.now?.title ?? 'No guide information';
+    if (c.type === 'event') return c.event.title;
+    return c.type === 'viewAll' ? 'View all' : '';
   };
   const w = WIDE_W - 2 * PAD;
   return (
@@ -34,12 +36,12 @@ export function WideTile(props: { x: number; y: number; cell: StartCell; lit: bo
       <Show when={image()} keyed>
         {(u) => <View x={PAD} y={PAD} width={LOGO} height={LOGO} zIndex={2} src={rawViaDevProxy(u)} />}
       </Show>
-      <Show when={line2()}>
+      <Show when={contextLine() && contextLine() !== mainLine()}>
         <Text x={PAD + (image() ? LOGO + 14 : 0)} y={PAD + (LOGO - TYPE.meta) / 2 - 2} width={w - (image() ? LOGO + 14 : 0)} maxWidth={w - (image() ? LOGO + 14 : 0)}
-          contain="width" maxLines={1} zIndex={3} fontSize={TYPE.meta} color={COLORS.muted}>{line1()}</Text>
+          contain="width" maxLines={1} zIndex={3} fontSize={TYPE.meta} color={COLORS.muted}>{contextLine()}</Text>
       </Show>
       <Text x={PAD} y={WIDE_H - PAD - TYPE.meta - 14} width={w} maxWidth={w} contain="width" maxLines={1} zIndex={3}
-        fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{line2() || line1()}</Text>
+        fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{mainLine()}</Text>
     </View>
   );
 }

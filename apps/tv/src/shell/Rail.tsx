@@ -41,8 +41,8 @@ export function Rail(props: {
       onRight={() => props.onRight()}
       onEnter={() => { if (cursor() === props.active) return props.onRight(); props.onSelect(cursor()); return true; }}>
       <Show when={focused()}>
-        <View x={RAIL_OPEN_W} width={LAYOUT.width - RAIL_OPEN_W} height={LAYOUT.height} color={COLORS.scrim} />
-        <View width={RAIL_OPEN_W} height={LAYOUT.height} color={COLORS.background} />
+        <View x={RAIL_OPEN_W} width={LAYOUT.width - RAIL_OPEN_W} height={LAYOUT.height} zIndex={0} color={COLORS.scrim} />
+        <View width={RAIL_OPEN_W} height={LAYOUT.height} zIndex={0} color={COLORS.background} />
       </Show>
       <Show when={settings()?.showClock === true}>
         <Clock x={0} y={LAYOUT.safeY} width={LAYOUT.railW} align="center" size={TYPE.meta} />
@@ -52,19 +52,19 @@ export function Rail(props: {
         const current = () => id === props.active;
         const tint = () => (lit() ? COLORS.onFocus : current() || focused() ? COLORS.text : COLORS.subtle);
         return (
-          <View y={railY(id)}>
+          <View y={railY(id)} zIndex={1}>
             <Show when={lit()}>
-              <View x={24} y={-pad} width={RAIL_OPEN_W - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} color={COLORS.focus} />
+              <View x={24} y={-pad} width={RAIL_OPEN_W - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.focus} />
             </Show>
             <Show when={!lit() && pointerMode() && hover() === id}>
-              <View x={24} y={-pad} width={(focused() ? RAIL_OPEN_W : LAYOUT.railW) - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} color={COLORS.hover} />
+              <View x={24} y={-pad} width={(focused() ? RAIL_OPEN_W : LAYOUT.railW) - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.hover} />
             </Show>
             <Show when={current() && !lit()}>
-              <View x={20} y={(RAIL_ICON - 28) / 2} width={4} height={28} borderRadius={2} color={COLORS.text} />
+              <View x={20} y={(RAIL_ICON - 28) / 2} width={4} height={28} borderRadius={2} zIndex={1} color={COLORS.text} />
             </Show>
-            <View x={(LAYOUT.railW - RAIL_ICON) / 2} width={RAIL_ICON} height={RAIL_ICON} src={iconTexture(railIcon(id))} color={tint()} />
+            <View x={(LAYOUT.railW - RAIL_ICON) / 2} width={RAIL_ICON} height={RAIL_ICON} zIndex={2} src={iconTexture(railIcon(id))} color={tint()} />
             <Show when={focused()}>
-              <Text x={LAYOUT.railW - 8} y={(RAIL_ICON - TYPE.body) / 2 - 2} fontSize={TYPE.body} {...(current() ? STRONG : {})} color={tint()}>
+              <Text x={LAYOUT.railW - 8} y={(RAIL_ICON - TYPE.body) / 2 - 2} fontSize={TYPE.body} zIndex={2} {...(current() ? STRONG : {})} color={tint()}>
                 {RAIL_LABELS[id]}
               </Text>
             </Show>
