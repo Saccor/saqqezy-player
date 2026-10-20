@@ -9,7 +9,7 @@ import { renderRange, scrollTopFor } from './virtualWindow.ts';
 const PITCH = POSTER_W + POSTER_GAP;
 const tileOf = (c: Cell): VodTile | undefined => (c.kind === 'tile' ? c.tile : undefined);
 /** View all is a text tile; a loading cell is drawn as a skeleton (no tile, no label). */
-const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? `View all (${c.total})` : undefined);
+const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? 'View all' : undefined);
 /** Tiles kept rendered beyond each edge of the visible ones. */
 const BUFFER = 3;
 

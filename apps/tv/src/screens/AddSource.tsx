@@ -75,7 +75,7 @@ function TypeTile(props: {
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={LAYOUT.radius}
       color={focused() ? TILE_FOCUS_FILL : COLORS.surface} border={{ width: 3, color: ring() }}
-      scale={focused() ? 1.03 : 1} onFocusChanged={setFocused}
+      onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? false}>
       <Text x={40} y={56} fontSize={40} color={COLORS.text}>{props.title}</Text>

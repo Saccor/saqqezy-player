@@ -1,14 +1,4 @@
 {
-  "components/ActionBar.tsx": {
-    "colour": 0,
-    "fontSize": 0,
-    "scale": 1
-  },
-  "components/Button.tsx": {
-    "colour": 0,
-    "fontSize": 0,
-    "scale": 1
-  },
   "components/ChannelList.tsx": {
     "colour": 3,
     "fontSize": 0,
@@ -24,11 +14,6 @@
     "fontSize": 0,
     "scale": 0
   },
-  "components/EpisodeRow.tsx": {
-    "colour": 0,
-    "fontSize": 0,
-    "scale": 1
-  },
   "components/GroupList.tsx": {
     "colour": 1,
     "fontSize": 0,
@@ -43,11 +28,6 @@
     "colour": 2,
     "fontSize": 1,
     "scale": 0
-  },
-  "components/PosterTile.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 1
   },
   "components/PreviewPanel.tsx": {
     "colour": 1,
@@ -94,16 +74,6 @@
     "fontSize": 0,
     "scale": 0
   },
-  "components/VolumeOsd.tsx": {
-    "colour": 0,
-    "fontSize": 0,
-    "scale": 1
-  },
-  "components/WideTile.tsx": {
-    "colour": 1,
-    "fontSize": 1,
-    "scale": 1
-  },
   "main.tsx": {
     "colour": 2,
     "fontSize": 0,
@@ -112,7 +82,7 @@
   "screens/AddSource.tsx": {
     "colour": 3,
     "fontSize": 2,
-    "scale": 1
+    "scale": 0
   },
   "screens/MovieDetail.tsx": {
     "colour": 0,
@@ -122,7 +92,7 @@
   "screens/Placeholder.tsx": {
     "colour": 1,
     "fontSize": 0,
-    "scale": 1
+    "scale": 0
   },
   "screens/SeriesDetail.tsx": {
     "colour": 0,

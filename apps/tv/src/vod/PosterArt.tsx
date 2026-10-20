@@ -1,12 +1,12 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import { createSignal, type JSX } from 'solid-js';
+import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
-const RING = 4;
 
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
@@ -40,16 +40,9 @@ export function PosterArt(props: {
   /** The image drawn (a URL that failed before, in this or another tile, is not tried again). */
   const shown = () => (posterCache.usable(url()) ? url() : undefined);
   const face = () => posterFace({ pending: props.pending === true, image: shown(), loaded: shown() !== undefined && loadedUrl() === shown(), failed: false });
-  const ring = () => (props.lit ? COLORS.focus : props.hover ? COLORS.muted : undefined);
-  const ringW = () => (props.lit ? RING : 2);
   return (
     <View width={props.w} height={props.h}>
-      <Show when={ring()}>
-        {(c) => (
-          <View x={-ringW()} y={-ringW()} width={props.w + ringW() * 2} height={props.h + ringW() * 2} zIndex={0}
-            borderRadius={LAYOUT.radius + ringW()} color={c()} />
-        )}
-      </Show>
+      <FocusRing w={props.w} h={props.h} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
       <View width={props.w} height={props.h} zIndex={1} borderRadius={LAYOUT.radius}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>

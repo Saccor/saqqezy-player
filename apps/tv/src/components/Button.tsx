@@ -1,9 +1,9 @@
-import { Text, View, type ElementNode } from '@lightningtv/solid';
+﻿import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, FONT } from '../shell/theme.ts';
 
-export const BUTTON_H = 72;
+export const BUTTON_H = 64;
 
 /**
  * Focusable push button. Focused: focus-coloured fill with white text; otherwise a focus-coloured outline. It is also a
@@ -35,11 +35,11 @@ export function Button(props: {
     onClick: () => props.onPress(),
   });
   const w = () => props.width ?? 240;
-  const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.surface);
+  const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.surfaceRaised);
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={w()} height={BUTTON_H}
-      borderRadius={LAYOUT.radius} color={fill()} border={{ width: 2, color: COLORS.focus }}
-      alpha={props.dimmed ? 0.5 : 1} scale={focused() ? 1.04 : 1} onFocusChanged={setFocused}
+      borderRadius={BUTTON_H / 2} color={fill()}
+      alpha={props.dimmed ? 0.5 : 1} onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}>
       <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={w()} maxWidth={w()} contain="width" textAlign="center"

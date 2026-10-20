@@ -1,7 +1,7 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+﻿import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, FONT } from '../shell/theme.ts';
 import { selectedIndex } from './actionBarLogic.ts';
 import { BUTTON_H } from './Button.tsx';
 
@@ -18,7 +18,7 @@ export interface Action {
   x?: number;
 }
 const GAP = 16;
-const ICON = 44;
+const ICON = 32;
 
 /** A row of buttons behind one focusable node (Left/Right choose, Ok presses). Pointer: click presses, hover lightens. */
 export function ActionBar(props: {
@@ -72,10 +72,10 @@ export function ActionBar(props: {
       onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}>
       <For each={props.actions}>{(a, i) => {
         const lit = () => focused() && cur() === i();
-        const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover : COLORS.surface);
+        const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover : COLORS.surfaceRaised);
         return (
-          <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={a.round ? BUTTON_H / 2 : LAYOUT.radius}
-            color={fill()} border={{ width: 2, color: COLORS.focus }} scale={lit() ? (a.round ? 1.1 : 1.04) : 1}>
+          <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={BUTTON_H / 2}
+            color={fill()}>
             <Show when={a.icon} fallback={
               <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
                 fontSize={FONT.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
