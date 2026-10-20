@@ -7,7 +7,7 @@ export interface StreamInfo { width?: number; height?: number; videoCodec?: stri
 
 /**
  * Why a stream failed. `EOS`: a live stream ended (the server closed it), reconnect at once. `AUTH`: the source
- * refused the stream (HTTP 401/403/410).
+ * refused the stream (HTTP 401/403/429/458/503/509). A gone stream (404/410) is NETWORK with `httpStatus`.
  */
 export type ErrorCode = 'NETWORK' | 'MEDIA' | 'DECODE' | 'UNSUPPORTED' | 'EOS' | 'AUTH';
 export interface StateDetail {

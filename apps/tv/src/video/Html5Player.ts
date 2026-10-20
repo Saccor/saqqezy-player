@@ -63,8 +63,14 @@ const HLS_CODEC_ERRORS = new Set<string>([
   ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR,
 ]);
 
-/** Refusals (see engineConfig's REFUSED_STATUSES): reported as AUTH, so the supervisor stops and the cooldown starts. */
-const AUTH_STATUSES = new Set([401, 403, 410, 429, 458, 503, 509]);
+/**
+ * Refusals (core's REFUSAL_STATUSES): reported as AUTH, so the supervisor stops and the cooldown starts. 410 is not
+ * one: an expired stream (e.g. a catch-up programme past the archive) says nothing about the source refusing us, so
+ * it is reported as NETWORK with its status and takes the supervisor's "gone" path, with no cooldown on the host.
+ */
+const AUTH_STATUSES = new Set([401, 403, 429, 458, 503, 509]);
+/** The stream is not there (anymore): NETWORK with the status, never an in-place hls.js reload. */
+const GONE_STATUSES = new Set([404, 410]);
 /** mpegts.js network error detail for a non-2xx HTTP status (its `info.code` holds the status). */
 const MPEGTS_HTTP_STATUS = 'HttpStatusCodeInvalid';
 
@@ -287,6 +293,10 @@ export class Html5Player implements Player {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
+        if (network && status !== undefined && GONE_STATUSES.has(status)) {
+          this.emit(s, 'error', { code: 'NETWORK', message: 'Playback error', httpStatus: status, detail: data.details });
+          return;
+        }
         if (this.recoverHls(s, hls, network ? 'network' : 'media')) return;
         this.emit(s, 'error', { code: network ? 'NETWORK' : 'MEDIA', message: 'Playback error', detail: data.details });
       });
@@ -311,6 +321,11 @@ export class Html5Player implements Player {
         }
         if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && AUTH_STATUSES.has(info.code)) {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code, detail });
+          return;
+        }
+        if (detail === MPEGTS_HTTP_STATUS && typeof info?.code === 'number' && info.code > 0) {
+          // Any other HTTP status (404, 410, 5xx): a plain network error that carries the status for the supervisor.
+          this.emit(s, 'error', { code: 'NETWORK', message: 'Playback error', httpStatus: info.code, detail });
           return;
         }
         const formatError = detail === mpegts.ErrorDetails.MEDIA_FORMAT_ERROR

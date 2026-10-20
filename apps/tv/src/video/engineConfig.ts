@@ -17,8 +17,9 @@ const SYNC_COUNT: Record<LivePreset, number> = { low: 1.5, balanced: 2, stable: 
 const MAX_LATENCY_COUNT: Record<LivePreset, number> = { low: 4, balanced: 5, stable: 8 };
 
 /**
- * HTTP statuses that mean "the source refuses us": retrying only hammers it (and can extend a block). The same set
- * as core's REFUSAL_STATUSES (refusal cooldown), plus 410 (an expired stream).
+ * HTTP statuses hls.js must not retry: core's REFUSAL_STATUSES (the source refuses us; retrying only hammers it and
+ * can extend a block), plus 410 (an expired stream: retrying cannot bring it back). 410 is not a refusal: the player
+ * reports it as NETWORK with its status, never as AUTH, so it starts no cooldown.
  */
 const REFUSED_STATUSES = new Set([401, 403, 410, 429, 458, 503, 509]);
 

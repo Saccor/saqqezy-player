@@ -227,7 +227,7 @@ describe('Html5Player – live delay and recovery signals', () => {
     player.destroy();
   });
 
-  test('HTTP 401/403/410 report AUTH with the status', async () => {
+  test('HTTP 401/403 report AUTH with the status', async () => {
     const { player, events } = makePlayer();
     await player.open('http://example.test/a.ts');
     created.mpegts.at(-1)!.error!('NetworkError', 'HttpStatusCodeInvalid', { code: 403 });
@@ -235,6 +235,19 @@ describe('Html5Player – live delay and recovery signals', () => {
     await player.open('http://example.test/a.m3u8');
     created.hls.at(-1)!.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'x', response: { code: 401 } });
     expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'AUTH', httpStatus: 401 })]);
+    player.destroy();
+  });
+
+  test('HTTP 410 is gone, not a refusal: NETWORK with the status on both engines, no in-place hls.js recovery', async () => {
+    const { player, events } = makePlayer();
+    await player.open('http://example.test/a.ts');
+    created.mpegts.at(-1)!.error!('NetworkError', 'HttpStatusCodeInvalid', { code: 410 });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 410 })]);
+    await player.open('http://example.test/a.m3u8');
+    const hls = created.hls.at(-1)!;
+    hls.handlers.hlsError!('hlsError', { fatal: true, type: 'networkError', details: 'x', response: { code: 410 } });
+    expect(events.at(-1)).toEqual(['error', expect.objectContaining({ code: 'NETWORK', httpStatus: 410 })]);
+    expect(hls.calls).not.toContain('startLoad');
     player.destroy();
   });
 
