@@ -92,17 +92,24 @@ describe('wireEvents', () => {
     expect(offs).toContain('layoutChanged');
   });
 
-  it('a restored backup: toast, the restore wait ends, and the state (settings) is read again', async () => {
+  it('a restored backup: one toast, the restore wait ends, and only the settings are read again (no re-activation)', async () => {
     const fns = new Map<string, (p: unknown) => void>();
     const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
     const toast = vi.fn();
-    const init = vi.fn(async () => ({ sources: [], activeSourceId: undefined, groups: [], settings: { ...DEFAULT_SETTINGS, subtitleLanguage: 'sv' }, hasVod: false, cooldown: { state: 'clear' as const } }));
+    applyInitState(ready);
+    const init = vi.fn(async () => ready);
+    const getSettings = vi.fn(async () => ({ ...DEFAULT_SETTINGS, subtitleLanguage: 'sv' }));
     setRestoreWaitUntil(Date.now() + 60_000);
-    const off = wireEvents(on, toast, { api: { init }, router: { reset: vi.fn(), current: () => undefined } as never, playing: () => false, stopPlayback: vi.fn() });
+    const off = wireEvents(on, toast, { api: { init, getSettings }, router: { reset: vi.fn(), current: () => undefined } as never, playing: () => false, stopPlayback: vi.fn() });
+    // A phone restore: the restored layout's change, then the restore itself.
+    fns.get('layoutChanged')?.({ type: 'layoutChanged', version: 4, origin: 'remote', restored: true });
     fns.get('backupRestored')?.({ type: 'backupRestored', origin: 'remote', applied: 3, pending: 0, sources: 1, at: 0 });
+    expect(toast).toHaveBeenCalledTimes(1);
     expect(toast.mock.calls[0]?.[0]).toBe('Restored 3 changes from your backup.');
     expect(restoreWaitUntil()).toBeUndefined();
     await vi.waitFor(() => expect(settings()?.subtitleLanguage).toBe('sv'));
+    expect(initState()?.activeSourceId).toBe('s1');
+    expect(init).not.toHaveBeenCalled();
     off();
   });
 
@@ -200,7 +207,7 @@ describe('wireEvents – source changes from the phone', () => {
     const toast = vi.fn();
     const current = { screen: route, params: {} };
     const router = { reset: vi.fn(), current: vi.fn(() => current) };
-    const api = { init: vi.fn(() => Promise.resolve(answer)) };
+    const api = { init: vi.fn(() => Promise.resolve(answer)), getSettings: vi.fn(() => Promise.resolve(answer.settings)) };
     const stopPlayback = vi.fn();
     wireEvents(on, toast, { api, router: router as never, playing: () => playing, stopPlayback });
     const fire = async (e: unknown) => { fns.get('sourcesChanged')?.(e); await new Promise((r) => setTimeout(r, 0)); };

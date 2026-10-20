@@ -19,13 +19,23 @@ export function bootRoutes(s: InitState): ScreenEntry[] {
 
 /** Neutral toast copy for a worker event, or undefined when the event shows no toast. */
 export function toastFor(e: AppEvent): string | undefined {
-  // Changes made on this device need no toast; a paired companion's do.
+  // Changes made on this device need no toast; a paired companion's do. A restore's layout change has none of its
+  // own: `backupRestored` right after it says what the restore did (one toast per action).
+  if (e.type === 'layoutChanged' && e.restored) return undefined;
   if (e.type === 'layoutChanged' || e.type === 'sourcesChanged') return e.origin === 'remote' ? 'Updated from your phone' : undefined;
   if (e.type === 'backupRestored') return restoredCopy(e);
   if (e.type !== 'refreshFailed') return undefined;
   // The source is cooling down: Home and the Player already say so.
   if (e.error.name === 'SourceRefused') return undefined;
   return e.what === 'playlist' ? "Couldn't refresh channels. Showing saved list." : "Couldn't refresh the TV guide.";
+}
+
+/**
+ * Whether a screen re-reads its lists on a `layoutChanged`: a paired phone's edit or a restored backup. A screen's
+ * own edits re-read on their own.
+ */
+export function externalLayoutChange(e: Extract<AppEvent, { type: 'layoutChanged' }>): boolean {
+  return e.origin === 'remote' || e.restored === true;
 }
 
 /**

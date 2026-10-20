@@ -81,7 +81,6 @@ export function setStreamCooldown(key: string | undefined, seed?: SourceCooldown
  */
 export const cooldown = (): SourceCooldown => cooldownOf(streamKey());
 
-/** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 /**
  * "Restore from your phone": until when the TV waits for the phone to send a backup (undefined: not waiting). Module
  * state, so the Storage page shows it again when reopened; a restore (`backupRestored`) ends it.
@@ -89,6 +88,7 @@ export const cooldown = (): SourceCooldown => cooldownOf(streamKey());
 const [restoreWaitUntil, setRestoreWaitUntil] = createSignal<number | undefined>(undefined);
 export { restoreWaitUntil, setRestoreWaitUntil };
 
+/** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 export function patchSettings(next: AppSettings): void {
   const s = initState();
   if (s) setInitState({ ...s, settings: next });
@@ -152,7 +152,8 @@ export async function bootstrap(
 
 /** What `wireEvents` needs to follow source changes made from the phone. */
 export interface SourceFollowDeps {
-  api: { init(): Promise<InitState> };
+  /** `getSettings`: a restored backup's settings are read again (nothing else is: the worker refreshed the rest). */
+  api: { init(): Promise<InitState>; getSettings(): Promise<AppSettings> };
   router: Pick<Router, 'reset' | 'current'>;
   /** Whether a channel is playing, and stopping it. */
   playing(): boolean;
@@ -208,9 +209,10 @@ export function wireEvents(
     if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);
     if (e.type === 'backupRestored') {
       setRestoreWaitUntil(undefined);
-      // Restored settings (and lists) are read again; the screens re-read their own lists on `layoutChanged`.
-      follow?.api.init().then(applyInitState, (err: unknown) => {
-        console.warn('Reading state after a restore failed', err instanceof Error ? err.name : 'Error');
+      // Restored settings are read again. The worker already refreshed the rest without re-activating the source;
+      // the screens re-read their own lists on the restore's `layoutChanged` and `vodRefreshed`.
+      follow?.api.getSettings().then(patchSettings, (err: unknown) => {
+        console.warn('Reading settings after a restore failed', err instanceof Error ? err.name : 'Error');
       });
     }
     setOffline((prev) => offlineAfter(prev, e));
