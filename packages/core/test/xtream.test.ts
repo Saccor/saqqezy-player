@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { normalizeServer, XtreamClient } from '../src/xtream/client.ts';
 import { xtreamToChannels } from '../src/xtream/toChannels.ts';
+import { ChannelIndex } from '../src/index/channelIndex.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
 import type { FetchFn } from '../src/types.ts';
 
@@ -122,6 +123,46 @@ describe('xtreamToChannels', () => {
       { id: 's1:x101', sourceId: 's1', name: 'Channel 001', url: 'http://example.test:8080/live/user%201/p%26ss/101.m3u8', group: 'News', number: 5, epgId: 'ch1.test', logo: 'http://example.test/1.png' },
       { id: 's1:x102', sourceId: 's1', name: 'Channel 002', url: 'http://example.test:8080/live/user%201/p%26ss/102.m3u8', group: 'Uncategorized', number: 6 },
     ]);
+  });
+
+  const cats = [{ id: '3', name: 'C3' }, { id: '1', name: 'C1' }, { id: '2', name: 'C2' }];
+
+  test('groups follow the category list order, not the stream order', () => {
+    const c = new XtreamClient(cfg, fakeFetch({}));
+    const ch = xtreamToChannels('s', c, cats, [
+      { streamId: 1, name: 'Channel 001', categoryId: '1', num: 1 },
+      { streamId: 2, name: 'Channel 002', categoryId: '2', num: 2 },
+      { streamId: 3, name: 'Channel 003', categoryId: '3', num: 3 },
+    ]);
+    expect(ch.map((x) => x.group)).toEqual(['C3', 'C1', 'C2']);
+    expect(new ChannelIndex(ch).groups().slice(2).map((g) => g.name)).toEqual(['C3', 'C1', 'C2']);
+  });
+
+  test('unknown or missing categories go last; stream order is kept inside a category', () => {
+    const c = new XtreamClient(cfg, fakeFetch({}));
+    const ch = xtreamToChannels('s', c, cats, [
+      { streamId: 1, name: 'Channel 001', categoryId: '99', num: 1 },
+      { streamId: 2, name: 'Channel 002', categoryId: '1', num: 2 },
+      { streamId: 3, name: 'Channel 003', num: 3 },
+      { streamId: 4, name: 'Channel 004', categoryId: '3', num: 4 },
+      { streamId: 5, name: 'Channel 005', categoryId: '1', num: 5 },
+      { streamId: 6, name: 'Channel 006', categoryId: '3', num: 6 },
+    ]);
+    expect(ch.map((x) => x.id)).toEqual(['s:x4', 's:x6', 's:x2', 's:x5', 's:x1', 's:x3']);
+    expect(new ChannelIndex(ch).groups().slice(2).map((g) => g.name)).toEqual(['C3', 'C1', 'Uncategorized']);
+  });
+
+  test('channels without num keep the numbers they had in stream order', () => {
+    const c = new XtreamClient(cfg, fakeFetch({}));
+    const ch = xtreamToChannels('s', c, cats, [
+      { streamId: 1, name: 'Channel 001', categoryId: '1' },
+      { streamId: 2, name: 'Channel 002', categoryId: '2', num: 10 },
+      { streamId: 3, name: 'Channel 003', categoryId: '3' },
+      { streamId: 4, name: 'Channel 004', categoryId: '1' },
+    ]);
+    const num = Object.fromEntries(ch.map((x) => [x.id, x.number]));
+    expect(num).toEqual({ 's:x1': 11, 's:x2': 10, 's:x3': 12, 's:x4': 13 });
+    expect(ch.map((x) => x.id)).toEqual(['s:x3', 's:x1', 's:x4', 's:x2']);
   });
 });
 
