@@ -10,13 +10,13 @@ export interface ParsedChannelName {
   base: string;
   /** 0 = 4K … 3 = SD, 4 = unknown (same ranks as VOD). */
   quality: number;
-  /** Named as a spare feed ("backup", "bkp", "alt", "reserve", "vip", "dead", optionally numbered) at the end. */
+  /** Named as a spare feed at the end ("backup", "bkp", "alt", "reserve", "dead", optionally numbered). Not "VIP": that names its own channel. */
   backup: boolean;
 }
 
 const COUNTRY_ALIASES: Record<string, string> = { GB: 'UK', USA: 'US' };
-/** One spare-feed tag at the very end: "(backup 2)", "ALT", "[VIP]". */
-const SPARE_TAIL = /[\s\-–—|:,]*[[(]?\s*(?:backup|bkp|alt|reserve|vip|dead)(?:\s*\d{1,2})?\s*[\])]?\s*$/i;
+/** One spare-feed tag at the very end: "(backup 2)", "ALT", "[bkp]". "VIP" is not one: "Channel One VIP" is its own channel. */
+const SPARE_TAIL = /[\s\-–—|:,]*[[(]?\s*(?:backup|bkp|alt|reserve|dead)(?:\s*\d{1,2})?\s*[\])]?\s*$/i;
 /** "+1", "+ 2": a timeshift feed, a different channel. */
 const TIMESHIFT = /(?<![\p{L}\p{N}])\+\s?(\d{1,2})(?!\p{N})/gu;
 

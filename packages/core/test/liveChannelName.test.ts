@@ -10,6 +10,10 @@ describe('parseChannelName', () => {
     expect(parseChannelName('Channel One (backup 2) [HD]')).toMatchObject({ base: 'channel one', backup: true, quality: 2 });
     expect(parseChannelName('Channel One ALT')).toMatchObject({ base: 'channel one', backup: true });
   });
+  test('VIP is part of the name, not a spare feed', () => {
+    expect(parseChannelName('Channel One VIP')).toMatchObject({ display: 'Channel One VIP', base: 'channel one vip', backup: false });
+    expect(parseChannelName('Channel One [VIP] HD')).toMatchObject({ base: 'channel one vip', backup: false, quality: 2 });
+  });
   test('country aliases', () => {
     expect(parseChannelName('GB: Channel One').country).toBe('UK');
     expect(parseChannelName('USA | Channel One').country).toBe('US');

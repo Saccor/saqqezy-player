@@ -25,6 +25,7 @@ describe('foldChannels', () => {
     expect(foldChannels([ch('Channel One'), ch('Channel One +1'), ch('Channel One +2')]).folds).toHaveLength(3);
     expect(foldChannels([ch('Channel One East'), ch('Channel One West')]).folds).toHaveLength(2);
     expect(foldChannels([ch('Channel One'), ch('Channel One Sport')]).folds).toHaveLength(2);
+    expect(foldChannels([ch('Channel One'), ch('Channel One VIP')]).folds).toHaveLength(2);
     expect(foldChannels([ch('Channel One', { epgId: 'x' }), ch('Channel Two', { epgId: 'x' })]).folds).toHaveLength(2);
   });
   test('different tvg-shift never merges', () => {
