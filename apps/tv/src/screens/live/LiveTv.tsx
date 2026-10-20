@@ -21,18 +21,20 @@ import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup } from '../../state/appState.ts';
-import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
+import { archiveStateOf, canFromStart, missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache } from '../epgCache.ts';
 import {
-  HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, guideOpenTarget, guideWindow, isOnAir, prefetchRange,
-  stepLeft, stepRight, type Block, type HStep,
+  HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
+  guideWindow, isOnAir, prefetchRange, stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
 import { resumeTarget, returnedToLive, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
-import { emptyGroupText, type PickerRow } from '../homeMenuLogic.ts';
+import { emptyGroupText, focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
 import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, liveKey, liveOkAction, locateFocus, sameInfo, type LiveKey, type LivePlace } from './liveLogic.ts';
+import { createCatchupOpener } from './liveCatchup.ts';
+import { createLiveMenu } from './liveMenu.tsx';
 import { createLivePreview } from './livePreview.ts';
 import { LiveVideo } from './LiveVideo.tsx';
 
@@ -49,9 +51,13 @@ type SourcesChanged = Extract<AppEvent, { type: 'sourcesChanged' }>;
 
 /**
  * Position across Live TV visits (the Player, catch-up, Search and the VOD screens re-create the screen): the group,
- * the focused channel and row, and the focused time.
+ * the focused channel and row, and the focused time. `catchupDays` is the source's (`sourceId`) largest archive, so a
+ * remount opens the wide window at once; `fromCatchup` marks a return from the catch-up player.
  */
-const memory: { groupId?: string; channelId?: string; row?: number; anchor?: number; viewStart?: number } = {};
+const memory: {
+  groupId?: string; channelId?: string; row?: number; anchor?: number; viewStart?: number;
+  sourceId?: string; catchupDays?: number; fromCatchup?: boolean;
+} = {};
 
 /** The first Live TV mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
@@ -82,10 +88,19 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     channelId?: string; groupId?: string; at?: number;
   };
   const opened = Date.now();
-  /** The guide's time window. Task 4 widens it by the source's catch-up days (`guideBackMs`). */
-  const win = guideWindow(opened);
+  const sourceId = initState()?.activeSourceId;
+  // The source's catch-up days as last seen (same source), so the window is wide from the first frame and a remembered
+  // time days back (a return from catch-up) is kept; read again on mount.
+  const knownDays = memory.sourceId === sourceId ? memory.catchupDays ?? 0 : 0;
+  /** The guide's time window, widened by the source's catch-up days (`guideBackMs`). */
+  const [win, setWin] = createSignal(guideWindow(opened, guideBackMs(knownDays)));
+  const [catchupDays, setCatchupDays] = createSignal(knownDays);
   // A channel and time to open at (Search's "later" rows, once the guide route is gone).
-  const target = guideOpenTarget(params, opened, win);
+  const target = guideOpenTarget(params, opened, win());
+  // Back from the catch-up player: the live resume is async (VodPlay's resumeLive), so focus comes from memory, not
+  // from what plays.
+  const fromCatchup = memory.fromCatchup === true;
+  memory.fromCatchup = undefined;
   // One-shot hint from the Player (the channel it showed last).
   const focusHint = params.focusChannelId;
   // One-shot from Back (or Live TV on the rail) on Start, Movies or Series: the stopped channel resumes and focus lands
@@ -99,7 +114,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   // A plain return (Settings, Search, catch-up) keeps the remembered time; a return to the playing channel shows now.
   const keepTime = target.channelId === undefined && focusHint === undefined && !fromVod && memory.viewStart !== undefined;
-  const startView = keepTime ? clampViewStart(memory.viewStart!, win) : target.viewStart;
+  const startView = keepTime ? clampViewStart(memory.viewStart!, win()) : target.viewStart;
   const startAnchor = keepTime
     ? Math.max(startView, Math.min(startView + VIEW_SPAN - 1, memory.anchor ?? opened)) : target.anchor;
 
@@ -150,8 +165,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const channelAt = (i: number) => { version(); return cache.channel(i); };
   const blocksAt = (i: number): Block[] => {
     version();
+    const w = win();
     const covered = cache.covered(i)
-      .map((r) => ({ start: Math.max(r.start, win.start), end: Math.min(r.end, win.end) }))
+      .map((r) => ({ start: Math.max(r.start, w.start), end: Math.min(r.end, w.end) }))
       .filter((r) => r.end > r.start);
     return buildBlocks(cache.programmes(i), covered);
   };
@@ -177,7 +193,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     kick();
     const r = renderRange(top(), viewRows(), Math.max(total(), 1), ROW_BUFFER);
     const vs = viewStart();
-    const wide = prefetchRange(vs, win);
+    const wide = prefetchRange(vs, win());
     const warn = (err: unknown) => console.warn('Guide rows failed', err instanceof Error ? err.name : 'Error');
     cache.ensure(r.from, Math.max(r.to, 1), vs, vs + VIEW_SPAN)
       .then(() => (alive && cache.group() === g ? cache.ensure(r.from, Math.max(r.to, 1), wide.start, wide.end) : undefined))
@@ -278,11 +294,14 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     return seq !== groupSeq ? 'superseded' : found;
   };
 
-  /** Re-reads the groups and the guide (refresh, a remote change), keeping focus on the same channel. */
+  /**
+   * Re-reads the groups and the guide (refresh, a remote change, a menu change), keeping focus on `keepId` (else the
+   * focused channel) while it is still in the group; one that left (hidden, removed) hands its row to the next one.
+   */
   let reloadSeq = 0;
-  const reload = async (): Promise<GroupInfo[] | undefined> => {
+  const reload = async (keepId0?: string): Promise<GroupInfo[] | undefined> => {
     const seq = ++reloadSeq;
-    const keepId = focusedId() ?? memory.channelId;
+    const keepId = keepId0 ?? focusedId() ?? memory.channelId;
     const before = groupId();
     const gs = await api.getGroups();
     if (!alive || seq !== reloadSeq) return undefined;
@@ -296,7 +315,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       const index = keepId === undefined ? -1 : await api.indexOf(before, keepId).catch(() => -1);
       if (!alive || seq !== reloadSeq || gSeq !== groupSeq) return gs;
       const count = gs.find((x) => x.id === before)?.count ?? 0;
-      setFocusRow(index >= 0 ? index : Math.max(0, Math.min(row(), count - 1)));
+      setFocusRow(focusAfterRefresh(index, row(), count));
       return gs;
     }
     // The group disappeared: All channels (or the first group; `openGroup` swaps the cache), at the same channel when it is there.
@@ -375,24 +394,105 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     if (action === 'preview') preview.playHere(ch.id, g);
     else if (action === 'fullscreen') preview.openFullscreen(ch.id, g);
     else if (action === 'details') setExpanded((v) => !v);
-    // 'catchup': Task 4 opens the catch-up player here (Guide's openCatchup).
+    else if (action === 'catchup' && b) openCatchup(ch, b);
     return true;
   };
 
-  /** Menu / long OK: the merged programme + channel menu arrives in Task 4. Until then Menu does nothing here. */
-  const openMenu = () => true;
+  // ---- catch-up ----
+
+  /** The archive mark of a cell: `past` the archive can play, `onAir` can play from its start. */
+  const archiveMark = (i: number, b: Block): 'past' | 'onAir' | undefined => {
+    const ch = channelAt(i);
+    const s = ch ? stateOf(ch, b) : 'none';
+    return s === 'available' ? 'past' : s === 'onAir' ? 'onAir' : undefined;
+  };
+
+  /** Right before the catch-up player opens: the return focuses the remembered row and time (see `fromCatchup`). */
+  const openCatchup = createCatchupOpener(() => alive, () => { memory.fromCatchup = true; });
+
+  /** The source's catch-up days arrived: the window reaches that far back; the view keeps its place inside it. */
+  const applyCatchupDays = (days: number) => {
+    memory.sourceId = initState()?.activeSourceId;
+    memory.catchupDays = days;
+    const w = guideWindow(opened, guideBackMs(days));
+    batch(() => {
+      setCatchupDays(days);
+      if (w.start === win().start) return;
+      setWin(w);
+      const vs = clampViewStart(viewStart(), w);
+      setViewStart(vs);
+      setAnchor(Math.max(vs, Math.min(vs + VIEW_SPAN - 1, anchor())));
+    });
+  };
+  const loadCatchupDays = () => api.catchupDays().catch(() => 0).then((d) => { if (alive) applyCatchupDays(d); });
+
+  // Focus resting 600 ms on a past time of a catch-up row: ask the source for that row's own archive listings (Xtream).
+  // Keyed on the id: arriving pages rebuild the row object and must not restart the wait.
+  const refineId = createMemo(() => {
+    const ch = focusChannel();
+    return ch && ch.archiveDays !== undefined && anchor() < now() ? ch.id : undefined;
+  });
+  createEffect(() => {
+    const id = refineId();
+    if (id === undefined) return;
+    const timer = setTimeout(() => { api.refineArchive(id).catch(() => undefined); }, 600);
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  // ---- the menu (programme items, then the channel's) ----
+
+  const liveMenu = createLiveMenu({
+    alive: () => alive,
+    groups,
+    groupId,
+    stopPreview: preview.stopPreview,
+    reload: async (id) => {
+      const gs = await reload(id);
+      // The change emptied the group (its last channel hidden or removed): focus moves to the dropdown.
+      if (!alive || !gs || liveMenu.isOpen() || !onGrid() || (gs.find((g) => g.id === groupId())?.count ?? 0) > 0) return;
+      focusPlace(groups().length > 0 ? 'groups' : 'rail');
+    },
+    // No layer left: back to the grid or the channel cell; a group the change emptied hands focus on (`contentPlace`).
+    refocus: () => { focusPlace(groupCount() > 0 && onGrid() ? place() : contentPlace()); },
+    dayTargets: () => dayJumpTargets(Date.now(), win()),
+    goToDay: (at) => {
+      const v = dayJumpView(at, Date.now(), win());
+      batch(() => {
+        setViewStart(v.viewStart);
+        setAnchor(v.anchor);
+        setExpanded(false);
+      });
+      if (groupCount() > 0) focusPlace('grid');
+    },
+  });
+
+  /**
+   * Menu / long OK on the grid or the channel cell: one menu. "From the start" for an on-air programme whose channel
+   * keeps an archive (not on the channel cell), "Go to day" when the source keeps catch-up days, then the channel items.
+   */
+  const openMenu = () => {
+    if (router.topOverlay() !== undefined || !onGrid()) return true;
+    const ch = focusChannel();
+    if (!ch) return true;
+    const b = place() === 'grid' ? focusBlock() : undefined;
+    const t = Date.now();
+    const fromStart = b !== undefined && !b.filler && !missingArchive.has(ch.id, b.start, t)
+      && canFromStart({ archiveDays: ch.archiveDays, now: b }, t);
+    liveMenu.openMenu(ch, { fromStart: fromStart && b ? () => openCatchup(ch, b) : undefined, goToDay: catchupDays() > 0 });
+    return true;
+  };
 
   const gridKeys = {
     onUp: () => go('up', () => setFocusRow(moveFocus(row(), -1, total()))),
     onDown: () => go('down', () => setFocusRow(moveFocus(row(), 1, total()))),
     onLeft: () => go('left', () => {
-      const s = stepLeft(rowBlocks(), focusIndex(), view(), win);
+      const s = stepLeft(rowBlocks(), focusIndex(), view(), win());
       if (s.kind === 'edge') setPlace('channels');
       else applyStep(s);
       return true;
     }),
     onRight: () => go('right', () => {
-      applyStep(stepRight(rowBlocks(), focusIndex(), view(), win));
+      applyStep(stepRight(rowBlocks(), focusIndex(), view(), win()));
       return true;
     }),
     onPage: (dir: 1 | -1) => setFocusRow(pageFocus(row(), dir, viewRows(), total())),
@@ -409,7 +509,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     restReported = true;
     void api.focusChannel(id).catch(() => undefined);
   });
-  createEffect(on([focusedId, onGrid, ready, picking], ([id, grid, isReady, isPicking]) => {
+  const layerOpen = () => picking() || liveMenu.isOpen();
+  createEffect(on([focusedId, onGrid, ready, layerOpen], ([id, grid, isReady, isPicking]) => {
     if (id === undefined || !grid || !isReady || isPicking) {
       focusRest.cancel();
       // The grid lost the focus: the worker drops the stale focused id.
@@ -453,6 +554,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     playback.setRect(LIVE_PREVIEW_RECT);
+    void loadCatchupDays(); // in parallel with the groups: it only widens the window back in time
     // Back from Movies or Series: the channel they stopped counts as the playing one (focus and resume).
     const playingId = playback.current()?.id
       ?? vodReturnTarget({ fromVod, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused() });
@@ -479,15 +581,25 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       // A companion changed the layout: re-read, keeping focus by id. Changes made on this screen re-read on their own.
       onEvent('layoutChanged', (e) => {
         if ((e as LayoutChanged).origin !== 'remote') return;
-        void reload().catch(() => undefined);
+        // An open menu is rebuilt from the fresh state once the groups are re-read; an open list picker re-reads too.
+        void reload().then(() => liveMenu.rebuildMenu()).catch(() => undefined);
+        liveMenu.rereadOpenPicker();
       }),
       // A companion switched, added or deleted a source: drop the picker of the old source and re-read.
       onEvent('sourcesChanged', (e) => {
         if ((e as SourcesChanged).origin !== 'remote') return;
         dismissPicker();
+        liveMenu.dismissAll();
+        void loadCatchupDays();
         void reload().then((gs) => { if (alive && gs) setWaiting(allCount(gs) === 0); }).catch(() => undefined);
       }),
       onEvent('refreshFailed', () => setWaiting(false)),
+      // The source's own archive listings for the focused row arrived: fetch that row again (no flicker).
+      onEvent('archiveRefined', (e) => {
+        if (focusedId() !== (e as { channelId?: string }).channelId) return;
+        cache.stalePage(row());
+        setKick((k) => k + 1);
+      }),
       // Background short-EPG answers (the focused or playing channel): every cached page holding them is fetched again.
       onEvent('nowNextUpdated', (e) => {
         if (cache.staleChannels((e as { channelIds: string[] }).channelIds, (c) => c.id) > 0) setKick((k) => k + 1);
@@ -509,8 +621,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         if (waitsForChannels(allCount(gs), initState()?.hasVod)) setWaiting(true);
         // Focus order: a requested channel, the Player's last channel, the playing one (these may switch to All), then
         // the remembered one and init's last (these keep the group). One lookup when the first is in the group.
+        // Back from catch-up the remembered channel comes first: the live channel resumes later (async).
         const located = await locate(gs, target.groupId ?? memory.groupId ?? params.lastGroupId,
-          [target.channelId, focusHint, playingId], [memory.channelId, params.lastChannelId]);
+          fromCatchup ? [target.channelId] : [target.channelId, focusHint, playingId],
+          fromCatchup ? [memory.channelId, playingId, params.lastChannelId] : [memory.channelId, params.lastChannelId]);
         if (!alive || located === 'superseded') return;
         if (located.g !== undefined) openGroup(located.g, located.index);
       } catch (err) {
@@ -532,6 +646,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     playback.begin(); // drops any preview request still in flight
     removePicker?.();
     router.removeOverlay(PICKER_ID);
+    liveMenu.cleanup();
   });
 
   const onBack = () => {
@@ -569,7 +684,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       <EpgGrid ref={(el) => { gridNode = el; }} x={EPG_GRID_X} y={GRID_Y} total={total()} top={top()} rows={viewRows()}
         focusRow={row()} focusStart={focusBlock()?.start} area={place() === 'channels' ? 'channels' : 'grid'}
         viewStart={viewStart()} now={now()} playingId={playback.current()?.id} dayLabel=""
-        channel={channelAt} blocks={blocksAt} {...gridKeys} />
+        channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...gridKeys} />
       {/* In the ruler's channel column; after the grid, so it draws (and takes the pointer) on top of the ruler. */}
       <Show when={groups().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}
@@ -585,6 +700,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         <ListPicker ref={(el) => { pickerNode = el; }} title="Groups" rows={pickerRows()} onPick={pick}
           hint="Ok picks · Back closes" />
       </Show>
+      <liveMenu.View />
     </View>
   );
 }
