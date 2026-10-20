@@ -147,7 +147,7 @@ export function App() {
             : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'guide' ? <GuideScreen entry={entry} />
-            : entry.screen === 'search' ? <SearchScreen />
+            : entry.screen === 'search' ? <SearchScreen entry={entry} />
             : entry.screen === 'settings' ? <SettingsScreen />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />

@@ -125,8 +125,12 @@ export function EpgGrid(props: {
   archiveMark?: (row: number, b: Block) => 'past' | 'onAir' | undefined;
   /** Pointer click on a channel name or a programme block. */
   onCellClick?: (hit: GridHit<Block>) => void;
+  /** Pointer right click on a channel name or a programme block (Live TV: the menu). */
+  onCellContextMenu?: (hit: GridHit<Block>) => void;
   /** One wheel step per axis (-1, 0 or 1). */
   onPointerWheel?: (dy: number, dx: number) => void;
+  /** False: the pointer passes over the grid (a modal keyboard is open). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   // Equal by cell: a move within one cell sets nothing.
@@ -142,10 +146,15 @@ export function EpgGrid(props: {
   const hitAt = (p: Point) => cellAt(p.x, p.y, { ...EPG_GEOMETRY, viewRows: viewRows() }, props.top, props.total, props.viewStart, props.blocks);
   usePointerTarget({
     node: () => node,
+    enabled: () => props.pointerEnabled !== false,
     onHover: (p) => setHover(p ? hitAt(p) : undefined),
     onClick: (p) => {
       const hit = hitAt(p);
       if (hit) props.onCellClick?.(hit);
+    },
+    onContextMenu: (p) => {
+      const hit = hitAt(p);
+      if (hit) props.onCellContextMenu?.(hit);
     },
     onWheel: (dy, dx) => {
       props.onPointerWheel?.(dy, dx);

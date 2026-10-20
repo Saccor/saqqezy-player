@@ -20,6 +20,8 @@ export function Rail(props: {
   onSelect: (id: RailId) => void;
   onRight: () => boolean;
   onFocusChanged?: (f: boolean) => void;
+  /** False: the pointer passes over the rail (a modal keyboard is open). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [cursor, setCursor] = createSignal<RailId>(props.active);
@@ -27,6 +29,7 @@ export function Rail(props: {
   let node: ElementNode | undefined;
   usePointerTarget({
     node: () => node,
+    enabled: () => props.pointerEnabled !== false,
     onHover: (p) => setHover(p ? railItemAt(p.y) : undefined),
     subAt: (p) => { const id = railItemAt(p.y); return id ? RAIL_ITEMS.indexOf(id) : undefined; },
     onClick: (p) => { const id = railItemAt(p.y); if (id) props.onSelect(id); },

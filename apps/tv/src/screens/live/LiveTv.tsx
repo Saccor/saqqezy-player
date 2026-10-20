@@ -7,6 +7,7 @@ import { DropdownHeader } from '../../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
 import { ListPicker } from '../../components/ListPicker.tsx';
+import { PointerBar } from '../../components/PointerBar.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../../components/virtualWindow.ts';
 import { pointerMode } from '../../input/pointer.ts';
 import { cooling } from '../../playback/cooldown.ts';
@@ -17,24 +18,29 @@ import { dwellSignal } from '../../shell/dwell.ts';
 import { Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
 import { goRail } from '../../shell/railNav.ts';
+import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup } from '../../state/appState.ts';
-import { archiveStateOf, canFromStart, missingArchive } from '../../vod/catchupLogic.ts';
+import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache } from '../epgCache.ts';
 import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
-  guideWindow, isOnAir, prefetchRange, stepLeft, stepRight, type Block, type HStep,
+  guideWindow, isOnAir, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
-import { resumeTarget, returnedToLive, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
-import { emptyGroupText, focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
+import { resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
+import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
-import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, liveKey, liveOkAction, locateFocus, sameInfo, type LiveKey, type LivePlace } from './liveLogic.ts';
+import {
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, hasNoLive, liveEmptyText, liveKey, liveOkAction, locateFocus,
+  sameInfo, type LiveKey, type LivePlace,
+} from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
 import { createLiveMenu } from './liveMenu.tsx';
+import { createLivePointer, useTypeToSearch } from './livePointer.ts';
 import { createLivePreview } from './livePreview.ts';
 import { LiveVideo } from './LiveVideo.tsx';
 
@@ -43,7 +49,6 @@ const FOCUS_REST_MS = 700;
 const PICKER_ID = 'liveGroups';
 const GROUP_ALL = 'all';
 const ROW_BUFFER = 2;
-const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';
 
 type Progress = Extract<AppEvent, { type: 'progress' }>;
 type LayoutChanged = Extract<AppEvent, { type: 'layoutChanged' }>;
@@ -97,15 +102,15 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const [catchupDays, setCatchupDays] = createSignal(knownDays);
   // A channel and time to open at (Search's "later" rows, once the guide route is gone).
   const target = guideOpenTarget(params, opened, win());
-  // Back from the catch-up player: the live resume is async (VodPlay's resumeLive), so focus comes from memory, not
-  // from what plays.
-  const fromCatchup = memory.fromCatchup === true;
-  memory.fromCatchup = undefined;
   // One-shot hint from the Player (the channel it showed last).
   const focusHint = params.focusChannelId;
   // One-shot from Back (or Live TV on the rail) on Start, Movies or Series: the stopped channel resumes and focus lands
   // on it in the grid (you return to what you were watching).
   const fromVod = returnedToLive(params);
+  // Back from the catch-up player: the live resume is async (VodPlay's resumeLive), so focus comes from memory, not
+  // from what plays. Only a plain return counts (no VOD return, Player hint or requested channel); every mount clears it.
+  const fromCatchup = memory.fromCatchup === true && !fromVod && focusHint === undefined && target.channelId === undefined;
+  memory.fromCatchup = undefined;
   delete params.focusChannelId;
   delete params.fromVod;
   delete params.channelId;
@@ -184,6 +189,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const focusedId = createMemo(() => focusChannel()?.id);
   const groupName = () => groups().find((g) => g.id === groupId())?.name ?? '';
   const onGrid = () => place() === 'grid' || place() === 'channels';
+  const allCount = () => groups().find((x) => x.id === GROUP_ALL)?.count ?? 0;
+  /** The source has no live channels and none are loading: the no-live text, and focus rests on the rail. */
+  const noLive = () => hasNoLive({ waiting: waiting(), allCount: allCount() });
 
   // ---- loading: the visible 2 h first, then the prefetch either side ----
 
@@ -237,8 +245,12 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     (p === 'rail' ? railNode : p === 'groups' ? headerNode : gridNode)?.setFocus();
     return true;
   };
-  /** Where focus lands when it enters the content: the grid with channels, else the dropdown, else the rail. */
+  /**
+   * Where focus lands when it enters the content: the grid with channels, else the dropdown (an empty group), else the
+   * rail (no groups, or a source without live channels).
+   */
   const contentPlace = (): LivePlace => {
+    if (noLive()) return 'rail';
     const r = liveKey('rail', 'right', ctx());
     return r === 'move' || r === 'exit' ? 'grid' : r;
   };
@@ -475,10 +487,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const ch = focusChannel();
     if (!ch) return true;
     const b = place() === 'grid' ? focusBlock() : undefined;
-    const t = Date.now();
-    const fromStart = b !== undefined && !b.filler && !missingArchive.has(ch.id, b.start, t)
-      && canFromStart({ archiveDays: ch.archiveDays, now: b }, t);
-    liveMenu.openMenu(ch, { fromStart: fromStart && b ? () => openCatchup(ch, b) : undefined, goToDay: catchupDays() > 0 });
+    // The same rule as the cell's archive mark (`stateOf`): on air on a channel that keeps an archive.
+    const fromStart = b !== undefined && stateOf(ch, b) === 'onAir' ? () => openCatchup(ch, b) : undefined;
+    liveMenu.openMenu(ch, { fromStart, goToDay: catchupDays() > 0 });
     return true;
   };
 
@@ -501,6 +512,32 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     onLongOk: openMenu,
   };
 
+  // ---- pointer and typing ----
+
+  /** The rename / new-list keyboard is modal for the pointer: while it is open no other target of the screen takes it. */
+  const pointerOn = () => !liveMenu.editing();
+  const pointer = createLivePointer({
+    row, place, total, viewStart,
+    focusStart: () => focusBlock()?.start,
+    focusPlace: (p) => { focusPlace(p); },
+    setFocusRow: (i) => { setFocusRow(i); },
+    focusTime: (t) => batch(() => { setAnchor(t); setExpanded(false); }),
+    stepTime: (dir) => {
+      const s = dir > 0 ? stepRight(rowBlocks(), focusIndex(), view(), win()) : stepLeft(rowBlocks(), focusIndex(), view(), win());
+      if (s.kind !== 'edge') applyStep(s);
+    },
+    pageTime: (dir) => applyStep(pageTime(view(), dir, win())),
+    ok,
+    openMenu,
+    videoChannel: () => preview.requested() ?? playback.current()?.id,
+    // The open group when the video shows the focused channel, else All (as on Home).
+    openVideo: (id) => {
+      const t = videoClickGroup(id, focusedId(), groupId());
+      if (t.remember) memory.channelId = id;
+      preview.openFullscreen(id, t.groupId);
+    },
+  });
+
   // A focus that rests for FOCUS_REST_MS tells the worker, which may look up that channel's now/next (short EPG, only
   // for channels without a stored guide). It never plays anything.
   let restReported = false;
@@ -509,7 +546,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     restReported = true;
     void api.focusChannel(id).catch(() => undefined);
   });
+  /** A layer of this screen is open: the group picker, or the menu's (menu, list picker, keyboard, day choice). */
   const layerOpen = () => picking() || liveMenu.isOpen();
+  // A letter or digit typed on the grid or the channel cell opens Search seeded with it.
+  useTypeToSearch(() => alive && !layerOpen() && onGrid());
   createEffect(on([focusedId, onGrid, ready, layerOpen], ([id, grid, isReady, isPicking]) => {
     if (id === undefined || !grid || !isReady || isPicking) {
       focusRest.cancel();
@@ -552,6 +592,20 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     });
   };
 
+  /**
+   * After a refresh or a source change: no live channels: the rail; the open group became empty: the dropdown; the
+   * group the empty state parked focus above (`hadChannels` false) got channels: the grid. Never under a layer.
+   */
+  const settleFocus = (hadChannels: boolean) => {
+    if (!alive || !ready() || router.topOverlay() !== undefined || layerOpen()) return;
+    if (noLive()) {
+      if (place() !== 'rail') focusPlace('rail');
+      return;
+    }
+    if (onGrid() && groupCount() === 0) focusPlace(contentPlace());
+    else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('grid');
+  };
+
   onMount(() => {
     playback.setRect(LIVE_PREVIEW_RECT);
     void loadCatchupDays(); // in parallel with the groups: it only widens the window back in time
@@ -571,12 +625,13 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       setNow(Date.now());
       setKick((k) => k + 1);
     }, 30_000);
-    const allCount = (gs: readonly GroupInfo[]) => gs.find((x) => x.id === GROUP_ALL)?.count ?? 0;
+    const allIn = (gs: readonly GroupInfo[]) => gs.find((x) => x.id === GROUP_ALL)?.count ?? 0;
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
       onEvent('refreshed', () => {
+        const had = groupCount() > 0;
         setWaiting(false);
-        void reload().catch(() => undefined);
+        void reload().then(() => settleFocus(had)).catch(() => undefined);
       }),
       // A companion changed the layout: re-read, keeping focus by id. Changes made on this screen re-read on their own.
       onEvent('layoutChanged', (e) => {
@@ -591,9 +646,17 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         dismissPicker();
         liveMenu.dismissAll();
         void loadCatchupDays();
-        void reload().then((gs) => { if (alive && gs) setWaiting(allCount(gs) === 0); }).catch(() => undefined);
+        const had = groupCount() > 0;
+        void reload().then((gs) => {
+          if (!alive || !gs) return;
+          setWaiting(allIn(gs) === 0);
+          settleFocus(had);
+        }).catch(() => undefined);
       }),
-      onEvent('refreshFailed', () => setWaiting(false)),
+      onEvent('refreshFailed', () => {
+        setWaiting(false);
+        settleFocus(true);
+      }),
       // The source's own archive listings for the focused row arrived: fetch that row again (no flicker).
       onEvent('archiveRefined', (e) => {
         if (focusedId() !== (e as { channelId?: string }).channelId) return;
@@ -618,7 +681,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         setGroups(gs);
         // An empty cache on first start: the channels arrive with a later `refreshed` event.
-        if (waitsForChannels(allCount(gs), initState()?.hasVod)) setWaiting(true);
+        if (waitsForChannels(allIn(gs), initState()?.hasVod)) setWaiting(true);
         // Focus order: a requested channel, the Player's last channel, the playing one (these may switch to All), then
         // the remembered one and init's last (these keep the group). One lookup when the first is in the group.
         // Back from catch-up the remembered channel comes first: the live channel resumes later (async).
@@ -632,7 +695,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       } finally {
         if (alive) {
           setReady(true);
-          // The grid when it has channels, else the dropdown, else the rail (a source without live channels).
+          // The grid when it has channels, else the dropdown (an empty group), else the rail (no live channels).
           if (router.topOverlay() === undefined) focusPlace(contentPlace());
         }
       }
@@ -654,15 +717,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     return go('back');
   };
 
-  /** The info block's place while the group has no channels (Task 5 refines the empty states and their focus). */
-  const emptyText = () => {
-    if (waiting()) {
-      const p = progress();
-      return p ? `Loading channels… ${p.count}` : 'Loading channels…';
-    }
-    const g = groupId();
-    return g === undefined || g === GROUP_ALL ? NO_LIVE_TEXT : emptyGroupText(g);
-  };
+  /** The info block's place while the group has no channels: the first load, no live channels, or an empty group. */
+  const emptyText = () => liveEmptyText({ waiting: waiting(), progressCount: progress()?.count, allCount: allCount(), groupId: groupId() });
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}
@@ -670,8 +726,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       onYellow={() => { router.push('search'); return true; }}
       onBlue={() => { router.push('settings'); return true; }}>
       <LiveVideo now={now()} pausedNote={preview.pausedNote()}
-        onRetry={() => { void preview.retryHere(playback.current() ? undefined : focusedId()); }} />
-      <Rail ref={(el) => { railNode = el; }} active="live" onSelect={railSelect}
+        onRetry={() => { void preview.retryHere(playback.current() ? undefined : focusedId()); }}
+        onVideoClick={pointerOn() ? pointer.onVideoClick : undefined} />
+      <Rail ref={(el) => { railNode = el; }} active="live" onSelect={railSelect} pointerEnabled={pointerOn()}
         onRight={() => go('right')} onFocusChanged={(f) => { if (f) setPlace('rail'); }} />
 
       <Show when={ready() && groupCount() === 0} fallback={
@@ -684,17 +741,22 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       <EpgGrid ref={(el) => { gridNode = el; }} x={EPG_GRID_X} y={GRID_Y} total={total()} top={top()} rows={viewRows()}
         focusRow={row()} focusStart={focusBlock()?.start} area={place() === 'channels' ? 'channels' : 'grid'}
         viewStart={viewStart()} now={now()} playingId={playback.current()?.id} dayLabel=""
-        channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...gridKeys} />
+        channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...gridKeys}
+        onCellClick={pointer.onCellClick} onCellContextMenu={pointer.onCellMenu} onPointerWheel={pointer.onWheel}
+        pointerEnabled={pointerOn()} />
       {/* In the ruler's channel column; after the grid, so it draws (and takes the pointer) on top of the ruler. */}
       <Show when={groups().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}
           x={EPG_GRID_X + DROPDOWN_PAD_X} y={GRID_Y} height={RULER_H} size={TYPE.meta} maxWidth={CHANNEL_W - 4}
-          label={groupName()} onPress={openPicker}
+          label={groupName()} onPress={openPicker} pointerEnabled={pointerOn()}
           onDown={() => go('down')} onLeft={() => go('left')} onRight={() => go('right')}
           onFocusChanged={(f) => { if (f) setPlace('groups'); }} />
       </Show>
 
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
+
+      {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
+      <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
       <Show when={picking()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title="Groups" rows={pickerRows()} onPick={pick}

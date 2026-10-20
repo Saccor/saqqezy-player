@@ -1,10 +1,11 @@
 /** Live TV (UI revamp phase 2): the merged channel guide's pure layout, keys, OK and menu rules. */
+import { mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
 import { CATCHUP_COPY } from '../../copy.ts';
 import { LAYOUT } from '../../shell/theme.ts';
 import { guideOkAction } from '../../vod/catchupLogic.ts';
 import { pickGroup, type GroupLite } from '../homeLogic.ts';
-import { buildChannelMenu, type ChannelMenuAction, type ListLite } from '../homeMenuLogic.ts';
+import { buildChannelMenu, emptyGroupText, type ChannelMenuAction, type ListLite } from '../homeMenuLogic.ts';
 
 const GROUP_ALL = 'all';
 
@@ -128,4 +129,38 @@ export function liveMenuItems(o: {
     ...(o.goToDay ? [{ action: 'goToDay' as const, label: CATCHUP_COPY.goToDay }] : []),
     ...buildChannelMenu(o.channel),
   ];
+}
+
+/**
+ * A hardware key that hands off to Search (seeded with it): a letter or a digit (Live TV gives digits no meaning; number
+ * entry lives in the Player), without Ctrl, Cmd or Alt. Letters the remote layer maps (m Menu, i Info) stay remote keys.
+ */
+export function liveTypedChar(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): string | undefined {
+  if (e.ctrlKey || e.metaKey || e.altKey || Array.from(e.key).length !== 1) return undefined;
+  const ch = e.key;
+  const digit = ch >= '0' && ch <= '9';
+  if (!digit && ch.toLowerCase() === ch.toUpperCase()) return undefined; // not a letter
+  return digit || mapKey('browser', { key: ch, keyCode: 0 }) === undefined ? ch : undefined;
+}
+
+export const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';
+
+/** The source has no live channels (and none are on their way): the empty-state text, and focus goes to the rail. */
+export function hasNoLive(o: { waiting: boolean; allCount: number }): boolean {
+  return !o.waiting && o.allCount === 0;
+}
+
+/** The info block's place while the open group has no channels: the first load, no live channels, or an empty group. */
+export function liveEmptyText(o: { waiting: boolean; progressCount?: number; allCount: number; groupId: string | undefined }): string {
+  if (o.waiting) return o.progressCount !== undefined ? `Loading channels… ${o.progressCount}` : 'Loading channels…';
+  return hasNoLive(o) ? NO_LIVE_TEXT : emptyGroupText(o.groupId);
+}
+
+/** A pointer hit on the cell that already has the focus (a click there acts like OK without moving first). */
+export function sameCell(
+  hit: { area: 'channels'; row: number } | { area: 'grid'; row: number; start: number },
+  focus: { row: number; place: LivePlace; focusStart: number | undefined },
+): boolean {
+  if (hit.row !== focus.row) return false;
+  return hit.area === 'channels' ? focus.place === 'channels' : focus.place === 'grid' && hit.start === focus.focusStart;
 }

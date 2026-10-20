@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, liveKey, locateFocus, sameInfo, liveMenuItems, liveOkAction, timeLeftLabel } from './liveLogic.ts';
+import {
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
+  liveMenuItems, liveOkAction, timeLeftLabel,
+} from './liveLogic.ts';
 
 describe('liveLogic layout', () => {
   test('preview, info and grid positions', () => {
@@ -162,5 +165,60 @@ describe('locateFocus', () => {
     expect(await locateFocus({ groups: [], prefer: undefined, pinned: ['a'], others: [], indexOf: l.indexOf }))
       .toEqual({ g: undefined, index: 0 });
     expect(l.calls).toEqual([]);
+  });
+});
+
+describe('liveTypedChar', () => {
+  const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) =>
+    ({ key: k, ctrlKey: false, metaKey: false, altKey: false, ...mods });
+  test('letters and digits hand off to Search', () => {
+    expect(liveTypedChar(key('a'))).toBe('a');
+    expect(liveTypedChar(key('B'))).toBe('B');
+    expect(liveTypedChar(key('7'))).toBe('7');
+    expect(liveTypedChar(key('ö'))).toBe('ö');
+  });
+  test('keys the remote uses (m Menu, i Info), symbols, space and named keys stay remote keys', () => {
+    for (const k of ['m', 'M', 'i', 'I', ' ', '-', '.', 'Enter', 'Backspace', 'ArrowUp', 'F3', 'Escape']) {
+      expect(liveTypedChar(key(k))).toBeUndefined();
+    }
+  });
+  test('shortcuts never type', () => {
+    expect(liveTypedChar(key('a', { ctrlKey: true }))).toBeUndefined();
+    expect(liveTypedChar(key('a', { metaKey: true }))).toBeUndefined();
+    expect(liveTypedChar(key('a', { altKey: true }))).toBeUndefined();
+  });
+});
+
+describe('empty states', () => {
+  test('the first load waits, with the progress count', () => {
+    expect(liveEmptyText({ waiting: true, allCount: 0, groupId: 'all' })).toBe('Loading channels…');
+    expect(liveEmptyText({ waiting: true, progressCount: 120, allCount: 0, groupId: 'all' })).toBe('Loading channels… 120');
+  });
+  test('a source without live channels', () => {
+    expect(NO_LIVE_TEXT).toBe('This source has no live channels. Movies and series are in the menu on the left.');
+    expect(liveEmptyText({ waiting: false, allCount: 0, groupId: undefined })).toBe(NO_LIVE_TEXT);
+    expect(liveEmptyText({ waiting: false, allCount: 0, groupId: 'news' })).toBe(NO_LIVE_TEXT);
+    expect(hasNoLive({ waiting: false, allCount: 0 })).toBe(true);
+    expect(hasNoLive({ waiting: true, allCount: 0 })).toBe(false);
+    expect(hasNoLive({ waiting: false, allCount: 3 })).toBe(false);
+  });
+  test('an empty group or list', () => {
+    expect(liveEmptyText({ waiting: false, allCount: 5, groupId: 'news' })).toBe('No channels here yet.');
+    expect(liveEmptyText({ waiting: false, allCount: 5, groupId: 'list:abc' })).toBe('Empty – add channels from the channel menu');
+  });
+});
+
+describe('sameCell', () => {
+  const focus = { row: 3, place: 'grid' as const, focusStart: 1000 };
+  test('the focused programme', () => {
+    expect(sameCell({ area: 'grid', row: 3, start: 1000 }, focus)).toBe(true);
+    expect(sameCell({ area: 'grid', row: 3, start: 2000 }, focus)).toBe(false);
+    expect(sameCell({ area: 'grid', row: 4, start: 1000 }, focus)).toBe(false);
+    expect(sameCell({ area: 'grid', row: 3, start: 1000 }, { ...focus, place: 'channels' })).toBe(false);
+  });
+  test('the focused channel cell', () => {
+    expect(sameCell({ area: 'channels', row: 3 }, { ...focus, place: 'channels' })).toBe(true);
+    expect(sameCell({ area: 'channels', row: 3 }, focus)).toBe(false);
+    expect(sameCell({ area: 'channels', row: 2 }, { ...focus, place: 'channels' })).toBe(false);
   });
 });

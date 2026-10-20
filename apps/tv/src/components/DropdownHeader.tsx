@@ -24,11 +24,16 @@ export function DropdownHeader(props: {
   onPress: () => void;
   onUp?: () => boolean; onDown?: () => boolean; onLeft?: () => boolean; onRight?: () => boolean;
   onFocusChanged?: (f: boolean) => void;
+  /** False: the pointer passes over it (a modal keyboard is open). Default true. */
+  pointerEnabled?: boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
-  usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
+  usePointerTarget({
+    node: () => node, enabled: () => props.pointerEnabled !== false,
+    onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress(),
+  });
   const size = () => props.size ?? TYPE.title;
   const h = () => props.height ?? DROPDOWN_H;
   const w = () => Math.min(dropdownWidth(props.label, size()), props.maxWidth ?? Infinity);

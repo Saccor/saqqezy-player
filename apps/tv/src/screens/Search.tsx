@@ -12,7 +12,7 @@ import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { HINT_Y } from '../shell/logic.ts';
-import { router } from '../shell/router.ts';
+import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
@@ -43,7 +43,15 @@ const memory = createSearchMemory();
  * Search: inline on-screen keyboard (left) and results (right): channels with now/next, movies and series (20 each,
  * from catalogues stored on the device), programmes. Ok plays the channel or opens the title's detail screen.
  */
-export function SearchScreen() {
+export function SearchScreen(props: { entry: ScreenEntry }) {
+  // One-shot seed (a letter typed on Live TV): the field starts with it and the search runs once (onMount). Consumed,
+  // so the Player's return to this entry keeps whatever the user typed after it.
+  const params = props.entry.params as { query?: unknown };
+  if (typeof params.query === 'string') {
+    memory.query = params.query;
+    memory.returning = false;
+  }
+  delete params.query;
   const [query, setQuery] = createSignal(memory.query);
   const [state, setState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
   const [focus, setFocus] = createSignal(0);
