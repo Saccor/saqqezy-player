@@ -133,6 +133,8 @@ export const MOTION = {
   pressOut: token(100, EASE.standard, 'ui'),
   /** A row's horizontal scroll (one strip moves). */
   rowScroll: token(180, EASE.standard, 'scroll'),
+  /** A page of rows shifting up or down a row (one column moves). */
+  rowShift: token(220, EASE.standard, 'scroll'),
   /** A poster image fading in over its skeleton or title card once loaded. */
   imageIn: token(160, EASE.fade, 'image'),
   /** The backdrop cross-fade. */

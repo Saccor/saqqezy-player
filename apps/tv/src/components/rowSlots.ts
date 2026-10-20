@@ -21,3 +21,31 @@ export function rowSlots(heights: readonly number[], focusRow: number, f: RowFra
   }
   return out;
 }
+
+/** Each row's top in the column that holds them all (the first row at 0), each `gap` under the last. */
+export function rowTops(heights: readonly number[], gap: number): number[] {
+  const out: number[] = [];
+  let y = 0;
+  for (const h of heights) { out.push(y); y += h + gap; }
+  return out;
+}
+
+/** The column glides over at most this many rows; a longer move (Home/End, a pointer jump) snaps. */
+export const SHIFT_MAX_ROWS = 2;
+
+/**
+ * How the row column moves when the focused row goes from `from` to `to` (motion research §4 #5). `snap`: the first
+ * layout, no move, a move of more than `SHIFT_MAX_ROWS` rows, or a `from` row that no longer exists. Otherwise the
+ * column glides, and `extra` is the one row of the old layout that leaves the new one (nearest the new focus) and stays
+ * mounted while it slides out, so it does not vanish mid-glide. Only one, to keep texture memory flat.
+ */
+export function rowShift(heights: readonly number[], from: number | undefined, to: number, f: RowFrame, mode: 'peek' | 'whole'): { snap: boolean; extra: number | undefined } {
+  if (from === undefined || from === to || from >= heights.length || Math.abs(to - from) > SHIFT_MAX_ROWS) return { snap: true, extra: undefined };
+  const now = new Set(rowSlots(heights, to, f, mode).map((s) => s.index));
+  let extra: number | undefined;
+  for (const s of rowSlots(heights, from, f, mode)) {
+    if (now.has(s.index)) continue;
+    if (extra === undefined || Math.abs(s.index - to) < Math.abs(extra - to)) extra = s.index;
+  }
+  return { snap: false, extra };
+}
