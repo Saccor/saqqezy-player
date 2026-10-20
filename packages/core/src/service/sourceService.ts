@@ -21,6 +21,7 @@ import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
 import { splitLines } from '../text/lines.ts';
+import { buildRegionsRecord, readRegionsRecord, regionsKey, tallyTvg, REGION_DETECTOR_VERSION, type RegionsRecord, type TvgTally } from '../text/regions.ts';
 import { emptyVodList } from '../vod/list.ts';
 import type { VodKind, VodList } from '../vod/types.ts';
 import type {
@@ -158,10 +159,10 @@ export class SourceService {
 
   async addSource(input: NewSource, onProgress?: Progress) {
     let source = withCleanCatchupOffset(withCleanHttpSettings({ ...input, id: this.newId() } as SourceConfig));
-    const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+    const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
     source = withAccount(source, account);
     try {
-      await this.saveChannels(source.id, channels, result, vod, templates);
+      await this.saveChannels(source.id, channels, result, vod, templates, tvg);
       await this.storage.putSource(source);
       if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
     } catch (err) {
@@ -193,12 +194,12 @@ export class SourceService {
         if (prev.serverOffsetMin !== undefined) kept.serverOffsetMin = prev.serverOffsetMin;
       }
       let source = withCleanCatchupOffset(withCleanHttpSettings(kept));
-      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
       source = withAccount(source, account);
       await this.storage.putSource(source);
       // Another configuration: earlier failures say nothing about it, so automatic refreshes start afresh.
       for (const what of REFRESH_WHATS) await clearRefreshFailure(this.storage, source.id, what);
-      await this.saveChannels(source.id, channels, result, vod, templates);
+      await this.saveChannels(source.id, channels, result, vod, templates, tvg);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
       if (source.kind === 'xtream') {
         // Another server or account: its stream ids mean nothing here, so the old catalogues must go.
@@ -260,7 +261,7 @@ export class SourceService {
   refreshPlaylist(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<IngestResult> {
     return this.withLock(id, () => this.withBackoff(id, 'playlist', opts, async () => {
       const source = await this.requireSource(id);
-      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
       const stored = (await this.storage.listSources()).find((s) => s.id === id);
       if (!stored) return { channelCount: 0, skipped: 0 };
       // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
@@ -268,7 +269,7 @@ export class SourceService {
       if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
         throw new SourceNetworkError('The account has no live channels.');
       }
-      await this.saveChannels(id, channels, result, vod, templates);
+      await this.saveChannels(id, channels, result, vod, templates, tvg);
       const next = withAccount(stored, account);
       if (accountChanged(stored, next)) await this.storage.putSource(next);
       return result;
@@ -302,6 +303,7 @@ export class SourceService {
       await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
+      await this.storage.setMeta(regionsKey(id), null);
       await this.storage.setMeta(catchupTemplatesKey(id), null);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
@@ -348,6 +350,27 @@ export class SourceService {
       this.loadEpgCoverage(id),
     ]);
     return new ChannelIndex(channels, layout, coverage);
+  }
+
+  /** The detected regions of source `id`'s groups, as cached at ingest; undefined when missing or of another detector version. */
+  async loadRegions(id: string): Promise<RegionsRecord | undefined> {
+    const rec = readRegionsRecord(await this.storage.getMeta<unknown>(regionsKey(id)));
+    return rec?.v === REGION_DETECTOR_VERSION ? rec : undefined;
+  }
+
+  /**
+   * Rebuilds source `id`'s region record from its stored channels and the stored `tvg-*` tallies (a new detector
+   * version, or a record lost). Callers run it after first paint, never on the cold-start path. Undefined when the
+   * source is gone.
+   */
+  redetectRegions(id: string): Promise<RegionsRecord | undefined> {
+    return this.withLock(id, async () => {
+      if (!(await this.sourceExists(id))) return undefined;
+      const old = readRegionsRecord(await this.storage.getMeta<unknown>(regionsKey(id)));
+      const rec = buildRegionsRecord(await this.storage.getChannels(id), old?.tvg);
+      await this.storage.setMeta(regionsKey(id), rec);
+      return rec;
+    });
   }
 
   /**
@@ -791,7 +814,7 @@ export class SourceService {
 
   private async fetchChannels(
     source: SourceConfig, onProgress?: Progress,
-  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount; templates?: string[] }> {
+  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount; templates?: string[]; tvg?: Record<string, TvgTally> }> {
     if (source.kind === 'xtream') {
       const client = this.xtream(source);
       const account = await client.authenticate();
@@ -835,11 +858,15 @@ export class SourceService {
     if (catchup.channels) result.catchupChannels = catchup.channels;
     if (catchup.unsupported) result.catchupUnsupported = catchup.unsupported;
     const account = await this.probeXcClock(source, channels);
-    return { channels, result, vod: { movie: split.movies, series: split.series }, account, templates: catchup.templates };
+    return { channels, result, vod: { movie: split.movies, series: split.series }, account, templates: catchup.templates, tvg: tallyTvg(split.live) };
   }
 
-  private async saveChannels(id: string, channels: Channel[], result: IngestResult, vod?: IngestVod, templates?: string[]): Promise<void> {
+  private async saveChannels(
+    id: string, channels: Channel[], result: IngestResult, vod?: IngestVod, templates?: string[], tvg?: Record<string, TvgTally>,
+  ): Promise<void> {
     await this.storage.replaceChannels(id, channels);
+    // Detected next to the snapshot, so a cold start reads it and never runs detection.
+    await this.storage.setMeta(regionsKey(id), buildRegionsRecord(channels, tvg));
     await this.storage.setMeta(catchupTemplatesKey(id), templates?.length ? templates : null);
     if (vod) {
       for (const kind of ['movie', 'series'] as const) {

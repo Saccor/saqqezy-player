@@ -445,3 +445,50 @@ export function detectRegions(
   }
   return out;
 }
+
+// ---------- cache record ----------
+
+/** Stored next to the channel snapshot (meta `regions:<sourceId>`): detection results plus the inputs ingest alone has. */
+export interface RegionsRecord {
+  v: number;
+  groups: Record<string, GroupRegion>;
+  /** M3U only: the `tvg-*` tallies, so a new detector version can rebuild without the playlist. */
+  tvg?: Record<string, TvgTally>;
+}
+
+export const regionsKey = (sourceId: string): string => `regions:${sourceId}`;
+
+export function buildRegionsRecord(channels: readonly Channel[], tvg?: Record<string, TvgTally>): RegionsRecord {
+  const rec: RegionsRecord = { v: REGION_DETECTOR_VERSION, groups: detectRegions(regionInputs(channels, tvg)) };
+  if (tvg && Object.keys(tvg).length) rec.tvg = tvg;
+  return rec;
+}
+
+const VIAS: readonly string[] = ['user', 'tvg', 'flag', 'code', 'name', 'region', 'members', 'trailing'];
+const isRec = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+const strs = (x: unknown): x is string[] => Array.isArray(x) && x.every((s) => typeof s === 'string' && s.length <= 8);
+const counts = (x: unknown): x is Record<string, number> => isRec(x) && Object.values(x).every((n) => typeof n === 'number');
+
+function isGroupRegion(x: unknown): x is GroupRegion {
+  return isRec(x) && strs(x['countries']) && strs(x['langs']) && typeof x['conf'] === 'number'
+    && typeof x['via'] === 'string' && VIAS.includes(x['via']);
+}
+
+function isTally(x: unknown): x is TvgTally {
+  return isRec(x) && typeof x['members'] === 'number' && typeof x['withCountry'] === 'number'
+    && typeof x['withLanguage'] === 'number' && counts(x['country']) && counts(x['language']);
+}
+
+/** A stored record, repaired (bad entries dropped); undefined when it is not one. Any version is returned. */
+export function readRegionsRecord(x: unknown): RegionsRecord | undefined {
+  if (!isRec(x) || typeof x['v'] !== 'number' || !isRec(x['groups'])) return undefined;
+  const groups: Record<string, GroupRegion> = {};
+  for (const [k, v] of Object.entries(x['groups'])) if (k !== '__proto__' && isGroupRegion(v)) groups[k] = v;
+  const out: RegionsRecord = { v: x['v'], groups };
+  if (isRec(x['tvg'])) {
+    const tvg: Record<string, TvgTally> = {};
+    for (const [k, v] of Object.entries(x['tvg'])) if (k !== '__proto__' && isTally(v)) tvg[k] = v;
+    out.tvg = tvg;
+  }
+  return out;
+}
