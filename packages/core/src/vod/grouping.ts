@@ -62,11 +62,10 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
   const memberLang: (string | undefined)[] = new Array(items.length);
   const memberQuality = new Uint8Array(items.length);
   const displays: string[] = new Array(items.length);
-  const keys: string[] = new Array(items.length);
+  const bases: string[] = new Array(items.length);
   const years: (number | undefined)[] = new Array(items.length);
-  const yearless: number[] = [];
-  /** Base → the distinct years of its dated items. */
-  const datedYears = new Map<string, Set<number>>();
+  /** Base → the one year its dated items share, or NaN once they disagree. */
+  const datedYear = new Map<string, number>();
 
   for (let i = 0; i < items.length; i++) {
     const it = items[i]!;
@@ -74,39 +73,58 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
     memberLang[i] = p.lang ?? catLang.get(it.categoryId);
     memberQuality[i] = p.quality;
     displays[i] = p.display;
+    bases[i] = p.base;
     const year = it.year ?? p.year;
     years[i] = year;
-    if (it.tmdbId) keys[i] = `t:${it.tmdbId}`;
-    else if (year !== undefined) {
-      keys[i] = `y:${p.base}|${year}`;
-      let ys = datedYears.get(p.base);
-      if (!ys) datedYears.set(p.base, (ys = new Set()));
-      ys.add(year);
-    } else {
-      keys[i] = p.base;
-      yearless.push(i);
+    if (!it.tmdbId && year !== undefined) {
+      const known = datedYear.get(p.base);
+      if (known === undefined) datedYear.set(p.base, year);
+      else if (known !== year) datedYear.set(p.base, NaN);
     }
   }
-  for (const i of yearless) {
-    const base = keys[i]!;
-    const ys = datedYears.get(base);
-    keys[i] = ys && ys.size === 1 ? `y:${base}|${ys.values().next().value}` : `n:${base}`;
-  }
 
+  // Keys are built once per group, not per item: items find their group through these maps.
+  const byTmdb = new Map<string, number>();
+  /** Base → year → group. A year-less item uses the only year of its base's dated items, if there is one. */
+  const byYear = new Map<string, Map<number, number>>();
+  const byBase = new Map<string, number>();
   const groupOf = new Int32Array(items.length);
   const groups: VodGroup[] = [];
-  const byKey = new Map<string, number>();
+  const newGroup = (key: string, lead: number): number => {
+    groups.push({ key, members: [], lead, display: '', quality: 4, langs: [], categoryIds: [] });
+    return groups.length - 1;
+  };
+  const checkSplits = splits.size > 0;
   for (let i = 0; i < items.length; i++) {
-    const natural = keys[i]!;
-    const split = splits.has(natural);
-    const key = split ? `i:${items[i]!.id}` : natural;
-    let gi = byKey.get(key);
-    if (gi === undefined) {
-      gi = groups.length;
-      byKey.set(key, gi);
-      const g: VodGroup = { key, members: [], lead: i, display: '', quality: 4, langs: [], categoryIds: [] };
-      if (split) g.splitFrom = natural;
-      groups.push(g);
+    const it = items[i]!;
+    const base = bases[i]!;
+    let year = years[i];
+    if (!it.tmdbId && year === undefined) {
+      const only = datedYear.get(base);
+      if (only !== undefined && !Number.isNaN(only)) year = only;
+    }
+    let gi: number | undefined;
+    if (checkSplits) {
+      const natural = it.tmdbId ? `t:${it.tmdbId}` : year !== undefined ? `y:${base}|${year}` : `n:${base}`;
+      if (splits.has(natural)) {
+        gi = newGroup(`i:${it.id}`, i);
+        groups[gi]!.splitFrom = natural;
+      }
+    }
+    if (gi !== undefined) {
+      // a split: its own group
+    } else if (it.tmdbId) {
+      const key = `t:${it.tmdbId}`;
+      gi = byTmdb.get(key);
+      if (gi === undefined) byTmdb.set(key, (gi = newGroup(key, i)));
+    } else if (year !== undefined) {
+      let ys = byYear.get(base);
+      if (!ys) byYear.set(base, (ys = new Map()));
+      gi = ys.get(year);
+      if (gi === undefined) ys.set(year, (gi = newGroup(`y:${base}|${year}`, i)));
+    } else {
+      gi = byBase.get(base);
+      if (gi === undefined) byBase.set(base, (gi = newGroup(`n:${base}`, i)));
     }
     groupOf[i] = gi;
     const g = groups[gi]!;
@@ -115,7 +133,7 @@ export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set())
     g.quality = Math.min(g.quality, memberQuality[i]!);
     const lang = memberLang[i];
     if (lang && !g.langs.includes(lang)) g.langs.push(lang);
-    const cat = mergedOf(items[i]!.categoryId).id;
+    const cat = mergedOf(it.categoryId).id;
     if (!g.categoryIds.includes(cat)) g.categoryIds.push(cat);
   }
 

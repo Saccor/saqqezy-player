@@ -80,6 +80,13 @@ const TOKENS: [string, number | Tag | null][] = [
   ['av1|x264|h\\.?264|avc|[2-6]0\\s?fps', null],
 ];
 const TOKEN_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${TOKENS.map(([alts]) => `(${alts})`).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+/** The same tokens, for a yes/no check. */
+const HAS_TOKEN = new RegExp(TOKEN_RE.source, 'iu');
+/**
+ * Words of ASCII letters (and apostrophes), one space apart: no digit (no year, no "4K-" prefix), no bracket and no
+ * separator (no prefix, nothing to tidy). Unless it holds a token, such a title is its own display.
+ */
+const SIMPLE = /^[A-Za-z']+(?: [A-Za-z']+)*$/;
 const NO_TAGS: string[] = [];
 const MAX_YEAR = new Date().getFullYear() + 1;
 // eslint-disable-next-line no-control-regex
@@ -90,13 +97,10 @@ const BARS = /[┃│｜❘]/g;
 const EMPTY_BRACKETS = /[[(][\s|,+/\-–—]*[\])]/g;
 const HAS_EMPTY_BRACKETS = /[[(][\s|,+/\-–—]*[\])]/;
 const SPACES = /\s+/g;
-const LEADING = /^[\s\-–—|:.,+/]+/;
-const TRAILING = /[\s\-–—|:,+/]+$/;
 const HAS_TEXT = /[\p{L}\p{N}]/u;
 /** A bracketed year at the given position (sticky). */
 const YEAR_AT = /[([]\s*((?:19|20)\d{2})\s*[)\]]/y;
 const DOUBLE_SPACE = /\s\s|[^\S ]/;
-const SEPARATORS = ' -–—|:,+/';
 const ENDS_IN_YEAR = /(?:19|20)\d{2}\s*$/;
 const YEAR_TRAILING = /(?:\s[-–—]\s*|\s)((?:19|20)\d{2})\s*$/;
 const ROMAN: Record<string, string> = { ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9' };
@@ -108,16 +112,28 @@ function prepare(s: string): string {
   return s.normalize('NFKC').replace(INVISIBLE, '').replace(BARS, '|').trim();
 }
 
-/** Drops brackets left empty, collapses spaces and trims separators from both ends. */
+/** `\s` in a JS regex. */
+function isSpace(c: number): boolean {
+  return c === 32 || (c >= 9 && c <= 13) || (c > 127 && (c === 160 || c === 5760 || (c >= 8192 && c <= 8202)
+    || c === 8232 || c === 8233 || c === 8239 || c === 8287 || c === 12288 || c === 65279));
+}
+
+/** `[\s\-–—|:,+/]`: what is trimmed from the end. */
+function isTrailer(c: number): boolean {
+  return c === 45 || c === 124 || c === 58 || c === 44 || c === 43 || c === 47 || c === 8211 || c === 8212 || isSpace(c);
+}
+
+/** Drops brackets left empty, trims separators from both ends (also "." at the start) and collapses spaces. */
 function tidy(s: string): string {
   let out = s;
-  const brackets = out.includes('(') || out.includes('[');
-  do {
-    if (brackets) out = out.replace(EMPTY_BRACKETS, ' ');
-    if (DOUBLE_SPACE.test(out)) out = out.replace(SPACES, ' ');
-    out = out.replace(LEADING, '');
-    if (SEPARATORS.includes(out.charAt(out.length - 1))) out = out.replace(TRAILING, '');
-  } while (brackets && HAS_EMPTY_BRACKETS.test(out)); // "([ ])": the outer pair empties once the inner one goes
+  // "([ ])": the outer pair empties once the inner one goes. Trimming the ends or collapsing spaces never empties a pair.
+  if (out.includes('(') || out.includes('[')) while (HAS_EMPTY_BRACKETS.test(out)) out = out.replace(EMPTY_BRACKETS, ' ');
+  let from = 0;
+  let to = out.length;
+  while (from < to && (out.charCodeAt(from) === 46 || isTrailer(out.charCodeAt(from)))) from++;
+  while (to > from && isTrailer(out.charCodeAt(to - 1))) to--;
+  if (from > 0 || to < out.length) out = out.slice(from, to);
+  if (DOUBLE_SPACE.test(out)) out = out.replace(SPACES, ' ');
   return out;
 }
 
@@ -166,7 +182,7 @@ function takeYear(s: string): { rest: string; year?: number } {
     const m = YEAR_AT.exec(s);
     if (!m || !isYear(Number(m[1]))) continue;
     const rest = s.slice(0, at) + ' ' + s.slice(at + m[0].length);
-    if (HAS_TEXT.test(rest)) return { rest, year: Number(m[1]) };
+    if (asciiAlnumBefore(s, at) || HAS_TEXT.test(rest)) return { rest, year: Number(m[1]) };
     break;
   }
   if (!ENDS_IN_YEAR.test(s)) return { rest: s };
@@ -174,13 +190,24 @@ function takeYear(s: string): { rest: string; year?: number } {
   const t = YEAR_TRAILING.exec(end);
   if (t && isYear(Number(t[1]))) {
     const rest = end.slice(0, t.index);
-    if (HAS_TEXT.test(rest)) return { rest, year: Number(t[1]) };
+    if (asciiAlnumBefore(end, t.index) || HAS_TEXT.test(rest)) return { rest, year: Number(t[1]) };
   }
   return { rest: s };
 }
 
 const NOT_ALNUM = /[^a-z0-9]+/g;
+/** Already a key: words of a-z and 0-9, one space apart. */
+const KEY_SHAPED = /^[a-z0-9]+(?: [a-z0-9]+)*$/;
 const MAYBE_ROMAN = /(?:^| )[iv]/;
+
+/** Whether `s` has an ASCII letter or digit before `end`: the cheap answer to `HAS_TEXT` for most titles. */
+function asciiAlnumBefore(s: string, end: number): boolean {
+  for (let i = 0; i < end; i++) {
+    const c = s.charCodeAt(i) | 32; // folds A-Z onto a-z; digits stay apart from letters
+    if ((c >= 97 && c <= 122) || (c >= 48 && c <= 57)) return true;
+  }
+  return false;
+}
 
 function isYear(y: number): boolean {
   return y >= 1900 && y <= MAX_YEAR;
@@ -197,7 +224,11 @@ function lastBracket(s: string, from: number): number {
 function baseOf(display: string): string {
   const s = display.includes('&') ? display.replace(/&/g, ' and ') : display;
   // Plain ASCII: what `searchKey` gives, without its Unicode passes.
-  const key = PLAIN.test(s) ? s.toLowerCase().replace(NOT_ALNUM, ' ').trim() : searchKey(s);
+  let key: string;
+  if (PLAIN.test(s)) {
+    key = s.toLowerCase();
+    if (!KEY_SHAPED.test(key)) key = key.replace(NOT_ALNUM, ' ').trim();
+  } else key = searchKey(s);
   return MAYBE_ROMAN.test(key) ? key.replace(ROMAN_WORD, romanDigit) : key;
 }
 
@@ -208,6 +239,12 @@ export function prefixLang(name: string): string | undefined {
 
 export function parseVodTitle(title: string, categoryName?: string): ParsedTitle {
   const raw = prepare(title);
+  if (SIMPLE.test(raw) && !HAS_TOKEN.test(raw)) {
+    const simple: ParsedTitle = { display: raw, base: baseOf(raw), quality: QUALITY_UNKNOWN, tags: NO_TAGS };
+    const catLang = categoryName ? prefixLang(categoryName) : undefined;
+    if (catLang) simple.lang = catLang;
+    return simple;
+  }
   const peeled = peelPrefix(raw);
   const tagged = stripTags(peeled ? peeled.rest : raw);
   const dated = takeYear(tagged.rest);

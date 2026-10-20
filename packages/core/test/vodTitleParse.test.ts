@@ -84,3 +84,23 @@ describe('categoryBase', () => {
     expect(categoryBase('EN')).toEqual({ base: 'en', display: 'EN' });
   });
 });
+
+describe('parseVodTitle: plain titles (the fast path)', () => {
+  test('words only: the title is its own display, no year, tags or quality', () => {
+    expect(parseVodTitle('Synthetic Film')).toEqual({ display: 'Synthetic Film', base: 'synthetic film', quality: QUALITY_UNKNOWN, tags: [] });
+    expect(parseVodTitle("  Example's Story  ")).toEqual({ display: "Example's Story", base: 'example s story', quality: QUALITY_UNKNOWN, tags: [] });
+  });
+  test('roman numerals and the category language still apply', () => {
+    expect(parseVodTitle('Synthetic Film II')).toMatchObject({ display: 'Synthetic Film II', base: 'synthetic film 2' });
+    expect(parseVodTitle('Synthetic Film', 'SE | Action')).toMatchObject({ display: 'Synthetic Film', lang: 'sv' });
+  });
+  test('a token in a words-only title is still a token', () => {
+    expect(parseVodTitle('Synthetic Film HD')).toMatchObject({ display: 'Synthetic Film', quality: 2 });
+    expect(parseVodTitle('Dual Example')).toMatchObject({ display: 'Example', tags: ['MULTI'] });
+  });
+  test('double spaces, digits, brackets and separators take the full parse', () => {
+    expect(parseVodTitle('Synthetic  Film')).toMatchObject({ display: 'Synthetic Film' });
+    expect(parseVodTitle('Synthetic Film 2001')).toMatchObject({ display: 'Synthetic Film', year: 2001 });
+    expect(parseVodTitle('EN - Synthetic Film')).toMatchObject({ display: 'Synthetic Film', lang: 'en' });
+  });
+});
