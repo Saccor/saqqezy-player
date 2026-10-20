@@ -105,3 +105,6 @@ export function browseSlots(
   }
   return out;
 }
+
+/** Green opens the grid on All only while the catalogue is ready: on loading, empty or failed it would show nothing. */
+export const greenOpensGrid = (status: string | undefined): boolean => status === 'ready';

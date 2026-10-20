@@ -24,7 +24,7 @@ import {
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import {
-  areaAbove, areaBelow, browseChips, browseSlots, chipMove, effectiveLine, locateChip, type BrowseArea, type BrowseChip, type BrowseLine,
+  areaAbove, areaBelow, browseChips, browseSlots, chipMove, effectiveLine, greenOpensGrid, locateChip, type BrowseArea, type BrowseChip, type BrowseLine,
 } from '../vod/browseNavLogic.ts';
 import { CrossFadeArt } from '../vod/CrossFadeArt.tsx';
 import { heroArt } from '../vod/fadeLogic.ts';
@@ -584,7 +584,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={back}
-      onGreen={() => openGrid(VOD_ALL)}
+      onGreen={() => (greenOpensGrid(status()) ? openGrid(VOD_ALL) : true)}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
       {/* Hero art: the backdrop, faded into the background behind the hero and the first line. */}
       <Show when={heroTile()}>
