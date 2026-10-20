@@ -105,12 +105,12 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(got.map((p) => p.title)).toEqual(['a@8']);
     });
 
-    test('programmes: unsorted and duplicate epgIds give sorted, de-duplicated output without sourceId', async () => {
+    test('programmes: unsorted and duplicate epgIds give sorted, de-duplicated output', async () => {
       const s = await make();
       await s.addProgrammes('s1', [prog('b', 2, 3), prog('a', 2, 3), prog('a', 1, 2)]);
       const got = await s.getProgrammes('s1', ['b', 'a', 'b', 'a'], 0, 10 * 3600_000);
       expect(got.map((p) => p.title)).toEqual(['a@1', 'a@2', 'b@2']);
-      for (const p of got) expect('sourceId' in p).toBe(false);
+      expect(got[0]).toMatchObject(prog('a', 1, 2));
     });
 
     test('programmes: multiple addProgrammes batches accumulate', async () => {

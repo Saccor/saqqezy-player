@@ -10,9 +10,14 @@ export interface Storage {
   getMeta<T>(key: string): Promise<T | undefined>;
   setMeta(key: string, value: unknown): Promise<void>;
   clearProgrammes(sourceId: string): Promise<void>;
+  /** Takes the batch over: an implementation may tag and store its objects instead of copying them. */
   addProgrammes(sourceId: string, batch: Programme[]): Promise<void>;
+  /**
+   * Programmes of `epgIds` that overlap [`from`, `to`), sorted by epgId then start.
+   * Records may carry the storage's own fields (IndexedDB's `sourceId`) besides the Programme ones.
+   */
   getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]>;
-  /** Calls `fn` (synchronously) for every stored programme of `sourceId`, in no particular order. */
+  /** Calls `fn` (synchronously) for every stored programme of `sourceId`, in no particular order (records as above). */
   forEachProgramme(sourceId: string, fn: (p: Programme) => void): Promise<void>;
   getVod(sourceId: string, kind: VodKind): Promise<VodList | undefined>;
   replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void>;

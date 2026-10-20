@@ -408,13 +408,16 @@ export class SourceService {
           matcher.addXmltvChannel(item.id, item.names);
           continue;
         }
-        const key = matcher.resolve(item.programme.epgId);
-        if (!key || !inWindow(item.programme, now)) continue;
-        batch.push({ ...item.programme, epgId: key });
-        titles.add(item.programme.title, key, item.programme.start, item.programme.stop);
+        const p = item.programme;
+        const key = matcher.resolve(p.epgId);
+        if (!key || !inWindow(p, now)) continue;
+        // The parser's object is ours: it becomes the stored record (no copy per programme).
+        p.epgId = key;
+        batch.push(p);
+        titles.add(p.title, key, p.start, p.stop);
         if (sportsOk) {
           try {
-            sports.add(item.programme, item.extra, key);
+            sports.add(p, item.extra, key);
           } catch {
             // Sports is optional: stop adding and store no record; the guide import goes on.
             sportsOk = false;

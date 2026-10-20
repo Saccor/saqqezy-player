@@ -155,7 +155,11 @@ export class IdbStorage implements Storage {
   async addProgrammes(sourceId: string, batch: Programme[]): Promise<void> {
     const tx = (await this.db()).transaction('programmes', 'readwrite');
     const store = tx.objectStore('programmes');
-    for (const p of batch) store.add({ ...p, sourceId } satisfies ProgRecord);
+    // The batch is ours (see Storage.addProgrammes): tag each programme instead of copying it.
+    for (const p of batch) {
+      (p as ProgRecord).sourceId = sourceId;
+      store.add(p);
+    }
     await done(tx);
   }
 
@@ -163,14 +167,15 @@ export class IdbStorage implements Storage {
     const db = await this.db();
     const index = db.transaction('programmes').objectStore('programmes').index('byChannel');
     // Issue all requests synchronously so the transaction never goes inactive between awaits.
-    const pending: Promise<ProgRecord[]>[] = [];
+    const pending: Promise<Programme[]>[] = [];
     for (const epgId of new Set(epgIds)) {
       const range = IDBKeyRange.bound([sourceId, epgId, from - MAX_PROGRAMME_MS], [sourceId, epgId, to], false, true);
-      pending.push(req(index.getAll(range)) as Promise<ProgRecord[]>);
+      pending.push(req(index.getAll(range)) as Promise<Programme[]>);
     }
     const out: Programme[] = [];
     for (const recs of await Promise.all(pending)) {
-      for (const { sourceId: _s, ...p } of recs) if (p.stop > from) out.push(p);
+      // Records as read, `sourceId` tag included: no copy of each one without it.
+      for (const rec of recs) if (rec.stop > from) out.push(rec);
     }
     return out.sort((a, b) => (a.epgId < b.epgId ? -1 : a.epgId > b.epgId ? 1 : a.start - b.start));
   }
@@ -183,8 +188,7 @@ export class IdbStorage implements Storage {
     cursorReq.onsuccess = () => {
       const cursor = cursorReq.result;
       if (!cursor) return;
-      const { sourceId: _s, ...p } = cursor.value as ProgRecord;
-      fn(p);
+      fn(cursor.value as Programme);
       cursor.continue();
     };
     await done(tx);
