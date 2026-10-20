@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { STROKE_ICON_KINDS } from '../vod/icons.ts';
-import { RAIL_ITEMS, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
+import { belowTab, RAIL_ITEMS, railFromNested, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
 
 describe('railLogic', () => {
   test('items stack from y 260, 78 apart, with Settings at the bottom', () => {
@@ -31,6 +31,23 @@ describe('railLogic', () => {
     expect(railNavigation('movies', 'live')).toEqual({ action: 'back' });
     expect(railNavigation('live', 'start')).toEqual({ action: 'push', to: { screen: 'start' } });
     expect(railNavigation('series', 'series')).toEqual({ action: 'none' });
+  });
+  test('a nested screen (the library grid) knows the tab of the screen below it', () => {
+    expect(belowTab('vod', 'series', 'movie')).toBe('series');
+    expect(belowTab('vod', undefined, 'movie')).toBe('movies');
+    expect(belowTab('start', undefined, 'series')).toBe('start');
+    expect(belowTab('home', undefined, 'movie')).toBe('live');
+    expect(belowTab(undefined, undefined, 'series')).toBe('series');
+  });
+  test('from a nested screen: Search and Settings push; tabs pop it first, then move as the screen below would', () => {
+    expect(railFromNested('movies', 'series')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'series' } }]);
+    expect(railFromNested('movies', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
+    expect(railFromNested('movies', 'start')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'start' } }]);
+    expect(railFromNested('movies', 'movies')).toEqual([{ action: 'pop' }]);
+    expect(railFromNested('movies', 'search')).toEqual([{ action: 'pushScreen', screen: 'search' }]);
+    expect(railFromNested('start', 'movies')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'movie' } }]);
+    expect(railFromNested('start', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
+    expect(railFromNested('start', 'settings')).toEqual([{ action: 'pushScreen', screen: 'settings' }]);
   });
   test('every rail icon is a stroke icon', () => {
     for (const id of RAIL_ITEMS) expect(STROKE_ICON_KINDS).toContain(railIcon(id));

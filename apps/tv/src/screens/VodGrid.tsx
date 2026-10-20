@@ -13,7 +13,8 @@ import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { dwellSignal } from '../shell/dwell.ts';
 import { Rail } from '../shell/Rail.tsx';
-import { goRail } from '../shell/railNav.ts';
+import { belowTab } from '../shell/railLogic.ts';
+import { goRailNested } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -28,7 +29,7 @@ import { KIND_COPY } from '../vod/kindCopy.ts';
 import { lruSet } from '../vod/memoryLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
-import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
+import type { VodKind } from '../vod/tabLogic.ts';
 
 /**
  * Layout (1080p design space, UI revamp "Movies library"): the category header at the top left, the focused title and
@@ -82,6 +83,12 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { kind?: VodKind; categoryId?: string; sort?: VodSort };
   const kind: VodKind = params.kind ?? 'movie';
   const copy = KIND_COPY[kind];
+  /**
+   * The grid is pushed over Movies/Series browse or Start: the rail shows that screen's tab, and a tab choice pops the
+   * grid first, then moves as that screen would.
+   */
+  const lower = router.below();
+  const below = belowTab(lower?.screen, (lower?.params as { kind?: VodKind } | undefined)?.kind, kind);
 
   const [cats, setCats] = createSignal<VodCategoryView[]>([]);
   const [catIndex, setCatIndex] = createSignal(0);
@@ -438,7 +445,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}>
-      <Rail ref={(el) => { railNode = el; }} active={tabOfKind(kind)} onSelect={(t) => goRail(tabOfKind(kind), t, () => router.back())}
+      <Rail ref={(el) => { railNode = el; }} active={below} onSelect={(t) => { if (noOverlay()) goRailNested(below, t, () => router.back({ focusRail: true })); }}
         onRight={() => focusArea(total() > 0 ? 'grid' : 'header')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={cats().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}

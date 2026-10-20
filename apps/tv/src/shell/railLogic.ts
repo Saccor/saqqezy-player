@@ -1,6 +1,6 @@
 /** The left rail (UI revamp spec §1.3). Pure: no Solid, no Lightning. */
 import type { IconKind } from '../vod/icons.ts';
-import { tabNavigation, type TabId, type TabNav } from '../vod/tabLogic.ts';
+import { tabNavigation, tabOfKind, type TabId, type TabNav, type VodKind } from '../vod/tabLogic.ts';
 import { LAYOUT } from './theme.ts';
 
 export type RailId = TabId | 'search' | 'settings';
@@ -42,4 +42,26 @@ export type RailNav = TabNav | { action: 'pushScreen'; screen: 'search' | 'setti
 export function railNavigation(from: TabId, to: RailId): RailNav {
   if (to === 'search' || to === 'settings') return { action: 'pushScreen', screen: to };
   return tabNavigation(from, to);
+}
+
+/**
+ * The tab of the screen under a nested screen (the library grid, pushed over Movies/Series browse or Start). Unknown:
+ * the grid's own kind.
+ */
+export function belowTab(screen: string | undefined, kind: VodKind | undefined, ownKind: VodKind): TabId {
+  if (screen === 'start') return 'start';
+  if (screen === 'home') return 'live';
+  return tabOfKind(screen === 'vod' ? kind ?? ownKind : ownKind);
+}
+
+export type NestedRailStep = { action: 'pop' } | Exclude<RailNav, { action: 'none' }>;
+
+/**
+ * A rail choice on a nested screen: Search and Settings are pushed over it; a tab first pops it, then moves as the
+ * screen below (`below`) would, so the stack never keeps a stale tab.
+ */
+export function railFromNested(below: TabId, to: RailId): NestedRailStep[] {
+  const nav = railNavigation(below, to);
+  if (nav.action === 'pushScreen') return [nav];
+  return nav.action === 'none' ? [{ action: 'pop' }] : [{ action: 'pop' }, nav];
 }
