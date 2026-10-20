@@ -181,7 +181,7 @@ export function EpgGrid(props: {
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
                 <Logo url={ch()?.logo} />
                 <Text x={86} y={8} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}
-                  fontSize={FONT.small} color={chLit() ? 0xffffffcc : COLORS.muted}>
+                  fontSize={FONT.small} color={chLit() ? COLORS.onFocusMuted : COLORS.muted}>
                   {`${ch()?.number ?? ''}${ch()?.id === props.playingId && ch() ? ' ▶' : ''}`}
                 </Text>
                 <Text x={86} y={36} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}

@@ -60,7 +60,7 @@ export function ChannelRowView(props: {
   const r = () => props.row;
   const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
-  const textSub = () => (props.lit ? 0xffffffcc : COLORS.muted);
+  const textSub = () => (props.lit ? COLORS.onFocusMuted : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
   const numSize = () => (String(r()?.number ?? '').length >= 5 ? 20 : FONT.body);
   const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
@@ -86,7 +86,7 @@ export function ChannelRowView(props: {
       <Text x={textX} y={42} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={FONT.small} color={textSub()}>{nowLine()}</Text>
       <Show when={r()?.now}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
             color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>

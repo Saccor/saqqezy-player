@@ -55,7 +55,7 @@ export function InfoBanner(props: {
       <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.surfaceRaised}>
         {/* Five digits and more at 36 px: at 48 px they are wider than the box. */}
         <Text y={(LOGO_H - numSize()) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" maxLines={1} textAlign="center"
-          fontSize={numSize()} color={COLORS.onFocus}>{`${c().number}`}</Text>
+          fontSize={numSize()} color={COLORS.text}>{`${c().number}`}</Text>
       </View>
       <Show when={c().logo} keyed>{(url) => <BannerLogo url={url} />}</Show>
       <Text x={TEXT_X} y={PAD} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}
@@ -67,7 +67,7 @@ export function InfoBanner(props: {
       <Show when={props.live} keyed>{(l) => (
         <View x={BANNER_W - PAD - CLOCK_W} y={PAD + 76} width={CLOCK_W} height={110}>
           <Text width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
-            fontSize={FONT.body} color={l.hint ? COLORS.text : COLORS.text}>{l.text}</Text>
+            fontSize={FONT.body} color={COLORS.text}>{l.text}</Text>
           <Show when={l.hint}>
             <Text y={44} width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
               fontSize={FONT.small} color={COLORS.muted}>{l.hint}</Text>

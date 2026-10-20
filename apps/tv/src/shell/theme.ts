@@ -11,6 +11,10 @@ export const COLORS = {
   focus: 0xeef0f4ff,
   /** Text and icons on a focus fill. */
   onFocus: 0x0b0d12ff,
+  /** Secondary text on a focus fill. */
+  onFocusMuted: 0x4a505cff,
+  /** The unfilled part of a progress bar on a focus fill. */
+  onFocusTrack: 0xc5c9d2ff,
   /** Only progress fills, the guide's now line and similar position marks. */
   accent: 0x4f8cffff,
   text: 0xeef0f4ff,

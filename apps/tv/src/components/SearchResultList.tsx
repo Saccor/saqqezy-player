@@ -16,7 +16,7 @@ function ProgrammeRowView(props: {
 }) {
   const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : 0x00000000);
   const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
-  const textSub = () => (props.lit ? 0xffffffcc : COLORS.muted);
+  const textSub = () => (props.lit ? COLORS.onFocusMuted : COLORS.muted);
   const textX = NUM_W_PX + LOGO_W_PX + 20;
   const textW = props.width - textX - 20;
   const hit = () => props.row.hit;
@@ -35,7 +35,7 @@ function ProgrammeRowView(props: {
       <Text x={textX} y={8} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.body} color={textMain()}>{title()}</Text>
       <Text x={textX} y={42} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.small} color={textSub()}>{sub()}</Text>
       <Show when={props.row.kind === 'onNow'}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
           <View width={Math.round(textW * progressOf(hit(), props.now))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
       </Show>
@@ -63,9 +63,9 @@ function VodRowView(props: {
       <Text x={textX} y={8} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.body}
         color={props.lit ? COLORS.onFocus : COLORS.text}>{vodLine(t())}</Text>
       <Text x={textX} y={42} width={textW} maxWidth={textW} contain="width" maxLines={1} fontSize={FONT.small}
-        color={props.lit ? 0xffffffcc : COLORS.muted}>{sub()}</Text>
+        color={props.lit ? COLORS.onFocusMuted : COLORS.muted}>{sub()}</Text>
       <Show when={t().progress !== undefined}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? 0xffffff40 : TRACK}>
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
           <View width={Math.round(textW * (t().progress ?? 0))} height={BAR_H} color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
       </Show>
