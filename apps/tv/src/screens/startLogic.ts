@@ -1,6 +1,8 @@
 /** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
 import type { SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
-import { favToggleLabel } from '../copy.ts';
+import { HIDDEN_COMPETITIONS_MAX, PINNED_COMPETITIONS_MAX, competitionKey, type AppSettings } from '@iptv/core';
+import { CATCHUP_COPY, favToggleLabel } from '../copy.ts';
+import { joinMeta } from '../vod/stripLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 
@@ -47,6 +49,7 @@ export function locateStart(rows: StartRow[], mem: StartMemory): StartFocus {
 
 export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: number): string {
   if (e.start <= now && now < e.stop) return 'Live';
+  if (e.start > now && e.start - now < 3600_000) return `In ${Math.max(1, Math.round((e.start - now) / 60_000))} min`;
   const d = new Date(e.start);
   const today = new Date(now);
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
@@ -73,6 +76,48 @@ export function channelMenuItems(favourite: boolean): { id: 'fav' | 'cancel'; la
 }
 export const emptyStartText = () => 'Your start page fills up as you watch.';
 
+/** A match's strip meta: when, how many channels, then the guide's competition text or sub-title. */
+export const eventMeta = (e: SportsEventTile, now: number) => joinMeta(eventWhen(e, now), channelsLabel(e.channelCount), e.competition ?? e.subTitle);
+
+type MatchPrefs = Pick<AppSettings, 'followedTeams' | 'pinnedCompetitions' | 'hiddenCompetitions'>;
+const sameTeam = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * Long Ok / Menu on a match (design note live-matches-ranking §3.8): From the start when an airing has an archive,
+ * Follow or Unfollow each side, Put ‹competition› first (or undo it), Hide ‹competition›, Cancel. The competition is
+ * the user's own guide text.
+ */
+export function eventMenuItems(e: SportsEventTile, st: MatchPrefs, archived: boolean): { id: string; label: string }[] {
+  const items: { id: string; label: string }[] = [];
+  if (archived) items.push({ id: 'fromStart', label: CATCHUP_COPY.fromStart });
+  for (const side of e.sides ?? []) {
+    items.push({ id: `follow:${side}`, label: `${st.followedTeams.some((f) => sameTeam(f, side)) ? 'Unfollow' : 'Follow'} ${side}` });
+  }
+  if (e.competition) {
+    const pinned = st.pinnedCompetitions.includes(competitionKey(e.competition));
+    items.push({ id: 'pin', label: pinned ? `Don't put ${e.competition} first` : `Put ${e.competition} first` });
+    items.push({ id: 'hide', label: `Hide ${e.competition}` });
+  }
+  items.push({ id: 'cancel', label: 'Cancel' });
+  return items;
+}
+
+/** The settings change a menu choice makes (undefined: none). New competition keys go last; the oldest drop at the cap. */
+export function eventMenuPatch(choice: string, e: SportsEventTile, st: MatchPrefs): Partial<MatchPrefs> | undefined {
+  if (choice.startsWith('follow:')) {
+    const side = choice.slice(7);
+    const on = st.followedTeams.some((f) => sameTeam(f, side));
+    return { followedTeams: on ? st.followedTeams.filter((f) => !sameTeam(f, side)) : [...st.followedTeams, side] };
+  }
+  if (!e.competition || (choice !== 'pin' && choice !== 'hide')) return undefined;
+  const key = competitionKey(e.competition);
+  const pinned = st.pinnedCompetitions.filter((k) => k !== key);
+  if (choice === 'pin') {
+    return { pinnedCompetitions: pinned.length === st.pinnedCompetitions.length ? [...pinned, key].slice(-PINNED_COMPETITIONS_MAX) : pinned };
+  }
+  return { hiddenCompetitions: [...st.hiddenCompetitions.filter((k) => k !== key), key].slice(-HIDDEN_COMPETITIONS_MAX), pinnedCompetitions: pinned };
+}
+
 export function toPosterRow(r: StartRow): RowModel {
   const items = r.cells.flatMap((c) => (c.type === 'vod' ? [c.tile as VodTile] : []));
   const all = r.cells.find((c) => c.type === 'viewAll');
@@ -93,3 +138,42 @@ export function gridMove(count: number, cols: number, index: number, key: 'up' |
 
 /** Start's rows use the shared row slots (`components/rowSlots.ts`); the old names stay for Start's imports. */
 export { rowSlots as startRowSlots, type RowFrame as StartRowFrame } from '../components/rowSlots.ts';
+
+/** Matches in your guide copy (design note §3.8): neutral, never sport or league words of our own. */
+export const MATCHES_COPY = { title: 'Matches in your guide', empty: 'No matches in your guide right now.' } as const;
+
+const CHIP_MIN_W = 120;
+/** A long guide text is cut (one line) rather than pushing the other chips off the screen. */
+const CHIP_MAX_W = 320;
+const CHIP_PAD = 48;
+/** Roughly the body face's average glyph width at 1080p; chips only need to fit their label. */
+const CHIP_GLYPH = 17;
+/** ActionBar's gap between buttons. */
+const CHIP_GAP = 16;
+
+/**
+ * See all's category chips: All, then the user's own guide category texts. None when the guide has no categories.
+ * Each chip is at most CHIP_MAX_W; when the bar would pass `maxTotal`, the widest chips shrink to a shared cap.
+ */
+export function matchChipActions(categories: readonly { id: string; label: string }[], maxTotal = Infinity): { id: string; label: string; width: number }[] {
+  if (!categories.length) return [];
+  const chip = (id: string, label: string) => ({ id, label, width: Math.min(CHIP_MAX_W, Math.max(CHIP_MIN_W, CHIP_PAD + label.length * CHIP_GLYPH)) });
+  const out = [chip('all', 'All'), ...categories.map((c) => chip(c.id, c.label))];
+  let budget = maxTotal - CHIP_GAP * (out.length - 1);
+  if (out.reduce((s, c) => s + c.width, 0) <= budget) return out;
+  // Water-fill: the narrow chips keep their width, the rest share what is left.
+  const asc = [...out].sort((a, b) => a.width - b.width);
+  let left = asc.length;
+  for (const c of asc) {
+    const cap = Math.max(CHIP_MIN_W, Math.floor(budget / left));
+    if (c.width > cap) c.width = cap;
+    budget -= c.width;
+    left--;
+  }
+  return out;
+}
+
+/** The chip in effect: the first stored category the guide still offers, else All (a stale one does not filter). */
+export function activeMatchChip(chips: readonly { id: string }[], stored: readonly string[]): string {
+  return stored.find((id) => chips.some((c) => c.id === id)) ?? 'all';
+}

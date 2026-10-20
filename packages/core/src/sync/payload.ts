@@ -36,6 +36,7 @@ export const DELTA_MAX_BYTES = 64 * 1024;
 /** The settings that sync (§6.3). Device-tuned ones (`epgOffsetHours`, `preferredFormat`, `liveDelay`, …) never do. */
 export const SYNCED_SETTINGS: ReadonlySet<string> = new Set([
   'subtitleLanguage', 'audioLanguage', 'preferredLanguages', 'combineDuplicates', 'combineCategories', 'followedTeams', 'regions',
+  'pinnedCompetitions', 'hiddenCompetitions',
 ]);
 
 // ---------- value rules ----------

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, REGIONS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
+import {
+  DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, HIDDEN_COMPETITIONS_MAX, MATCH_CATEGORIES_MAX, PINNED_COMPETITIONS_MAX, REGIONS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings,
+} from '../src/settings.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -12,6 +14,7 @@ describe('sanitizeSettings', () => {
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
       regions: { codes: [], mode: 'off' }, combineCategories: false,
+      pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [],
     });
   });
 
@@ -32,6 +35,18 @@ describe('sanitizeSettings', () => {
     const many = Array.from({ length: 80 }, (_, i) => `Team ${i}`);
     expect(sanitizeSettings({ followedTeams: many }).followedTeams).toHaveLength(FOLLOWED_TEAMS_MAX);
     for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ followedTeams: v }).followedTeams).toEqual([]);
+  });
+
+  test('pinned and hidden competitions, match categories: folded, trimmed, 1-40 chars, deduped, capped', () => {
+    expect(sanitizeSettings({ pinnedCompetitions: ['  Northern   Cüp ', 'northern cup', '', 3, null, 'Test Cup'] }).pinnedCompetitions)
+      .toEqual(['northern cup', 'test cup']);
+    expect(sanitizeSettings({ hiddenCompetitions: ['x'.repeat(60)] }).hiddenCompetitions).toEqual(['x'.repeat(40)]);
+    const many = Array.from({ length: 80 }, (_, i) => `Cup ${i}`);
+    expect(sanitizeSettings({ pinnedCompetitions: many }).pinnedCompetitions).toHaveLength(PINNED_COMPETITIONS_MAX);
+    expect(sanitizeSettings({ hiddenCompetitions: many }).hiddenCompetitions).toHaveLength(HIDDEN_COMPETITIONS_MAX);
+    expect(sanitizeSettings({ matchCategories: many }).matchCategories).toHaveLength(MATCH_CATEGORIES_MAX);
+    expect(sanitizeSettings({ matchCategories: ['Fotboll'] }).matchCategories).toEqual(['fotboll']);
+    for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ pinnedCompetitions: v }).pinnedCompetitions).toEqual([]);
   });
 
   test('audioLanguage keeps a listed language code or auto, else auto (never off)', () => {

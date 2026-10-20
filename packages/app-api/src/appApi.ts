@@ -17,14 +17,14 @@ import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
-import { SportsController, eventTiles } from './sportsController.ts';
+import { SportsController, matchTiles, type MatchTiles } from './sportsController.ts';
 import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
+  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
@@ -578,22 +578,25 @@ export class AppApi {
     });
   }
 
+  /** Matches in your guide, See all: every passing match, then non-match sport, at most 100 (design note §3). */
   getSportsEvents(): Promise<SportsEventTile[]> {
-    return this.run('getSportsEvents', async () => {
-      const groups = await this.sportsGroups();
-      const settings = await this.currentSettings();
-      return eventTiles(groups, this.now(), settings.followedTeams, this.sports.aliases());
-    });
+    return this.run('getSportsEvents', async () => (await this.matchTiles()).all);
+  }
+
+  /** The chips of Matches in your guide: competitions and categories as the user's guide writes them. */
+  getMatchFilters(): Promise<MatchFilterChips> {
+    return this.run('getMatchFilters', async () => this.sports.filters(await this.sportsView()));
   }
 
   getEventChannels(key: string): Promise<ChannelRow[]> {
     return this.run('getEventChannels', async () => {
-      const e = (await this.sportsGroups()).find((g) => g.key === key);
+      const e = (await this.sportsView()).events.find((g) => g.key === key);
       if (!e) return [];
-      const chans = e.airings.map((a) => this.index.get(a.channelId)).filter((c): c is Channel => c !== undefined);
+      const at = new Map<string, { start: number }>();
+      for (const a of e.airings) for (const id of a.channelIds) if (!at.has(id)) at.set(id, a);
+      const chans = [...at.keys()].map((id) => this.index.get(id)).filter((c): c is Channel => c !== undefined);
       const rows = await this.toRows(chans);
       const now = this.now();
-      const at = new Map(e.airings.map((a) => [a.channelId, a]));
       return rows.sort((x, y) => compareAirings(
         { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
         { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
@@ -632,11 +635,12 @@ export class AppApi {
         safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
         safe(() => this.toRows(favs), [] as ChannelRow[]),
         safe(() => this.toRows(recents), [] as ChannelRow[]),
-        safe(() => this.getSportsEvents(), [] as SportsEventTile[]),
+        safe(() => this.matchTiles(), { row: [], all: [], total: 0, filtered: false } as MatchTiles),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
-      const parts: StartParts = { favourites, recents: recentRows, sports };
+      const parts: StartParts = { favourites, recents: recentRows, sports: sports.row, sportsTotal: sports.total };
+      if (sports.filtered) parts.sportsFiltered = true;
       if (lastRows[0]) parts.lastChannel = lastRows[0];
       // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
       if (movie || series) {
@@ -1634,9 +1638,17 @@ export class AppApi {
     this.nnCache = new Map();
   }
 
-  private async sportsGroups() {
+  private async matchTiles(): Promise<MatchTiles> {
+    const view = await this.sportsView();
+    const st = await this.currentSettings();
+    return matchTiles(view, this.now(), {
+      followed: st.followedTeams, pinned: st.pinnedCompetitions, hidden: st.hiddenCompetitions, categories: st.matchCategories,
+    }, this.sports.aliases());
+  }
+
+  private async sportsView() {
     const id = this.activeId;
-    if (!id) return [];
+    if (!id) return this.sports.view('', undefined, this.index, 0);
     const settings = await this.currentSettings();
     let rec = this.sportsRec?.sourceId === id ? this.sportsRec.rec : undefined;
     if (!rec) {
@@ -1644,7 +1656,7 @@ export class AppApi {
       // Only a found record is kept: a missing one may still be on its way.
       if (rec && this.activeId === id) this.sportsRec = { sourceId: id, rec };
     }
-    return this.sports.events(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
+    return this.sports.view(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
   }
 
   /**
@@ -2295,7 +2307,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
+  'getSportsEvents', 'getMatchFilters', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',

@@ -74,7 +74,9 @@ describe('sync payload', () => {
   });
 
   test('only the §6.3 settings sync; device-tuned and local ones never do', () => {
-    expect([...SYNCED_SETTINGS].sort()).toEqual(['audioLanguage', 'combineCategories', 'combineDuplicates', 'followedTeams', 'preferredLanguages', 'regions', 'subtitleLanguage']);
+    expect([...SYNCED_SETTINGS].sort()).toEqual([
+      'audioLanguage', 'combineCategories', 'combineDuplicates', 'followedTeams', 'hiddenCompetitions', 'pinnedCompetitions', 'preferredLanguages', 'regions', 'subtitleLanguage',
+    ]);
     const local = ['epgOffsetHours', 'preferredFormat', 'liveDelay', 'showClock', 'sleepTimerMinutes', 'openOn', 'posterSize', 'volume', 'recent'];
     const p = encodePayload(local.map((k) => rec('st', k, 1 as unknown as SyncValue, { sfp: '' })), T);
     expect(decodePayload(p)).toEqual([]);

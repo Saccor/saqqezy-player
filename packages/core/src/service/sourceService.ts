@@ -546,7 +546,7 @@ export class SourceService {
     }
     // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
     try {
-      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? { gen: newGen, built: now, candidates: sports.build(), truncated: sports.truncated } satisfies SportsIndexRecord : null);
+      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? sports.record(newGen, now) : null);
     } catch {
       try {
         await this.storage.setMeta(sportsIndexKey(id), null);
