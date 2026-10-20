@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "Q900001": {
+      "type": "item", "id": "Q900001",
+      "labels": { "sv": { "language": "sv", "value": "Syntetisk film" }, "en": { "language": "en", "value": "Synthetic Film" } },
+      "aliases": { "sv": [{ "language": "sv", "value": "Syntetisk film: Del ett" }, { "language": "sv", "value": "Synthetic Film" }] },
+      "sitelinks": { "svwiki": { "site": "svwiki", "title": "Syntetisk film (film, 2025)", "badges": [] } },
+      "claims": {
+        "P31": [{ "mainsnak": { "snaktype": "value", "property": "P31", "datavalue": { "value": { "entity-type": "item", "numeric-id": 11424, "id": "Q11424" }, "type": "wikibase-entityid" } }, "type": "statement", "rank": "normal" }],
+        "P4947": [{ "mainsnak": { "snaktype": "value", "property": "P4947", "datavalue": { "value": "910001", "type": "string" } }, "type": "statement", "rank": "normal" }],
+        "P345": [{ "mainsnak": { "snaktype": "value", "property": "P345", "datavalue": { "value": "tt9900001", "type": "string" } }, "type": "statement", "rank": "normal" }],
+        "P577": [
+          { "mainsnak": { "snaktype": "value", "property": "P577", "datavalue": { "value": { "time": "+2025-11-20T00:00:00Z", "precision": 11 }, "type": "time" } }, "type": "statement", "rank": "normal" },
+          { "mainsnak": { "snaktype": "value", "property": "P577", "datavalue": { "value": { "time": "+2025-09-02T00:00:00Z", "precision": 11 }, "type": "time" } }, "type": "statement", "rank": "normal" }
+        ]
+      }
+    },
+    "Q900002": {
+      "type": "item", "id": "Q900002",
+      "labels": { "en": { "language": "en", "value": "Synthetic Cartoon" } },
+      "sitelinks": { "svwiki": { "site": "svwiki", "title": "Synthetic Cartoon", "badges": [] } },
+      "claims": {
+        "P31": [
+          { "mainsnak": { "snaktype": "value", "property": "P31", "datavalue": { "value": { "id": "Q11424" }, "type": "wikibase-entityid" } }, "type": "statement", "rank": "deprecated" },
+          { "mainsnak": { "snaktype": "value", "property": "P31", "datavalue": { "value": { "id": "Q202866" }, "type": "wikibase-entityid" } }, "type": "statement", "rank": "normal" }
+        ],
+        "P577": [{ "mainsnak": { "snaktype": "value", "property": "P577", "datavalue": { "value": { "time": "+2024-00-00T00:00:00Z", "precision": 9 }, "type": "time" } }, "type": "statement", "rank": "normal" }]
+      }
+    },
+    "Q900003": {
+      "type": "item", "id": "Q900003",
+      "labels": { "sv": { "language": "sv", "value": "Syntetisk serie" }, "en": { "language": "en", "value": "Synthetic Series" } },
+      "sitelinks": { "svwiki": { "site": "svwiki", "title": "Syntetisk serie", "badges": [] } },
+      "claims": {
+        "P31": [{ "mainsnak": { "snaktype": "value", "property": "P31", "datavalue": { "value": { "id": "Q5398426" }, "type": "wikibase-entityid" } }, "type": "statement", "rank": "normal" }],
+        "P4983": [{ "mainsnak": { "snaktype": "value", "property": "P4983", "datavalue": { "value": "920003", "type": "string" } }, "type": "statement", "rank": "normal" }],
+        "P4947": [{ "mainsnak": { "snaktype": "somevalue", "property": "P4947" }, "type": "statement", "rank": "normal" }],
+        "P580": [{ "mainsnak": { "snaktype": "value", "property": "P580", "datavalue": { "value": { "time": "+2019-03-01T00:00:00Z", "precision": 11 }, "type": "time" } }, "type": "statement", "rank": "normal" }]
+      }
+    },
+    "Q900004": {
+      "type": "item", "id": "Q900004",
+      "labels": { "sv": { "language": "sv", "value": "Synthetic Person" } },
+      "sitelinks": { "svwiki": { "site": "svwiki", "title": "Synthetic Person", "badges": [] } },
+      "claims": {
+        "P31": [{ "mainsnak": { "snaktype": "value", "property": "P31", "datavalue": { "value": { "id": "Q5" }, "type": "wikibase-entityid" } }, "type": "statement", "rank": "normal" }]
+      }
+    },
+    "-1": { "site": "svwiki", "title": "Synthetic Missing", "missing": "" }
+  },
+  "success": 1
+}

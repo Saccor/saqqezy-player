@@ -1,0 +1,45 @@
+name = "iptv-trending"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+send_metrics = false
+
+# Public trending feed: Wikimedia pageviews + Wikidata (both CC0), optionally boosted by TMDB in the beta.
+# It never sees user data (CLAUDE.md rules 6 and 7): devices send a bare GET for a public JSON file.
+[observability]
+enabled = false
+
+[triggers]
+crons = ["0 */6 * * *"]
+
+# Top-level vars are what `wrangler dev` uses; `[env.production]` does not inherit them.
+# CONTACT goes into the User-Agent Wikimedia requires (a URL or an address of the operator). It is set at deploy
+# time, never committed: a run without it fails with a clear error.
+[vars]
+CONTACT = ""
+LANGS = "en,sv"
+
+[[r2_buckets]]
+binding = "FEEDS"
+bucket_name = "iptv-trending-dev"
+
+[dev]
+ip = "127.0.0.1"
+port = 8788
+
+# Production: `pnpm trending:deploy` runs `wrangler deploy --env production`.
+[env.production]
+
+[env.production.triggers]
+crons = ["0 */6 * * *"]
+
+[env.production.observability]
+enabled = false
+
+[env.production.vars]
+# Set CONTACT for the deploy, e.g. `wrangler deploy --env production --var CONTACT:https://example.com/contact`.
+CONTACT = ""
+LANGS = "en,sv,de,fr,es,it,nl,pl,tr,ar,fa,da,no,fi,pt"
+
+[[env.production.r2_buckets]]
+binding = "FEEDS"
+bucket_name = "iptv-trending"
