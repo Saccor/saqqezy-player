@@ -428,6 +428,19 @@ describe('SourceService – xtream', () => {
     expect(await storage.getMeta(`vodAt:series:${source.id}`)).toBe(0);
   });
 
+  test('updateSource keeps the stored catch-up time when the input has no such field; a value in the input wins', async () => {
+    routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
+    routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);
+    routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1', category_id: '1', num: 1 }]);
+    const { source } = await service.addSource(xInput);
+    await service.setCatchupOffset(source.id, 120);
+    const { catchupOffsetMin: _drop, ...edited } = { ...source, name: 'Renamed' };
+    await service.updateSource(edited);
+    expect((await storage.listSources())[0]).toMatchObject({ name: 'Renamed', catchupOffsetMin: 120 });
+    await service.updateSource({ ...edited, catchupOffsetMin: -60 });
+    expect((await storage.listSources())[0]?.catchupOffsetMin).toBe(-60);
+  });
+
   test('updateSource clears an Xtream source\'s VOD lists when the server or username changes', async () => {
     routes['api:auth'] = () => json({ user_info: { auth: 1, status: 'Active' } });
     routes['api:get_live_categories'] = () => json([{ category_id: '1', category_name: 'News' }]);

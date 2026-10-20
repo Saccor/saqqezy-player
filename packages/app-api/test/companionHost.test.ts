@@ -324,6 +324,16 @@ describe('CompanionHost', () => {
     expect(await s.api.getSource(sourceId)).toMatchObject({ name: 'Renamed', userAgent: 'SyntheticAgent/1.0', referrer: 'http://example.test/' });
   });
 
+  test('a phone edit keeps the manual catch-up time of the source (the phone has no such field)', async () => {
+    const s = setup();
+    const { sourceId } = await s.api.addSource(xt());
+    await s.api.setCatchupOffset(sourceId, -90);
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    expect(await p.call({ t: 'updateSource', source: { ...xt(), id: sourceId, name: 'Renamed' } })).toMatchObject({ ok: true });
+    expect(await s.api.getSource(sourceId)).toMatchObject({ name: 'Renamed', catchupOffsetMin: -90 });
+  });
+
   test('protocol 2: welcome carries the TV header support', async () => {
     const headerSupport = { lists: { userAgent: false, referrer: false }, streams: { userAgent: true, referrer: false } };
     const s = setup({ headerSupport });

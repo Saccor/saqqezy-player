@@ -113,6 +113,14 @@ describe('getCatchupPlayable (Xtream)', () => {
     expect((await api.diagnostics()).sources[0]!.catchupTime).toBe('Europe/Stockholm');
   });
 
+  test('a TV edit of the source (the login form has no Catch-up time) keeps the manual catch-up time', async () => {
+    const { api, sourceId } = await xtream();
+    await api.setCatchupOffset(sourceId, 60);
+    // What AddSource's edit mode sends: the login fields with the id (toUpdatedSource), no catchupOffsetMin.
+    await api.updateSource({ kind: 'xtream', id: sourceId, name: 'Renamed', server: server.url, username: 'test', password: 'test' });
+    expect(await api.getSource(sourceId)).toMatchObject({ name: 'Renamed', catchupOffsetMin: 60 });
+  });
+
   test('the source User-Agent goes with the archive URL', async () => {
     const { api, ch } = await xtream(undefined, { userAgent: 'SyntheticAgent/1.0' });
     const p = await api.getCatchupPlayable(ch(1), SLOT(NOW) - 2 * H);

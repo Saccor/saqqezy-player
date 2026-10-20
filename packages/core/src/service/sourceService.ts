@@ -162,11 +162,17 @@ export class SourceService {
     return { source, result };
   }
 
-  /** `userAgent` and `referrer` are stored trimmed and capped (absent when empty); the account limit comes from the login. */
+  /**
+   * `userAgent` and `referrer` are stored trimmed and capped (absent when empty); the account limit comes from the login.
+   * The Catch-up time (`catchupOffsetMin`) is set by `setCatchupOffset`; an input without the field (the TV's login
+   * form, the companion) keeps the stored one, and a value in the input replaces it.
+   */
   updateSource(input: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(input.id, async () => {
-      let source = withCleanCatchupOffset(withCleanHttpSettings(input));
-      const prev = (await this.storage.listSources()).find((s) => s.id === source.id);
+      const prev = (await this.storage.listSources()).find((s) => s.id === input.id);
+      const kept = !('catchupOffsetMin' in input) && prev?.catchupOffsetMin !== undefined
+        ? { ...input, catchupOffsetMin: prev.catchupOffsetMin } : input;
+      let source = withCleanCatchupOffset(withCleanHttpSettings(kept));
       const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
       source = withAccount(source, account);
       await this.storage.putSource(source);
