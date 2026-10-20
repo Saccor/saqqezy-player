@@ -3,6 +3,7 @@ import type { VodService } from '../service/vodService.ts';
 import type { AppSettings } from '../settings.ts';
 import type { Storage } from '../storage.ts';
 import type { SourceConfig } from '../types.ts';
+import { emptyVodLayout, type VodLayout } from '../vod/layout.ts';
 import type { VodKind } from '../vod/types.ts';
 import {
   BACKUP_PLAINTEXT_MAX, BackupError, fromBase64, importFingerprintKey, newBackupKeys, openBackup, toBase64,
@@ -35,8 +36,8 @@ export interface BackupDeps {
   now?: () => number;
   /** PBKDF2 iterations (tests only). */
   iterations?: number;
-  /** VOD user state, picks and splits; without it a backup carries none. */
-  vod?: Pick<VodService, 'getVodPicks' | 'getVodSplits' | 'applyRestore'>;
+  /** VOD user state, picks, splits and category layouts; without it a backup carries none. */
+  vod?: Pick<VodService, 'getVodPicks' | 'getVodSplits' | 'getVodLayout' | 'applyRestore'>;
   loadLayout(sourceId: string): Promise<Layout>;
   /** Applies restored ops to a source's layout without stamping (AppApi routes the active source through its index). */
   applyLayout(sourceId: string, ops: LayoutOp[]): Promise<void>;
@@ -187,14 +188,16 @@ export class BackupService {
     const { storage, clock, vod } = this.deps;
     const picks: Record<VodKind, Record<string, string>> = { movie: {}, series: {} };
     const splits: Record<VodKind, Set<string>> = { movie: new Set(), series: new Set() };
+    const vodLayout: Record<VodKind, VodLayout> = { movie: emptyVodLayout(), series: emptyVodLayout() };
     if (vod) {
       for (const kind of VOD_KINDS) {
         picks[kind] = await vod.getVodPicks(sourceId, kind);
         splits[kind] = await vod.getVodSplits(sourceId, kind);
+        vodLayout[kind] = await vod.getVodLayout(sourceId, kind);
       }
     }
     return {
-      sourceId, sfp, picks, splits,
+      sourceId, sfp, picks, splits, vodLayout: vod ? vodLayout : undefined,
       layout: await this.deps.loadLayout(sourceId),
       clocks: await clock.clocks(sourceId),
       vodUser: vod ? await storage.listVodUser(sourceId) : [],
@@ -211,7 +214,7 @@ export class BackupService {
     const changed = apply.filter((r) => !sameValue(current.get(registerKey(r)), r)).length;
     const plan = planSourceRestore(sourceId, state.layout, apply);
     if (plan.ops.length) await this.deps.applyLayout(sourceId, plan.ops);
-    if (this.deps.vod && (plan.vod.length || plan.picks.length || plan.splits.length)) await this.deps.vod.applyRestore(sourceId, plan);
+    if (this.deps.vod && (plan.vod.length || plan.picks.length || plan.splits.length || plan.vodLayout.length)) await this.deps.vod.applyRestore(sourceId, plan);
     await this.deps.clock.adopt(sourceId, plan.stamps);
     return changed;
   }

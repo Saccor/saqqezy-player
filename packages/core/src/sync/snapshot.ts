@@ -1,18 +1,20 @@
 import { GROUP_FAV } from '../constants.ts';
 import { emptyLayout, type Layout, type LayoutOp, type SortMode } from '../layout/types.ts';
 import { DEFAULT_SETTINGS, type AppSettings } from '../settings.ts';
+import type { VodLayout, VodLayoutOp } from '../vod/layout.ts';
 import type { VodKind, VodUserRecord, VodUserState } from '../vod/types.ts';
 import { encodeHlc, hlcWall, isHlc } from './hlc.ts';
 import { SYNC_KIND, clockKey, pairKey, parseClockKey, type SyncKind } from './keys.ts';
 import { SYNCED_SETTINGS } from './payload.ts';
 import { fromSid, toSid } from './ref.ts';
-import { registerKey, type ProgressValue, type SyncRecord, type SyncValue, type TracksValue } from './types.ts';
+import { registerKey, type ProgressValue, type RegionsValue, type SyncRecord, type SyncValue, type TracksValue } from './types.ts';
 
 /**
  * The bridge between this device's user state and sync records (S1 backup and restore; S2 reuses it).
  *
  * Export reads only the synced set of §6.3: the layout's lists, hidden items, renames, orders, sorts and `hideNoEpg`;
- * VOD progress, favourites, tracks, version picks and splits; the synced settings. Never `recent`, last channel,
+ * Your countries' groups shown over the region rule and the user's region per group; movie/series category hide,
+ * show and order; VOD progress, favourites, tracks, version picks and splits; the synced settings. Never `recent`, last channel,
  * device-tuned settings, sources, credentials, channels, catalogues or programmes: none of them is an input here.
  *
  * State that no clock stamped (written before S0, or settings changed before they were stamped) is either left out
@@ -45,6 +47,8 @@ export interface SourceState {
   vodUser: readonly VodUserRecord[];
   picks: Readonly<Record<VodKind, Readonly<Record<string, string>>>>;
   splits: Readonly<Record<VodKind, ReadonlySet<string>>>;
+  /** Movie/series category layouts; without them (no VOD service) a backup carries no category state. */
+  vodLayout?: Readonly<Record<VodKind, VodLayout>>;
 }
 
 const VOD_KINDS: readonly VodKind[] = ['movie', 'series'];
@@ -119,6 +123,32 @@ export function exportSource(s: SourceState, opts: ExportOptions): SyncRecord[] 
   for (const [target, mode] of Object.entries(l.sort)) put(K.sort, target, target, mode);
   put(K.hideNoEpg, '', '', l.hideNoEpg);
 
+  // Your countries: groups shown over the region rule (element set), the user's region per group (null = detection).
+  const shownG = new Set(l.shownGroups ?? []);
+  for (const id of shownG) put(K.shownGroup, id, id, true);
+  tombstones(K.shownGroup, (key) => shownG.has(key), (key) => ({ sid: key }), false);
+  const regionOf = l.groupRegion ?? {};
+  for (const [id, codes] of Object.entries(regionOf)) put(K.groupRegion, id, id, codes.slice());
+  tombstones(K.groupRegion, (key) => key in regionOf, (key) => ({ sid: key }), null);
+
+  // Movie/series categories: hidden and shown (element sets, key `<kind>|<id>`), order (whole array, key kind).
+  const vl = s.vodLayout;
+  if (vl) {
+    const has = (pick: (v: VodLayout) => readonly string[]) => (key: string) => {
+      const bar = key.indexOf('|');
+      const kind = key.slice(0, bar) as VodKind;
+      return bar > 0 && VOD_KINDS.includes(kind) && pick(vl[kind]).includes(key.slice(bar + 1));
+    };
+    const catRef = (key: string) => (VOD_KINDS.includes(key.slice(0, key.indexOf('|')) as VodKind) ? { sid: key } : undefined);
+    for (const kind of VOD_KINDS) {
+      for (const id of vl[kind].hiddenCategories) put(K.hiddenCategory, pairKey(kind, id), pairKey(kind, id), true);
+      for (const id of vl[kind].shownCategories) put(K.shownCategory, pairKey(kind, id), pairKey(kind, id), true);
+      put(K.categoryOrder, kind, kind, vl[kind].categoryOrder.slice());
+    }
+    tombstones(K.hiddenCategory, has((v) => v.hiddenCategories), catRef, false);
+    tombstones(K.shownCategory, has((v) => v.shownCategories), catRef, false);
+  }
+
   // VOD user state.
   for (const { itemId, state } of s.vodUser) {
     const id = sid(itemId);
@@ -155,6 +185,7 @@ function isDefault(k: SyncKind, key: string, v: SyncValue): boolean {
     case K.listChannels: return key === GROUP_FAV && Array.isArray(v) && v.length === 0;
     case K.groupOrder: return Array.isArray(v) && v.length === 0;
     case K.hideNoEpg: return v === EMPTY.hideNoEpg;
+    case K.categoryOrder: return Array.isArray(v) && v.length === 0;
     default: return false;
   }
 }
@@ -179,9 +210,27 @@ export function exportSettings(settings: AppSettings, clocks: ReadonlyMap<string
     const v = rec[name];
     // Unstamped defaults are left out, like the empty layout's.
     if (t === undefined && (opts.unstamped === 'skip' || JSON.stringify(v) === JSON.stringify(defaults[name]))) continue;
-    out.push({ k: K.setting, ref: { sfp: '', sid: name }, t: t ?? synthetic(), v: (Array.isArray(v) ? v.slice() : v) as SyncValue });
+    out.push({ k: K.setting, ref: { sfp: '', sid: name }, t: t ?? synthetic(), v: settingValue(name, v) });
   }
   return out;
+}
+
+/** A setting as a sync value: `regions` takes the payload's short shape (`{ m, c }`), lists are copied. */
+function settingValue(name: string, v: unknown): SyncValue {
+  if (name === 'regions') {
+    const r = v as AppSettings['regions'];
+    return { m: r.mode, c: r.codes.slice() } satisfies RegionsValue;
+  }
+  return (Array.isArray(v) ? v.slice() : v) as SyncValue;
+}
+
+/** A synced setting value back in `AppSettings` shape (`sanitizeSettings` checks it when saved). */
+function settingFromValue(name: string, v: SyncValue): unknown {
+  if (name === 'regions') {
+    const r = v as RegionsValue;
+    return { mode: r.m, codes: r.c.slice() };
+  }
+  return Array.isArray(v) ? v.slice() : v;
 }
 
 /** Records by register (`registerKey`): the local side of `mergeRecords`. */
@@ -209,6 +258,8 @@ export interface SourceRestorePlan {
   vod: VodRestore[];
   picks: { kind: VodKind; key: string; itemId: string }[];
   splits: { kind: VodKind; key: string; on: boolean }[];
+  /** Movie/series category ops per kind (only kinds that change). */
+  vodLayout: { kind: VodKind; ops: VodLayoutOp[] }[];
   /** Clocks to adopt (real stamps only), by this device's clock keys. */
   stamps: StampEntry[];
 }
@@ -240,7 +291,7 @@ export function applyVodRestore(prev: VodUserState | undefined, r: VodRestore): 
  * writes, picks, splits and the clocks to adopt.
  */
 export function planSourceRestore(sourceId: string, layout: Layout, winners: readonly SyncRecord[]): SourceRestorePlan {
-  const plan: SourceRestorePlan = { ops: [], vod: [], picks: [], splits: [], stamps: [] };
+  const plan: SourceRestorePlan = { ops: [], vod: [], picks: [], splits: [], vodLayout: [], stamps: [] };
   const local = (refSid: string) => fromSid(sourceId, refSid);
   const by = new Map<SyncKind, SyncRecord[]>();
   for (const r of winners) {
@@ -352,7 +403,53 @@ export function planSourceRestore(sourceId: string, layout: Layout, winners: rea
     if (typeof r.v === 'boolean') ops.push({ op: 'setHideNoEpg', value: r.v });
   }
 
-  // 8. VOD: one change per item.
+  // 8. Your countries: shown groups (element set), region per group (null: back to detection).
+  const shownOn: string[] = [];
+  const shownOff: string[] = [];
+  for (const r of of(K.shownGroup)) {
+    stamp(K.shownGroup, r.ref.sid, r.t);
+    (r.v === true ? shownOn : shownOff).push(r.ref.sid);
+  }
+  if (shownOn.length) ops.push({ op: 'showGroups', ids: shownOn });
+  if (shownOff.length) ops.push({ op: 'unshowGroups', ids: shownOff });
+  for (const r of of(K.groupRegion)) {
+    stamp(K.groupRegion, r.ref.sid, r.t);
+    ops.push({ op: 'setGroupRegion', id: r.ref.sid, codes: Array.isArray(r.v) ? (r.v as string[]).slice() : null });
+  }
+  // 9. Movie/series categories, per kind.
+  const catOps = new Map<VodKind, VodLayoutOp[]>();
+  const catOp = (kind: VodKind, op: VodLayoutOp) => {
+    const list = catOps.get(kind);
+    if (list) list.push(op);
+    else catOps.set(kind, [op]);
+  };
+  const catFlags = (k: SyncKind, on: 'hideCategories' | 'showCategories', off: 'unhideCategories' | 'unshowCategories') => {
+    const sets = new Map<VodKind, { on: string[]; off: string[] }>();
+    for (const r of of(k)) {
+      const bar = r.ref.sid.indexOf('|');
+      const kind = r.ref.sid.slice(0, bar) as VodKind;
+      if (bar <= 0 || !VOD_KINDS.includes(kind)) continue;
+      stamp(k, r.ref.sid, r.t);
+      let e = sets.get(kind);
+      if (!e) sets.set(kind, (e = { on: [], off: [] }));
+      (r.v === true ? e.on : e.off).push(r.ref.sid.slice(bar + 1));
+    }
+    for (const [kind, e] of sets) {
+      if (e.on.length) catOp(kind, { op: on, ids: e.on });
+      if (e.off.length) catOp(kind, { op: off, ids: e.off });
+    }
+  };
+  catFlags(K.hiddenCategory, 'hideCategories', 'unhideCategories');
+  catFlags(K.shownCategory, 'showCategories', 'unshowCategories');
+  for (const r of of(K.categoryOrder)) {
+    const kind = r.ref.sid as VodKind;
+    if (!VOD_KINDS.includes(kind) || !Array.isArray(r.v)) continue;
+    stamp(K.categoryOrder, kind, r.t);
+    catOp(kind, { op: 'setCategoryOrder', ids: (r.v as string[]).slice() });
+  }
+  plan.vodLayout = [...catOps].map(([kind, list]) => ({ kind, ops: list }));
+
+  // 10. VOD: one change per item.
   const vod = new Map<string, VodRestore>();
   const item = (id: string) => {
     let v = vod.get(id);
@@ -402,7 +499,7 @@ export function planSettingsRestore(winners: readonly SyncRecord[]): { patch: Pa
   const stamps: StampEntry[] = [];
   for (const r of winners) {
     if (r.k !== K.setting || r.ref.sfp !== '' || !SYNCED_SETTINGS.has(r.ref.sid)) continue;
-    patch[r.ref.sid] = Array.isArray(r.v) ? r.v.slice() : r.v;
+    patch[r.ref.sid] = settingFromValue(r.ref.sid, r.v);
     if (!isSyntheticStamp(r.t)) stamps.push({ key: clockKey(K.setting, r.ref.sid), t: r.t });
   }
   return { patch: patch as Partial<AppSettings>, stamps };

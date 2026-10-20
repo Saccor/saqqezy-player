@@ -89,6 +89,34 @@ describe('BackupService', () => {
     expect(again.applied).toBe(0);
   });
 
+  test('Your countries travel too: shown groups, group regions, category layouts and the regions setting', async () => {
+    const a = device('nodeaa');
+    await a.storage.putSource(xtA);
+    await a.edit('a1', [
+      { op: 'showGroups', ids: ['g:DK | Synthetic Kids'] },
+      { op: 'setGroupRegion', id: 'g:Synthetic Mixed', codes: ['SE'] },
+    ]);
+    await a.vod.applyVodLayoutOps('a1', 'movie', [{ op: 'hideCategories', ids: ['c-11'] }, { op: 'setCategoryOrder', ids: ['c-13', 'c-11'] }]);
+    await a.vod.applyVodLayoutOps('a1', 'series', [{ op: 'showCategories', ids: ['c-21'] }]);
+    await a.service.saveSettings({ regions: { mode: 'only', codes: ['SE', 'lang:sv'] }, combineCategories: true });
+    const made = await a.backup.create();
+
+    const b = device('nodebb');
+    await b.storage.putSource({ ...xtA, id: 'b9' });
+    await b.backup.restore(made.envelope, made.code);
+    const l = await b.service.loadLayout('b9');
+    expect(l.shownGroups).toEqual(['g:DK | Synthetic Kids']);
+    expect(l.groupRegion).toEqual({ 'g:Synthetic Mixed': ['SE'] });
+    expect(await b.vod.getVodLayout('b9', 'movie')).toMatchObject({ hiddenCategories: ['c-11'], categoryOrder: ['c-13', 'c-11'] });
+    expect((await b.vod.getVodLayout('b9', 'series')).shownCategories).toEqual(['c-21']);
+    const s = await b.service.getSettings();
+    expect(s.regions).toEqual({ mode: 'only', codes: ['SE', 'lang:sv'] });
+    expect(s.combineCategories).toBe(true);
+    // A's stamps are adopted, not new ones: restoring again changes nothing.
+    expect((await b.clock.clocks('b9')).get('ch:movie|c-11')).toBe((await a.clock.clocks('a1')).get('ch:movie|c-11'));
+    expect((await b.backup.restore(made.envelope, made.code)).applied).toBe(0);
+  });
+
   test('a newer edit on the restoring TV is kept', async () => {
     const a = await deviceAWithState();
     const made = await a.backup.create();

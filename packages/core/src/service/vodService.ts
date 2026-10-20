@@ -295,7 +295,11 @@ export class VodService {
    */
   async applyRestore(
     sourceId: string,
-    changes: { vod: readonly VodRestore[]; picks: readonly { kind: VodKind; key: string; itemId: string }[]; splits: readonly { kind: VodKind; key: string; on: boolean }[] },
+    changes: {
+      vod: readonly VodRestore[]; picks: readonly { kind: VodKind; key: string; itemId: string }[]; splits: readonly { kind: VodKind; key: string; on: boolean }[];
+      /** Category ops per kind (backup of Your countries); applied without stamping, like the rest. */
+      vodLayout?: readonly { kind: VodKind; ops: readonly VodLayoutOp[] }[];
+    },
   ): Promise<void> {
     if (!(await this.source(sourceId))) return;
     if (changes.vod.length) {
@@ -328,6 +332,14 @@ export class VodService {
             else keys.delete(sp.key);
           }
           await this.storage.setMeta(meta, keys.size ? [...keys] : null);
+        });
+      }
+      const cat = changes.vodLayout?.find((x) => x.kind === kind);
+      if (cat?.ops.length) {
+        const meta = vodLayoutKey(kind, sourceId);
+        await this.withLock(meta, async () => {
+          const res = applyVodOps(await this.getVodLayout(sourceId, kind), kind, cat.ops);
+          if (res.changed) await this.storage.setMeta(meta, res.layout);
         });
       }
     }
