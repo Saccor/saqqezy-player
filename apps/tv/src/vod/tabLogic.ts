@@ -50,5 +50,5 @@ export function tabNavigation(from: TabId, to: TabId): TabNav {
 }
 
 export function tabParams(to: OverTab): Record<string, unknown> {
-  return to.screen === 'vod' ? { kind: to.kind, focus: 'tabs' } : { focus: 'tabs' };
+  return to.screen === 'vod' ? { kind: to.kind, focus: 'rail' } : { focus: 'rail' };
 }

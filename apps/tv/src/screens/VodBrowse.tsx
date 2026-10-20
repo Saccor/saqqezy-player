@@ -98,10 +98,10 @@ const FAV_ON_ACTION = { id: 'fav', label: FAV_COPY.in, width: 300 };
  * categories).
  */
 export function VodBrowseScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { kind?: VodKind; focus?: 'tabs' | 'content' };
+  const params = props.entry.params as { kind?: VodKind; focus?: 'rail' | 'content' };
   const kind: VodKind = params.kind ?? 'movie';
   const copy = KIND_COPY[kind];
-  const startOnTabs = params.focus === 'tabs';
+  const startOnTabs = params.focus === 'rail';
   delete params.focus;
 
   const [home, setHome] = createSignal<VodHome | undefined>(undefined);

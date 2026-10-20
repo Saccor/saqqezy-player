@@ -29,8 +29,8 @@ describe('tabLogic', () => {
     expect(tabNavigation('movies', 'start')).toEqual({ action: 'replace', to: { screen: 'start' } });
     expect(tabNavigation('start', 'live')).toEqual({ action: 'back' });
     expect(tabNavigation('series', 'live')).toEqual({ action: 'back' });
-    expect(tabParams({ screen: 'vod', kind: 'movie' })).toEqual({ kind: 'movie', focus: 'tabs' });
-    expect(tabParams({ screen: 'start' })).toEqual({ focus: 'tabs' });
+    expect(tabParams({ screen: 'vod', kind: 'movie' })).toEqual({ kind: 'movie', focus: 'rail' });
+    expect(tabParams({ screen: 'start' })).toEqual({ focus: 'rail' });
   });
   test('tabs and kinds', () => {
     expect(tabOfKind('movie')).toBe('movies');

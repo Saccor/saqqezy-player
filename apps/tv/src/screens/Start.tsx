@@ -49,8 +49,8 @@ const memories = new Map<string, { focus: StartMemory; cols: Map<string, number>
 
 /** Start: the tab bar, a hero for the focused cell, and rows built from the user's own data (spec §2). */
 export function StartScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { focus?: 'tabs' };
-  const startOnTabs = params.focus === 'tabs';
+  const params = props.entry.params as { focus?: 'rail' };
+  const startOnTabs = params.focus === 'rail';
   delete params.focus;
   const memKey = initState()?.activeSourceId ?? '';
   const memory = memories.get(memKey) ?? { focus: { row: 0, col: 0 }, cols: new Map<string, number>() };
