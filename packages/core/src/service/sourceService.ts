@@ -1,4 +1,5 @@
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
+import { epgLongestKey, lookBackFor, type EpgLongestRecord } from '../epg/lookBack.ts';
 import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
 import { ChannelIndex } from '../index/channelIndex.ts';
@@ -389,6 +390,8 @@ export class SourceService {
     const now = this.now();
     let batch: Programme[] = [];
     let stored = 0;
+    /** Longest stored programme (ms): the look-back of reads from this generation. */
+    let longest = 0;
     const coverage = new Set<string>();
     const titles = new TitleIndexBuilder();
     const sports = new SportsIndexBuilder(now);
@@ -414,6 +417,7 @@ export class SourceService {
         // The parser's object is ours: it becomes the stored record (no copy per programme).
         p.epgId = key;
         batch.push(p);
+        if (p.stop - p.start > longest) longest = p.stop - p.start;
         titles.add(p.title, key, p.start, p.stop);
         if (sportsOk) {
           try {
@@ -474,6 +478,7 @@ export class SourceService {
         // Best effort: an older record has another gen, so it still reads as missing.
       }
     }
+    await this.storage.setMeta(epgLongestKey(id), { gen: newGen, ms: longest } satisfies EpgLongestRecord);
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
     await this.storage.setMeta(`epgStaging:${id}`, null);
@@ -512,7 +517,10 @@ export class SourceService {
 
   async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
     const keys = channels.map(epgKey);
-    const progs = await this.storage.getProgrammes(await this.currentEpgKey(id), keys, from, to);
+    // Read side by side: the live generation and the longest programme it holds.
+    const [gen, longest] = await Promise.all([this.currentGen(id), this.storage.getMeta<unknown>(epgLongestKey(id))]);
+    const key = gen === undefined ? id : `${id}@${gen}`;
+    const progs = await this.storage.getProgrammes(key, keys, from, to, lookBackFor(longest, gen ?? 0));
     const byKey = new Map<string, Programme[]>();
     for (const p of progs) {
       const list = byKey.get(p.epgId) ?? [];

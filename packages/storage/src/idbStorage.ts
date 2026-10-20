@@ -163,13 +163,13 @@ export class IdbStorage implements Storage {
     await done(tx);
   }
 
-  async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]> {
+  async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number, lookBackMs = MAX_PROGRAMME_MS): Promise<Programme[]> {
     const db = await this.db();
     const index = db.transaction('programmes').objectStore('programmes').index('byChannel');
     // Issue all requests synchronously so the transaction never goes inactive between awaits.
     const pending: Promise<Programme[]>[] = [];
     for (const epgId of new Set(epgIds)) {
-      const range = IDBKeyRange.bound([sourceId, epgId, from - MAX_PROGRAMME_MS], [sourceId, epgId, to], false, true);
+      const range = IDBKeyRange.bound([sourceId, epgId, from - lookBackMs], [sourceId, epgId, to], false, true);
       pending.push(req(index.getAll(range)) as Promise<Programme[]>);
     }
     const out: Programme[] = [];

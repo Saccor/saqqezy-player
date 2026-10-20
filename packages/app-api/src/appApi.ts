@@ -240,7 +240,7 @@ export class AppApi {
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
-      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `startHome:${id}`, formatMemoKey(id), liveAudioKey(id)]) {
+      for (const key of [`flags:${id}`, `layout:${id}`, `epgCoverage:${id}`, `lastChannel:${id}`, `lastGroup:${id}`, `titleIndex:${id}`, `sportsIndex:${id}`, `epgLongest:${id}`, `startHome:${id}`, formatMemoKey(id), liveAudioKey(id)]) {
         await this.storage.setMeta(key, null);
       }
       const next = await this.resolveActive();

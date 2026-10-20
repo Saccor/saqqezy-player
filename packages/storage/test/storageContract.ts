@@ -113,6 +113,18 @@ export function storageContract(name: string, make: () => Promise<Storage> | Sto
       expect(got[0]).toMatchObject(prog('a', 1, 2));
     });
 
+    test('programmes: the look-back bounds how far before "from" a read starts', async () => {
+      const s = await make();
+      await s.addProgrammes('s1', [prog('a', 1, 10), prog('a', 8, 9.5), prog('b', 9, 11)]);
+      const from = 9 * 3600_000;
+      const to = 10 * 3600_000;
+      // Default look-back (MAX_PROGRAMME_MS): the 9-hour programme is found.
+      expect((await s.getProgrammes('s1', ['a', 'b'], from, to)).map((p) => p.title)).toEqual(['a@1', 'a@8', 'b@9']);
+      // A 2-hour look-back: only programmes that start within 2 h before "from" are looked at.
+      expect((await s.getProgrammes('s1', ['a', 'b'], from, to, 2 * 3600_000)).map((p) => p.title)).toEqual(['a@8', 'b@9']);
+      expect((await s.getProgrammes('s1', ['a', 'b'], from, to, 0)).map((p) => p.title)).toEqual(['b@9']);
+    });
+
     test('programmes: multiple addProgrammes batches accumulate', async () => {
       const s = await make();
       await s.addProgrammes('s1', [prog('a', 1, 2)]);

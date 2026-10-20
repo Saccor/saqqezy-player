@@ -13,10 +13,11 @@ export interface Storage {
   /** Takes the batch over: an implementation may tag and store its objects instead of copying them. */
   addProgrammes(sourceId: string, batch: Programme[]): Promise<void>;
   /**
-   * Programmes of `epgIds` that overlap [`from`, `to`), sorted by epgId then start.
+   * Programmes of `epgIds` that overlap [`from`, `to`), sorted by epgId then start. Only programmes that start at most
+   * `lookBackMs` (default `MAX_PROGRAMME_MS`) before `from` are looked at: pass the longest stored programme.
    * Records may carry the storage's own fields (IndexedDB's `sourceId`) besides the Programme ones.
    */
-  getProgrammes(sourceId: string, epgIds: string[], from: number, to: number): Promise<Programme[]>;
+  getProgrammes(sourceId: string, epgIds: string[], from: number, to: number, lookBackMs?: number): Promise<Programme[]>;
   /** Calls `fn` (synchronously) for every stored programme of `sourceId`, in no particular order (records as above). */
   forEachProgramme(sourceId: string, fn: (p: Programme) => void): Promise<void>;
   getVod(sourceId: string, kind: VodKind): Promise<VodList | undefined>;
@@ -27,5 +28,5 @@ export interface Storage {
   clearAll(): Promise<void>;
 }
 
-/** Longest programme we look back for when querying overlaps. */
+/** Longest programme we look back for when querying overlaps (the default, and the cap of a recorded look-back). */
 export const MAX_PROGRAMME_MS = 24 * 3600_000;

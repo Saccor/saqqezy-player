@@ -6,6 +6,7 @@ import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../src/
 import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
+import { MAX_PROGRAMME_MS } from '../src/storage.ts';
 
 const detectFlags = vi.hoisted(() => ({ throwOnScore: false }));
 vi.mock('../src/sports/detect.ts', async (importOriginal) => {
@@ -207,6 +208,43 @@ describe('SourceService – m3u', () => {
     const nn = await service.nowNextFor(source.id, channels);
     const ch1 = channels.find((c) => c.epgId === 'ch1.test')!;
     expect(nn.get(ch1.id)?.now?.title).toBe('Evening Bulletin');
+  });
+
+  test('refreshEpg records the longest stored programme with the generation; reads look back only that far', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const gen = await storage.getMeta<number>(`epgGen:${source.id}`);
+    // Both stored programmes of the fixture last 30 minutes.
+    expect(await storage.getMeta(`epgLongest:${source.id}`)).toEqual({ gen, ms: 30 * 60_000 });
+    const channels = (await service.loadIndex(source.id)).slice('all', 0, 10);
+    const reads = vi.spyOn(storage, 'getProgrammes');
+    const lookBack = () => reads.mock.calls.at(-1)![4];
+    expect((await service.nowNextFor(source.id, channels)).size).toBe(channels.length);
+    expect(lookBack()).toBe(30 * 60_000);
+    // Missing, from another generation, or malformed: the 24-hour default. Never more than that.
+    for (const [meta, want] of [
+      [null, MAX_PROGRAMME_MS], [{ gen: gen! + 1, ms: 60_000 }, MAX_PROGRAMME_MS], [{ gen, ms: 'x' }, MAX_PROGRAMME_MS],
+      [{ gen, ms: 3 * MAX_PROGRAMME_MS }, MAX_PROGRAMME_MS], [{ gen, ms: 7_200_000 }, 7_200_000],
+    ] as const) {
+      await storage.setMeta(`epgLongest:${source.id}`, meta);
+      await service.programmesFor(source.id, channels, NOW, NOW + 1);
+      expect(lookBack()).toBe(want);
+    }
+  });
+
+  test('a failed guide import keeps the longest programme of the live generation', async () => {
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const before = await storage.getMeta(`epgLongest:${source.id}`);
+    // The download breaks off after the first programmes.
+    routes['/epg.xml'] = () => new Response(new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(xml.slice(0, xml.indexOf('</programme>') + 12)));
+        c.error(new TypeError('connection reset'));
+      },
+    }));
+    await expect(service.refreshEpg(source.id)).rejects.toThrow();
+    expect(await storage.getMeta(`epgLongest:${source.id}`)).toEqual(before);
   });
 
   test('deleteSource removes it and moves active to the next source', async () => {

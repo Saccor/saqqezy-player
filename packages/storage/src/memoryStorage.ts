@@ -1,4 +1,4 @@
-import type { Channel, Programme, SourceConfig, Storage, VodKind, VodList, VodUserRecord, VodUserState } from '@iptv/core';
+import { MAX_PROGRAMME_MS, type Channel, type Programme, type SourceConfig, type Storage, type VodKind, type VodList, type VodUserRecord, type VodUserState } from '@iptv/core';
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -35,10 +35,11 @@ export class MemoryStorage implements Storage {
     this.programmes.set(sourceId, list);
   }
 
-  async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number) {
+  async getProgrammes(sourceId: string, epgIds: string[], from: number, to: number, lookBackMs = MAX_PROGRAMME_MS) {
     const wanted = new Set(epgIds);
+    const earliest = from - lookBackMs;
     return (this.programmes.get(sourceId) ?? [])
-      .filter((p) => wanted.has(p.epgId) && p.start < to && p.stop > from)
+      .filter((p) => wanted.has(p.epgId) && p.start >= earliest && p.start < to && p.stop > from)
       .sort((a, b) => (a.epgId < b.epgId ? -1 : a.epgId > b.epgId ? 1 : a.start - b.start))
       .map(clone);
   }
