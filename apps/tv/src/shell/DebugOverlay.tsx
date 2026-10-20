@@ -84,7 +84,7 @@ export function DebugOverlay() {
     <Show when={visible()}>
       <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - HEIGHT} width={WIDTH} height={HEIGHT} color={0x000000cc}
         borderRadius={LAYOUT.radius} zIndex={100}>
-        <Text x={16} y={12} fontSize={FONT.small} color={COLORS.focus}>Debug</Text>
+        <Text x={16} y={12} fontSize={FONT.small} color={COLORS.accent}>Debug</Text>
         <Index each={lines()}>
           {(l, i) => <Text x={16} y={12 + LINE * (i + 1)} fontSize={FONT.small} color={COLORS.text}>{l()}</Text>}
         </Index>

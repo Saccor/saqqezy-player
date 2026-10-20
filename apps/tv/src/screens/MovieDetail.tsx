@@ -5,50 +5,51 @@ import { api } from '../api.ts';
 import { FAV_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
-import { POSTER_H, PosterTile } from '../components/PosterTile.tsx';
+import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
-import { minutesLeft, resumeBarShown, resumeLabel, titleLengthMs } from '../vod/vodPlayerLogic.ts';
+import { minutesLeft, resumeBarShown, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
-import { DetailBackdrop } from '../vod/DetailBackdrop.tsx';
+import { Backdrop } from '../vod/Backdrop.tsx';
+import { iconTexture } from '../vod/icons.ts';
+import { joinMeta } from '../vod/stripLogic.ts';
 import { createFavToggle } from '../vod/favToggle.ts';
-import { versionRows, versionsBadge } from '../vod/versionsLogic.ts';
+import { versionRows } from '../vod/versionsLogic.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 
 const VERSIONS_ID = 'movie-versions';
 
 const BG = COLORS.background;
-const POSTER_X = LAYOUT.safeX;
-const POSTER_Y = 150;
-const BIG_W = 320;
-const BIG_H = 480;
-const INFO_X = POSTER_X + BIG_W + 56;
-const INFO_W = LAYOUT.width - LAYOUT.safeX - INFO_X;
-/**
- * The More row's label: the row (44 + POSTER_H below it) ends at the safe bottom (1016). In pointer mode it sits 50 px
- * higher, so the shell's Back button (978–1026, bottom left) never covers the first poster.
- */
-const MORE_LABEL_Y = 690;
-const MORE_LABEL_Y_POINTER = 640;
+const INFO_X = LAYOUT.safeX;
+const INFO_W = 980;
+const TITLE_Y = 150;
+const META_Y = 236;
+const PLOT_Y = 280;
+const CREDITS_Y = 410;
+const ACTIONS_Y = 520;
+const RESUME_Y = ACTIONS_Y + 92;
+const MORE_LABEL_Y = 694;
+/** Pointer mode: 50 px higher, so the shell's Back button (978–1026, bottom left) never covers the first poster. */
+const MORE_LABEL_Y_POINTER = 644;
+const FAV_W = 64;
 
 type Area = 'actions' | 'more';
 
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
-/** Movie detail: poster, backdrop, title, meta, plot, director and cast, Play and Favourite, and More in <category>. */
+/** Movie detail: backdrop, title, meta, plot, credits, pill actions and More like this. */
 export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { id: string; tile?: VodTile };
   const [view, setView] = createSignal<MovieView | undefined>(undefined);
   const [loaded, setLoaded] = createSignal(false);
   const [loadFailed, setLoadFailed] = createSignal(false);
-  const [catName, setCatName] = createSignal('');
   const [moreCol, setMoreCol] = createSignal(0);
   const [area, setArea] = createSignal<Area>('actions');
   const moreY = () => (pointerMode() ? MORE_LABEL_Y_POINTER : MORE_LABEL_Y);
@@ -116,15 +117,6 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     if (v) fav.clear();
     setLoaded(true);
     settleFocus();
-    if (v && catName() === '') {
-      let name = '';
-      try {
-        name = (await api.getVodCategories('movie')).find((c) => c.id === v.tile.categoryId)?.name ?? '';
-      } catch (err) {
-        console.warn('Categories load failed', errName(err));
-      }
-      if (alive && g === gen) setCatName(name);
-    }
   };
 
   const resumeMs = () => view()?.resumeMs ?? 0;
@@ -132,11 +124,12 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : 0);
   const actions = () => [
     ...(resumeMs() > 0
-      ? [{ id: 'play', label: resumeLabel(resumeMs()), width: 360 }, { id: 'start', label: 'Play from start', width: 260 }]
-      : [{ id: 'play', label: 'Play', width: 220 }]),
-    { id: 'fav', label: tile()?.favourite ? FAV_COPY.in : FAV_COPY.add, width: 320 },
-    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `Versions (${view()!.versions.length})`, width: 240 }] : []),
+      ? [{ id: 'play', label: 'Resume', width: 220 }, { id: 'start', label: 'From start', width: 220 }]
+      : [{ id: 'play', label: 'Play', width: 180 }]),
+    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `${view()!.versions.length} versions`, width: 220 }] : []),
     ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
+    { id: 'fav', label: tile()?.favourite ? FAV_COPY.in : FAV_COPY.add, width: FAV_W, round: true,
+      icon: iconTexture(tile()?.favourite ? 'heartFilled' : 'heart') },
   ];
   const onAction = async (id: string) => {
     const t = tile();
@@ -178,6 +171,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const menu = createPosterMenu({
     refocus: () => { if (alive) focusArea(menuArea, true); },
     onChanged: () => { if (alive) void load(false); },
+    // Play from the menu shares this screen's launcher (one press at a time).
+    play: { launcher },
   });
   const openMenu = (col: number) => {
     const t = moreRow().items[col];
@@ -236,51 +231,39 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={BG} onBack={() => { router.back(); return true; }}>
-      <DetailBackdrop url={backdrop()} />
+      <Backdrop url={backdrop()} area="detail" />
       <View zIndex={2}>
 
-      <PosterTile x={POSTER_X} y={POSTER_Y} w={BIG_W} h={BIG_H} tile={tile()} lit={false} />
-      <Text x={INFO_X} y={POSTER_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{tile()?.title ?? ''}</Text>
-      <Text x={INFO_X} y={POSTER_Y + 86} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.text}>
-        {[
-          metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }),
-          versionsBadge(tile()?.quality, view()?.versions ?? []),
-        ].filter(Boolean).join(' · ')}
+      <Text x={INFO_X} y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.detailTitle} {...STRONG}
+        color={COLORS.text}>{tile()?.title ?? ''}</Text>
+      <Text x={INFO_X} y={META_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
+        {joinMeta(metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }), tile()?.quality)}
       </Text>
-      <Text x={INFO_X} y={POSTER_Y + 136} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={4} fontSize={FONT.body} color={COLORS.muted}>
-        {notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}
-      </Text>
-      <Show when={detail()?.director}>
-        <Text x={INFO_X} y={POSTER_Y + 296} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {`Director: ${detail()?.director ?? ''}`}
+      <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
+        color={COLORS.textSecondary}>{notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}</Text>
+      <Show when={detail()?.director || detail()?.cast}>
+        <Text x={INFO_X} y={CREDITS_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
+          {joinMeta(detail()?.director ? `Director ${detail()!.director}` : undefined, detail()?.cast ? `With ${detail()!.cast}` : undefined)}
         </Text>
       </Show>
-      <Show when={detail()?.cast}>
-        <Text x={INFO_X} y={POSTER_Y + 332} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {`Cast: ${detail()?.cast ?? ''}`}
-        </Text>
-      </Show>
-      <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={POSTER_Y + 392} actions={actions()} onAction={(id) => void onAction(id)}
+      <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={ACTIONS_Y} actions={actions()} onAction={(id) => void onAction(id)}
         onDown={() => focusArea('more')} onFocusChanged={(f) => { if (f) setArea('actions'); }} />
       {/* Only with a known length: the bar and the minutes left would be guesses otherwise. */}
       <Show when={resumeBarShown(resumeMs(), durationMs())}>
-        <View x={INFO_X} y={POSTER_Y + 392 + 80} width={360} height={6} borderRadius={3} color={COLORS.surface}>
-          <View width={Math.round(360 * fraction())} height={6} borderRadius={3} color={COLORS.focus} />
+        <View x={INFO_X} y={RESUME_Y} width={220} height={4} borderRadius={2} color={COLORS.track}>
+          <View width={Math.round(220 * fraction())} height={4} borderRadius={2} color={COLORS.accent} />
         </View>
-        {/* Beside the bar, not under it: under it the line would reach the More label. */}
-        <Text x={INFO_X + 376} y={POSTER_Y + 392 + 70} fontSize={FONT.small} color={COLORS.muted}>
-          {minutesLeft(resumeMs(), durationMs())}
-        </Text>
+        <Text x={INFO_X + 236} y={RESUME_Y - 12} fontSize={TYPE.meta} color={COLORS.muted}>{minutesLeft(resumeMs(), durationMs())}</Text>
       </Show>
 
       <Show when={moreRow().items.length > 0}>
         <Text x={LAYOUT.safeX} y={moreY()} width={LAYOUT.width - LAYOUT.safeX * 2} maxWidth={LAYOUT.width - LAYOUT.safeX * 2} contain="width"
-          maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{catName() ? `More in ${catName()}` : 'More like this'}</Text>
+          maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>More like this</Text>
         <View ref={(el) => { moreNode = el; }} y={moreY() + 44} width={LAYOUT.width} height={POSTER_H}
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}
           onEnter={openMore} onMenu={() => openMenu(moreCol())} onLongOk={() => openMenu(moreCol())}>
-          <PosterRow x={LAYOUT.safeX} y={0} width={LAYOUT.width - LAYOUT.safeX} row={moreRow()} focusCol={moreCol()} lit={area() === 'more'}
+          <PosterRow x={INFO_X} y={0} width={LAYOUT.width - LAYOUT.safeX} row={moreRow()} focusCol={moreCol()} lit={area() === 'more'}
             onCellClick={(c) => { setMoreCol(c); openMore(); }} onCellOptions={(c) => { setMoreCol(c); openMenu(c); }} />
         </View>
       </Show>

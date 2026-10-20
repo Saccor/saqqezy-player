@@ -3,13 +3,21 @@
  * Pure model of Home's search bar (unit-tested): search mode and what it saves and restores, Ok on a result, the
  * groups column while searching, focus routing and hardware typing. `Home.tsx` only wires it.
  */
-import { applyKey, textEntryKey, type TextKey } from '../components/keyboardLogic.ts';
+import { applyKey, COMPACT_LAYOUT, textEntryKey, type TextKey } from '../components/keyboardLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import type { GroupLite } from './homeLogic.ts';
 import type { SearchRow } from './searchLogic.ts';
 
-/** Home's groups column (layout A: 22 % of the safe width). The compact search keyboard covers exactly this. */
-export const HOME_GROUP_W = Math.round((LAYOUT.width - LAYOUT.safeX * 2) * 0.22);
+/**
+ * Home's groups column: layout A's 22 % of the safe width, less the room the rail takes (it starts at `contentX`), so
+ * the channel list keeps its place and width.
+ */
+export const HOME_GROUP_W = Math.round((LAYOUT.width - LAYOUT.safeX * 2) * 0.22) - (LAYOUT.contentX - LAYOUT.safeX);
+/**
+ * The compact search keyboard is wider than the groups column: it ends where the column ends and reaches left over
+ * the rail's empty right margin (the rail's icons end well left of it), so it never covers the list.
+ */
+export const HOME_SEARCH_KB_X = LAYOUT.contentX + HOME_GROUP_W - COMPACT_LAYOUT.width;
 
 export const SEARCH_GROUP_ID = 'search';
 export const SEARCH_GROUP_NAME = 'Search results';
@@ -124,7 +132,7 @@ export function groupChoice(index: number, searching: boolean): number | undefin
 }
 
 /** Where key focus is on Home. `list` is the channel list while browsing and the results while searching. */
-export type Place = 'groups' | 'list' | 'bar' | 'keyboard' | 'tabs';
+export type Place = 'groups' | 'list' | 'bar' | 'keyboard' | 'rail';
 export type NavKey = 'up' | 'down' | 'left' | 'right' | 'back' | 'done';
 
 export interface NavContext {
@@ -165,12 +173,12 @@ const STAY: NavResult = { kind: 'stay' };
 const PASS: NavResult = { kind: 'pass' };
 const EXIT: NavResult = { kind: 'exit', focus: 'list' };
 
-/** Focus routing between the bar, the compact keyboard, the list (or results) and the groups column. */
+/** Focus routing between the rail, the bar, the compact keyboard, the list (or results) and the groups column. */
 export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
   const results = c.hasResults ? focusTo('list') : STAY;
   switch (place) {
     case 'bar':
-      if (key === 'up') return c.searching || c.keyboardOpen ? STAY : focusTo('tabs');
+      if (key === 'up') return STAY;
       if (key === 'down') return c.searching ? results : c.hasChannels ? focusTo('list') : STAY;
       if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
       // Not searching: Back returns to the list (the shell would otherwise ask to exit); an empty group passes it on.
@@ -186,6 +194,7 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       return PASS;
     case 'groups':
       if (key === 'up' && c.atEdge) return focusTo('bar');
+      if (key === 'left') return focusTo('rail');
       if (c.searching && key === 'back') return c.hasResults ? focusTo('list') : EXIT;
       return PASS;
     case 'keyboard':
@@ -193,10 +202,14 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       if (key === 'right' && c.atEdge) return results;
       if (key === 'done') return c.hasResults ? focusTo('list') : focusTo('bar');
       return PASS;
-    case 'tabs':
-      if (key === 'down') return focusTo('bar');
-      if (key === 'back') return c.hasChannels ? focusTo('list') : PASS;
-      return PASS;
+    case 'rail':
+      // The rail moves itself (Up/Down). Right and Back leave it for the list (or the results); a search with no
+      // selectable result goes to the keyboard or the bar instead, so focus never sticks on the open rail.
+      if (key !== 'right' && key !== 'back') return PASS;
+      if (c.searching) return c.hasResults ? focusTo('list') : focusTo(c.keyboardOpen ? 'keyboard' : 'bar');
+      if (c.hasChannels) return focusTo('list');
+      // An empty group: Right goes to the groups; Back passes on (the exit question).
+      return key === 'right' ? focusTo('groups') : PASS;
   }
 }
 

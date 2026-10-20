@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
-  resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels,
+  resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
 const groups = [
@@ -182,5 +182,13 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
     expect(nowNextLine({ now })).toBe('Now · Evening news');
     expect(nowNextLine({})).toBe(NO_GUIDE_INFO);
     expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
+  });
+});
+
+describe('returnedToLive', () => {
+  it('reads only fromVod (Back to Live TV resumes; it does not move focus to the rail)', () => {
+    expect(returnedToLive({ fromVod: true })).toBe(true);
+    expect(returnedToLive({})).toBe(false);
+    expect(returnedToLive({ fromVod: false })).toBe(false);
   });
 });

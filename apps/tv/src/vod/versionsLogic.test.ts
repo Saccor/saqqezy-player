@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VersionView } from '@iptv/app-api';
 import {
-  PREFERRED_LANGUAGE_OPTIONS, SHOW_SEPARATELY, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor, versionLabel, versionRows, versionsBadge,
+  PREFERRED_LANGUAGE_OPTIONS, SHOW_SEPARATELY, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor, versionLabel, versionRows,
 } from './versionsLogic.ts';
 
 const v = (id: string, lang?: string, quality?: string, tags: string[] = [], auto = false): VersionView => {
@@ -36,15 +36,6 @@ describe('versionRows', () => {
       { kind: 'list', id: 'b', label: 'English', checked: true },
       { kind: 'new', label: SHOW_SEPARATELY },
     ]);
-  });
-});
-
-describe('versionsBadge', () => {
-  test('best quality, then languages as codes', () => {
-    expect(versionsBadge('4K', [v('a', 'en'), v('b', 'sv'), v('c', 'en'), v('d')])).toBe('4K · EN · SV');
-  });
-  test('nothing known: empty', () => {
-    expect(versionsBadge(undefined, [])).toBe('');
   });
 });
 

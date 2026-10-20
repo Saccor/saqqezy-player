@@ -2,8 +2,9 @@
 import type { ChannelRow } from '@iptv/app-api';
 import { describe, expect, it } from 'vitest';
 import { COMPACT_LAYOUT } from '../components/keyboardLogic.ts';
+import { LAYOUT } from '../shell/theme.ts';
 import {
-  BAR_PLACEHOLDER, BROWSE, BROWSE_HINT, HOME_GROUP_W, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
+  BAR_PLACEHOLDER, BROWSE, BROWSE_HINT, HOME_GROUP_W, HOME_SEARCH_KB_X, SEARCH_GROUP_ID, SEARCH_MAX_LENGTH, capQuery, exitFocusTarget, resultsFocusLost, SEARCH_GROUP_NAME, SEARCH_HINT, applyQuery, exitSearch,
   groupChoice, groupColumn, isSearching, leaveTo, okAction, restoreOnMount, rowChannelId,
   userNavigated, routeKey, typedQuery, typingKey, HOME_POINTER_LABELS, KEYBOARD_BUTTON_LABEL, rowPointerAction,
   type BrowsePosition, type NavContext,
@@ -17,9 +18,11 @@ const laterRow = (n: number): SearchRow => ({ kind: 'later', hit: { channel: ch(
 const pos: BrowsePosition = { groupId: 'g:News', channelId: 's:3', top: 2 };
 
 describe('layout and copy', () => {
-  it('the compact keyboard fits the groups column with readable keys', () => {
-    expect(HOME_GROUP_W).toBe(380);
-    expect(COMPACT_LAYOUT.width).toBeLessThanOrEqual(HOME_GROUP_W);
+  it('the groups column sits right of the rail; the compact keyboard covers it, inside the safe area, with readable keys', () => {
+    expect(HOME_GROUP_W).toBe(316);
+    // The keyboard ends where the column ends (the list's left gap) and starts no further left than the safe edge.
+    expect(HOME_SEARCH_KB_X + COMPACT_LAYOUT.width).toBe(LAYOUT.contentX + HOME_GROUP_W);
+    expect(HOME_SEARCH_KB_X).toBeGreaterThanOrEqual(LAYOUT.safeX);
     expect(COMPACT_LAYOUT.unit - COMPACT_LAYOUT.keyGap).toBeGreaterThanOrEqual(52);
     expect(COMPACT_LAYOUT.keyH).toBeGreaterThanOrEqual(52);
   });
@@ -201,9 +204,28 @@ describe('routeKey', () => {
     expect(routeKey('bar', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
   });
 
-  it('tabs: Back returns to the list instead of asking to exit (an empty group passes it on)', () => {
-    expect(routeKey('tabs', 'back', ctx())).toEqual(toList);
-    expect(routeKey('tabs', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
+  it('rail: Back returns to the list instead of asking to exit (an empty group passes it on)', () => {
+    expect(routeKey('rail', 'back', ctx())).toEqual(toList);
+    expect(routeKey('rail', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
+  });
+
+  it('rail: Right goes to the list, or to the groups when the open group is empty', () => {
+    expect(routeKey('rail', 'right', ctx())).toEqual(toList);
+    expect(routeKey('rail', 'right', ctx({ hasChannels: false }))).toEqual({ kind: 'focus', place: 'groups' });
+  });
+
+  it('rail while searching: Right and Back go to the results, or to the bar when none is selectable (never a dead end)', () => {
+    expect(routeKey('rail', 'right', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('rail', 'back', ctx({ searching: true, hasResults: true }))).toEqual(toList);
+    expect(routeKey('rail', 'right', ctx({ searching: true, hasResults: false }))).toEqual(toBar);
+    expect(routeKey('rail', 'back', ctx({ searching: true, hasResults: false }))).toEqual(toBar);
+    expect(routeKey('rail', 'right', ctx({ searching: true, keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
+    expect(routeKey('rail', 'up', ctx({ searching: true }))).toEqual(PASS);
+  });
+
+  it('groups: Left opens the rail (also while searching)', () => {
+    expect(routeKey('groups', 'left', ctx())).toEqual({ kind: 'focus', place: 'rail' });
+    expect(routeKey('groups', 'left', ctx({ searching: true }))).toEqual({ kind: 'focus', place: 'rail' });
   });
 
   it('list: Left goes to the open keyboard, never to the groups hidden under it (also while browsing)', () => {
@@ -218,15 +240,14 @@ describe('routeKey', () => {
     expect(routeKey('bar', 'right', ctx({ searching: true }))).toEqual(STAY);
   });
 
-  it('Up from the search bar reaches the tab bar (not while searching); Down from the tabs returns to the bar', () => {
+  it('Up from the search bar stays put (the bar is the top; the rail is on the left); the rail moves itself up and down', () => {
     const c = { searching: false, keyboardOpen: false, hasResults: false, hasChannels: true, atEdge: false };
-    expect(routeKey('bar', 'up', c)).toEqual({ kind: 'focus', place: 'tabs' });
+    expect(routeKey('bar', 'up', c)).toEqual({ kind: 'stay' });
     expect(routeKey('bar', 'up', { ...c, searching: true })).toEqual({ kind: 'stay' });
-    expect(routeKey('tabs', 'down', c)).toEqual({ kind: 'focus', place: 'bar' });
-    expect(routeKey('tabs', 'left', c)).toEqual({ kind: 'pass' });
-    expect(routeKey('tabs', 'up', c)).toEqual({ kind: 'pass' });
-    expect(routeKey('tabs', 'right', c)).toEqual({ kind: 'pass' });
-    expect(routeKey('tabs', 'back', { ...c, hasChannels: false })).toEqual({ kind: 'pass' });
+    expect(routeKey('rail', 'down', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('rail', 'left', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('rail', 'up', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('rail', 'back', { ...c, hasChannels: false })).toEqual({ kind: 'pass' });
   });
 
   it('Up from the bar stays put while the compact keyboard is open, even with an empty bar', () => {

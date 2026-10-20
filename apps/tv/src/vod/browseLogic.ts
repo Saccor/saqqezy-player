@@ -114,7 +114,7 @@ const SKELETON_LABEL_GAP = 14;
  * `rows` skeleton rows filling `area` (left edge x, top to bottom): a row label bar, then `cols` portrait (2:3) poster
  * placeholders `gap` apart, with `gap` between rows.
  */
-export function skeletonRows(area: { x: number; top: number; bottom: number }, rows = 3, cols = 7, gap = 24): SkeletonRow[] {
+export function skeletonRows(area: { x: number; top: number; bottom: number }, rows = 3, cols = 8, gap = 24): SkeletonRow[] {
   const pitch = Math.floor((area.bottom - area.top + gap) / rows);
   const posterH = Math.max(0, pitch - gap - SKELETON_LABEL_H - SKELETON_LABEL_GAP);
   const posterW = Math.round((posterH * 2) / 3);

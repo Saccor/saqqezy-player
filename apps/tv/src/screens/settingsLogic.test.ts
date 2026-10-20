@@ -111,7 +111,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard' },
   };
 
   it('shows version, platform, sources, errors and settings', () => {
@@ -182,7 +182,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [] } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard' } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
@@ -303,11 +303,15 @@ describe('display page items', () => {
     expect(openOnLabel('lastChannel')).toBe('Last channel');
     expect(openOnLabel('start')).toBe('Start page');
   });
-  it('rows: clock, open on, teams heading, each team, add', () => {
+  it('rows: clock, open on, poster size, teams heading, each team, add', () => {
     const items = displayItems({ ...DEFAULT_SETTINGS, followedTeams: ['Northbridge FC', 'Pinecrest'] });
-    expect(items.map((i) => i.id)).toEqual(['clock', 'openOn', 'teamsHeading', 'team:0', 'team:1', 'addTeam']);
+    expect(items.map((i) => i.id)).toEqual(['clock', 'openOn', 'posterSize', 'teamsHeading', 'team:0', 'team:1', 'addTeam']);
     expect(items.find((i) => i.id === 'openOn')?.value).toBe('Last channel');
     expect(items.find((i) => i.id === 'teamsHeading')?.heading).toBe(true);
+  });
+  it('Display lists Poster size', () => {
+    const items = displayItems({ showClock: true, openOn: 'lastChannel', followedTeams: [], posterSize: 'compact' });
+    expect(items.find((i) => i.id === 'posterSize')).toMatchObject({ label: 'Poster size', value: 'Compact', adjustable: true });
   });
   it('adding a team: empty, duplicate, full', () => {
     expect(addTeamError([], '   ')).toBe('Type a name');

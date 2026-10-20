@@ -115,6 +115,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - SDF (`SdfTextRenderer` from `@lightningjs/renderer/webgl` plus msdf/ssdf atlases) is faster for large amounts of text, but needs generated atlas assets. Defer it until text performance on a TV demands it.
 - When a `Text` node's content changes, it is blank for a frame or two while the canvas texture is regenerated.
 - Never put two spaces in a row in `Text` content. The canvas text layout measures runs of spaces as one, so the texture is too narrow and the last glyphs are clipped (`"Next: Programme 13"` drew as `"Programme 1"`). Use a single space or a separator such as ` · `.
+- Semibold: `STRONG` in `shell/theme.ts` (spread on `<Text>`). `fontWeight` is not used: @lightningtv/solid appends it to the family name. The weight travels in `fontStyle` ("normal 600"), which the canvas renderer puts first in its CSS font string ("normal 600 26px Unknown, sans-serif"). Re-check on each TV model: if text turns tiny or changes face, set `STRONG = {}`.
 
 ## Image loading
 
@@ -320,3 +321,28 @@ Spec `docs/superpowers/specs/2026-10-20-catch-up-design.md`. The URL is built in
 - Search parks a fullscreen video (left by Back from the Player) at Home's `PREVIEW_RECT` on mount, so the wordmark returns there.
 - The `transition` prop does not work with renderer 3.7 (`@lightningtv/solid` calls `lng.animateProp`, which the renderer lacks): animate with `node.animate({...}, settings).start()` instead.
 - Bold text: `fontStyle={'bold' as 'normal'}`. The canvas engine uses `${fontStyle} ${fontSize}px …` as the CSS font for measuring and drawing; `fontWeight` renames the family instead and `richText` is not forwarded by `@lightningtv/solid`.
+
+## UI system (revamp phase 1)
+
+- Tokens: `shell/theme.ts` (`COLORS`, `TYPE`, `SPACE`, `LAYOUT`, `FOCUS`, `MOTION`, `STRONG`). `FONT` is legacy until phase 3.
+  `shell/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; after removing some, run
+  `pnpm exec tsx apps/tv/src/shell/tokenLint.ts --write`.
+- Focus: cards use `FocusRing` + `FOCUS.scale`; rows, cells and buttons use a `COLORS.focus` fill with `COLORS.onFocus`.
+  `COLORS.accent` is for progress and position marks only.
+- Shared pieces: `shell/Rail.tsx` (+ `railLogic.ts`, `railNav.ts`), `components/InfoStrip.tsx` (feed it from
+  `shell/dwell.ts` `dwellSignal`), `vod/Backdrop.tsx` (`strip` / `detail`), `components/DropdownHeader.tsx` with
+  `ListPicker` for categories, sorts and seasons, `components/ScrollIndicator.tsx`.
+- Back: from content to the rail on Start, Movies/Series browse and the library grid; on the rail, the screen's previous
+  Back. Live TV keeps its old Back chain (rail, list, exit question) until phase 2.
+- Back to Live TV (Back on the rail of Start/Movies/Series, or Live TV on their rail) passes `fromVod`: the channel that
+  was stopped resumes and focus lands on it in the channel list (you return to what you were watching), not on the rail.
+  Only a source without live channels lands on the rail.
+- The library grid is pushed over browse or Start: its rail highlights that screen's tab, and a tab choice pops the grid
+  first, then moves as that screen would (`railFromNested`, `goRailNested`).
+- Clock and wordmark: the clock is drawn in the rail on rail screens (`railRoute` in `shell/logic.ts`) and by the shell
+  clock elsewhere. The wordmark is hidden on the redesigned screens (`showWordmark`).
+- Poster size: Settings → Display → Poster size (Standard 8 / Compact 10 per row), resolved by `gridLayout` in
+  `vod/gridLogic.ts`.
+- Play/Resume is the first item of the poster menu (`createPosterMenu`) on browse, grid and details.
+- Memory: grids render visible rows + the peek row only. Posters still decode at natural size (no resize in renderer
+  3.7), so Compact (up to 40 posters drawn) is the density ceiling until a decode-time resize lands.

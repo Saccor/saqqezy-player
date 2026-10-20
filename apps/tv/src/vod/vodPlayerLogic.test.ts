@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, resumeLabel, trackKey, trackRows, tracksKeyId,
+  SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -34,13 +34,6 @@ describe('overlayVisible', () => {
     expect(overlayVisible({ ...base, paused: true })).toBe(true);
     expect(overlayVisible({ ...base, seeking: true })).toBe(true);
     expect(overlayVisible({ ...base, problem: true })).toBe(true);
-  });
-});
-
-describe('resumeLabel', () => {
-  it('labels', () => {
-    expect(resumeLabel(0)).toBe('Play');
-    expect(resumeLabel(3_730_000)).toBe('Resume from 1:02:10');
   });
 });
 

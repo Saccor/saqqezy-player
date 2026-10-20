@@ -58,7 +58,7 @@ export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: numbe
  * Where focus should go when a load finishes: the rows, once they have just appeared and the user wants them
  * (and no overlay owns focus). `undefined` leaves focus alone.
  */
-export function focusAfterLoad(prev: { hadRows: boolean }, next: { hasRows: boolean }, preferred: 'tabs' | 'rows', overlayOpen: boolean): 'tabs' | 'rows' | undefined {
+export function focusAfterLoad(prev: { hadRows: boolean }, next: { hasRows: boolean }, preferred: 'rail' | 'rows', overlayOpen: boolean): 'rail' | 'rows' | undefined {
   return !prev.hadRows && next.hasRows && preferred === 'rows' && !overlayOpen ? 'rows' : undefined;
 }
 

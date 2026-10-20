@@ -78,7 +78,7 @@ export function Timeline(props: {
         <View y={barY()} width={Math.max(barH(), xAt(props.bufferedEndMs))} height={barH()} borderRadius={barH() / 2}
           color={BUFFERED} />
       </Show>
-      <View y={barY()} width={Math.max(barH(), xAt(props.posMs))} height={barH()} borderRadius={barH() / 2} color={COLORS.focus} />
+      <View y={barY()} width={Math.max(barH(), xAt(props.posMs))} height={barH()} borderRadius={barH() / 2} color={COLORS.accent} />
       {/* A pending scrub: the stretch between the playhead and the target (ahead: light blue; back: whitened over the played part). */}
       <Show when={props.scrub}>{(s) => (
         <View x={Math.min(xAt(props.posMs), xAt(s().targetMs))} y={barY()}

@@ -4,51 +4,59 @@ import type { VodCategoryView, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_RECENT } from '@iptv/app-api';
 import type { VodSort } from '@iptv/core';
 import { api } from '../api.ts';
-import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
-import { GroupList } from '../components/GroupList.tsx';
+import { DropdownHeader } from '../components/DropdownHeader.tsx';
+import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
+import { ListPicker } from '../components/ListPicker.tsx';
 import { PosterTile } from '../components/PosterTile.tsx';
+import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
-import { createDebounce } from '../playback/debounce.ts';
-import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { dwellSignal } from '../shell/dwell.ts';
+import { Rail } from '../shell/Rail.tsx';
+import { belowTab } from '../shell/railLogic.ts';
+import { goRailNested } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
-import { initState } from '../state/appState.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { initState, settings } from '../state/appState.ts';
+import type { PickerRow } from './homeMenuLogic.ts';
+import { categoryRows, pickedSort, sortRows } from '../vod/categoryPicker.ts';
 import {
-  GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, SORT_LABELS, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor,
+  GRID_PAGE, GRID_VIEW_ROWS, GRID_Y, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, renderedRows, saveSort, sortsFor,
   type GridGeometry,
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { KIND_COPY } from '../vod/kindCopy.ts';
 import { lruSet } from '../vod/memoryLogic.ts';
-import { TAB_SWITCH_MS, type VodKind } from '../vod/tabLogic.ts';
+import { metaLine, POSTER_GAP } from '../vod/posterLogic.ts';
+import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
+import type { VodKind } from '../vod/tabLogic.ts';
 
-const RAIL_X = LAYOUT.safeX;
-const RAIL_Y = 158;
-const RAIL_W = 360;
-// Ends a gap above the bottom row: in pointer mode the shell's Back button (978–1026) would cover its last name.
-const RAIL_H = BOTTOM_ROW_Y - LAYOUT.gap - RAIL_Y;
-const GRID_X = RAIL_X + RAIL_W + 48;
-const GRID_W = LAYOUT.width - LAYOUT.safeX - GRID_X;
-const CELL_GAP = 24;
-const CELL_W = Math.floor((GRID_W - CELL_GAP * (GRID_COLS - 1)) / GRID_COLS);
-const CELL_H = Math.round(CELL_W * 1.5);
-const ROW_PITCH = CELL_H + 88;
-const GRID_Y = 246;
-const HEAD_Y = 158;
-const SORT_W = 300;
-/** The header's width: up to a gap before the Sort button. */
-const HEAD_W = LAYOUT.width - LAYOUT.safeX - SORT_W - LAYOUT.gap - GRID_X;
 /**
- * The grid node covers the grid only (not the whole screen), so its pointer target never overlaps the rail or the sort
- * button. It reaches PAD past the tiles on the left and top so a focused tile's scale and ring are not clipped.
+ * Layout (1080p design space, UI revamp "Movies library"): the category header at the top left, the focused title and
+ * its meta at the top right, a poster grid of 8 or 10 columns (Poster size) from (160, 150) with three full rows (and a
+ * fourth peeking in when enough of it shows), and a scroll indicator at the right edge.
+ */
+const GRID_X = LAYOUT.contentX;
+const GRID_W = LAYOUT.contentW;
+const HEAD_Y = LAYOUT.safeY;
+/**
+ * The grid node covers the grid only (not the whole screen), so its pointer target never overlaps the rail or the
+ * header. It reaches PAD past the tiles on the left and top so a focused tile's scale and ring are not clipped.
  */
 const PAD = 16;
-/** Tile, then the title line and the year line under it. */
-const GEO: GridGeometry = { pad: PAD, cellW: CELL_W, gap: CELL_GAP, rowPitch: ROW_PITCH, hitH: CELL_H + 44 + FONT.small };
+const SCROLL_X = 1860;
+const SCROLL_H = LAYOUT.height - LAYOUT.safeY - GRID_Y; // 876
+/** The focused title and meta at the top right: two right-aligned lines in a box ending at the grid's right edge. */
+const INFO_W = 760;
+/** The category header ends at least this far left of the info box. */
+const HEAD_INFO_GAP = 24;
+/** DropdownHeader draws its pill `PAD_X` left of its x. */
+const HEAD_MAX_W = GRID_W - INFO_W - HEAD_INFO_GAP + DROPDOWN_PAD_X;
+const META_DY = 36;
+const CATEGORIES_ID = 'grid-categories';
 
-type Area = 'rail' | 'sort' | 'grid' | 'retry';
+type Area = 'rail' | 'header' | 'grid' | 'retry';
 
 interface GridMemory { focus: number; top: number }
 /** Kept across visits so Back from the detail returns to the same poster; the 20 most recently used (source, kind, category, sort). */
@@ -65,17 +73,24 @@ const store = () => {
 
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
-/** Category grid: the rail of categories, a sort button and a 7-column poster grid with titles and years. */
+/**
+ * Library grid: the app rail, a "Category ▾" header (its picker lists the categories, then the sorts), the focused
+ * title and meta at the top right, and a poster grid of 8 or 10 columns (titles show on focus, not under the tiles).
+ */
 export function VodGridScreen(props: { entry: ScreenEntry }) {
   /** `sort`: open on this order (Start's Top rated "View all"); the remembered sort is left as it was. */
   const params = props.entry.params as { kind?: VodKind; categoryId?: string; sort?: VodSort };
   const kind: VodKind = params.kind ?? 'movie';
   const copy = KIND_COPY[kind];
+  /**
+   * The grid is pushed over Movies/Series browse or Start: the rail shows that screen's tab, and a tab choice pops the
+   * grid first, then moves as that screen would.
+   */
+  const lower = router.below();
+  const below = belowTab(lower?.screen, (lower?.params as { kind?: VodKind } | undefined)?.kind, kind);
 
   const [cats, setCats] = createSignal<VodCategoryView[]>([]);
   const [catIndex, setCatIndex] = createSignal(0);
-  /** The rail's highlighted entry (moves at once); the grid follows after TAB_SWITCH_MS. */
-  const [railSel, setRailSel] = createSignal(0);
   const [sort, setSort] = createSignal<VodSort>('title');
   const [total, setTotal] = createSignal(0);
   const [pages, setPages] = createSignal(new Map<number, VodTile[]>());
@@ -84,15 +99,27 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   const [failed, setFailed] = createSignal(false);
   let railNode: ElementNode | undefined;
-  let sortNode: ElementNode | undefined;
+  let headerNode: ElementNode | undefined;
   let gridNode: ElementNode | undefined;
   let retryNode: ElementNode | undefined;
+  let pickerNode: ElementNode | undefined;
   let alive = true;
   let lastTopRow = 0;
+  /** Standard 8 or Compact 10 per row; everything below follows it. */
+  const posterSize = () => settings()?.posterSize ?? 'standard';
+  // Memos: tiles read these on every focus move, so they are computed once per Poster size change.
+  const layout = createMemo(() => gridLayout(posterSize()));
+  const geo = createMemo((): GridGeometry => ({ pad: PAD, cellW: layout().cellW, gap: POSTER_GAP, rowPitch: layout().rowPitch, hitH: layout().cellH }));
+  const rowCount = () => Math.ceil(total() / layout().cols);
   /** Bumped per category/sort change: answers for an older one are dropped. */
   let gen = 0;
   /** Pages being fetched, keyed `gen:page`, so a dropped (stale or failed) page is asked for again later. */
   const inflight = new Set<string>();
+  /**
+   * The grid was asked for while it had no titles (a load in flight), so focus went to a fallback; once titles arrive
+   * the grid takes it. Every focus move made through `focusArea` (all key moves) sets it afresh.
+   */
+  let wantGrid = false;
 
   const cat = () => cats()[catIndex()];
   const memKey = () => `${initState()?.activeSourceId ?? ''}:${kind}:${cat()?.id ?? ''}:${sort()}`;
@@ -100,13 +127,16 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const sorts = () => sortsFor(cats().some((c) => c.id === VOD_ROW_RECENT));
   const tileAt = (i: number) => pages().get(Math.floor(i / GRID_PAGE))?.[i % GRID_PAGE];
   const topRow = createMemo(() => {
-    lastTopRow = scrollTopFor(Math.floor(focus() / GRID_COLS), lastTopRow, GRID_VIEW_ROWS, Math.ceil(total() / GRID_COLS));
+    lastTopRow = scrollTopFor(Math.floor(focus() / layout().cols), lastTopRow, GRID_VIEW_ROWS, rowCount());
     return lastTopRow;
   });
   const indices = createMemo(() => {
-    const r = renderRange(topRow(), GRID_VIEW_ROWS + 1, Math.ceil(total() / GRID_COLS), 1);
+    // No buffer rows, and a peeking row only when enough of it shows (`renderedRows`): every drawn row is a row of
+    // natural-size poster textures on 1 GB TVs.
+    const cols = layout().cols;
+    const r = renderRange(topRow(), renderedRows(posterSize()), rowCount(), 0);
     const out: number[] = [];
-    for (let row = r.from; row < r.to; row++) for (let c = 0; c < GRID_COLS; c++) if (row * GRID_COLS + c < total()) out.push(row * GRID_COLS + c);
+    for (let row = r.from; row < r.to; row++) for (let c = 0; c < cols; c++) if (row * cols + c < total()) out.push(row * cols + c);
     return out;
   });
 
@@ -143,12 +173,22 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
 
   const noOverlay = () => router.topOverlay() === undefined && !menu.isOpen();
 
+  /** 'grid' falls back to Try again (error), then the header; the header to Try again, then the rail. */
   const focusArea = (a: Area) => {
-    if (a === 'grid' && total() === 0) a = 'rail';
+    const asked = a;
+    if (a === 'grid' && total() === 0) a = failed() && retryNode ? 'retry' : 'header';
+    if (a === 'header' && !headerNode) a = retryNode ? 'retry' : 'rail';
     if (a === 'retry' && !retryNode) a = 'rail';
+    wantGrid = asked === 'grid' && a !== 'grid';
     setArea(a);
-    (a === 'rail' ? railNode : a === 'sort' ? sortNode : a === 'retry' ? retryNode : gridNode)?.setFocus();
+    (a === 'rail' ? railNode : a === 'header' ? headerNode : a === 'retry' ? retryNode : gridNode)?.setFocus();
     return true;
+  };
+  /** After a load: the grid when it was asked for, and never focus left on an empty grid. */
+  const settleFocus = () => {
+    if (!noOverlay()) return;
+    // A failed load lands on the new Try again button (focusArea falls back to it); area 'retry' never rests on a dead node.
+    if ((wantGrid && (total() > 0 || failed())) || (area() === 'grid' && total() === 0) || area() === 'retry') focusArea('grid');
   };
 
   /** Reloads the first page of the current category and sort. */
@@ -188,7 +228,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       setFailed(true);
     }
     // The focused grid may have just become empty (a removed title, a failed load): never leave focus on nothing.
-    if (alive && myGen === gen && area() === 'grid' && total() === 0 && noOverlay()) focusArea('rail');
+    if (alive && myGen === gen) settleFocus();
   };
 
   /**
@@ -198,8 +238,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   const reload = async () => {
     const myGen = ++gen;
     inflight.clear();
-    // The rail counts (Continue watching, Favourites) may have changed too. The pseudo-categories are always listed, so
-    // indexes stay put.
+    // The picker's counts (Continue watching, Favourites) may have changed too. The pseudo-categories are always
+    // listed, so indexes stay put.
     void api.getVodCategories(kind).then((cs) => { if (alive) setCats(cs); }).catch(() => undefined);
     const id = cat()?.id;
     if (!id) return;
@@ -240,7 +280,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       if (!alive || myGen !== gen) return;
       console.warn('VOD reload failed', errName(err));
     }
-    if (alive && myGen === gen && area() === 'grid' && total() === 0 && noOverlay()) focusArea('rail');
+    if (alive && myGen === gen) settleFocus();
   };
 
   const commitCat = (i: number) => {
@@ -248,24 +288,11 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     setCatIndex(i);
     return reset();
   };
-  const pickCat = createDebounce<number>(TAB_SWITCH_MS, (i) => { void commitCat(i); });
-
-  const rightTarget = (): Area => (total() > 0 ? 'grid' : failed() ? 'retry' : 'sort');
-
-  /** Right from the rail: a category chosen a moment ago is applied first, so the grid never shows the old one. */
-  const railRight = () => {
-    if (pickCat.pending()) {
-      pickCat.cancel();
-      void commitCat(railSel()).then(() => { if (alive && area() === 'rail' && noOverlay()) focusArea(rightTarget()); });
-      return true;
-    }
-    return focusArea(rightTarget());
-  };
 
   const moveGrid = (key: 'up' | 'down' | 'left' | 'right') => {
-    const r = gridMove(focus(), key, total());
+    const r = gridMove(focus(), key, total(), layout().cols);
     if (r === 'rail') return focusArea('rail');
-    if (r === 'header') return focusArea('sort');
+    if (r === 'header') return focusArea('header');
     setFocus(r);
     setHover(undefined);
     remember();
@@ -273,7 +300,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     return true;
   };
   const page = (dir: 1 | -1) => {
-    setFocus(gridPage(focus(), dir, total()));
+    setFocus(gridPage(focus(), dir, total(), layout().cols));
     setHover(undefined);
     remember();
     ensurePages();
@@ -291,21 +318,45 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     if (t) menu.open(t, cat()?.id === VOD_ROW_CONTINUE);
     return true;
   };
-  const cycleSort = () => {
-    const s = nextSort(sort(), sorts());
-    setSort(s);
-    saveSort(kind, s, store());
-    void reset();
-  };
 
-  /** Focus goes to the grid: a pending category pick is dropped and the rail shows the category the grid has. */
-  const settleRail = () => {
-    pickCat.cancel();
-    setRailSel(catIndex());
+  // ---- category and sort picker ----
+  const [picking, setPicking] = createSignal(false);
+  let removePicker: (() => void) | undefined;
+  /** Every category the grid has (Continue watching, Favourites and Recently added included), then the sorts. */
+  const pickerRows = (): PickerRow[] => [...categoryRows(cats(), cat()?.id), ...sortRows(sorts(), sort())];
+  const openPicker = () => {
+    if (picking() || cats().length === 0 || !noOverlay()) return;
+    setPicking(true);
+    removePicker = router.pushOverlay(CATEGORIES_ID, closePicker);
+    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
+  };
+  /** Back on the picker: focus returns to the header. */
+  function closePicker() {
+    removePicker = undefined;
+    setPicking(false);
+    queueMicrotask(() => { if (alive) focusArea('header'); });
+  }
+  /** A sort re-sorts (and is remembered); a category opens on it. Then the grid takes the focus, once it has titles. */
+  const pick = (row: PickerRow) => {
+    removePicker?.();
+    removePicker = undefined;
+    setPicking(false);
+    const s = pickedSort(row);
+    if (s) {
+      if (s !== sort()) {
+        setSort(s);
+        saveSort(kind, s, store());
+        void reset();
+      }
+    } else if (row.kind === 'list') {
+      const i = cats().findIndex((c) => c.id === row.id);
+      if (i >= 0) void commitCat(i);
+    }
+    queueMicrotask(() => { if (alive) focusArea('grid'); });
   };
 
   // Pointer: a click opens the tile, a right click opens its menu, the wheel moves a row (never out of the grid).
-  const cellAt = (p: Point) => gridCellAt(p.x, p.y, topRow(), GEO, total());
+  const cellAt = (p: Point) => gridCellAt(p.x, p.y, topRow(), geo(), total(), layout().cols);
   usePointerTarget({
     node: () => gridNode,
     enabled: () => total() > 0,
@@ -314,7 +365,6 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     onClick: (p) => {
       const i = cellAt(p);
       if (i === undefined || !tileAt(i)) return;
-      settleRail();
       setFocus(i);
       focusArea('grid');
       open();
@@ -322,14 +372,13 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     onContextMenu: (p) => {
       const i = cellAt(p);
       if (i === undefined || !tileAt(i)) return;
-      settleRail();
       setFocus(i);
       focusArea('grid');
       openMenu();
     },
     onWheel: (dy) => {
       if (dy === 0) return true;
-      const r = gridMove(focus(), dy > 0 ? 'down' : 'up', total());
+      const r = gridMove(focus(), dy > 0 ? 'down' : 'up', total(), layout().cols);
       if (typeof r === 'number' && r !== focus()) {
         setFocus(r);
         remember();
@@ -349,7 +398,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         if (!alive) return;
         console.warn('VOD categories failed', errName(err));
         setFailed(true);
-        if (noOverlay()) focusArea(area() === 'retry' ? 'retry' : 'rail');
+        settleFocus();
         return;
       }
       if (!alive) return;
@@ -359,67 +408,83 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         const sorts = sortsFor(cs.some((c) => c.id === VOD_ROW_RECENT));
         setSort(params.sort && sorts.includes(params.sort) ? params.sort : loadSort(kind, sorts, store()));
         setCatIndex(i);
-        setRailSel(i);
       });
       await reset();
-      if (alive && noOverlay()) focusArea(total() > 0 ? 'grid' : failed() ? 'retry' : 'rail');
+      if (alive && noOverlay()) focusArea('grid');
   };
   onMount(() => { void start(); });
   /** Try again: re-reads the categories when there are none, else the current category. */
   const retry = () => {
-    focusArea('rail');
-    void (cats().length === 0 ? start() : reset()).then(() => {
-      if (alive && area() === 'rail' && total() > 0 && noOverlay()) focusArea('grid');
-    });
+    // The button goes while loading: clear `failed` first so the fallback is the header (not the unmounting button);
+    // wantGrid stays set, so the grid takes the focus when titles arrive and a new failure lands on the new button.
+    setFailed(false);
+    focusArea('grid');
+    void (cats().length === 0 ? start() : reset());
   };
   onCleanup(() => {
     alive = false;
     gen++;
     inflight.clear();
-    pickCat.cancel();
+    removePicker?.();
   });
 
-  const x = (i: number) => PAD + (i % GRID_COLS) * (CELL_W + CELL_GAP);
-  const y = (i: number) => PAD + (Math.floor(i / GRID_COLS) - topRow()) * ROW_PITCH;
+  const x = (i: number) => PAD + (i % layout().cols) * (layout().cellW + POSTER_GAP);
+  const y = (i: number) => PAD + (Math.floor(i / layout().cols) - topRow()) * layout().rowPitch;
+
+  /** The focused title and its meta, once focus rests. */
+  const shown = dwellSignal(() => tileAt(focus()));
+  const infoTitle = () => shown()?.title ?? '';
+  const infoMeta = () => {
+    const t = shown();
+    return t ? joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t)) : '';
+  };
+  /** Back from the grid or the header goes to the rail; Back on the rail returns to where the grid was opened from. */
+  const back = () => {
+    if (area() !== 'rail') return focusArea('rail');
+    router.back();
+    return true;
+  };
 
   return (
-    <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }} onLeft={() => focusArea('rail')}>
-      <GroupList ref={(el) => { railNode = el; }} x={RAIL_X} y={RAIL_Y} width={RAIL_W} height={RAIL_H}
-        groups={cats()} selected={railSel()} onSelect={(i) => { setRailSel(i); pickCat.schedule(i); }}
-        onRight={railRight}
-        onFocusChanged={(f) => { if (f) setArea('rail'); }}
-        onRowClick={(i) => { pickCat.cancel(); setRailSel(i); focusArea('rail'); void commitCat(i); }} />
-      {/* Stops before the Sort button (long names such as "Movies | 4K | …" ran under it). */}
-      <Text x={GRID_X} y={HEAD_Y} width={HEAD_W} maxWidth={HEAD_W} contain="width" maxLines={1}
-        fontSize={FONT.heading} color={COLORS.text}>{cat()?.name ?? ''}</Text>
-      <Text x={GRID_X} y={HEAD_Y + 44} fontSize={FONT.small} color={COLORS.muted}>{total() === 1 ? '1 title' : `${total()} titles`}</Text>
-      <ActionBar ref={(el) => { sortNode = el; }} x={LAYOUT.width - LAYOUT.safeX - 300} y={HEAD_Y - 6}
-        actions={[{ id: 'sort', label: `Sort: ${SORT_LABELS[sort()]}`, width: 300 }]} onAction={cycleSort}
-        onLeft={() => focusArea('rail')} onDown={() => focusArea('grid')} onFocusChanged={(f) => { if (f) setArea('sort'); }} />
+    <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}>
+      <Rail ref={(el) => { railNode = el; }} active={below} onSelect={(t) => { if (noOverlay()) goRailNested(below, t, () => router.back({ fromVod: true })); }}
+        onRight={() => focusArea(total() > 0 ? 'grid' : 'header')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
+      <Show when={cats().length > 0}>
+        <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}
+          x={GRID_X} y={HEAD_Y} label={cat()?.name ?? ''} maxWidth={HEAD_MAX_W} onPress={openPicker}
+          onDown={() => focusArea('grid')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) setArea('header'); }} />
+      </Show>
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + 2} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+        fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{infoTitle()}</Text>
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + META_DY} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+        fontSize={TYPE.meta} color={COLORS.muted}>{infoMeta()}</Text>
       <View ref={(el) => { gridNode = el; }} x={GRID_X - PAD} y={GRID_Y - PAD} width={GRID_W + PAD * 2} height={LAYOUT.height - (GRID_Y - PAD)} clipping
-        onFocusChanged={(f: boolean) => { if (f) { setArea('grid'); settleRail(); } }}
+        onFocusChanged={(f: boolean) => { if (f) setArea('grid'); }}
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)} onEnter={open} onMenu={openMenu} onLongOk={openMenu}>
         <For each={indices()}>{(i) => (
-          <View x={x(i)} y={y(i)} width={CELL_W} height={ROW_PITCH}>
-            <PosterTile x={0} y={0} w={CELL_W} h={CELL_H} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
-              hover={pointerMode() && hover() === i} />
-            <Text y={CELL_H + 12} width={CELL_W} maxWidth={CELL_W} contain="width" maxLines={1} fontSize={FONT.small}
-              color={focus() === i && area() === 'grid' ? COLORS.text : COLORS.muted}>{tileAt(i)?.title ?? ''}</Text>
-            <Text y={CELL_H + 44} width={CELL_W} maxWidth={CELL_W} contain="width" maxLines={1} fontSize={FONT.small}
-              color={COLORS.muted}>{tileAt(i)?.year ? String(tileAt(i)?.year) : ''}</Text>
-          </View>
+          <PosterTile x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
+            hover={pointerMode() && hover() === i} />
         )}</For>
       </View>
+      <ScrollIndicator x={SCROLL_X} y={GRID_Y} height={SCROLL_H} total={rowCount()} visible={GRID_VIEW_ROWS} first={topRow()} />
       <Show when={failed()}>
-        <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{copy.loadError}</Text>
-        <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
-          onUp={() => focusArea('sort')} />
+        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
+        {/* Left from Try again reaches the rail, as on browse. */}
+        <View onLeft={() => focusArea('rail')}>
+          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+            onUp={() => focusArea('header')} />
+        </View>
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>
-        <Text x={GRID_X} y={GRID_Y} fontSize={FONT.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>
+        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>
       </Show>
-      <menu.View />
+      {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
+      <View zIndex={60}><menu.View /></View>
+      <Show when={picking()}>
+        <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerRows()}
+          onPick={pick} hint="Ok picks · Back closes" />
+      </Show>
     </View>
   );
 }

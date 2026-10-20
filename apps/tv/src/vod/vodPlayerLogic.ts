@@ -34,11 +34,6 @@ export function overlayVisible(s: {
   return s.paused || s.seeking || s.problem || s.now - s.lastKeyAt < OVERLAY_HIDE_MS;
 }
 
-/** "Resume from 1:02:10" / "Play". */
-export function resumeLabel(resumeMs: number): string {
-  return resumeMs > 0 ? `Resume from ${clock(resumeMs)}` : 'Play';
-}
-
 /** "52 min left" (at least 1 min). */
 export function minutesLeft(positionMs: number, durationMs: number): string {
   return `${Math.max(1, Math.round((durationMs - positionMs) / 60_000))} min left`;

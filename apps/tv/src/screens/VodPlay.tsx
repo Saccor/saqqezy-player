@@ -1207,7 +1207,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
           {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
           <Show when={cu && now() < (cur() ?? cu).stop}>
             <View x={CONTENT_X + Math.round((CONTENT_W * seekLimitMs(cur() ?? cu!, now())) / Math.max(1, p.durationMs ?? 1)) - 2}
-              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.focus} borderRadius={2} />
+              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.accent} borderRadius={2} />
           </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={FONT.body} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
@@ -1239,7 +1239,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             fontSize={card().font} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
-              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - 72 - 40}
+              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}
               actions={cardActions()} onAction={onCardAction} />
           </Show>
         </View>

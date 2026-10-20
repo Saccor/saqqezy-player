@@ -1,18 +1,18 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import { createSignal, type JSX } from 'solid-js';
+import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
-const RING = 4;
 
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
  * generated title card (stable colour, the title in text) when there is none or it fails; a skeleton (a plain surface
- * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): a
- * focus-coloured ring (hover: a thin muted one), an outset fill behind the card so the image never covers it.
+ * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): the shared FocusRing (a light ring
+ * outside a dark gap; hover: a thin muted ring), an outset fill behind the card so the image never covers it.
  * `progress`: a bar at the bottom. `watched`: a check badge. `label`: a text-only card (View all, Loading…).
  * Children are extra overlays (zIndex 4 sits above the image). Layered by zIndex: a late-loading image would otherwise
  * be inserted on top of the overlays.
@@ -40,16 +40,9 @@ export function PosterArt(props: {
   /** The image drawn (a URL that failed before, in this or another tile, is not tried again). */
   const shown = () => (posterCache.usable(url()) ? url() : undefined);
   const face = () => posterFace({ pending: props.pending === true, image: shown(), loaded: shown() !== undefined && loadedUrl() === shown(), failed: false });
-  const ring = () => (props.lit ? COLORS.focus : props.hover ? COLORS.muted : undefined);
-  const ringW = () => (props.lit ? RING : 2);
   return (
     <View width={props.w} height={props.h}>
-      <Show when={ring()}>
-        {(c) => (
-          <View x={-ringW()} y={-ringW()} width={props.w + ringW() * 2} height={props.h + ringW() * 2} zIndex={0}
-            borderRadius={LAYOUT.radius + ringW()} color={c()} />
-        )}
-      </Show>
+      <FocusRing w={props.w} h={props.h} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
       <View width={props.w} height={props.h} zIndex={1} borderRadius={LAYOUT.radius}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>
@@ -71,7 +64,7 @@ export function PosterArt(props: {
         </Show>
         <Show when={props.progress !== undefined}>
           <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={0x000000aa}>
-            <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.focus} />
+            <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.accent} />
           </View>
         </Show>
         <Show when={props.watched}>

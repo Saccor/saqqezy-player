@@ -243,7 +243,7 @@ export function ManageOnPhonePage(props: PageProps) {
           return (
             <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={LAYOUT.radius}
               color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}
-              border={{ width: 2, color: COLORS.focus }}>
+              border={{ width: 2, color: COLORS.subtle }}>
               <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
                 textAlign="center" fontSize={FONT.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
             </View>

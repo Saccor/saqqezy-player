@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, fullscreenVideoRoute, HINT_Y, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, fullscreenVideoRoute, HINT_Y, msToNextMinute, railRoute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
   BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastLayout, toastOnShow,
 } from './logic.ts';
 import { router } from './router.ts';
@@ -134,10 +134,19 @@ describe('toast precedence', () => {
 });
 
 describe('showWordmark', () => {
-  it('shows on every browsing screen while the video is not fullscreen', () => {
+  it('shows on the screens not yet redesigned while the video is not fullscreen', () => {
     for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
       expect(showWordmark(route, false, false)).toBe(true);
     }
+  });
+
+  it('is off on the redesigned screens and the player', () => {
+    for (const r of ['start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
+  });
+
+  it('screens with the rail draw the clock in the rail', () => {
+    for (const r of ['home', 'start', 'vod', 'vodGrid'] as const) expect(railRoute(r)).toBe(true);
+    for (const r of ['guide', 'movieDetail', 'player', undefined] as const) expect(railRoute(r)).toBe(false);
   });
 
   it('shows before any screen is open (loading, init error)', () => {

@@ -75,9 +75,9 @@ export function VolumeControl(props: {
         color={lit() ? COLORS.text : COLORS.muted} />
       <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.background} />
       <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
-        color={silent() ? COLORS.muted : COLORS.focus} />
+        color={silent() ? COLORS.muted : COLORS.accent} />
       <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
-        color={COLORS.text} scale={lit() ? 1.15 : 1} />
+        color={COLORS.text} />
       <Text x={props.width - PCT_W - 16} y={(props.height - FONT.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
         textAlign="right" maxLines={1} fontSize={FONT.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
     </View>

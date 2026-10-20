@@ -3,10 +3,13 @@ import type { SeriesPointer } from '@iptv/core';
 import { favToggleLabel } from '../copy.ts';
 
 /** The poster options menu. Pure: no Solid, no Lightning. */
-export type PosterAction = 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
+export type PosterAction = 'play' | 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
 
+/** Play resumes a started movie (progress) or a series in Continue watching (its episode `badge`): say Resume. */
 export function buildPosterMenu(tile: VodTile, inContinue: boolean): { action: PosterAction; label: string }[] {
+  const resumes = (tile.progress !== undefined && tile.progress > 0) || tile.badge !== undefined;
   const items: { action: PosterAction; label: string }[] = [
+    { action: 'play', label: resumes ? 'Resume' : 'Play' },
     { action: tile.favourite ? 'favRemove' : 'favAdd', label: favToggleLabel(tile.favourite) },
   ];
   // Series are marked watched per episode (Plan 5).
@@ -45,6 +48,8 @@ export async function runPosterAction(a: PosterAction, tile: VodTile, api: Poste
       if (tile.kind === 'series') await api.clearSeriesContinue(tile.id);
       else await api.clearVodProgress(tile.id);
       return true;
+    // Play opens the player; the menu runner (`createPosterMenu`) starts it, nothing is saved here.
+    case 'play':
     case 'cancel': return false;
   }
 }

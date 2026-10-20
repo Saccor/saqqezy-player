@@ -82,6 +82,14 @@ export function resumeTarget(s: {
 }
 
 /**
+ * Back from Movies, Series or Start (or Live TV on their rail) returns to Home with `fromVod`: the channel they stopped
+ * resumes and focus lands on the channel list (you return to what you were watching), not on the rail.
+ */
+export function returnedToLive(params: { fromVod?: unknown }): boolean {
+  return params.fromVod === true;
+}
+
+/**
  * Back from Movies or Series (`fromVod`), or Home revealed after Search opened a movie or series (`fromSearch`): the
  * live channel that was playing when it stopped (`returnId`) comes back, through Home's usual play path. Nothing
  * when nothing was playing, after a stop on purpose (`held`), or while the dev resume gate is closed (`gatePaused`).

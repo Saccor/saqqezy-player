@@ -1,5 +1,6 @@
 export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
 export type OpenOn = 'lastChannel' | 'start';
+export type PosterSize = 'standard' | 'compact';
 export const FOLLOWED_TEAMS_MAX = 50;
 export const FOLLOWED_TEAM_LEN = 40;
 
@@ -28,6 +29,8 @@ export interface AppSettings {
   openOn: OpenOn;
   /** Sides the user follows (EPG text as shown); events with a followed side are pinned on Start. On-device only. */
   followedTeams: string[];
+  /** Library grid density: 8 posters a row, or 10 (Compact). */
+  posterSize: PosterSize;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -44,6 +47,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredLanguages: [],
   openOn: 'lastChannel',
   followedTeams: [],
+  posterSize: 'standard',
 };
 
 /** Most entries in `preferredLanguages`. */
@@ -113,6 +117,7 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     preferredLanguages: languageList(src.preferredLanguages),
     openOn: OPEN_ON_CHOICES.includes(src.openOn as OpenOn) ? (src.openOn as OpenOn) : DEFAULT_SETTINGS.openOn,
     followedTeams: sanitizeTeams(src.followedTeams),
+    posterSize: src.posterSize === 'compact' || src.posterSize === 'standard' ? src.posterSize : DEFAULT_SETTINGS.posterSize,
   };
 }
 

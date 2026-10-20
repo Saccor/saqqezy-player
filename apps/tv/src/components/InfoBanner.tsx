@@ -52,10 +52,10 @@ export function InfoBanner(props: {
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - BANNER_H - (props.lift ?? 0)} width={BANNER_W} height={BANNER_H}
       color={COLORS.osd} borderRadius={LAYOUT.radius * 2} zIndex={5}>
-      <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.focus}>
+      <View x={PAD} y={PAD} width={NUM_W} height={LOGO_H} borderRadius={LAYOUT.radius} color={COLORS.surfaceRaised}>
         {/* Five digits and more at 36 px: at 48 px they are wider than the box. */}
         <Text y={(LOGO_H - numSize()) / 2 - 2} width={NUM_W} maxWidth={NUM_W} contain="width" maxLines={1} textAlign="center"
-          fontSize={numSize()} color={COLORS.onFocus}>{`${c().number}`}</Text>
+          fontSize={numSize()} color={COLORS.text}>{`${c().number}`}</Text>
       </View>
       <Show when={c().logo} keyed>{(url) => <BannerLogo url={url} />}</Show>
       <Text x={TEXT_X} y={PAD} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}
@@ -67,7 +67,7 @@ export function InfoBanner(props: {
       <Show when={props.live} keyed>{(l) => (
         <View x={BANNER_W - PAD - CLOCK_W} y={PAD + 76} width={CLOCK_W} height={110}>
           <Text width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
-            fontSize={FONT.body} color={l.hint ? COLORS.text : COLORS.focus}>{l.text}</Text>
+            fontSize={FONT.body} color={COLORS.text}>{l.text}</Text>
           <Show when={l.hint}>
             <Text y={44} width={CLOCK_W} maxWidth={CLOCK_W} contain="width" textAlign="right" maxLines={1}
               fontSize={FONT.small} color={COLORS.muted}>{l.hint}</Text>
@@ -86,7 +86,7 @@ export function InfoBanner(props: {
             <View x={168} y={40} width={22} height={22} src={iconTexture('archive')} color={COLORS.muted} />
           </Show>
           <View x={TEXT_W - BAR_W} y={12} width={BAR_W} height={8} color={TRACK} borderRadius={4}>
-            <View width={Math.round(BAR_W * progressOf(n, props.now))} height={8} color={COLORS.focus} borderRadius={4} />
+            <View width={Math.round(BAR_W * progressOf(n, props.now))} height={8} color={COLORS.accent} borderRadius={4} />
           </View>
         </View>
       )}</Show>

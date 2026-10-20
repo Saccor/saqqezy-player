@@ -6,7 +6,7 @@ import { COLORS, FONT, LAYOUT } from './theme.ts';
 const WIDTH = 120;
 
 /** HH:MM, top-right inside the safe area; re-renders on each minute boundary. */
-export function Clock() {
+export function Clock(props: { x?: number; y?: number; width?: number; align?: 'left' | 'center' | 'right'; size?: number }) {
   const [now, setNow] = createSignal(formatClock(new Date()));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const tick = () => {
@@ -18,7 +18,7 @@ export function Clock() {
   onCleanup(() => clearTimeout(timer));
 
   return (
-    <Text x={LAYOUT.width - LAYOUT.safeX - WIDTH} y={LAYOUT.safeY} width={WIDTH} maxWidth={WIDTH} contain="width"
-      textAlign="right" fontSize={FONT.heading} color={COLORS.text} zIndex={10}>{`${now()}`}</Text>
+    <Text x={props.x ?? LAYOUT.width - LAYOUT.safeX - WIDTH} y={props.y ?? LAYOUT.safeY} width={props.width ?? WIDTH} maxWidth={props.width ?? WIDTH} contain="width"
+      textAlign={props.align ?? 'right'} fontSize={props.size ?? FONT.heading} color={COLORS.text} zIndex={10}>{`${now()}`}</Text>
   );
 }

@@ -30,7 +30,7 @@ function LinkButton(props: { target: ScreenId }) {
   const [focused, setFocused] = createSignal(false);
   return (
     <View width={BTN_W} height={BTN_H} borderRadius={LAYOUT.radius} onFocusChanged={setFocused}
-      color={focused() ? COLORS.focus : COLORS.background} scale={focused() ? 1.05 : 1}
+      color={focused() ? COLORS.focus : COLORS.background}
       onEnter={() => { router.push(props.target); return true; }}>
       <Text y={(BTN_H - FONT.body) / 2 - 4} width={BTN_W} maxWidth={BTN_W} contain="width" textAlign="center"
         fontSize={FONT.body} color={focused() ? COLORS.onFocus : COLORS.text}>{TITLES[props.target]}</Text>

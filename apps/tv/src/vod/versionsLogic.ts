@@ -21,16 +21,6 @@ export function versionRows(versions: readonly VersionView[], shownId: string | 
   return rows;
 }
 
-/** "4K · EN · SV": best quality, then the languages as codes (no flags). */
-export function versionsBadge(quality: string | undefined, versions: readonly VersionView[]): string {
-  const langs: string[] = [];
-  for (const v of versions) {
-    const code = v.lang?.toUpperCase();
-    if (code && !langs.includes(code)) langs.push(code);
-  }
-  return [quality, ...langs].filter(Boolean).join(' · ');
-}
-
 /** Settings' "Preferred language" stepper: Automatic, then each listed language. */
 export const PREFERRED_LANGUAGE_OPTIONS: readonly string[] = ['auto', ...SUBTITLE_LANGUAGE_OPTIONS.filter((c) => c !== 'off')];
 
