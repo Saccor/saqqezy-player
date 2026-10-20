@@ -195,9 +195,15 @@ describe('routeKey', () => {
     expect(routeKey('bar', 'left', ctx({ searching: true, keyboardOpen: true }))).toEqual({ kind: 'focus', place: 'keyboard' });
   });
 
-  it('bar: Back ends search mode; with no query it is Home Back as today', () => {
+  it('bar: Back ends search mode; not searching it returns to the list (an empty group passes it to the shell)', () => {
     expect(routeKey('bar', 'back', ctx({ searching: true }))).toEqual({ kind: 'exit', focus: 'list' });
-    expect(routeKey('bar', 'back', ctx())).toEqual(PASS);
+    expect(routeKey('bar', 'back', ctx())).toEqual(toList);
+    expect(routeKey('bar', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
+  });
+
+  it('tabs: Back returns to the list instead of asking to exit (an empty group passes it on)', () => {
+    expect(routeKey('tabs', 'back', ctx())).toEqual(toList);
+    expect(routeKey('tabs', 'back', ctx({ hasChannels: false }))).toEqual(PASS);
   });
 
   it('list: Left goes to the open keyboard, never to the groups hidden under it (also while browsing)', () => {
@@ -220,7 +226,7 @@ describe('routeKey', () => {
     expect(routeKey('tabs', 'left', c)).toEqual({ kind: 'pass' });
     expect(routeKey('tabs', 'up', c)).toEqual({ kind: 'pass' });
     expect(routeKey('tabs', 'right', c)).toEqual({ kind: 'pass' });
-    expect(routeKey('tabs', 'back', c)).toEqual({ kind: 'pass' });
+    expect(routeKey('tabs', 'back', { ...c, hasChannels: false })).toEqual({ kind: 'pass' });
   });
 
   it('Up from the bar stays put while the compact keyboard is open, even with an empty bar', () => {

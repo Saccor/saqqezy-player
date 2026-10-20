@@ -1060,7 +1060,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the top layer first
-    if (searching()) return nav(area(), 'back');
+    // Search mode, the bar and the tab bar route Back themselves (end search, or return to the list); the rest passes.
+    if (searching() || area() === 'bar' || area() === 'tabs') return nav(area(), 'back');
     if (area() === 'groups' && total() > 0) return focusArea('list');
     return false;
   };

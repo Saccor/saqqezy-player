@@ -173,7 +173,8 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       if (key === 'up') return c.searching || c.keyboardOpen ? STAY : focusTo('tabs');
       if (key === 'down') return c.searching ? results : c.hasChannels ? focusTo('list') : STAY;
       if (key === 'left') return focusTo(c.keyboardOpen ? 'keyboard' : 'groups');
-      if (key === 'back') return c.searching ? EXIT : PASS;
+      // Not searching: Back returns to the list (the shell would otherwise ask to exit); an empty group passes it on.
+      if (key === 'back') return c.searching ? EXIT : c.hasChannels ? focusTo('list') : PASS;
       return STAY;
     case 'list':
       if (key === 'up' && c.atEdge) return focusTo('bar');
@@ -193,7 +194,9 @@ export function routeKey(place: Place, key: NavKey, c: NavContext): NavResult {
       if (key === 'done') return c.hasResults ? focusTo('list') : focusTo('bar');
       return PASS;
     case 'tabs':
-      return key === 'down' ? focusTo('bar') : PASS;
+      if (key === 'down') return focusTo('bar');
+      if (key === 'back') return c.hasChannels ? focusTo('list') : PASS;
+      return PASS;
   }
 }
 

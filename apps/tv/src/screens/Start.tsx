@@ -1,6 +1,6 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createSignal, onCleanup, onMount } from 'solid-js';
-import { VOD_ROW_RECENT, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
+import { VOD_ROW_RECENT, type ChannelRow, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { FAV_COPY, favChangedToast } from '../copy.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
@@ -21,7 +21,7 @@ import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
+  cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
@@ -123,14 +123,25 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     await saveSetting({ followedTeams: next });
     void load();
   };
-  /** Long Ok / Menu: favourite a channel; follow or unfollow a side of an event. */
+  /** The channel menu Home shows on a long press: favourite on or off behind a choice, never at once. */
+  const channelMenu = async (ch: ChannelRow) => {
+    const choice = await menu.choose(ch.name, channelMenuItems(ch.favourite));
+    if (!alive || choice !== 'fav') return;
+    try {
+      const on = await api.toggleFavourite(ch.id);
+      if (!alive) return;
+      showToast(favChangedToast(on));
+      void load();
+    } catch {
+      if (alive) showToast(FAV_COPY.failed);
+    }
+  };
+  /** Long Ok / Menu: the channel menu; follow or unfollow a side of an event. */
   const openMenu = () => {
     const c = focusedCell();
     if (screenOverlayOpen()) return true;
     if (c?.type === 'channel') {
-      void api.toggleFavourite(c.channel.id)
-        .then((on) => { showToast(favChangedToast(on)); void load(); })
-        .catch(() => showToast(FAV_COPY.failed));
+      void channelMenu(c.channel);
     } else if (c?.type === 'event' && c.event.sides) {
       void followMenu(c.event.sides);
     }
