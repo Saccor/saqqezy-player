@@ -1,5 +1,5 @@
 import { RECENT_MAX } from '../constants.ts';
-import { emptyLayout, FAV_LIST_ID, type Layout } from './types.ts';
+import { emptyLayout, FAV_LIST_ID, LAYOUT_SCHEMA, type Layout } from './types.ts';
 
 /** v1 per-source user flags. Superseded by `Layout`; kept for migration and compatibility. */
 export interface UserFlags {
@@ -23,4 +23,18 @@ export function layoutFromFlags(flags: UserFlags): Layout {
   l.hiddenChannels = [...new Set(flags.hidden ?? [])];
   l.recent = [...new Set(flags.recent ?? [])].slice(0, RECENT_MAX);
   return l;
+}
+
+/**
+ * A received layout of an older schema (a TV before schema 2) with the new fields defaulted; the same object when
+ * nothing is missing. Cheap (no repair): for layouts already checked by the sender; use `normalizeLayout` otherwise.
+ */
+export function upgradeLayout(l: Layout): Layout {
+  if (Array.isArray(l.shownGroups) && l.groupRegion && typeof l.groupRegion === 'object' && l.schema === LAYOUT_SCHEMA) return l;
+  return {
+    ...l,
+    schema: LAYOUT_SCHEMA,
+    shownGroups: Array.isArray(l.shownGroups) ? l.shownGroups : [],
+    groupRegion: l.groupRegion && typeof l.groupRegion === 'object' ? l.groupRegion : {},
+  };
 }

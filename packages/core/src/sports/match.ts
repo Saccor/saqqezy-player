@@ -8,6 +8,14 @@ export function foldText(s: string): string {
   return s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
+/**
+ * The stored and compared form of a guide category text: folded, inner spaces collapsed, trimmed (the settings'
+ * normaliser), so a chosen chip id survives `sanitizeSettings` and detection sees "Ice  Hockey" as "ice hockey".
+ */
+export function categoryKey(s: string): string {
+  return foldText(s).replace(/\s+/g, ' ').trim();
+}
+
 export function normSide(s: string): string {
   const t = foldText(s)
     .replace(/&/g, ' and ')

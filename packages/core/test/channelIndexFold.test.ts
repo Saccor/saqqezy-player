@@ -55,7 +55,7 @@ describe('ChannelIndex fold mode', () => {
     expect(ids(idx.sources('s:5'))).toEqual(['s:1', 's:3', 's:4', 's:5']);
     expect(idx.foldKey('s:4')).toBe(idx.foldKey('s:1'));
     expect(idx.foldKey('s:6')).not.toBe(idx.foldKey('s:1'));
-    expect(idx.memberInfo('s:4')).toEqual({ quality: 4, backup: true });
+    expect(idx.memberInfo('s:4')).toEqual({ quality: 4, backup: true, chosen: false });
     expect(idx.neighbour('all', 's:5', 1)?.id).toBe('s:2');
     expect(idx.neighbour('all', 's:2', -1)?.id).toBe('s:1');
     expect(idx.indexOf('all', 's:4')).toBe(0);

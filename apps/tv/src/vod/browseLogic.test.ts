@@ -84,7 +84,7 @@ describe('browseLogic', () => {
 
   test('row sort: by date when Recently added exists, else A–Z', () => {
     expect(rowSort([row('vod:recent', 1, 1), row('1', 1, 1)])).toBe('added');
-    expect(rowSort([row('1', 1, 1)])).toBe('title');
+    expect(rowSort([row('1', 1, 1)])).toBe('provider');
   });
   test('mergeRows: a lazy row stays loaded with its items, taking the new title and total', () => {
     const prev = [row('a', 5, 5), row('b', 40, 12)];

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
+import {
+  DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, HIDDEN_COMPETITIONS_MAX, MATCH_CATEGORIES_MAX, PINNED_COMPETITIONS_MAX, REGIONS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings,
+} from '../src/settings.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -11,6 +13,8 @@ describe('sanitizeSettings', () => {
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
+      regions: { codes: [], mode: 'off' }, combineCategories: false,
+      pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [],
     });
   });
 
@@ -31,6 +35,18 @@ describe('sanitizeSettings', () => {
     const many = Array.from({ length: 80 }, (_, i) => `Team ${i}`);
     expect(sanitizeSettings({ followedTeams: many }).followedTeams).toHaveLength(FOLLOWED_TEAMS_MAX);
     for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ followedTeams: v }).followedTeams).toEqual([]);
+  });
+
+  test('pinned and hidden competitions, match categories: folded, trimmed, 1-40 chars, deduped, capped', () => {
+    expect(sanitizeSettings({ pinnedCompetitions: ['  Northern   Cüp ', 'northern cup', '', 3, null, 'Test Cup'] }).pinnedCompetitions)
+      .toEqual(['northern cup', 'test cup']);
+    expect(sanitizeSettings({ hiddenCompetitions: ['x'.repeat(60)] }).hiddenCompetitions).toEqual(['x'.repeat(40)]);
+    const many = Array.from({ length: 80 }, (_, i) => `Cup ${i}`);
+    expect(sanitizeSettings({ pinnedCompetitions: many }).pinnedCompetitions).toHaveLength(PINNED_COMPETITIONS_MAX);
+    expect(sanitizeSettings({ hiddenCompetitions: many }).hiddenCompetitions).toHaveLength(HIDDEN_COMPETITIONS_MAX);
+    expect(sanitizeSettings({ matchCategories: many }).matchCategories).toHaveLength(MATCH_CATEGORIES_MAX);
+    expect(sanitizeSettings({ matchCategories: ['Fotboll'] }).matchCategories).toEqual(['fotboll']);
+    for (const v of ['x', 5, null, undefined, {}]) expect(sanitizeSettings({ pinnedCompetitions: v }).pinnedCompetitions).toEqual([]);
   });
 
   test('audioLanguage keeps a listed language code or auto, else auto (never off)', () => {
@@ -106,5 +122,19 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ preferredFormat: 'm3u8', showClock: false })).toMatchObject({ preferredFormat: 'm3u8', showClock: false });
     expect(sanitizeSettings({ preferredFormat: 'mp4', showClock: 'no' })).toMatchObject({ preferredFormat: 'ts', showClock: true });
     expect(Object.keys(sanitizeSettings({ extra: 1, epgOffsetHours: 1 })).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+  });
+
+  test('regions: codes normalised (UK → GB), lang keys kept, deduped, at most 10; mode off|first|only', () => {
+    expect(sanitizeSettings({ regions: { codes: ['se', 'UK', 'GB', 'lang:en', 'lang:EN', 'XX', 'lang:', 3], mode: 'first' } }).regions)
+      .toEqual({ codes: ['SE', 'GB', 'lang:en'], mode: 'first' });
+    const many = ['SE', 'NO', 'DK', 'FI', 'IS', 'DE', 'AT', 'CH', 'FR', 'BE', 'NL', 'LU'];
+    expect(sanitizeSettings({ regions: { codes: many, mode: 'only' } }).regions.codes).toHaveLength(REGIONS_MAX);
+    expect(sanitizeSettings({ regions: { codes: ['SE'], mode: 'bogus' } }).regions).toEqual({ codes: ['SE'], mode: 'off' });
+    for (const v of [null, 'SE', [], { codes: 'SE' }]) expect(sanitizeSettings({ regions: v }).regions).toEqual({ codes: [], mode: 'off' });
+  });
+
+  test('combineCategories is a boolean, off by default', () => {
+    expect(sanitizeSettings({ combineCategories: true }).combineCategories).toBe(true);
+    expect(sanitizeSettings({ combineCategories: 'yes' }).combineCategories).toBe(false);
   });
 });

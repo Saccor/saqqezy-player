@@ -69,7 +69,34 @@ describe('groupVod', () => {
     expect(groupVod(list(items)).groups[0]!.splitFrom).toBeUndefined();
   });
 
-  test('categories merge by name without language or quality', () => {
+  test('Bug B: provider categories by default; a combined title is listed in each of its versions categories', () => {
+    const cats: VodCategory[] = [
+      { id: '1', kind: 'movie', name: 'SE | Action', count: 2 },
+      { id: '2', kind: 'movie', name: 'EN | Action', count: 1 },
+      { id: '4', kind: 'movie', name: 'Drama', count: 1 },
+    ];
+    const g = groupVod(list([
+      item('Synthetic Film (2021)', { categoryId: '1' }),
+      item('Example Story (2020)', { categoryId: '1' }),
+      item('Synthetic Film (2021)', { categoryId: '2' }),
+      item('Example Story (2020)', { categoryId: '4' }),
+    ], cats));
+    expect(g.categories).toEqual([
+      { id: '1', kind: 'movie', name: 'SE | Action', count: 2 },
+      { id: '2', kind: 'movie', name: 'EN | Action', count: 1 },
+      { id: '4', kind: 'movie', name: 'Drama', count: 1 },
+    ]);
+    expect(g.groups.map((x) => x.categoryIds)).toEqual([['1', '2'], ['1', '4']]);
+    expect(g.groups).toHaveLength(2);
+  });
+
+  test('provider categories: an unknown category id keeps its id', () => {
+    const g = groupVod(list([item('Synthetic Film', { categoryId: 'gone' })], []));
+    expect(g.groups[0]!.categoryIds).toEqual(['gone']);
+    expect(g.categories).toEqual([{ id: 'gone', kind: 'movie', name: 'gone', count: 1 }]);
+  });
+
+  test('categories merge by name without language or quality (opt-in)', () => {
     const cats: VodCategory[] = [
       { id: '1', kind: 'movie', name: 'SE | Action', count: 2 },
       { id: '2', kind: 'movie', name: 'EN | Action', count: 1 },
@@ -82,7 +109,7 @@ describe('groupVod', () => {
       item('Synthetic Film (2021)', { categoryId: '2' }),
       item('Synthetic Film (2021) 4K', { categoryId: '3' }),
       item('Example Story (2020)', { categoryId: '4' }),
-    ], cats));
+    ], cats), undefined, { mergeCategories: true });
     expect(g.categories).toEqual([
       { id: 'c:action', kind: 'movie', name: 'Action', count: 2 },
       { id: 'c:drama', kind: 'movie', name: 'Drama', count: 1 },
@@ -95,8 +122,8 @@ describe('groupVod', () => {
     expect(groupVod(list([item('Synthetic Film', { categoryId: '1' })], cats)).groups[0]!.langs).toEqual(['sv']);
   });
 
-  test('an unknown category id still gets a group category', () => {
-    const g = groupVod(list([item('Synthetic Film', { categoryId: 'gone' })], []));
+  test('an unknown category id still gets a group category (merged)', () => {
+    const g = groupVod(list([item('Synthetic Film', { categoryId: 'gone' })], []), undefined, { mergeCategories: true });
     expect(g.groups[0]!.categoryIds).toEqual(['c:gone']);
     expect(g.categories).toEqual([{ id: 'c:gone', kind: 'movie', name: 'gone', count: 1 }]);
   });

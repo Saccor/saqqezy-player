@@ -17,6 +17,11 @@ export const COLORS = {
   onFocusTrack: 0xc5c9d2ff,
   /** Only progress fills, the guide's now line and similar position marks. */
   accent: 0x4f8cffff,
+  /**
+   * The chip in effect at rest (ActionBar `current`): a deeper accent, so `text` on it is ≥ 4.5:1 and the chip is
+   * ≥ 3:1 against the background and the resting chips beside it. A focused chip keeps the focus fill.
+   */
+  selected: 0x3568d0ff,
   text: 0xeef0f4ff,
   /** Plots and descriptions. */
   textSecondary: 0xc9cdd6ff,

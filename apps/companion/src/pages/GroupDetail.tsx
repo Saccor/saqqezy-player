@@ -9,7 +9,7 @@ import { channelLabel, groupChannels, hasManualOrder, providerGroups, sortChange
 import { channelOrderOps } from '../logic/reorder.ts';
 import { sendOps } from '../state/actions.ts';
 import { groupModel } from '../state/derived.ts';
-import { layout } from '../state/store.ts';
+import { layout, store } from '../state/store.ts';
 import { focusLater } from './Lists.tsx';
 
 const SORTS: { mode: SortMode; label: string }[] = [
@@ -28,7 +28,7 @@ export function GroupDetailPage(props: { groupId: string; onBack: () => void }) 
   const narrow = createNarrow();
   const group = createMemo(() => {
     const l = layout();
-    return l ? providerGroups(groupModel(), l).find((g) => g.id === props.groupId) : undefined;
+    return l ? providerGroups(groupModel(), l, store.state?.regions).find((g) => g.id === props.groupId) : undefined;
   });
   const list = createMemo((): CompanionChannel[] => {
     const l = layout();

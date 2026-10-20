@@ -3,7 +3,7 @@ import { SourceService, type LayoutOp } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
-  isTvToPhone, MAX_MESSAGE_BYTES, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
+  isTvToPhone, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
   type CompanionState, type TvHeaderSupport, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { AppApi } from '../src/appApi.ts';
@@ -180,7 +180,7 @@ describe('CompanionHost', () => {
     expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
 
     const welcome = await hello(p);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2 });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION });
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBe('My phone');
     // Paired: the session now lives up to 60 minutes from its start.
@@ -281,6 +281,24 @@ describe('CompanionHost', () => {
     await p.next('stateUnchanged');
   });
 
+  test('changing only Your countries pushes a fresh state with the new regions', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    await s.api.idle();
+    const { p } = await pairQr(s);
+    await hello(p, PROTOCOL_VERSION);
+    await settle(400);
+    p.inbox.length = 0;
+    const version = (await s.api.getLayout()).version;
+    await s.api.setRegions({ codes: ['SE', 'DK'], mode: 'first' });
+    const pushed = await p.next('state', (m) => m.state.regions?.mode === 'first');
+    expect(pushed.state.regions).toMatchObject({ mode: 'first', codes: ['SE', 'DK'] });
+    expect(pushed.state.version).toBe(version);
+    await s.api.setRegions({ codes: ['FI'], mode: 'only' });
+    const again = await p.next('state', (m) => m.state.regions?.mode === 'only');
+    expect(again.state.regions).toMatchObject({ mode: 'only', codes: ['FI'] });
+  });
+
   test('no state is pushed while no companion is connected', async () => {
     const s = setup();
     await s.api.addSource(xt());
@@ -340,7 +358,7 @@ describe('CompanionHost', () => {
     await s.api.addSource(xt());
     const { p } = await pairQr(s);
     const welcome = await hello(p, 2);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2, headers: headerSupport });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION, headers: headerSupport });
   });
 
   test('protocol 2: getSource returns the stored User-Agent and Referer to a v2 phone', async () => {
@@ -898,5 +916,64 @@ describe('fitCompanionState', () => {
     const s = synthetic(60_000, () => undefined);
     for (const c of s.channels) c.name = c.displayName = 'n'.repeat(80);
     expect(() => fitCompanionState(s)).toThrow(expect.objectContaining({ name: 'StateTooLargeError' }));
+  });
+});
+
+describe('CompanionHost: backups (protocol 3)', () => {
+  test('backupToPhone sends the sealed backup to a v3 phone and waits for backupSaved', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const done = s.api.backupToPhone();
+    const msg = await p.next('backup');
+    expect(msg.tv).toBe('Living room');
+    expect(msg.backup.f).toBe('iptv-backup');
+    expect(JSON.stringify(msg)).not.toContain(server.url);
+    await p.ch.send({ t: 'backupSaved', at: msg.backup.at });
+    const res = await done;
+    expect(res.code).toHaveLength(26);
+  });
+
+  test('an older phone page gets no backup: OldCompanion', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 2);
+    await expect(s.api.backupToPhone()).rejects.toMatchObject({ name: 'OldCompanion' });
+    expect(p.inbox.some((m) => m.t === 'backup')).toBe(false);
+  });
+
+  test('no answer from the phone: Timeout', async () => {
+    fakeTimers();
+    const s = setup();
+    await s.api.addSource(xt());
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const done = s.api.backupToPhone().then(() => undefined, (e: unknown) => e);
+    await p.next('backup');
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(await done).toMatchObject({ name: 'Timeout' });
+  });
+
+  test('restore from the phone: refused until the TV waits for it, then applied and answered ok', async () => {
+    const s = setup();
+    await s.api.addSource(xt());
+    const { rows } = await s.api.getChannelSlice('all', 0, 1);
+    await s.api.applyLayoutOps([{ op: 'hideChannels', ids: [rows[0]!.id] }]);
+    const file = await s.api.backupToFile();
+    await s.api.applyLayoutOps([{ op: 'unhideChannels', ids: [rows[0]!.id] }]);
+    const { p } = await pairQr(s);
+    await hello(p, 3);
+    const backup = JSON.parse(file.data);
+    const refused = await p.call({ t: 'restore', backup, code: file.code });
+    expect(refused).toMatchObject({ ok: false, error: { name: 'NotReady' } });
+    await s.api.armPhoneRestore(true);
+    const wrong = await p.call({ t: 'restore', backup, code: '1'.repeat(26) });
+    expect(wrong).toMatchObject({ ok: false, error: { name: 'BackupError' } });
+    // The unhide is newer than the backup: the restore keeps it; the call still succeeds.
+    const ok = await p.call({ t: 'restore', backup, code: file.code });
+    expect(ok.ok).toBe(true);
+    expect(s.events.some((e) => e.type === 'backupRestored' && e.origin === 'remote')).toBe(true);
   });
 });

@@ -21,6 +21,7 @@ import { responseText } from '../net/textStream.ts';
 import { BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
 import type { Storage } from '../storage.ts';
 import { splitLines } from '../text/lines.ts';
+import { buildRegionsRecord, readRegionsRecord, regionsKey, tallyTvg, REGION_DETECTOR_VERSION, type RegionsRecord, type TvgTally } from '../text/regions.ts';
 import { emptyVodList } from '../vod/list.ts';
 import type { VodKind, VodList } from '../vod/types.ts';
 import type {
@@ -30,6 +31,9 @@ import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
 import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type ArchiveListing, type XtreamAccount } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
 import { SyncClock } from '../sync/clock.ts';
+import { SYNC_KIND, clockKey } from '../sync/keys.ts';
+import { SYNCED_SETTINGS } from '../sync/payload.ts';
+import { SETTINGS_SCOPE } from '../sync/snapshot.ts';
 import {
   REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
   type RefreshWhat,
@@ -158,10 +162,10 @@ export class SourceService {
 
   async addSource(input: NewSource, onProgress?: Progress) {
     let source = withCleanCatchupOffset(withCleanHttpSettings({ ...input, id: this.newId() } as SourceConfig));
-    const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+    const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
     source = withAccount(source, account);
     try {
-      await this.saveChannels(source.id, channels, result, vod, templates);
+      await this.saveChannels(source.id, channels, result, vod, templates, tvg);
       await this.storage.putSource(source);
       if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
     } catch (err) {
@@ -193,12 +197,12 @@ export class SourceService {
         if (prev.serverOffsetMin !== undefined) kept.serverOffsetMin = prev.serverOffsetMin;
       }
       let source = withCleanCatchupOffset(withCleanHttpSettings(kept));
-      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
       source = withAccount(source, account);
       await this.storage.putSource(source);
       // Another configuration: earlier failures say nothing about it, so automatic refreshes start afresh.
       for (const what of REFRESH_WHATS) await clearRefreshFailure(this.storage, source.id, what);
-      await this.saveChannels(source.id, channels, result, vod, templates);
+      await this.saveChannels(source.id, channels, result, vod, templates, tvg);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
       if (source.kind === 'xtream') {
         // Another server or account: its stream ids mean nothing here, so the old catalogues must go.
@@ -245,6 +249,10 @@ export class SourceService {
         for (const key of [`layout:${id}`, `flags:${id}`]) {
           if ((await this.storage.getMeta<unknown>(key)) != null) await this.storage.setMeta(key, null);
         }
+        // Stamps of an earlier layout write are stored after it returned: wait for them, then drop what they left.
+        await this.syncClock.idle();
+        const left = await this.storage.listSyncMeta(id);
+        if (left.length) await this.storage.deleteSyncMeta(id, left.map((e) => e.key));
       });
       if ((await this.getActiveSourceId()) === id) {
         const [next] = await this.storage.listSources();
@@ -260,7 +268,7 @@ export class SourceService {
   refreshPlaylist(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<IngestResult> {
     return this.withLock(id, () => this.withBackoff(id, 'playlist', opts, async () => {
       const source = await this.requireSource(id);
-      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates, tvg } = await this.fetchChannels(source, onProgress);
       const stored = (await this.storage.listSources()).find((s) => s.id === id);
       if (!stored) return { channelCount: 0, skipped: 0 };
       // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
@@ -268,7 +276,7 @@ export class SourceService {
       if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
         throw new SourceNetworkError('The account has no live channels.');
       }
-      await this.saveChannels(id, channels, result, vod, templates);
+      await this.saveChannels(id, channels, result, vod, templates, tvg);
       const next = withAccount(stored, account);
       if (accountChanged(stored, next)) await this.storage.putSource(next);
       return result;
@@ -279,10 +287,27 @@ export class SourceService {
     return sanitizeSettings(await this.storage.getMeta<unknown>('settings'));
   }
 
-  async saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
+  /**
+   * Stores a settings change. A synced setting (§6.3) whose value changed stamps its clock (`#settings` scope), so a
+   * restore or a later sync can tell which side wrote last; a restore passes `stamp: false` and adopts its stamps.
+   */
+  async saveSettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
     const defined = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined));
-    const next = sanitizeSettings({ ...(await this.getSettings()), ...defined });
+    const prev = await this.getSettings();
+    const next = sanitizeSettings({ ...prev, ...defined });
     await this.storage.setMeta('settings', next);
+    if (opts.stamp !== false) {
+      const before = prev as unknown as Record<string, unknown>;
+      const after = next as unknown as Record<string, unknown>;
+      const keys = [...SYNCED_SETTINGS]
+        .filter((k) => k in defined && JSON.stringify(before[k]) !== JSON.stringify(after[k]))
+        .map((k) => clockKey(SYNC_KIND.setting, k));
+      if (keys.length) {
+        this.syncClock.stamp(SETTINGS_SCOPE, keys).catch((err: unknown) => {
+          console.warn('Sync stamp write failed', err instanceof Error ? err.name : 'Error');
+        });
+      }
+    }
     return next;
   }
 
@@ -302,6 +327,7 @@ export class SourceService {
       await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
+      await this.storage.setMeta(regionsKey(id), null);
       await this.storage.setMeta(catchupTemplatesKey(id), null);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
@@ -350,20 +376,56 @@ export class SourceService {
     return new ChannelIndex(channels, layout, coverage);
   }
 
+  /** The detected regions of source `id`'s groups, as cached at ingest; undefined when missing or of another detector version. */
+  async loadRegions(id: string): Promise<RegionsRecord | undefined> {
+    const rec = readRegionsRecord(await this.storage.getMeta<unknown>(regionsKey(id)));
+    return rec?.v === REGION_DETECTOR_VERSION ? rec : undefined;
+  }
+
+  /**
+   * Rebuilds source `id`'s region record from its stored channels and the stored `tvg-*` tallies (a new detector
+   * version, or a record lost). Callers run it after first paint, never on the cold-start path. Undefined when the
+   * source is gone.
+   */
+  redetectRegions(id: string): Promise<RegionsRecord | undefined> {
+    return this.withLock(id, async () => {
+      if (!(await this.sourceExists(id))) return undefined;
+      const old = readRegionsRecord(await this.storage.getMeta<unknown>(regionsKey(id)));
+      const rec = buildRegionsRecord(await this.storage.getChannels(id), old?.tvg);
+      await this.storage.setMeta(regionsKey(id), rec);
+      return rec;
+    });
+  }
+
   /**
    * The stored layout of source `id`, repaired with `normalizeLayout`. Without one, v1 `flags:<id>` are
    * migrated (and the result persisted); otherwise an empty layout.
    */
   loadLayout(id: string): Promise<Layout> {
     // Read, migrate and write under the layout lock, so a concurrent save can never be overwritten.
+    return this.withLock(`layout:${id}`, () => this.loadLayoutLocked(id));
+  }
+
+  private async loadLayoutLocked(id: string): Promise<Layout> {
+    const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
+    if (stored !== undefined && stored !== null) return normalizeLayout(stored);
+    const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
+    if (!isUserFlags(flags)) return emptyLayout();
+    const layout = normalizeLayout(layoutFromFlags(flags));
+    await this.saveLayoutLocked(id, layout);
+    return layout;
+  }
+
+  /**
+   * Read-modify-write of a stored layout under its lock, stamping nothing (a restore adopts the stamps it brings).
+   * `fn` returns the next layout, or undefined to leave it. For a source that is not the active one; the active
+   * source's layout goes through AppApi, which owns its index.
+   */
+  updateLayout(id: string, fn: (layout: Layout) => Layout | undefined): Promise<Layout | undefined> {
     return this.withLock(`layout:${id}`, async () => {
-      const stored = await this.storage.getMeta<unknown>(`layout:${id}`);
-      if (stored !== undefined && stored !== null) return normalizeLayout(stored);
-      const flags = await this.storage.getMeta<unknown>(`flags:${id}`);
-      if (!isUserFlags(flags)) return emptyLayout();
-      const layout = normalizeLayout(layoutFromFlags(flags));
-      await this.saveLayoutLocked(id, layout);
-      return layout;
+      const next = fn(await this.loadLayoutLocked(id));
+      if (next) await this.saveLayoutLocked(id, next);
+      return next;
     });
   }
 
@@ -378,11 +440,19 @@ export class SourceService {
   /**
    * The write of `saveLayout`; the caller holds the `layout:<id>` lock. `touched` (`applyOps(...).touched`) is
    * stamped on the sync clock after the layout is stored; a migration or a zap (`markWatched`) passes none.
+   *
+   * The stamp is asked for inside the lock (so stamps follow the order of layout writes) but not awaited: a bulk
+   * edit (50k hidden channels) returns after the layout write, and the clock stores its stamps batched in the
+   * background (`syncClock.idle()` waits for them). A failed stamp write only costs that edit its sync stamp.
    */
   private async saveLayoutLocked(id: string, layout: Layout, touched: readonly string[] = []): Promise<void> {
     if (!(await this.sourceExists(id))) return;
     await this.storage.setMeta(`layout:${id}`, layout);
-    if (touched.length) await this.syncClock.stamp(id, touched);
+    if (touched.length) {
+      this.syncClock.stamp(id, touched).catch((err: unknown) => {
+        console.warn('Sync stamp write failed', err instanceof Error ? err.name : 'Error');
+      });
+    }
   }
 
   /** epgKeys with stored guide data, or undefined when no guide has been loaded (so a no-EPG filter is skipped). */
@@ -523,7 +593,7 @@ export class SourceService {
     }
     // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
     try {
-      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? { gen: newGen, built: now, candidates: sports.build(), truncated: sports.truncated } satisfies SportsIndexRecord : null);
+      await this.storage.setMeta(sportsIndexKey(id), sportsOk ? sports.record(newGen, now) : null);
     } catch {
       try {
         await this.storage.setMeta(sportsIndexKey(id), null);
@@ -791,7 +861,7 @@ export class SourceService {
 
   private async fetchChannels(
     source: SourceConfig, onProgress?: Progress,
-  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount; templates?: string[] }> {
+  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount; templates?: string[]; tvg?: Record<string, TvgTally> }> {
     if (source.kind === 'xtream') {
       const client = this.xtream(source);
       const account = await client.authenticate();
@@ -835,11 +905,15 @@ export class SourceService {
     if (catchup.channels) result.catchupChannels = catchup.channels;
     if (catchup.unsupported) result.catchupUnsupported = catchup.unsupported;
     const account = await this.probeXcClock(source, channels);
-    return { channels, result, vod: { movie: split.movies, series: split.series }, account, templates: catchup.templates };
+    return { channels, result, vod: { movie: split.movies, series: split.series }, account, templates: catchup.templates, tvg: tallyTvg(split.live) };
   }
 
-  private async saveChannels(id: string, channels: Channel[], result: IngestResult, vod?: IngestVod, templates?: string[]): Promise<void> {
+  private async saveChannels(
+    id: string, channels: Channel[], result: IngestResult, vod?: IngestVod, templates?: string[], tvg?: Record<string, TvgTally>,
+  ): Promise<void> {
     await this.storage.replaceChannels(id, channels);
+    // Detected next to the snapshot, so a cold start reads it and never runs detection.
+    await this.storage.setMeta(regionsKey(id), buildRegionsRecord(channels, tvg));
     await this.storage.setMeta(catchupTemplatesKey(id), templates?.length ? templates : null);
     if (vod) {
       for (const kind of ['movie', 'series'] as const) {

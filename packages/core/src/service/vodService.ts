@@ -7,6 +7,9 @@ import { VodCatalog } from '../vod/catalog.ts';
 import { fetchXtreamCatalog, VodFetchCancelled, xtreamVodApi } from '../vod/fetchXtream.ts';
 import { emptyVodList, seasonsOf } from '../vod/list.ts';
 import {
+  applyVodOps, normalizeVodLayout, vodLayoutKey, type VodApplyResult, type VodLayout, type VodLayoutOp,
+} from '../vod/layout.ts';
+import {
   applyProgress, clearProgress, setFavourite, setTracks, setWatched,
 } from '../vod/progress.ts';
 import type {
@@ -15,6 +18,7 @@ import type {
 import { XtreamClient, normalizeServer } from '../xtream/client.ts';
 import type { RefusalGuard } from '../net/refusalGuard.ts';
 import { SyncClock } from '../sync/clock.ts';
+import { applyVodRestore, type VodRestore } from '../sync/snapshot.ts';
 import { SYNC_KIND, clockKey, pairKey, type SyncKind } from '../sync/keys.ts';
 import { clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff } from './refreshBackoff.ts';
 
@@ -242,6 +246,25 @@ export class VodService {
     });
   }
 
+  /** The user's category layout (hidden, order, shown) per source and kind. */
+  async getVodLayout(sourceId: string, kind: VodKind): Promise<VodLayout> {
+    return normalizeVodLayout(await this.storage.getMeta<unknown>(vodLayoutKey(kind, sourceId)));
+  }
+
+  /** Applies category ops under a per-source lock and stamps what changed; a removed source writes nothing. */
+  applyVodLayoutOps(sourceId: string, kind: VodKind, ops: readonly VodLayoutOp[]): Promise<VodApplyResult> {
+    const meta = vodLayoutKey(kind, sourceId);
+    return this.withLock(meta, async () => {
+      const before = await this.getVodLayout(sourceId, kind);
+      const res = applyVodOps(before, kind, ops);
+      if (!res.changed) return res;
+      if (!(await this.source(sourceId))) return { layout: before, changed: false, rejected: res.rejected, touched: [] };
+      await this.storage.setMeta(meta, res.layout);
+      if (res.touched.length) await this.syncClock.stamp(sourceId, res.touched);
+      return res;
+    });
+  }
+
   /** The version the user picked per title key (item id), per source and kind. */
   async getVodPicks(sourceId: string, kind: VodKind): Promise<Record<string, string>> {
     const v = await this.storage.getMeta<unknown>(vodPickKey(kind, sourceId));
@@ -264,6 +287,62 @@ export class VodService {
       await this.storage.setMeta(meta, picks);
       if (await this.source(sourceId)) await this.syncClock.stamp(sourceId, [clockKey(SYNC_KIND.pick, pairKey(kind, key))]);
     });
+  }
+
+  /**
+   * Writes restored VOD state (a backup or, later, sync): user records, picks and splits, under the same locks as the
+   * user's own writes but without stamping (the restore adopts the stamps it brings). A removed source drops it all.
+   */
+  async applyRestore(
+    sourceId: string,
+    changes: {
+      vod: readonly VodRestore[]; picks: readonly { kind: VodKind; key: string; itemId: string }[]; splits: readonly { kind: VodKind; key: string; on: boolean }[];
+      /** Category ops per kind (backup of Your countries); applied without stamping, like the rest. */
+      vodLayout?: readonly { kind: VodKind; ops: readonly VodLayoutOp[] }[];
+    },
+  ): Promise<void> {
+    if (!(await this.source(sourceId))) return;
+    if (changes.vod.length) {
+      await this.withLock(`vodUser:${sourceId}`, async () => {
+        for (const r of changes.vod) await this.storage.putVodUser(sourceId, r.itemId, applyVodRestore(await this.storage.getVodUser(sourceId, r.itemId), r));
+      });
+    }
+    for (const kind of ['movie', 'series'] as const) {
+      const picks = changes.picks.filter((p) => p.kind === kind);
+      if (picks.length) {
+        const meta = vodPickKey(kind, sourceId);
+        await this.withLock(meta, async () => {
+          const cur = await this.getVodPicks(sourceId, kind);
+          for (const p of picks) {
+            delete cur[p.key];
+            cur[p.key] = p.itemId;
+          }
+          const keys = Object.keys(cur);
+          for (const old of keys.slice(0, Math.max(0, keys.length - VOD_PICKS_MAX))) delete cur[old];
+          await this.storage.setMeta(meta, cur);
+        });
+      }
+      const splits = changes.splits.filter((p) => p.kind === kind);
+      if (splits.length) {
+        const meta = vodSplitKey(kind, sourceId);
+        await this.withLock(meta, async () => {
+          const keys = await this.getVodSplits(sourceId, kind);
+          for (const sp of splits) {
+            if (sp.on) keys.add(sp.key);
+            else keys.delete(sp.key);
+          }
+          await this.storage.setMeta(meta, keys.size ? [...keys] : null);
+        });
+      }
+      const cat = changes.vodLayout?.find((x) => x.kind === kind);
+      if (cat?.ops.length) {
+        const meta = vodLayoutKey(kind, sourceId);
+        await this.withLock(meta, async () => {
+          const res = applyVodOps(await this.getVodLayout(sourceId, kind), kind, cat.ops);
+          if (res.changed) await this.storage.setMeta(meta, res.layout);
+        });
+      }
+    }
   }
 
   private async source(id: string): Promise<SourceConfig | undefined> {

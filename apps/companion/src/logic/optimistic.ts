@@ -1,4 +1,4 @@
-import { applyOps, type Layout, type LayoutOp } from '@iptv/core';
+import { applyOps, upgradeLayout, type Layout, type LayoutOp } from '@iptv/core';
 
 interface Pending {
   id: number;
@@ -32,7 +32,7 @@ export class OptimisticLayout {
   /** A layout from the TV (`state` or `layoutChanged`). False when it is older than the one held (ignored). */
   confirm(layout: Layout): boolean {
     if (this.confirmed && layout.version < this.confirmed.version) return false;
-    this.confirmed = layout;
+    this.confirmed = upgradeLayout(layout);
     this.pending = this.pending.filter((p) => !p.acked);
     this.cached = undefined;
     return true;

@@ -161,6 +161,24 @@ describe('CompanionClient', () => {
     expect(tv.received.length).toBe(before);
   });
 
+  it('protocol 3: a backup from the TV reaches the handler; backupSaved and restore go out', async () => {
+    const { ev, tv, c } = start();
+    const got: { at: number; tv: string }[] = [];
+    (c as unknown as { handlers: ClientHandlers }).handlers.backup = (b, label) => got.push({ at: b.at, tv: label });
+    await openAndWelcome(tv, ev);
+    const backup = { f: 'iptv-backup' as const, v: 1, i: 1000, s: 'A'.repeat(22) + '==', iv: 'B'.repeat(16), at: 1_700_000_000_000, ct: 'C'.repeat(64) };
+    await tv.tv.send({ t: 'backup', backup, tv: 'Living room' });
+    await waitFor(() => got.length === 1, 'backup at the phone');
+    expect(got).toEqual([{ at: backup.at, tv: 'Living room' }]);
+    c.backupSaved(backup.at);
+    await waitFor(() => tv.of('backupSaved').length === 1, 'backupSaved at the TV');
+    expect(tv.of('backupSaved')[0]!.msg).toEqual({ t: 'backupSaved', at: backup.at });
+    const pending = c.request({ t: 'restore', backup, code: '0'.repeat(26) });
+    await waitFor(() => tv.of('restore').length === 1, 'restore at the TV');
+    await tv.tv.send({ t: 'result', requestMsgId: tv.of('restore')[0]!.msgId, ok: true });
+    expect((await pending).ok).toBe(true);
+  });
+
   it('says hello with its protocol version and records the TV protocol from welcome', async () => {
     const { ev, tv, c } = start();
     await openAndWelcome(tv, ev);

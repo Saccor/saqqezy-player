@@ -23,6 +23,7 @@ import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup } from '../../state/appState.ts';
+import { externalLayoutChange } from '../../state/events.ts';
 import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache } from '../epgCache.ts';
@@ -646,9 +647,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         setWaiting(false);
         void reload().then(() => settleFocus(had)).catch(() => undefined);
       }),
-      // A companion changed the layout: re-read, keeping focus by id. Changes made on this screen re-read on their own.
+      // A companion changed the layout, or a backup was restored: re-read, keeping focus by id. Changes made on this
+      // screen re-read on their own.
       onEvent('layoutChanged', (e) => {
-        if ((e as LayoutChanged).origin !== 'remote') return;
+        if (!externalLayoutChange(e as LayoutChanged)) return;
         // An open menu is rebuilt from the fresh state once the groups are re-read; an open list picker re-reads too.
         void reload().then(() => liveMenu.rebuildMenu()).catch(() => undefined);
         liveMenu.rereadOpenPicker();

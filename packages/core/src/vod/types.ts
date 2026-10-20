@@ -1,7 +1,8 @@
 import type { StreamHeaders } from '../types.ts';
 
 export type VodKind = 'movie' | 'series';
-export type VodSort = 'added' | 'title' | 'rating';
+/** `provider`: the list's own order (report 2026-10-20 §2.1 Gap C; the M3U default). */
+export type VodSort = 'added' | 'title' | 'rating' | 'provider';
 
 /** Category id for items whose category is missing or unknown. */
 export const VOD_UNCATEGORIZED = 'uncategorized';

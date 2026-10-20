@@ -33,6 +33,8 @@ export function ActionBar(props: {
   onFocusChanged?: (f: boolean) => void;
   /** The action selected before the first Left/Right (default: the first one). */
   initial?: string;
+  /** The action in effect (a chosen filter): drawn in the accent colour whenever it is not the lit one. */
+  current?: string;
 }) {
   const [focused, setFocused] = createSignal(false);
   /** The selected action's id: the selection follows it when the list changes (by index only when it is gone). */
@@ -72,12 +74,13 @@ export function ActionBar(props: {
       onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}>
       <For each={props.actions}>{(a, i) => {
         const lit = () => focused() && cur() === i();
-        const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover : COLORS.surfaceRaised);
+        const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover
+          : props.current === a.id ? COLORS.selected : COLORS.surfaceRaised);
         return (
           <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={BUTTON_H / 2}
             color={fill()}>
             <Show when={a.icon} fallback={
-              <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
+              <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" maxLines={1} textAlign="center"
                 fontSize={TYPE.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
             }>
               <View x={(a.width - ICON) / 2} y={(BUTTON_H - ICON) / 2} width={ICON} height={ICON} src={a.icon}

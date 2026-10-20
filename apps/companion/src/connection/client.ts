@@ -2,7 +2,7 @@ import {
   PING_INTERVAL_MS, PROTOCOL_VERSION, SecureChannel, isPhoneToTv, isTvToPhone, isUnknownTvMessage, type CompanionState,
   type PairingSecrets, type PhoneToTv, type TvToPhone, type WebSocketFactory,
 } from '@iptv/companion-protocol';
-import type { Layout, SourceConfig } from '@iptv/core';
+import type { BackupEnvelope, Layout, SourceConfig } from '@iptv/core';
 import type { ClientInfo } from './pair.ts';
 import { PendingRequests, RequestError, type ResultMessage } from './pending.ts';
 import { CompanionTransport } from './transport.ts';
@@ -38,6 +38,8 @@ export interface ClientHandlers {
   stateStatus(status: StateStatus): void;
   /** The session is over for good; `reason` maps to copy with `endCopy`. */
   ended(reason: string): void;
+  /** Protocol 3: a sealed backup for this phone to keep (answer with `backupSaved` once it is stored). */
+  backup?(backup: BackupEnvelope, tv: string): void;
 }
 
 export interface ClientOptions {
@@ -59,8 +61,9 @@ export class InvalidMessageError extends Error {
   }
 }
 
-type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' }>;
-const SOURCE_OPS: ReadonlySet<string> = new Set(['addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh']);
+type Mutation = Extract<PhoneToTv, { t: 'addSource' | 'updateSource' | 'deleteSource' | 'setActiveSource' | 'refresh' | 'ops' | 'restore' }>;
+/** Long-running work on the TV: no fixed timeout while the TV shows signs of life. A restore is one (key derivation, merge). */
+const SOURCE_OPS: ReadonlySet<string> = new Set(['addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh', 'restore']);
 
 /**
  * One paired session with the TV: ONE CompanionTransport and ONE SecureChannel for its whole life (reconnects
@@ -221,6 +224,12 @@ export class CompanionClient {
     }
   }
 
+  /** Tells the TV a backup it sent is stored on this phone (best effort: the TV times out otherwise). */
+  backupSaved(at: number): void {
+    if (this.ended) return;
+    this.channel.send({ t: 'backupSaved', at }).catch(() => {});
+  }
+
   /** The page became visible again: reconnect at once if the link is down, otherwise re-check the state. */
   resumeIfNeeded(): void {
     if (this.ended) return;
@@ -272,6 +281,9 @@ export class CompanionClient {
       }
       case 'result':
         this.pending.resolve(msg);
+        return;
+      case 'backup':
+        this.handlers.backup?.(msg.backup, msg.tv);
         return;
       case 'bye':
         this.finish('tv-bye', false);

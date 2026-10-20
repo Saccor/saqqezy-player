@@ -16,7 +16,10 @@ export interface ProgressValue {
 export interface TracksValue { a?: string; s?: string }
 
 /** Only these values can be synced: flags, short strings, string arrays (orders), progress and tracks. Never objects of the catalogue. */
-export type SyncValue = boolean | string | null | string[] | ProgressValue | TracksValue;
+export type SyncValue = boolean | string | null | string[] | ProgressValue | TracksValue | RegionsValue;
+
+/** The `regions` setting: mode and region keys. */
+export interface RegionsValue { m: 'off' | 'first' | 'only'; c: string[] }
 
 /**
  * One synced register (decoded form). What `ref` names depends on the kind:

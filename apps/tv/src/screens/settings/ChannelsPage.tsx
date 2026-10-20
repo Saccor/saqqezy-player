@@ -1,6 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
-import type { ChannelRow, ListSummary } from '@iptv/app-api';
+import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
@@ -11,6 +11,7 @@ import { router } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { settings } from '../../state/appState.ts';
+import { externalLayoutChange } from '../../state/events.ts';
 import { limitTyping, validateListName } from '../homeMenuLogic.ts';
 import {
   AUTO_REFRESH_OPTIONS, autoRefreshLabel, cycleOption, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
@@ -227,10 +228,10 @@ export function ChannelsPage(props: PageProps) {
   onMount(() => {
     void load();
     const offs = [
-      // A phone changed the layout, or a guide download made the no-guide filter available.
+      // A phone changed the layout, a backup was restored, or a guide download made the no-guide filter available.
       // Changes made on this page re-read on their own.
       onEvent('layoutChanged', (e) => {
-        if ((e as { origin?: string }).origin === 'remote' && !edit()) void reloadKeeping(items()[sel()]?.id);
+        if (externalLayoutChange(e as Extract<AppEvent, { type: 'layoutChanged' }>) && !edit()) void reloadKeeping(items()[sel()]?.id);
       }),
       onEvent('refreshed', () => { if (!edit()) void reloadKeeping(items()[sel()]?.id); }),
     ];

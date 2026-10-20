@@ -1,11 +1,14 @@
 import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
-  applyShift, emptyLayout, orderLiveSources,
+  applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
+  isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   rankSubtitles, type LoadedSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
+  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
+  type BackupEnvelope, type RestoreSummary,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
@@ -16,15 +19,16 @@ import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
-import { SportsController, eventTiles } from './sportsController.ts';
+import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
 import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit,
+  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
+  GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
@@ -82,7 +86,12 @@ export interface AppApiDeps {
    * GET; nothing about the user is sent). Without it Start has no trending rows and nothing is ever requested.
    */
   trending?: { baseUrl: string; fetch: (url: string, init: RequestInit) => Promise<Response> };
+  /** PBKDF2 iterations of new backups (tests only; the default is BACKUP_PBKDF2_ITERATIONS). */
+  backupIterations?: number;
 }
+
+/** How long "Restore from your phone" waits for the phone (§6.5 S1). */
+export const RESTORE_WAIT_MS = 5 * 60_000;
 
 export class AppApi {
   private readonly service: SourceService;
@@ -99,6 +108,12 @@ export class AppApi {
   /** The active source's kind, kept from `activate` so a focus never reads the source list to learn it. */
   private sourceKind: SourceConfig['kind'] | undefined;
   private index = new ChannelIndex([]);
+  /** The active source's cached region record (undefined until one exists: then nothing is region-filtered). */
+  private regionRec: { sourceId: string; rec: RegionsRecord } | undefined;
+  /** The view handed to the index; kept while its inputs are the same, so `withLayout` reuses region work. */
+  private regionView: { rec: RegionsRecord; key: string; view: ChannelRegionView } | undefined;
+  /** Region rebuilds in flight (awaited by the test-only `idle`). */
+  private readonly regionJobs = new Set<Promise<void>>();
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
   /** The channels' guide-shift span, from `setIndex` (programme search needs its widest shift per keystroke). */
@@ -163,6 +178,15 @@ export class AppApi {
   private readonly versionLists = new Map<string, Promise<SubtitleVersion[]>>();
   private readonly trending: TrendingService | undefined;
   private readonly catchup: CatchupController;
+  private readonly backupIterations: number | undefined;
+  private backupSvc: BackupService | undefined;
+  /** Until when a restore sent from the phone is accepted (the user opened "Restore from your phone"). */
+  private restoreUntil = 0;
+  /**
+   * The restore being applied now (under the index lock): who asked, and what it changed for the active source. Its
+   * layout and VOD events are held back and sent once when it is done (`finishRestore`).
+   */
+  private restoring: RestoreRun | undefined;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -185,6 +209,7 @@ export class AppApi {
       deps.emit({ type: 'companion', status });
     });
     this.vod = deps.vod;
+    this.backupIterations = deps.backupIterations;
     this.subtitles = deps.subtitles;
     this.onlineSubtitles = deps.onlineSubtitles;
     this.fileHash = deps.fileHash;
@@ -242,6 +267,8 @@ export class AppApi {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      // A restored backup may hold this source's lists, hidden channels and progress (pending until now).
+      await this.applyPendingBackup(source);
       this.sourcesChanged(origin);
       return { sourceId: source.id, channelCount: result.channelCount };
     });
@@ -570,22 +597,25 @@ export class AppApi {
     });
   }
 
+  /** Matches in your guide, See all: every passing match, then non-match sport, at most 100 (design note §3). */
   getSportsEvents(): Promise<SportsEventTile[]> {
-    return this.run('getSportsEvents', async () => {
-      const groups = await this.sportsGroups();
-      const settings = await this.currentSettings();
-      return eventTiles(groups, this.now(), settings.followedTeams, this.sports.aliases());
-    });
+    return this.run('getSportsEvents', async () => (await this.matchTiles()).all);
+  }
+
+  /** The chips of Matches in your guide: competitions and categories as the user's guide writes them. */
+  getMatchFilters(): Promise<MatchFilterChips> {
+    return this.run('getMatchFilters', async () => this.sports.filters(await this.sportsView()));
   }
 
   getEventChannels(key: string): Promise<ChannelRow[]> {
     return this.run('getEventChannels', async () => {
-      const e = (await this.sportsGroups()).find((g) => g.key === key);
+      const e = (await this.sportsView()).events.find((g) => g.key === key);
       if (!e) return [];
-      const chans = e.airings.map((a) => this.index.get(a.channelId)).filter((c): c is Channel => c !== undefined);
+      const at = new Map<string, { start: number }>();
+      for (const a of e.airings) for (const id of a.channelIds) if (!at.has(id)) at.set(id, a);
+      const chans = [...at.keys()].map((id) => this.index.get(id)).filter((c): c is Channel => c !== undefined);
       const rows = await this.toRows(chans);
       const now = this.now();
-      const at = new Map(e.airings.map((a) => [a.channelId, a]));
       return rows.sort((x, y) => compareAirings(
         { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
         { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
@@ -624,11 +654,12 @@ export class AppApi {
         safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
         safe(() => this.toRows(favs), [] as ChannelRow[]),
         safe(() => this.toRows(recents), [] as ChannelRow[]),
-        safe(() => this.getSportsEvents(), [] as SportsEventTile[]),
+        safe(() => this.matchTiles(), { row: [], all: [], total: 0, filtered: false } as MatchTiles),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
-      const parts: StartParts = { favourites, recents: recentRows, sports };
+      const parts: StartParts = { favourites, recents: recentRows, sports: sports.row, sportsTotal: sports.total };
+      if (sports.filtered) parts.sportsFiltered = true;
       if (lastRows[0]) parts.lastChannel = lastRows[0];
       // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
       if (movie || series) {
@@ -766,6 +797,57 @@ export class AppApi {
   }
 
   /**
+   * Your countries for the active source: the setting, whether it is stale here, and the detected countries with
+   * group and channel counts (largest first), plus "Not sure" and no-region totals. Counts every channel, hidden or not.
+   */
+  getRegions(): Promise<RegionsOverview> {
+    return this.run('getRegions', async () => {
+      const s = (await this.currentSettings()).regions;
+      const rr = this.regionRec;
+      const detected = rr && rr.sourceId === this.activeId ? rr.rec.groups : {};
+      const own = this.index.layout().groupRegion;
+      const by = new Map<string, RegionCount>();
+      const notSure = { groups: 0, channels: 0 };
+      const other = { groups: 0, channels: 0 };
+      for (const g of this.index.allProviderGroups()) {
+        if (g.regions.length) {
+          for (const code of g.regions) {
+            let c = by.get(code);
+            if (!c) by.set(code, (c = { code, label: countryLabel(code), groups: 0, channels: 0 }));
+            c.groups++;
+            c.channels += g.count;
+          }
+          continue;
+        }
+        const d = Object.prototype.hasOwnProperty.call(own, g.id) ? undefined : detected[g.id];
+        const bucket = d && !isSure(d) && regionKeys(d).length ? notSure : other;
+        bucket.groups++;
+        bucket.channels += g.count;
+      }
+      const countries = [...by.values()].sort((a, b) => b.channels - a.channels || b.groups - a.groups);
+      return { mode: s.mode, codes: [...s.codes], stale: this.index.regionState().stale, countries, notSure, other };
+    });
+  }
+
+  /** Saves your countries (codes and mode); the index is rebuilt with them. */
+  setRegions(regions: RegionSettings): Promise<RegionSettings> {
+    return this.run('setRegions', async () => (await this.saveSettings({ regions })).regions);
+  }
+
+  /** Shows, hides, or returns to the region rule provider groups of the active source (one layout batch). */
+  setGroupVisibility(ids: string[], visibility: GroupVisibility): Promise<LayoutOpsResult> {
+    const ops: LayoutOp[] = visibility === 'show' ? [{ op: 'showGroups', ids }]
+      : visibility === 'hide' ? [{ op: 'hideGroups', ids }]
+        : [{ op: 'unhideGroups', ids }, { op: 'unshowGroups', ids }];
+    return this.applyLayoutOps(ops);
+  }
+
+  /** The user's region for a group (`null`: back to detection; `[]`: no country). */
+  setGroupRegion(id: string, codes: string[] | null): Promise<LayoutOpsResult> {
+    return this.applyLayoutOps([{ op: 'setGroupRegion', id, codes }]);
+  }
+
+  /**
    * Whether the active source's TV guide coverage is known (a guide has been downloaded), and whether the source
    * has a guide address at all (an M3U with a guide URL, or any Xtream source). Both false without an active source.
    */
@@ -801,6 +883,9 @@ export class AppApi {
         coverageKnown: coverage !== undefined,
       };
       if (this.activeId) state.activeSourceId = this.activeId;
+      const view = this.regionViewFor();
+      // Protocol 3: the phone runs the same region rule (`regionRule`) on its optimistic layout.
+      if (view) state.regions = { mode: view.mode, codes: [...view.codes], keys: sureRegionKeys(view.detected) };
       return state;
     });
   }
@@ -872,6 +957,20 @@ export class AppApi {
 
   getVodCategories(kind: VodKind): Promise<VodCategoryView[]> {
     return this.run('getVodCategories', () => this.vodFor(kind).categories(kind));
+  }
+
+  /** Your countries over this kind's categories (counts are categories and titles). */
+  getVodRegions(kind: VodKind): Promise<RegionsOverview> {
+    return this.run('getVodRegions', () => this.vodFor(kind).regions(kind));
+  }
+
+  /** Hides, shows (over the region rule) or orders movie or series categories of the active source. */
+  applyVodLayoutOps(kind: VodKind, ops: VodLayoutOp[]): Promise<LayoutOpsResult> {
+    return this.run('applyVodLayoutOps', async () => {
+      if (!isVodLayoutOpBatch(ops)) throw new Error('Unrecognised change.');
+      const res = await this.vodFor(kind).applyLayoutOps(kind, ops);
+      return { version: res?.layout.version ?? 0, rejected: res?.rejected ?? [] };
+    });
   }
 
   getVodSlice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
@@ -1171,16 +1270,186 @@ export class AppApi {
   }
 
   saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
-    return this.run('saveSettings', async () => {
-      const before = await this.currentSettings();
-      this.settings = await this.service.saveSettings(partial);
-      // Cached now/next was picked on the old offset's timeline.
+    return this.run('saveSettings', () => this.applySettings(partial));
+  }
+
+  /**
+   * `saveSettings` body; a restore passes `stamp: false` (it adopts the stamps it brings) and `locked: true` (it holds
+   * the index lock, so a rebuild for Combine channels or Your countries runs inline; `refold`/`reregion` would wait
+   * for that lock forever).
+   */
+  private async applySettings(partial: Partial<AppSettings>, opts: { stamp?: boolean; locked?: boolean } = {}): Promise<AppSettings> {
+    const before = await this.currentSettings();
+    this.settings = await this.service.saveSettings(partial, { stamp: opts.stamp });
+    // Cached now/next was picked on the old offset's timeline.
+    this.invalidateNowNext();
+    const refold = before.combineChannels !== this.settings.combineChannels;
+    const reregion = !sameRegions(before.regions, this.settings.regions);
+    if (opts.locked && (refold || reregion)) {
+      this.setIndex(this.channels, this.index.layout(), this.coverage);
       this.invalidateNowNext();
-      if (before.combineChannels !== this.settings.combineChannels) await this.refold();
-      const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
-      if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
-      return this.settings;
+      if (this.restoring) this.restoring.layout = true;
+      else this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+    } else if (refold) await this.refold();
+    else if (reregion) await this.reregion();
+    const regroup = before.combineDuplicates !== this.settings.combineDuplicates
+      || before.combineCategories !== this.settings.combineCategories || !sameRegions(before.regions, this.settings.regions);
+    if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
+    return this.settings;
+  }
+
+  // ---- backup and restore (sync phase S1) ----
+
+  /**
+   * Makes an encrypted backup and sends it to the connected phone, which keeps it. Resolves with the recovery code
+   * (shown once, never stored) after the phone said it saved the backup.
+   */
+  backupToPhone(): Promise<{ code: string; records: number }> {
+    return this.run('backupToPhone', async () => {
+      const companion = this.companion;
+      if (!companion?.sendBackup || companion.status().state !== 'connected') {
+        throw Object.assign(new Error('Connect your phone first: Settings → Manage on phone.'), { name: 'NoCompanion' });
+      }
+      const made = await this.backups().create();
+      await companion.sendBackup(made.envelope);
+      return { code: made.code, records: made.records };
     });
+  }
+
+  /** Makes an encrypted backup as a file's text (off TVs: the UI saves it). */
+  backupToFile(): Promise<{ code: string; data: string; fileName: string; records: number }> {
+    return this.run('backupToFile', async () => {
+      const made = await this.backups().create();
+      const day = new Date(made.envelope.at).toISOString().slice(0, 10);
+      return { code: made.code, data: JSON.stringify(made.envelope), fileName: `tv-backup-${day}.json`, records: made.records };
+    });
+  }
+
+  /** Restores a backup file's text with its recovery code. */
+  restoreFromFile(data: string, code: string): Promise<RestoreSummary> {
+    return this.run('restoreFromFile', async () => {
+      let envelope: unknown;
+      try {
+        envelope = typeof data === 'string' && data.length <= BACKUP_ENVELOPE_MAX_CHARS + 4096 ? JSON.parse(data) : undefined;
+      } catch {
+        envelope = undefined;
+      }
+      if (!isBackupEnvelope(envelope)) throw new BackupError('invalid', 'This file is not a backup from this app.');
+      return this.restoreBackup(envelope, code, 'local');
+    });
+  }
+
+  /** "Restore from your phone": the TV accepts one restore from the phone for RESTORE_WAIT_MS (or stops waiting). */
+  armPhoneRestore(on: boolean): Promise<{ until: number | undefined }> {
+    return this.run('armPhoneRestore', async () => {
+      this.restoreUntil = on ? this.now() + RESTORE_WAIT_MS : 0;
+      return { until: on ? this.restoreUntil : undefined };
+    });
+  }
+
+  /**
+   * A restore sent by the paired phone (companion host only; not exposed to the UI). Accepted only while the TV waits
+   * for it (`armPhoneRestore`); a success ends the wait, a wrong code keeps it so the user can try again.
+   */
+  restoreFromCompanion(envelope: BackupEnvelope, code: string): Promise<RestoreSummary> {
+    return this.run('restoreFromCompanion', async () => {
+      if (this.now() >= this.restoreUntil) {
+        throw Object.assign(new Error('On the TV, open Settings → Storage → Restore from your phone first.'), { name: 'NotReady' });
+      }
+      const res = await this.restoreBackup(envelope, code, 'remote');
+      this.restoreUntil = 0;
+      return res;
+    });
+  }
+
+  private backups(): BackupService {
+    const vod = this.vod;
+    this.backupSvc ??= new BackupService({
+      storage: this.storage, clock: this.service.syncClock, now: this.now, iterations: this.backupIterations,
+      vod: vod && {
+        getVodPicks: (id, kind) => vod.getVodPicks(id, kind),
+        getVodSplits: (id, kind) => vod.getVodSplits(id, kind),
+        getVodLayout: (id, kind) => vod.getVodLayout(id, kind),
+        applyRestore: async (id, plan) => {
+          await vod.applyRestore(id, plan);
+          // Noted for the active source only: another source's VOD state is read when it becomes active.
+          const run = this.restoring;
+          if (!run || id !== this.activeId) return;
+          if (plan.vod.length) run.vodUser = true;
+          if (plan.picks.length || plan.splits.length || plan.vodLayout?.length) run.vodGrouping = true;
+        },
+      },
+      loadLayout: (id) => (id === this.activeId ? Promise.resolve(this.index.layout()) : this.service.loadLayout(id)),
+      applyLayout: (id, ops) => this.applyRestoredLayout(id, ops),
+      getSettings: () => this.currentSettings(),
+      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
+    });
+    return this.backupSvc;
+  }
+
+  /**
+   * Opens the backup first, outside the index lock: the PBKDF2 derivation is the slow step on a TV and touches no
+   * state, so channel calls never queue behind it. Only the merge runs under the lock (the active source's layout
+   * changes through its index). Then refreshes exactly what changed and tells the UI.
+   */
+  private async restoreBackup(envelope: unknown, code: string, origin: LayoutOrigin): Promise<RestoreSummary> {
+    const opened = await this.backups().open(envelope, code);
+    const run = newRestoreRun(origin);
+    const res = await this.withIndex(() => this.restoringAs(run, () => this.backups().apply(opened)))
+      .finally(() => this.finishRestore(run));
+    this.emit({ type: 'backupRestored', origin, applied: res.applied, pending: res.pending, sources: res.sources, at: res.at });
+    return res;
+  }
+
+  /** Applies what a restored backup kept for `source` (just added). Never fails the add. */
+  private async applyPendingBackup(source: SourceConfig): Promise<void> {
+    try {
+      if (!(await this.storage.listSyncMeta(BACKUP_FP_SCOPE)).length) return;
+      const run = newRestoreRun('local');
+      await this.withIndex(() => this.restoringAs(run, () => this.backups().applyPending(source)))
+        .finally(() => this.finishRestore(run));
+    } catch (err) {
+      this.record('applyPendingBackup', err);
+    }
+  }
+
+  /** Runs a restore's merge with `run` noting what it changes. Caller holds the index lock. */
+  private async restoringAs<T>(run: RestoreRun, fn: () => Promise<T>): Promise<T> {
+    this.restoring = run;
+    try {
+      return await fn();
+    } finally {
+      this.restoring = undefined;
+    }
+  }
+
+  /**
+   * After a restore (a failed one too, for what it applied), the screens re-read exactly what changed: one
+   * `layoutChanged` marked `restored` (no toast of its own) when the active layout or its index changed, and the VOD
+   * user map or category config is read again (`vodRefreshed`). Restored settings went through `applySettings`.
+   */
+  private finishRestore(run: RestoreRun): void {
+    if (run.layout) {
+      this.emit({
+        type: 'layoutChanged', version: this.index.layout().version, origin: run.origin === 'remote' ? 'remote' : 'local', restored: true,
+      });
+    }
+    const id = this.activeId;
+    if (id && (run.vodUser || run.vodGrouping)) this.vodc?.restored(id, { user: run.vodUser, grouping: run.vodGrouping });
+  }
+
+  /** Restored layout ops: the active source through its index (caller holds the index lock), others in storage. */
+  private async applyRestoredLayout(id: string, ops: LayoutOp[]): Promise<void> {
+    if (id !== this.activeId) {
+      await this.service.updateLayout(id, (l) => {
+        const r = applyOps(l, ops);
+        return r.changed ? r.layout : undefined;
+      });
+      return;
+    }
+    const before = this.index.layout();
+    const res = applyOps(before, ops);
+    if (res.changed) await this.commitLayoutLocked(id, before, res.layout, [], this.restoring?.origin ?? 'local');
   }
 
   clearCache(): Promise<InitState> {
@@ -1222,11 +1491,12 @@ export class AppApi {
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
   async idle(): Promise<void> {
-    while (this.queues.size || this.shortJobs.size || this.titleJobs.size) {
-      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs]);
+    while (this.queues.size || this.shortJobs.size || this.titleJobs.size || this.regionJobs.size) {
+      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs, ...this.regionJobs]);
     }
     await this.vodc?.idle();
     await this.trending?.idle();
+    await this.service.syncClock.idle();
   }
 
   // ---- internals ----
@@ -1318,13 +1588,16 @@ export class AppApi {
     this.movieHashes.clear();
     this.versionLists.clear();
     return this.withIndex(async () => {
-      const [channels, layout, coverage, sources] = id
+      const [channels, layout, coverage, sources, , regions] = id
         ? await Promise.all([
           this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id), this.service.listSources(),
           // Combine duplicate channels decides how the index is built: read beside the rest, never after it.
           this.currentSettings(),
+          // Detected at ingest: one small read beside the rest. A cold start never runs detection.
+          this.service.loadRegions(id),
         ])
-        : [[], emptyLayout(), undefined, []];
+        : [[], emptyLayout(), undefined, [], undefined, undefined];
+      this.regionRec = id && regions ? { sourceId: id, rec: regions } : undefined;
       const source = sources.find((s) => s.id === id);
       if (id !== this.activeId) {
         // Another source: its channels are neither focused nor playing yet.
@@ -1338,7 +1611,51 @@ export class AppApi {
       this.catchup.reset();
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
+      if (id && !regions && channels.length) this.redetectLater(id);
     });
+  }
+
+  /**
+   * No current region record (an older detector version, or none yet): rebuilt from the stored channels after the
+   * index is swapped in, never before; then the index is rebuilt with it.
+   */
+  private redetectLater(id: string): void {
+    const job = (async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (this.activeId !== id) return;
+      const rec = await this.service.redetectRegions(id).catch((err: unknown) => { this.record('redetectRegions', err); return undefined; });
+      if (!rec) return;
+      let swapped = false;
+      await this.withIndex(async () => {
+        if (this.activeId !== id) return;
+        this.regionRec = { sourceId: id, rec };
+        this.setIndex(this.channels, this.index.layout(), this.coverage);
+        swapped = true;
+      });
+      if (swapped) this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+    })();
+    this.regionJobs.add(job);
+    void job.finally(() => this.regionJobs.delete(job));
+  }
+
+  /** Your countries changed: the same channels and layout under another region view. */
+  private async reregion(): Promise<void> {
+    await this.withIndex(async () => {
+      this.setIndex(this.channels, this.index.layout(), this.coverage);
+    });
+    this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+  }
+
+  /** The region view of the active source under the current settings; undefined without a record. */
+  private regionViewFor(): ChannelRegionView | undefined {
+    const r = this.regionRec;
+    if (!r || r.sourceId !== this.activeId) return undefined;
+    const s = (this.settings ?? DEFAULT_SETTINGS).regions;
+    const key = `${s.mode}|${s.codes.join(',')}`;
+    if (this.regionView?.rec === r.rec && this.regionView.key === key) return this.regionView.view;
+    const view: ChannelRegionView = { detected: r.rec.groups, codes: [...s.codes], mode: s.mode };
+    this.regionView = { rec: r.rec, key, view };
+    return view;
   }
 
   /** Combine duplicate channels was switched: the same channels, layout and guide, folded or not. */
@@ -1355,7 +1672,10 @@ export class AppApi {
   private rebuildIndex(id: string): Promise<void> {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
-      const [channels, coverage] = await Promise.all([this.storage.getChannels(id), this.service.loadEpgCoverage(id)]);
+      const [channels, coverage, regions] = await Promise.all([
+        this.storage.getChannels(id), this.service.loadEpgCoverage(id), this.service.loadRegions(id),
+      ]);
+      this.regionRec = regions ? { sourceId: id, rec: regions } : undefined;
       this.catchup.reset();
       this.setIndex(channels, this.index.layout(), coverage);
       this.invalidateNowNext();
@@ -1378,7 +1698,8 @@ export class AppApi {
     this.shifts = shiftSpan(channels);
     this.coverage = coverage;
     const fold = (this.settings ?? DEFAULT_SETTINGS).combineChannels;
-    this.index = new ChannelIndex(channels, layout, coverage, { fold });
+    const regions = this.regionViewFor();
+    this.index = new ChannelIndex(channels, layout, coverage, regions ? { fold, regions } : { fold });
     this.favSet = undefined;
     this.companionStale();
     this.titles = undefined;
@@ -1449,15 +1770,27 @@ export class AppApi {
     if (!res.changed) return { version, rejected };
 
     // Stamps the sync clocks of what changed (`markWatched` alone touches none: zapping writes no sync state).
-    await this.service.saveLayout(id, res.layout, res.touched);
-    this.index = this.index.withLayout(res.layout);
-    if (before.hiddenChannels !== res.layout.hiddenChannels || before.hiddenGroups !== res.layout.hiddenGroups || before.hideNoEpg !== res.layout.hideNoEpg) this.sportsMapping++;
-    this.favSet = undefined;
-    if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
-    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
-    if (onlyRecentChanged(before, res.layout)) event.recentOnly = true;
-    this.emit(event);
+    await this.commitLayoutLocked(id, before, res.layout, res.touched, origin);
     return { version: res.layout.version, rejected };
+  }
+
+  /** Stores the active source's new layout, swaps it into the index and tells the UI. Caller holds the index lock. */
+  private async commitLayoutLocked(id: string, before: Layout, layout: Layout, touched: readonly string[], origin: LayoutOrigin): Promise<void> {
+    await this.service.saveLayout(id, layout, touched);
+    this.index = this.index.withLayout(layout);
+    // Shown groups and group regions decide what the region rule hides: they map candidates to channels too.
+    if (before.hiddenChannels !== layout.hiddenChannels || before.hiddenGroups !== layout.hiddenGroups || before.hideNoEpg !== layout.hideNoEpg
+      || before.shownGroups !== layout.shownGroups || before.groupRegion !== layout.groupRegion) this.sportsMapping++;
+    this.favSet = undefined;
+    if (before.channelNames !== layout.channelNames) this.invalidateNowNext();
+    // A restore tells the UI once, when it is done.
+    if (this.restoring) {
+      this.restoring.layout = true;
+      return;
+    }
+    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
+    if (onlyRecentChanged(before, layout)) event.recentOnly = true;
+    this.emit(event);
   }
 
   /** `op` with a combined channel's row id widened to every stream of the row (list removal, hide, show). */
@@ -1505,9 +1838,20 @@ export class AppApi {
     this.nnCache = new Map();
   }
 
-  private async sportsGroups() {
+  private async matchTiles(): Promise<MatchTiles> {
+    const view = await this.sportsView();
+    const st = await this.currentSettings();
+    const s: MatchSettings = {
+      followed: st.followedTeams, pinned: st.pinnedCompetitions, hidden: st.hiddenCompetitions, categories: st.matchCategories,
+    };
+    // G8: a small match still shows in the row when it airs on a channel of a chosen country (Your countries on).
+    if (st.regions.mode !== 'off' && st.regions.codes.length) s.countries = st.regions.codes;
+    return matchTiles(view, this.now(), s, this.sports.aliases());
+  }
+
+  private async sportsView() {
     const id = this.activeId;
-    if (!id) return [];
+    if (!id) return this.sports.view('', undefined, this.index, 0);
     const settings = await this.currentSettings();
     let rec = this.sportsRec?.sourceId === id ? this.sportsRec.rec : undefined;
     if (!rec) {
@@ -1515,7 +1859,7 @@ export class AppApi {
       // Only a found record is kept: a missing one may still be on its way.
       if (rec && this.activeId === id) this.sportsRec = { sourceId: id, rec };
     }
-    return this.sports.events(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
+    return this.sports.view(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
   }
 
   /**
@@ -2030,9 +2374,12 @@ export class AppApi {
     const key = this.index.foldKey(rowId);
     const last = key === undefined ? undefined : await this.liveMem.pick(id, key);
     const cands = await Promise.all(members.map(async (c) => {
-      const info = this.index.memberInfo(c.id) ?? { quality: 4, backup: false };
+      const info = this.index.memberInfo(c.id) ?? { quality: 4, backup: false, chosen: false };
       const blocked = (await this.service.guard.status(streamCooldownKey(id, c.url))).state !== 'clear';
-      return { c, id: c.id, quality: info.quality, backup: info.backup, blocked, bad: blocked || this.liveMem.isBad(c.id) };
+      return {
+        c, id: c.id, quality: info.quality, backup: info.backup, preferred: info.chosen, blocked,
+        bad: blocked || this.liveMem.isBad(c.id),
+      };
     }));
     const dupName = new Set<string>();
     const seen = new Set<string>();
@@ -2163,18 +2510,29 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getSportsEvents', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
+  'getSportsEvents', 'getMatchFilters', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
+  'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
+  'backupToPhone', 'backupToFile', 'restoreFromFile', 'armPhoneRestore',
 ] as const satisfies readonly (keyof AppApi)[];
 
-// Compile-time check: every public method except the test-only `idle` is listed above.
-const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle'>, (typeof APP_API_METHODS)[number]>] extends [never] ? true : never = true;
+// Compile-time check: every public method except the test-only `idle` and the companion host's `restoreFromCompanion`
+// (a phone restore must come through the paired channel, never from the UI port) is listed above.
+const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle' | 'restoreFromCompanion'>, (typeof APP_API_METHODS)[number]>] extends [never] ? true : never = true;
 void exhaustive;
 
 const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });
+
+/** What a restore changed for the active source, so `finishRestore` refreshes exactly that. */
+interface RestoreRun { origin: LayoutOrigin; layout: boolean; vodUser: boolean; vodGrouping: boolean }
+const newRestoreRun = (origin: LayoutOrigin): RestoreRun => ({ origin, layout: false, vodUser: false, vodGrouping: false });
+
+function sameRegions(a: RegionSettings, b: RegionSettings): boolean {
+  return a.mode === b.mode && a.codes.join() === b.codes.join();
+}

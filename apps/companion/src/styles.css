@@ -248,6 +248,7 @@ input:disabled { opacity: 0.6; }
   border-radius: 999px; padding: 1px 8px; font-size: 0.75rem; font-weight: 700;
 }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.row-form { flex: 1 1 100%; margin-top: 4px; }
 .row-actions.confirm { align-items: center; flex: 1 1 100%; }
 .row-actions.confirm span { flex: 1 1 100%; }
 .empty { padding: 24px 0; }

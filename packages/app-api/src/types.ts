@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveState, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
 export type { ArchiveState, SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -134,7 +134,8 @@ export type AppEvent =
   | { type: 'searchReady'; sourceId: string }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
   /** `recentOnly`: the batch changed nothing but "recently watched" (a zap); the companion is not told. */
-  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean }
+  /** `restored`: a restored backup changed it (sent once, before `backupRestored`, which carries the one toast). */
+  | { type: 'layoutChanged'; version: number; origin: LayoutOrigin; recentOnly?: boolean; restored?: boolean }
   /**
    * The active source or the source list changed (added, edited, deleted, switched). `activeSourceId` is the active
    * source afterwards (absent without sources); `origin` says who asked: this device's UI or a paired companion.
@@ -142,6 +143,8 @@ export type AppEvent =
   | { type: 'sourcesChanged'; activeSourceId?: string; origin: LayoutOrigin }
   /** The phone companion session changed state. */
   | { type: 'companion'; status: CompanionStatus }
+  /** A backup was restored (`origin`: a file on this device, or sent by the phone). Counts as in `RestoreSummary`. */
+  | { type: 'backupRestored'; origin: LayoutOrigin; applied: number; pending: number; sources: number; at: number }
   /** A catalogue fetch started for the active source (first open or a stale refresh). */
   | { type: 'vodLoading'; sourceId: string; kind: VodKind }
   /** A first load got further: the VOD screen can show the titles so far (`count`). Throttled in the worker. */
@@ -179,6 +182,11 @@ export interface CompanionControl {
   handleEvent(e: AppEvent): void;
   /** The companion state's channels, guide coverage or sources changed (no AppEvent says so). Must not throw. */
   stateChanged?(): void;
+  /**
+   * Sends a sealed backup to the connected phone (protocol 3) and resolves once the phone says it kept it. Rejects
+   * with `NoCompanion` (no phone), `OldCompanion` (the phone's page predates backups) or `Timeout`.
+   */
+  sendBackup?(backup: BackupEnvelope): Promise<void>;
 }
 
 /** Who applied a layout change: this device's UI, or a paired companion. */
@@ -370,8 +378,16 @@ export interface VodPlayable {
 
 export interface SportsEventTile {
   key: string; title: string; sides?: [string, string]; subTitle?: string; icon?: string;
+  /** The channels the picker shows (fold rows when combining). */
   start: number; stop: number; channelCount: number; followed: boolean;
+  /** Competition text from the user's guide, as written (v2 guide records). */
+  competition?: string;
+  /** On air now (started at most 3 h ago); v2 guide records. */
+  onAir?: boolean;
 }
+/** Matches in your guide: chips from the user's own guide; `id` is the folded text a setting stores. */
+export interface MatchFilterChip { id: string; label: string }
+export interface MatchFilterChips { competitions: MatchFilterChip[]; categories: MatchFilterChip[] }
 
 export type StartRowId =
   | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newLibrary' | 'topMovies' | 'topSeries';
@@ -384,3 +400,23 @@ export type StartCell =
   | { type: 'viewAll'; target: 'sports' | 'movie' | 'series'; total: number; order?: 'rating' };
 export interface StartRow { id: StartRowId; title: string; cells: StartCell[] }
 export interface StartHome { rows: StartRow[]; at: number }
+
+/** One detected country (or `lang:xx`) of the active source, with what it covers. */
+export interface RegionCount { code: string; label: string; groups: number; channels: number }
+
+/** Your countries for the active source (report 2026-10-20 §2.2, §4.1): what the picker and Manage groups show. */
+export interface RegionsOverview {
+  mode: RegionMode;
+  codes: string[];
+  /** Countries chosen but none of this source's groups match: the rule is off; the UI shows a notice. */
+  stale: boolean;
+  /** Detected countries, largest first (by channels). */
+  countries: RegionCount[];
+  /** Groups with a guess below the cut-off ("Not sure"), no override. */
+  notSure: { groups: number; channels: number };
+  /** Groups with no region at all. */
+  other: { groups: number; channels: number };
+}
+
+/** `show`: shown on purpose; `hide`: hidden; `rule`: back to the region rule. */
+export type GroupVisibility = 'show' | 'hide' | 'rule';

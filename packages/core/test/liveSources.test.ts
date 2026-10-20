@@ -19,4 +19,10 @@ describe('orderLiveSources', () => {
   test('a last id that is not a candidate is ignored', () => {
     expect(ids(orderLiveSources([c('hd', 2), c('uhd', 0)], { last: 'gone' }))).toEqual(['uhd', 'hd']);
   });
+  test('Your countries before quality; after known-bad and the last played source', () => {
+    const p = (id: string, quality: number, bad = false) => ({ ...c(id, quality, false, bad), preferred: true });
+    expect(ids(orderLiveSources([c('fhd', 1), p('hd', 2), p('sd', 3)], {}))).toEqual(['hd', 'sd', 'fhd']);
+    expect(ids(orderLiveSources([c('fhd', 1), p('hd', 2)], { last: 'fhd' }))).toEqual(['fhd', 'hd']);
+    expect(ids(orderLiveSources([c('fhd', 1), p('hd', 2, true)], {}))).toEqual(['fhd', 'hd']);
+  });
 });

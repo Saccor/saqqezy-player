@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
-import { bootRoutes, initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
+import { bootRoutes, externalLayoutChange, initialRoute, offlineAfter, sourcesReaction, toastFor, toastPriority } from './events.ts';
 
 const base: InitState = { sources: [], groups: [], settings: DEFAULT_SETTINGS, hasVod: false };
 
@@ -46,6 +46,19 @@ describe('toastFor', () => {
   it('a remote layout change says it came from the phone; a local one shows nothing', () => {
     expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'remote' })).toBe('Updated from your phone');
     expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'local' })).toBeUndefined();
+  });
+
+  it("a restore's layout change shows no toast of its own (backupRestored carries the one toast)", () => {
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'remote', restored: true })).toBeUndefined();
+    expect(toastFor({ type: 'layoutChanged', version: 3, origin: 'local', restored: true })).toBeUndefined();
+  });
+});
+
+describe('externalLayoutChange', () => {
+  it('a phone edit or a restore is re-read by the screens; their own edits are not', () => {
+    expect(externalLayoutChange({ type: 'layoutChanged', version: 3, origin: 'remote' })).toBe(true);
+    expect(externalLayoutChange({ type: 'layoutChanged', version: 3, origin: 'local', restored: true })).toBe(true);
+    expect(externalLayoutChange({ type: 'layoutChanged', version: 3, origin: 'local' })).toBe(false);
   });
 
   it('a remote source change says it came from the phone; a local one shows nothing', () => {

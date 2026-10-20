@@ -81,6 +81,13 @@ export function setStreamCooldown(key: string | undefined, seed?: SourceCooldown
  */
 export const cooldown = (): SourceCooldown => cooldownOf(streamKey());
 
+/**
+ * "Restore from your phone": until when the TV waits for the phone to send a backup (undefined: not waiting). Module
+ * state, so the Storage page shows it again when reopened; a restore (`backupRestored`) ends it.
+ */
+const [restoreWaitUntil, setRestoreWaitUntil] = createSignal<number | undefined>(undefined);
+export { restoreWaitUntil, setRestoreWaitUntil };
+
 /** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
 export function patchSettings(next: AppSettings): void {
   const s = initState();
@@ -145,7 +152,8 @@ export async function bootstrap(
 
 /** What `wireEvents` needs to follow source changes made from the phone. */
 export interface SourceFollowDeps {
-  api: { init(): Promise<InitState> };
+  /** `getSettings`: a restored backup's settings are read again (nothing else is: the worker refreshed the rest). */
+  api: { init(): Promise<InitState>; getSettings(): Promise<AppSettings> };
   router: Pick<Router, 'reset' | 'current'>;
   /** Whether a channel is playing, and stopping it. */
   playing(): boolean;
@@ -199,11 +207,19 @@ export function wireEvents(
       return;
     }
     if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);
+    if (e.type === 'backupRestored') {
+      setRestoreWaitUntil(undefined);
+      // Restored settings are read again. The worker already refreshed the rest without re-activating the source;
+      // the screens re-read their own lists on the restore's `layoutChanged` and `vodRefreshed`.
+      follow?.api.getSettings().then(patchSettings, (err: unknown) => {
+        console.warn('Reading settings after a restore failed', err instanceof Error ? err.name : 'Error');
+      });
+    }
     setOffline((prev) => offlineAfter(prev, e));
     const text = toastFor(e);
     if (text) toast(text, toastPriority(e));
   };
   // `layoutChanged` / `sourcesChanged` from a companion show "Updated from your phone" on any screen; Home also re-reads its list.
-  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion', 'cooldown'] as const).map((t) => on(t, handle));
+  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion', 'cooldown', 'backupRestored'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };
 }

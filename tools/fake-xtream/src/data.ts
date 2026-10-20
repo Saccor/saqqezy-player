@@ -40,8 +40,14 @@ const xmlDate = (ms: number) => {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}00 +0000`;
 };
 
-/** Invented teams only (CLAUDE.md rule 1). `ch`: channel numbers; `at`: slots after the slot holding now; `len`: slots. */
-export interface SportMatch { titles: string[]; ch: number[]; at: number; len: number; cat: string; live?: number[]; rerun?: true; sub?: string }
+/**
+ * Invented teams and competitions only (CLAUDE.md rule 1). `ch`: channel numbers; `at`: slots after the slot holding
+ * now; `len`: slots; `cat`: omitted for a programme without a category. Channels 19–29 carry the Matches in your guide
+ * fixtures (design note live-matches-ranking §4): competition prefixes and suffixes, a build-up show, a studio show, a
+ * news title with a separator, a tagged re-air, a small one-channel match, a guide category of its own and a sport
+ * with no sides.
+ */
+export interface SportMatch { titles: string[]; ch: number[]; at: number; len: number; cat?: string; live?: number[]; rerun?: true; sub?: string }
 export const SPORT_MATCHES: readonly SportMatch[] = [
   { titles: ['LIVE: Northbridge FC v Eastport', 'Northbridge v Eastport', 'Eastport - Northbridge FC', 'Northbridge FC vs Eastport', 'Northbridge FC – Eastport'],
     ch: [1, 2, 3, 4, 5], at: 0, len: 4, cat: 'Sports', live: [1, 2] },
@@ -52,6 +58,16 @@ export const SPORT_MATCHES: readonly SportMatch[] = [
   { titles: ['Hollis vs Hollis'], ch: [12], at: 0, len: 4, cat: 'Film' },
   { titles: ['Lakeshore v Pinecrest'], ch: [13, 14, 15, 16], at: 10, len: 4, cat: 'Sports', sub: 'Test Cup: Round 3' },
   { titles: ['Final: A. Marlow - J. Okafor'], ch: [17, 18], at: 12, len: 6, cat: 'Tennis' },
+  { titles: ['Northern Cup | Southmere v Westvale', 'Northern Cup - Southmere v Westvale', 'Southmere v Westvale - Live'],
+    ch: [19, 20, 21], at: 1, len: 4, cat: 'Football', live: [21] },
+  { titles: ['Southmere v Westvale: Build-up'], ch: [19], at: -1, len: 2, cat: 'Football', live: [19] },
+  { titles: ['Northern Cup: Pinecrest v Harbour City'], ch: [22], at: 6, len: 4, cat: 'Football' },
+  { titles: ['LIVE: Matchday Studio'], ch: [23], at: 0, len: 6, cat: 'Football' },
+  { titles: ['LIVE: Evening News - Weekend Edition'], ch: [24], at: 0, len: 2 },
+  { titles: ['Southmere v Westvale (Wdh.)'], ch: [25], at: 8, len: 4, cat: 'Football' },
+  { titles: ['Player One v Player Two'], ch: [26], at: 0, len: 2, cat: 'Sport', live: [26] },
+  { titles: ['Harbour Lights v Northgate'], ch: [27, 28], at: 3, len: 4, cat: 'Ishockey' },
+  { titles: ['Lakeside Open, Round 3'], ch: [29], at: 0, len: 8, cat: 'Golf', live: [29] },
 ];
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -78,7 +94,7 @@ export function* xmltv(
         const title = m.titles[m.ch.indexOf(c.n) % m.titles.length]!;
         buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(end)}" channel="${c.epgId}"><title>${esc(title)}</title>`
           + (m.sub ? `<sub-title>${esc(m.sub)}</sub-title>` : '')
-          + `<category lang="en">${m.cat}</category>`
+          + (m.cat ? `<category lang="en">${m.cat}</category>` : '')
           + (m.live?.includes(c.n) ? '<live/>' : '') + (m.rerun ? '<previously-shown/>' : '') + '</programme>\n';
         i += m.len - 1;
         continue;

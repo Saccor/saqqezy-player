@@ -98,6 +98,8 @@ export interface GroupInfo {
   id: string;
   name: string;
   count: number;
+  /** Provider groups while your countries are on: not a chosen country's group (listed under "Other groups"). */
+  other?: boolean;
 }
 
 /** `RequestInit` plus a per-call header timeout, honoured (and stripped) by `withTimeout`. */
