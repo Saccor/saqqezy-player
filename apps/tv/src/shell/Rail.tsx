@@ -4,7 +4,6 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { settings } from '../state/appState.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { Clock } from './Clock.tsx';
-import type { TabId } from '../vod/tabLogic.ts';
 import { RAIL_ICON, RAIL_ITEMS, RAIL_LABELS, RAIL_OPEN_W, RAIL_ROW_H, railIcon, railItemAt, railY, stepRail, type RailId } from './railLogic.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from './theme.ts';
 
@@ -16,7 +15,7 @@ import { COLORS, LAYOUT, STRONG, TYPE } from './theme.ts';
  */
 export function Rail(props: {
   ref?: (el: ElementNode) => void;
-  active: TabId;
+  active: RailId;
   onSelect: (id: RailId) => void;
   onRight: () => boolean;
   onFocusChanged?: (f: boolean) => void;

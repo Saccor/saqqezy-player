@@ -81,11 +81,11 @@ export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: bool
 }
 
 /** Screens without the brand wordmark: the redesigned ones (spec §1.4) and the player. */
-const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail']);
+const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail']);
 
 /** Screens with the left rail; the rail draws the clock there, so the shell's top-right clock is off. */
 export function railRoute(route: ScreenId | undefined): boolean {
-  return route === 'home' || route === 'start' || route === 'vod' || route === 'vodGrid';
+  return route === 'home' || route === 'start' || route === 'vod' || route === 'vodGrid' || route === 'search' || route === 'settings';
 }
 
 /** The wordmark is drawn at the latest this long after the shell mounts, even if Home has not shown rows yet. */
@@ -145,10 +145,11 @@ export function toastLayout(text: string, bottom = TOAST_BOTTOM): { y: number; h
 export const TOAST_BOTTOM = BOTTOM_ROW_Y - LAYOUT.gap;
 /**
  * The shell Back's x: the row start, except on Search, whose full keyboard reaches down to just above the row there.
- * Search puts it at the start of its results column instead (keyboard x + width + two gaps), on the same row.
+ * Search puts it at the start of its results column instead (keyboard x + width + two gaps), on the same row. The
+ * keyboard sits at the rail's content edge (x 160).
  */
 export function shellBackX(route: ScreenId | undefined): number {
-  return route === 'search' ? LAYOUT.safeX + FULL_LAYOUT.width + LAYOUT.gap * 2 : LAYOUT.safeX;
+  return route === 'search' ? LAYOUT.contentX + FULL_LAYOUT.width + LAYOUT.gap * 2 : LAYOUT.safeX;
 }
 /** Where a screen's own bottom-row buttons start: after the shell's Back, one bar gap apart. */
 export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;

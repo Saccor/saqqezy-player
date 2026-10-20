@@ -54,14 +54,28 @@ export function belowTab(screen: string | undefined, kind: VodKind | undefined, 
   return tabOfKind(screen === 'vod' ? kind ?? ownKind : ownKind);
 }
 
-export type NestedRailStep = { action: 'pop' } | Exclude<RailNav, { action: 'none' }>;
+export type NestedRailStep = { action: 'pop' } | { action: 'replaceScreen'; screen: 'search' | 'settings' } | Exclude<RailNav, { action: 'none' }>;
 
 /**
- * A rail choice on a nested screen: Search and Settings are pushed over it; a tab first pops it, then moves as the
- * screen below (`below`) would, so the stack never keeps a stale tab.
+ * A rail choice on a nested screen.
+ * - The library grid (`railFromNested(below, to)`): Search and Settings are pushed over it; a tab first pops it, then
+ *   moves as the screen below (`below`) would, so the stack never keeps a stale tab.
+ * - Search or Settings (`railFromNested(from, below, to)`; `below` is the tab of the screen under it, if known):
+ *   its own id does nothing, the other one replaces it (they never stack), a tab pops it, then moves as `below` would
+ *   (Live TV below: the pop is enough; unknown: the pop only).
  */
-export function railFromNested(below: TabId, to: RailId): NestedRailStep[] {
-  const nav = railNavigation(below, to);
+export function railFromNested(below: TabId, to: RailId): NestedRailStep[];
+export function railFromNested(from: 'search' | 'settings', below: TabId | undefined, to: RailId): NestedRailStep[];
+export function railFromNested(a: TabId | 'search' | 'settings', b: TabId | RailId | undefined, c?: RailId): NestedRailStep[] {
+  if (c !== undefined) {
+    const from = a as 'search' | 'settings';
+    if (c === from) return [];
+    if (c === 'search' || c === 'settings') return [{ action: 'replaceScreen', screen: c }];
+    if (b === undefined) return [{ action: 'pop' }];
+    const nav = railNavigation(b as TabId, c);
+    return nav.action === 'none' ? [{ action: 'pop' }] : [{ action: 'pop' }, nav as Exclude<RailNav, { action: 'none' }>];
+  }
+  const nav = railNavigation(a as TabId, b as RailId);
   if (nav.action === 'pushScreen') return [nav];
   return nav.action === 'none' ? [{ action: 'pop' }] : [{ action: 'pop' }, nav];
 }

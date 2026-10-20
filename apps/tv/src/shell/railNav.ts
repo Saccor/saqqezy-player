@@ -1,10 +1,11 @@
 import { batch } from 'solid-js';
 import { tabParams, type TabId } from '../vod/tabLogic.ts';
-import { railFromNested, railNavigation, type RailId, type RailNav } from './railLogic.ts';
+import { railFromNested, railNavigation, type NestedRailStep, type RailId, type RailNav } from './railLogic.ts';
 import { router } from './router.ts';
 
-function run(nav: RailNav, back: () => void): void {
+function run(nav: RailNav | Exclude<NestedRailStep, { action: 'pop' }>, back: () => void): void {
   if (nav.action === 'pushScreen') router.push(nav.screen);
+  else if (nav.action === 'replaceScreen') router.replace(nav.screen);
   else if (nav.action === 'back') back();
   else if (nav.action === 'replace') router.replace(nav.to.screen, tabParams(nav.to));
   else if (nav.action === 'push') router.push(nav.to.screen, tabParams(nav.to));
@@ -25,6 +26,20 @@ export function goRailNested(below: TabId, to: RailId, back: () => void): void {
     const steps = railFromNested(below, to);
     for (const step of steps) {
       // The screen below's own tab: it comes back with the rail focused, like any tab reached from the rail.
+      if (step.action === 'pop') router.back(steps.length === 1 ? { focus: 'rail' } : undefined);
+      else run(step, back);
+    }
+  });
+}
+
+/**
+ * Runs a rail choice on Search or Settings (`below` is the tab of the screen under it, if known): Search and Settings
+ * replace each other, a tab pops it, then moves as the screen below would. One batch, like `goRailNested`.
+ */
+export function goRailFrom(from: 'search' | 'settings', below: TabId | undefined, to: RailId, back: () => void): void {
+  batch(() => {
+    const steps = railFromNested(from, below, to);
+    for (const step of steps) {
       if (step.action === 'pop') router.back(steps.length === 1 ? { focus: 'rail' } : undefined);
       else run(step, back);
     }

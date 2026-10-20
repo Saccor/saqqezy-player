@@ -49,6 +49,17 @@ describe('railLogic', () => {
     expect(railFromNested('start', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
     expect(railFromNested('start', 'settings')).toEqual([{ action: 'pushScreen', screen: 'settings' }]);
   });
+  test('from Search or Settings: own id nothing, each other replaces, tabs pop then move as the screen below would', () => {
+    expect(railFromNested('search', undefined, 'search')).toEqual([]);
+    expect(railFromNested('settings', 'live', 'settings')).toEqual([]);
+    expect(railFromNested('settings', 'live', 'search')).toEqual([{ action: 'replaceScreen', screen: 'search' }]);
+    expect(railFromNested('search', undefined, 'settings')).toEqual([{ action: 'replaceScreen', screen: 'settings' }]);
+    expect(railFromNested('search', 'live', 'movies')).toEqual([{ action: 'pop' }, { action: 'push', to: { screen: 'vod', kind: 'movie' } }]);
+    expect(railFromNested('search', 'live', 'live')).toEqual([{ action: 'pop' }]);
+    expect(railFromNested('settings', 'movies', 'series')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'series' } }]);
+    expect(railFromNested('search', 'start', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
+    expect(railFromNested('search', undefined, 'start')).toEqual([{ action: 'pop' }]);
+  });
   test('every rail icon is a stroke icon', () => {
     for (const id of RAIL_ITEMS) expect(STROKE_ICON_KINDS).toContain(railIcon(id));
   });
