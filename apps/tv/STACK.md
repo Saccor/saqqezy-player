@@ -115,6 +115,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 - SDF (`SdfTextRenderer` from `@lightningjs/renderer/webgl` plus msdf/ssdf atlases) is faster for large amounts of text, but needs generated atlas assets. Defer it until text performance on a TV demands it.
 - When a `Text` node's content changes, it is blank for a frame or two while the canvas texture is regenerated.
 - Never put two spaces in a row in `Text` content. The canvas text layout measures runs of spaces as one, so the texture is too narrow and the last glyphs are clipped (`"Next: Programme 13"` drew as `"Programme 1"`). Use a single space or a separator such as ` · `.
+- Semibold: `STRONG` in `shell/theme.ts` (spread on `<Text>`). `fontWeight` is not used: @lightningtv/solid appends it to the family name. The weight travels in `fontStyle` ("normal 600"), which the canvas renderer puts first in its CSS font string ("normal 600 26px Unknown, sans-serif"). Re-check on each TV model: if text turns tiny or changes face, set `STRONG = {}`.
 
 ## Image loading
 

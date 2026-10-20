@@ -34,3 +34,13 @@ export const LAYOUT = {
   gap: 24,
   radius: 12,
 } as const;
+
+/**
+ * Semibold text: spread on a <Text> (`<Text {...STRONG}>`). @lightningtv/solid's `fontWeight` renames the font
+ * family (an SDF convention) and breaks the platform canvas font. The canvas renderer
+ * (`core/text-rendering/CanvasTextRenderer.js`) writes `fontStyle` first in its CSS font string
+ * ("<fontStyle> <size>px Unknown, <family>", e.g. "normal 600 26px Unknown, sans-serif"), so the weight rides there.
+ * Checked in desktop Chrome (revamp phase 1, Task 1); if a TV draws tiny or fallback text, set this to `{}` and
+ * hierarchy falls back to size and colour.
+ */
+export const STRONG = { fontStyle: 'normal 600' as 'normal' } as const;
