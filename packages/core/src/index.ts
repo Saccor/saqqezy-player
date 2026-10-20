@@ -27,6 +27,10 @@ export { VodCatalog, type VodMember } from './vod/catalog.ts';
 export { parseVodTitle, categoryBase, QUALITY_LABELS, QUALITY_UNKNOWN, type ParsedTitle } from './vod/titleParse.ts';
 export { groupVod, mergedCategoryId, type VodGroup, type VodGroups } from './vod/grouping.ts';
 export {
+  applyVodOps, detectVodRegions, emptyVodLayout, isVodLayoutOp, isVodLayoutOpBatch, normalizeVodLayout, vodCategoryView, vodLayoutKey,
+  type VodApplyResult, type VodCategoryView, type VodLayout, type VodLayoutOp, type VodRegionView,
+} from './vod/layout.ts';
+export {
   TRENDING_FEED_MAX, buildTrendingIndex, matchTrending, matchTrendingHits, parseTrendingFeed,
   type TrendingCandidate, type TrendingFeed, type TrendingFeedItem, type TrendingHit, type TrendingIndex,
 } from './vod/trending.ts';

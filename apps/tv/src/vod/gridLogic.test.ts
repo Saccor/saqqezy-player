@@ -35,8 +35,8 @@ describe('gridLogic', () => {
     expect(pagesFor(5, 4)).toEqual([]);
   });
   test('sorts and memory', () => {
-    expect(sortsFor(true)).toEqual(['added', 'title', 'rating']);
-    expect(sortsFor(false)).toEqual(['title', 'rating']);
+    expect(sortsFor(true)).toEqual(['added', 'provider', 'title', 'rating']);
+    expect(sortsFor(false)).toEqual(['provider', 'title', 'rating']);
     const data = new Map<string, string>();
     const store: SortStore = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v); } };
     expect(loadSort('movie', ['added', 'title'], store)).toBe('added');

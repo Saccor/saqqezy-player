@@ -88,7 +88,7 @@ export function rowsToLoad(rows: RowModel[], focusRow: number, ahead = 1): numbe
 
 /** Category rows are sorted like the worker's home rows: by date when the source has dates. */
 export function rowSort(rows: RowModel[]): VodSort {
-  return rows.some((r) => r.id === VOD_ROW_RECENT) ? 'added' : 'title';
+  return rows.some((r) => r.id === VOD_ROW_RECENT) ? 'added' : 'provider';
 }
 
 /** A wheel step on the rows (pointer mode): vertical moves between rows, horizontal along the row. */
