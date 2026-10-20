@@ -40,20 +40,27 @@ export const mergedCategoryId = (base: string): string => `c:${base}`;
  * Groups a catalogue's items by exact keys only (a TMDB id, else title and year): versions that differ in
  * language, quality or tags merge; a different year or number never does. Keys in `splits` are not grouped.
  * One pass over the items plus one over the year-less ones; no pairwise comparison.
+ *
+ * Categories stay the provider's (report 2026-10-20 §2.1 Bug B): a title is listed in every category one of its
+ * versions is in. `mergeCategories` (the "Combine categories across languages" setting) merges categories that differ
+ * only by a language or quality tag into `c:<base>` ids instead.
  */
-export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set()): VodGroups {
+export function groupVod(list: VodList, splits: ReadonlySet<string> = new Set(), opts: { mergeCategories?: boolean } = {}): VodGroups {
   const { items } = list;
   const kind = items[0]?.kind ?? list.categories[0]?.kind ?? 'movie';
   const catName = new Map(list.categories.map((c) => [c.id, c.name]));
   // Parsed once per category, not per item.
   const catLang = new Map(list.categories.map((c) => [c.id, prefixLang(c.name)]));
   const catMerged = new Map<string, { id: string; name: string }>();
+  const merge = opts.mergeCategories === true;
   const mergedOf = (categoryId: string) => {
     let m = catMerged.get(categoryId);
     if (!m) {
       const name = catName.get(categoryId) ?? categoryId;
-      const cb = categoryBase(name);
-      m = { id: mergedCategoryId(cb.base || categoryId), name: cb.display };
+      if (merge) {
+        const cb = categoryBase(name);
+        m = { id: mergedCategoryId(cb.base || categoryId), name: cb.display };
+      } else m = { id: categoryId, name };
       catMerged.set(categoryId, m);
     }
     return m;
