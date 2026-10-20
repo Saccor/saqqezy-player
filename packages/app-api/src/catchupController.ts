@@ -13,6 +13,8 @@ const HOUR = 3_600_000;
 export const REFINE_EVERY_MS = 30 * 60_000;
 /** A refined listing and a stored programme with starts this close are the same programme. */
 const SAME_START_MS = 60_000;
+/** Refined answers held at once (about 30 KB each for 7 days): the least recently used channel's goes first. */
+export const REFINED_MAX_CHANNELS = 20;
 
 interface Refined { sourceId: string; at: number; listings: (Programme & { hasArchive: boolean })[] }
 
@@ -62,7 +64,11 @@ export class CatchupController {
   /** The refined answer of `channelId` on source `sourceId`, when one is held. */
   private refinedFor(sourceId: string, channelId: string): Refined | undefined {
     const r = this.refined.get(channelId);
-    return r && r.sourceId === sourceId ? r : undefined;
+    if (!r || r.sourceId !== sourceId) return undefined;
+    // Used: it moves to the young end of the LRU (a Map keeps insertion order).
+    this.refined.delete(channelId);
+    this.refined.set(channelId, r);
+    return r;
   }
 
   /** The panel's own `has_archive` for a programme (displayed start), when the row was refined. */
@@ -157,7 +163,9 @@ export class CatchupController {
         this.lastAsked.delete(channel.id);
         return;
       }
+      this.refined.delete(channel.id);
       this.refined.set(channel.id, { sourceId, at: now, listings });
+      while (this.refined.size > REFINED_MAX_CHANNELS) this.refined.delete(this.refined.keys().next().value!);
       if (listings.length) this.deps.onRefined(channel.id);
     } catch (err) {
       this.deps.note(`Catch-up listings: ${err instanceof Error ? err.name : 'Error'}`);
