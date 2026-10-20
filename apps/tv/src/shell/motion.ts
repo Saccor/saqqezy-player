@@ -221,7 +221,7 @@ export function fadeInLoaded(node: ElementNode, mountedAt: number): void {
 }
 
 /**
- * Opens a menu, dialog or toast: from `MOTION.startAlpha` and `MOTION.rise` px lower to its place, with `token`. Call it
+ * Opens a menu or toast with no scrim: from `MOTION.startAlpha` and `MOTION.rise` px lower to its place, with `token`. Call it
  * from the overlay's outermost `ref` (whose `alpha` and `y` no Solid prop changes later). Focus is not affected: the
  * overlay takes it at once, while it is still fading in. It closes by unmounting, at once.
  */
@@ -232,6 +232,23 @@ export function riseIn(node: ElementNode, token: MotionToken = MOTION.menuIn): v
     node.alpha = MOTION.startAlpha;
     if (levelNow() === 'full') node.y = y + MOTION.rise;
     tween(node, { alpha: 1, y }, token);
+  });
+}
+
+/**
+ * Opens a modal over a full-screen scrim (dialogs, pickers, the context menu): the scrim only fades, it never moves (a
+ * risen scrim left an undimmed strip at the top for a few frames), while the panel's `lift` wrapper (a node whose `y`
+ * no Solid prop sets) rises `MOTION.rise` px with it. Call it from the scrim's `ref`; focus is not affected.
+ */
+export function scrimIn(scrim: ElementNode, lift: () => ElementNode | undefined, token: MotionToken = MOTION.menuIn): void {
+  queueMicrotask(() => {
+    if (levelNow() === 'off') return;
+    scrim.alpha = MOTION.startAlpha;
+    tween(scrim, { alpha: 1 }, token);
+    const l = lift();
+    if (!l || levelNow() !== 'full') return;
+    l.y = MOTION.rise;
+    tween(l, { y: 0 }, token);
   });
 }
 

@@ -3,7 +3,7 @@ import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
-import { riseIn } from '../shell/motion.ts';
+import { scrimIn } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { pickerFooter } from './listPickerLogic.ts';
 import { moveFocus, scrollTopFor } from './virtualWindow.ts';
@@ -41,6 +41,7 @@ export function ListPicker(props: {
   const [sel, setSel] = createSignal(0);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let scrim: ElementNode | undefined;
+  let lift: ElementNode | undefined;
   let panel: ElementNode | undefined;
   let top = 0;
   const shown = () => Math.min(VIEW_ROWS, Math.max(props.rows.length, 1));
@@ -93,37 +94,40 @@ export function ListPicker(props: {
   });
 
   return (
-    <View ref={(el) => { scrim = el; riseIn(el); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
-      <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
-        width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
-        onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
-        onMenu={() => true} onLongOk={() => true}
-        onEnter={() => { const r = props.rows[current()]; if (r) props.onPick(r); return true; }}>
-        <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
-          fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
-        <For each={visible()}>{(v) => {
-          const focused = () => current() === v.i;
-          const hovered = () => pointerMode() && hover() === v.i;
-          const fg = () => (focused() ? COLORS.onFocus : COLORS.text);
-          return (
-            <View x={PAD} y={PAD + HEAD + (v.i - scrollTop()) * STEP} width={WIDTH - PAD * 2} height={ITEM_H}
-              borderRadius={LAYOUT.radius} color={focused() ? COLORS.focus : hovered() ? COLORS.hover : COLORS.background}>
-              <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48 - CHECK_W}
-                maxWidth={WIDTH - PAD * 2 - 48 - CHECK_W} contain="width" maxLines={1} fontSize={TYPE.body}
-                color={v.row.kind === 'new' && !focused() ? COLORS.muted : fg()}>{v.row.label}</Text>
-              <Show when={v.row.kind === 'list' && v.row.checked}>
-                <Text x={WIDTH - PAD * 2 - 24 - CHECK_W + 16} y={(ITEM_H - TYPE.body) / 2 - 4} fontSize={TYPE.body}
-                  color={fg()}>{'✓'}</Text>
-              </Show>
-            </View>
-          );
-        }}</For>
-        <For each={footer()}>{(line, k) => (
-          <Text x={PAD} y={PAD + HEAD + shown() * STEP + k() * FOOTER_LINE_H} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2}
-            contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
-            {line}
-          </Text>
-        )}</For>
+    <View ref={(el) => { scrim = el; scrimIn(el, () => lift); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
+      {/* The panel rises inside `lift`; the scrim only fades (scrimIn). */}
+      <View ref={(el) => { lift = el; }}>
+        <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
+          width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+          onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
+          onMenu={() => true} onLongOk={() => true}
+          onEnter={() => { const r = props.rows[current()]; if (r) props.onPick(r); return true; }}>
+          <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
+            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
+          <For each={visible()}>{(v) => {
+            const focused = () => current() === v.i;
+            const hovered = () => pointerMode() && hover() === v.i;
+            const fg = () => (focused() ? COLORS.onFocus : COLORS.text);
+            return (
+              <View x={PAD} y={PAD + HEAD + (v.i - scrollTop()) * STEP} width={WIDTH - PAD * 2} height={ITEM_H}
+                borderRadius={LAYOUT.radius} color={focused() ? COLORS.focus : hovered() ? COLORS.hover : COLORS.background}>
+                <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48 - CHECK_W}
+                  maxWidth={WIDTH - PAD * 2 - 48 - CHECK_W} contain="width" maxLines={1} fontSize={TYPE.body}
+                  color={v.row.kind === 'new' && !focused() ? COLORS.muted : fg()}>{v.row.label}</Text>
+                <Show when={v.row.kind === 'list' && v.row.checked}>
+                  <Text x={WIDTH - PAD * 2 - 24 - CHECK_W + 16} y={(ITEM_H - TYPE.body) / 2 - 4} fontSize={TYPE.body}
+                    color={fg()}>{'✓'}</Text>
+                </Show>
+              </View>
+            );
+          }}</For>
+          <For each={footer()}>{(line, k) => (
+            <Text x={PAD} y={PAD + HEAD + shown() * STEP + k() * FOOTER_LINE_H} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2}
+              contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
+              {line}
+            </Text>
+          )}</For>
+        </View>
       </View>
     </View>
   );
