@@ -1,7 +1,7 @@
 import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
-  isVodLayoutOpBatch, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
+  isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
@@ -856,6 +856,9 @@ export class AppApi {
         coverageKnown: coverage !== undefined,
       };
       if (this.activeId) state.activeSourceId = this.activeId;
+      const view = this.regionViewFor();
+      // Protocol 3: the phone runs the same region rule (`regionRule`) on its optimistic layout.
+      if (view) state.regions = { mode: view.mode, codes: [...view.codes], keys: sureRegionKeys(view.detected) };
       return state;
     });
   }

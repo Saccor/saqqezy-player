@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLayout, HEADER_VALUE_MAX } from '@iptv/core';
 import {
-  PROTOCOL_VERSION, isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, isUnknownTvMessage, PHONE_TO_TV_TYPES, TV_TO_PHONE_TYPES,
+  HEADERS_PROTOCOL, PROTOCOL_VERSION, REGIONS_PROTOCOL, isPhoneToTv, isTvToPhone, isUnknownPhoneMessage, isUnknownTvMessage, PHONE_TO_TV_TYPES, TV_TO_PHONE_TYPES,
   type PhoneToTv, type TvToPhone,
 } from '../src/index.ts';
 
@@ -95,8 +95,8 @@ describe('protocol v2: source User-Agent and Referer (spec 2026-10-20-source-hea
   const m3u = { kind: 'm3u', name: 'Home', playlistUrl: 'http://example.test/list.m3u' };
   const xt = { kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' };
 
-  it('is protocol 2', () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+  it('headers arrived in protocol 2', () => {
+    expect(HEADERS_PROTOCOL).toBe(2);
   });
 
   it('the TV accepts userAgent and referrer on add and update, empty strings included (clear)', () => {
@@ -118,5 +118,23 @@ describe('protocol v2: source User-Agent and Referer (spec 2026-10-20-source-hea
   it('welcome may carry the TV header support; the companion accepts it', () => {
     const headers = { lists: { userAgent: false, referrer: false }, streams: { userAgent: true, referrer: false } };
     expect(isTvToPhone({ t: 'welcome', tv: { label: 'TV', appVersion: '1', protocol: 2, headers } })).toBe(true);
+  });
+});
+
+describe('protocol v3: your countries (report 2026-10-20 §2.2)', () => {
+  it('is protocol 3, regions from 3', () => {
+    expect(PROTOCOL_VERSION).toBe(3);
+    expect(REGIONS_PROTOCOL).toBe(3);
+  });
+
+  it('the TV accepts the show and region ops', () => {
+    const ops = [
+      { op: 'showGroups', ids: ['g:SE | Synthetic News'] },
+      { op: 'unshowGroups', ids: ['g:SE | Synthetic News'] },
+      { op: 'setGroupRegion', id: 'g:Mixed', codes: ['SE'] },
+      { op: 'setGroupRegion', id: 'g:Mixed', codes: null },
+    ];
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 0, ops })).toBe(true);
+    expect(isPhoneToTv({ t: 'ops', sourceId: 'src-1', baseVersion: 0, ops: [{ op: 'showGroups', ids: ['g:x'], extra: 1 }] })).toBe(false);
   });
 });

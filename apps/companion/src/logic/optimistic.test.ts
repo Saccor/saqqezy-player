@@ -120,3 +120,17 @@ describe('OptimisticLayout', () => {
     expect(o.view()).toEqual(tv);
   });
 });
+
+describe('OptimisticLayout and older TVs', () => {
+  it('a schema-1 layout (no shownGroups / groupRegion) is upgraded on receipt, so new ops apply', () => {
+    const o = new OptimisticLayout();
+    const old = { ...emptyLayout(), schema: 1 } as Partial<Layout>;
+    delete old.shownGroups;
+    delete old.groupRegion;
+    o.confirm(old as Layout);
+    expect(o.base()).toMatchObject({ shownGroups: [], groupRegion: {} });
+    o.add([{ op: 'hideGroups', ids: ['g:Synthetic'] }]);
+    expect(o.view()!.hiddenGroups).toEqual(['g:Synthetic']);
+  });
+});
+

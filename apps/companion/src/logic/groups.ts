@@ -1,5 +1,5 @@
-import type { CompanionChannel, CompanionState } from '@iptv/companion-protocol';
-import { orderGroupChannels, type Layout, type LayoutOp, type SortMode } from '@iptv/core';
+import { REGIONS_PROTOCOL, type CompanionChannel, type CompanionRegions, type CompanionState } from '@iptv/companion-protocol';
+import { orderGroupChannels, regionRule, type Layout, type LayoutOp, type SortMode } from '@iptv/core';
 import { COPY } from './copy.ts';
 
 const GROUP_PREFIX = 'g:';
@@ -11,7 +11,22 @@ export interface GroupView {
   providerName: string;
   /** Every channel in the group, hidden ones included. */
   count: number;
+  /** Hidden by the user. */
   hidden: boolean;
+  /** Hidden by your countries (Show only these) on the TV, not by the user. */
+  regionHidden: boolean;
+  /** Shown on purpose over your countries. */
+  shown: boolean;
+}
+
+/**
+ * The ops that show or hide a group as the TV does. Showing a group your countries hide needs `showGroups`
+ * (protocol 3); an older TV gets `unhideGroups`. Otherwise showing returns the group to the rule.
+ */
+export function groupShowOps(g: GroupView, show: boolean, tvProtocol: number | undefined): LayoutOp[] {
+  if (!show) return [{ op: 'hideGroups', ids: [g.id] }];
+  if (g.regionHidden && tvProtocol !== undefined && tvProtocol >= REGIONS_PROTOCOL) return [{ op: 'showGroups', ids: [g.id] }];
+  return [{ op: 'unhideGroups', ids: [g.id] }];
 }
 
 /** The channel's name as the TV shows it: the layout rename, else the playlist name. */
@@ -50,15 +65,22 @@ export class GroupModel {
   }
 }
 
-/** Provider groups in the TV's order: `groupOrder` first, then the rest in provider order (as ChannelIndex). */
-export function providerGroups(model: GroupModel, layout: Layout): GroupView[] {
+/**
+ * Provider groups in the TV's order (as ChannelIndex): `groupOrder` first, then, with your countries on, the chosen
+ * countries' groups, then the rest in provider order. `regions` comes from the TV's state (protocol 3); the region
+ * rule is the TV's own (`regionRule`), run on the phone's optimistic layout.
+ */
+export function providerGroups(model: GroupModel, layout: Layout, regions?: CompanionRegions): GroupView[] {
+  const rule = regionRule(model.providerOrder, layout, regions);
   const order: string[] = [];
   const seen = new Set<string>();
   for (const gid of layout.groupOrder) {
     if (model.members.has(gid) && !seen.has(gid)) { order.push(gid); seen.add(gid); }
   }
+  if (rule.state.mode !== 'off') for (const gid of model.providerOrder) if (rule.chosen.has(gid) && !seen.has(gid)) { order.push(gid); seen.add(gid); }
   for (const gid of model.providerOrder) if (!seen.has(gid)) order.push(gid);
   const hidden = new Set(layout.hiddenGroups);
+  const shown = new Set(layout.shownGroups ?? []);
   return order.map((gid) => {
     const providerName = gid.slice(GROUP_PREFIX.length);
     return {
@@ -67,6 +89,8 @@ export function providerGroups(model: GroupModel, layout: Layout): GroupView[] {
       providerName,
       count: model.members.get(gid)?.length ?? 0,
       hidden: hidden.has(gid),
+      regionHidden: rule.ruleHidden.has(gid),
+      shown: shown.has(gid),
     };
   });
 }

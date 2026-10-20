@@ -3,7 +3,7 @@ import { SourceService, type LayoutOp } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
 import {
-  isTvToPhone, MAX_MESSAGE_BYTES, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
+  isTvToPhone, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, newPairingCode, SecureChannel, secretsFromCode, secretsFromQrFragment,
   type CompanionState, type TvHeaderSupport, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvToPhone,
 } from '@iptv/companion-protocol';
 import { AppApi } from '../src/appApi.ts';
@@ -180,7 +180,7 @@ describe('CompanionHost', () => {
     expect(s.host.status()).toEqual({ state: 'waiting', expiresAt: started.expiresAt });
 
     const welcome = await hello(p);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2 });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION });
     expect(s.host.status().state).toBe('connected');
     expect(s.host.status().peerLabel).toBe('My phone');
     // Paired: the session now lives up to 60 minutes from its start.
@@ -340,7 +340,7 @@ describe('CompanionHost', () => {
     await s.api.addSource(xt());
     const { p } = await pairQr(s);
     const welcome = await hello(p, 2);
-    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: 2, headers: headerSupport });
+    expect(welcome.tv).toEqual({ label: 'Living room', appVersion: '1.2.3', protocol: PROTOCOL_VERSION, headers: headerSupport });
   });
 
   test('protocol 2: getSource returns the stored User-Agent and Referer to a v2 phone', async () => {

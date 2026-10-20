@@ -95,4 +95,15 @@ describe('AppApi regions', () => {
     expect(await providerGroupIds(api)).toEqual(['g:DK | Synthetic News', 'g:DK | Synthetic Docs', 'g:Mixed', 'g:Weekly (FI)']);
     expect(await storage.getMeta(regionsKey(first.sourceId))).toBeTruthy();
   });
+
+  test('the companion state carries your countries and the sure detections', async () => {
+    const { api } = await setup();
+    await api.setRegions({ codes: ['SE'], mode: 'only' });
+    const st = await api.getCompanionState();
+    expect(st.regions).toEqual({
+      mode: 'only', codes: ['SE'],
+      keys: { 'g:SE | Synthetic News': ['SE'], 'g:SE | Synthetic Kids': ['SE'], 'g:DK | Synthetic News': ['DK'], 'g:DK | Synthetic Docs': ['DK'] },
+    });
+    expect(st.groups.find((g) => g.id === 'g:DK | Synthetic Docs')).toMatchObject({ hidden: false, regionHidden: true });
+  });
 });

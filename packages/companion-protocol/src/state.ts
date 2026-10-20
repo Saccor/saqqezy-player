@@ -1,4 +1,12 @@
-import type { Layout, ProviderGroupInfo } from '@iptv/core';
+import type { Layout, ProviderGroupInfo, RegionMode } from '@iptv/core';
+
+/** Your countries as the TV applies them to the active source (protocol 3). */
+export interface CompanionRegions {
+  mode: RegionMode;
+  codes: string[];
+  /** Sure detected region keys per group id (`sureRegionKeys`); the layout's `groupRegion` overrides them. */
+  keys: Record<string, string[]>;
+}
 
 /**
  * The companion's view of the TV state. Defined here (not in app-api) because app-api depends on this
@@ -33,4 +41,6 @@ export interface CompanionState {
   layout: Layout;
   /** False while the guide has not been downloaded: every channel's `hasEpg` is then true by default. */
   coverageKnown: boolean;
+  /** Protocol 3: your countries; absent from older TVs and while the source has no detection yet. */
+  regions?: CompanionRegions;
 }
