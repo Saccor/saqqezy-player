@@ -1,4 +1,4 @@
-﻿import { Text, View, type ElementNode } from '@lightningtv/solid';
+import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, FONT } from '../shell/theme.ts';
@@ -6,7 +6,7 @@ import { COLORS, FONT } from '../shell/theme.ts';
 export const BUTTON_H = 64;
 
 /**
- * Focusable push button. Focused: focus-coloured fill with white text; otherwise a focus-coloured outline. It is also a
+ * Focusable push button. Focused: focus fill with onFocus text; otherwise a raised-surface pill with no outline. It is also a
  * pointer target: a click does the same as Ok (`onPress`), and hover lightens the fill in pointer mode.
  */
 export function Button(props: {

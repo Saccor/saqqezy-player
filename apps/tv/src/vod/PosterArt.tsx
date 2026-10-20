@@ -11,8 +11,8 @@ const BAR_H = 6;
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
  * generated title card (stable colour, the title in text) when there is none or it fails; a skeleton (a plain surface
- * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): a
- * focus-coloured ring (hover: a thin muted one), an outset fill behind the card so the image never covers it.
+ * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): the shared FocusRing (a light ring
+ * outside a dark gap; hover: a thin muted ring), an outset fill behind the card so the image never covers it.
  * `progress`: a bar at the bottom. `watched`: a check badge. `label`: a text-only card (View all, Loading…).
  * Children are extra overlays (zIndex 4 sits above the image). Layered by zIndex: a late-loading image would otherwise
  * be inserted on top of the overlays.

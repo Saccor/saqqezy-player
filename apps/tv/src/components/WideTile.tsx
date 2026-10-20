@@ -34,8 +34,10 @@ export function WideTile(props: { x: number; y: number; cell: StartCell; lit: bo
       <Show when={image()} keyed>
         {(u) => <View x={PAD} y={PAD} width={LOGO} height={LOGO} zIndex={2} src={rawViaDevProxy(u)} />}
       </Show>
-      <Text x={PAD + (image() ? LOGO + 14 : 0)} y={PAD + (LOGO - TYPE.meta) / 2 - 2} width={w - (image() ? LOGO + 14 : 0)} maxWidth={w - (image() ? LOGO + 14 : 0)}
-        contain="width" maxLines={1} zIndex={3} fontSize={TYPE.meta} color={COLORS.muted}>{line1()}</Text>
+      <Show when={line2()}>
+        <Text x={PAD + (image() ? LOGO + 14 : 0)} y={PAD + (LOGO - TYPE.meta) / 2 - 2} width={w - (image() ? LOGO + 14 : 0)} maxWidth={w - (image() ? LOGO + 14 : 0)}
+          contain="width" maxLines={1} zIndex={3} fontSize={TYPE.meta} color={COLORS.muted}>{line1()}</Text>
+      </Show>
       <Text x={PAD} y={WIDE_H - PAD - TYPE.meta - 14} width={w} maxWidth={w} contain="width" maxLines={1} zIndex={3}
         fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{line2() || line1()}</Text>
     </View>

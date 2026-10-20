@@ -1,4 +1,4 @@
-﻿import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, FONT } from '../shell/theme.ts';

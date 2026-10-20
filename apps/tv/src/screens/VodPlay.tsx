@@ -1239,7 +1239,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             fontSize={card().font} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
-              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - 72 - 40}
+              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}
               actions={cardActions()} onAction={onCardAction} />
           </Show>
         </View>
