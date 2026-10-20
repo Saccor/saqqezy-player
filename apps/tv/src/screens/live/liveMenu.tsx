@@ -84,9 +84,10 @@ export function createLiveMenu(d: LiveMenuDeps) {
   const dismissKeyboard = () => { if (edit()) { removeKeyboard?.(); closeKeyboard(); } };
   const dismissPicker = () => { if (picker()) { removePicker?.(); closePicker(); } };
   const dismissMenu = () => { if (menu()) { removeMenu?.(); closeMenu(); } };
-  const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); days.close(); };
+  // The day choice closes like Back: its pending choice answers undefined and focus returns to the screen.
+  const dismissAll = () => { dismissKeyboard(); dismissPicker(); dismissMenu(); days.close({ answer: true }); };
 
-  const open = () => menu() !== undefined || picker() !== undefined || edit() !== undefined;
+  const open = () => menu() !== undefined || picker() !== undefined || edit() !== undefined || days.isOpen();
 
   /** User lists as the groups show them (names and order), for the menu's "Remove from" label. */
   const listsFromGroups = (): ListLite[] => d.groups().flatMap((g) => {
@@ -245,7 +246,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     removeKeyboard?.();
     removePicker?.();
     removeMenu?.();
-    days.close();
+    days.close({ answer: true }); // settles the pending choice; its refocus and pick are no-ops once not alive
     for (const id of [KEYBOARD_ID, PICKER_ID, MENU_ID]) router.removeOverlay(id);
   };
 
@@ -289,5 +290,8 @@ export function createLiveMenu(d: LiveMenuDeps) {
     );
   };
 
-  return { openMenu, rebuildMenu, rereadOpenPicker, dismissAll, cleanup, isOpen: open, View: LayersView };
+  /** The rename / new-list keyboard is open: it is modal for the pointer (no other target takes it). */
+  const editing = () => edit() !== undefined;
+
+  return { openMenu, rebuildMenu, rereadOpenPicker, dismissAll, cleanup, isOpen: open, editing, View: LayersView };
 }
