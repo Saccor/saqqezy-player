@@ -56,7 +56,9 @@ test('trending: 150 feed items matched against 60k titles', () => {
   const buildMs = best(buildRuns);
   console.log(`trending: match ${matchMs.toFixed(2)} ms (best of 5, ${hits.length} hits), index build ${buildMs.toFixed(1)} ms (once per catalogue)`);
   expect(hits.length).toBeGreaterThan(100);
-  expect(matchMs).toBeLessThan(5);
+  // Measured 0.6-0.7 ms on a desktop; 10 ms leaves a slow CI machine 15x room and still fails a scan of the catalogue
+  // per feed item (150 x 60k exact compares with an early exit already take about 16 ms).
+  expect(matchMs).toBeLessThan(10);
   // The index is built once per catalogue (cached with it), off the Start path. Regression guard.
   expect(buildMs).toBeLessThan(150);
 });
