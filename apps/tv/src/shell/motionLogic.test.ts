@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { EASE, MOTION } from './theme.ts';
-import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, type MotionContext } from './motionLogic.ts';
+import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, sessionLevel, AutoLite, type MotionContext } from './motionLogic.ts';
 
 const ctx = (o: Partial<MotionContext> = {}): MotionContext => ({ level: 'full', cadence: 'normal', gap: undefined, live: 0, ...o });
 
@@ -125,5 +125,85 @@ describe('parseMotionLevel', () => {
     expect(parseMotionLevel(undefined, true)).toBe('reduced');
     expect(parseMotionLevel(undefined, false)).toBe('full');
     expect(parseMotionLevel('bogus', false)).toBe('full');
+  });
+});
+
+describe('screenEnters', () => {
+  test('a screen pushed or switched to (rail tabs replace) fades in', () => {
+    expect(screenEnters('push', 'movieDetail')).toBe(true);
+    expect(screenEnters('replace', 'vod')).toBe(true);
+    expect(screenEnters('push', 'settings')).toBe(true);
+  });
+
+  test('not between two rail screens: the rail stays put, so the screen does not blink it', () => {
+    expect(screenEnters('replace', 'vod', true)).toBe(false);
+    expect(screenEnters('push', 'search', true)).toBe(false);
+  });
+
+  test('never for video screens (Player, VodPlay, Live TV), cold start (reset) or Back', () => {
+    expect(screenEnters('push', 'player')).toBe(false);
+    expect(screenEnters('replace', 'vodPlay')).toBe(false);
+    expect(screenEnters('push', 'home')).toBe(false);
+    expect(screenEnters('reset', 'start')).toBe(false);
+    expect(screenEnters('back', 'vod')).toBe(false);
+    expect(screenEnters(undefined, 'vod')).toBe(false);
+  });
+});
+
+describe('AutoLite', () => {
+  /** Runs `n` frames `dt` ms apart from `t0`; true when one of them dropped the session to lite. */
+  const run = (a: AutoLite, t0: number, n: number, dt: number) => {
+    let dropped = false;
+    for (let i = 0; i <= n; i++) dropped = a.frame(t0 + i * dt) || dropped;
+    return dropped;
+  };
+
+  test('a median frame interval over 1000/45 ms across ~2 s of animation drops the session', () => {
+    const a = new AutoLite();
+    a.start();
+    expect(run(a, 0, 50, 30)).toBe(false); // 1.5 s: the window is not full yet
+    expect(run(a, 1530, 30, 30)).toBe(true);
+    expect(a.dropped).toBe(true);
+  });
+
+  test('smooth animation (60 fps) never drops; a few long frames do not move the median', () => {
+    const a = new AutoLite();
+    a.start();
+    let t = 0;
+    let dropped = false;
+    for (let i = 0; i < 400; i++) { t += i % 10 === 0 ? 80 : 16.7; dropped = a.frame(t) || dropped; }
+    expect(dropped).toBe(false);
+    expect(a.dropped).toBe(false);
+  });
+
+  test('only time while animations run counts: the gap between two runs is not a frame', () => {
+    const a = new AutoLite();
+    a.start();
+    run(a, 0, 60, 16.7);
+    a.stop();
+    a.start();
+    // The next frame comes 5 s later: the first frame of a run only sets the clock.
+    expect(a.frame(6000)).toBe(false);
+    expect(run(a, 6000, 60, 16.7)).toBe(false);
+    expect(a.dropped).toBe(false);
+  });
+
+  test('frames while stopped are ignored, and once dropped it never comes back up', () => {
+    const a = new AutoLite();
+    expect(run(a, 0, 200, 40)).toBe(false);
+    a.start();
+    expect(run(a, 10_000, 80, 40)).toBe(true);
+    a.start();
+    expect(run(a, 20_000, 200, 16)).toBe(false);
+    expect(a.dropped).toBe(true);
+  });
+});
+
+describe('sessionLevel', () => {
+  test('auto-lite lowers Full to Reduced; Reduced and Off (the user choice) stay', () => {
+    expect(sessionLevel('full', true)).toBe('reduced');
+    expect(sessionLevel('full', false)).toBe('full');
+    expect(sessionLevel('reduced', true)).toBe('reduced');
+    expect(sessionLevel('off', true)).toBe('off');
   });
 });

@@ -10,6 +10,7 @@ import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
+import { useRowColumn } from '../components/rowColumn.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
@@ -25,7 +26,7 @@ import {
   cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels,
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
-import { browseRowSlots, greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
+import { greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
 import { Backdrop } from '../vod/Backdrop.tsx';
 import { catalogueCategories, categoryRows } from '../vod/categoryPicker.ts';
 import { heroArt } from '../vod/fadeLogic.ts';
@@ -42,7 +43,7 @@ import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
 /**
  * Layout (1080p design space, UI revamp §2.2), like Start's: the info strip at the top for the focused title, the
  * "All categories ▾" header at the top right, and the poster rows from y 262 at x 160. The focused row sits on top;
- * the next shows in full and a third peeks in (`browseRowSlots`).
+ * the next shows in full and a third peeks in (`rowSlots`; the column slides a row at a time, `useRowColumn`).
  */
 const ROW_X = LAYOUT.contentX;
 const ROW_Y = 262;
@@ -50,6 +51,8 @@ const LABEL_H = 42;
 const ROW_GAP = 36;
 /** A row below the focused one is drawn while at least its title and a strip of it fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
+/** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */
+const CLIP_Y = ROW_Y - 8;
 const ROW_H = LABEL_H + POSTER_H;
 /** A row's title line: a long category name (fed by the source's own names) ends inside the safe area. */
 const ROW_TITLE_W = LAYOUT.width - LAYOUT.safeX - ROW_X;
@@ -456,11 +459,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
    * The focused row on top, then the rows after it, down to a peek of the next one's title; in pointer mode only
    * rows that fit above the shell's bottom button row.
    */
-  const slots = createMemo(() => browseRowSlots(rows().length, ROW_H, focus().row,
-    { top: ROW_Y, gap: ROW_GAP, bottom: pointerMode() ? BOTTOM_ROW_Y : LAYOUT.height, peek: ROW_PEEK },
-    pointerMode() ? 'whole' : 'peek'));
-  const visibleRows = () => slots().map((s) => s.index);
-  const rowY = (i: number) => slots().find((s) => s.index === i)?.y ?? ROW_Y;
+  const column = useRowColumn({
+    heights: () => rows().map(() => ROW_H),
+    focusRow: () => focus().row,
+    frame: () => ({ top: ROW_Y, gap: ROW_GAP, bottom: pointerMode() ? BOTTOM_ROW_Y : LAYOUT.height, peek: ROW_PEEK }),
+    mode: () => (pointerMode() ? 'whole' : 'peek'),
+    clipTop: CLIP_Y,
+  });
   /** A pointer press on a poster: the column memory of the row left and of the row pressed are kept, as with the keys. */
   const pointTo = (row: number, col: number) => {
     const from = rows()[focus().row];
@@ -515,18 +520,23 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
-          <For each={visibleRows()}>{(i) => {
-            const r = () => rows()[i]!;
-            return (
-              <View y={rowY(i)}>
-                <Text x={ROW_X} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()}
-                  focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
-                  onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
-                  onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
-              </View>
-            );
-          }}</For>
+          {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped under the strip). */}
+          <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
+            <View ref={column.ref} width={LAYOUT.width}>
+              <For each={column.rows()}>{(i) => {
+                const r = () => rows()[i]!;
+                return (
+                  <View y={column.rowY(i)}>
+                    <Text x={ROW_X} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
+                    <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()}
+                      focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
+                      onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
+                      onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
+                  </View>
+                );
+              }}</For>
+            </View>
+          </View>
         </View>
       </Show>
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}

@@ -11,6 +11,7 @@ import { PosterRow } from '../components/PosterRow.tsx';
 import { InfoStrip, STRIP_TEXT_H, STRIP_Y } from '../components/InfoStrip.tsx';
 import { COMPACT_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
+import { useRowColumn } from '../components/rowColumn.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
@@ -31,7 +32,7 @@ import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, eventMeta, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, eventMeta, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow,
   type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
@@ -46,6 +47,8 @@ const LABEL_H = 42;
 const ROW_GAP = 28;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
+/** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */
+const CLIP_Y = ROW_Y - 8;
 const REVALIDATE_MS = 30_000;
 
 const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H : COMPACT_H);
@@ -242,11 +245,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
    * The focused row on top and the rows after it below, down to a peek of the next one's title and tiles; in pointer
    * mode only rows that fit above the shell's bottom button row.
    */
-  const slots = () => startRowSlots(rows().map(rowHeight), focus().row,
-    pointerMode() ? { top: ROW_Y, gap: ROW_GAP, bottom: BOTTOM_ROW_Y, peek: ROW_PEEK } : { top: ROW_Y, gap: ROW_GAP, bottom: LAYOUT.height, peek: ROW_PEEK },
-    pointerMode() ? 'whole' : 'peek');
-  const visibleRows = () => slots().map((s) => s.index);
-  const rowY = (i: number) => slots().find((s) => s.index === i)?.y ?? ROW_Y;
+  const column = useRowColumn({
+    heights: () => rows().map(rowHeight),
+    focusRow: () => focus().row,
+    frame: () => ({ top: ROW_Y, gap: ROW_GAP, bottom: pointerMode() ? BOTTOM_ROW_Y : LAYOUT.height, peek: ROW_PEEK }),
+    mode: () => (pointerMode() ? 'whole' : 'peek'),
+    clipTop: CLIP_Y,
+  });
   const pointTo = (row: number, col: number) => { setFocus({ row, col }); remember(); focusArea('rows'); };
 
   return (
@@ -266,23 +271,28 @@ export function StartScreen(props: { entry: ScreenEntry }) {
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
-          <For each={visibleRows()}>{(i) => {
-            const r = () => rows()[i]!;
-            const focusCol = () => (i === focus().row ? focus().col : undefined);
-            const lit = () => area() === 'rows' && i === focus().row;
-            return (
-              <View y={rowY(i)}>
-                <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                <Show when={rowKind(r()) === 'poster'} fallback={
-                  <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact
-                    onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
-                }>
-                  <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
-                    onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
-                </Show>
-              </View>
-            );
-          }}</For>
+          {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped under the strip). */}
+          <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
+            <View ref={column.ref} width={LAYOUT.width}>
+              <For each={column.rows()}>{(i) => {
+                const r = () => rows()[i]!;
+                const focusCol = () => (i === focus().row ? focus().col : undefined);
+                const lit = () => area() === 'rows' && i === focus().row;
+                return (
+                  <View y={column.rowY(i)}>
+                    <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
+                    <Show when={rowKind(r()) === 'poster'} fallback={
+                      <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact
+                        onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
+                    }>
+                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
+                        onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
+                    </Show>
+                  </View>
+                );
+              }}</For>
+            </View>
+          </View>
         </View>
       </Show>
       {/* Above the rail (zIndex 50), so the menus' scrims dim it too. */}

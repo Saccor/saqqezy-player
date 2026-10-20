@@ -1,5 +1,7 @@
-import { Show, Text, View } from '@lightningtv/solid';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { createEffect, on } from 'solid-js';
+import { stopMotion, tween } from '../shell/motion.ts';
+import { COLORS, LAYOUT, MOTION, STRONG, TYPE } from '../shell/theme.ts';
 
 export const STRIP_X = LAYOUT.contentX;
 export const STRIP_Y = LAYOUT.safeY;
@@ -15,11 +17,20 @@ const PLOT_LINE_H = 36;
 /**
  * The info strip (spec §1.3): the focused item's title, one meta line and an optional plot. It replaces heroes and
  * per-card titles. Feed it values from `dwellSignal` so it follows focus only once focus rests. Never a spinner.
+ * A new title (with its meta and plot) fades in over 140 ms. The first title (also after an empty strip), and a meta or
+ * plot that fills in later for the same title, show at once. One container fades: one animation for all three lines.
  */
 export function InfoStrip(props: { x?: number; y?: number; width?: number; title: string; meta?: string; plot?: string; plotLines?: number }) {
   const w = () => props.width ?? STRIP_W;
+  let node: ElementNode | undefined;
+  createEffect(on(() => props.title, (title, prev) => {
+    if (!node || !title || !prev) return;
+    stopMotion(node);
+    node.alpha = MOTION.startAlpha;
+    tween(node, { alpha: 1 }, MOTION.textIn);
+  }, { defer: true }));
   return (
-    <View x={props.x ?? STRIP_X} y={props.y ?? STRIP_Y} width={w()} height={STRIP_H} zIndex={2}>
+    <View ref={(el) => { node = el; }} x={props.x ?? STRIP_X} y={props.y ?? STRIP_Y} width={w()} height={STRIP_H} zIndex={2}>
       <Text width={w()} maxWidth={w()} contain="width" maxLines={1} fontSize={TYPE.display} {...STRONG} color={COLORS.text}>{props.title}</Text>
       <Show when={props.meta}>
         <Text y={META_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.meta ?? ''}</Text>

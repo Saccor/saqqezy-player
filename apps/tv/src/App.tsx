@@ -33,7 +33,7 @@ import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
-import { setMotionLevel } from './shell/motion.ts';
+import { screenEnter, setMotionLevel } from './shell/motion.ts';
 import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
@@ -87,6 +87,8 @@ export function App() {
 
   const [exitOpen, setExitOpen] = createSignal(false);
   let screenHost: ElementNode | undefined;
+  // A pushed screen fades in (not Back, cold start or video screens); after the new screen's nodes exist.
+  createEffect(on(current, (entry, from) => { if (screenHost) screenEnter(screenHost, entry, from); }, { defer: true }));
   let focusBeforeDialog: ElementNode | undefined;
 
   const closeExit = () => {

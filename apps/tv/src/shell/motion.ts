@@ -1,9 +1,11 @@
 import type { ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on } from 'solid-js';
-import { TOAST_OVERLAY_ID } from './logic.ts';
-import { router } from './router.ts';
+import { railRoute, TOAST_OVERLAY_ID } from './logic.ts';
+import { router, type ScreenEntry } from './router.ts';
 import { FOCUS, MOTION, type MotionToken } from './theme.ts';
-import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, type MotionLevel, type PropClass } from './motionLogic.ts';
+import {
+  AutoLite, effectiveLevel, KeyCadence, parseMotionLevel, planMotion, screenEnters, sessionLevel, type MotionLevel, type PropClass,
+} from './motionLogic.ts';
 
 /**
  * The one way the TV app animates (motion research §4 #1). The `transition` prop is broken on our stack (renderer 3.7 has
@@ -42,10 +44,15 @@ export function setMotionLevel(stored: unknown): void {
 
 const PLAYBACK_SCREENS = new Set(['player', 'vodPlay']);
 
-/** The level in force now: reduced at most while video plays. */
+const [lite, setLite] = createSignal(false);
+
+/** Auto-lite dropped this session to Reduced (low frame rate measured while animating). */
+export const motionLite = lite;
+
+/** The level in force now: auto-lite lowers Full to Reduced for the session; reduced at most while video plays. */
 function levelNow(): MotionLevel {
   const screen = router.current()?.screen;
-  return effectiveLevel(level(), screen !== undefined && PLAYBACK_SCREENS.has(screen));
+  return effectiveLevel(sessionLevel(level(), lite()), screen !== undefined && PLAYBACK_SCREENS.has(screen));
 }
 
 const cadence = new KeyCadence();
@@ -93,6 +100,33 @@ interface Owned { ctl: Controller; interrupted: boolean }
 const owners = new WeakMap<ElementNode, Map<AnimProp, Owned>>();
 let live = 0;
 
+const autoLite = new AutoLite();
+let rafId: number | undefined;
+const hasRaf = (): boolean => typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function';
+
+/** Samples frames (requestAnimationFrame) only while animations run, and only at Full: nothing to drop otherwise. */
+function onFrame(t: number): void {
+  rafId = undefined;
+  if (autoLite.frame(t)) {
+    setLite(true);
+    console.info('Motion: low frame rate while animating; motion reduced for this session');
+    return;
+  }
+  if (live > 0) rafId = requestAnimationFrame(onFrame);
+}
+
+function liveChanged(): void {
+  if (!hasRaf() || autoLite.dropped) return;
+  if (live > 0 && rafId === undefined && levelNow() === 'full') {
+    autoLite.start();
+    rafId = requestAnimationFrame(onFrame);
+  } else if (live === 0 && rafId !== undefined) {
+    cancelAnimationFrame(rafId);
+    rafId = undefined;
+    autoLite.stop();
+  }
+}
+
 /** Animations running now (debug and tests). */
 export function liveAnimations(): number {
   return live;
@@ -119,8 +153,10 @@ function animateProp(node: ElementNode, prop: AnimProp, value: number, token: Mo
   if (!props) { props = new Map(); owners.set(node, props); }
   props.set(prop, owned);
   live++;
+  liveChanged();
   ctl.on('stopped', () => {
     live--;
+    liveChanged();
     const map = owners.get(node);
     if (map?.get(prop) === owned) map.delete(prop);
     if (!owned.interrupted) onDone?.();
@@ -185,7 +221,7 @@ export function fadeInLoaded(node: ElementNode, mountedAt: number): void {
 }
 
 /**
- * Opens a menu, dialog or toast: from `MOTION.startAlpha` and `MOTION.rise` px lower to its place, with `token`. Call it
+ * Opens a menu or toast with no scrim: from `MOTION.startAlpha` and `MOTION.rise` px lower to its place, with `token`. Call it
  * from the overlay's outermost `ref` (whose `alpha` and `y` no Solid prop changes later). Focus is not affected: the
  * overlay takes it at once, while it is still fading in. It closes by unmounting, at once.
  */
@@ -197,4 +233,39 @@ export function riseIn(node: ElementNode, token: MotionToken = MOTION.menuIn): v
     if (levelNow() === 'full') node.y = y + MOTION.rise;
     tween(node, { alpha: 1, y }, token);
   });
+}
+
+/**
+ * Opens a modal over a full-screen scrim (dialogs, pickers, the context menu): the scrim only fades, it never moves (a
+ * risen scrim left an undimmed strip at the top for a few frames), while the panel's `lift` wrapper (a node whose `y`
+ * no Solid prop sets) rises `MOTION.rise` px with it. Call it from the scrim's `ref`; focus is not affected.
+ */
+export function scrimIn(scrim: ElementNode, lift: () => ElementNode | undefined, token: MotionToken = MOTION.menuIn): void {
+  queueMicrotask(() => {
+    if (levelNow() === 'off') return;
+    scrim.alpha = MOTION.startAlpha;
+    tween(scrim, { alpha: 1 }, token);
+    const l = lift();
+    if (!l || levelNow() !== 'full') return;
+    l.y = MOTION.rise;
+    tween(l, { y: 0 }, token);
+  });
+}
+
+/**
+ * The screen host's enter cue on a screen change from `from`: a pushed screen (`screenEnters`) fades in from `MOTION.startAlpha`
+ * and rises `MOTION.screenRise` px in 200 ms; any other change (Back, cold start, a video screen) shows it at once,
+ * also cutting short an enter still running. Focus is live from the start: nothing waits for the fade.
+ */
+export function screenEnter(host: ElementNode, entry: ScreenEntry | undefined, from: ScreenEntry | undefined): void {
+  stopMotion(host);
+  const railStays = railRoute(entry?.screen) && railRoute(from?.screen);
+  if (!entry || !screenEnters(router.lastChange(), entry.screen, railStays) || levelNow() === 'off') {
+    host.alpha = 1;
+    host.y = 0;
+    return;
+  }
+  host.alpha = MOTION.startAlpha;
+  host.y = levelNow() === 'full' ? MOTION.screenRise : 0;
+  tween(host, { alpha: 1, y: 0 }, MOTION.screenIn);
 }

@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
-import { riseIn } from '../shell/motion.ts';
+import { scrimIn } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface ContextMenuItem<A extends string> { action: A; label: string }
@@ -34,6 +34,7 @@ export function ContextMenu<A extends string>(props: {
   const [selAction, setSelAction] = createSignal<A | undefined>(undefined);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let scrim: ElementNode | undefined;
+  let lift: ElementNode | undefined;
   let panel: ElementNode | undefined;
   // The items can change while the menu is open (a remote layout change): the selection stays on the same
   // action when it is still there, else on the same row, clamped.
@@ -71,23 +72,26 @@ export function ContextMenu<A extends string>(props: {
     },
   });
   return (
-    <View ref={(el) => { scrim = el; riseIn(el); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
-      <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
-        width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
-        onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
-        onMenu={() => true} onLongOk={() => true}
-        onEnter={() => { props.onChoose(props.items[sel()]?.action ?? props.cancel); return true; }}>
-        <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
-          fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
-        <For each={props.items}>{(it, i) => (
-          <View x={PAD} y={PAD + HEAD + i() * (ITEM_H + 12)} width={WIDTH - PAD * 2} height={ITEM_H}
-            borderRadius={LAYOUT.radius}
-            color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.background}>
-            <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48} maxWidth={WIDTH - PAD * 2 - 48}
-              contain="width" maxLines={1} fontSize={TYPE.body}
-              color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
-          </View>
-        )}</For>
+    <View ref={(el) => { scrim = el; scrimIn(el, () => lift); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
+      {/* The panel rises inside `lift`; the scrim only fades (scrimIn). */}
+      <View ref={(el) => { lift = el; }}>
+        <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
+          width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+          onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
+          onMenu={() => true} onLongOk={() => true}
+          onEnter={() => { props.onChoose(props.items[sel()]?.action ?? props.cancel); return true; }}>
+          <Text x={PAD} y={PAD} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width" maxLines={1}
+            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
+          <For each={props.items}>{(it, i) => (
+            <View x={PAD} y={PAD + HEAD + i() * (ITEM_H + 12)} width={WIDTH - PAD * 2} height={ITEM_H}
+              borderRadius={LAYOUT.radius}
+              color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.background}>
+              <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={WIDTH - PAD * 2 - 48} maxWidth={WIDTH - PAD * 2 - 48}
+                contain="width" maxLines={1} fontSize={TYPE.body}
+                color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>
+            </View>
+          )}</For>
+        </View>
       </View>
     </View>
   );

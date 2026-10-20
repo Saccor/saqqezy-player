@@ -1,8 +1,9 @@
-import { Show, Text, View } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import type { ProgrammeHit } from '@iptv/app-api';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { FocusRing } from './FocusRing.tsx';
-import { COLORS, FOCUS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { useFocusScale } from '../shell/motion.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { progressOf } from '../screens/homeLogic.ts';
 import { COMPACT_H, COMPACT_W, WIDE_H, WIDE_W, wideLines, type WideCell } from './wideTileLogic.ts';
 
@@ -39,8 +40,11 @@ export function WideTile(props: {
   const th = () => (props.compact ? COMPACT_H : WIDE_H);
   /** On-now programmes show how far along they are. */
   const onAir = () => (props.cell.type === 'programme' && props.cell.when === 'onNow' ? props.cell.hit : undefined);
+  let node: ElementNode | undefined;
+  // The scale is owned by the motion helper (animated focus scale and OK dip, compact and full alike), never a prop.
+  useFocusScale(() => node, () => props.lit);
   return (
-    <View x={props.x} y={props.y} width={tw()} height={th()} scale={props.lit ? FOCUS.scale : 1} zIndex={props.lit ? 2 : 1}>
+    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={tw()} height={th()} zIndex={props.lit ? 2 : 1}>
       <FocusRing w={tw()} h={th()} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
       <View width={tw()} height={th()} zIndex={1} color={COLORS.surface} borderRadius={LAYOUT.radius} />
       <Show when={props.compact} fallback={<FullBody image={image()} context={lines().context} main={lines().main} onAir={onAir()} now={props.now} />}>

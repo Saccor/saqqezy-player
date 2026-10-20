@@ -133,8 +133,18 @@ export const MOTION = {
   pressOut: token(100, EASE.standard, 'ui'),
   /** A row's horizontal scroll (one strip moves). */
   rowScroll: token(180, EASE.standard, 'scroll'),
+  /** A page of rows shifting up or down a row (one column moves). */
+  rowShift: token(220, EASE.standard, 'scroll'),
   /** A poster image fading in over its skeleton or title card once loaded. */
   imageIn: token(160, EASE.fade, 'image'),
+  /** The info strip's new title and meta fading in once the dwell settles (no fade-out: it would add delay). */
+  textIn: token(140, EASE.enter, 'ui'),
+  /** A screen pushed (not Back, not video screens, not cold start): fade plus a rise of `screenRise` px. */
+  screenIn: token(200, EASE.enter, 'ui'),
+  screenRise: 12,
+  /** The rail opening (its panel slides out, the scrim and labels fade in) and closing. Focus moves at once. */
+  railOpen: token(160, EASE.standard, 'ui'),
+  railClose: token(120, EASE.standard, 'ui'),
   /** The backdrop cross-fade. */
   backdrop: token(260, EASE.fade, 'ui'),
   /** Menus and dialogs opening: fade plus a rise of `rise` px. They close at once (unmount). */
@@ -159,6 +169,9 @@ export const MOTION = {
   reducedFadeMax: 150,
   /** Live animations at once; beyond this, new ones snap (1 GB TVs). */
   maxLive: 8,
+  /** Auto-lite: below `liteFps` (median) over `liteWindow` ms of running animation, the session drops to Reduced. */
+  liteFps: 45,
+  liteWindow: 2000,
 } as const;
 
 /**
