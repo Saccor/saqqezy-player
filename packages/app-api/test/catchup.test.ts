@@ -128,6 +128,31 @@ describe('getCatchupPlayable (Xtream)', () => {
   });
 });
 
+describe('Guide history after a catch-up import (end to end)', () => {
+  test('a Guide read more than 24 h back finds the stored past of a catch-up channel; the look-back record is in place', async () => {
+    const storage = new MemoryStorage();
+    const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW });
+    live.push(api);
+    const { sourceId } = await api.addSource({ kind: 'xtream', name: 'Fake', server: server.url, username: 'test', password: 'test' });
+    await api.idle();
+    // The import wrote the look-back record of its generation (its longest programme, 30 min here), so reads do not
+    // look back the default 24 h, and still find programmes a day and more in the past.
+    const gen = await storage.getMeta<number>(`epgGen:${sourceId}`);
+    expect(await storage.getMeta(`epgLongest:${sourceId}`)).toEqual({ gen, ms: 1_800_000 });
+    const from = SLOT(NOW - 40 * H);
+    const page = await api.getEpgRows('all', 0, 3, from, from + 3 * H);
+    const [c1, c2, c3] = page.rows;
+    expect(c1!.channel.archiveDays).toBe(7);
+    expect(c1!.programmes.map((p) => p.start)).toEqual([0, 1, 2, 3, 4, 5].map((k) => from + k * 1_800_000));
+    expect(c2!.programmes).toEqual([]); // its feed keeps the usual 6 h
+    expect(c3!.programmes).toEqual([]);
+    // Past the history budget of this source (12 channels, 6 with catch-up: 66 h), nothing is stored.
+    const older = await api.getEpgRows('all', 0, 1, SLOT(NOW - 70 * H), SLOT(NOW - 70 * H) + 2 * H);
+    expect(older.rows[0]!.programmes).toEqual([]);
+  });
+});
+
 describe('refineArchive', () => {
   test('fills the past the stored guide lacks, marks it, and makes it playable', async () => {
     const { api, events, ch } = await xtream();
