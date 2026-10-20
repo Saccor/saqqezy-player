@@ -1,6 +1,14 @@
+import { normalizeCountry } from './text/regions.ts';
+
 export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
 export type OpenOn = 'lastChannel' | 'start';
 export type PosterSize = 'standard' | 'compact';
+/** Your countries: off (no effect), put first, or show only these (report 2026-10-20 §2.2). */
+export type RegionMode = 'off' | 'first' | 'only';
+/** ISO 3166-1 alpha-2 codes (GB, not UK), plus `lang:xx` for language-only groups. */
+export interface RegionSettings { codes: string[]; mode: RegionMode }
+/** Most entries in `regions.codes`. */
+export const REGIONS_MAX = 10;
 export const FOLLOWED_TEAMS_MAX = 50;
 export const FOLLOWED_TEAM_LEN = 40;
 
@@ -36,6 +44,13 @@ export interface AppSettings {
    * default until the TV UI for sources lands (report 2026-10-20 §3.1 step 3), then on.
    */
   combineChannels: boolean;
+  /** Your countries for Live TV groups and movie/series categories. Person-level, on this device. */
+  regions: RegionSettings;
+  /**
+   * Movies and series: merge categories that differ only by a language prefix ("SE | Action" and "EN | Action").
+   * Off by default (owner decision 1): provider categories are kept.
+   */
+  combineCategories: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -54,6 +69,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   followedTeams: [],
   posterSize: 'standard',
   combineChannels: false,
+  regions: { codes: [], mode: 'off' },
+  combineCategories: false,
 };
 
 /** Most entries in `preferredLanguages`. */
@@ -125,7 +142,33 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     followedTeams: sanitizeTeams(src.followedTeams),
     posterSize: src.posterSize === 'compact' || src.posterSize === 'standard' ? src.posterSize : DEFAULT_SETTINGS.posterSize,
     combineChannels: typeof src.combineChannels === 'boolean' ? src.combineChannels : DEFAULT_SETTINGS.combineChannels,
+    regions: sanitizeRegions(src.regions),
+    combineCategories: typeof src.combineCategories === 'boolean' ? src.combineCategories : DEFAULT_SETTINGS.combineCategories,
   };
+}
+
+const REGION_MODES: readonly RegionMode[] = ['off', 'first', 'only'];
+
+/** A region key as stored, or undefined: a known country (UK → GB), or `lang:` with a two-letter language. */
+export function regionCode(x: unknown): string | undefined {
+  if (typeof x !== 'string') return undefined;
+  const lang = /^lang:([a-z]{2})$/i.exec(x);
+  if (lang) return `lang:${lang[1]!.toLowerCase()}`;
+  return normalizeCountry(x);
+}
+
+function sanitizeRegions(v: unknown): RegionSettings {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { codes: [], mode: 'off' };
+  const r = v as Record<string, unknown>;
+  const codes: string[] = [];
+  if (Array.isArray(r.codes)) {
+    for (const x of r.codes) {
+      const c = regionCode(x);
+      if (c && !codes.includes(c)) codes.push(c);
+      if (codes.length === REGIONS_MAX) break;
+    }
+  }
+  return { codes, mode: REGION_MODES.includes(r.mode as RegionMode) ? (r.mode as RegionMode) : 'off' };
 }
 
 function languageList(v: unknown): string[] {

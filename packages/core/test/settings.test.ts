@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
+import { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, REGIONS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings } from '../src/settings.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -11,6 +11,7 @@ describe('sanitizeSettings', () => {
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
+      regions: { codes: [], mode: 'off' }, combineCategories: false,
     });
   });
 
@@ -106,5 +107,19 @@ describe('sanitizeSettings', () => {
     expect(sanitizeSettings({ preferredFormat: 'm3u8', showClock: false })).toMatchObject({ preferredFormat: 'm3u8', showClock: false });
     expect(sanitizeSettings({ preferredFormat: 'mp4', showClock: 'no' })).toMatchObject({ preferredFormat: 'ts', showClock: true });
     expect(Object.keys(sanitizeSettings({ extra: 1, epgOffsetHours: 1 })).sort()).toEqual(Object.keys(DEFAULT_SETTINGS).sort());
+  });
+
+  test('regions: codes normalised (UK → GB), lang keys kept, deduped, at most 10; mode off|first|only', () => {
+    expect(sanitizeSettings({ regions: { codes: ['se', 'UK', 'GB', 'lang:en', 'lang:EN', 'XX', 'lang:', 3], mode: 'first' } }).regions)
+      .toEqual({ codes: ['SE', 'GB', 'lang:en'], mode: 'first' });
+    const many = ['SE', 'NO', 'DK', 'FI', 'IS', 'DE', 'AT', 'CH', 'FR', 'BE', 'NL', 'LU'];
+    expect(sanitizeSettings({ regions: { codes: many, mode: 'only' } }).regions.codes).toHaveLength(REGIONS_MAX);
+    expect(sanitizeSettings({ regions: { codes: ['SE'], mode: 'bogus' } }).regions).toEqual({ codes: ['SE'], mode: 'off' });
+    for (const v of [null, 'SE', [], { codes: 'SE' }]) expect(sanitizeSettings({ regions: v }).regions).toEqual({ codes: [], mode: 'off' });
+  });
+
+  test('combineCategories is a boolean, off by default', () => {
+    expect(sanitizeSettings({ combineCategories: true }).combineCategories).toBe(true);
+    expect(sanitizeSettings({ combineCategories: 'yes' }).combineCategories).toBe(false);
   });
 });

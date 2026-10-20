@@ -63,7 +63,7 @@ export { HEADER_VALUE_MAX, cleanHeaderValue, mergeHeaders, sourceHeadersOf, with
 export {
   REFRESH_BACKOFF_MS, REFRESH_WHATS, countsAsRefreshFailure, refreshFailKey, type RefreshFailRecord, type RefreshWhat,
 } from './service/refreshBackoff.ts';
-export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, PREFERRED_LANGUAGES_MAX, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn, type PosterSize } from './settings.ts';
+export { DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, FOLLOWED_TEAM_LEN, PREFERRED_LANGUAGES_MAX, REGIONS_MAX, regionCode, type RegionMode, type RegionSettings, SUBTITLE_LANGUAGES, sanitizeSettings, type AppSettings, type LiveDelaySetting, type OpenOn, type PosterSize } from './settings.ts';
 export { responseText, type BodyReadOptions } from './net/textStream.ts';
 export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type ProgrammeExtra, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';

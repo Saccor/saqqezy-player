@@ -3,7 +3,7 @@ import { decodeHlc, encodeHlc, isNodeId } from './hlc.ts';
 import { SYNC_KINDS, type SyncKind } from './keys.ts';
 import { expiredTombstone } from './merge.ts';
 import { SFP_LENGTH } from './ref.ts';
-import type { ProgressValue, SyncRecord, SyncValue, TracksValue } from './types.ts';
+import type { ProgressValue, RegionsValue, SyncRecord, SyncValue, TracksValue } from './types.ts';
 
 /**
  * The sync payload: a closed schema (v1). Encoding reads only the named fields of each record and checks every value
@@ -35,7 +35,7 @@ export const DELTA_MAX_BYTES = 64 * 1024;
 
 /** The settings that sync (§6.3). Device-tuned ones (`epgOffsetHours`, `preferredFormat`, `liveDelay`, …) never do. */
 export const SYNCED_SETTINGS: ReadonlySet<string> = new Set([
-  'subtitleLanguage', 'audioLanguage', 'preferredLanguages', 'combineDuplicates', 'followedTeams', 'regions',
+  'subtitleLanguage', 'audioLanguage', 'preferredLanguages', 'combineDuplicates', 'combineCategories', 'followedTeams', 'regions',
 ]);
 
 // ---------- value rules ----------
@@ -104,8 +104,20 @@ function tracks(x: unknown): TracksValue | undefined {
 const flag = (x: unknown): boolean | undefined => (typeof x === 'boolean' ? x : x === 1 ? true : x === 0 ? false : undefined);
 const nameOrNull = (x: unknown): string | null | undefined => (x === null ? null : text(x, NAME_MAX) ? x : undefined);
 
+/** A region key: an upper-case alpha-2 country or `lang:xx`. */
+const regionKey = (x: unknown): x is string => isStr(x) && /^(?:[A-Z]{2}|lang:[a-z]{2})$/.test(x);
+const REGION_MODES: readonly string[] = ['off', 'first', 'only'];
+const KIND_RE = /^(?:movie|series)\|/;
+
+function regions(x: unknown): RegionsValue | undefined {
+  if (!isObj(x) || !onlyKeys(x, ['m', 'c']) || !isStr(x['m']) || !REGION_MODES.includes(x['m'])) return undefined;
+  const c = arrayOf(x['c'], regionKey, 10);
+  return c ? { m: x['m'] as RegionsValue['m'], c } : undefined;
+}
+
 function setting(name: string, x: unknown): SyncValue | undefined {
   if (!SYNCED_SETTINGS.has(name)) return undefined;
+  if (name === 'regions') return regions(x);
   if (typeof x === 'boolean') return x;
   if (text(x, TAG_MAX)) return x;
   return arrayOf(x, (e) => text(e, TAG_MAX), SETTING_LIST_MAX);
@@ -116,7 +128,9 @@ function sidOk(k: SyncKind, sid: unknown): sid is string {
   switch (k) {
     case 'vp': case 'vf': case 'vt': case 'hc': case 'cn': return item(sid);
     case 'vk': case 'vs': return sid === 'movie' || sid === 'series';
-    case 'hg': case 'gn': return group(sid);
+    case 'hg': case 'gn': case 'sg': case 'gr': return group(sid);
+    case 'ch': case 'cs': return text(sid, MAX_ID_LEN) && KIND_RE.test(sid) && sid.length > sid.indexOf('|') + 1;
+    case 'cq': return sid === 'movie' || sid === 'series';
     case 'co': case 'so': return target(sid);
     case 'lm': {
       if (!isStr(sid)) return false;
@@ -135,7 +149,9 @@ function valueOf(k: SyncKind, sid: string, x: unknown): SyncValue | undefined {
   switch (k) {
     case 'vp': return progress(x);
     case 'vt': return tracks(x);
-    case 'vf': case 'vs': case 'hc': case 'hg': case 'lm': case 'ne': return flag(x);
+    case 'vf': case 'vs': case 'hc': case 'hg': case 'lm': case 'ne': case 'sg': case 'ch': case 'cs': return flag(x);
+    case 'gr': return x === null ? null : arrayOf(x, regionKey, 10);
+    case 'cq': return arrayOf(x, (e) => text(e, MAX_ID_LEN));
     case 'vk': return x === null ? null : item(x) ? x : undefined;
     case 'cn': case 'gn': case 'ln': return nameOrNull(x);
     case 'lq': return arrayOf(x, item);
