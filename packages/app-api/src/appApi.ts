@@ -1210,6 +1210,8 @@ export class AppApi {
       const [channels, layout, coverage, sources] = id
         ? await Promise.all([
           this.storage.getChannels(id), this.service.loadLayout(id), this.service.loadEpgCoverage(id), this.service.listSources(),
+          // Combine duplicate channels decides how the index is built: read beside the rest, never after it.
+          this.currentSettings(),
         ])
         : [[], emptyLayout(), undefined, []];
       const source = sources.find((s) => s.id === id);
@@ -1223,7 +1225,6 @@ export class AppApi {
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
       this.vodc?.reset(id);
       this.catchup.reset();
-      await this.currentSettings();
       this.setIndex(channels, layout, coverage);
       this.invalidateNowNext();
     });
