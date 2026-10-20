@@ -21,6 +21,14 @@ const SETTINGS_Y = LAYOUT.height - LAYOUT.safeY - 70 - RAIL_ICON;
 
 const ICONS: Record<RailId, IconKind> = { start: 'home', live: 'tv', movies: 'film', series: 'layers', search: 'search', settings: 'gear' };
 
+/** The open rail's close button (pointer mode): a square in the panel's top-right corner. */
+export const RAIL_CLOSE = { x: RAIL_OPEN_W - 24 - 48, y: LAYOUT.safeY, size: 48 } as const;
+
+/** True when a rail-local point is on the close button. */
+export function onRailClose(x: number, y: number): boolean {
+  return x >= RAIL_CLOSE.x && x < RAIL_CLOSE.x + RAIL_CLOSE.size && y >= RAIL_CLOSE.y && y < RAIL_CLOSE.y + RAIL_CLOSE.size;
+}
+
 export function railY(id: RailId): number {
   return id === 'settings' ? SETTINGS_Y : TOP + RAIL_ITEMS.indexOf(id) * PITCH;
 }

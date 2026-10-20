@@ -9,8 +9,8 @@
 export const MINUTE = 60_000;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
-/** Timeline scale: one hour is 682 px. */
-export const PX_PER_HOUR = 682;
+/** Timeline scale: one hour is 612 px. */
+export const PX_PER_HOUR = 612;
 /** Visible 2 h time span of the timeline. */
 export const VIEW_SPAN = 2 * HOUR;
 /** The guide covers now - 6 h .. now + 48 h. */

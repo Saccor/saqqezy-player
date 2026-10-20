@@ -1,8 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import { STROKE_ICON_KINDS } from '../vod/icons.ts';
-import { belowTab, RAIL_ITEMS, railFromNested, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
+import { belowTab, onRailClose, RAIL_CLOSE, RAIL_ITEMS, railFromNested, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
 
 describe('railLogic', () => {
+  test('the close button sits in the open panel top-right corner, clear of the items', () => {
+    expect(RAIL_CLOSE.x + RAIL_CLOSE.size).toBe(296);
+    expect(onRailClose(RAIL_CLOSE.x + 1, RAIL_CLOSE.y + 1)).toBe(true);
+    expect(onRailClose(RAIL_CLOSE.x - 1, RAIL_CLOSE.y + 1)).toBe(false);
+    expect(onRailClose(RAIL_CLOSE.x + 1, RAIL_CLOSE.y + RAIL_CLOSE.size)).toBe(false);
+    expect(RAIL_CLOSE.y + RAIL_CLOSE.size).toBeLessThan(railY('start') - 15);
+  });
   test('items stack from y 260, 78 apart, with Settings at the bottom', () => {
     expect(RAIL_ITEMS).toEqual(['start', 'live', 'movies', 'series', 'search', 'settings']);
     expect(railY('start')).toBe(260);

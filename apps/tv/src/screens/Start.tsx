@@ -15,7 +15,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
-import { Rail } from '../shell/Rail.tsx';
+import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -81,7 +81,9 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     if (user) preferredArea = a;
     const target = a === 'rows' && rows().length === 0 ? 'rail' : a;
     setArea(target);
-    (target === 'rail' ? railNode : rowsNode)?.setFocus();
+    // Focus the screen moves by itself (a rail choice opened it, or there are no rows) keeps the rail collapsed.
+    if (target === 'rail' && (!user || a !== 'rail')) focusRailCollapsed(railNode);
+    else (target === 'rail' ? railNode : rowsNode)?.setFocus();
     return true;
   };
 
