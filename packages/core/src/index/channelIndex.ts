@@ -4,7 +4,10 @@ import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
 import { foldChannels, type ChannelFolds } from '../live/fold.ts';
 import { searchKey } from '../text/searchKey.ts';
-import { isSure, regionKeys, type GroupRegion } from '../text/regions.ts';
+import type { GroupRegion } from '../text/regions.ts';
+import { regionRule, sureRegionKeys, type RegionRule, type RegionState } from './regionRule.ts';
+
+export type { RegionState } from './regionRule.ts';
 import type { RegionMode } from '../settings.ts';
 import { orderGroupChannels } from './order.ts';
 import type { Channel, GroupInfo } from '../types.ts';
@@ -36,14 +39,7 @@ export interface ChannelRegionView {
   mode: RegionMode;
 }
 
-export interface RegionState {
-  /** The mode in effect: 'off' when stale. */
-  mode: RegionMode;
-  /** The mode the settings ask for. */
-  requested: RegionMode;
-  /** Countries were chosen but no group of this source matches them: the rule is off, the UI shows a notice. */
-  stale: boolean;
-}
+
 
 const GROUP_PREFIX = 'g:';
 const LIST_PREFIX = 'list:';
@@ -109,38 +105,15 @@ export interface ChannelIndexOptions {
   regions?: ChannelRegionView;
 }
 
-/** Region keys per provider group, the groups of chosen countries, and those the rule hides. */
-interface RegionData {
-  keysOf: Map<string, string[]>;
-  chosen: Set<string>;
-  ruleHidden: Set<string>;
-  state: RegionState;
-}
+const NO_KEYS: readonly string[] = [];
+/** Sure keys per detected record, computed once per record object. */
+const sureKeysCache = new WeakMap<object, Record<string, string[]>>();
 
-const NO_KEYS: string[] = [];
-const OFF_STATE: RegionState = { mode: 'off', requested: 'off', stale: false };
-
-function regionData(base: Base, lay: Layout, view: ChannelRegionView | undefined): RegionData {
-  const keysOf = new Map<string, string[]>();
-  const chosen = new Set<string>();
-  const ruleHidden = new Set<string>();
-  const requested = view?.mode ?? 'off';
-  if (!view) return { keysOf, chosen, ruleHidden, state: OFF_STATE };
-  const codes = new Set(view.codes);
-  for (const gid of base.providerOrder) {
-    const own = Object.prototype.hasOwnProperty.call(lay.groupRegion, gid) ? lay.groupRegion[gid] : undefined;
-    const d = own === undefined ? view.detected[gid] : undefined;
-    const keys = own ?? (d && isSure(d) ? regionKeys(d) : NO_KEYS);
-    keysOf.set(gid, keys);
-    if (keys.some((k) => codes.has(k))) chosen.add(gid);
-  }
-  if (requested === 'off' || codes.size === 0) return { keysOf, chosen: new Set(), ruleHidden, state: { mode: 'off', requested, stale: false } };
-  if (chosen.size === 0) return { keysOf, chosen, ruleHidden, state: { mode: 'off', requested, stale: true } };
-  if (requested === 'only') {
-    const shown = new Set(lay.shownGroups);
-    for (const [gid, keys] of keysOf) if (keys.length && !chosen.has(gid) && !shown.has(gid)) ruleHidden.add(gid);
-  }
-  return { keysOf, chosen, ruleHidden, state: { mode: requested, requested, stale: false } };
+function regionData(base: Base, lay: Layout, view: ChannelRegionView | undefined): RegionRule {
+  if (!view) return regionRule(base.providerOrder, lay, undefined);
+  let keys = sureKeysCache.get(view.detected);
+  if (!keys) sureKeysCache.set(view.detected, (keys = sureRegionKeys(view.detected)));
+  return regionRule(base.providerOrder, lay, { keys, codes: view.codes, mode: view.mode });
 }
 
 function groupIdOf(c: Channel): string {
@@ -210,7 +183,7 @@ export class ChannelIndex {
   /** The user's hidden groups only. */
   private readonly userHiddenGr: Set<string>;
   private readonly regionView: ChannelRegionView | undefined;
-  private readonly rd: RegionData;
+  private readonly rd: RegionRule;
   private readonly noEpg: Set<string> | undefined;
   /** Nothing hidden (channels, groups, no-guide) and nothing renamed: every channel shows as it is. */
   private readonly plain: boolean;

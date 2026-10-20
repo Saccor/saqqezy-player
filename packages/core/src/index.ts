@@ -40,6 +40,7 @@ export {
   REGION_DETECTOR_VERSION, REGION_SURE, countryLabel, countryLanguages, detectRegions, isSure, knownCountries, normalizeCountry,
   buildRegionsRecord, readRegionsRecord, regionInputs, regionKeys, regionsKey, tallyTvg, type RegionsRecord, type GroupRegion, type RegionGroupInput, type RegionVia, type TvgTally,
 } from './text/regions.ts';
+export { regionRule, sureRegionKeys, type RegionRule, type RegionRuleInput } from './index/regionRule.ts';
 export { foldChannels, type ChannelFold, type ChannelFolds } from './live/fold.ts';
 export { orderLiveSources, type LiveSourceCandidate, type LiveSourceContext } from './live/sources.ts';
 export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
