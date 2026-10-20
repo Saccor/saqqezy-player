@@ -1,13 +1,19 @@
 import type { VersionView } from '@iptv/app-api';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_LANGUAGE_OPTIONS } from './subtitleLogic.ts';
+import { languageName as nameOf } from './tracks.ts';
 import { LANGUAGE_NAMES } from './vodPlayerLogic.ts';
 
 /** The Versions list's last row: shows each version as its own card. */
 export const SHOW_SEPARATELY = 'Show versions separately';
 
 const languageName = (code: string | undefined) =>
-  code ? LANGUAGE_NAMES[code] ?? code.toUpperCase() : 'Unknown language';
+  code ? nameOf(code) ?? code.toUpperCase() : 'Unknown language';
+
+/** `versions` with the languages `getVersionLanguages` found filled in (a version's own language is never replaced). */
+export function withLanguages<T extends VersionView>(versions: readonly T[], langs: Record<string, string>): T[] {
+  return versions.map((v) => (v.lang || !langs[v.id] ? v : { ...v, lang: langs[v.id] }));
+}
 
 /** "Swedish · 4K · HDR"; the automatic pick ends in "· Auto". */
 export function versionLabel(v: VersionView): string {

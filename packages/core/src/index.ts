@@ -21,6 +21,7 @@ export { ChannelIndex, type ChannelIndexOptions, type ChannelRegionView, type Pr
 export { orderGroupChannels } from './index/order.ts';
 export { type Storage, type SyncMetaEntry, MAX_PROGRAMME_MS } from './storage.ts';
 export * from './vod/types.ts';
+export { ISO_LANGUAGES, englishLanguageName, isoLanguage } from './text/language.ts';
 export { dvFromFourCC, dvFromTitle, videoRangeOf, wrongColoursWithoutDv } from './vod/videoRange.ts';
 export { splitYear, parseEpisodeMarker } from './vod/title.ts';
 export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';
@@ -88,6 +89,9 @@ export {
 } from './search/titleIndex.ts';
 export { subtitleText } from './subtitles/markup.ts';
 export { SUBTITLE_MAX_BYTES, cueAt, decodeSubtitle, parseSubtitles, type SubtitleCue } from './subtitles/parse.ts';
+export {
+  SYNC_MIN_CUES, SYNC_MIN_PLAYED_MS, SYNC_SPEEDS, alignSubtitle, syncSampleReady, type SyncResult, type SyncSample, type SyncSetting,
+} from './subtitles/align.ts';
 export {
   SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleDetails, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';

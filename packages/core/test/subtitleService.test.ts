@@ -74,11 +74,17 @@ describe('SubtitleService', () => {
 
   test('a file found online keeps its language, file id and frame rate', async () => {
     const got = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'Swedish' }, { language: 'sv', fileId: 2002, fps: 23.976 });
-    expect(got).toMatchObject({ name: 'Swedish', online: { language: 'sv', fileId: 2002 }, fps: 23.976 });
+    expect(got).toMatchObject({ name: 'Swedish', language: 'sv', online: { language: 'sv', fileId: 2002 }, fps: 23.976 });
     expect(await svc.get('src', 'item1')).toEqual(got);
     const plain = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' }, { fps: 0 });
     expect('fps' in plain).toBe(false);
     expect('online' in plain).toBe(false);
+  });
+
+  test('a file from the source keeps its language and the given name (never one taken from its link)', async () => {
+    const got = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'x' }, { language: 'en', name: 'English (from source)' });
+    expect(got).toMatchObject({ name: 'English (from source)', language: 'en' });
+    expect('online' in got).toBe(false);
   });
 
   test('clear forgets a title', async () => {

@@ -45,6 +45,8 @@ export interface LanguageChoice {
   files: OnlineSubtitle[];
   /** One of its files matches the file playing. */
   synced: boolean;
+  /** The hearing-impaired (CC/SDH) row of its language. */
+  cc?: boolean;
 }
 
 // "EN - ", "|SE| ", "[MULTI] ", "NL: " in front of provider titles. Upper case only, so "It: …" stays a title.
@@ -121,7 +123,12 @@ export function bestSubtitle(list: readonly OnlineSubtitle[]): OnlineSubtitle | 
 
 const base = (code: string) => code.toLowerCase().split(/[-_]/)[0] ?? '';
 
-/** One row per language: the preferred language (ISO 639-1, 'off': none) first, then the most files, then by code. */
+/**
+ * The language list: one row per language, plus a CC row (hearing-impaired files only) for a language that has both
+ * kinds; a language with only hearing-impaired files has one row, marked CC. Each row's files are its own kind, best
+ * first. Order: the preferred language (ISO 639-1, 'off': none), then English, then the most files, then by code; a
+ * CC row right after its language's regular row.
+ */
 export function languageChoices(list: readonly OnlineSubtitle[], preferred: string, videoFps?: number): LanguageChoice[] {
   const groups = new Map<string, OnlineSubtitle[]>();
   for (const s of list) {
@@ -130,13 +137,25 @@ export function languageChoices(list: readonly OnlineSubtitle[], preferred: stri
     else groups.set(s.language, [s]);
   }
   const rows: LanguageChoice[] = [];
+  const total = new Map<string, number>();
   for (const [language, group] of groups) {
-    const files = rankSubtitles(group, videoFps);
-    const best = files[0];
-    if (best) rows.push({ language, count: files.length, best, files, synced: best.hashMatch });
+    total.set(language, group.length);
+    const regular = group.filter((s) => !s.hearingImpaired);
+    const cc = group.filter((s) => s.hearingImpaired);
+    for (const [kind, isCc] of [[regular, false], [cc, true]] as const) {
+      const files = rankSubtitles(kind, videoFps);
+      const best = files[0];
+      if (!best) continue;
+      const row: LanguageChoice = { language, count: files.length, best, files, synced: best.hashMatch };
+      if (isCc) row.cc = true;
+      rows.push(row);
+    }
   }
-  const pref = (c: LanguageChoice) => (preferred !== 'off' && base(c.language) === preferred ? 0 : 1);
-  return rows.sort((a, b) => pref(a) - pref(b) || b.count - a.count || a.language.localeCompare(b.language));
+  const rank = (c: LanguageChoice) => (preferred !== 'off' && base(c.language) === preferred ? 0 : base(c.language) === 'en' ? 1 : 2);
+  return rows.sort((a, b) => rank(a) - rank(b)
+    || (total.get(b.language) ?? 0) - (total.get(a.language) ?? 0)
+    || a.language.localeCompare(b.language)
+    || Number(a.cc ?? false) - Number(b.cc ?? false));
 }
 
 export interface OpenSubtitlesDeps {

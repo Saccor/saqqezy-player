@@ -43,6 +43,8 @@ export interface StartVodRows {
 }
 /** Movie and series details kept in memory (most recently used). */
 export const VOD_DETAIL_CACHE = 50;
+/** How many versions' details one Versions list may load to learn their languages. */
+export const VERSION_LANG_LOADS = 6;
 /** "More in <category>" on the movie detail. */
 export const VOD_MORE_ITEMS = 20;
 
@@ -525,8 +527,11 @@ export class VodController {
       // M3U: the playlist entry's own headers (AppApi merges them over the source's settings).
       if (item.headers) movie.headers = { ...item.headers };
       // The picture's range: from a detail already loaded (playing never waits for one), else a DV tag in the title.
-      const video = (this.details.get(itemId) as MovieDetail | undefined)?.video ?? dvFromTitle(item.title);
+      const cached = this.details.get(itemId) as MovieDetail | undefined;
+      const video = cached?.video ?? dvFromTitle(item.title);
       if (video) movie.video = { ...video };
+      // The source's own subtitle files, likewise from a detail already loaded (the detail page loads it).
+      if (cached?.subtitles) movie.subtitles = cached.subtitles.map((x) => ({ ...x }));
       return movie;
     }
     const s = user.get(itemId);
@@ -554,6 +559,7 @@ export class VodController {
     if (ep.headers) out.headers = { ...ep.headers };
     const video = ep.video ?? dvFromTitle(ep.title);
     if (video) out.video = { ...video };
+    if (ep.subtitles) out.subtitles = ep.subtitles.map((x) => ({ ...x }));
     if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
     const prev = prevEpisode(detail.seasons, itemId);
     if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };
@@ -864,11 +870,49 @@ export class VodController {
     const catName = new Map(catalog.source.categories.map((c) => [c.id, c.name]));
     return ordered.map((c, i) => {
       const v: VersionView = { id: c.id, tags: parseVodTitle(c.item.title, catName.get(c.item.categoryId)).tags, auto: i === 0 };
-      if (c.lang) v.lang = c.lang;
+      // Only the label uses a probed language: the order (Play's pick) never depends on which details are cached.
+      const lang = c.lang ?? this.probedLang(c.id);
+      if (lang) v.lang = lang;
       const q = QUALITY_LABELS[c.quality];
       if (q) v.quality = q;
       return v;
     });
+  }
+
+  /** The audio language the source's probe data gives a cached movie (or a series' first episode that has one). */
+  private probedLang(id: string): string | undefined {
+    const d = this.details.get(id);
+    if (!d) return undefined;
+    if (d.audioLang) return d.audioLang;
+    return 'seasons' in d ? d.seasons.flatMap((x) => x.episodes).find((e) => e.audioLang)?.audioLang : undefined;
+  }
+
+  /**
+   * The Versions list's missing languages: loads the details of the versions of `id`'s title whose name gives no
+   * language (at most `VERSION_LANG_LOADS`, cached like any detail) and returns the audio language each one's probe
+   * data gives, by version id. Versions that already have a language, or whose source sends no probe data, are left out.
+   */
+  async versionLanguages(id: string): Promise<Record<string, string>> {
+    const src = this.sourceId;
+    if (!src) return {};
+    const epoch = this.epoch;
+    for (const kind of ['movie', 'series'] as const) {
+      const catalog = await this.catalog(kind);
+      if (this.epoch !== epoch) return {};
+      if (!catalog?.rowOf(id)) continue;
+      const missing = catalog.members(id).filter((m) => !m.lang).slice(0, VERSION_LANG_LOADS).map((m) => m.item);
+      await Promise.all(missing.map((item) => (kind === 'movie'
+        ? this.detailOf<MovieDetail>(item, () => this.vod.movieDetail(src, item))
+        : this.detailOf<SeriesDetail>(item, () => this.vod.seriesDetail(src, item)))));
+      if (this.epoch !== epoch) return {};
+      const out: Record<string, string> = {};
+      for (const item of missing) {
+        const lang = this.probedLang(item.id);
+        if (lang) out[item.id] = lang;
+      }
+      return out;
+    }
+    return {};
   }
 
   /** The combine settings and the user's splits and picks, loaded once per source. Undefined without `settings`. */

@@ -100,13 +100,24 @@ describe('ranking and the language list', () => {
     expect(rankSubtitles(list).map((s) => s.fileId)).toEqual([3, 2, 1]);
   });
 
-  test('one row per language: preferred first, then by count, then by code; each with its best file', () => {
-    const list = [sub(1, 'en'), sub(2, 'en', { downloads: 9 }), sub(3, 'fr'), sub(4, 'sv'), sub(5, 'de'), sub(6, 'de')];
+  test('one row per language: preferred first, then English, then by count, then by code; each with its best file', () => {
+    const list = [sub(1, 'en'), sub(2, 'en', { downloads: 9 }), sub(3, 'fr'), sub(4, 'sv'), sub(5, 'de'), sub(6, 'de'), sub(7, 'de')];
     expect(languageChoices(list, 'sv').map((c) => [c.language, c.count, c.best.fileId])).toEqual([
-      ['sv', 1, 4], ['de', 2, 5], ['en', 2, 2], ['fr', 1, 3],
+      ['sv', 1, 4], ['en', 2, 2], ['de', 3, 5], ['fr', 1, 3],
     ]);
-    expect(languageChoices(list, 'off')[0]?.language).toBe('de');
+    expect(languageChoices(list, 'off')[0]?.language).toBe('en');
+    expect(languageChoices(list.filter((s) => s.language !== 'en'), 'off')[0]?.language).toBe('de');
     expect(languageChoices([sub(1, 'pt-BR')], 'pt').map((c) => c.language)).toEqual(['pt-BR']);
+  });
+
+  test('a language with both kinds gets a regular row and a CC row, each with only its own kind of file', () => {
+    const list = [
+      sub(1, 'en', { downloads: 50 }), sub(2, 'en', { hearingImpaired: true, downloads: 90 }), sub(3, 'en', { downloads: 5 }),
+      sub(4, 'en', { hearingImpaired: true, downloads: 1 }), sub(5, 'fr', { hearingImpaired: true }), sub(6, 'sv'),
+    ];
+    expect(languageChoices(list, 'en').map((c) => [c.language, c.cc ?? false, c.count, c.files.map((f) => f.fileId)])).toEqual([
+      ['en', false, 2, [1, 3]], ['en', true, 2, [2, 4]], ['fr', true, 1, [5]], ['sv', false, 1, [6]],
+    ]);
   });
 
   test('each language keeps all its files best first ("another version" walks them) and says when one matches the file', () => {

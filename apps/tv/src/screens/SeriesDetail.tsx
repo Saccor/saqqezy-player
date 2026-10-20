@@ -21,7 +21,7 @@ import { metaLine } from '../vod/posterLogic.ts';
 import {
   fallbackArea, moveArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, type SavedFocus, type SeriesAction, type SeriesArea,
 } from '../vod/seriesDetailLogic.ts';
-import { versionRows } from '../vod/versionsLogic.ts';
+import { versionRows, withLanguages } from '../vod/versionsLogic.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 
 const VERSIONS_ID = 'series-versions';
@@ -284,7 +284,15 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   let pickerNode: ElementNode | undefined;
   let removePicker: (() => void) | undefined;
   const openVersions = () => {
-    if ((view()?.versions.length ?? 0) < 2) return;
+    const shown = view();
+    if (!shown || shown.versions.length < 2) return;
+    // Versions whose names give no language: the source's probe data usually does (fills in while the list shows).
+    if (shown.versions.some((v) => !v.lang)) {
+      api.getVersionLanguages(params.id).then((langs) => {
+        const cur = view();
+        if (alive && cur && Object.keys(langs).length > 0) setView({ ...cur, versions: withLanguages(cur.versions, langs) });
+      }).catch((err) => console.warn('Version languages failed', errName(err)));
+    }
     setPicking(true);
     removePicker = router.pushOverlay(VERSIONS_ID, closeVersions);
     queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });

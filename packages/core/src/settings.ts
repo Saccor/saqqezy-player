@@ -32,7 +32,7 @@ export interface AppSettings {
   audioLanguage: string;
   /**
    * Find subtitles online also matches the exact video file (reads 128 KB of it from the provider: one short extra
-   * request while the title plays, which one-connection accounts may refuse). Off by default.
+   * request while the title plays). On by default; never used on an account limited to one connection.
    */
   subtitleExactMatch: boolean;
   /** Movies and series: one card per title, its language and quality versions behind a Versions list. */
@@ -78,7 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   liveDelay: 'balanced',
   subtitleLanguage: 'off',
   audioLanguage: 'auto',
-  subtitleExactMatch: false,
+  subtitleExactMatch: true,
   combineDuplicates: true,
   preferredLanguages: [],
   openOn: 'lastChannel',

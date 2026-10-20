@@ -1,9 +1,10 @@
+import { isoLanguage } from '../text/language.ts';
 import { seasonsOf } from '../vod/list.ts';
 import { parseEpisodeMarker, splitYear } from '../vod/title.ts';
 import { videoRangeOf } from '../vod/videoRange.ts';
 import {
   VOD_UNCATEGORIZED,
-  type Episode, type MovieDetail, type SeriesDetail, type VodCategory, type VodItem, type VodKind,
+  type Episode, type MovieDetail, type SeriesDetail, type SourceSubtitle, type VodCategory, type VodItem, type VodKind,
 } from '../vod/types.ts';
 import { isObj, nonNegInt, posInt, str } from './json.ts';
 
@@ -136,10 +137,44 @@ function detailFields(info: Record<string, unknown>): MovieDetail {
   return d;
 }
 
+/** From an ffprobe-shaped audio stream object (Xtream `info.audio`): its `tags.language`, as ISO 639-1. */
+function audioLangOf(audio: unknown): string | undefined {
+  if (!isObj(audio)) return undefined;
+  return isoLanguage(str(isObj(audio.tags) ? audio.tags.language : undefined) ?? str(audio.language));
+}
+
+/** Most subtitle files one title keeps from its source. */
+const SOURCE_SUBTITLES_MAX = 20;
+
+/**
+ * Subtitle files the source lists (`info.subtitles[]`; panels name the fields differently). Only absolute http(s)
+ * links: relative paths and bare ids mean something different on each panel.
+ */
+function sourceSubtitlesOf(list: unknown): SourceSubtitle[] | undefined {
+  if (!Array.isArray(list)) return undefined;
+  const out: SourceSubtitle[] = [];
+  for (const s of list) {
+    if (!isObj(s) || out.length >= SOURCE_SUBTITLES_MAX) continue;
+    const url = str(s.url) ?? str(s.file) ?? str(s.link);
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    const sub: SourceSubtitle = { url };
+    const language = isoLanguage(str(s.language) ?? str(s.lang));
+    if (language) sub.language = language;
+    const label = str(s.title) ?? str(s.label) ?? str(s.name);
+    if (label) sub.label = label;
+    out.push(sub);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function movieFields(info: Record<string, unknown>): MovieDetail {
   const d = detailFields(info);
   const video = videoRangeOf(info.video);
   if (video) d.video = video;
+  const lang = audioLangOf(info.audio);
+  if (lang) d.audioLang = lang;
+  const subtitles = sourceSubtitlesOf(info.subtitles);
+  if (subtitles) d.subtitles = subtitles;
   return d;
 }
 
@@ -194,6 +229,10 @@ export function parseSeriesInfo(data: unknown, sourceId: string): SeriesDetail {
       if (ext) ep.ext = ext;
       const video = videoRangeOf(ei.video);
       if (video) ep.video = video;
+      const lang = audioLangOf(ei.audio);
+      if (lang) ep.audioLang = lang;
+      const subtitles = sourceSubtitlesOf(ei.subtitles);
+      if (subtitles) ep.subtitles = subtitles;
       episodes.push(ep);
     });
   }

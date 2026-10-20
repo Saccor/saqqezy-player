@@ -6,7 +6,7 @@ import {
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
-  rankSubtitles, type LoadedSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
+  alignSubtitle, englishLanguageName, rankSubtitles, type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
   BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
   type BackupEnvelope, type RestoreSummary,
 } from '@iptv/core';
@@ -30,6 +30,12 @@ import type {
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
+
+/** A source subtitle file's display name: its label, else its language, then where it comes from. */
+export function sourceSubtitleName(sub: SourceSubtitle): string {
+  const what = sub.label?.trim() || englishLanguageName(sub.language) || 'Subtitles';
+  return `${what} (from source)`;
+}
 
 const NOW_NEXT_TTL_MS = 60_000;
 const ERROR_RING = 20;
@@ -105,6 +111,8 @@ export class AppApi {
   private startCache: { sourceId: string; home: StartHome } | undefined;
   /** The active source's User-Agent and Referer settings (read with the index, so a zap never reads storage). */
   private sourceHeaders: StreamHeaders | undefined;
+  /** The active Xtream account's connection limit, when known (exact match never reads the file on a 1-connection account). */
+  private sourceMaxConnections: number | undefined;
   /** The active source's kind, kept from `activate` so a focus never reads the source list to learn it. */
   private sourceKind: SourceConfig['kind'] | undefined;
   private index = new ChannelIndex([]);
@@ -986,6 +994,11 @@ export class AppApi {
   }
 
   /** With `versionId` (from `SeriesView.versions`), shows that version's seasons. */
+  /** The Versions list's missing languages, by version id (from the source's probe data). */
+  getVersionLanguages(id: string): Promise<Record<string, string>> {
+    return this.run('getVersionLanguages', () => this.vodOrThrow().versionLanguages(id));
+  }
+
   getSeries(id: string, versionId?: string): Promise<SeriesView | undefined> {
     return this.run('getSeries', () => this.vodOrThrow().series(id, versionId));
   }
@@ -1053,6 +1066,31 @@ export class AppApi {
     });
   }
 
+  /**
+   * Loads a subtitle file the source lists for the title (`VodPlayable.subtitles`), keeping its language. Its name
+   * comes from its label or language, never from the link (which can carry the account's credentials).
+   */
+  loadSourceSubtitle(itemId: string, sub: SourceSubtitle): Promise<LoadedSubtitle> {
+    return this.run('loadSourceSubtitle', () => {
+      const [svc, src] = this.subtitlesOrThrow();
+      const name = sourceSubtitleName(sub);
+      return svc.load(src, itemId, { url: sub.url }, sub.language ? { language: sub.language, name } : { name });
+    });
+  }
+
+  /**
+   * Automatic sync: the delay and speed that line the title's loaded file up with what the player recorded of the
+   * stream's own subtitles (`alignSubtitle`), or undefined when there is no clear improvement on `current`. Runs here,
+   * off the UI thread. Changes nothing: the player applies a result like a user's own delay.
+   */
+  syncSubtitle(itemId: string, sample: SyncSample, current: SyncSetting): Promise<SyncResult | undefined> {
+    return this.run('syncSubtitle', async () => {
+      if (!this.subtitles || !this.activeId) return undefined;
+      const loaded = await this.subtitles.get(this.activeId, itemId);
+      return loaded ? alignSubtitle(loaded.cues, sample, current) : undefined;
+    });
+  }
+
   /** The subtitles loaded earlier for a title, if any. */
   getSubtitle(itemId: string): Promise<LoadedSubtitle | undefined> {
     return this.run('getSubtitle', async () => {
@@ -1085,7 +1123,7 @@ export class AppApi {
       const found = await client.search(query);
       return languageChoices(found, preferred, videoFps).map((c) => ({
         language: c.language, count: c.count, fileId: c.best.fileId, files: c.files.map((f) => f.fileId), synced: c.synced,
-        release: c.best.release, ...(c.best.fps ? { fps: c.best.fps } : {}),
+        release: c.best.release, ...(c.best.fps ? { fps: c.best.fps } : {}), ...(c.cc ? { cc: true } : {}),
       }));
     });
   }
@@ -1101,7 +1139,7 @@ export class AppApi {
       if (!lang) return [];
       // Kept for the session (a reopen of the title asks nothing); a failed search is not kept. With exact match on,
       // the list belongs to the file playing (a picked version under the same id is another file) and to the setting.
-      const exact = (await this.currentSettings()).subtitleExactMatch && this.fileHash !== undefined;
+      const exact = this.exactMatchOn(await this.currentSettings());
       const file = exact ? (await this.vodOrThrow().playable(itemId, seriesId))?.url ?? '' : '';
       const key = JSON.stringify([itemId, seriesId ?? '', lang, videoFps ?? 0, exact, file]);
       let list = this.versionLists.get(key);
@@ -1133,7 +1171,16 @@ export class AppApi {
     const unique = all.filter((s) => (seen.has(s.fileId) ? false : (seen.add(s.fileId), true)));
     return rankSubtitles(unique, videoFps).map((s) => ({
       fileId: s.fileId, release: s.release, ...(s.fps ? { fps: s.fps } : {}), synced: s.hashMatch, downloads: s.downloads,
+      ...(s.hearingImpaired ? { hearingImpaired: true } : {}),
     }));
+  }
+
+  /**
+   * Exact match reads 128 KB of the playing file: a second request while the title streams. An account limited to one
+   * connection may refuse it (or count it against the user), so there it is never read, whatever the setting says.
+   */
+  private exactMatchOn(settings: AppSettings): boolean {
+    return settings.subtitleExactMatch && this.fileHash !== undefined && this.sourceMaxConnections !== 1;
   }
 
   /** The search for a title, with the stream file's hash when exact match is on (`movieHash`). */
@@ -1143,7 +1190,7 @@ export class AppApi {
     if (!query) throw new SubtitleError("This title can't be found right now.");
     const settings = await this.currentSettings();
     // Exact match: the stream file's hash marks the versions timed for it (a failed read just leaves it out).
-    if (settings.subtitleExactMatch && this.fileHash) {
+    if (this.exactMatchOn(settings)) {
       const playable = await vod.playable(itemId, seriesId);
       // As `getVodPlayable`: the playlist entry's headers win over the source's settings.
       const hash = playable?.url ? await this.movieHash(playable.url, mergeHeaders(this.sourceHeaders, playable.headers)) : undefined;
@@ -1200,7 +1247,7 @@ export class AppApi {
    * Downloads one file found online and keeps it for the title, like a loaded file, under `name` ("Swedish"). With
    * `details`, its language (so its other versions can be listed later) and the frame rate it was timed for.
    */
-  loadOnlineSubtitle(itemId: string, fileId: number, name: string, details?: { language?: string; fps?: number }): Promise<LoadedSubtitle> {
+  loadOnlineSubtitle(itemId: string, fileId: number, name: string, details?: { language?: string; fps?: number; cc?: boolean }): Promise<LoadedSubtitle> {
     return this.run('loadOnlineSubtitle', async () => {
       const client = this.onlineOrThrow();
       const [svc, src] = this.subtitlesOrThrow();
@@ -1607,6 +1654,7 @@ export class AppApi {
       this.activeId = id;
       this.sourceKind = source?.kind;
       this.sourceHeaders = mergeHeaders(undefined, source && { userAgent: source.userAgent, referrer: source.referrer });
+      this.sourceMaxConnections = source?.kind === 'xtream' ? source.maxConnections : undefined;
       this.vodc?.reset(id);
       this.catchup.reset();
       this.setIndex(channels, layout, coverage);
@@ -2514,8 +2562,8 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
-  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',
+  'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getVersionLanguages', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'loadSourceSubtitle', 'syncSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',

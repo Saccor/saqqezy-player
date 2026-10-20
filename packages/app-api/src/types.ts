@@ -1,6 +1,6 @@
-import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VideoRange, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, SourceSubtitle, StreamHeaders, VideoRange, VodKind } from '@iptv/core';
 
-export type { ArchiveState, SourceCooldown, StreamHeaders, VideoRange };
+export type { ArchiveState, SourceCooldown, SourceSubtitle, StreamHeaders, VideoRange };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
@@ -290,6 +290,8 @@ export interface OnlineSubtitleLanguage {
   release: string;
   /** The frame rate the best version was timed for, when known. */
   fps?: number;
+  /** The language's hearing-impaired (CC/SDH) row: its files are all hearing-impaired. */
+  cc?: boolean;
 }
 
 /** One version of a title's subtitles in one language, best first in `subtitleVersions`. */
@@ -301,6 +303,8 @@ export interface SubtitleVersion {
   /** Made for the exact file playing (exact match on, its hash matched). */
   synced: boolean;
   downloads: number;
+  /** Made for the hearing impaired (CC/SDH). */
+  hearingImpaired?: boolean;
 }
 
 export interface MovieView {
@@ -364,6 +368,8 @@ export interface VodPlayable {
   tracks: VodTracks;
   /** The picture's dynamic range, when the source or the title tells (Dolby Vision warning). */
   video?: VideoRange;
+  /** Subtitle files the source lists for this title. Their links can carry credentials: never display or log them. */
+  subtitles?: SourceSubtitle[];
   /** Episodes: pass back with every `saveVodProgress` / `setVodWatched`. */
   series?: SeriesPointer;
   /** Episodes: what the next-episode card offers. */

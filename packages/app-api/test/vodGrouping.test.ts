@@ -7,7 +7,7 @@ import type { AppEvent } from '../src/types.ts';
 
 const NOW = Date.UTC(2026, 9, 19, 18, 0);
 let server: Awaited<ReturnType<typeof startFakeXtream>>;
-beforeAll(async () => { server = await startFakeXtream({ port: 0, channels: 1, movies: 1, series: 1, now: () => NOW }); });
+beforeAll(async () => { server = await startFakeXtream({ port: 0, channels: 1, movies: 5, series: 1, now: () => NOW }); });
 afterAll(async () => { await server.close(); });
 
 const movie = (n: number, title: string, extra: Partial<VodItem> = {}): VodItem => ({ id: `SRC:m${n}`, kind: 'movie', title, categoryId: '1', xid: n, ...extra });
@@ -76,6 +76,25 @@ describe('VodController with combined titles', () => {
     ]);
     await c.pickVersion(m(3), m(1));
     expect((await c.movie(m(3)))!.playId).toBe(m(1));
+  });
+
+  test('a version with no language in its name gets the one the source probed, once its details are loaded', async () => {
+    const { c, m } = await setup();
+    // "Example Story (2020)" (m4) names no language; the fake source probes its audio as English. Only the label
+    // learns it: the order (and so Play's pick) never depends on which details happen to be cached.
+    expect(await c.versionLanguages(m(5))).toEqual({ [m(4)]: 'en' });
+    expect((await c.movie(m(5)))!.versions.map((x) => [x.id, x.lang])).toEqual([[m(4), 'en'], [m(5), 'en']]);
+  });
+
+  test('the version Play picks is labelled from its own details at once', async () => {
+    const { c, m } = await setup();
+    expect((await c.movie(m(5)))!.versions.map((x) => [x.id, x.lang])).toEqual([[m(4), 'en'], [m(5), 'en']]);
+  });
+
+  test('versionLanguages: nothing to fill in, or nothing probed: an empty answer', async () => {
+    const { c, m } = await setup();
+    expect(await c.versionLanguages(m(3))).toEqual({});
+    expect(await c.versionLanguages('not-an-id')).toEqual({});
   });
 
   test('a card id plays the picked version; exact plays the given one', async () => {

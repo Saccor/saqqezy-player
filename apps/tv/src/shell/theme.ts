@@ -49,6 +49,8 @@ export const COLORS = {
   scrubBack: 0xffffff80,
   /** The outline behind subtitle text drawn over video. */
   subtitleOutline: 0x000000e6,
+  /** Media badges over video: a light see-through fill that reads on dark and bright pictures, quieter than buttons. */
+  badge: 0xffffff26,
   /** A progress track drawn on artwork, where `track` would not read. */
   imageTrack: 0x000000aa,
 } as const;
