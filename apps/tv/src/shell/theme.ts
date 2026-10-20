@@ -93,10 +93,73 @@ export const LAYOUT = {
 } as const;
 
 /** One focus style (spec §1.2): cards scale and get a light ring outside a dark gap; the rest get a fill only. */
-export const FOCUS = { scale: 1.05, ring: 4, offset: 4, ms: 120 } as const;
+export const FOCUS = { scale: 1.05, ring: 4, offset: 4, ms: 120, /** The focused card's scale while OK is held. */ press: 1.02 } as const;
 
-/** How long focus must rest before the info strip and backdrop follow it. */
-export const MOTION = { dwell: 250 } as const;
+/**
+ * Easing curves (motion research §3), always as explicit `cubic-bezier(...)` strings: renderer 3.7's named
+ * `'ease-out-sine'` maps to the ease-in curve. No overshoot anywhere.
+ */
+export const EASE = {
+  /** On-screen moves: focus scale, row scroll. */
+  standard: 'cubic-bezier(0.2, 0, 0, 1)',
+  /** Things arriving: menus, toasts. */
+  enter: 'cubic-bezier(0.05, 0.7, 0.1, 1)',
+  /** Things leaving. */
+  exit: 'cubic-bezier(0.3, 0, 0.8, 0.15)',
+  /** Cross-fades: backdrop, images. */
+  fade: 'cubic-bezier(0.33, 0, 0.67, 1)',
+  /** Held keys: consecutive scroll steps join into one constant-speed glide. */
+  glide: 'linear',
+} as const;
+
+/**
+ * What a motion token follows (see `shell/motionLogic.ts`): `focus` and `scroll` follow the key cadence (shortened when
+ * keys come fast, snapped or glided while a key is held); `image` fades skip while a key is held; `ui` (menus, toasts,
+ * cross-fades) ignores the cadence.
+ */
+export type MotionKind = 'focus' | 'scroll' | 'image' | 'ui';
+export interface MotionToken { readonly ms: number; readonly ease: string; readonly kind: MotionKind }
+
+const token = (ms: number, ease: string, kind: MotionKind): MotionToken => ({ ms, ease, kind });
+
+/** Motion tokens (motion research §3) plus the dwell: how long focus must rest before the info strip and backdrop follow it. */
+export const MOTION = {
+  dwell: 250,
+  /** Card focus scale up and down: leaving is quicker than arriving. */
+  focusIn: token(120, EASE.standard, 'focus'),
+  focusOut: token(90, EASE.standard, 'focus'),
+  /** OK press dip of the focused card (to FOCUS.press on keydown, back on release). */
+  pressIn: token(60, EASE.standard, 'ui'),
+  pressOut: token(100, EASE.standard, 'ui'),
+  /** A row's horizontal scroll (one strip moves). */
+  rowScroll: token(180, EASE.standard, 'scroll'),
+  /** A poster image fading in over its skeleton or title card once loaded. */
+  imageIn: token(160, EASE.fade, 'image'),
+  /** The backdrop cross-fade. */
+  backdrop: token(260, EASE.fade, 'ui'),
+  /** Menus and dialogs opening: fade plus a rise of `rise` px. They close at once (unmount). */
+  menuIn: token(160, EASE.enter, 'ui'),
+  toastIn: token(180, EASE.enter, 'ui'),
+  /** The wordmark fading in or out. */
+  wordmark: token(200, EASE.fade, 'ui'),
+  /** How far menus and toasts rise as they open. */
+  rise: 16,
+  /** A fade's starting alpha: above 0, because the renderer does not load the texture of an alpha 0 node. */
+  startAlpha: 0.001,
+  /** An image that loads within this long of its mount is a cache hit: it shows at once, with no fade. */
+  cacheHit: 50,
+  /** Key cadence: gaps between navigation keydowns below `repeatGap` are a held key, below `briskGap` brisk. */
+  repeatGap: 120,
+  briskGap: 250,
+  /** Brisk navigation runs its focus and scroll motion at this fraction of the token. */
+  briskFactor: 0.6,
+  /** No navigation key for this long (or a keyup) and the cadence is normal again. */
+  settle: 250,
+  /** Reduced motion keeps fades, capped at this long. */
+  reducedFadeMax: 150,
+  /** Live animations at once; beyond this, new ones snap (1 GB TVs). */
+  maxLive: 8,
+} as const;
 
 /**
  * Semibold text: spread on a <Text> (`<Text {...STRONG}>`). @lightningtv/solid's `fontWeight` renames the font

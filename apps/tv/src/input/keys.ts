@@ -1,5 +1,7 @@
 import { detectPlatform, mapKey, type LogicalKey, type PlatformId } from '@iptv/platform';
 import type { KeyMap } from '@lightningtv/solid';
+import { noteNavKeyDown, noteNavKeyUp } from '../shell/motion.ts';
+import { isNavKey } from '../shell/motionLogic.ts';
 
 /** Only the error's name is logged: messages may carry URLs or other data. */
 function errName(err: unknown): string | undefined {
@@ -132,6 +134,8 @@ export function installKeys(
     }
   };
   const press = (key: UiKey, e: KeyboardEvent) => {
+    // Motion follows the user's pace (shell/motion.ts): noted before focus moves, never delaying the key.
+    if (isNavKey(key)) noteNavKeyDown();
     forward('keydown', key, e);
     notify(key, e);
   };
@@ -204,6 +208,7 @@ export function installKeys(
       okLong = false;
       return;
     }
+    if (isNavKey(key)) noteNavKeyUp();
     forward('keyup', key, e);
   };
 
