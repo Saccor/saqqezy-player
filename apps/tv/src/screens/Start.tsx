@@ -282,8 +282,11 @@ export function StartScreen(props: { entry: ScreenEntry }) {
           }}</For>
         </View>
       </Show>
-      <actions.View />
-      <menu.View />
+      {/* Above the rail (zIndex 50), so the menus' scrims dim it too. */}
+      <View zIndex={60}>
+        <actions.View />
+        <menu.View />
+      </View>
     </View>
   );
 }

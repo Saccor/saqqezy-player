@@ -114,9 +114,12 @@ export function fallbackArea(a: SeriesArea, counts: { seasons: number; episodes:
   return a;
 }
 
+/** A series action: the primary episode button, or Favourite (a round heart; the screen sizes it). */
+export type SeriesAction = { id: 'play'; label: string; width: number } | { id: 'fav'; label: string };
+
 /** The action buttons: the primary episode (hidden once loaded without one) and Favourite. */
-export function seriesActions(p: { loaded: boolean; primary?: SeriesPrimary; favourite: boolean }): { id: string; label: string; width: number }[] {
-  const fav = { id: 'fav', label: p.favourite ? FAV_COPY.in : FAV_COPY.add, width: 320 };
+export function seriesActions(p: { loaded: boolean; primary?: SeriesPrimary; favourite: boolean }): SeriesAction[] {
+  const fav: SeriesAction = { id: 'fav', label: p.favourite ? FAV_COPY.in : FAV_COPY.add };
   if (p.loaded && !p.primary) return [fav];
   return [{ id: 'play', label: primaryLabel(p.primary), width: p.primary ? 360 : 220 }, fav];
 }

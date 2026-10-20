@@ -527,7 +527,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           }}</For>
         </View>
       </Show>
-      <View zIndex={5}><menu.View /></View>
+      {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
+      <View zIndex={60}><menu.View /></View>
       <Show when={picking()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={categoryRows(categories(), undefined)}
           onPick={(row) => pickCategory(row)} hint="Ok opens · Back closes" />

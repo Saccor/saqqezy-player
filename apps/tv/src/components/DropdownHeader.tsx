@@ -3,11 +3,9 @@ import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { dropdownWidth } from './dropdownLogic.ts';
+import { CHEVRON, dropdownWidth, GAP, PAD_X } from './dropdownLogic.ts';
 
 export const DROPDOWN_H = 64;
-const CHEVRON = 28;
-const PAD_X = 20;
 
 /**
  * "Action ▾": a focusable header that opens a picker (`onPress`). Focused: a focus fill. It replaces the library's
@@ -31,7 +29,7 @@ export function DropdownHeader(props: {
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
   const size = () => props.size ?? TYPE.title;
   const w = () => Math.min(dropdownWidth(props.label, size()), props.maxWidth ?? Infinity);
-  const textW = () => w() - PAD_X * 2 - CHEVRON - 12;
+  const textW = () => w() - PAD_X * 2 - CHEVRON - GAP;
   const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.transparent);
   const ink = () => (focused() ? COLORS.onFocus : COLORS.text);
   return (

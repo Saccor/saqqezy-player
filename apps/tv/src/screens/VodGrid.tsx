@@ -6,6 +6,7 @@ import type { VodSort } from '@iptv/core';
 import { api } from '../api.ts';
 import { Button } from '../components/Button.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
+import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { PosterTile } from '../components/PosterTile.tsx';
 import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
@@ -27,18 +28,17 @@ import {
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { KIND_COPY } from '../vod/kindCopy.ts';
 import { lruSet } from '../vod/memoryLogic.ts';
-import { metaLine } from '../vod/posterLogic.ts';
+import { metaLine, POSTER_GAP } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import type { VodKind } from '../vod/tabLogic.ts';
 
 /**
  * Layout (1080p design space, UI revamp "Movies library"): the category header at the top left, the focused title and
- * its meta at the top right, an 8-column poster grid from (160, 150) with three full rows and a fourth peeking in, and
- * a scroll indicator at the right edge.
+ * its meta at the top right, a poster grid of 8 or 10 columns (Poster size) from (160, 150) with three full rows (and a
+ * fourth peeking in when enough of it shows), and a scroll indicator at the right edge.
  */
 const GRID_X = LAYOUT.contentX;
 const GRID_W = LAYOUT.contentW;
-const CELL_GAP = 24;
 const HEAD_Y = LAYOUT.safeY;
 /**
  * The grid node covers the grid only (not the whole screen), so its pointer target never overlaps the rail or the
@@ -51,8 +51,8 @@ const SCROLL_H = LAYOUT.height - LAYOUT.safeY - GRID_Y; // 876
 const INFO_W = 760;
 /** The category header ends at least this far left of the info box. */
 const HEAD_INFO_GAP = 24;
-const HEAD_PAD_X = 20; // DropdownHeader draws its pill this far left of x
-const HEAD_MAX_W = GRID_W - INFO_W - HEAD_INFO_GAP + HEAD_PAD_X;
+/** DropdownHeader draws its pill `PAD_X` left of its x. */
+const HEAD_MAX_W = GRID_W - INFO_W - HEAD_INFO_GAP + DROPDOWN_PAD_X;
 const META_DY = 36;
 const CATEGORIES_ID = 'grid-categories';
 
@@ -75,7 +75,7 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /**
  * Library grid: the app rail, a "Category ▾" header (its picker lists the categories, then the sorts), the focused
- * title and meta at the top right, and an 8-column poster grid (titles show on focus, not under the tiles).
+ * title and meta at the top right, and a poster grid of 8 or 10 columns (titles show on focus, not under the tiles).
  */
 export function VodGridScreen(props: { entry: ScreenEntry }) {
   /** `sort`: open on this order (Start's Top rated "View all"); the remembered sort is left as it was. */
@@ -107,8 +107,9 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let lastTopRow = 0;
   /** Standard 8 or Compact 10 per row; everything below follows it. */
   const posterSize = () => settings()?.posterSize ?? 'standard';
-  const layout = () => gridLayout(posterSize());
-  const geo = (): GridGeometry => ({ pad: PAD, cellW: layout().cellW, gap: CELL_GAP, rowPitch: layout().rowPitch, hitH: layout().cellH });
+  // Memos: tiles read these on every focus move, so they are computed once per Poster size change.
+  const layout = createMemo(() => gridLayout(posterSize()));
+  const geo = createMemo((): GridGeometry => ({ pad: PAD, cellW: layout().cellW, gap: POSTER_GAP, rowPitch: layout().rowPitch, hitH: layout().cellH }));
   const rowCount = () => Math.ceil(total() / layout().cols);
   /** Bumped per category/sort change: answers for an older one are dropped. */
   let gen = 0;
@@ -427,7 +428,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     removePicker?.();
   });
 
-  const x = (i: number) => PAD + (i % layout().cols) * (layout().cellW + CELL_GAP);
+  const x = (i: number) => PAD + (i % layout().cols) * (layout().cellW + POSTER_GAP);
   const y = (i: number) => PAD + (Math.floor(i / layout().cols) - topRow()) * layout().rowPitch;
 
   /** The focused title and its meta, once focus rests. */
@@ -469,13 +470,17 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       <ScrollIndicator x={SCROLL_X} y={GRID_Y} height={SCROLL_H} total={rowCount()} visible={GRID_VIEW_ROWS} first={topRow()} />
       <Show when={failed()}>
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
-        <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
-          onUp={() => focusArea('header')} />
+        {/* Left from Try again reaches the rail, as on browse. */}
+        <View onLeft={() => focusArea('rail')}>
+          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+            onUp={() => focusArea('header')} />
+        </View>
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>
       </Show>
-      <View zIndex={5}><menu.View /></View>
+      {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
+      <View zIndex={60}><menu.View /></View>
       <Show when={picking()}>
         <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerRows()}
           onPick={pick} hint="Ok picks · Back closes" />

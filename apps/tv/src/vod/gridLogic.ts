@@ -1,14 +1,18 @@
 import type { PosterSize, VodSort } from '@iptv/core';
 import { LAYOUT } from '../shell/theme.ts';
+import { POSTER_GAP } from './posterLogic.ts';
 
 /** The category grid. Pure: no Solid, no Lightning. */
 
-/** Cell sizes across the 1664 px content width with 24 px column gaps and 28 px row gaps. */
+/** Space between two rows of posters (the column gap is the rows' `POSTER_GAP`). */
+export const GRID_ROW_GAP = 28;
+
+/** Cell sizes across the content width with `POSTER_GAP` column gaps and `GRID_ROW_GAP` row gaps. */
 export function gridLayout(size: PosterSize): { cols: number; cellW: number; cellH: number; rowPitch: number } {
   const cols = size === 'compact' ? 10 : 8;
-  const cellW = Math.floor((1664 - 24 * (cols - 1)) / cols);
+  const cellW = Math.floor((LAYOUT.contentW - POSTER_GAP * (cols - 1)) / cols);
   const cellH = Math.floor(cellW * 1.5);
-  return { cols, cellW, cellH, rowPitch: cellH + 28 };
+  return { cols, cellW, cellH, rowPitch: cellH + GRID_ROW_GAP };
 }
 
 export const GRID_COLS = 8;
@@ -75,11 +79,6 @@ export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', t
 
 export function sortsFor(hasRecent: boolean): VodSort[] {
   return hasRecent ? ['added', 'title', 'rating'] : ['title', 'rating'];
-}
-
-export function nextSort(current: VodSort, sorts: VodSort[]): VodSort {
-  const i = sorts.indexOf(current);
-  return sorts[(i + 1) % sorts.length] ?? sorts[0]!;
 }
 
 export interface SortStore { getItem(k: string): string | null; setItem(k: string, v: string): void }

@@ -5,10 +5,7 @@ import { PosterArt } from '../vod/PosterArt.tsx';
 
 export { posterCache } from './posterCache.ts';
 
-/** 8 per row across the content width: (1664 − 7 × 24) / 8. */
-export const POSTER_W = 187;
-export const POSTER_H = 280;
-export const POSTER_GAP = 24;
+export { POSTER_GAP, POSTER_H, POSTER_W } from '../vod/posterLogic.ts';
 
 /**
  * One poster: the source's image or a title card, scaled up with the focus ring when focused (`lit`). At most one

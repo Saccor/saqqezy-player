@@ -6,8 +6,6 @@ export interface KindCopy {
   loadError: string;
   loading: string;
   detailRoute: 'movieDetail' | 'seriesDetail';
-  /** The grid's All entry, in running text ("Green: all movies"). */
-  allLabel: string;
   /** The category picker's title on browse. */
   categoriesTitle: string;
 }
@@ -18,7 +16,6 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     loadError: 'Movies could not be loaded.',
     loading: 'Loading movies from your source…',
     detailRoute: 'movieDetail',
-    allLabel: 'all movies',
     categoriesTitle: 'Movie categories',
   },
   series: {
@@ -26,7 +23,6 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     loadError: 'Series could not be loaded.',
     loading: 'Loading series from your source…',
     detailRoute: 'seriesDetail',
-    allLabel: 'all series',
     categoriesTitle: 'Series categories',
   },
 };
@@ -37,7 +33,7 @@ export function grouped(n: number): string {
 }
 
 /**
- * The one line under the tab bar: a first load still running (titles so far), else some categories missing, else
+ * Browse's catalogue status line (shown in the info strip): a first load still running (titles so far), else some categories missing, else
  * the cap. Empty when there is nothing to say.
  */
 export function vodStatusLine(kind: VodKind, home: { progress?: number; partial?: boolean; truncated: boolean } | undefined): string {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, GRID_Y, renderedRows, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
+import { GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, GRID_Y, renderedRows, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
   test('moves in an 8-column grid', () => {
@@ -37,8 +37,6 @@ describe('gridLogic', () => {
   test('sorts and memory', () => {
     expect(sortsFor(true)).toEqual(['added', 'title', 'rating']);
     expect(sortsFor(false)).toEqual(['title', 'rating']);
-    expect(nextSort('rating', ['added', 'title', 'rating'])).toBe('added');
-    expect(nextSort('added', ['title', 'rating'])).toBe('title');
     const data = new Map<string, string>();
     const store: SortStore = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v); } };
     expect(loadSort('movie', ['added', 'title'], store)).toBe('added');

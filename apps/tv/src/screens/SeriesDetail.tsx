@@ -19,7 +19,7 @@ import { createVodLauncher, playSeriesPrimary } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { metaLine } from '../vod/posterLogic.ts';
 import {
-  fallbackArea, moveArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, type SavedFocus, type SeriesArea,
+  fallbackArea, moveArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, type SavedFocus, type SeriesAction, type SeriesArea,
 } from '../vod/seriesDetailLogic.ts';
 import { versionRows } from '../vod/versionsLogic.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
@@ -45,7 +45,7 @@ type Area = SeriesArea;
 const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /**
- * Series detail: backdrop, title, meta and plot, the primary episode button and Favourite, the season tabs, and a row of
+ * Series detail: backdrop, title, meta and plot, the primary episode button and Favourite, the season dropdown, and a row of
  * episode cards for the season shown. Opens on the season and episode of the primary, with focus on the primary button.
  */
 export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
@@ -183,7 +183,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const resuming = () => view()?.primary?.mode === 'continue' && (view()?.primary?.resumeMs ?? 0) > 0;
   const actions = () => {
     const base = seriesActions({ loaded: loaded(), primary: view()?.primary, favourite: tile()?.favourite === true });
-    const play = base.filter((a) => a.id === 'play');
+    const play = base.filter((a): a is Extract<SeriesAction, { id: 'play' }> => a.id === 'play');
     const fav = base.find((a) => a.id === 'fav')!;
     return [
       ...play,
