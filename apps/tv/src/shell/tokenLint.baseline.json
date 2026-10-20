@@ -79,11 +79,6 @@
     "fontSize": 2,
     "scale": 0
   },
-  "screens/MovieDetail.tsx": {
-    "colour": 0,
-    "fontSize": 1,
-    "scale": 0
-  },
   "screens/Placeholder.tsx": {
     "colour": 1,
     "fontSize": 0,
