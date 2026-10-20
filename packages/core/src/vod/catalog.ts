@@ -39,6 +39,11 @@ export class VodCatalog {
     return this.groups !== undefined;
   }
 
+  /** The titles this catalogue was grouped into, when grouped. */
+  get titleGroups(): VodGroups | undefined {
+    return this.groups;
+  }
+
   /** The stored list this catalogue reads (grouping is rebuilt from it). */
   get source(): VodList {
     return this.list;
