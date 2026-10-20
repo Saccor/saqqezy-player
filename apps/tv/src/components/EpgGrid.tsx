@@ -105,7 +105,6 @@ export function EpgGrid(props: {
   viewStart: number;
   now: number;
   playingId: string | undefined;
-  dayLabel: string;
   channel: (i: number) => ChannelRow | undefined;
   blocks: (i: number) => Block[];
   onUp: () => boolean;
@@ -114,7 +113,7 @@ export function EpgGrid(props: {
   onRight: () => boolean;
   onOk: () => boolean;
   onPage: (dir: 1 | -1) => boolean;
-  /** Menu: the Guide's options (catch-up: From the start, Go to day). */
+  /** Menu: Live TV's one menu (programme items, then the channel's). */
   onMenu?: () => boolean;
   /** Long Ok: the same options as Menu. */
   onLongOk?: () => boolean;
@@ -177,9 +176,7 @@ export function EpgGrid(props: {
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onOk()}
       onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}
       onMenu={() => props.onMenu?.() ?? false} onLongOk={() => props.onLongOk?.() ?? false}>
-      {/* Ruler */}
-      <Text x={PAD_X} y={(RULER_H - TYPE.meta) / 2 - 2} width={CHANNEL_W - PAD_X * 2} maxWidth={CHANNEL_W - PAD_X * 2}
-        contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{props.dayLabel}</Text>
+      {/* Ruler (its channel column holds the screen's group dropdown) */}
       <For each={ticks(props.viewStart)}>{(t) => (
         <View x={TL_X + timeToX(t, props.viewStart)} y={0} width={240} height={RULER_H}>
           <View x={0} y={RULER_H - 14} width={2} height={14} color={COLORS.track} />

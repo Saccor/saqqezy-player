@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
-  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine,
+  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs,
 } from './liveLogic.ts';
 import { TYPE } from '../../shell/theme.ts';
 
@@ -167,6 +167,17 @@ describe('locateFocus', () => {
     expect(l.calls).toEqual([['news', 'x1'], ['news', 'n3']]);
   });
 
+  test('the remembered row is the fallback when the remembered channel left the group (clamped to its count)', async () => {
+    const l = lookup();
+    expect(await locateFocus({ groups, prefer: 'news', pinned: [], others: ['x1'], fallbackRow: 6, indexOf: l.indexOf }))
+      .toEqual({ g: 'news', index: 6 });
+    expect(await locateFocus({ groups, prefer: 'news', pinned: [], others: ['x1'], fallbackRow: 25, indexOf: l.indexOf }))
+      .toEqual({ g: 'news', index: 9 });
+    // Only for the preferred group: one that is gone falls back to All at row 0.
+    expect(await locateFocus({ groups, prefer: 'gone', pinned: [], others: ['x1'], fallbackRow: 6, indexOf: async () => -1 }))
+      .toEqual({ g: 'all', index: 0 });
+  });
+
   test('no groups: nothing to open', async () => {
     const l = lookup();
     expect(await locateFocus({ groups: [], prefer: undefined, pinned: ['a'], others: [], indexOf: l.indexOf }))
@@ -208,6 +219,16 @@ describe('empty states', () => {
     expect(hasNoLive({ waiting: false, allCount: 0 })).toBe(true);
     expect(hasNoLive({ waiting: true, allCount: 0 })).toBe(false);
     expect(hasNoLive({ waiting: false, allCount: 3 })).toBe(false);
+  });
+  test('the first read of the groups failed: not "no live channels", but a retry note', () => {
+    expect(hasNoLive({ waiting: false, allCount: 0, failed: true })).toBe(false);
+    expect(liveEmptyText({ waiting: false, failed: true, allCount: 0, groupId: undefined })).toBe(GROUPS_FAILED_TEXT);
+    expect(GROUPS_FAILED_TEXT).toBe('Could not read the channels. Trying again…');
+    // Loading wins: the channels are on their way.
+    expect(liveEmptyText({ waiting: true, failed: true, allCount: 0, groupId: undefined })).toBe('Loading channels…');
+  });
+  test('the groups are read again with a growing delay, at most once a minute', () => {
+    expect([0, 1, 2, 3, 4, 5, 10].map(groupsRetryMs)).toEqual([2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000]);
   });
   test('an empty group or list', () => {
     expect(liveEmptyText({ waiting: false, allCount: 5, groupId: 'news' })).toBe('No channels here yet.');

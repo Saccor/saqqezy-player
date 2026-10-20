@@ -88,7 +88,8 @@ export function timeLeftLabel(stop: number, now: number): string {
 /**
  * The group and row Live TV opens at: `prefer` (else All, else the first group), at the first candidate it holds.
  * `pinned` (a requested channel, the Player's last channel, the playing one) is tried first, and one outside the group
- * switches to All, as Home did. `others` (remembered, init's last) never change the group: none found is row 0.
+ * switches to All, as Home did. `others` (remembered, init's last) never change the group: none found is
+ * `fallbackRow` (the remembered row, clamped to the group's count) when `prefer` itself opened, else row 0.
  * The common cold start costs one lookup.
  */
 export async function locateFocus(o: {
@@ -96,6 +97,7 @@ export async function locateFocus(o: {
   prefer: string | undefined;
   pinned: readonly (string | undefined)[];
   others: readonly (string | undefined)[];
+  fallbackRow?: number;
   indexOf: (groupId: string, channelId: string) => Promise<number>;
 }): Promise<{ g: string | undefined; index: number }> {
   const g = pickGroup(o.groups, o.prefer);
@@ -113,7 +115,9 @@ export async function locateFocus(o: {
       if (j >= 0) return { g: GROUP_ALL, index: j };
     }
   }
-  return { g, index: 0 };
+  if (o.fallbackRow === undefined || g !== o.prefer) return { g, index: 0 };
+  const count = o.groups.find((x) => x.id === g)?.count ?? 0;
+  return { g, index: Math.max(0, Math.min(o.fallbackRow, count - 1)) };
 }
 
 interface InfoProg { title: string; start: number; stop: number; desc?: string }
@@ -166,14 +170,31 @@ export function liveTypedChar(e: { key: string; ctrlKey: boolean; metaKey: boole
 
 export const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';
 
-/** The source has no live channels (and none are on their way): the empty-state text, and focus goes to the rail. */
-export function hasNoLive(o: { waiting: boolean; allCount: number }): boolean {
-  return !o.waiting && o.allCount === 0;
+/** The first read of the groups failed (the worker, not the source): Live TV reads them again (`groupsRetryMs`). */
+export const GROUPS_FAILED_TEXT = 'Could not read the channels. Trying again…';
+
+/** The delay before read `attempt` + 1 of the groups after a failure: 2 s, doubling, at most a minute. */
+export function groupsRetryMs(attempt: number): number {
+  return Math.min(60_000, 2_000 * 2 ** Math.max(0, attempt));
 }
 
-/** The info block's place while the open group has no channels: the first load, no live channels, or an empty group. */
-export function liveEmptyText(o: { waiting: boolean; progressCount?: number; allCount: number; groupId: string | undefined }): string {
+/**
+ * The source has no live channels (and none are on their way): the empty-state text, and focus goes to the rail.
+ * Not after a failed read (`failed`): the count is unknown then.
+ */
+export function hasNoLive(o: { waiting: boolean; allCount: number; failed?: boolean }): boolean {
+  return !o.waiting && o.failed !== true && o.allCount === 0;
+}
+
+/**
+ * The info block's place while the open group has no channels: the first load, a failed read of the groups, no live
+ * channels, or an empty group.
+ */
+export function liveEmptyText(o: {
+  waiting: boolean; failed?: boolean; progressCount?: number; allCount: number; groupId: string | undefined;
+}): string {
   if (o.waiting) return o.progressCount !== undefined ? `Loading channels… ${o.progressCount}` : 'Loading channels…';
+  if (o.failed === true) return GROUPS_FAILED_TEXT;
   return hasNoLive(o) ? NO_LIVE_TEXT : emptyGroupText(o.groupId);
 }
 

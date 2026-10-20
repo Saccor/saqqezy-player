@@ -35,7 +35,7 @@ import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
 import {
-  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, hasNoLive, liveEmptyText, liveKey, liveOkAction, locateFocus,
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, locateFocus,
   sameInfo, type LiveKey, type LivePlace,
 } from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
@@ -135,6 +135,9 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const [expanded, setExpanded] = createSignal(false);
   const [ready, setReady] = createSignal(false);
   const [waiting, setWaiting] = createSignal(false);
+  /** The first read of the groups failed and is retried (`firstLoad`); a successful re-read clears it. */
+  const [groupsFailed, setGroupsFailed] = createSignal(false);
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const [progress, setProgress] = createSignal<Progress | undefined>(undefined);
   /** Bumped when rows should be fetched again (stale pages, the 30 s tick). */
   const [kick, setKick] = createSignal(0);
@@ -193,7 +196,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const onGrid = () => place() === 'grid' || place() === 'channels';
   const allCount = () => groups().find((x) => x.id === GROUP_ALL)?.count ?? 0;
   /** The source has no live channels and none are loading: the no-live text, and focus rests on the rail. */
-  const noLive = () => hasNoLive({ waiting: waiting(), allCount: allCount() });
+  const noLive = () => hasNoLive({ waiting: waiting(), allCount: allCount(), failed: groupsFailed() });
 
   // ---- loading: the visible 2 h first, then the prefetch either side ----
 
@@ -304,10 +307,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
    * `superseded` when another group was opened meanwhile.
    */
   const locate = async (gs: GroupInfo[], prefer: string | undefined, pinned: readonly (string | undefined)[],
-    others: readonly (string | undefined)[]): Promise<{ g: string | undefined; index: number } | 'superseded'> => {
+    others: readonly (string | undefined)[], fallbackRow?: number): Promise<{ g: string | undefined; index: number } | 'superseded'> => {
     const seq = groupSeq;
     const found = await locateFocus({
-      groups: gs, prefer, pinned, others, indexOf: (g, id) => api.indexOf(g, id).catch(() => -1),
+      groups: gs, prefer, pinned, others, fallbackRow, indexOf: (g, id) => api.indexOf(g, id).catch(() => -1),
     });
     return seq !== groupSeq ? 'superseded' : found;
   };
@@ -324,6 +327,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const gs = await api.getGroups();
     if (!alive || seq !== reloadSeq) return undefined;
     setGroups(gs);
+    setGroupsFailed(false); // a failed first read is answered (its retry stops)
     if (before !== undefined && gs.some((x) => x.id === before)) {
       // Same group: the rows stay on screen and are refetched (`setGroup` to the same group is a no-op, so no blank grid).
       cache.staleAll();
@@ -688,35 +692,55 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       for (const off of offs) off();
     });
 
-    void (async () => {
+    /**
+     * Reads the groups and opens the focus group. A failed read (the worker) is not "no live channels": the info block
+     * says so and the read runs again (`groupsRetryMs`) until it, or a `refreshed` re-read, succeeds. A retry that
+     * succeeds leaves the focus where the user put it meanwhile (`settleFocus`).
+     */
+    const firstLoad = async (attempt: number) => {
       try {
         const gs = await api.getGroups();
         if (!alive) return;
         setGroups(gs);
+        setGroupsFailed(false);
         // An empty cache on first start: the channels arrive with a later `refreshed` event.
         if (waitsForChannels(allIn(gs), initState()?.hasVod)) setWaiting(true);
         // Focus order: a requested channel, the Player's last channel, the playing one (these may switch to All), then
         // the remembered one and init's last (these keep the group). One lookup when the first is in the group.
         // Back from catch-up the remembered channel comes first: the live channel resumes later (async).
-        const located = await locate(gs, target.groupId ?? memory.groupId ?? params.lastGroupId,
+        // The remembered row is the fallback in the remembered group (its channel was hidden or removed meanwhile).
+        const prefer = target.groupId ?? memory.groupId ?? params.lastGroupId;
+        const located = await locate(gs, prefer,
           fromCatchup ? [target.channelId] : [target.channelId, focusHint, playingId],
-          fromCatchup ? [memory.channelId, playingId, params.lastChannelId] : [memory.channelId, params.lastChannelId]);
+          fromCatchup ? [memory.channelId, playingId, params.lastChannelId] : [memory.channelId, params.lastChannelId],
+          prefer !== undefined && prefer === memory.groupId ? memory.row : undefined);
         if (!alive || located === 'superseded') return;
         if (located.g !== undefined) openGroup(located.g, located.index);
       } catch (err) {
         console.warn('Live TV load failed', err instanceof Error ? err.name : 'Error');
+        if (alive && groups().length === 0) {
+          setGroupsFailed(true);
+          retryTimer = setTimeout(() => {
+            retryTimer = undefined;
+            if (alive && groupsFailed()) void firstLoad(attempt + 1);
+          }, groupsRetryMs(attempt));
+        }
       } finally {
-        if (alive) {
+        if (alive && attempt === 0) {
           setReady(true);
           // The grid when it has channels, else the dropdown (an empty group), else the rail (no live channels).
           if (router.topOverlay() === undefined) focusPlace(contentPlace());
+        } else if (alive && !groupsFailed()) {
+          settleFocus(false);
         }
       }
-    })();
+    };
+    void firstLoad(0);
   });
 
   onCleanup(() => {
     alive = false;
+    clearTimeout(retryTimer);
     focusRest.cancel();
     void api.focusChannel(undefined).catch(() => undefined); // no focused row once Live TV is gone
     playback.begin(); // drops any preview request still in flight
@@ -731,13 +755,15 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   };
 
   /** The info block's place while the group has no channels: the first load, no live channels, or an empty group. */
-  const emptyText = () => liveEmptyText({ waiting: waiting(), progressCount: progress()?.count, allCount: allCount(), groupId: groupId() });
+  const emptyText = () => liveEmptyText({
+    waiting: waiting(), failed: groupsFailed(), progressCount: progress()?.count, allCount: allCount(), groupId: groupId(),
+  });
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}
       forwardFocus={() => { focusPlace(place()); return true; }}
-      onYellow={() => { router.push('search'); return true; }}
-      onBlue={() => { router.push('settings'); return true; }}>
+      onYellow={() => { if (router.topOverlay() === undefined) router.push('search'); return true; }}
+      onBlue={() => { if (router.topOverlay() === undefined) router.push('settings'); return true; }}>
       <LiveVideo now={now()} pausedNote={preview.pausedNote()}
         onRetry={() => { void preview.retryHere(playback.current() ? undefined : focusedId()); }}
         onVideoClick={pointerOn() ? pointer.onVideoClick : undefined} />
@@ -753,7 +779,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
       <EpgGrid ref={(el) => { gridNode = el; }} x={EPG_GRID_X} y={GRID_Y} total={total()} top={top()} rows={viewRows()}
         focusRow={row()} focusStart={focusBlock()?.start} area={place() === 'channels' ? 'channels' : 'grid'}
-        viewStart={viewStart()} now={now()} playingId={playback.current()?.id} dayLabel=""
+        viewStart={viewStart()} now={now()} playingId={playback.current()?.id}
         channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...gridKeys}
         onCellClick={pointer.onCellClick} onCellContextMenu={pointer.onCellMenu} onPointerWheel={pointer.onWheel}
         pointerEnabled={pointerOn()} />
