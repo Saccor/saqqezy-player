@@ -93,7 +93,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       setFocus(locateStart(h.rows, memory.focus));
     });
     if (h.rows.length === 0 && area() === 'rows') focusArea('rail', false);
-    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea === 'rail' ? 'tabs' : 'rows', screenOverlayOpen()) === 'rows') {
+    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, screenOverlayOpen()) === 'rows') {
       // The rows node mounts with the rows; focus it once it exists.
       queueMicrotask(() => { if (alive && !screenOverlayOpen()) focusArea('rows', false); });
     }

@@ -36,7 +36,7 @@ export function SearchBar(props: {
   onFocusChanged?: (focused: boolean) => void;
   onOpenKeyboard: () => boolean;
   onDown: () => boolean;
-  /** Up (Home: the tab bar). Default: swallowed. */
+  /** Up (Home: stays on the bar). Default: swallowed. */
   onUp?: () => boolean;
   onLeft: () => boolean;
   /** Return false to let Back bubble to the screen. */

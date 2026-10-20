@@ -24,6 +24,8 @@ export function GroupList(props: {
   onRight: () => boolean;
   /** Up on the first group (Home: move focus to the search bar). */
   onEdgeUp?: () => boolean;
+  /** Left (Home: move focus to the rail). Unset: the key bubbles. */
+  onLeft?: () => boolean;
   /** Focus entered or left the column. */
   onFocusChanged?: (focused: boolean) => void;
   /** Pointer click on group `index`. */
@@ -73,7 +75,7 @@ export function GroupList(props: {
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }} onUp={() => move(-1)} onDown={() => move(1)}
-      onRight={() => props.onRight()} onEnter={() => props.onRight()}>
+      onRight={() => props.onRight()} onLeft={() => props.onLeft?.() ?? false} onEnter={() => props.onRight()}>
       <For each={indices()}>{(i) => {
         const g = () => props.groups[i];
         const isSel = () => i === props.selected;

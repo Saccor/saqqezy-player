@@ -63,7 +63,7 @@ describe('focusAfterLoad', () => {
     expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rows', false)).toBe('rows');
   });
   test('leaves focus alone otherwise', () => {
-    expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'tabs', false)).toBeUndefined();
+    expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rail', false)).toBeUndefined();
     expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rows', true)).toBeUndefined();
     expect(focusAfterLoad({ hadRows: true }, { hasRows: true }, 'rows', false)).toBeUndefined();
     expect(focusAfterLoad({ hadRows: false }, { hasRows: false }, 'rows', false)).toBeUndefined();

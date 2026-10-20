@@ -15,7 +15,6 @@ import { ListPicker } from '../components/ListPicker.tsx';
 import { PREVIEW_H, PREVIEW_W, PreviewPanel } from '../components/PreviewPanel.tsx';
 import { SearchBar } from '../components/SearchBar.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
-import { TAB_BAR_X, TabBar } from '../components/TabBar.tsx';
 import { firstSelectable, moveFocus, pageFocus, renderRange, scrollTopFor, stepSelectable } from '../components/virtualWindow.ts';
 import { captureTextInput } from '../input/keys.ts';
 import { PointerFocusContext, pointerMode, shellBack, usePointerTarget } from '../input/pointer.ts';
@@ -23,6 +22,9 @@ import { createDebounce } from '../playback/debounce.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { playback, previewHold } from '../playback/playback.ts';
 import { HINT_Y, screenOverlayOpen } from '../shell/logic.ts';
+import { Rail } from '../shell/Rail.tsx';
+import type { RailId } from '../shell/railLogic.ts';
+import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -30,14 +32,13 @@ import { visibleInterval } from '../shell/visibleInterval.ts';
 import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
-import { TABS_W, tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, returnedFromVod, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
 } from './homeMenuLogic.ts';
 import {
-  BROWSE, BROWSE_HINT, HOME_GROUP_W, HOME_POINTER_LABELS, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn,
+  BROWSE, BROWSE_HINT, HOME_GROUP_W, HOME_POINTER_LABELS, HOME_SEARCH_KB_X, SEARCH_HINT, applyQuery, capQuery, exitFocusTarget, exitSearch, groupChoice, groupColumn,
   leaveTo, okAction, restoreOnMount, resultsFocusLost, routeKey, rowChannelId, rowPointerAction, typedQuery,
   typingKey, userNavigated, type BrowsePosition, type HomeSearchState, type NavKey, type NavResult, type OkAction, type Place,
 } from './homeSearchLogic.ts';
@@ -50,10 +51,9 @@ import { SliceCache } from './sliceCache.ts';
 import { devResume, PAUSED_NOTE } from '../playback/devResume.ts';
 import { liveReturn } from '../vod/liveReturn.ts';
 
-// Layout A: groups 22 % | channel list | preview 34 % of the safe width.
-const SAFE_W = LAYOUT.width - LAYOUT.safeX * 2;
-const GROUP_X = LAYOUT.safeX;
-/** 22 % of the safe width (380 px): the compact search keyboard covers exactly this column. */
+// Layout A: rail | groups | channel list | preview 34 % of the safe width.
+const GROUP_X = LAYOUT.contentX;
+/** 316 px: layout A's 22 % column less the rail's room; the compact search keyboard covers it (`HOME_SEARCH_KB_X`). */
 const GROUP_W = HOME_GROUP_W;
 const PREVIEW_X = LAYOUT.width - LAYOUT.safeX - PREVIEW_W;
 const LIST_X = GROUP_X + GROUP_W + LAYOUT.gap;
@@ -72,7 +72,7 @@ const MENU_ID = 'contextMenu';
 const PICKER_ID = 'listPicker';
 const KEYBOARD_ID = 'keyboard';
 const SEARCH_KB_ID = 'searchKeyboard';
-const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the tabs above.';
+const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';
 const GROUP_ALL = 'all';
 const FAV_LIST_ID = 'fav';
 
@@ -101,13 +101,14 @@ let startupResumed = false;
 
 const PHONE_BADGE_W = 144;
 const PHONE_BADGE_H = 48;
-/** Right of the tab bar, so it never overlaps the three tabs; the wordmark, offline badge and clock sit further right. */
-const PHONE_BADGE_X = TAB_BAR_X + TABS_W + LAYOUT.gap;
+/** Right of the rail, where the tab bar was: it ends far left of the wordmark (x 810), the offline badge and the clock. */
+const PHONE_BADGE_X = LAYOUT.contentX;
+const PHONE_BADGE_Y = LAYOUT.safeY + 20;
 
 /** "Phone": shown on Home while a companion is connected (Settings → Manage on phone or computer). */
 function PhoneBadge() {
   return (
-    <View x={PHONE_BADGE_X} y={LAYOUT.safeY - 4} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
+    <View x={PHONE_BADGE_X} y={PHONE_BADGE_Y} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
       borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.subtle }}>
       <Text y={(PHONE_BADGE_H - FONT.small) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
         textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'Phone'}</Text>
@@ -117,14 +118,12 @@ function PhoneBadge() {
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusTabs?: true; focusRail?: true };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusRail?: true };
   // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
   const focusHint = params.focusChannelId;
   delete params.focusChannelId;
-  // One-shot from Back on the Movies tab: the tab bar takes focus.
-  // Back from Start or browse arrives as `focusRail`; both mean the same here.
-  const focusTabsHint = returnedFromVod(params);
-  delete params.focusTabs;
+  // One-shot from Back (or Live TV on the rail) on Start, Movies or Series: the rail takes focus and the stopped channel resumes.
+  const focusRailHint = returnedToLive(params);
   delete params.focusRail;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
@@ -198,7 +197,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const searching = () => query() !== '';
 
   let barNode: ElementNode | undefined;
-  let tabsNode: ElementNode | undefined;
+  let railNode: ElementNode | undefined;
   let resultsNode: ElementNode | undefined;
   let searchKbNode: ElementNode | undefined;
   let removeSearchKb: (() => void) | undefined;
@@ -452,7 +451,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   const focusArea = (a: Place) => {
     if (a === 'list' && (searching() ? !hasResults() : listCount() === 0)) return true;
     setArea(a);
-    const node = a === 'tabs' ? tabsNode : a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
+    const node = a === 'rail' ? railNode : a === 'groups' ? groupNode : a === 'bar' ? barNode : a === 'keyboard' ? searchKbNode
       : searching() ? resultsNode : listNode;
     node?.setFocus();
     return true;
@@ -853,11 +852,13 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
     router.push('guide', groupId() !== undefined ? { groupId: groupId() } : undefined);
   };
 
-  /** Movies and Series open over Home and stop the preview there; Back to Live TV resumes the channel that was playing (`vodReturnTarget`). */
-  const goTab = (t: TabId) => {
+  /**
+   * A rail choice. Start, Movies and Series open over Home and stop the preview there; Back to Live TV resumes the
+   * channel that was playing (`vodReturnTarget`). Home is the stack root, so Live TV here is a no-op.
+   */
+  const railSelect = (t: RailId) => {
     if (modalOpen() || kbOpen()) return;
-    const nav = tabNavigation('live', t);
-    if (nav.action === 'push') router.push(nav.to.screen, tabParams(nav.to));
+    goRail('live', t, () => undefined);
   };
 
   /** A click focuses the row like the D-pad, then the same rule as Ok: play in the small video, or fullscreen. */
@@ -923,7 +924,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   /** A click that focuses one of Home's nodes goes through Home's own focus areas (the compact keyboard's keys). */
   const focusFromPointer = (node: ElementNode) => {
-    const place: Place | undefined = node === tabsNode ? 'tabs' : node === groupNode ? 'groups' : node === barNode ? 'bar'
+    const place: Place | undefined = node === railNode ? 'rail' : node === groupNode ? 'groups' : node === barNode ? 'bar'
       : node === searchKbNode ? 'keyboard'
       : node === listNode || node === resultsNode ? 'list' : undefined;
     if (place) focusArea(place);
@@ -942,15 +943,15 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     playback.setRect(PREVIEW_RECT);
     // The guide's title index became ready, or a guide import finished: re-run the open query (as on Search).
-    // A source without live channels ends with focus on the tab bar (after a refresh, or when that refresh failed).
-    const tabsIfNoLive = () => { if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('tabs'); };
+    // A source without live channels ends with focus on the rail (after a refresh, or when that refresh failed).
+    const railIfNoLive = () => { if (alive && area() === 'groups' && !searching() && !modalOpen() && !kbOpen() && (groups().find((x) => x.id === GROUP_ALL)?.count ?? 0) === 0) focusArea('rail'); };
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && searching()) searcher.setQuery(query()); };
     const offs = [
       onEvent('progress', (p) => setProgress(p as Progress)),
       onEvent('refreshed', (e) => {
         setWaiting(false);
         void reload().then(() => {
-          tabsIfNoLive();
+          railIfNoLive();
         }).catch(() => undefined);
         rerun(e);
       }),
@@ -979,7 +980,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
           if (wasSearching) focusArea(total() > 0 ? 'list' : 'groups');
         }).catch(() => undefined);
       }),
-      onEvent('refreshFailed', () => { setWaiting(false); tabsIfNoLive(); }),
+      onEvent('refreshFailed', () => { setWaiting(false); railIfNoLive(); }),
       // Background short-EPG answers: refetch the cached pages holding those channels (visible ones right away).
       // The playing channel's info outside the list rows (preview panel) is re-read too.
       onEvent('nowNextUpdated', (e) => {
@@ -1010,11 +1011,11 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         // plays again through the same path as Ok (the refusal cooldown holds it; the dev resume gate applies).
         const playingId = playback.current()?.id
           ?? vodReturnTarget({
-            fromVod: focusTabsHint, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
+            fromVod: focusRailHint, fromSearch: vodReturn?.fromSearch, returnId: vodReturn?.id, held, gatePaused: devResume.paused(),
           });
         let g = pickGroup(gs, memory.groupId ?? params.lastGroupId);
         // An empty cache on first start: the list arrives with a later `refreshed` event. A source with only movies
-        // and series has no channels to wait for: it shows the no-live text and focuses the tab bar instead.
+        // and series has no channels to wait for: it shows the no-live text and focuses the rail instead.
         const allCount = gs.find((x) => x.id === GROUP_ALL)?.count ?? 0;
         if (waitsForChannels(allCount, initState()?.hasVod)) setWaiting(true);
         const vodOnly = allCount === 0 && initState()?.hasVod === true;
@@ -1035,8 +1036,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         if (resume && !searching()) void (playingId !== undefined ? playById(resume) : resumeLast(resume));
         setReady(true);
         if (!searching() && !exited()) {
-          const toTabs = focusTabsHint || (vodOnly && total() === 0 && router.topOverlay() === undefined);
-          focusArea(toTabs ? 'tabs' : total() > 0 ? 'list' : 'groups');
+          const toRail = focusRailHint || (vodOnly && total() === 0 && router.topOverlay() === undefined);
+          focusArea(toRail ? 'rail' : total() > 0 ? 'list' : 'groups');
         }
       } catch (err) {
         console.warn('Home load failed', err instanceof Error ? err.name : 'Error');
@@ -1063,8 +1064,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the top layer first
-    // Search mode, the bar and the tab bar route Back themselves (end search, or return to the list); the rest passes.
-    if (searching() || area() === 'bar' || area() === 'tabs') return nav(area(), 'back');
+    // Search mode, the bar and the rail route Back themselves (end search, or return to the list); the rest passes.
+    if (searching() || area() === 'bar' || area() === 'rail') return nav(area(), 'back');
     if (area() === 'groups' && total() > 0) return focusArea('list');
     return false;
   };
@@ -1093,8 +1094,8 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       <View x={PREVIEW_RECT.x + PREVIEW_RECT.w} y={PREVIEW_RECT.y} width={LAYOUT.width - PREVIEW_RECT.x - PREVIEW_RECT.w}
         height={PREVIEW_RECT.h} color={COLORS.background} />
 
-      <TabBar ref={(el) => { tabsNode = el; }} active="live" onSelect={goTab}
-        onDown={() => nav('tabs', 'down')} onFocusChanged={(f) => { if (f) setArea('tabs'); }} pointerEnabled={pointerOn()} />
+      <Rail ref={(el) => { railNode = el; }} active="live" onSelect={railSelect}
+        onRight={() => focusArea(total() > 0 ? 'list' : 'groups')} onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
       <SearchBar ref={(el) => { barNode = el; }} x={LIST_X} y={HEAD_Y} width={LIST_W} value={query()}
         count={searching() ? countText(sState()) : ''} editing={kbOpen()}
@@ -1108,7 +1109,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
       <View width={LAYOUT.width} height={LAYOUT.height} alpha={kbOpen() ? 0 : 1}>
         <GroupList ref={(el) => { groupNode = el; }} x={GROUP_X} y={BODY_Y} width={GROUP_W} height={LIST_H}
           groups={column().rows} selected={column().selected} onSelect={onGroupSelect} onRight={() => focusArea('list')}
-          onEdgeUp={() => nav('groups', 'up', true)} onRowClick={clickGroup} pointerEnabled={pointerOn()} />
+          onEdgeUp={() => nav('groups', 'up', true)} onLeft={() => nav('groups', 'left')} onRowClick={clickGroup} pointerEnabled={pointerOn()} />
       </View>
 
       <Show when={!searching()}>
@@ -1162,7 +1163,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
 
       <Show when={!pointerMode()}
         fallback={<PointerBar x={GROUP_X} y={HINT_Y - 14} height={48} items={homeBar} enabled={pointerOn()} />}>
-        <Text x={GROUP_X} y={HINT_Y} width={SAFE_W} maxWidth={SAFE_W} contain="width" maxLines={1} fontSize={FONT.small}
+        <Text x={GROUP_X} y={HINT_Y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={1} fontSize={FONT.small}
           color={COLORS.muted}>
           {searching() ? SEARCH_HINT : BROWSE_HINT}
         </Text>
@@ -1195,7 +1196,7 @@ export function HomeScreen(props: { entry: ScreenEntry }) {
         );
       }}</Show>
       <Show when={kbOpen()}>
-        <Keyboard ref={(el) => { searchKbNode = el; }} layout={COMPACT_LAYOUT} x={GROUP_X} y={HEAD_Y}
+        <Keyboard ref={(el) => { searchKbNode = el; }} layout={COMPACT_LAYOUT} x={HOME_SEARCH_KB_X} y={HEAD_Y}
           label="Channel or programme" value={query()} onChange={setBarText}
           onDone={() => fromKeyboard('done', false, true)}
           onEdgeRight={() => fromKeyboard('right', true, false)} onEdgeUp={() => fromKeyboard('up', true, false)} />

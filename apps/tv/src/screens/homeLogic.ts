@@ -81,9 +81,9 @@ export function resumeTarget(s: {
   return s.lastChannelId;
 }
 
-/** Back from Movies, Series or Start returns with `focusTabs` or `focusRail`; either counts as returning from a VOD screen. */
-export function returnedFromVod(params: { focusTabs?: unknown; focusRail?: unknown }): boolean {
-  return params.focusTabs === true || params.focusRail === true;
+/** Back from Movies, Series or Start (or Live TV on their rail) returns to Home with `focusRail`. */
+export function returnedToLive(params: { focusRail?: unknown }): boolean {
+  return params.focusRail === true;
 }
 
 /**
