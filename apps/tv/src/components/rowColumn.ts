@@ -2,7 +2,7 @@ import type { ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on } from 'solid-js';
 import { stopMotion, tween } from '../shell/motion.ts';
 import { MOTION } from '../shell/theme.ts';
-import { rowShift, rowSlots, rowTops, type RowFrame } from './rowSlots.ts';
+import { columnHeight, rowShift, rowSlots, rowTops, type RowFrame } from './rowSlots.ts';
 
 const sameNumbers = (a: readonly number[], b: readonly number[]): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
 
@@ -53,5 +53,9 @@ export function useRowColumn(opts: {
     rows,
     /** A row's y in the column. */
     rowY: (i: number) => tops()[i] ?? 0,
+    /** A row's height; set it on the row node, which otherwise takes the column's height less its y. */
+    rowH: (i: number) => heights()[i] ?? 0,
+    /** The column's height (all its rows); set it on the column node so the renderer never culls it while it slides. */
+    height: () => columnHeight(heights(), opts.frame().gap),
   };
 }

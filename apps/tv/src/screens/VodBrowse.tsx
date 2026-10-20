@@ -522,11 +522,11 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
           {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped under the strip). */}
           <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
-            <View ref={column.ref} width={LAYOUT.width}>
+            <View ref={column.ref} width={LAYOUT.width} height={column.height()}>
               <For each={column.rows()}>{(i) => {
                 const r = () => rows()[i]!;
                 return (
-                  <View y={column.rowY(i)}>
+                  <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
                     <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()}
                       focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
