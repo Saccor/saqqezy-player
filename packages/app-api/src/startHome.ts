@@ -3,12 +3,15 @@ import type { ChannelRow, SportsEventTile, StartCell, StartHome, StartRow, Start
 
 export const START_TITLES: Record<StartRowId, string> = {
   continue: 'Continue watching', live: 'Live now', sports: 'Sports in your guide',
+  trendingMovies: 'Trending movies', trendingSeries: 'Trending series',
   newMovies: 'Recently added movies', newSeries: 'Recently added series',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',
 };
-export const START_CAPS = { continue: 20, live: 30, sports: 30, new: 20, top: 20 } as const;
+export const START_CAPS = { continue: 20, live: 30, sports: 30, trending: 20, new: 20, top: 20 } as const;
 /** A Top rated row shows only when the library has at least this many rated titles of that kind. */
 export const START_TOP_MIN = 6;
+/** A Trending row shows only when at least this many trending titles are in the library. */
+export const START_TRENDING_MIN = 4;
 
 export interface StartParts {
   lastChannel?: ChannelRow;
@@ -20,6 +23,12 @@ export interface StartParts {
   /** The best-rated titles (the provider's `rating`; unrated ones never) and how many are rated. */
   topMovies?: { items: VodTile[]; total: number };
   topSeries?: { items: VodTile[]; total: number };
+  /**
+   * Trending titles the library has (spec 2026-10-20-trending-design §5), feed order; undefined while unknown (no
+   * feed copy yet, or that kind's catalogue never resident), so the cached row stays.
+   */
+  trendingMovies?: VodTile[];
+  trendingSeries?: VodTile[];
 }
 
 const row = (id: StartRowId, cells: StartCell[]): StartRow => ({ id, title: START_TITLES[id], cells });
@@ -45,6 +54,13 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
   const sports: StartCell[] = p.sports.slice(0, START_CAPS.sports).map((event) => ({ type: 'event', event }));
   if (p.sports.length > START_CAPS.sports) sports.push({ type: 'viewAll', target: 'sports', total: p.sports.length });
   rows.push(row('sports', sports));
+
+  const trendRow = (id: 'trendingMovies' | 'trendingSeries', part: VodTile[] | undefined) => {
+    if (part === undefined) return fromCache(id);
+    if (part.length < START_TRENDING_MIN) return undefined;
+    return row(id, part.slice(0, START_CAPS.trending).map((tile) => ({ type: 'vod', tile })));
+  };
+  rows.push(trendRow('trendingMovies', p.trendingMovies), trendRow('trendingSeries', p.trendingSeries));
 
   const vodRow = (id: 'newMovies' | 'newSeries', part: StartParts['newMovies'], target: 'movie' | 'series') => {
     if (part === undefined) return fromCache(id);

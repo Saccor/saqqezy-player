@@ -2490,3 +2490,76 @@ describe('AppApi – sports in your guide', () => {
     expect(await api.getStartHomeCached()).toBeUndefined();
   });
 });
+
+describe('AppApi – trending rows', () => {
+  const FEED_BASE = 'https://feed.example.test/trending';
+  const feedFor = (kind: 'movie' | 'series') => ({
+    v: 1, kind, lang: 'en', at: '2026-10-20T00:00:00Z',
+    items: kind === 'movie'
+      ? [3, 1, 5, 7, 9].map((n, i) => ({ rank: i + 1, wd: `Q${900_000 + n}`, year: 2000 + n, titles: [`Synthetic Film ${String(n).padStart(3, '0')}`] }))
+        .concat([{ rank: 6, wd: 'Q999999', year: 2030, titles: ['Synthetic Absent Film'] }])
+      : [{ rank: 1, wd: 'Q1', titles: ['Synthetic Series 01'] }],
+  });
+
+  const makeTrending = (feedFetch: (url: string, init: RequestInit) => Promise<Response>) => {
+    const st = new MemoryStorage();
+    const deps = { storage: st, fetch: (u: string, i?: RequestInit) => fetch(u, i), now: () => NOW };
+    const api = new AppApi({
+      service: new SourceService(deps), vod: new VodService(deps), storage: st, emit: () => {}, now: () => NOW,
+      trending: { baseUrl: FEED_BASE, fetch: feedFetch },
+    });
+    live.push(api);
+    return api;
+  };
+
+  test('the library\'s trending titles after Sports and before Recently added; at least 4; absent titles never shown', async () => {
+    const asked: string[] = [];
+    const api = makeTrending(async (url, init) => {
+      asked.push(url);
+      expect(init).toEqual({ credentials: 'omit', referrerPolicy: 'no-referrer' });
+      const kind = url.includes('/movie.') ? 'movie' : 'series';
+      return new Response(JSON.stringify(feedFor(kind)));
+    });
+    await api.addSource(xt());
+    await api.idle();
+    await api.getStartHome(); // first visit: the feed is fetched in the background
+    await api.idle();
+    await api.getVodHome('movie');
+    await api.idle();
+    await api.getVodHome('movie');
+    const h = await api.getStartHome();
+    const ids = h.rows.map((r) => r.id);
+    expect(ids.indexOf('trendingMovies')).toBeLessThan(ids.indexOf('newMovies'));
+    const row = h.rows.find((r) => r.id === 'trendingMovies')!;
+    expect(row.title).toBe('Trending movies');
+    expect(row.cells.map((c) => (c.type === 'vod' ? c.tile.title : ''))).toEqual(
+      ['Synthetic Film 003', 'Synthetic Film 001', 'Synthetic Film 005', 'Synthetic Film 007', 'Synthetic Film 009'],
+    );
+    // One series matches: under the minimum of 4, so no row.
+    expect(ids).not.toContain('trendingSeries');
+    expect(asked.every((u) => u.startsWith(`${FEED_BASE}/v1/`))).toBe(true);
+  });
+
+  test('without a feed URL there is no trending row and no request', async () => {
+    const { api } = makeVod(new MemoryStorage(), async (u, i) => {
+      expect(u).not.toContain('trending');
+      return fetch(u, i);
+    });
+    await api.addSource(xt());
+    await api.idle();
+    await api.getVodHome('movie');
+    await api.idle();
+    await api.getVodHome('movie');
+    const h = await api.getStartHome();
+    expect(h.rows.map((r) => r.id)).not.toContain('trendingMovies');
+  });
+
+  test('a failing feed never fails Start', async () => {
+    const api = makeTrending(async () => { throw new TypeError('fetch failed'); });
+    await api.addSource(xt());
+    await api.idle();
+    const h = await api.getStartHome();
+    await api.idle();
+    expect(h.rows.map((r) => r.id)).not.toContain('trendingMovies');
+  });
+});

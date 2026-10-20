@@ -8,6 +8,7 @@ export {
   VOD_ROW_FAVOURITES, VOD_ROW_ITEMS, VOD_ROW_RECENT, type VodControllerDeps,
 } from './vodController.ts';
 export { formatOf, type StreamFormat } from './streamFormat.ts';
+export { TrendingService, TRENDING_BACKOFF_MS, TRENDING_FRESH_MS, type TrendingServiceDeps } from './trending.ts';
 export { worseCooldown } from './cooldown.ts';
 export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } from './rpc.ts';
 export type {
