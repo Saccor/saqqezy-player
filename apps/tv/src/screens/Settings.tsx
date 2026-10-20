@@ -6,11 +6,10 @@ import { rowAt } from '../input/pointerLogic.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { Rail } from '../shell/Rail.tsx';
-import { belowTab, type RailId } from '../shell/railLogic.ts';
+import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
-import type { VodKind } from '../vod/tabLogic.ts';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
 import { DiagnosticsPage } from './settings/DiagnosticsPage.tsx';
@@ -96,11 +95,8 @@ function Menu(props: {
  * which ignores Back).
  */
 export function SettingsScreen() {
-  /** The tab of the screen under Settings, for the rail (unknown: a tab choice only pops Settings). */
-  const lower = router.below();
-  const below = lower?.screen === 'home' || lower?.screen === 'start' || lower?.screen === 'vod'
-    ? belowTab(lower.screen, (lower.params as { kind?: VodKind } | undefined)?.kind, 'movie')
-    : undefined;
+  /** What is under Settings, for the rail (a tab's screen, the library grid over one, or unknown: a tab choice only pops). */
+  const below = railBelow(router.below(1), router.below(2));
   const [page, setPage] = createSignal(Math.min(memory.page, SETTINGS_PAGES.length - 1));
   const [area, setArea] = createSignal<'menu' | 'page'>('menu');
   const [dialog, setDialog] = createSignal<{ message: string; yes: string; answer: (yes: boolean) => void } | undefined>();

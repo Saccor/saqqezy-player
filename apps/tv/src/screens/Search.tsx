@@ -13,9 +13,8 @@ import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
-import type { VodKind } from '../vod/tabLogic.ts';
 import { Rail } from '../shell/Rail.tsx';
-import { belowTab, type RailId } from '../shell/railLogic.ts';
+import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
@@ -62,11 +61,8 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     memory.returning = false;
   }
   delete params.query;
-  /** The tab of the screen under Search, for the rail (unknown: a tab choice only pops Search). */
-  const lower = router.below();
-  const below = lower?.screen === 'home' || lower?.screen === 'start' || lower?.screen === 'vod'
-    ? belowTab(lower.screen, (lower.params as { kind?: VodKind } | undefined)?.kind, 'movie')
-    : undefined;
+  /** What is under Search, for the rail (a tab's screen, the library grid over one, or unknown: a tab choice only pops). */
+  const below = railBelow(router.below(1), router.below(2));
 
   const [query, setQuery] = createSignal(memory.query);
   const [state, setState] = createSignal<SearchState<SearchRows>>({ query: '', results: NO_ROWS, busy: false, failed: false });
