@@ -293,6 +293,29 @@ describe('AppApi', () => {
     }
   });
 
+  test('getEpgRows reads the stored guide once per page (the window), with lite rows without now/next', async () => {
+    let reads = 0;
+    class Counting extends SourceService {
+      override async programmesFor(id: string, channels: Channel[], from: number, to: number): Promise<Map<string, Programme[]>> {
+        reads++;
+        return super.programmesFor(id, channels, from, to);
+      }
+    }
+    const { api } = make(storage, Counting);
+    await api.addSource(xt());
+    await api.refresh('epg');
+    reads = 0;
+    const r = await api.getEpgRows('all', 0, 3, NOW, NOW + 3 * 3600_000);
+    expect(reads).toBe(1);
+    expect(r.rows.map((row) => row.channel.name)).toHaveLength(3);
+    for (const row of r.rows) {
+      expect(row.programmes.length).toBeGreaterThan(0);
+      expect(row.channel.now).toBeUndefined();
+      expect(row.channel.next).toBeUndefined();
+      expect(typeof row.channel.favourite).toBe('boolean');
+    }
+  });
+
   test('search: channels only when nothing in the guide matches', async () => {
     const { api } = make();
     await api.addSource(xt());

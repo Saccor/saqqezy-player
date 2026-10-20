@@ -409,8 +409,9 @@ export class AppApi {
     Promise<{ total: number; rows: { channel: ChannelRow; programmes: ProgrammeLite[] }[] }> {
     return this.run('getEpgRows', async () => {
       const channels = this.index.slice(groupId, offset, count);
-      // The guide grid shows stored programmes only: no background short-EPG lookups from here.
-      const rows = await this.toRows(channels);
+      // The guide grid draws the programmes it is given, never a row's now/next: lite rows, and no storage read
+      // for them (nor a background short-EPG lookup).
+      const rows = this.liteRows(channels);
       const id = this.activeId;
       const settings = await this.currentSettings();
       const shifts = channels.map((c) => settings.epgOffsetHours + (c.epgShift ?? 0));
@@ -1586,6 +1587,16 @@ export class AppApi {
       this.shortJobs.delete(job);
     }).catch(noop); // fire-and-forget: a failing listener must not become an unhandled rejection
     this.shortJobs.add(job);
+  }
+
+  /** Rows without now/next (the Guide draws its own programmes): no storage read at all. */
+  private liteRows(channels: Channel[]): ChannelRow[] {
+    const favs = this.favourites();
+    return channels.map((c) => {
+      const row: ChannelRow = { id: c.id, number: c.number, name: c.name, group: c.group, favourite: favs.has(c.id) };
+      if (c.logo) row.logo = c.logo;
+      return row;
+    });
   }
 
   /** Rows with now/next from the stored guide and cached short-EPG answers. Never starts a short-EPG lookup. */
