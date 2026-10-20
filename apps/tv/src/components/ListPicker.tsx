@@ -13,6 +13,7 @@ const PAD = 32;
 const HEAD = 64;
 const VIEW_ROWS = 7;
 const CHECK_W = 48;
+const HELP_LINE_GAP = 8;
 
 /**
  * "Add to list…" picker over a scrim: the user's lists with a check on those holding the channel, then
@@ -40,7 +41,9 @@ export function ListPicker(props: {
   let panel: ElementNode | undefined;
   let top = 0;
   const shown = () => Math.min(VIEW_ROWS, Math.max(props.rows.length, 1));
-  const height = () => PAD * 2 + HEAD + shown() * STEP + 40;
+  /** A row with help (a long release name, a how-to) gets a two-line footer. */
+  const helpLines = () => (props.rows.some((r) => r.kind === 'list' && r.help) ? 2 : 1);
+  const height = () => PAD * 2 + HEAD + shown() * STEP + 40 + (helpLines() - 1) * (TYPE.meta + HELP_LINE_GAP);
   // The selection survives row changes (a toggle re-reads the lists), clamped to the new length.
   const current = () => Math.min(sel(), Math.max(0, props.rows.length - 1));
   const scrollTop = createMemo(() => {
@@ -118,7 +121,7 @@ export function ListPicker(props: {
           );
         }}</For>
         <Text x={PAD} y={PAD + HEAD + shown() * STEP} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width"
-          maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
+          maxLines={helpLines()} fontSize={TYPE.meta} color={COLORS.muted}>
           {more() ? `${more()} · ${hint()}` : hint()}
         </Text>
       </View>

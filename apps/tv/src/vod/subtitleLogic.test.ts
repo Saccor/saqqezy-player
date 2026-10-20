@@ -173,6 +173,14 @@ describe('subtitle speed', () => {
     expect(autoSpeed(25, 23.976)).toBeCloseTo(0.959, 3);
     expect(autoSpeed(23.976, 25)).toBe(SPEED_FILM_TO_PAL);
     expect(autoSpeed(24, 25)).toBe(SPEED_FILM_TO_PAL);
+    expect(autoSpeed(25, 24)).toBe(SPEED_PAL_TO_FILM);
+    // Not a 24/25 pair: no fixed factor fits, Normal.
+    expect(autoSpeed(25, 50)).toBe(1);
+    expect(autoSpeed(50, 25)).toBe(1);
+    expect(autoSpeed(23.976, 29.97)).toBe(1);
+    expect(autoSpeed(23.976, 59.94)).toBe(1);
+    expect(autoSpeed(30, 25)).toBe(1);
+    expect(autoSpeed(25, 30)).toBe(1);
     expect(autoSpeed(25, 25)).toBe(1);
     expect(autoSpeed(undefined, 25)).toBe(1);
     expect(autoSpeed(25, undefined)).toBe(1);
@@ -218,7 +226,7 @@ describe('subtitle speed', () => {
 
 describe('subtitle versions', () => {
   it('release, frame rate and exact match, parts only when known', () => {
-    expect(versionLabel({ release: 'Rel.2020', fps: 25, synced: true }, 1)).toBe('Rel.2020 · 25 fps · matches this file');
+    expect(versionLabel({ release: 'Rel.2020', fps: 25, synced: true }, 1)).toBe('Rel.2020 · 25 fps · exact match');
     expect(versionLabel({ release: 'Synthetic.Release', fps: 23.976, synced: false }, 1)).toBe('Synthetic.Release · 23.976 fps');
     expect(versionLabel({ release: 'Synthetic.Release', synced: false }, 1)).toBe('Synthetic.Release');
     expect(versionLabel({ release: '  ', synced: false }, 3)).toBe('Version 3');
@@ -229,8 +237,8 @@ describe('subtitle versions', () => {
     const long = 'Synthetic.Release.Name.That.Goes.On.And.On.1080p.x264';
     const l = versionLabel({ release: long, fps: 25, synced: true }, 1);
     expect(l.length).toBeLessThanOrEqual(VERSION_LABEL_MAX);
-    expect(l.endsWith('… · 25 fps · matches this file')).toBe(true);
-    expect(l.startsWith('Synthet')).toBe(true);
+    expect(l.endsWith('… · 25 fps · exact match')).toBe(true);
+    expect(l.startsWith('Synthetic.Rel')).toBe(true);
     const plain = versionLabel({ release: long, synced: false }, 1);
     expect(plain.length).toBe(VERSION_LABEL_MAX);
     expect(plain.endsWith('…')).toBe(true);
@@ -242,9 +250,13 @@ describe('subtitle versions', () => {
       { fileId: 12, release: 'B', synced: true, downloads: 1 },
     ], 12);
     expect(rows).toEqual([
-      { kind: 'list', id: 'v:11', label: 'A · 25 fps', checked: false },
-      { kind: 'list', id: 'v:12', label: 'B · matches this file', checked: true },
+      { kind: 'list', id: 'v:11', label: 'A · 25 fps', checked: false, help: 'A' },
+      { kind: 'list', id: 'v:12', label: 'B · exact match', checked: true, help: 'B' },
     ]);
+    // The footer shows the whole release name; none without one.
+    const long = 'Synthetic.Release.Name.That.Goes.On.And.On.1080p';
+    expect(versionRows([{ fileId: 13, release: ` ${long} `, synced: false }])[0]).toMatchObject({ help: long });
+    expect('help' in versionRows([{ fileId: 14, release: '', synced: false }])[0]!).toBe(false);
     expect(versionFileId('v:12')).toBe(12);
     expect(versionFileId('os:12')).toBeUndefined();
     expect(versionFileId('v:x')).toBeUndefined();

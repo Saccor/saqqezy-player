@@ -68,6 +68,8 @@ export const SPEED_HELP = 'Fixes subtitles that drift further off as the film go
 
 /** Frame rates closer than this are the same rate (30 and 29.97 differ by 0.1%: no visible drift in a film). */
 const FPS_SAME = 0.5;
+/** How close videoFps / subFps must be to a factor for the automatic speed (24 vs 25 counts; 24 vs 23.976 does not differ). */
+const AUTO_SPEED_TOLERANCE = 0.005;
 
 /** The time in the subtitle file to show at the video's `positionMs`: the delay first, then the speed. */
 export function subtitleTime(positionMs: number, delayMs: number, speed: SubtitleSpeed): number {
@@ -90,8 +92,10 @@ export function normalizeSpeed(speed: number | undefined): SubtitleSpeed {
  */
 export function autoSpeed(subFps?: number, videoFps?: number): SubtitleSpeed {
   if (!knownFps(subFps) || !knownFps(videoFps) || Math.abs(subFps - videoFps) <= FPS_SAME) return 1;
+  // Only the 24/25 pairs: 25 vs 50 or 23.976 vs 29.97 is no speed difference a fixed factor fixes.
   const ratio = videoFps / subFps;
-  return Math.abs(ratio - SPEED_PAL_TO_FILM) <= Math.abs(ratio - SPEED_FILM_TO_PAL) ? SPEED_PAL_TO_FILM : SPEED_FILM_TO_PAL;
+  for (const s of [SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL]) if (Math.abs(ratio - s) / s <= AUTO_SPEED_TOLERANCE) return s;
+  return 1;
 }
 
 /** "Normal", "25 → 23.976", "23.976 → 25". */
@@ -198,23 +202,29 @@ const VERSION_PREFIX = 'v:';
 const fpsText = (fps: number) => `${Number(fps.toFixed(3))} fps`;
 
 /**
- * "Release.Name · 25 fps · matches this file": the frame rate and the match only when known; "Version 3" without a
+ * "Release.Name · 25 fps · exact match": the frame rate and the match only when known; "Version 3" without a
  * release name. A long name is cut (with "…") so the whole label fits VERSION_LABEL_MAX.
  */
 export function versionLabel(v: { release: string; fps?: number; synced: boolean }, n: number): string {
-  const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'matches this file' : ''].filter(Boolean);
+  const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'exact match' : ''].filter(Boolean);
   const tail = parts.map((t) => ` · ${t}`).join('');
-  let name = v.release.trim().replace(/\s+/g, ' ') || `Version ${n}`;
+  let name = releaseName(v.release) || `Version ${n}`;
   const room = Math.max(8, VERSION_LABEL_MAX - tail.length);
   if (name.length > room) name = `${name.slice(0, room - 1).trimEnd()}…`;
   return name + tail;
 }
 
-/** The versions picker: one row per version, best first, the loaded one checked. */
+const releaseName = (release: string) => release.trim().replace(/\s+/g, ' ');
+
+/** The versions picker: one row per version, best first, the loaded one checked; the footer shows the whole release. */
 export function versionRows(versions: readonly VersionInfo[], loadedFileId?: number): PickerRow[] {
-  return versions.map((v, i) => ({
-    kind: 'list', id: `${VERSION_PREFIX}${v.fileId}`, label: versionLabel(v, i + 1), checked: v.fileId === loadedFileId,
-  }));
+  return versions.map((v, i) => {
+    const release = releaseName(v.release);
+    return {
+      kind: 'list', id: `${VERSION_PREFIX}${v.fileId}`, label: versionLabel(v, i + 1), checked: v.fileId === loadedFileId,
+      ...(release ? { help: release } : {}),
+    };
+  });
 }
 
 /** The file id a versions row loads; undefined for any other row. */

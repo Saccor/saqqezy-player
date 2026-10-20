@@ -9,6 +9,7 @@ import { codecFamily } from '../vod/tracks.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';
+import { fpsFromSamples, type FrameSample } from './frameRate.ts';
 import { cueTextOf, nativeHlsPreferred } from './trackSupport.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
@@ -111,6 +112,10 @@ interface NativeTextTrackList { length: number; [i: number]: NativeTextTrack }
 const isSubtitleKind = (t: NativeTextTrack | undefined): t is NativeTextTrack => t?.kind === 'subtitles' || t?.kind === 'captions';
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_S = 1;
+/** How long frame callbacks are sampled to measure the frame rate. */
+const FPS_SAMPLE_MS = 1000;
+/** How many measured frame rates are kept (per opened URL). */
+const MEASURED_FPS_MAX = 20;
 /** hls.js back buffer for VOD (s): short rewinds stay in the buffer. */
 const VOD_BACK_BUFFER_S = 60;
 /** hls.js options that only steer a live stream; a VOD session leaves them at the library defaults. */
@@ -149,6 +154,10 @@ export class Html5Player implements Player {
   private readonly isTv: boolean;
   private readonly autoMute: AutoMute;
   private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
+  /** Frame rates measured from presented frames, per opened URL (oldest first). */
+  private readonly measuredFps = new Map<string, number>();
+  /** The frame-rate measurement in progress. */
+  private fpsSampling: { cancel: () => void } | undefined;
 
   constructor(private readonly layer: VideoLayer, opts: { preferNativeHls?: boolean; isTv?: boolean } = {}) {
     this.video = layer.video;
@@ -422,6 +431,7 @@ export class Html5Player implements Player {
     const v = this.video;
     const e = s?.engine;
     if (!s || !e) return false;
+    this.stopFpsSampling();
     // No live edge: seeking "to live" would jump to the end of a file.
     if (!s.live || this.liveOf(s) === false) return true;
     if (e.kind === 'hls') {
@@ -466,6 +476,7 @@ export class Html5Player implements Player {
 
   /** Sets the playhead clamped to [0, duration − 1 s]; false while the duration is not finite. */
   private seekTo(ms: number): boolean {
+    this.stopFpsSampling();
     const d = this.video.duration;
     if (!Number.isFinite(d) || d <= 0) return false;
     this.video.currentTime = Math.min(Math.max(0, ms / 1000), Math.max(0, d - SEEK_END_MARGIN_S));
@@ -679,6 +690,7 @@ export class Html5Player implements Player {
   }
 
   stop(): void {
+    this.stopFpsSampling();
     const s = this.session;
     if (!s) return;
     s.dead = true;
@@ -788,7 +800,60 @@ export class Html5Player implements Player {
       if (mi?.audioCodec) info.audioCodec = this.session?.audioUnsupported ? `${mi.audioCodec} (not supported here)` : mi.audioCodec;
       if (mi?.fps) info.fps = mi.fps;
     }
+    // The engine has no rate (a plain file, or a playlist without one): the rate measured from presented frames.
+    if (info.fps === undefined) {
+      const url = this.session?.url;
+      const measured = url === undefined ? undefined : this.measuredFps.get(url);
+      if (measured !== undefined) info.fps = measured;
+      else this.measureFps();
+    }
     return info;
+  }
+
+  /**
+   * Starts measuring the playing video's frame rate (about FPS_SAMPLE_MS of frame callbacks while it plays at
+   * normal speed); the result is kept per opened URL. Nothing where the browser has no video frame callback.
+   */
+  private measureFps(): void {
+    const v = this.video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number; presentedFrames: number }) => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const s = this.session;
+    const request = v.requestVideoFrameCallback;
+    if (!s || this.fpsSampling || typeof request !== 'function' || v.paused || v.playbackRate !== 1) return;
+    const samples: FrameSample[] = [];
+    let handle = 0;
+    let startedAt: number | undefined;
+    const sampling = { cancel: () => v.cancelVideoFrameCallback?.(handle) };
+    const step = (now: number, meta: { mediaTime: number; presentedFrames: number }) => {
+      if (this.fpsSampling !== sampling || s !== this.session) return;
+      if (v.playbackRate !== 1) {
+        this.fpsSampling = undefined; // asked again later
+        return;
+      }
+      samples.push({ mediaTime: meta.mediaTime, presentedFrames: meta.presentedFrames });
+      startedAt ??= now;
+      if (now - startedAt < FPS_SAMPLE_MS) {
+        handle = request.call(v, step);
+        return;
+      }
+      this.fpsSampling = undefined;
+      const fps = fpsFromSamples(samples);
+      if (fps === undefined) return;
+      this.measuredFps.set(s.url, fps);
+      if (this.measuredFps.size > MEASURED_FPS_MAX) {
+        const oldest = this.measuredFps.keys().next().value;
+        if (oldest !== undefined) this.measuredFps.delete(oldest);
+      }
+    };
+    this.fpsSampling = sampling;
+    handle = request.call(v, step);
+  }
+
+  private stopFpsSampling(): void {
+    this.fpsSampling?.cancel();
+    this.fpsSampling = undefined;
   }
 
   position(): number {

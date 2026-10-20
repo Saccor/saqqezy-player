@@ -168,6 +168,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let versionList: { language: string; versions: VersionInfo[] } | undefined;
   /** Ticks left to wait for the video's frame rate before the loaded file's automatic speed is given up. */
   let autoSpeedTries = 0;
+  /** Ticks left asking for the video's frame rate early (about 10 s of playing). */
+  let fpsPrimeTicks = 40;
   let delaySaveTimer: ReturnType<typeof setTimeout> | undefined;
   let cardNode: ElementNode | undefined;
   let barFocused = false;
@@ -662,20 +664,21 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
    * A loaded file with no speed set: when its frame rate and the video's are both known and differ, the matching
    * speed is set (and said). Waits a few ticks for the engine to report the video's rate; a set speed is kept.
    */
-  const applyAutoSpeed = () => {
+  const applyAutoSpeed = (quiet = false): boolean => {
     const ext = external();
-    if (!ext || ext.speed !== undefined || ext.fps === undefined || autoSpeedTries <= 0) return;
+    if (!ext || ext.speed !== undefined || ext.fps === undefined || autoSpeedTries <= 0) return false;
     const fps = videoFps();
     if (fps === undefined) {
       autoSpeedTries--;
-      return;
+      return false;
     }
     autoSpeedTries = 0;
     const speed = autoSpeed(ext.fps, fps);
-    if (speed === 1) return;
+    if (speed === 1) return false;
     setSpeedFor(ext, speed);
     refreshRows();
-    showToast('Subtitle speed adjusted to match the video');
+    if (!quiet) showToast('Subtitle speed adjusted to match the video');
+    return true;
   };
 
   const removeExternal = () => {
@@ -708,8 +711,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (!alive) return undefined;
       useLoaded(loaded);
       useExternal();
-      showToast(`Subtitles on: ${oneSpace(toastName ?? loaded.name)}`);
-      applyAutoSpeed();
+      // One toast: the file, and the speed when it was matched to the video at once.
+      const matched = applyAutoSpeed(true);
+      showToast(`Subtitles on: ${oneSpace(toastName ?? loaded.name)}${matched ? ' · speed matched to the video' : ''}`);
       return undefined;
     } catch (err) {
       console.warn('Subtitle load failed', errName(err));
@@ -1197,6 +1201,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
       // A loaded file without a speed: set it once the engine reports the video's frame rate.
       if (playing && autoSpeedTries > 0) applyAutoSpeed();
+      // Where the engine reports no frame rate it is measured once playing: ask early, so a search has it.
+      if (playing && fpsPrimeTicks > 0 && !cu) fpsPrimeTicks = videoFps() === undefined ? fpsPrimeTicks - 1 : 0;
       // Arm progress saves as soon as the start seek has landed.
       if (!saveArmed) arm();
       // Catch-up: the programme's end reached (the archive may run on into the next one, or reach live).

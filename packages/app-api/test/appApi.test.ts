@@ -2393,6 +2393,36 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     expect(urls).toHaveLength(4);
   });
 
+  test('kept versions belong to the file playing and the exact-match setting', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', async () => '0123456789abcdef',
+      (u, i) => { if (new URL(u).pathname.endsWith('/subtitles')) urls.push(u); return fetch(u, i); });
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(1);
+    // Exact match turned on: the list is made again (now with the hash), then kept.
+    await api.saveSettings({ subtitleExactMatch: true });
+    expect((await api.subtitleVersions(movieId, 'en'))[0]).toMatchObject({ synced: true });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(2);
+    // Another version of the movie picked (the id now plays another file): its own list.
+    const real = VodController.prototype.playable;
+    const spy = vi.spyOn(VodController.prototype, 'playable').mockImplementation(async function (this: VodController, ...args) {
+      const out = await real.apply(this, args);
+      return out && { ...out, url: out.url.replace(/(\.\w+)$/, '-other$1') };
+    });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    spy.mockRestore();
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    // Exact match off again: the list made without the hash is still kept.
+    await api.saveSettings({ subtitleExactMatch: false });
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+  });
+
   test('a version loaded from the list keeps its language, file id and frame rate; its speed is kept with it', async () => {
     const api = makeOnline();
     await api.addSource(xt());

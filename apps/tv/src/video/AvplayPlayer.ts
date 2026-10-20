@@ -3,6 +3,7 @@ import type {
 } from '@iptv/player';
 import { codecFamily } from '../vod/tracks.ts';
 import { avplayBuffering } from './engineConfig.ts';
+import { fpsFromTrackExtra } from './frameRate.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH, FULLSCREEN } from './videoLayer.ts';
 
 /** The part of Samsung's `webapis.avplay` this player uses (injected, so it is testable without a TV). */
@@ -374,6 +375,8 @@ export class AvplayPlayer implements Player {
         if (h) info.height = h;
         if (codec) info.videoCodec = codec;
         if (bitrate) info.bitrate = bitrate;
+        const fps = fpsFromTrackExtra(x);
+        if (fps) info.fps = fps;
       } else if (t.type === 'AUDIO') {
         const codec = str(x.fourCC);
         if (codec) info.audioCodec = codec;

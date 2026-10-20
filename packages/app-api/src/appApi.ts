@@ -942,8 +942,11 @@ export class AppApi {
       this.onlineOrThrow();
       const lang = language.trim();
       if (!lang) return [];
-      // Kept for the session (a reopen of the title asks nothing); a failed search is not kept.
-      const key = JSON.stringify([itemId, seriesId ?? '', lang, videoFps ?? 0]);
+      // Kept for the session (a reopen of the title asks nothing); a failed search is not kept. With exact match on,
+      // the list belongs to the file playing (a picked version under the same id is another file) and to the setting.
+      const exact = (await this.currentSettings()).subtitleExactMatch && this.fileHash !== undefined;
+      const file = exact ? (await this.vodOrThrow().playable(itemId, seriesId))?.url ?? '' : '';
+      const key = JSON.stringify([itemId, seriesId ?? '', lang, videoFps ?? 0, exact, file]);
       let list = this.versionLists.get(key);
       if (list) this.versionLists.delete(key); // Re-inserted below: the most recently used is last.
       else list = this.searchVersions(itemId, lang, seriesId, videoFps);
@@ -2018,7 +2021,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed','refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
