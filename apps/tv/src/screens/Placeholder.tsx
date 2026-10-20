@@ -1,8 +1,8 @@
 import { For, Text, View } from '@lightningtv/solid';
-import { createSignal } from 'solid-js';
 import { Row } from '@lightningtv/solid/primitives';
+import { Button, BUTTON_H } from '../components/Button.tsx';
 import { router, type ScreenEntry, type ScreenId } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 
 const TITLES: Record<ScreenId, string> = {
   addSource: 'Add source',
@@ -23,18 +23,9 @@ const TITLES: Record<ScreenId, string> = {
 const HOME_LINKS: ScreenId[] = ['search', 'settings', 'player', 'addSource'];
 
 const BTN_W = 220;
-const BTN_H = 80;
 
 function LinkButton(props: { target: ScreenId }) {
-  const [focused, setFocused] = createSignal(false);
-  return (
-    <View width={BTN_W} height={BTN_H} borderRadius={LAYOUT.radius} onFocusChanged={setFocused}
-      color={focused() ? COLORS.focus : COLORS.background}
-      onEnter={() => { router.push(props.target); return true; }}>
-      <Text y={(BTN_H - FONT.body) / 2 - 4} width={BTN_W} maxWidth={BTN_W} contain="width" textAlign="center"
-        fontSize={FONT.body} color={focused() ? COLORS.onFocus : COLORS.text}>{TITLES[props.target]}</Text>
-    </View>
-  );
+  return <Button width={BTN_W} label={TITLES[props.target]} onPress={() => router.push(props.target)} />;
 }
 
 /** A titled panel naming the screen; stands in until the real screen lands. */
@@ -47,21 +38,21 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
   const rowW = HOME_LINKS.length * (BTN_W + LAYOUT.gap) - LAYOUT.gap;
 
   return (
-    <View width={LAYOUT.width} height={LAYOUT.height} color={screen === 'player' ? 0x00000000 : COLORS.background}>
+    <View width={LAYOUT.width} height={LAYOUT.height} color={screen === 'player' ? COLORS.transparent : COLORS.background}>
       <View x={LAYOUT.safeX} y={160} width={panelW} height={460} color={COLORS.surface}
         borderRadius={LAYOUT.radius * 2} forwardFocus={0}>
         {isHome
           ? (
-            <Row x={48} y={300} width={rowW} height={BTN_H} gap={LAYOUT.gap} scroll="none" autofocus>
+            <Row x={48} y={300} width={rowW} height={BUTTON_H} gap={LAYOUT.gap} scroll="none" autofocus>
               <For each={HOME_LINKS}>{(t) => <LinkButton target={t} />}</For>
             </Row>
           )
           : <View x={48} y={300} width={2} height={2} autofocus />}
-        <Text x={48} y={48} fontSize={FONT.title} color={COLORS.text}>{TITLES[screen]}</Text>
-        <Text x={48} y={124} fontSize={FONT.body} color={COLORS.muted}>
+        <Text x={48} y={48} fontSize={TYPE.display} color={COLORS.text}>{TITLES[screen]}</Text>
+        <Text x={48} y={124} fontSize={TYPE.body} color={COLORS.muted}>
           {`This is the ${TITLES[screen]} screen (placeholder).`}
         </Text>
-        <Text x={48} y={172} fontSize={FONT.small} color={COLORS.muted}>
+        <Text x={48} y={172} fontSize={TYPE.meta} color={COLORS.muted}>
           {`${params ? `Params: ${params}. ` : ''}${isHome ? 'Ok opens a screen. ' : ''}${isRoot ? 'Back asks to exit.' : 'Back returns.'}`}
         </Text>
       </View>

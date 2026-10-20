@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { captureTextInput } from '../input/keys.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { fieldDisplay } from './TextField.tsx';
 import {
   FULL_LAYOUT, applyKey, keyAt, keyLabel, moveCursor, textEntryKey, type Cursor, type Direction, type KeyDef, type KeyboardLayout,
@@ -10,7 +10,7 @@ import {
 
 export const KEYBOARD_W = FULL_LAYOUT.width;
 export const KEYBOARD_H = FULL_LAYOUT.height;
-const KEY_FILL = 0x1a1f2bff;
+const KEY_FILL = COLORS.surfaceRaised;
 
 /**
  * On-screen keyboard panel. The layout has QWERTY, digits, URL symbols, shortcuts and Shift/Space/⌫/Done,
@@ -39,6 +39,8 @@ export function Keyboard(props: {
   onToggleReveal?: () => void;
   /** Called when Right is pressed on the rightmost key (inline use: move focus to a neighbouring list). */
   onEdgeRight?: () => void;
+  /** Called when Left is pressed on the leftmost key (inline use: move focus to the rail). */
+  onEdgeLeft?: () => void;
   /** Called when Up is pressed on the top row (inline use: move focus to a field above). */
   onEdgeUp?: () => void;
   /** Replaces the default footer hint. */
@@ -110,7 +112,7 @@ export function Keyboard(props: {
   return (
     <View ref={(el) => { root = el; props.ref?.(el); }} x={props.x} y={props.y} width={L.width} height={L.height} zIndex={30}
       color={COLORS.surface} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.muted }}
-      onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => move('left')}
+      onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => moveOrEdge('left', props.onEdgeLeft)}
       onRight={() => moveOrEdge('right', props.onEdgeRight)}
       onEnter={() => {
         const c = cursor();
@@ -120,10 +122,10 @@ export function Keyboard(props: {
       }}
       onYellow={() => { props.onToggleReveal?.(); return true; }}
       {...digitHandlers}>
-      <Text x={L.pad} y={28} fontSize={FONT.small} color={COLORS.muted}>{props.label}</Text>
+      <Text x={L.pad} y={28} fontSize={TYPE.meta} color={COLORS.muted}>{props.label}</Text>
       <View x={L.pad} y={64} width={L.width - L.pad * 2} height={80} color={COLORS.background} borderRadius={LAYOUT.radius}>
         <Text x={20} y={22} width={L.width - L.pad * 2 - 40} maxWidth={L.width - L.pad * 2 - 40} contain="width" maxLines={1}
-          fontSize={30} color={COLORS.text}>{shown()}</Text>
+          fontSize={TYPE.body} color={COLORS.text}>{shown()}</Text>
       </View>
       <For each={L.rows}>{(row, r) => (
         <For each={row}>{(cell, c) => {
@@ -133,16 +135,15 @@ export function Keyboard(props: {
           const isShift = cell.def.kind === 'shift';
           return (
             <View x={L.pad + cell.x * L.unit} y={L.keysY + r() * L.rowStep} width={w} height={L.keyH} borderRadius={8}
-              color={focused() ? COLORS.focus : hovered() ? COLORS.hover : KEY_FILL}
-              border={{ width: 2, color: isShift && shift() ? COLORS.focus : 0x00000000 }}>
-              <Text y={(L.keyH - FONT.body) / 2 - 3} width={w} maxWidth={w} contain="width" textAlign="center"
-                fontSize={FONT.body} color={focused() ? COLORS.onFocus : COLORS.text}>{keyLabel(cell.def, shift())}</Text>
+              color={focused() ? COLORS.focus : isShift && shift() ? COLORS.subtle : hovered() ? COLORS.hover : KEY_FILL}>
+              <Text y={(L.keyH - TYPE.body) / 2 - 3} width={w} maxWidth={w} contain="width" textAlign="center"
+                fontSize={TYPE.body} color={focused() || (isShift && shift()) ? COLORS.onFocus : COLORS.text}>{keyLabel(cell.def, shift())}</Text>
             </View>
           );
         }}</For>
       )}</For>
       <Text x={L.pad} y={L.height - 56} width={L.width - L.pad * 2} maxWidth={L.width - L.pad * 2} contain="width"
-        fontSize={FONT.small} color={props.error ? COLORS.error : COLORS.muted}>{props.error ?? hint()}</Text>
+        fontSize={TYPE.meta} color={props.error ? COLORS.error : COLORS.muted}>{props.error ?? hint()}</Text>
     </View>
   );
 }

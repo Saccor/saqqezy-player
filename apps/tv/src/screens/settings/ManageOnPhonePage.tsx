@@ -5,7 +5,7 @@ import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
 import { rowHit } from '../../input/pointerLogic.ts';
-import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
   countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy, toggleButtonLabel,
@@ -209,28 +209,28 @@ export function ManageOnPhonePage(props: PageProps) {
       </Show>
       <Show when={panel() === 'code'}>
         <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-          <Text y={90} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={FONT.body}
+          <Text y={90} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
             color={COLORS.muted}>{'On your phone or computer, open'}</Text>
-          <Text y={136} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={FONT.heading}
+          <Text y={136} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body} {...STRONG}
             color={COLORS.text}>{companionHost()}</Text>
-          <Text y={210} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={FONT.body}
+          <Text y={210} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
             color={COLORS.muted}>{'and type this code:'}</Text>
-          <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={60}
+          <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.detailTitle} {...STRONG}
             color={COLORS.text}>{shown()?.code ?? ''}</Text>
         </View>
       </Show>
       <Show when={panel() === 'message'}>
         <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
           <Text x={32} y={40} width={PANEL_W - 64} maxWidth={PANEL_W - 64} contain="width" lineHeight={40}
-            fontSize={FONT.body} color={COLORS.muted}>{message()}</Text>
+            fontSize={TYPE.body} color={COLORS.muted}>{message()}</Text>
         </View>
       </Show>
 
       <Text x={COL_X} y={0} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
-        maxLines={2} lineHeight={42} fontSize={FONT.heading} color={COLORS.text}>{statusLine()}</Text>
-      <Text x={COL_X} y={96} fontSize={FONT.body} color={COLORS.muted}>{countdown()}</Text>
+        maxLines={2} lineHeight={42} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{statusLine()}</Text>
+      <Text x={COL_X} y={96} fontSize={TYPE.body} color={COLORS.muted}>{countdown()}</Text>
       <Text x={COL_X} y={148} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
-        fontSize={FONT.small} color={COLORS.muted}>{'The connection is end-to-end encrypted.'}</Text>
+        fontSize={TYPE.meta} color={COLORS.muted}>{'The connection is end-to-end encrypted.'}</Text>
 
       <View ref={(el) => { actionsNode = el; props.register(el); }} x={COL_X} y={ACTIONS_Y} width={ACTION_W}
         height={actions().length * (BUTTON_H + ACTION_GAP)} onFocusChanged={setFocused}
@@ -241,11 +241,10 @@ export function ManageOnPhonePage(props: PageProps) {
         <For each={actions()}>{(a, i) => {
           const active = () => focused() && i() === selIndex();
           return (
-            <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={LAYOUT.radius}
-              color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}
-              border={{ width: 2, color: COLORS.subtle }}>
-              <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
-                textAlign="center" fontSize={FONT.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+            <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={BUTTON_H / 2}
+              color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surfaceRaised}>
+              <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
+                textAlign="center" fontSize={TYPE.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
             </View>
           );
         }}</For>
@@ -256,7 +255,7 @@ export function ManageOnPhonePage(props: PageProps) {
           <Button x={PANEL_X} y={PANEL_H + 16} width={TOGGLE_W} label={toggleButtonLabel(mode())} onPress={() => run('toggleMode')} />
         </Show>
       }>
-        <Text x={PANEL_X} y={PANEL_H + 32} fontSize={FONT.small} color={COLORS.muted}>{yellowHint()}</Text>
+        <Text x={PANEL_X} y={PANEL_H + 32} fontSize={TYPE.meta} color={COLORS.muted}>{yellowHint()}</Text>
       </Show>
     </View>
   );

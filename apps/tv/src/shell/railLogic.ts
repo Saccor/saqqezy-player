@@ -62,14 +62,47 @@ export function belowTab(screen: string | undefined, kind: VodKind | undefined, 
   return tabOfKind(screen === 'vod' ? kind ?? ownKind : ownKind);
 }
 
-export type NestedRailStep = { action: 'pop' } | Exclude<RailNav, { action: 'none' }>;
+export type NestedRailStep = { action: 'pop' } | { action: 'replaceScreen'; screen: 'search' | 'settings' } | Exclude<RailNav, { action: 'none' }>;
+
+/** What lies under Search or Settings: a tab's screen, or the library grid over the tab `overGrid`. */
+export type RailBelow = TabId | { overGrid: TabId };
+
+interface EntryLike { screen: string; params?: Record<string, unknown> }
+const kindParam = (e: EntryLike | undefined) => e?.params?.kind as VodKind | undefined;
 
 /**
- * A rail choice on a nested screen: Search and Settings are pushed over it; a tab first pops it, then moves as the
- * screen below (`below`) would, so the stack never keeps a stale tab.
+ * The screens under Search or Settings (`lower` right below it, `under` below that) as the rail sees them: a tab's
+ * screen, the library grid with the tab of the screen under it, or unknown (a tab choice then only pops).
  */
-export function railFromNested(below: TabId, to: RailId): NestedRailStep[] {
-  const nav = railNavigation(below, to);
+export function railBelow(lower: EntryLike | undefined, under: EntryLike | undefined): RailBelow | undefined {
+  if (lower?.screen === 'vodGrid') return { overGrid: belowTab(under?.screen, kindParam(under), kindParam(lower) ?? 'movie') };
+  if (lower?.screen === 'home' || lower?.screen === 'start' || lower?.screen === 'vod') {
+    return belowTab(lower.screen, kindParam(lower), 'movie');
+  }
+  return undefined;
+}
+
+/**
+ * A rail choice on a nested screen.
+ * - The library grid (`railFromNested(below, to)`): Search and Settings are pushed over it; a tab first pops it, then
+ *   moves as the screen below (`below`) would, so the stack never keeps a stale tab.
+ * - Search or Settings (`railFromNested(from, below, to)`; `below` from `railBelow`): its own id does nothing, the
+ *   other one replaces it (they never stack), a tab pops it, then moves as `below` would (Live TV below: the pop is
+ *   enough; the library grid: as the grid would, popping it too; unknown: the pop only).
+ */
+export function railFromNested(below: TabId, to: RailId): NestedRailStep[];
+export function railFromNested(from: 'search' | 'settings', below: RailBelow | undefined, to: RailId): NestedRailStep[];
+export function railFromNested(a: TabId | 'search' | 'settings', b: RailBelow | RailId | undefined, c?: RailId): NestedRailStep[] {
+  if (c !== undefined) {
+    const from = a as 'search' | 'settings';
+    if (c === from) return [];
+    if (c === 'search' || c === 'settings') return [{ action: 'replaceScreen', screen: c }];
+    if (b === undefined) return [{ action: 'pop' }];
+    if (typeof b === 'object') return [{ action: 'pop' }, ...railFromNested(b.overGrid, c)];
+    const nav = railNavigation(b as TabId, c);
+    return nav.action === 'none' ? [{ action: 'pop' }] : [{ action: 'pop' }, nav as Exclude<RailNav, { action: 'none' }>];
+  }
+  const nav = railNavigation(a as TabId, b as RailId);
   if (nav.action === 'pushScreen') return [nav];
   return nav.action === 'none' ? [{ action: 'pop' }] : [{ action: 'pop' }, nav];
 }

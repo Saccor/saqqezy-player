@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import {
-  formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, pickGroup, previewMessage, progressOf,
+  bannerNextLine, formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, pickGroup, previewMessage, progressOf,
   resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
@@ -138,6 +138,12 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
     expect(nowNextLine({ now })).toBe('Now · Evening news');
     expect(nowNextLine({})).toBe(NO_GUIDE_INFO);
     expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
+  });
+
+  test('bannerNextLine: "Next · HH:MM Title"', () => {
+    const start = new Date(2026, 9, 20, 21, 0).getTime();
+    expect(bannerNextLine({ start, title: 'Glass Harbor' })).toBe('Next · 21:00 Glass Harbor');
+    expect(bannerNextLine(undefined)).toBe('');
   });
 });
 

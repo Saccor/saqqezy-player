@@ -1,6 +1,6 @@
 import { For, Show, Text, View } from '@lightningtv/solid';
 import { createSignal, onCleanup } from 'solid-js';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 
 /** The pill's size, shared by the live Player and the VOD player so a status reads the same on both. */
@@ -20,7 +20,7 @@ function Spinner(props: { x: number; y: number }) {
         const a = (i / 8) * Math.PI * 2;
         return (
           <View x={15 + Math.cos(a) * 13} y={15 + Math.sin(a) * 13} width={6} height={6} borderRadius={3}
-            color={(i - tick() + 8) % 8 === 0 ? COLORS.focus : COLORS.muted} />
+            color={(i - tick() + 8) % 8 === 0 ? COLORS.text : COLORS.muted} />
         );
       }}</For>
     </View>
@@ -40,8 +40,8 @@ export function StatusPill(props: { text: string; spinner?: boolean; zIndex?: nu
       <Show when={props.spinner}>
         <Spinner x={PAD_X - 2} y={(STATUS_PILL_H - SPINNER_W) / 2} />
       </Show>
-      <Text x={textX()} y={(STATUS_PILL_H - FONT.body) / 2 - 4} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
-        textAlign={props.spinner ? 'left' : 'center'} fontSize={FONT.body} color={COLORS.text}>{props.text}</Text>
+      <Text x={textX()} y={(STATUS_PILL_H - TYPE.body) / 2 - 4} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
+        textAlign={props.spinner ? 'left' : 'center'} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.text}</Text>
     </View>
   );
 }

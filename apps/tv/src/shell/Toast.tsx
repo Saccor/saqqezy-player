@@ -2,7 +2,7 @@ import { Show, Text, View } from '@lightningtv/solid';
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { TOAST_OVERLAY_ID, TOAST_W, toastLayout, toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
 import { router } from './router.ts';
-import { COLORS, FONT, LAYOUT } from './theme.ts';
+import { COLORS, LAYOUT, TYPE } from './theme.ts';
 
 export const TOAST_MS = 4000;
 /** Default precedence. Only background guide-refresh failures use a lower one (0), so they never interrupt. */
@@ -75,10 +75,9 @@ export function Toast() {
         const l = () => toastLayout(t(), floor());
         return (
           <View x={(LAYOUT.width - TOAST_W) / 2} y={l().y} width={TOAST_W} height={l().height}
-            color={COLORS.surface} borderRadius={Math.min(36, l().height / 2)} zIndex={20}
-            border={{ width: 2, color: COLORS.muted }}>
+            color={COLORS.surface} borderRadius={Math.min(36, l().height / 2)} zIndex={20}>
             <Text x={24} y={l().textY} width={TOAST_W - 48} maxWidth={TOAST_W - 48} contain="width" maxLines={l().lines}
-              lineHeight={l().lineH} textAlign="center" fontSize={FONT.body} color={COLORS.text}>{`${t()}`}</Text>
+              lineHeight={l().lineH} textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{`${t()}`}</Text>
           </View>
         );
       }}

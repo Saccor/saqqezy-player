@@ -1,7 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT } from '../shell/theme.ts';
+import { COLORS, TYPE } from '../shell/theme.ts';
 import { selectedIndex } from './actionBarLogic.ts';
 import { BUTTON_H } from './Button.tsx';
 
@@ -77,8 +77,8 @@ export function ActionBar(props: {
           <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={BUTTON_H / 2}
             color={fill()}>
             <Show when={a.icon} fallback={
-              <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
-                fontSize={FONT.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+              <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" textAlign="center"
+                fontSize={TYPE.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
             }>
               <View x={(a.width - ICON) / 2} y={(BUTTON_H - ICON) / 2} width={ICON} height={ICON} src={a.icon}
                 color={lit() ? COLORS.onFocus : COLORS.text} />

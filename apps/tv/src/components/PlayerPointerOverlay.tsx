@@ -1,7 +1,7 @@
 import { Show, View } from '@lightningtv/solid';
 import { POINTER_BAR_H, barLayout } from '../input/pointerLogic.ts';
 import { PLAYER_POINTER_LABELS as L } from '../screens/playerLogic.ts';
-import { LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT } from '../shell/theme.ts';
 import { volumeSupported } from '../video/volume.ts';
 import { PointerBar, type PointerBarItem } from './PointerBar.tsx';
 import { VolumeControl } from './VolumeOsd.tsx';
@@ -70,7 +70,7 @@ export function PlayerPointerOverlay(props: {
         layer="screen" zIndex={40} onWheel={wheel} onContextMenu={context} onHoverChange={(v) => report('bottom', v)} />
       <Show when={volumeSupported}>
         <View zIndex={40}>
-          <VolumeControl x={bottomX + buttonsW + GAP} y={bottomY} width={VOLUME_W} height={POINTER_BAR_H} border
+          <VolumeControl x={bottomX + buttonsW + GAP} y={bottomY} width={VOLUME_W} height={POINTER_BAR_H} fill={COLORS.surfaceRaised}
             onHoverChange={(v) => report('volume', v)} />
         </View>
       </Show>

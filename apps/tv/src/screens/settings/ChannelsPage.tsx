@@ -8,7 +8,7 @@ import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx'
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { router } from '../../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { settings } from '../../state/appState.ts';
 import { limitTyping, validateListName } from '../homeMenuLogic.ts';
@@ -249,7 +249,7 @@ export function ChannelsPage(props: PageProps) {
         height={props.height - NOTE_H} items={items()} selected={sel()} onSelect={setSel} onAdjust={onAdjust}
         onOk={(id) => void onOk(id)} onLeftEdge={props.onLeftEdge} />
       <Text x={props.x + 28} y={props.y + props.height - NOTE_H + 16} width={props.width - 56} maxWidth={props.width - 56}
-        contain="width" maxLines={2} fontSize={FONT.small} color={COLORS.muted}>
+        contain="width" maxLines={2} fontSize={TYPE.meta} color={COLORS.muted}>
         {"Tip: it's easier to organise channels from your phone. Open Settings → Manage on phone or computer."}
       </Text>
       <Show when={edit()}>{(e) => {
