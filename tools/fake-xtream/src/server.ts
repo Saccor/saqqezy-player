@@ -45,6 +45,11 @@ export interface FakeXtreamOptions {
   categoryOrder?: 'reverse';
   /** Invented channel, programme and title names with generated posters and logos, for screenshots (`showcase.ts`). */
   showcase?: boolean;
+  /**
+   * Live streams whose name ends with this suffix (" 4K" in versions mode) answer 404, so a combined channel's best
+   * stream fails and the TV fails over to the next one. Default: every stream plays.
+   */
+  deadLive?: string;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -166,6 +171,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       if (answer) {
         res.writeHead(answer.status, { 'content-type': 'text/plain', ...answer.headers });
         return res.end();
+      }
+      const deadLive = opts.deadLive;
+      if (deadLive && stream[1] === 'live' && chs.find((c) => c.n === Number(stream[4]))?.name.endsWith(deadLive)) {
+        return send(res, 404, '', 'text/plain');
       }
       const movie = stream[1] === 'movie' ? Number(stream[4]) : undefined;
       const multitrack = movie === MULTITRACK_MOVIE && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));

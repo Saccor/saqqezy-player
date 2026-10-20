@@ -36,3 +36,13 @@ export const CATCHUP_COPY = {
   tooOld: (days: number): string => `Not available: older than ${days} ${days === 1 ? 'day' : 'days'}`,
   nextTitle: (title: string): string => `Next: ${title}`,
 } as const;
+
+/** Combined live channels (spec 2026-10-20-live-sources-tv): generic wording, no source or provider names. */
+export const SOURCE_COPY = {
+  choose: 'Choose source',
+  source: 'Source',
+  switched: 'Switched to another source',
+  loadFailed: "Couldn't load the sources.",
+  setting: 'Combine duplicate channels',
+  settingHelp: 'One row per channel. If a stream fails, the next one takes over.',
+} as const;

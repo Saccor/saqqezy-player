@@ -4,7 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CATCHUP_COPY, FAV_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
@@ -21,6 +21,7 @@ import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
 import { playback, player, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
 import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
+import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -73,13 +74,13 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   const initial = playback.current();
   const [shown, setShown] = createSignal<PlayableChannel | undefined>(
-    initial && initial.id === params.channelId ? initial : undefined,
+    initial && rowIdOf(initial) === params.channelId ? initial : undefined,
   );
   const [bannerOn, setBannerOn] = createSignal(true);
   const [digits, setDigits] = createSignal('');
   const [flash, setFlash] = createSignal<string | undefined>(undefined);
   const [now, setNow] = createSignal(Date.now());
-  const [menuPage, setMenuPage] = createSignal<'main' | 'audio' | undefined>(undefined);
+  const [menuPage, setMenuPage] = createSignal<'main' | 'audio' | 'source' | undefined>(undefined);
   const [infoOn, setInfoOn] = createSignal(false);
   const [infoTick, setInfoTick] = createSignal(0);
   const [pillTick, setPillTick] = createSignal(0);
@@ -127,11 +128,13 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     if (!alive) return;
     playback.playChannel(ch);
     setShown(ch);
-    channelHistory.visit(ch.id);
-    zapper.setCurrent(ch.id);
+    // The row, not the stream: a combined channel's streams take turns under one row.
+    const row = rowIdOf(ch)!;
+    channelHistory.visit(row);
+    zapper.setCurrent(row);
     if (fallbackGroup.has(ch)) zapGroup = GROUP_ALL;
     showBanner();
-    api.markWatched(ch.id, zapGroup).catch(() => undefined);
+    api.markWatched(row, zapGroup).catch(() => undefined);
   };
 
   /** Neighbour within the zap group; a channel outside it (after number entry) falls back to "All". */
@@ -242,7 +245,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   /** The sleep timer ran out (or "Stop"): stop playback and return to the screen below (Home: on the last watched channel, held). */
   function sleepStop() {
-    const last = playback.current()?.id ?? shown()?.id;
+    const last = playback.currentRowId() ?? rowIdOf(shown());
     playback.stop();
     if (playerLeave(router.below()?.screen, last).holdPreview) previewHold.set();
     leave(last);
@@ -299,6 +302,14 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
         { id: 'back', label: 'Back' },
       ];
     }
+    const cur = playback.current();
+    const sources = cur?.sources ?? [];
+    if (page === 'source') {
+      return [
+        ...sourceOptions(sources, cur?.id).map((o) => ({ id: `src:${o.id}`, label: o.label })),
+        { id: 'back', label: 'Back' },
+      ];
+    }
     const tracks = player.audioTracks();
     const activeAt = tracks.findIndex((t) => t.active);
     return [
@@ -309,13 +320,22 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
       // Catch-up channel with a programme on now: play it from its start (spec 2026-10-20-catch-up §5.2).
       ...(shown()?.archiveDays !== undefined && shown()?.now ? [{ id: 'fromStart', label: CATCHUP_COPY.fromStart }] : []),
+      // A combined channel: pick which of its streams plays.
+      ...(sources.length > 1 ? [{ id: 'source', label: SOURCE_COPY.source, value: `${sources.length}` }] : []),
     ];
   });
 
   const choose = (id: string) => {
-    if (id === 'audio') {
-      setMenuPage('audio');
+    if (id === 'audio' || id === 'source') {
+      setMenuPage(id);
       queueMicrotask(() => menuNode?.setFocus());
+    } else if (id.startsWith('src:')) {
+      // Choose source: that stream plays now and first from now on (a new tune).
+      const sourceId = id.slice('src:'.length);
+      const row = playback.currentRowId();
+      closeMenu();
+      if (row) api.pickLiveSource(row, sourceId).catch(() => undefined);
+      void jumpTo(() => api.getPlayable(sourceId, { exact: true }));
     } else if (id === 'back') {
       setMenuPage('main');
       queueMicrotask(() => menuNode?.setFocus());
@@ -422,7 +442,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   /** `⛶ Window` and double click: back to Live TV with the small video. */
   const toHome = () => returnToLive();
   /** `▦ Guide`: Live TV is the guide; it opens on the channel now playing. */
-  const openGuide = () => returnToLive(playback.current()?.id ?? params.channelId);
+  const openGuide = () => returnToLive(playback.currentRowId() ?? params.channelId);
   const toggleBanner = () => {
     if (bannerOn()) hideBanner();
     else showBanner();
@@ -466,20 +486,22 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const stopPill = visibleInterval(() => { if (bannerOn()) setPillTick((v) => v + 1); }, 1000);
     // A background short-EPG answer for the playing channel: the visible banner re-reads its now/next.
     const offNowNext = onEvent('nowNextUpdated', (e) => {
-      const id = playback.current()?.id;
-      if (!id || !bannerNowNextStale((e as { channelIds: string[] }).channelIds, id, shown()?.id, bannerOn())) return;
-      api.getPlayable(id).then((ch) => {
-        if (alive && ch && shown()?.id === id && playback.current()?.id === id) setShown(ch);
+      const id = playback.currentRowId();
+      const stream = playback.current()?.id;
+      if (!id || !stream || !bannerNowNextStale((e as { channelIds: string[] }).channelIds, id, rowIdOf(shown()), bannerOn())) return;
+      // The stream on screen exactly: the banner of a combined channel never swaps to another stream's playable.
+      api.getPlayable(stream, { exact: true }).then((ch) => {
+        if (alive && ch && rowIdOf(shown()) === id && playback.current()?.id === stream) setShown(ch);
       }).catch(() => undefined);
     });
     onCleanup(() => { stopTick(); stopInfo(); stopPill(); offNowNext(); });
     // Pointer mode ends after 3 s without movement here, unless the pointer is over an overlay button or a modal is open.
     onCleanup(setPointerAutoHide(() => playerAutoHide({ overButton: overButton() || overVolume(), modalOpen: modal() })));
 
-    const cur = playback.current();
-    if (cur && cur.id === params.channelId) {
-      channelHistory.visit(cur.id);
-      zapper.setCurrent(cur.id);
+    const curRow = playback.currentRowId();
+    if (curRow !== undefined && curRow === params.channelId) {
+      channelHistory.visit(curRow);
+      zapper.setCurrent(curRow);
     } else if (params.channelId) {
       const id = params.channelId;
       void jumpTo(() => api.getPlayable(id));
@@ -554,7 +576,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={menuPage()} keyed>{(page) => (
-        <OptionsMenu ref={(el) => { menuNode = el; }} title={page === 'audio' ? 'Audio track' : 'Options'}
+        <OptionsMenu ref={(el) => { menuNode = el; }} title={page === 'audio' ? 'Audio track' : page === 'source' ? SOURCE_COPY.choose : 'Options'}
           items={menuItems()} onChoose={choose} />
       )}</Show>
 

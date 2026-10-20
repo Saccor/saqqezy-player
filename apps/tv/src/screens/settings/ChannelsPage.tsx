@@ -9,13 +9,14 @@ import { SettingsList, type SettingItem } from '../../components/SettingsList.ts
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { router } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
+import { SOURCE_COPY } from '../../copy.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { settings } from '../../state/appState.ts';
 import { externalLayoutChange } from '../../state/events.ts';
 import { limitTyping, validateListName } from '../homeMenuLogic.ts';
 import {
   AUTO_REFRESH_OPTIONS, autoRefreshLabel, cycleOption, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
-  type GuideStatus,
+  onOff, type GuideStatus,
 } from '../settingsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
@@ -58,6 +59,7 @@ export function ChannelsPage(props: PageProps) {
   let keyboardNode: ElementNode | undefined;
   let removeKeyboard: (() => void) | undefined;
   const auto = (): number => settings()?.autoRefreshHours ?? 12;
+  const combine = (): boolean => settings()?.combineChannels ?? false;
 
   const load = async () => {
     const seq = ++loadSeq;
@@ -83,6 +85,7 @@ export function ChannelsPage(props: PageProps) {
         help: 'How often the list is downloaded again' },
       { id: 'noEpg', label: 'Hide channels without TV guide', value: noEpg.value, adjustable: !noEpg.disabled,
         disabled: noEpg.disabled, help: noEpg.help },
+      { id: 'combine', label: SOURCE_COPY.setting, value: onOff(combine()), adjustable: true, help: SOURCE_COPY.settingHelp },
     ];
     if (!d) return [...out, { id: NONE, label: 'Loading…' }];
     if (d.failed) return [...out, { id: RETRY, label: "Couldn't load channel settings. Press OK to retry." }];
@@ -140,6 +143,10 @@ export function ChannelsPage(props: PageProps) {
   const onAdjust = (id: string, dir: 1 | -1) => {
     if (id === 'auto') {
       void saveSetting({ autoRefreshHours: cycleOption<number>(AUTO_REFRESH_OPTIONS, auto(), dir) });
+      return true;
+    }
+    if (id === 'combine') {
+      void saveSetting({ combineChannels: !combine() });
       return true;
     }
     if (id === 'noEpg') {
@@ -207,7 +214,7 @@ export function ChannelsPage(props: PageProps) {
   };
 
   const onOk = async (id: string) => {
-    if (id === 'auto' || id === 'noEpg') { onAdjust(id, 1); return; }
+    if (id === 'auto' || id === 'noEpg' || id === 'combine') { onAdjust(id, 1); return; }
     if (id === RETRY) { setData(undefined); await reloadKeeping(RETRY); return; }
     if (id.startsWith(LIST_PREFIX)) { await onList(id.slice(LIST_PREFIX.length)); return; }
     if (id.startsWith(GROUP_PREFIX)) {

@@ -1,6 +1,7 @@
 import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
 import { onHidden, onVisible, type BackgroundAction } from './backgroundPolicy.ts';
+import { canFailOver, nextSource, type FailoverDeps } from './failover.ts';
 import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
@@ -75,6 +76,11 @@ export interface PlaybackController {
   playerKind(): PlayerKind;
   status: Accessor<SupervisorStatus | undefined>;
   current: Accessor<PlayableChannel | undefined>;
+  /**
+   * The row the current stream belongs to: a combined channel's row id (its streams may take turns), else the
+   * channel id. Screens compare rows with this, not with `current().id`.
+   */
+  currentRowId(): string | undefined;
 }
 
 export type PlayerKind = 'AVPlay' | 'HTML5';
@@ -108,6 +114,7 @@ function coversScreen(rect: Rect | 'fullscreen'): boolean {
  * Testable core of the `playback` singleton: one player, one supervisor, two signals. `sourceKey` returns the
  * active source id (opaque, never a URL); it keys the learned live delay and the cooldown reports. `gate` keeps
  * streams closed while the source is in its refusal cooldown and reports how the source answered each play.
+ * `failover` lets a combined channel's next stream take over when one fails (spec 2026-10-20-live-sources-tv §6).
  */
 export function createPlaybackController(
   player: Pick<Player, 'setRect' | 'audioTracks' | 'selectAudioTrack' | 'textTracks' | 'selectTextTrack' | 'soundUndecodable' | 'suspend' | 'resume'>,
@@ -118,6 +125,7 @@ export function createPlaybackController(
   gate?: CooldownGate,
   /** Told how a return from the background was handled (the playback journal). */
   onResumed: (what: 'resume_restore' | 'resume_reopen') => void = () => { /* no listener */ },
+  failover?: FailoverDeps,
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -135,19 +143,66 @@ export function createPlaybackController(
   /** The play's URLs in the supervisor's order (primary, then the alternate): a refusal names one by index. */
   let playUrls: string[] = [];
   let answeredReported = false;
+  /**
+   * The tune: what the user asked to play. Its sources stay the list the first answer gave, `tried` the streams
+   * opened for it, `failovers` how many took over. Bumping `tuneGen` drops a failover still being fetched.
+   */
+  let tuneSources: PlayableChannel['sources'];
+  let tried = new Set<string>();
+  let failovers = 0;
+  let tuneGen = 0;
+  const newTune = (ch: PlayableChannel | undefined) => {
+    tuneGen++;
+    tuneSources = ch?.sources && ch.sources.length > 1 ? ch.sources : undefined;
+    tried = new Set(ch ? [ch.id] : []);
+    failovers = 0;
+  };
+  /** The current live stream failed: the next stream of its channel, if one may take over. */
+  const failoverTarget = (s: SupervisorStatus): string | undefined => {
+    if (!failover || s.kind !== 'failed' || pendingVod || !canFailOver(s.reason)) return undefined;
+    return nextSource(tuneSources, tried, failovers);
+  };
+  const failOver = (from: PlayableChannel, next: string, deps: FailoverDeps) => {
+    const gen = tuneGen;
+    failovers++;
+    tried.add(next);
+    deps.failed(from.id);
+    const giveUp = () => { if (gen === tuneGen) report({ kind: 'failed', reason: 'unavailable' }); };
+    void deps.fetch(next).then((p) => {
+      if (gen !== tuneGen) return; // the user asked for something else meanwhile
+      if (!p) { giveUp(); return; }
+      const ch: PlayableChannel = tuneSources ? { ...p, sources: tuneSources } : p;
+      setCurrent(ch);
+      // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
+      if (gate?.blocked(ch)) {
+        hold();
+        gate.current?.(ch);
+        return;
+      }
+      // Not the user's open: it waits for room under the source's open rate and counts against it.
+      startPlay(ch.url, ch.alternateUrl, { channel: ch.name, automatic: true }, ch.headers);
+      gate?.current?.(ch);
+      deps.switched?.(ch);
+    }, giveUp);
+  };
   supervisor.onStatus((s) => {
-    report(s);
+    const next = failoverTarget(s);
+    const from = current();
+    // While the next stream starts, the failure does not show.
+    report(next !== undefined && from ? { kind: 'loading' } : s);
     const key = playKey;
-    if (key === undefined || !gate) return;
-    if (s.kind === 'playing' && !answeredReported) {
-      answeredReported = true;
-      gate.answered(key, playUrl);
-    } else if (s.kind === 'failed') {
-      playKey = undefined;
-      // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
-      // The cooldown lands on the host of the URL the source refused (the alternate may live on another host).
-      if (s.reason === 'refused') gate.refused(key, playUrls[s.urlIndex ?? 0] ?? playUrl, s.retryAfterMs);
+    if (key !== undefined && gate) {
+      if (s.kind === 'playing' && !answeredReported) {
+        answeredReported = true;
+        gate.answered(key, playUrl);
+      } else if (s.kind === 'failed') {
+        playKey = undefined;
+        // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
+        // The cooldown lands on the host of the URL the source refused (the alternate may live on another host).
+        if (s.reason === 'refused') gate.refused(key, playUrls[s.urlIndex ?? 0] ?? playUrl, s.retryAfterMs);
+      }
     }
+    if (next !== undefined && from && failover) failOver(from, next, failover);
   });
   /**
    * Sets the current channel and publishes its stream to the gate. Callers publish only after they decided between
@@ -229,6 +284,7 @@ export function createPlaybackController(
       pendingVod = undefined;
       vodOpened = false;
       waitingNetwork = false;
+      newTune(ch);
       setCurrent(ch);
       // Decide (and update `held`) before publishing the new stream's host: see setCurrentStream.
       if (gate?.blocked(ch)) {
@@ -242,6 +298,7 @@ export function createPlaybackController(
     },
     playVod(p, startMs, automatic) {
       token++;
+      newTune(undefined);
       const stand: PlayableChannel = { id: 'vod:' + p.itemId, number: 0, name: '', group: '', favourite: false, url: p.url };
       if (p.cooldownKey !== undefined) stand.cooldownKey = p.cooldownKey;
       if (p.cooldown !== undefined) stand.cooldown = p.cooldown;
@@ -350,6 +407,7 @@ export function createPlaybackController(
     },
     stop() {
       token++;
+      newTune(undefined);
       waitingNetwork = false;
       inBackground = false;
       away = { kind: 'none' };
@@ -371,5 +429,9 @@ export function createPlaybackController(
     playerKind: () => kind,
     status,
     current,
+    currentRowId: () => {
+      const c = current();
+      return c && (c.rowId ?? c.id);
+    },
   };
 }

@@ -6,7 +6,7 @@
  * asserts they are equal to core's.
  */
 
-import { favToggleLabel } from '../copy.ts';
+import { favToggleLabel, SOURCE_COPY } from '../copy.ts';
 
 export const NAME_MAX = 60;
 export const MAX_LISTS = 50;
@@ -14,7 +14,8 @@ export const MAX_LISTS = 50;
 const FAV_LIST_ID = 'fav';
 const LIST_PREFIX = 'list:';
 
-export type ChannelMenuAction = 'toggleFavourite' | 'addToList' | 'removeFromList' | 'hide' | 'unhide' | 'rename' | 'cancel';
+export type ChannelMenuAction =
+  | 'toggleFavourite' | 'addToList' | 'chooseSource' | 'removeFromList' | 'hide' | 'unhide' | 'rename' | 'cancel';
 export interface MenuItem { action: ChannelMenuAction; label: string }
 export interface ListLite { id: string; name: string }
 
@@ -24,15 +25,17 @@ const oneSpace = (s: string): string => s.replace(/\s+/g, ' ').trim();
 /**
  * The channel menu. The first item adds the channel to Favourites (or removes it) in one step. "Remove from"
  * appears only while the user browses a list (`inListId`) that still exists, and not in Favourites, where the
- * first item already removes it. A hidden channel offers "Show channel" instead of "Hide channel".
+ * first item already removes it. A hidden channel offers "Show channel" instead of "Hide channel". A combined
+ * channel (`sources` > 1) offers "Choose source…".
  */
 export function buildChannelMenu(o: {
-  inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[];
+  inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[]; sources?: number;
 }): MenuItem[] {
   const items: MenuItem[] = [
     { action: 'toggleFavourite', label: favToggleLabel(o.isFavourite) },
     { action: 'addToList', label: 'Add to list…' },
   ];
+  if (o.sources !== undefined && o.sources > 1) items.push({ action: 'chooseSource', label: `${SOURCE_COPY.choose}…` });
   const list = o.inListId === undefined || o.inListId === FAV_LIST_ID ? undefined
     : o.lists.find((l) => l.id === o.inListId);
   if (list) items.push({ action: 'removeFromList', label: oneSpace(`Remove from "${list.name}"`) });

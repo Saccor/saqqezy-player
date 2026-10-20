@@ -19,6 +19,15 @@
       "port": 5173
     },
     {
+      "name": "tv-dev-failover",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FAKE_VOD_VERSIONS=1&& set FAKE_DEAD_LIVE=4K&& pnpm dev"
+      ],
+      "port": 5173
+    },
+    {
       "name": "companion-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

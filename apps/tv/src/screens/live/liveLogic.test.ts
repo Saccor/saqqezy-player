@@ -103,6 +103,11 @@ describe('liveMenuItems', () => {
   test('no programme items when neither applies', () => {
     expect(liveMenuItems({ channel, fromStart: false, goToDay: false })[0]!.action).toBe('toggleFavourite');
   });
+  test('a combined channel offers Choose source', () => {
+    expect(liveMenuItems({ channel: { ...channel, sources: 4 }, fromStart: false, goToDay: false }).map((i) => i.action))
+      .toContain('chooseSource');
+    expect(liveMenuItems({ channel, fromStart: false, goToDay: false }).map((i) => i.action)).not.toContain('chooseSource');
+  });
 });
 
 describe('sameInfo', () => {
@@ -115,6 +120,9 @@ describe('sameInfo', () => {
   test('another channel, block or text is a change', () => {
     expect(sameInfo({ channel: ch, block }, { channel: { ...ch, id: 'c2' }, block })).toBe(false);
     expect(sameInfo({ channel: ch, block }, { channel: { ...ch, name: 'Renamed' }, block })).toBe(false);
+    expect(sameInfo({ channel: ch, block }, { channel: { ...ch, sourceCount: 3 }, block })).toBe(false);
+    expect(sameInfo({ channel: { ...ch, sourceCount: 3 }, block }, { channel: { ...ch, sourceCount: 3, quality: '4K' }, block }))
+      .toBe(false);
     expect(sameInfo({ channel: ch, block }, { channel: ch, block: { ...block, start: 11 } })).toBe(false);
     expect(sameInfo({ channel: ch, block }, { channel: ch, block: { ...block, desc: 'More' } })).toBe(false);
     expect(sameInfo({ channel: ch, block }, { channel: ch })).toBe(false);
