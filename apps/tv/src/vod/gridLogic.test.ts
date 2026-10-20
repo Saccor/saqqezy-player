@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GRID_COLS, GRID_PAGE, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
+import { GRID_COLS, GRID_PAGE, GRID_VIEW_ROWS, GRID_Y, renderedRows, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
   test('moves in an 8-column grid', () => {
@@ -83,5 +83,15 @@ describe('gridLogic', () => {
   test('grid layout per poster size', () => {
     expect(gridLayout('standard')).toEqual({ cols: 8, cellW: 187, cellH: 280, rowPitch: 308 });
     expect(gridLayout('compact')).toEqual({ cols: 10, cellW: 144, cellH: 216, rowPitch: 244 });
+  });
+
+  test('rendered rows: the full rows, plus the next one only when at least 60 px of it shows', () => {
+    // Standard: rows at 150, 458, 766; the fourth starts at 1074 and would show 6 px, so it is not drawn.
+    expect(GRID_Y + 3 * gridLayout('standard').rowPitch).toBe(1074);
+    expect(renderedRows('standard')).toBe(3);
+    // Compact: the fourth starts at 882 and shows 198 px; the fifth (1126) is off screen.
+    expect(renderedRows('compact')).toBe(4);
+    // Never fewer rows than the ones scrolled by.
+    expect(renderedRows('standard')).toBeGreaterThanOrEqual(GRID_VIEW_ROWS);
   });
 });

@@ -21,7 +21,7 @@ import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { categoryRows, pickedSort, sortRows } from '../vod/categoryPicker.ts';
 import {
-  GRID_PAGE, GRID_VIEW_ROWS, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, saveSort, sortsFor,
+  GRID_PAGE, GRID_VIEW_ROWS, GRID_Y, gridCellAt, gridLayout, gridMove, gridPage, keepFailedPages, loadSort, pagesFor, renderedRows, saveSort, sortsFor,
   type GridGeometry,
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
@@ -37,7 +37,6 @@ import type { VodKind } from '../vod/tabLogic.ts';
  * a scroll indicator at the right edge.
  */
 const GRID_X = LAYOUT.contentX;
-const GRID_Y = 150;
 const GRID_W = LAYOUT.contentW;
 const CELL_GAP = 24;
 const HEAD_Y = LAYOUT.safeY;
@@ -107,7 +106,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let alive = true;
   let lastTopRow = 0;
   /** Standard 8 or Compact 10 per row; everything below follows it. */
-  const layout = () => gridLayout(settings()?.posterSize ?? 'standard');
+  const posterSize = () => settings()?.posterSize ?? 'standard';
+  const layout = () => gridLayout(posterSize());
   const geo = (): GridGeometry => ({ pad: PAD, cellW: layout().cellW, gap: CELL_GAP, rowPitch: layout().rowPitch, hitH: layout().cellH });
   const rowCount = () => Math.ceil(total() / layout().cols);
   /** Bumped per category/sort change: answers for an older one are dropped. */
@@ -130,9 +130,10 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
     return lastTopRow;
   });
   const indices = createMemo(() => {
-    // No buffer rows: the peeking fourth row is the last drawn, which keeps texture memory down on 1 GB TVs.
+    // No buffer rows, and a peeking row only when enough of it shows (`renderedRows`): every drawn row is a row of
+    // natural-size poster textures on 1 GB TVs.
     const cols = layout().cols;
-    const r = renderRange(topRow(), GRID_VIEW_ROWS + 1, rowCount(), 0);
+    const r = renderRange(topRow(), renderedRows(posterSize()), rowCount(), 0);
     const out: number[] = [];
     for (let row = r.from; row < r.to; row++) for (let c = 0; c < cols; c++) if (row * cols + c < total()) out.push(row * cols + c);
     return out;

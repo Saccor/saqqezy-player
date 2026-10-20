@@ -1,4 +1,5 @@
 import type { PosterSize, VodSort } from '@iptv/core';
+import { LAYOUT } from '../shell/theme.ts';
 
 /** The category grid. Pure: no Solid, no Lightning. */
 
@@ -13,6 +14,22 @@ export function gridLayout(size: PosterSize): { cols: number; cellW: number; cel
 export const GRID_COLS = 8;
 /** Rows fully visible (a fourth peeks in). */
 export const GRID_VIEW_ROWS = 3;
+/** The first row's top edge (design px). */
+export const GRID_Y = 150;
+/** A row past the full ones is drawn only when at least this much of it is on screen. */
+const MIN_PEEK = 60;
+
+/**
+ * Rows to draw from the top row: the rows that start at least `MIN_PEEK` px above the screen's bottom edge. Each drawn
+ * row costs a row of natural-size poster textures (memory on 1 GB TVs), so a sliver of a row is not worth drawing:
+ * Standard draws 3 (its fourth row would show 6 px), Compact 4 (its fourth shows 198 px).
+ */
+export function renderedRows(size: PosterSize): number {
+  const { rowPitch } = gridLayout(size);
+  let rows = 0;
+  while (GRID_Y + rows * rowPitch + MIN_PEEK <= LAYOUT.height) rows++;
+  return Math.max(GRID_VIEW_ROWS, rows);
+}
 /** Tiles per `getVodSlice` page: two screens. */
 export const GRID_PAGE = 48;
 
