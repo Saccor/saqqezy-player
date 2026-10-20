@@ -1,6 +1,6 @@
-import { NAME_MAX, type NewSource } from '@iptv/core';
+import { NAME_MAX, type BackupEnvelope, type NewSource } from '@iptv/core';
 import {
-  ChannelClosedError, HEADERS_PROTOCOL, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
+  BACKUP_PROTOCOL, ChannelClosedError, HEADERS_PROTOCOL, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
   QueueFullError, SecureChannel, secretsFromCode,
   type CloseReason, type CompanionState, type FrameTransport, type PairingSecrets, type PhoneToTv, type TvHeaderSupport,
   type TvToPhone,
@@ -78,11 +78,13 @@ export const STATE_PUSH_DELAY_MS = 300;
 /** How long `stop()` and expiry wait for the goodbye to be handed to the transport before closing. */
 const BYE_GRACE_MS = 1_000;
 const DEFAULT_NAME = 'My TV';
+/** How long `sendBackup` waits for the phone's `backupSaved`. */
+export const BACKUP_ACK_MS = 30_000;
 
 export type CompanionHostApi = Pick<
   AppApi,
   'getCompanionState' | 'getSource' | 'getActiveLayout' | 'applyLayoutOps' | 'addSource' | 'updateSource' | 'deleteSource'
-  | 'setActiveSource' | 'refresh'
+  | 'setActiveSource' | 'refresh' | 'restoreFromCompanion'
 >;
 
 /** Optional extras of a relay transport (see `WebSocketRelayTransport`); in-memory test transports may omit them. */
@@ -135,6 +137,8 @@ interface Session {
   /** The last full state this companion received: its version and generation. */
   sentState: { version: number; generation: number } | undefined;
   progress: Map<'playlist' | 'epg', { last: number; pending?: number; timer?: ReturnType<typeof setTimeout> }>;
+  /** Backups sent and not yet confirmed by `backupSaved`, by the backup's `at`. */
+  backupWaits: Map<number, { resolve: () => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>;
 }
 
 /** A fitted state ready to send, for one (layout version, generation). */
@@ -160,6 +164,7 @@ class ValidationError extends Error {
 }
 
 const noop = () => { /* ignore */ };
+const named = (name: string, message: string): Error => Object.assign(new Error(message), { name });
 
 /** Relay transport close reasons (see `TransportCloseReason`) to the status reason. Unknown ones are 'stopped'. */
 const TRANSPORT_REASONS: Readonly<Record<string, CompanionEndReason>> = {
@@ -235,6 +240,7 @@ export class CompanionHost implements CompanionControl {
       channel, createdAt, expiresAt: createdAt + this.unpairedTtl, timer: undefined, paired: false, connected: false,
       helloLabel: undefined, peerProtocol: 1, presenceTimer: undefined, linkDown: false, unsub: [], layoutBusy: false, layoutDirty: false,
       stateBusy: false, stateDirty: false, stateTimer: undefined, sentState: undefined, progress: new Map(),
+      backupWaits: new Map(),
     };
     this.session = s;
     if (unsubTransport) s.unsub.push(unsubTransport);
@@ -313,6 +319,37 @@ export class CompanionHost implements CompanionControl {
     }, STATE_PUSH_DELAY_MS);
   }
 
+  /**
+   * Sends a sealed backup to the connected phone and resolves once it answers `backupSaved` (BACKUP_ACK_MS at most).
+   * Only to a companion whose hello said protocol 3 or more; an older page would drop the message unseen.
+   */
+  sendBackup(backup: BackupEnvelope): Promise<void> {
+    const s = this.session;
+    if (!s || !s.connected) return Promise.reject(named('NoCompanion', 'Connect your phone first: Settings → Manage on phone.'));
+    if (s.peerProtocol < BACKUP_PROTOCOL) {
+      return Promise.reject(named('OldCompanion', 'Reload the page on your phone, then try again.'));
+    }
+    if (s.linkDown) return Promise.reject(named('Busy', BUSY_ERROR.message));
+    const at = backup.at;
+    const prev = s.backupWaits.get(at);
+    if (prev) {
+      clearTimeout(prev.timer);
+      prev.reject(named('Busy', 'Another backup was sent.'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        s.backupWaits.delete(at);
+        reject(named('Timeout', "The phone didn't answer. Keep Manage on phone open on it and try again."));
+      }, BACKUP_ACK_MS);
+      s.backupWaits.set(at, { resolve, reject, timer });
+      s.channel.send({ t: 'backup', backup, tv: this.deps.tvLabel }).catch((err: unknown) => {
+        clearTimeout(timer);
+        s.backupWaits.delete(at);
+        reject(err instanceof QueueFullError ? named('Busy', BUSY_ERROR.message) : named('NoCompanion', 'The phone is not connected.'));
+      });
+    });
+  }
+
   /** Drops the cached state (a new generation). */
   private invalidate(): void {
     this.generation++;
@@ -338,6 +375,11 @@ export class CompanionHost implements CompanionControl {
     clearTimeout(s.presenceTimer);
     clearTimeout(s.stateTimer);
     for (const p of s.progress.values()) clearTimeout(p.timer);
+    for (const w of s.backupWaits.values()) {
+      clearTimeout(w.timer);
+      w.reject(named('NoCompanion', 'The phone disconnected before it saved the backup.'));
+    }
+    s.backupWaits.clear();
     for (const u of s.unsub) u();
     const ch = s.channel;
     if (bye) {
@@ -517,6 +559,18 @@ export class CompanionHost implements CompanionControl {
         return;
       case 'refresh':
         await api.refresh(msg.what);
+        await this.result(s, msgId);
+        return;
+      case 'backupSaved': {
+        const w = s.backupWaits.get(msg.at);
+        if (!w) return;
+        clearTimeout(w.timer);
+        s.backupWaits.delete(msg.at);
+        w.resolve();
+        return;
+      }
+      case 'restore':
+        await api.restoreFromCompanion(msg.backup, msg.code);
         await this.result(s, msgId);
         return;
     }

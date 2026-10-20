@@ -6,6 +6,8 @@ import {
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   type LoadedSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
+  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
+  type BackupEnvelope, type RestoreSummary,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
@@ -82,7 +84,12 @@ export interface AppApiDeps {
    * GET; nothing about the user is sent). Without it Start has no trending rows and nothing is ever requested.
    */
   trending?: { baseUrl: string; fetch: (url: string, init: RequestInit) => Promise<Response> };
+  /** PBKDF2 iterations of new backups (tests only; the default is BACKUP_PBKDF2_ITERATIONS). */
+  backupIterations?: number;
 }
+
+/** How long "Restore from your phone" waits for the phone (§6.5 S1). */
+export const RESTORE_WAIT_MS = 5 * 60_000;
 
 export class AppApi {
   private readonly service: SourceService;
@@ -159,6 +166,12 @@ export class AppApi {
   private readonly fileHash: ((url: string) => Promise<string | undefined>) | undefined;
   private readonly trending: TrendingService | undefined;
   private readonly catchup: CatchupController;
+  private readonly backupIterations: number | undefined;
+  private backupSvc: BackupService | undefined;
+  /** Until when a restore sent from the phone is accepted (the user opened "Restore from your phone"). */
+  private restoreUntil = 0;
+  /** Who asked for the restore running now (its `layoutChanged` origin). */
+  private restoreOrigin: LayoutOrigin = 'local';
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -181,6 +194,7 @@ export class AppApi {
       deps.emit({ type: 'companion', status });
     });
     this.vod = deps.vod;
+    this.backupIterations = deps.backupIterations;
     this.subtitles = deps.subtitles;
     this.onlineSubtitles = deps.onlineSubtitles;
     this.fileHash = deps.fileHash;
@@ -238,6 +252,8 @@ export class AppApi {
         await this.activate(source.id);
         this.startBackground(source.id);
       }
+      // A restored backup may hold this source's lists, hidden channels and progress (pending until now).
+      await this.applyPendingBackup(source);
       this.sourcesChanged(origin);
       return { sourceId: source.id, channelCount: result.channelCount };
     });
@@ -1072,16 +1088,131 @@ export class AppApi {
   }
 
   saveSettings(partial: Partial<AppSettings>): Promise<AppSettings> {
-    return this.run('saveSettings', async () => {
-      const before = await this.currentSettings();
-      this.settings = await this.service.saveSettings(partial);
-      // Cached now/next was picked on the old offset's timeline.
-      this.invalidateNowNext();
-      if (before.combineChannels !== this.settings.combineChannels) await this.refold();
-      const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
-      if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
-      return this.settings;
+    return this.run('saveSettings', () => this.applySettings(partial));
+  }
+
+  /** `saveSettings` body; a restore passes `stamp: false` (it adopts the stamps it brings). */
+  private async applySettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
+    const before = await this.currentSettings();
+    this.settings = await this.service.saveSettings(partial, opts);
+    // Cached now/next was picked on the old offset's timeline.
+    this.invalidateNowNext();
+    if (before.combineChannels !== this.settings.combineChannels) await this.refold();
+    const regroup = before.combineDuplicates !== this.settings.combineDuplicates;
+    if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
+    return this.settings;
+  }
+
+  // ---- backup and restore (sync phase S1) ----
+
+  /**
+   * Makes an encrypted backup and sends it to the connected phone, which keeps it. Resolves with the recovery code
+   * (shown once, never stored) after the phone said it saved the backup.
+   */
+  backupToPhone(): Promise<{ code: string; records: number }> {
+    return this.run('backupToPhone', async () => {
+      const companion = this.companion;
+      if (!companion?.sendBackup || companion.status().state !== 'connected') {
+        throw Object.assign(new Error('Connect your phone first: Settings → Manage on phone.'), { name: 'NoCompanion' });
+      }
+      const made = await this.backups().create();
+      await companion.sendBackup(made.envelope);
+      return { code: made.code, records: made.records };
     });
+  }
+
+  /** Makes an encrypted backup as a file's text (off TVs: the UI saves it). */
+  backupToFile(): Promise<{ code: string; data: string; fileName: string; records: number }> {
+    return this.run('backupToFile', async () => {
+      const made = await this.backups().create();
+      const day = new Date(made.envelope.at).toISOString().slice(0, 10);
+      return { code: made.code, data: JSON.stringify(made.envelope), fileName: `tv-backup-${day}.json`, records: made.records };
+    });
+  }
+
+  /** Restores a backup file's text with its recovery code. */
+  restoreFromFile(data: string, code: string): Promise<RestoreSummary> {
+    return this.run('restoreFromFile', async () => {
+      let envelope: unknown;
+      try {
+        envelope = typeof data === 'string' && data.length <= BACKUP_ENVELOPE_MAX_CHARS + 4096 ? JSON.parse(data) : undefined;
+      } catch {
+        envelope = undefined;
+      }
+      if (!isBackupEnvelope(envelope)) throw new BackupError('invalid', 'This file is not a backup from this app.');
+      return this.restoreBackup(envelope, code, 'local');
+    });
+  }
+
+  /** "Restore from your phone": the TV accepts one restore from the phone for RESTORE_WAIT_MS (or stops waiting). */
+  armPhoneRestore(on: boolean): Promise<{ until: number | undefined }> {
+    return this.run('armPhoneRestore', async () => {
+      this.restoreUntil = on ? this.now() + RESTORE_WAIT_MS : 0;
+      return { until: on ? this.restoreUntil : undefined };
+    });
+  }
+
+  /**
+   * A restore sent by the paired phone (companion host only; not exposed to the UI). Accepted only while the TV waits
+   * for it (`armPhoneRestore`); a success ends the wait, a wrong code keeps it so the user can try again.
+   */
+  restoreFromCompanion(envelope: BackupEnvelope, code: string): Promise<RestoreSummary> {
+    return this.run('restoreFromCompanion', async () => {
+      if (this.now() >= this.restoreUntil) {
+        throw Object.assign(new Error('On the TV, open Settings → Storage → Restore from your phone first.'), { name: 'NotReady' });
+      }
+      const res = await this.restoreBackup(envelope, code, 'remote');
+      this.restoreUntil = 0;
+      return res;
+    });
+  }
+
+  private backups(): BackupService {
+    this.backupSvc ??= new BackupService({
+      storage: this.storage, clock: this.service.syncClock, now: this.now, iterations: this.backupIterations, vod: this.vod,
+      loadLayout: (id) => (id === this.activeId ? Promise.resolve(this.index.layout()) : this.service.loadLayout(id)),
+      applyLayout: (id, ops) => this.applyRestoredLayout(id, ops),
+      getSettings: () => this.currentSettings(),
+      saveSettings: (patch) => this.applySettings(patch, { stamp: false }),
+    });
+    return this.backupSvc;
+  }
+
+  /** Restores under the index lock (the active source's layout changes through its index), then tells the UI. */
+  private async restoreBackup(envelope: unknown, code: string, origin: LayoutOrigin): Promise<RestoreSummary> {
+    const res = await this.withIndex(() => {
+      this.restoreOrigin = origin;
+      return this.backups().restore(envelope, code);
+    });
+    this.emit({ type: 'backupRestored', origin, applied: res.applied, pending: res.pending, sources: res.sources, at: res.at });
+    return res;
+  }
+
+  /** Applies what a restored backup kept for `source` (just added). Never fails the add. */
+  private async applyPendingBackup(source: SourceConfig): Promise<void> {
+    try {
+      if (!(await this.storage.listSyncMeta(BACKUP_FP_SCOPE)).length) return;
+      await this.withIndex(() => {
+        this.restoreOrigin = 'local';
+        return this.backups().applyPending(source);
+      });
+    } catch (err) {
+      this.record('applyPendingBackup', err);
+    }
+  }
+
+  /** Restored layout ops: the active source through its index (caller holds the index lock), others in storage. */
+  private async applyRestoredLayout(id: string, ops: LayoutOp[]): Promise<void> {
+    if (id !== this.activeId) {
+      await this.service.updateLayout(id, (l) => {
+        const r = applyOps(l, ops);
+        return r.changed ? r.layout : undefined;
+      });
+      return;
+    }
+    const before = this.index.layout();
+    const res = applyOps(before, ops);
+    if (res.changed) await this.commitLayoutLocked(id, before, res.layout, [], this.restoreOrigin);
   }
 
   clearCache(): Promise<InitState> {
@@ -1348,15 +1479,20 @@ export class AppApi {
     if (!res.changed) return { version, rejected };
 
     // Stamps the sync clocks of what changed (`markWatched` alone touches none: zapping writes no sync state).
-    await this.service.saveLayout(id, res.layout, res.touched);
-    this.index = this.index.withLayout(res.layout);
-    if (before.hiddenChannels !== res.layout.hiddenChannels || before.hiddenGroups !== res.layout.hiddenGroups || before.hideNoEpg !== res.layout.hideNoEpg) this.sportsMapping++;
-    this.favSet = undefined;
-    if (before.channelNames !== res.layout.channelNames) this.invalidateNowNext();
-    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: res.layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
-    if (onlyRecentChanged(before, res.layout)) event.recentOnly = true;
-    this.emit(event);
+    await this.commitLayoutLocked(id, before, res.layout, res.touched, origin);
     return { version: res.layout.version, rejected };
+  }
+
+  /** Stores the active source's new layout, swaps it into the index and tells the UI. Caller holds the index lock. */
+  private async commitLayoutLocked(id: string, before: Layout, layout: Layout, touched: readonly string[], origin: LayoutOrigin): Promise<void> {
+    await this.service.saveLayout(id, layout, touched);
+    this.index = this.index.withLayout(layout);
+    if (before.hiddenChannels !== layout.hiddenChannels || before.hiddenGroups !== layout.hiddenGroups || before.hideNoEpg !== layout.hideNoEpg) this.sportsMapping++;
+    this.favSet = undefined;
+    if (before.channelNames !== layout.channelNames) this.invalidateNowNext();
+    const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
+    if (onlyRecentChanged(before, layout)) event.recentOnly = true;
+    this.emit(event);
   }
 
   /** `op` with a combined channel's row id widened to every stream of the row (list removal, hide, show). */
@@ -2057,10 +2193,12 @@ export const APP_API_METHODS = [
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',
+  'backupToPhone', 'backupToFile', 'restoreFromFile', 'armPhoneRestore',
 ] as const satisfies readonly (keyof AppApi)[];
 
-// Compile-time check: every public method except the test-only `idle` is listed above.
-const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle'>, (typeof APP_API_METHODS)[number]>] extends [never] ? true : never = true;
+// Compile-time check: every public method except the test-only `idle` and the companion host's `restoreFromCompanion`
+// (a phone restore must come through the paired channel, never from the UI port) is listed above.
+const exhaustive: [Exclude<Exclude<keyof AppApi, 'idle' | 'restoreFromCompanion'>, (typeof APP_API_METHODS)[number]>] extends [never] ? true : never = true;
 void exhaustive;
 
 const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });
