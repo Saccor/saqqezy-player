@@ -4,7 +4,7 @@ import { startFakeXtream } from './server.ts';
 const versions = process.env.FAKE_VOD_VERSIONS === '1';
 const { url } = await startFakeXtream({
   port: Number(process.env.PORT ?? 8899), channels: Number(process.env.CHANNELS ?? 200), versions, sports: process.env.SPORTS !== '0',
-  catchup: process.env.CATCHUP !== '0',
+  catchup: process.env.CATCHUP !== '0', showcase: process.env.SHOWCASE === '1',
 });
 if (versions) console.log('Versions mode: each movie and series title is listed three times (language and quality variants).');
 console.log(`Fake Xtream provider running at ${url}  (login: test / test)`);

@@ -1,14 +1,18 @@
+import { SHOWCASE_CHANNELS, SHOWCASE_MOVIES, SHOWCASE_SERIES, showcaseProgramme } from './showcase.ts';
+
 export const GROUPS = ['News', 'Movies', 'Kids', 'Music'] as const;
 export const TEST_STREAM = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 const SLOT = 30 * 60_000;
 
 export interface FakeChannel { n: number; name: string; epgId: string; categoryId: string; group: string }
 
-export function channels(count: number): FakeChannel[] {
+/** `showcase`: invented channel names for screenshots (`showcase.ts`). */
+export function channels(count: number, showcase = false): FakeChannel[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
     const g = i % GROUPS.length;
-    return { n, name: `Channel ${String(n).padStart(3, '0')}`, epgId: `c${n}.test`, categoryId: String(g + 1), group: GROUPS[g]! };
+    const name = (showcase ? SHOWCASE_CHANNELS[i] : undefined) ?? `Channel ${String(n).padStart(3, '0')}`;
+    return { n, name, epgId: `c${n}.test`, categoryId: String(g + 1), group: GROUPS[g]! };
   });
 }
 
@@ -45,6 +49,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 /** `history`: extra programmes before the usual 6 h for a channel (catch-up channels), given the XMLTV date format. */
 export function* xmltv(
   chs: FakeChannel[], now: number, sports = false, history?: (c: FakeChannel, xmlDate: (ms: number) => string) => string,
+  showcase = false,
 ): Generator<string> {
   yield '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="fake-xtream">\n';
   for (const c of chs) yield `<channel id="${c.epgId}"><display-name>${c.name}</display-name></channel>\n`;
@@ -65,7 +70,8 @@ export function* xmltv(
         i += m.len - 1;
         continue;
       }
-      buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(slot.stop)}" channel="${c.epgId}"><title>Programme ${slot.index}</title><desc>Synthetic listing for ${c.name}.</desc></programme>\n`;
+      const p = showcase ? showcaseProgramme(Number(c.categoryId) - 1, slot.index, c.n) : { title: `Programme ${slot.index}`, desc: `Synthetic listing for ${c.name}.` };
+      buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(slot.stop)}" channel="${c.epgId}"><title>${esc(p.title)}</title><desc>${esc(p.desc)}</desc></programme>\n`;
     }
     yield (history?.(c, xmlDate) ?? '') + buf;
   }
@@ -91,14 +97,16 @@ const titleOf = (n: number, versions: boolean) => (versions ? Math.ceil(n / 3) :
 const variant = (n: number, versions: boolean, name: string) =>
   (versions ? `${VARIANT_PREFIX[(n - 1) % 3]}${name}${VARIANT_QUALITY[(n - 1) % 3]}` : name);
 
-export function movies(count: number, now: number, versions = false): FakeMovie[] {
+/** `showcase`: invented titles for screenshots (`showcase.ts`); titles past the list keep their numbered names. */
+export function movies(count: number, now: number, versions = false, showcase = false): FakeMovie[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
     const t = titleOf(n, versions);
+    const named = showcase ? SHOWCASE_MOVIES[t - 1]?.[0] : undefined;
     return {
       n,
       title: t,
-      name: variant(n, versions, `Synthetic Film ${pad(t, 3)} (${2000 + (t % 25)})`),
+      name: variant(n, versions, `${named ?? `Synthetic Film ${pad(t, 3)}`} (${2000 + (t % 25)})`),
       categoryId: String((i % MOVIE_GROUPS.length) + 1),
       year: 2000 + (t % 25),
       rating: (5 + ((n * 7) % 50) / 10).toFixed(1),
@@ -107,10 +115,12 @@ export function movies(count: number, now: number, versions = false): FakeMovie[
   });
 }
 
-export function seriesList(count: number, versions = false): FakeSeries[] {
+export function seriesList(count: number, versions = false, showcase = false): FakeSeries[] {
   return Array.from({ length: count }, (_, i) => {
     const n = i + 1;
-    return { n, title: titleOf(n, versions), name: variant(n, versions, `Synthetic Series ${pad(titleOf(n, versions), 2)}`), categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
+    const t = titleOf(n, versions);
+    const named = showcase ? SHOWCASE_SERIES[t - 1] : undefined;
+    return { n, title: t, name: variant(n, versions, named ?? `Synthetic Series ${pad(t, 2)}`), categoryId: String((i % SERIES_GROUPS.length) + 1), seasons: 1 + (n % 3), perSeason: 3 + (n % 4) };
   });
 }
 

@@ -365,3 +365,24 @@ describe('fake trending feed', () => {
     }
   });
 });
+
+describe('showcase mode', () => {
+  test('lists only invented names with generated artwork, never the numbered placeholders', async () => {
+    const sc = await startFakeXtream({ port: 0, channels: 12, now: () => NOW, showcase: true });
+    try {
+      const api = (action: string) => fetch(`${sc.url}/player_api.php?username=test&password=test&action=${action}`).then((r) => r.json());
+      const live = await api('get_live_streams') as { name: string; stream_icon: string }[];
+      expect(live[0]).toMatchObject({ name: 'Northbridge News', stream_icon: `${sc.url}/logo/c1.svg` });
+      const vod = await api('get_vod_streams') as { name: string }[];
+      const series = await api('get_series') as { name: string }[];
+      expect([...live, ...vod, ...series].map((x) => x.name).join('|')).not.toMatch(/Synthetic|Channel \d/);
+      const guide = await fetch(`${sc.url}/xmltv.php?username=test&password=test`).then((r) => r.text());
+      expect(guide).not.toMatch(/Programme \d|Synthetic/);
+      const poster = await fetch(`${sc.url}/poster/m1.svg`).then((r) => r.text());
+      expect(poster).toContain('THE QUIET');
+      expect(await fetch(`${sc.url}/logo/c1.svg`).then((r) => r.text())).toContain('>NN<');
+    } finally {
+      await sc.close();
+    }
+  });
+});
