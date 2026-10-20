@@ -7,6 +7,8 @@ import { showToast } from '../../shell/Toast.tsx';
 import { patchSettings, settings } from '../../state/appState.ts';
 import { rollbackTarget } from '../settingsLogic.ts';
 
+export interface ConfirmOptions { single?: boolean; detail?: string }
+
 /** What the Settings screen gives each page: its content box plus the shared modals. */
 export interface PageProps {
   x: number; y: number; width: number; height: number;
@@ -14,8 +16,8 @@ export interface PageProps {
   register: (el: ElementNode | undefined) => void;
   /** Left on the list's edge: back to the menu. */
   onLeftEdge: () => boolean;
-  /** Yes/No dialog (No focused); Back answers No. */
-  confirm: (message: string, yes: string) => Promise<boolean>;
+  /** Yes/No dialog (No focused); Back answers No. `opts.single`: one button only; `opts.detail`: a large line (a code). */
+  confirm: (message: string, yes: string, opts?: ConfirmOptions) => Promise<boolean>;
   /** Action menu (OptionsMenu); Back or "Cancel" answers undefined. */
   choose: (title: string, items: OptionItem[], initial?: number) => Promise<string | undefined>;
   /** Blocks keys behind a "busy" panel until the returned function is called. */

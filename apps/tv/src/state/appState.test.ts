@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InitState } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
-  INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, cooldown, cooldownOf, initFailed, initState, setStreamCooldown, wireEvents,
+  INIT_TIMEOUT_MS, applyInitState, bootstrap, companionStatus, cooldown, cooldownOf, initFailed, initState, restoreWaitUntil, setRestoreWaitUntil,
+  setStreamCooldown, settings, wireEvents,
 } from './appState.ts';
 
 const ready: InitState = {
@@ -89,6 +90,20 @@ describe('wireEvents', () => {
     expect(toast.mock.calls[0]?.[0]).toBe('Updated from your phone');
     off();
     expect(offs).toContain('layoutChanged');
+  });
+
+  it('a restored backup: toast, the restore wait ends, and the state (settings) is read again', async () => {
+    const fns = new Map<string, (p: unknown) => void>();
+    const on = (t: string, fn: (p: unknown) => void) => { fns.set(t, fn); return () => undefined; };
+    const toast = vi.fn();
+    const init = vi.fn(async () => ({ sources: [], activeSourceId: undefined, groups: [], settings: { ...DEFAULT_SETTINGS, subtitleLanguage: 'sv' }, hasVod: false, cooldown: { state: 'clear' as const } }));
+    setRestoreWaitUntil(Date.now() + 60_000);
+    const off = wireEvents(on, toast, { api: { init }, router: { reset: vi.fn(), current: () => undefined } as never, playing: () => false, stopPlayback: vi.fn() });
+    fns.get('backupRestored')?.({ type: 'backupRestored', origin: 'remote', applied: 3, pending: 0, sources: 1, at: 0 });
+    expect(toast.mock.calls[0]?.[0]).toBe('Restored 3 changes from your backup.');
+    expect(restoreWaitUntil()).toBeUndefined();
+    await vi.waitFor(() => expect(settings()?.subtitleLanguage).toBe('sv'));
+    off();
   });
 
   it('tracks the phone companion status without a toast', () => {

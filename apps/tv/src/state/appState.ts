@@ -82,6 +82,13 @@ export function setStreamCooldown(key: string | undefined, seed?: SourceCooldown
 export const cooldown = (): SourceCooldown => cooldownOf(streamKey());
 
 /** Updates the cached settings (optimistically, then with `saveSettings`' sanitised answer). */
+/**
+ * "Restore from your phone": until when the TV waits for the phone to send a backup (undefined: not waiting). Module
+ * state, so the Storage page shows it again when reopened; a restore (`backupRestored`) ends it.
+ */
+const [restoreWaitUntil, setRestoreWaitUntil] = createSignal<number | undefined>(undefined);
+export { restoreWaitUntil, setRestoreWaitUntil };
+
 export function patchSettings(next: AppSettings): void {
   const s = initState();
   if (s) setInitState({ ...s, settings: next });
@@ -199,11 +206,18 @@ export function wireEvents(
       return;
     }
     if (e.type === 'sourcesChanged' && follow) void followSources(e, follow);
+    if (e.type === 'backupRestored') {
+      setRestoreWaitUntil(undefined);
+      // Restored settings (and lists) are read again; the screens re-read their own lists on `layoutChanged`.
+      follow?.api.init().then(applyInitState, (err: unknown) => {
+        console.warn('Reading state after a restore failed', err instanceof Error ? err.name : 'Error');
+      });
+    }
     setOffline((prev) => offlineAfter(prev, e));
     const text = toastFor(e);
     if (text) toast(text, toastPriority(e));
   };
   // `layoutChanged` / `sourcesChanged` from a companion show "Updated from your phone" on any screen; Home also re-reads its list.
-  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion', 'cooldown'] as const).map((t) => on(t, handle));
+  const offs = (['refreshed', 'refreshFailed', 'offline', 'layoutChanged', 'sourcesChanged', 'companion', 'cooldown', 'backupRestored'] as const).map((t) => on(t, handle));
   return () => { for (const off of offs) off(); };
 }

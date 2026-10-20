@@ -1,5 +1,6 @@
 import type { AppEvent, InitState } from '@iptv/app-api';
 import type { ScreenEntry, ScreenId } from '../shell/router.ts';
+import { restoredCopy } from '../screens/settings/backupLogic.ts';
 
 /** The root screen for a fresh start: Add source without sources, otherwise Home at the last position. */
 export function initialRoute(s: InitState): ScreenEntry {
@@ -20,6 +21,7 @@ export function bootRoutes(s: InitState): ScreenEntry[] {
 export function toastFor(e: AppEvent): string | undefined {
   // Changes made on this device need no toast; a paired companion's do.
   if (e.type === 'layoutChanged' || e.type === 'sourcesChanged') return e.origin === 'remote' ? 'Updated from your phone' : undefined;
+  if (e.type === 'backupRestored') return restoredCopy(e);
   if (e.type !== 'refreshFailed') return undefined;
   // The source is cooling down: Home and the Player already say so.
   if (e.error.name === 'SourceRefused') return undefined;

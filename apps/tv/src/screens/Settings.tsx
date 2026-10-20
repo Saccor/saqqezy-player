@@ -17,7 +17,7 @@ import { DisplayPage } from './settings/DisplayPage.tsx';
 import { GuidePage } from './settings/GuidePage.tsx';
 import { ManageOnPhonePage } from './settings/ManageOnPhonePage.tsx';
 import { PlaybackPage } from './settings/PlaybackPage.tsx';
-import { consumeSubscreenLeave, type PageProps } from './settings/shared.ts';
+import { consumeSubscreenLeave, type ConfirmOptions, type PageProps } from './settings/shared.ts';
 import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
 import { SETTINGS_PAGES } from './settingsLogic.ts';
@@ -99,7 +99,7 @@ export function SettingsScreen() {
   const below = railBelow(router.below(1), router.below(2));
   const [page, setPage] = createSignal(Math.min(memory.page, SETTINGS_PAGES.length - 1));
   const [area, setArea] = createSignal<'menu' | 'page'>('menu');
-  const [dialog, setDialog] = createSignal<{ message: string; yes: string; answer: (yes: boolean) => void } | undefined>();
+  const [dialog, setDialog] = createSignal<{ message: string; yes: string; opts?: ConfirmOptions; answer: (yes: boolean) => void } | undefined>();
   const [chooser, setChooser] = createSignal<{ title: string; items: OptionItem[]; initial?: number; answer: (id?: string) => void } | undefined>();
   const [busyText, setBusyText] = createSignal<string | undefined>(undefined);
 
@@ -176,7 +176,7 @@ export function SettingsScreen() {
       if (area() === 'page' && dialog() === undefined && chooser() === undefined) restoreFocus();
     },
     onLeftEdge: focusMenu,
-    confirm: (message, yes) => new Promise<boolean>((resolve) => {
+    confirm: (message, yes, opts) => new Promise<boolean>((resolve) => {
       const answer = (ok: boolean) => {
         removeLayer?.();
         removeLayer = undefined;
@@ -184,7 +184,7 @@ export function SettingsScreen() {
         restoreFocus();
         resolve(ok);
       };
-      setDialog({ message, yes, answer });
+      setDialog({ message, yes, answer, ...(opts ? { opts } : {}) });
       removeLayer = router.pushOverlay(DIALOG_ID, () => { removeLayer = undefined; setDialog(undefined); restoreFocus(); resolve(false); });
     }),
     choose: (title, items, initial) => new Promise<string | undefined>((resolve) => {
@@ -259,7 +259,8 @@ export function SettingsScreen() {
         <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
       )}</Show>
       <Show when={dialog()}>{(d) => (
-        <ConfirmDialog message={d().message} yes={d().yes} no="Cancel" onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
+        <ConfirmDialog message={d().message} yes={d().yes} no={d().opts?.single ? null : 'Cancel'} detail={d().opts?.detail}
+          onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
       )}</Show>
       <Show when={busyText()}>{(t) => {
         let scrim: ElementNode | undefined;
