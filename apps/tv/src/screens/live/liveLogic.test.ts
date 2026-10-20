@@ -38,6 +38,20 @@ describe('liveKey', () => {
     expect(liveKey('grid', 'left', ctx)).toBe('move');
     expect(liveKey('grid', 'back', ctx)).toBe('rail');
   });
+  test('empty list with focus in the grid: focus goes to the groups or the rail', () => {
+    for (const place of ['grid', 'channels'] as const) {
+      const withGroups = { row: 0, total: 0, hasGroups: true };
+      const noGroups = { row: 0, total: 0, hasGroups: false };
+      for (const key of ['up', 'down', 'right'] as const) {
+        expect(liveKey(place, key, withGroups), `${place} ${key}`).toBe('groups');
+        expect(liveKey(place, key, noGroups), `${place} ${key}`).toBe('rail');
+      }
+      expect(liveKey(place, 'left', withGroups)).toBe('rail');
+      expect(liveKey(place, 'left', noGroups)).toBe('rail');
+      expect(liveKey(place, 'back', withGroups)).toBe('rail');
+      expect(liveKey(place, 'back', noGroups)).toBe('rail');
+    }
+  });
   test('no groups: Up from the top row stays', () => {
     expect(liveKey('grid', 'up', { row: 0, total: 5, hasGroups: false })).toBe('move');
   });

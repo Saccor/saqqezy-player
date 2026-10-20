@@ -143,7 +143,7 @@ export function progressOf(p: { start: number; stop: number } | undefined, now: 
  * nothing plays (Home: paused after a reload). `maxConnections` is the active Xtream account's limit, when known.
  */
 export function previewMessage(
-  status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview', maxConnections?: number,
+  status: SupervisorStatus | undefined, hasChannel: boolean, idle = 'Preview', maxConnections?: number, compact = false,
 ): string | undefined {
   if (!hasChannel) return idle;
   if (!status) return 'Preview';
@@ -152,7 +152,7 @@ export function previewMessage(
     case 'loading': return 'Loading…';
     case 'reconnecting': return 'Reconnecting…';
     case 'failed':
-      return failureText({ reason: status.reason, httpStatus: status.httpStatus, maxConnections }, 'channel');
+      return failureText({ reason: status.reason, httpStatus: status.httpStatus, maxConnections }, 'channel', compact);
   }
 }
 

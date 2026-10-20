@@ -60,6 +60,13 @@ describe('failureText (spec 2026-10-16-source-retry §2.8)', () => {
       failureText({ reason: 'gone', httpStatus: 404 }),
       failureText({ reason: 'unavailable', httpStatus: 500 }),
     ].join(' ');
+    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel', true))
+      .toBe('Source allows 10 connections; another device may be using it.');
+    expect(failureText({ reason: 'refused', httpStatus: 401, maxConnections: 1 }, 'channel', true))
+      .toBe('Source allows 1 connection; another device may be using it.');
+    // Compact only changes the account-limit case.
+    expect(failureText({ reason: 'refused', httpStatus: 403 }, 'channel', true)).toBe(failureText({ reason: 'refused', httpStatus: 403 }));
+    expect(failureText({ reason: 'gone' }, 'channel', true)).toBe(failureText({ reason: 'gone' }));
     expect(all).not.toMatch(/https?:|www\.|free|buy|subscribe/i);
   });
 });

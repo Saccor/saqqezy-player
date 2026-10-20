@@ -32,7 +32,8 @@ export function liveKey(place: LivePlace, key: LiveKey, ctx: LiveKeyCtx): LivePl
     if (key === 'down' || key === 'back') return ctx.total > 0 ? 'grid' : key === 'back' ? 'rail' : 'groups';
     return 'groups';
   }
-  if (key === 'back') return 'rail';
+  if (key === 'back' || (key === 'left' && ctx.total === 0)) return 'rail';
+  if (ctx.total === 0) return ctx.hasGroups ? 'groups' : 'rail'; // nothing to move over
   if (key === 'up' && ctx.row === 0 && ctx.hasGroups) return 'groups';
   if (place === 'channels') {
     if (key === 'left') return 'rail';

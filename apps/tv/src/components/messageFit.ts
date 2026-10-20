@@ -35,25 +35,6 @@ export function messageLines(text: string, box: MessageBox): number {
 export function fitsBox(text: string, box: MessageBox): boolean {
   return Math.ceil(text.length / box.charsPerLine) <= box.maxLines;
 }
-
-/**
- * The message for a small box: unchanged when it fits, otherwise cut back to the longest run of whole leading
- * sentences that fits (the first sentence names the cause; later ones only add detail). A single sentence that is
- * too long is returned as is.
- */
-export function shortenToBox(text: string, box: MessageBox): string {
-  if (fitsBox(text, box)) return text;
-  const sentences = text.match(/[^.!?]+[.!?]+(?:\s+|$)/g)?.map((s) => s.trim());
-  if (!sentences) return text;
-  let out = sentences[0] ?? text;
-  for (let i = 1; i < sentences.length; i++) {
-    const next = `${out} ${sentences[i]}`;
-    if (!fitsBox(next, box)) break;
-    out = next;
-  }
-  return out;
-}
-
 /** The y of the first line that centres the text's lines in a box `height` tall. */
 export function messageTop(text: string, box: MessageBox, height: number): number {
   return (height - messageLines(text, box) * box.lineH) / 2;

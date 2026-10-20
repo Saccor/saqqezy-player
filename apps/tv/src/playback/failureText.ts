@@ -44,9 +44,9 @@ function withStatus(text: string, status: number | undefined): string {
 
 /**
  * The text for a failed play (spec 2026-10-16-source-retry §2.8): names the cause and the HTTP status when known.
- * One function for the live Player, the Home and Guide preview, and VodPlay. Neutral: never names a provider.
+ * `compact` gives the account-limit refusal a shorter form for a small box. One function for the live Player, the Home and Guide preview, and VodPlay. Neutral: never names a provider.
  */
-export function failureText(f: FailureFacts, subject: FailureSubject = 'channel'): string {
+export function failureText(f: FailureFacts, subject: FailureSubject = 'channel', compact = false): string {
   switch (f.reason) {
     case 'refused': {
       if (f.httpStatus !== undefined && RATE_LIMIT_STATUSES.has(f.httpStatus)) {
@@ -56,6 +56,8 @@ export function failureText(f: FailureFacts, subject: FailureSubject = 'channel'
       const n = f.maxConnections;
       if (f.httpStatus !== undefined && !ACCOUNT_STATUSES.has(f.httpStatus)) return base;
       if (n === undefined || !Number.isInteger(n) || n < 1) return base;
+      // `compact` (Live TV's small window) keeps the cause and the limit, and drops the rest.
+      if (compact) return `Source allows ${n} connection${n === 1 ? '' : 's'}; another device may be using it.`;
       return `${base} It allows ${n} connection${n === 1 ? '' : 's'}: another device may be using this account.`;
     }
     case 'gone': return withStatus(GONE[subject], f.httpStatus);
