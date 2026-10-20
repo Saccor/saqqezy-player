@@ -49,7 +49,7 @@ export function listIdOfGroup(groupId: string | undefined): string | undefined {
 }
 
 export type PickerRow =
-  | { kind: 'list'; id: string; label: string; checked: boolean }
+  | { kind: 'list'; id: string; label: string; checked: boolean; /** Shown in the footer while the row is selected. */ help?: string }
   | { kind: 'new'; label: string };
 
 /** Picker rows: every list (checked when it holds the channel), then "New list…" while under the limit. */

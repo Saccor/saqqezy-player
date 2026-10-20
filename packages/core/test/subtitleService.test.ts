@@ -53,6 +53,34 @@ describe('SubtitleService', () => {
     expect((await svc.get('src', 'item1'))?.delayMs).toBeUndefined();
   });
 
+  test('a speed is kept with the title\'s file next to the delay; old records have none; a new file starts without', async () => {
+    await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' });
+    expect((await svc.get('src', 'item1'))?.speed).toBeUndefined();
+    await svc.setSpeed('src', 'item1', 23.976 / 25);
+    await svc.setDelay('src', 'item1', 700);
+    expect(await svc.get('src', 'item1')).toMatchObject({ speed: 23.976 / 25, delayMs: 700 });
+    await svc.setSpeed('src', 'item1', 1);
+    expect((await svc.get('src', 'item1'))?.speed).toBe(1);
+    // Nonsense is Normal.
+    await svc.setSpeed('src', 'item1', Number.NaN);
+    expect((await svc.get('src', 'item1'))?.speed).toBe(1);
+    await svc.setSpeed('src', 'item1', 7);
+    expect((await svc.get('src', 'item1'))?.speed).toBe(1);
+    await svc.setSpeed('src', 'none', 1); // no file: nothing to keep
+    expect(await svc.get('src', 'none')).toBeUndefined();
+    await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'b.srt' });
+    expect((await svc.get('src', 'item1'))?.speed).toBeUndefined();
+  });
+
+  test('a file found online keeps its language, file id and frame rate', async () => {
+    const got = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'Swedish' }, { language: 'sv', fileId: 2002, fps: 23.976 });
+    expect(got).toMatchObject({ name: 'Swedish', online: { language: 'sv', fileId: 2002 }, fps: 23.976 });
+    expect(await svc.get('src', 'item1')).toEqual(got);
+    const plain = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' }, { fps: 0 });
+    expect('fps' in plain).toBe(false);
+    expect('online' in plain).toBe(false);
+  });
+
   test('clear forgets a title', async () => {
     await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'a.srt' });
     await svc.clear('src', 'item1');

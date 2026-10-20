@@ -157,6 +157,8 @@ export class AppApi {
   private readonly fileHash: ((url: string, headers?: StreamHeaders) => Promise<string | undefined>) | undefined;
   /** Movie hashes read this session, per stream URL, least recently used first; cleared on a source switch. */
   private readonly movieHashes = new Map<string, MovieHashEntry>();
+  /** "Try another version" lists per title, language and frame rate, least recently used first; cleared on a source switch. */
+  private readonly versionLists = new Map<string, Promise<SubtitleVersion[]>>();
   private readonly trending: TrendingService | undefined;
   private readonly catchup: CatchupController;
 
@@ -937,21 +939,41 @@ export class AppApi {
    */
   subtitleVersions(itemId: string, language: string, seriesId?: string, videoFps?: number): Promise<SubtitleVersion[]> {
     return this.run('subtitleVersions', async () => {
-      const client = this.onlineOrThrow();
+      this.onlineOrThrow();
       const lang = language.trim();
       if (!lang) return [];
-      const { query } = await this.subtitleQuery(itemId, seriesId);
-      query.languages = [lang];
-      const first = await client.searchPage(query);
-      const more = first.totalPages !== undefined ? first.totalPages > 1 : first.subtitles.length >= SUBTITLE_SEARCH_PAGE_SIZE;
-      const all: OnlineSubtitle[] = [...first.subtitles];
-      if (more) all.push(...(await client.searchPage({ ...query, page: 2 })).subtitles);
-      const seen = new Set<number>();
-      const unique = all.filter((s) => (seen.has(s.fileId) ? false : (seen.add(s.fileId), true)));
-      return rankSubtitles(unique, videoFps).map((s) => ({
-        fileId: s.fileId, release: s.release, ...(s.fps ? { fps: s.fps } : {}), synced: s.hashMatch, downloads: s.downloads,
-      }));
+      // Kept for the session (a reopen of the title asks nothing); a failed search is not kept.
+      const key = JSON.stringify([itemId, seriesId ?? '', lang, videoFps ?? 0]);
+      let list = this.versionLists.get(key);
+      if (list) this.versionLists.delete(key); // Re-inserted below: the most recently used is last.
+      else list = this.searchVersions(itemId, lang, seriesId, videoFps);
+      this.versionLists.set(key, list);
+      if (this.versionLists.size > VERSION_LISTS_MAX) {
+        const leastRecent = this.versionLists.keys().next().value;
+        if (leastRecent !== undefined) this.versionLists.delete(leastRecent);
+      }
+      const kept = list;
+      return kept.catch((err: unknown) => {
+        if (this.versionLists.get(key) === kept) this.versionLists.delete(key);
+        throw err;
+      });
     });
+  }
+
+  /** The search behind `subtitleVersions`: pages 1 and 2 at most. */
+  private async searchVersions(itemId: string, lang: string, seriesId: string | undefined, videoFps: number | undefined): Promise<SubtitleVersion[]> {
+    const client = this.onlineOrThrow();
+    const { query } = await this.subtitleQuery(itemId, seriesId);
+    query.languages = [lang];
+    const first = await client.searchPage(query);
+    const more = first.totalPages !== undefined ? first.totalPages > 1 : first.subtitles.length >= SUBTITLE_SEARCH_PAGE_SIZE;
+    const all: OnlineSubtitle[] = [...first.subtitles];
+    if (more) all.push(...(await client.searchPage({ ...query, page: 2 })).subtitles);
+    const seen = new Set<number>();
+    const unique = all.filter((s) => (seen.has(s.fileId) ? false : (seen.add(s.fileId), true)));
+    return rankSubtitles(unique, videoFps).map((s) => ({
+      fileId: s.fileId, release: s.release, ...(s.fps ? { fps: s.fps } : {}), synced: s.hashMatch, downloads: s.downloads,
+    }));
   }
 
   /** The search for a title, with the stream file's hash when exact match is on (`movieHash`). */
@@ -1006,13 +1028,24 @@ export class AppApi {
     });
   }
 
-  /** Downloads one file found online and keeps it for the title, like a loaded file, under `name` ("Swedish"). */
-  loadOnlineSubtitle(itemId: string, fileId: number, name: string): Promise<LoadedSubtitle> {
+  /** How fast the title's loaded subtitles run against the video (a frame-rate fix); kept with that file. */
+  setSubtitleSpeed(itemId: string, speed: number): Promise<void> {
+    return this.run('setSubtitleSpeed', () => {
+      const [svc, src] = this.subtitlesOrThrow();
+      return svc.setSpeed(src, itemId, speed);
+    });
+  }
+
+  /**
+   * Downloads one file found online and keeps it for the title, like a loaded file, under `name` ("Swedish"). With
+   * `details`, its language (so its other versions can be listed later) and the frame rate it was timed for.
+   */
+  loadOnlineSubtitle(itemId: string, fileId: number, name: string, details?: { language?: string; fps?: number }): Promise<LoadedSubtitle> {
     return this.run('loadOnlineSubtitle', async () => {
       const client = this.onlineOrThrow();
       const [svc, src] = this.subtitlesOrThrow();
       const file = await client.download(fileId);
-      return svc.load(src, itemId, { bytes: file.bytes, name });
+      return svc.load(src, itemId, { bytes: file.bytes, name }, details && { ...details, fileId });
     });
   }
 
@@ -1221,6 +1254,7 @@ export class AppApi {
   private activate(id: string | undefined): Promise<void> {
     // Item ids and stream URLs belong to a source (and its headers may have changed): its file hashes go with it.
     this.movieHashes.clear();
+    this.versionLists.clear();
     return this.withIndex(async () => {
       const [channels, layout, coverage, sources] = id
         ? await Promise.all([
@@ -1966,6 +2000,8 @@ export const LIVE_AUDIO_MAX = 200;
 export const SUBTITLE_SEARCH_PAGE_SIZE = 50;
 /** How many files' movie hashes the session remembers (the least recently used dropped first). */
 const MOVIE_HASH_CACHE_MAX = 50;
+/** How many "Try another version" lists are kept for the session. */
+const VERSION_LISTS_MAX = 30;
 /** How long a failed movie-hash read is remembered before the file is asked again. */
 export const MOVIE_HASH_RETRY_MS = 10 * 60_000;
 /** A movie-hash read: the hash (undefined when it failed) and, once it failed, when. */
@@ -1982,7 +2018,7 @@ export const APP_API_METHODS = [
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
-  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'refreshVod', 'preloadVod',
+  'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed','refreshVod', 'preloadVod',
   'getLiveAudio', 'setLiveAudio',
   'getSettings', 'saveSettings', 'clearCache', 'diagnostics', 'focusChannel', 'notePlayed',
   'companionStart', 'companionStop', 'companionStatus',

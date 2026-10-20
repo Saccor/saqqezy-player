@@ -48,7 +48,11 @@ export function ListPicker(props: {
     return top;
   });
   const visible = () => props.rows.slice(scrollTop(), scrollTop() + VIEW_ROWS).map((row, k) => ({ row, i: scrollTop() + k }));
-  const hint = () => props.hint ?? 'Ok adds or removes · Back closes';
+  /** The selected row's help when it has one, else the picker's hint. */
+  const hint = () => {
+    const r = props.rows[current()];
+    return (r?.kind === 'list' ? r.help : undefined) ?? props.hint ?? 'Ok adds or removes · Back closes';
+  };
   const move = (d: number) => { setSel(moveFocus(current(), d, props.rows.length)); return true; };
   const adjust = (dir: 1 | -1) => {
     const r = props.rows[current()];

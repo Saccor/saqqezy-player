@@ -2375,6 +2375,36 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     expect('fps' in versions[1]!).toBe(false);
   });
 
+  test('versions are kept per title for the session: a reopen asks nothing; a source switch forgets them', async () => {
+    const urls: string[] = [];
+    const api = makeOnline('fake-key', undefined, (u, i) => { if (new URL(u).pathname.endsWith('/subtitles')) urls.push(u); return fetch(u, i); });
+    const { sourceId } = await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const first = await api.subtitleVersions(movieId, 'en', undefined, 23.976);
+    expect(urls).toHaveLength(1);
+    expect(await api.subtitleVersions(movieId, 'en', undefined, 23.976)).toEqual(first);
+    expect(urls).toHaveLength(1);
+    // Another language (or frame rate) is another list.
+    await api.subtitleVersions(movieId, 'sv', undefined, 23.976);
+    await api.subtitleVersions(movieId, 'en');
+    expect(urls).toHaveLength(3);
+    await api.setActiveSource(sourceId);
+    await api.subtitleVersions(movieId, 'en', undefined, 23.976);
+    expect(urls).toHaveLength(4);
+  });
+
+  test('a version loaded from the list keeps its language, file id and frame rate; its speed is kept with it', async () => {
+    const api = makeOnline();
+    await api.addSource(xt());
+    const movieId = await firstMovie(api);
+    const loaded = await api.loadOnlineSubtitle(movieId, 2001, 'Swedish', { language: 'sv', fps: 25 });
+    expect(loaded).toMatchObject({ name: 'Swedish', online: { language: 'sv', fileId: 2001 }, fps: 25 });
+    expect((await api.getSubtitle(movieId))?.speed).toBeUndefined();
+    await api.setSubtitleSpeed(movieId, 23.976 / 25);
+    await api.setSubtitleDelay(movieId, 300);
+    expect(await api.getSubtitle(movieId)).toMatchObject({ speed: 23.976 / 25, delayMs: 300, online: { language: 'sv', fileId: 2001 } });
+  });
+
   test('exact match: another file under the same id (a picked version) is hashed again; a source switch forgets the hashes', async () => {
     const hashed: string[] = [];
     const api = makeOnline('fake-key', async (url) => { hashed.push(url); return '0123456789abcdef'; });
@@ -2445,7 +2475,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
     const urls: string[] = [];
     let pages: Record<number, { total_pages?: number; ids: number[] }> = { 1: { total_pages: 3, ids: [1, 2, 3] }, 2: { total_pages: 3, ids: [3, 4] } };
     const api = makeOnline('fake-key', undefined, (u, i) => pagedApi(pages, urls)(u, i));
-    await api.addSource(xt());
+    const { sourceId } = await api.addSource(xt());
     const movieId = await firstMovie(api);
     const two = await api.subtitleVersions(movieId, 'en');
     expect(urls.map((u) => new URL(u).searchParams.get('page'))).toEqual([null, '2']);
@@ -2454,6 +2484,7 @@ describe('subtitles found online (fake OpenSubtitles service)', () => {
 
     const count = async (p: typeof pages) => {
       pages = p;
+      await api.setActiveSource(sourceId); // forgets the versions kept for the session
       urls.length = 0;
       const n = (await api.subtitleVersions(movieId, 'en')).length;
       return [n, urls.length];

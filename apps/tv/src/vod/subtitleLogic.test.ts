@@ -5,6 +5,8 @@ import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW,
   SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, languageName, stepDelay,
   onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
+  SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
+  subtitleTime, versionFileId, versionLabel, versionRows,
 } from './subtitleLogic.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
@@ -141,14 +143,111 @@ describe('subtitle delay', () => {
     expect(subtitleExtraRows({ external: { name: 'English', active: false }, delayMs: 0, canLoadFile: false }).some((r) => r.kind === 'list' && r.id === DELAY_ROW)).toBe(false);
   });
 
-  it('"another version" names the next one, wrapping, and shows only with more than one', () => {
-    const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, canLoadFile: false, another: { label: 'English', index: 0, total: 3 } });
-    expect(rows.find((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toMatchObject({ label: 'Try another English version (2 of 3)' });
-    const last = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, another: { label: 'English', index: 2, total: 3 } });
-    expect(last.find((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toMatchObject({ label: 'Try another English version (1 of 3)' });
-    const one = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, another: { label: 'English', index: 0, total: 1 } });
-    expect(one.some((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toBe(false);
-    for (const id of [DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, ANOTHER_VERSION_ROW]) expect(id).not.toMatch(/^(a|s|os):|^off$/);
+  it('"another version" shows while a file found online is on', () => {
+    const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, canLoadFile: false, another: { label: 'English' } });
+    expect(rows.find((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toMatchObject({ label: 'Try another English version…' });
+    const off = subtitleExtraRows({ external: { name: 'English', active: false }, canLoadFile: false, another: { label: 'English' } });
+    expect(off.some((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toBe(false);
+    const none = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false });
+    expect(none.some((r) => r.kind === 'list' && r.id === ANOTHER_VERSION_ROW)).toBe(false);
+    for (const id of [DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, ANOTHER_VERSION_ROW, SPEED_ROW]) expect(id).not.toMatch(/^(a|s|os|v):|^off$/);
+  });
+});
+
+describe('subtitle speed', () => {
+  it('the exact frame-rate factors', () => {
+    expect(SPEED_PAL_TO_FILM).toBe(23.976 / 25);
+    expect(SPEED_FILM_TO_PAL).toBe(25 / 23.976);
+  });
+
+  it('subtitle time: the playhead minus the delay, scaled by the speed', () => {
+    expect(subtitleTime(10_000, 0, 1)).toBe(10_000);
+    expect(subtitleTime(10_000, 2_000, 1)).toBe(8_000);
+    expect(subtitleTime(10_000, -1_000, 1)).toBe(11_000);
+    expect(subtitleTime(100_000, 0, SPEED_PAL_TO_FILM)).toBeCloseTo(95_904, 6);
+    expect(subtitleTime(10_000, 2_000, SPEED_FILM_TO_PAL)).toBeCloseTo(8_000 * 25 / 23.976, 6);
+  });
+
+  it('auto speed: only when both frame rates are known and clearly differ', () => {
+    expect(autoSpeed(25, 23.976)).toBe(SPEED_PAL_TO_FILM);
+    expect(autoSpeed(25, 23.976)).toBeCloseTo(0.959, 3);
+    expect(autoSpeed(23.976, 25)).toBe(SPEED_FILM_TO_PAL);
+    expect(autoSpeed(24, 25)).toBe(SPEED_FILM_TO_PAL);
+    expect(autoSpeed(25, 25)).toBe(1);
+    expect(autoSpeed(undefined, 25)).toBe(1);
+    expect(autoSpeed(25, undefined)).toBe(1);
+    expect(autoSpeed(undefined, undefined)).toBe(1);
+    expect(autoSpeed(30, 29.97)).toBe(1);
+    expect(autoSpeed(0, 25)).toBe(1);
+    expect(autoSpeed(Number.NaN, 25)).toBe(1);
+  });
+
+  it('a saved speed is one of the three; anything else is Normal', () => {
+    expect(normalizeSpeed(undefined)).toBe(1);
+    expect(normalizeSpeed(1)).toBe(1);
+    expect(normalizeSpeed(SPEED_PAL_TO_FILM)).toBe(SPEED_PAL_TO_FILM);
+    expect(normalizeSpeed(0.959)).toBe(SPEED_PAL_TO_FILM);
+    expect(normalizeSpeed(1.0427)).toBe(SPEED_FILM_TO_PAL);
+    expect(normalizeSpeed(1.5)).toBe(1);
+    expect(normalizeSpeed(Number.NaN)).toBe(1);
+  });
+
+  it('labels and Left/Right cycling, wrapping', () => {
+    expect(speedLabel(1)).toBe('Normal');
+    expect(speedLabel(SPEED_PAL_TO_FILM)).toBe('25 → 23.976');
+    expect(speedLabel(SPEED_FILM_TO_PAL)).toBe('23.976 → 25');
+    expect(stepSpeed(1, 1)).toBe(SPEED_PAL_TO_FILM);
+    expect(stepSpeed(SPEED_PAL_TO_FILM, 1)).toBe(SPEED_FILM_TO_PAL);
+    expect(stepSpeed(SPEED_FILM_TO_PAL, 1)).toBe(1);
+    expect(stepSpeed(1, -1)).toBe(SPEED_FILM_TO_PAL);
+  });
+
+  it('the speed row sits under the delay, only while a loaded file is on', () => {
+    const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, speed: SPEED_PAL_TO_FILM, canLoadFile: false });
+    expect(rows.slice(1, 3).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, SPEED_ROW]);
+    expect(rows[2]).toEqual({ kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: 25 → 23.976 (Left/Right)', checked: false, help: SPEED_HELP });
+    expect(SPEED_HELP).toBe('Fixes subtitles that drift further off as the film goes on');
+    const pointer = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, pointer: true });
+    expect(pointer.slice(1, 5).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, SPEED_ROW]);
+    expect(pointer[4]).toMatchObject({ label: 'Subtitle speed: Normal (Left/Right)' });
+    const off = subtitleExtraRows({ external: { name: 'English', active: false }, canLoadFile: false });
+    expect(off.some((r) => r.kind === 'list' && r.id === SPEED_ROW)).toBe(false);
+    expect(subtitleExtraRows({ canLoadFile: false }).some((r) => r.kind === 'list' && r.id === SPEED_ROW)).toBe(false);
+  });
+});
+
+describe('subtitle versions', () => {
+  it('release, frame rate and exact match, parts only when known', () => {
+    expect(versionLabel({ release: 'Rel.2020', fps: 25, synced: true }, 1)).toBe('Rel.2020 · 25 fps · matches this file');
+    expect(versionLabel({ release: 'Synthetic.Release', fps: 23.976, synced: false }, 1)).toBe('Synthetic.Release · 23.976 fps');
+    expect(versionLabel({ release: 'Synthetic.Release', synced: false }, 1)).toBe('Synthetic.Release');
+    expect(versionLabel({ release: '  ', synced: false }, 3)).toBe('Version 3');
+    expect(versionLabel({ release: '', fps: 29.97003, synced: false }, 2)).toBe('Version 2 · 29.97 fps');
+  });
+
+  it('a long release name is shortened so the frame rate and match still fit', () => {
+    const long = 'Synthetic.Release.Name.That.Goes.On.And.On.1080p.x264';
+    const l = versionLabel({ release: long, fps: 25, synced: true }, 1);
+    expect(l.length).toBeLessThanOrEqual(VERSION_LABEL_MAX);
+    expect(l.endsWith('… · 25 fps · matches this file')).toBe(true);
+    expect(l.startsWith('Synthet')).toBe(true);
+    const plain = versionLabel({ release: long, synced: false }, 1);
+    expect(plain.length).toBe(VERSION_LABEL_MAX);
+    expect(plain.endsWith('…')).toBe(true);
+  });
+
+  it('one row per version, the loaded one checked; the id carries the file', () => {
+    const rows = versionRows([
+      { fileId: 11, release: 'A', fps: 25, synced: false, downloads: 5 },
+      { fileId: 12, release: 'B', synced: true, downloads: 1 },
+    ], 12);
+    expect(rows).toEqual([
+      { kind: 'list', id: 'v:11', label: 'A · 25 fps', checked: false },
+      { kind: 'list', id: 'v:12', label: 'B · matches this file', checked: true },
+    ]);
+    expect(versionFileId('v:12')).toBe(12);
+    expect(versionFileId('os:12')).toBeUndefined();
+    expect(versionFileId('v:x')).toBeUndefined();
   });
 });
 
@@ -157,6 +256,7 @@ describe('subtitleExtraRows', () => {
     expect(subtitleExtraRows({ external: { name: 'film.srt', active: true }, canLoadFile: true })).toEqual([
       { kind: 'list', id: SUBTITLE_EXT_ROW, label: 'Subtitles: film.srt (loaded)', checked: true },
       { kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: 0.0 s (Left/Right)', checked: false },
+      { kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: Normal (Left/Right)', checked: false, help: SPEED_HELP },
       { kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false },
       { kind: 'list', id: LOAD_FILE_ROW, label: 'Load subtitles from a file…', checked: false },
       { kind: 'list', id: REMOVE_EXT_ROW, label: 'Remove loaded subtitles', checked: false },
