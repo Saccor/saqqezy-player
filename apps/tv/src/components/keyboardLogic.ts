@@ -1,6 +1,6 @@
 /**
  * Pure model of the on-screen keyboard (layouts, cursor movement, editing). Unit-tested; `Keyboard.tsx` only
- * draws it. Positions are in key units: the full layout is 10 units wide, the compact search layout 6.
+ * draws it. Positions are in key units: the full layout is 10 units wide.
  */
 
 export type KeyDef =
@@ -45,25 +45,6 @@ export const FULL_ROWS: KeyRows = [
   ],
 ];
 
-/**
- * Compact search layout (Home's search bar), 6 units wide: letters in alphabetical rows of six, the digits, then
- * Space, ⌫ and Done. No Shift and no symbols: search matching ignores case and punctuation (`searchKey`).
- */
-export const COMPACT_ROWS: KeyRows = [
-  chars('abcdef', 0),
-  chars('ghijkl', 0),
-  chars('mnopqr', 0),
-  chars('stuvwx', 0),
-  chars('yz', 0),
-  chars('123456', 0),
-  chars('7890', 1),
-  [
-    { def: { kind: 'space' }, x: 0, w: 2 },
-    { def: { kind: 'backspace' }, x: 2, w: 2 },
-    { def: { kind: 'done' }, x: 4, w: 2 },
-  ],
-];
-
 /** A layout's keys plus how `Keyboard.tsx` draws them (design px). */
 export interface KeyboardLayout {
   rows: KeyRows;
@@ -80,20 +61,12 @@ export interface KeyboardLayout {
   keyGap: number;
   keyH: number;
   rowStep: number;
-  /** Label, value field and footer hint. The compact layout leaves them to its owner (Home's search bar). */
-  chrome: boolean;
 }
 
 export const FULL_LAYOUT: KeyboardLayout = {
   rows: FULL_ROWS, start: { row: 2, col: 0 }, width: 792, height: 820,
   // Eight rows in the same panel: 62 px keys every 72 px (still large remote targets, 10 px apart).
-  pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 62, rowStep: 72, chrome: true,
-};
-
-/** 6 units of 60 px plus 10 px margins: 380 px, the width of Home's groups column. Keys are 54 x 56 px. */
-export const COMPACT_LAYOUT: KeyboardLayout = {
-  rows: COMPACT_ROWS, start: { row: 0, col: 0 }, width: 380, height: 524,
-  pad: 10, keysY: 10, unit: 60, keyGap: 6, keyH: 56, rowStep: 64, chrome: false,
+  pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 62, rowStep: 72,
 };
 
 const isLetter = (ch: string) => ch.toLowerCase() !== ch.toUpperCase();

@@ -1,4 +1,4 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { captureTextInput } from '../input/keys.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
@@ -13,9 +13,8 @@ export const KEYBOARD_H = FULL_LAYOUT.height;
 const KEY_FILL = 0x1a1f2bff;
 
 /**
- * On-screen keyboard panel. The default layout has QWERTY, digits, URL symbols, shortcuts and Shift/Space/⌫/Done,
- * with a label, the value field and a footer hint. `COMPACT_LAYOUT` (Home's search bar) draws its keys only. It
- * edits through `onChange` and closes through `onDone`. It does not handle Back: the owner registers it with
+ * On-screen keyboard panel. The layout has QWERTY, digits, URL symbols, shortcuts and Shift/Space/⌫/Done,
+ * with a label, the value field and a footer hint. It edits through `onChange` and closes through `onDone`. It does not handle Back: the owner registers it with
  * `router.pushOverlay`, so Back closes it like any other layer and the text is kept.
  *
  * While it is mounted, physical keyboard typing goes into the field (`captureTextInput`), and remote digit
@@ -121,13 +120,11 @@ export function Keyboard(props: {
       }}
       onYellow={() => { props.onToggleReveal?.(); return true; }}
       {...digitHandlers}>
-      <Show when={L.chrome}>
-        <Text x={L.pad} y={28} fontSize={FONT.small} color={COLORS.muted}>{props.label}</Text>
-        <View x={L.pad} y={64} width={L.width - L.pad * 2} height={80} color={COLORS.background} borderRadius={LAYOUT.radius}>
-          <Text x={20} y={22} width={L.width - L.pad * 2 - 40} maxWidth={L.width - L.pad * 2 - 40} contain="width" maxLines={1}
-            fontSize={30} color={COLORS.text}>{shown()}</Text>
-        </View>
-      </Show>
+      <Text x={L.pad} y={28} fontSize={FONT.small} color={COLORS.muted}>{props.label}</Text>
+      <View x={L.pad} y={64} width={L.width - L.pad * 2} height={80} color={COLORS.background} borderRadius={LAYOUT.radius}>
+        <Text x={20} y={22} width={L.width - L.pad * 2 - 40} maxWidth={L.width - L.pad * 2 - 40} contain="width" maxLines={1}
+          fontSize={30} color={COLORS.text}>{shown()}</Text>
+      </View>
       <For each={L.rows}>{(row, r) => (
         <For each={row}>{(cell, c) => {
           const focused = () => cursor().row === r() && cursor().col === c();
@@ -144,10 +141,8 @@ export function Keyboard(props: {
           );
         }}</For>
       )}</For>
-      <Show when={L.chrome}>
-        <Text x={L.pad} y={L.height - 56} width={L.width - L.pad * 2} maxWidth={L.width - L.pad * 2} contain="width"
-          fontSize={FONT.small} color={props.error ? COLORS.error : COLORS.muted}>{props.error ?? hint()}</Text>
-      </Show>
+      <Text x={L.pad} y={L.height - 56} width={L.width - L.pad * 2} maxWidth={L.width - L.pad * 2} contain="width"
+        fontSize={FONT.small} color={props.error ? COLORS.error : COLORS.muted}>{props.error ?? hint()}</Text>
     </View>
   );
 }
