@@ -7,7 +7,7 @@ import { FAV_COPY, favChangedToast } from '../copy.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { TabBar } from '../components/TabBar.tsx';
+import { TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { WIDE_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -20,19 +20,26 @@ import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
 import { nowNextLine } from './homeLogic.ts';
-import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
+import { TAB_H, tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
+  cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
+/**
+ * Layout (1080p design space): a compact hero (title and one meta line) under the tab bar, so two poster rows show in
+ * full on a 16:9 screen and the third peeks in with its title and a strip of tiles (`startRowSlots`).
+ */
 const HERO_X = LAYOUT.safeX;
-const HERO_Y = 190;
+const HERO_Y = TAB_BAR_Y + TAB_H + 30;
 const HERO_W = 1100;
-const ROW_Y = 470;
+const HERO_META_Y = HERO_Y + 64;
+const ROW_Y = HERO_META_Y + 70;
 const LABEL_H = 44;
 const ROW_GAP = 36;
+/** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
+const ROW_PEEK = LABEL_H + 20;
 const REVALIDATE_MS = 30_000;
 
 const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H : WIDE_H);
@@ -207,9 +214,15 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     if (c?.type === 'vod') return c.tile.year ? String(c.tile.year) : '';
     return '';
   };
-  /** The focused row and the next one peeking in below; only the focused one in pointer mode (as VodBrowse). */
-  const visibleRows = () => (pointerMode() ? [focus().row] : [focus().row, focus().row + 1]).filter((i) => i < rows().length);
-  const rowY = (i: number) => (i === focus().row ? ROW_Y : ROW_Y + rowHeight(rows()[focus().row]!) + ROW_GAP);
+  /**
+   * The focused row on top and the rows after it below, down to a peek of the next one's title and tiles; in pointer
+   * mode only rows that fit above the shell's bottom button row.
+   */
+  const slots = () => startRowSlots(rows().map(rowHeight), focus().row,
+    pointerMode() ? { top: ROW_Y, gap: ROW_GAP, bottom: BOTTOM_ROW_Y, peek: ROW_PEEK } : { top: ROW_Y, gap: ROW_GAP, bottom: LAYOUT.height, peek: ROW_PEEK },
+    pointerMode() ? 'whole' : 'peek');
+  const visibleRows = () => slots().map((s) => s.index);
+  const rowY = (i: number) => slots().find((s) => s.index === i)?.y ?? ROW_Y;
   const pointTo = (row: number, col: number) => { setFocus({ row, col }); remember(); focusArea('rows'); };
 
   return (
@@ -221,11 +234,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
         <Text x={HERO_X} y={HERO_Y + 60} fontSize={FONT.heading} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
       <Show when={rows().length > 0}>
-        <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {rows()[focus().row]?.title ?? ''}
-        </Text>
-        <Text x={HERO_X} y={HERO_Y + 34} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={64} color={COLORS.text}>{heroTitle()}</Text>
-        <Text x={HERO_X} y={HERO_Y + 116} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={2} fontSize={FONT.body} color={COLORS.muted}>{heroLine()}</Text>
+        <Text x={HERO_X} y={HERO_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>{heroTitle()}</Text>
+        <Text x={HERO_X} y={HERO_META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{heroLine()}</Text>
         <View ref={(el) => { rowsNode = el; }} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
           onFocusChanged={(f: boolean) => { if (f) { setArea('rows'); preferredArea = 'rows'; } }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
