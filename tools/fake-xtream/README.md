@@ -38,3 +38,20 @@ Open Movies → movie 3 and press OK on the player's "Audio & subtitles" (Live T
   set to Swedish.
 
 Delete `media/` to go back to the shared test stream for every title.
+
+## Catch-up (archive)
+
+On by default in `pnpm fake-xtream` (`CATCHUP=0` turns it off; tests pass `catchup: true`). Everything is synthetic,
+and every archive request inside its window redirects to the same licensed test stream as live.
+
+- **Xtream:** channels 1, 5, 9, … have `tv_archive` 1 with 7 days; channels 2, 6, 10, … have 3 days; the rest none.
+  `server_info` reports `timezone: Europe/Stockholm` with `time_now` / `timestamp_now`, so the archive window crosses a
+  DST change. `/timeshift/{user}/{pass}/{minutes}/{YYYY-MM-DD:HH-MM}/{id}.{ext}` and
+  `/streaming/timeshift.php?username=…&password=…&stream=…&start=…&duration=…` answer 302 inside the channel's window
+  (start read in the panel zone) and 404 outside it, for a channel without archive, or for `gone404`.
+- **Guide:** the 7-day channels have 7 days of history in `xmltv.php`; the 3-day ones keep the usual 6 h, and
+  `get_simple_data_table&stream_id=…` fills their past (base64 titles, `has_archive`).
+- **M3U:** `/catchup.m3u?username=test&password=test` has one entry per mode (`default`, a wall-clock `default` with
+  `catchup-correction="0"`, `append`, `shift`, `flussonic`, `xc`, one inferred from the header's `catchup-days`), one
+  whose archive always answers 404 ("Catch-up not available") and one with an unknown placeholder (not supported). Use
+  `/xmltv.php?username=test&password=test` as its guide.

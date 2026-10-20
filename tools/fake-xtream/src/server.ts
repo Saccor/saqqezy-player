@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
 } from './data.ts';
+import { archiveFields, handleCatchup, serverInfo, simpleDataTable, xmltvHistory } from './catchup.ts';
 import { handleOpenSubtitles } from './openSubtitles.ts';
 
 export interface FakeXtreamOptions {
@@ -27,6 +28,12 @@ export interface FakeXtreamOptions {
    * (`make-ac3.mjs`) is movie 2; `multiaudio/film.{mkv,mp4,ts}` (`make-multiaudio.mjs`) is movie 3.
    */
   mediaDir?: string;
+  /**
+   * Catch-up: channels with `tv_archive` (7 days for n % 4 = 1, 3 for n % 4 = 2), the panel zone and clock in
+   * `server_info`, the `timeshift` routes, `get_simple_data_table`, 7 days of guide history on the 7-day channels and
+   * the `/catchup.m3u` playlist (see `catchup.ts`). Off by default so other tests see the plain provider.
+   */
+  catchup?: boolean;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -148,6 +155,9 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     const poster = /^\/poster\/([a-z]\d+)\.svg$/.exec(url.pathname);
     if (poster) return send(res, 200, posterSvg(`Synthetic ${poster[1]}`), 'image/svg+xml');
 
+    const isValid = (u: string, p: string) =>
+      (u === 'test' || u === 'slow' || u === 'expired' || u === 'vodall' || RETRY_USERS.includes(u)) && p === 'test';
+    if (opts.catchup && handleCatchup(req, res, url, base, chs, now(), isValid, (u) => STREAM_STATUS[u])) return;
     const valid = (user === 'test' || user === 'slow' || user === 'expired' || user === 'vodall' || RETRY_USERS.includes(user)) && pass === 'test';
 
     if (url.pathname === '/player_api.php') {
@@ -157,7 +167,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         if (!valid) return send(res, 200, JSON.stringify({ user_info: { auth: 0 } }));
         return send(res, 200, JSON.stringify({
           user_info: { auth: 1, status: user === 'expired' ? 'Expired' : 'Active', exp_date: String(Math.floor(now() / 1000) + 30 * 86400), max_connections: '1' },
-          server_info: { url: base, timezone: 'UTC' },
+          server_info: opts.catchup ? serverInfo(base, now()) : { url: base, timezone: 'UTC' },
         }));
       }
       if (!valid) return send(res, 200, '[]');
@@ -167,7 +177,11 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       if (action === 'get_live_streams') {
         return send(res, 200, JSON.stringify(chs.map((c) => ({
           num: c.n, name: c.name, stream_type: 'live', stream_id: c.n, stream_icon: '', epg_channel_id: c.epgId, category_id: c.categoryId,
+          ...(opts.catchup ? archiveFields(c.n) : {}),
         }))));
+      }
+      if (action === 'get_simple_data_table' && opts.catchup) {
+        return send(res, 200, JSON.stringify(simpleDataTable(chs.find((x) => x.n === Number(url.searchParams.get('stream_id'))), now())));
       }
       if (action === 'get_short_epg') {
         const id = Number(url.searchParams.get('stream_id'));
@@ -239,7 +253,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     if (url.pathname === '/xmltv.php') {
       if (!valid) return send(res, 401, '');
       res.writeHead(200, { 'content-type': 'application/xml' });
-      for (const part of xmltv(guided, now(), opts.sports === true)) res.write(part);
+      const history = opts.catchup ? (c: (typeof guided)[number], fmt: (ms: number) => string) => xmltvHistory(c, now(), fmt) : undefined;
+      for (const part of xmltv(guided, now(), opts.sports === true, history)) res.write(part);
       return res.end();
     }
 
