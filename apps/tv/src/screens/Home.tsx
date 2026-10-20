@@ -31,7 +31,7 @@ import { WORDMARK_BOTTOM } from '../shell/Wordmark.tsx';
 import { companionStatus, cooldown, initState, markStartup } from '../state/appState.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { TABS_W, tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
-import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
+import { panelChannel, pickGroup, playingInfoStale, resolveFocus, restoreIndex, resumeTarget, returnedFromVod, videoClickGroup, vodReturnTarget, waitsForChannels } from './homeLogic.ts';
 import {
   buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId, pickerRows,
   renameOutcome, validateListName, type ChannelMenuAction, type ListLite, type MenuItem, type PickerRow,
@@ -117,13 +117,15 @@ function PhoneBadge() {
 
 /** Home: groups, a virtualised channel list with now/next, the live preview and the channel options menu. */
 export function HomeScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusTabs?: true };
+  const params = props.entry.params as { lastGroupId?: string; lastChannelId?: string; focusChannelId?: string; focusTabs?: true; focusRail?: true };
   // One-shot hint from the Player (last watched channel after a sleep-timer stop): consumed here.
   const focusHint = params.focusChannelId;
   delete params.focusChannelId;
   // One-shot from Back on the Movies tab: the tab bar takes focus.
-  const focusTabsHint = params.focusTabs === true;
+  // Back from Start or browse arrives as `focusRail`; both mean the same here.
+  const focusTabsHint = returnedFromVod(params);
   delete params.focusTabs;
+  delete params.focusRail;
 
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);

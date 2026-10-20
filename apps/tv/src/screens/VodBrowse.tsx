@@ -104,7 +104,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** What the user chose; `area` may sit on a fallback (the rail while there are no rows). */
   let preferredArea: Area = startOnRail ? 'rail' : 'rows';
   let restoring = false;
-  const choose = (a: Area) => { setArea(a); if (!restoring) preferredArea = a; };
+  /**
+   * The area a fallback `focusArea` put focus on (the header while there were no rows yet). Focus events can arrive
+   * after `restoring` is over, so the event for that move must not turn the fallback into the user's choice.
+   */
+  let fallbackArea: Area | undefined;
+  const choose = (a: Area) => {
+    setArea(a);
+    if (fallbackArea === a) { fallbackArea = undefined; return; }
+    if (!restoring) preferredArea = a;
+  };
   const categories = createMemo(() => catalogueCategories(cats()));
   const hasHeader = () => categories().length > 0;
 
@@ -136,6 +145,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** 'rows' falls back to the Try again button (error), then the header, then the rail; 'header' to the rows. */
   const focusArea = (a: Area) => {
     if (!restoring) preferredArea = a;
+    fallbackArea = undefined;
+    const asked = a;
     if (a === 'header' && !hasHeader()) a = 'rows';
     if (a === 'rows' && rows().length === 0) {
       if (home()?.status === 'error' && errorNode) {
@@ -145,6 +156,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       }
       a = hasHeader() ? 'header' : 'rail';
     }
+    if (a !== asked) fallbackArea = a;
     setArea(a);
     (a === 'rail' ? railNode : a === 'header' ? headerNode : rowsNode)?.setFocus();
     return true;

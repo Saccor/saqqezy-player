@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
-  resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels,
+  resumeTarget, returnedFromVod, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
 const groups = [
@@ -182,5 +182,14 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
     expect(nowNextLine({ now })).toBe('Now · Evening news');
     expect(nowNextLine({})).toBe(NO_GUIDE_INFO);
     expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
+  });
+});
+
+describe('returnedFromVod', () => {
+  it('accepts focusTabs or focusRail', () => {
+    expect(returnedFromVod({ focusTabs: true })).toBe(true);
+    expect(returnedFromVod({ focusRail: true })).toBe(true);
+    expect(returnedFromVod({})).toBe(false);
+    expect(returnedFromVod({ focusRail: false })).toBe(false);
   });
 });

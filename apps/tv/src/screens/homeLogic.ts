@@ -81,6 +81,11 @@ export function resumeTarget(s: {
   return s.lastChannelId;
 }
 
+/** Back from Movies, Series or Start returns with `focusTabs` or `focusRail`; either counts as returning from a VOD screen. */
+export function returnedFromVod(params: { focusTabs?: unknown; focusRail?: unknown }): boolean {
+  return params.focusTabs === true || params.focusRail === true;
+}
+
 /**
  * Back from Movies or Series (`fromVod`), or Home revealed after Search opened a movie or series (`fromSearch`): the
  * live channel that was playing when it stopped (`returnId`) comes back, through Home's usual play path. Nothing
