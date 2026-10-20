@@ -174,13 +174,13 @@ describe('browseLogic', () => {
     expect(skeletonShown('error', 0)).toBe(false);
   });
 
-  test('skeleton rows: 3 rows of a label bar and 7 portrait posters, inside the area, not overlapping', () => {
+  test('skeleton rows: 3 rows of a label bar and 8 portrait posters, inside the area, not overlapping', () => {
     const area = { x: 96, top: 360, bottom: 954 };
     const rows = skeletonRows(area);
     expect(rows).toHaveLength(3);
     let prevBottom = area.top;
     for (const r of rows) {
-      expect(r.posters).toHaveLength(7);
+      expect(r.posters).toHaveLength(8);
       expect(r.label.x).toBe(area.x);
       expect(r.label.y).toBeGreaterThanOrEqual(prevBottom);
       const p0 = r.posters[0]!;

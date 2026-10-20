@@ -2,29 +2,36 @@ import { describe, expect, test } from 'vitest';
 import { GRID_COLS, GRID_PAGE, gridCellAt, gridMove, gridPage, keepFailedPages, loadSort, nextSort, pagesFor, saveSort, sortsFor, type SortStore } from './gridLogic.ts';
 
 describe('gridLogic', () => {
-  test('moves in a 7-column grid', () => {
-    expect(GRID_COLS).toBe(7);
-    expect(gridMove(0, 'left', 20)).toBe('rail');
-    expect(gridMove(7, 'left', 20)).toBe('rail');
-    expect(gridMove(3, 'up', 20)).toBe('header');
-    expect(gridMove(3, 'right', 20)).toBe(4);
-    expect(gridMove(6, 'right', 20)).toBe(6);
-    expect(gridMove(19, 'right', 20)).toBe(19);
-    expect(gridMove(10, 'up', 20)).toBe(3);
-    expect(gridMove(3, 'down', 20)).toBe(10);
+  test('moves in an 8-column grid', () => {
+    expect(GRID_COLS).toBe(8);
+    expect(gridMove(0, 'left', 30)).toBe('rail');
+    expect(gridMove(8, 'left', 30)).toBe('rail');
+    expect(gridMove(3, 'up', 30)).toBe('header');
+    expect(gridMove(3, 'right', 30)).toBe(4);
+    expect(gridMove(7, 'right', 30)).toBe(7);
+    expect(gridMove(29, 'right', 30)).toBe(29);
+    expect(gridMove(11, 'up', 30)).toBe(3);
+    expect(gridMove(3, 'down', 30)).toBe(11);
     // Down into a shorter last row lands on its last item.
-    expect(gridMove(13, 'down', 20)).toBe(19);
-    expect(gridMove(15, 'down', 20)).toBe(15);
+    expect(gridMove(19, 'down', 30)).toBe(27);
+    expect(gridMove(23, 'down', 30)).toBe(29);
+    expect(gridMove(25, 'down', 30)).toBe(25);
   });
-  test('paging by two rows, clamped', () => {
-    expect(gridPage(0, 1, 100)).toBe(14);
+  test('other column counts (Compact)', () => {
+    expect(gridMove(9, 'right', 30, 10)).toBe(9);
+    expect(gridMove(10, 'left', 30, 10)).toBe('rail');
+    expect(gridMove(5, 'down', 30, 10)).toBe(15);
+  });
+  test('paging by three rows, clamped', () => {
+    expect(gridPage(0, 1, 100)).toBe(24);
     expect(gridPage(95, 1, 100)).toBe(99);
     expect(gridPage(3, -1, 100)).toBe(0);
+    expect(gridPage(0, 1, 100, 10, 3)).toBe(30);
   });
   test('pages covering an index range', () => {
-    expect(GRID_PAGE).toBe(42);
-    expect(pagesFor(0, 41)).toEqual([0]);
-    expect(pagesFor(40, 90)).toEqual([0, 1, 2]);
+    expect(GRID_PAGE).toBe(48);
+    expect(pagesFor(0, 47)).toEqual([0]);
+    expect(pagesFor(40, 100)).toEqual([0, 1, 2]);
     expect(pagesFor(5, 4)).toEqual([]);
   });
   test('sorts and memory', () => {
@@ -52,6 +59,7 @@ describe('gridLogic', () => {
       expect(gridCellAt(16 + 120 * 2 + 50, 16 + 100, 0, g, 50)).toBe(2);
       expect(gridCellAt(16, 16 + 200, 0, g, 50)).toBe(GRID_COLS);
       expect(gridCellAt(16, 16, 3, g, 50)).toBe(3 * GRID_COLS);
+      expect(gridCellAt(16, 16 + 200, 0, g, 50, 10)).toBe(10);
     });
     test('padding, gaps and tiles past the end hit nothing', () => {
       expect(gridCellAt(5, 20, 0, g, 50)).toBeUndefined();
@@ -59,7 +67,7 @@ describe('gridLogic', () => {
       expect(gridCellAt(16 + 105, 20, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(20, 16 + 175, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(16 + 120 * 6, 16 + 200, 0, g, 10)).toBeUndefined();
-      expect(gridCellAt(16 + 120 * 7, 20, 0, g, 50)).toBeUndefined();
+      expect(gridCellAt(16 + 120 * GRID_COLS, 20, 0, g, 50)).toBeUndefined();
       expect(gridCellAt(Number.NaN, 20, 0, g, 50)).toBeUndefined();
     });
   });
