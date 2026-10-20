@@ -31,4 +31,23 @@ describe('rewriteHls', () => {
     expect(out).toContain(hlsProxyPath('http://cdn.example.test/live/stream/seg/a.ts'));
     expect(out).toContain(hlsProxyPath('http://cdn.example.test/abs/b.ts'));
   });
+
+  it('carries the source headers into every child URL: segments, keys, EXT-X-MEDIA, variants', () => {
+    const h = { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' };
+    const master = '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",URI="audio/a.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nvideo/v.m3u8';
+    const media = '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="http://keys.example.test/k1"\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\nseg1.ts';
+    const q = '&ua=SyntheticAgent%2F1.0&ref=http%3A%2F%2Fref.example.test%2F';
+    const out = `${rewriteHls(master, BASE, h)}\n${rewriteHls(media, BASE, h)}`;
+    const urls = out.match(/\/__proxy\/hls[^"\s]*/g) ?? [];
+    expect(urls).toHaveLength(5);
+    for (const u of urls) expect(u.endsWith(q)).toBe(true);
+    expect(out).toContain(`${hlsProxyPath('http://cdn.example.test/live/stream/audio/a.m3u8')}${q}`);
+  });
+
+  it("without headers the rewritten URLs are exactly today's", () => {
+    const pl = '#EXTM3U\n#EXTINF:4,\nseg1.ts';
+    expect(rewriteHls(pl, BASE, {})).toBe(rewriteHls(pl, BASE));
+    expect(rewriteHls(pl, BASE)).not.toContain('&ua=');
+    expect(hlsProxyPath('http://cdn.example.test/a.ts', {})).toBe(hlsProxyPath('http://cdn.example.test/a.ts'));
+  });
 });

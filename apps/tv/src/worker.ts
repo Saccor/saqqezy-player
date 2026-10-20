@@ -3,12 +3,17 @@ import { IdbStorage } from '@iptv/storage';
 import { APP_API_METHODS, AppApi, CompanionHost, expose, type AppEvent, type PortLike } from '@iptv/app-api';
 import { WebSocketRelayTransport, type WebSocketFactory } from '@iptv/companion-protocol';
 import { rawViaDevProxy, unwrapDevProxyResponse } from './net/devProxy.ts';
+import { routedFetch } from './net/routedFetch.ts';
 
 // All parsing, storage and networking for the UI runs here, off the UI thread.
 const storage = new IdbStorage();
 // Header timeouts: 15 s by default (player_api.php); core asks for 90 s on playlist and XMLTV downloads, whose
 // bodies then fail after 30 s without data (BODY_IDLE_MS) instead of holding the source lock forever.
-const fetchFn = withTimeout(async (url, init) => unwrapDevProxyResponse(await fetch(rawViaDevProxy(url), init)), API_TIMEOUT_MS);
+// A source's User-Agent and Referer (`FetchInit.sourceHeaders`) ride in the dev proxy URL; production drops them.
+const fetchFn = withTimeout(
+  routedFetch(async (url, init) => unwrapDevProxyResponse(await fetch(url, init)), rawViaDevProxy),
+  API_TIMEOUT_MS,
+);
 const service = new SourceService({ storage, fetch: fetchFn });
 // Movies and series: same storage, network path and refusal cooldown; catalogues load lazily and one stays resident.
 const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard });

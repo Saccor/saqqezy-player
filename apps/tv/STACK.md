@@ -127,14 +127,15 @@ import { Row, Column } from '@lightningtv/solid/primitives';
 ## Worker / RPC
 
 - `src/api.ts` does `import CoreWorker from './worker.ts?worker'; const worker = new CoreWorker()`, then `export const { api, on: onEvent } = wrap<AppApi>(worker)`. Vite makes it a module worker in dev and a classic worker in the build (`worker.format: 'iife'`); the built URL is relative to the chunk (`new URL('worker-<hash>.js', import.meta.url)`).
-- `src/worker.ts` builds `IdbStorage` → `withTimeout(fetch via rawViaDevProxy, 15 s)` → `SourceService` → `AppApi` (core asks for 90 s to first byte on playlist/XMLTV downloads and aborts a body after 30 s without data), then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
+- `src/worker.ts` builds `IdbStorage` → `withTimeout(routedFetch(fetch, rawViaDevProxy), 15 s)` → `SourceService` → `AppApi` (core asks for 90 s to first byte on playlist/XMLTV downloads and aborts a body after 30 s without data), then calls `expose(api, self, APP_API_METHODS)`. `emit` forwards `AppEvent`s as `(e.type, e)`.
 - In the production build, `@iptv/core` ends up only in the worker chunk.
 
 ## Dev proxy
 
 - `vite.proxy.ts` is used by `vite dev` only (`apply: 'serve'`) and throws if `NODE_ENV=production`. The pure rewrite logic lives in `src/dev/rewriteHls.ts` (unit-tested).
 - Two routes, `GET`/`HEAD` only:
-  - Upstream requests carry the browser's `user-agent` (some providers reject Node's default) plus `range` where allowed; nothing else (`src/dev/proxyHeaders.ts`, unit-tested).
+  - Upstream requests carry our own `DEV_USER_AGENT` (some providers reject Node's default) plus `range` where allowed; nothing from the browser (`src/dev/proxyHeaders.ts`, unit-tested).
+  - Source headers: both routes read `&ua=` and `&ref=` after `u` (`src/net/headerParams.ts`): `ua` replaces the default user-agent, `ref` is sent as `referer`; a value with a control character or over 512 characters gets 400. They are secrets like `u`: never logged. The hls route carries the same `ua`/`ref` into every rewritten child URL. Without them nothing changes. The worker's `routedFetch` turns core's `FetchInit.sourceHeaders` into these parameters; `Html5Player` passes `OpenOptions.headers`.
   - `/__proxy/raw?u=<encoded url>` never rewrites anything. The worker uses it (`rawViaDevProxy`) for playlist, EPG and API fetches, so IPTV channel lists (M3U) come through byte for byte. `Range` is forwarded.
   - `/__proxy/hls/<file name>?u=<encoded url>` rewrites HLS playlists. `Html5Player` uses it (`hlsViaDevProxy`) for player URLs only. The file-name segment is cosmetic (only `u` is read) but native HLS in desktop Chrome sniffs the URL extension of playlists and segments. A body is rewritten only if the response is 2xx and contains `#EXT-X-`; only `http(s)` URIs are wrapped (`data:`, `skd:` stay), relative URIs are resolved against the final URL. Rewritten playlists are served as `application/vnd.apple.mpegurl`; `Range` is not forwarded for playlists.
 - Security rules (the proxy is a local convenience, not a public relay):
@@ -142,7 +143,7 @@ import { Row, Column } from '@lightningtv/solid/primitives';
   - 403 when `Sec-Fetch-Site` is present and is neither `same-origin` nor `none`, or when `Origin` is present and is not the dev server's own origin (host compared with the `Host` header). Same-origin page, worker and `<video>` requests pass.
   - `configureServer` throws if `server.host` is set to anything other than `localhost`, `127.0.0.1` or `::1` ("refuses to run when exposed to the LAN"). Do not use `--host`.
 - Compressed upstream bodies: Node's fetch has already decoded them, so when upstream sends `content-encoding` the proxy forwards neither `content-encoding`, `content-length`, `content-range` nor `accept-ranges` (otherwise the browser truncates the body).
-- `src/net/devProxy.ts`: `rawViaDevProxy(url)` and `hlsViaDevProxy(url)` are the identity in production (`import.meta.env.DEV`). In dev they also skip same-origin URLs and the fake provider at `127.0.0.1:8899`.
+- `src/net/devProxy.ts`: `rawViaDevProxy(url)` and `hlsViaDevProxy(url)` are the identity in production (`import.meta.env.DEV`). In dev they also skip same-origin URLs and the fake provider at `127.0.0.1:8899` (unless the request has source headers: only the proxy can send them).
 
 ## Player
 

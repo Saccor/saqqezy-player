@@ -13,6 +13,7 @@ import { Readable } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 import { upstreamHeaders } from './src/dev/proxyHeaders.ts';
+import { readHeaderParams } from './src/net/headerParams.ts';
 import { maskUrl } from './src/dev/maskUrl.ts';
 import { rewriteHls } from './src/dev/rewriteHls.ts';
 import { UNREACHABLE_HEADER } from './src/net/devProxy.ts';
@@ -91,6 +92,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     fail(res, 400, 'Only http and https targets are allowed');
     return;
   }
+  // The source's User-Agent and Referer (`ua`, `ref`): secrets like `u`, never logged or echoed.
+  const source = readHeaderParams(reqUrl.searchParams);
+  if (source === 'invalid') {
+    fail(res, 400, 'Invalid header parameter');
+    return;
+  }
 
   // Abort the upstream request as soon as the browser goes away, so no connection stays open.
   const controller = new AbortController();
@@ -98,8 +105,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   // On the hls route a playlist is rewritten, so a byte range of the original would not match the body we send:
   // ranges are only forwarded for non-playlist targets. The raw route never rewrites, so it forwards ranges.
-  // Upstream sees our player's own user-agent, never the browser's (see `proxyHeaders.ts`).
-  const headers = upstreamHeaders(req.headers, !(route === 'hls' && isPlaylist('', target.toString())));
+  // Upstream sees our player's own user-agent (or the source's), never the browser's (see `proxyHeaders.ts`).
+  // Redirects are followed with the same headers on each hop.
+  const headers = upstreamHeaders(req.headers, !(route === 'hls' && isPlaylist('', target.toString())), source);
 
   const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
   const get = (h: Record<string, string>) => fetch(target, { method, redirect: 'follow', headers: h, signal: controller.signal });
@@ -108,7 +116,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     upstream = await get(headers);
     if (route === 'hls' && headers.range && upstream.status === 206 && isPlaylist(upstream.headers.get('content-type') ?? '', upstream.url)) {
       await upstream.body?.cancel();
-      upstream = await get(upstreamHeaders(req.headers, false));
+      upstream = await get(upstreamHeaders(req.headers, false, source));
     }
   } catch {
     // The target URL may carry credentials; never echo it. The marker header lets the dev worker turn this
@@ -129,7 +137,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (ok && text.includes('#EXT-X-')) {
       // Normalised so native HLS players accept it whatever the upstream announced.
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-      res.end(rewriteHls(text, upstream.url));
+      res.end(rewriteHls(text, upstream.url, source));
     } else {
       if (contentType) res.setHeader('Content-Type', contentType);
       res.end(text);

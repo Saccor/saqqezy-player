@@ -1077,3 +1077,25 @@ describe('Html5Player – close before open and status awareness', () => {
     expect(player.supportsStatus()).toBe(false);
   });
 });
+
+describe('Html5Player – source headers (dev proxy route)', () => {
+  test('a play with headers goes through the route with ua/ref; one without keeps today\'s URL', async () => {
+    const { player } = makePlayer();
+    await player.open('http://cdn.example.test/live/1.ts', 1, { headers: { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' } });
+    const withH = (created.mpegts.at(-1)!.src as { url: string }).url;
+    expect(withH).toContain(`u=${encodeURIComponent('http://cdn.example.test/live/1.ts')}`);
+    expect(withH).toContain('&ua=SyntheticAgent%2F1.0&ref=http%3A%2F%2Fref.example.test%2F');
+    await player.open('http://cdn.example.test/live/1.ts', 2);
+    const plain = (created.mpegts.at(-1)!.src as { url: string }).url;
+    expect(plain).not.toContain('&ua=');
+    expect(plain).not.toContain('&ref=');
+  });
+
+  test('the fake provider is proxied only when the play has headers', async () => {
+    const { player } = makePlayer();
+    await player.open('http://127.0.0.1:8899/live/u/p/1.ts', 1);
+    expect((created.mpegts.at(-1)!.src as { url: string }).url).toBe('http://127.0.0.1:8899/live/u/p/1.ts');
+    await player.open('http://127.0.0.1:8899/live/u/p/1.ts', 2, { headers: { userAgent: 'SyntheticAgent/1.0' } });
+    expect((created.mpegts.at(-1)!.src as { url: string }).url).toMatch(/^\/__proxy\/hls\/1\.ts\?u=.*&ua=SyntheticAgent%2F1\.0$/);
+  });
+});

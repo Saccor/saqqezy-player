@@ -2,7 +2,7 @@ import Hls, { ErrorDetails, ErrorTypes, type ErrorData, type LevelLoadedData } f
 import mpegts from 'mpegts.js';
 import type {
   AspectMode, EngineName, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo,
-  TrackInfo,
+  StreamHeaders, TrackInfo,
 } from '@iptv/player';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { codecFamily } from '../vod/tracks.ts';
@@ -21,6 +21,8 @@ type Engine =
 interface Session {
   /** The URL as given to `open()` (before any dev-proxy wrapping). */
   url: string;
+  /** The play's User-Agent and Referer (`OpenOptions.headers`): carried by the dev proxy route, dropped elsewhere. */
+  headers?: StreamHeaders;
   attemptId: number | undefined;
   /** False for a file/VOD (`open(…, { live: false })`): nothing live-only runs, and it never reports live. */
   live: boolean;
@@ -183,10 +185,11 @@ export class Html5Player implements Player {
     const path = pathOf(url);
     const s: Session = { url, attemptId, live: opts.live !== false, dead: false, engine: undefined, extensionless: !path.slice(path.lastIndexOf('/') + 1).includes('.'), tried: [], cleanups: [], mediaRecoveries: 0, lastNetRecoveryAt: Number.NEGATIVE_INFINITY };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
+    if (opts.headers) s.headers = opts.headers;
     this.session = s;
     const v = this.video;
     v.playbackRate = 1;
-    const src = hlsViaDevProxy(url);
+    const src = hlsViaDevProxy(url, s.headers);
 
     const on = <K extends keyof HTMLMediaElementEventMap>(type: K, fn: () => void) => {
       v.addEventListener(type, fn);
@@ -589,7 +592,7 @@ export class Html5Player implements Player {
     const v = this.video;
     v.removeAttribute('src');
     v.load();
-    this.startEngine(s, next, hlsViaDevProxy(s.url));
+    this.startEngine(s, next, hlsViaDevProxy(s.url, s.headers));
     this.playSession(s);
     return true;
   }
@@ -615,7 +618,7 @@ export class Html5Player implements Player {
       const v = this.video;
       v.removeAttribute('src');
       v.load();
-      this.startEngine(s, next, hlsViaDevProxy(s.url));
+      this.startEngine(s, next, hlsViaDevProxy(s.url, s.headers));
       this.playSession(s);
     }, 0);
     return true;

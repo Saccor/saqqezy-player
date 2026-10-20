@@ -1,7 +1,12 @@
+import { headerQuery, type RouteHeaders } from './headerParams.ts';
+
 /** Host of the local fake provider (tools/fake-xtream), which already sends CORS headers. */
 const FAKE_PROVIDER_HOST = '127.0.0.1:8899';
 
-function proxiable(url: string): URL | undefined {
+/** True when `h` has a header to send: only the proxy can send it, so even the fake provider goes through it then. */
+const hasHeaders = (h: RouteHeaders | undefined): boolean => Boolean(h?.userAgent || h?.referrer);
+
+function proxiable(url: string, headers: RouteHeaders | undefined): URL | undefined {
   if (!import.meta.env.DEV) return undefined;
   let target: URL;
   try {
@@ -9,7 +14,7 @@ function proxiable(url: string): URL | undefined {
   } catch {
     return undefined;
   }
-  if (target.origin === self.location.origin || target.host === FAKE_PROVIDER_HOST) return undefined;
+  if (target.origin === self.location.origin || (target.host === FAKE_PROVIDER_HOST && !hasHeaders(headers))) return undefined;
   if (target.protocol !== 'http:' && target.protocol !== 'https:') return undefined;
   return target;
 }
@@ -17,22 +22,23 @@ function proxiable(url: string): URL | undefined {
 /**
  * In `vite dev` only: routes a cross-origin fetch of the worker (playlists, EPG, API) through the dev proxy's
  * `/__proxy/raw` route, which never rewrites the body. In production builds `import.meta.env.DEV` is `false`,
- * so this is the identity function and the proxy path is tree-shaken away: TVs fetch directly.
+ * so this is the identity function and the proxy path is tree-shaken away: TVs fetch directly (and `headers`
+ * are dropped: a page cannot set them). `headers`: the source's User-Agent and Referer (`&ua=`, `&ref=`).
  */
-export function rawViaDevProxy(url: string): string {
-  const target = proxiable(url);
-  return target ? `/__proxy/raw?u=${encodeURIComponent(target.toString())}` : url;
+export function rawViaDevProxy(url: string, headers?: RouteHeaders): string {
+  const target = proxiable(url, headers);
+  return target ? `/__proxy/raw?u=${encodeURIComponent(target.toString())}${headerQuery(headers)}` : url;
 }
 
 /**
  * Same, for player URLs: the `/__proxy/hls/<file name>?u=` route rewrites HLS playlists so segments and keys
  * also go through the proxy. The file-name segment keeps the extension visible to native HLS, which sniffs URLs.
  */
-export function hlsViaDevProxy(url: string): string {
-  const target = proxiable(url);
+export function hlsViaDevProxy(url: string, headers?: RouteHeaders): string {
+  const target = proxiable(url, headers);
   if (!target) return url;
   const name = target.pathname.split('/').pop() ?? '';
-  return `/__proxy/hls${name ? `/${encodeURIComponent(name)}` : ''}?u=${encodeURIComponent(target.toString())}`;
+  return `/__proxy/hls${name ? `/${encodeURIComponent(name)}` : ''}?u=${encodeURIComponent(target.toString())}${headerQuery(headers)}`;
 }
 
 /** Set by the dev proxy on its 502 when the upstream could not be reached at all. */
