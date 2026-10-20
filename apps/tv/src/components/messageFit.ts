@@ -19,6 +19,8 @@ export interface MessageBox {
 export const MESSAGE_BOXES = {
   preview: { charsPerLine: 38, maxLines: 4, lineH: 32 },
   guide: { charsPerLine: 30, maxLines: 4, lineH: 32 },
+  /** Live TV's 416×234 mini window (spec phase 2). */
+  live: { charsPerLine: 24, maxLines: 4, lineH: 32 },
   player: { charsPerLine: 58, maxLines: 3, lineH: 42 },
   vodCard: { charsPerLine: 52, maxLines: 2, lineH: 40 },
   vodCardSmall: { charsPerLine: 66, maxLines: 3, lineH: 32 },
@@ -33,7 +35,6 @@ export function messageLines(text: string, box: MessageBox): number {
 export function fitsBox(text: string, box: MessageBox): boolean {
   return Math.ceil(text.length / box.charsPerLine) <= box.maxLines;
 }
-
 /** The y of the first line that centres the text's lines in a box `height` tall. */
 export function messageTop(text: string, box: MessageBox, height: number): number {
   return (height - messageLines(text, box) * box.lineH) / 2;

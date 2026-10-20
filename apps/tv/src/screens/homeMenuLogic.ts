@@ -1,5 +1,5 @@
 /**
- * Pure helpers for Home's channel menu, list picker and refresh focus (unit-tested).
+ * Pure helpers for Live TV's channel menu, list picker and refresh focus (unit-tested).
  *
  * `NAME_MAX` and `MAX_LISTS` mirror the layout reducer's limits in `@iptv/core`. They are copied rather than
  * imported because core must stay out of the main-thread bundle (it lives in the worker chunk); the test

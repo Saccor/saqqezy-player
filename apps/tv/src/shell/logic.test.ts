@@ -135,18 +135,18 @@ describe('toast precedence', () => {
 
 describe('showWordmark', () => {
   it('shows on the screens not yet redesigned while the video is not fullscreen', () => {
-    for (const route of ['home', 'guide', 'search', 'settings', 'addSource'] as const) {
+    for (const route of ['search', 'settings', 'addSource'] as const) {
       expect(showWordmark(route, false, false)).toBe(true);
     }
   });
 
   it('is off on the redesigned screens and the player', () => {
-    for (const r of ['start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
+    for (const r of ['home', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
   });
 
   it('screens with the rail draw the clock in the rail', () => {
     for (const r of ['home', 'start', 'vod', 'vodGrid'] as const) expect(railRoute(r)).toBe(true);
-    for (const r of ['guide', 'movieDetail', 'player', undefined] as const) expect(railRoute(r)).toBe(false);
+    for (const r of ['movieDetail', 'player', undefined] as const) expect(railRoute(r)).toBe(false);
   });
 
   it('shows before any screen is open (loading, init error)', () => {
@@ -200,7 +200,7 @@ describe('fullscreenVideoRoute', () => {
   it('is the Player and VodPlay only', () => {
     expect(fullscreenVideoRoute('player')).toBe(true);
     expect(fullscreenVideoRoute('vodPlay')).toBe(true);
-    for (const r of ['home', 'guide', 'start', 'vod', 'search', undefined] as const) expect(fullscreenVideoRoute(r)).toBe(false);
+    for (const r of ['home', 'start', 'vod', 'search', undefined] as const) expect(fullscreenVideoRoute(r)).toBe(false);
   });
 });
 
@@ -237,7 +237,6 @@ describe('deferWordmark', () => {
 describe('shell Back button (pointer mode)', () => {
   it('shows on every screen except Home (Back there is the exit question) and the Player (it has its own)', () => {
     expect(shellBackShown('addSource')).toBe(true);
-    expect(shellBackShown('guide')).toBe(true);
     expect(shellBackShown('search')).toBe(true);
     expect(shellBackShown('settings')).toBe(true);
     expect(shellBackShown('home')).toBe(false);
@@ -259,7 +258,7 @@ describe('shell Back button (pointer mode)', () => {
   it("sits beside Search's keyboard (at its results column), not under it; at the row start elsewhere", () => {
     expect(shellBackX('search')).toBe(936);
     expect(shellBackX('search')).toBeGreaterThanOrEqual(LAYOUT.safeX + 792 + 12);
-    for (const r of ['settings', 'guide', 'addSource'] as const) expect(shellBackX(r)).toBe(LAYOUT.safeX);
+    for (const r of ['settings', 'addSource'] as const) expect(shellBackX(r)).toBe(LAYOUT.safeX);
   });
 
   it("leaves room for it: a screen's own bottom-row buttons start one gap after it", () => {

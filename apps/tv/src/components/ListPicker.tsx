@@ -17,7 +17,7 @@ const CHECK_W = 48;
 /**
  * "Add to list…" picker over a scrim: the user's lists with a check on those holding the channel, then
  * "New list…". One focusable node; Up/Down choose, Ok picks (`onPick` toggles or creates; the picker stays
- * open). Like the menu, it handles no Back: Home registers it with `router.pushOverlay`.
+ * open). Like the menu, it handles no Back: Live TV registers it with `router.pushOverlay`.
  *
  * Pointer: a click on a row picks it, hover highlights it, the wheel moves the selection, and a click outside the
  * panel is Back.
@@ -29,7 +29,7 @@ export function ListPicker(props: {
   onPick: (row: PickerRow) => void;
   /** Footer hint; default "Ok adds or removes · Back closes". */
   hint?: string;
-  /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
+  /** False: neither the panel nor the backdrop takes the pointer (the rename keyboard is open above). Default true. */
   pointerEnabled?: boolean;
   /** Left (-1) / Right (1) on the selected row (e.g. a delay); true when it handled them. Default: ignored. */
   onAdjust?: (row: PickerRow, dir: 1 | -1) => boolean;

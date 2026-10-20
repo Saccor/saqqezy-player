@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
+  formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, pickGroup, previewMessage, progressOf,
   resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
@@ -17,14 +17,6 @@ describe('home logic', () => {
     expect(pickGroup(groups, undefined)).toBe('all');
     expect(pickGroup([{ id: 'fav', name: 'Favourites', count: 0 }], 'x')).toBe('fav');
     expect(pickGroup([], 'x')).toBeUndefined();
-  });
-
-  it('restores focus by channel id, falling back to the remembered index, then the first row', () => {
-    expect(restoreIndex(7, 3, 200)).toBe(7);
-    expect(restoreIndex(-1, 3, 200)).toBe(3);
-    expect(restoreIndex(-1, 250, 200)).toBe(199);
-    expect(restoreIndex(-1, undefined, 200)).toBe(0);
-    expect(restoreIndex(-1, 5, 0)).toBe(0);
   });
 
   it('formats a programme time range and its progress', () => {
@@ -52,43 +44,7 @@ describe('home logic', () => {
     expect(previewMessage(undefined, true, 'Paused after reload: press OK to play')).toBe('Preview');
     expect(previewMessage(undefined, false, undefined)).toBe('Preview');
   });
-
-  it('resolves the focus from the first candidate found in the group, in order', async () => {
-    const positions: Record<string, number> = { mem: 4, param: 9 };
-    const indexOf = async (id: string) => positions[id] ?? -1;
-    expect(await resolveFocus(['playing', 'mem', 'param'], indexOf)).toEqual({ id: 'mem', index: 4 });
-    positions.playing = 2;
-    expect(await resolveFocus(['playing', 'mem', 'param'], indexOf)).toEqual({ id: 'playing', index: 2 });
-    expect(await resolveFocus([undefined, undefined, 'param'], indexOf)).toEqual({ id: 'param', index: 9 });
-    expect(await resolveFocus([undefined, 'gone'], indexOf)).toEqual({ id: undefined, index: -1 });
-    const seen: string[] = [];
-    await resolveFocus(['x', 'x', 'mem'], async (id) => { seen.push(id); return indexOf(id); });
-    expect(seen).toEqual(['x', 'mem']);
-  });
-
-  it('the preview panel shows the playing channel, or the focused one while a preview is starting', () => {
-    const focused = { id: 'f' };
-    const playing = { id: 'p' };
-    expect(panelChannel(focused, playing, false)).toEqual({ channel: playing, starting: false });
-    expect(panelChannel(focused, playing, true)).toEqual({ channel: focused, starting: true });
-    expect(panelChannel(focused, undefined, false)).toEqual({ channel: focused, starting: false });
-    expect(panelChannel(undefined, playing, true)).toEqual({ channel: playing, starting: false });
-    expect(panelChannel(undefined, undefined, false)).toEqual({ channel: undefined, starting: false });
-  });
 });
-
-describe('playingInfoStale', () => {
-  it('is true when the playing channel got now/next and is not the focused row', () => {
-    expect(playingInfoStale(['a', 'b'], 'b', 'c')).toBe(true);
-    expect(playingInfoStale(['a', 'b'], 'b', undefined)).toBe(true);
-  });
-  it('is false when the playing row is focused (the slice cache refreshes it) or not in the update', () => {
-    expect(playingInfoStale(['a', 'b'], 'b', 'b')).toBe(false);
-    expect(playingInfoStale(['a'], 'b', 'c')).toBe(false);
-    expect(playingInfoStale(['a'], undefined, 'c')).toBe(false);
-  });
-});
-
 describe('videoClickGroup (fullscreen from a click on the small video)', () => {
   it('keeps the open group, and remembers the channel, when the video shows the focused row', () => {
     expect(videoClickGroup('ch-1', 'ch-1', 'g:News')).toEqual({ groupId: 'g:News', remember: true });

@@ -133,33 +133,33 @@ describe('rowAt', () => {
 });
 
 describe('cellAt', () => {
-  const G: GridGeometry = { rulerH: 44, rowH: 72, viewRows: 8, channelW: 260, timelineX: 288, timelineW: 1440, pxPerHour: 480 };
+  const G: GridGeometry = { rulerH: 44, rowH: 60, viewRows: 11, channelW: 300, timelineX: 300, timelineW: 1364, pxPerHour: 682 };
   const H = 3_600_000;
   const V = 1000 * H;
-  const blocks = [{ start: V - H, stop: V + H / 2, title: 'A' }, { start: V + H / 2, stop: V + 2 * H, title: 'B' }];
+  const blocks = [{ start: V - H, stop: V + H / 2, title: 'A' }, { start: V + H / 2, stop: V + 1.5 * H, title: 'B' }];
   const of = () => blocks;
 
   it('the ruler and the space below the rows are not cells', () => {
     expect(cellAt(400, 10, G, 0, 20, V, of)).toBeUndefined();
-    expect(cellAt(400, 44 + 8 * 72, G, 0, 20, V, of)).toBeUndefined();
+    expect(cellAt(400, 44 + 11 * 60, G, 0, 20, V, of)).toBeUndefined();
   });
 
   it('the channel column gives the row, with the scroll offset', () => {
     expect(cellAt(10, 44, G, 0, 20, V, of)).toEqual({ area: 'channels', row: 0 });
-    expect(cellAt(259, 44 + 72 * 2 + 5, G, 5, 20, V, of)).toEqual({ area: 'channels', row: 7 });
+    expect(cellAt(299, 44 + 60 * 2 + 5, G, 5, 20, V, of)).toEqual({ area: 'channels', row: 7 });
   });
 
   it('the timeline gives the block under that time (start inclusive)', () => {
-    expect(cellAt(288, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[0] });
-    expect(cellAt(288 + 239, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[0] });
-    expect(cellAt(288 + 240, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[1] });
+    expect(cellAt(300, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[0] });
+    expect(cellAt(300 + 340, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[0] });
+    expect(cellAt(300 + 341, 50, G, 0, 20, V, of)).toEqual({ area: 'grid', row: 0, block: blocks[1] });
   });
 
-  it('nothing between the columns, past the timeline, after the last block or below the last row', () => {
-    expect(cellAt(270, 50, G, 0, 20, V, of)).toBeUndefined();
-    expect(cellAt(288 + 1440, 50, G, 0, 20, V, of)).toBeUndefined();
-    expect(cellAt(288 + 1000, 50, G, 0, 20, V, of)).toBeUndefined();
-    expect(cellAt(10, 44 + 72 * 3, G, 0, 3, V, of)).toBeUndefined();
+  it('nothing left of the grid, past the timeline, after the last block or below the last row', () => {
+    expect(cellAt(-1, 50, G, 0, 20, V, of)).toBeUndefined();
+    expect(cellAt(300 + 1364, 50, G, 0, 20, V, of)).toBeUndefined();
+    expect(cellAt(300 + 1100, 50, G, 0, 20, V, of)).toBeUndefined();
+    expect(cellAt(10, 44 + 60 * 3, G, 0, 3, V, of)).toBeUndefined();
   });
 });
 

@@ -70,7 +70,7 @@ export function bannerNowNextStale(
 
 /**
  * What leaving the Player passes to the screen it reveals. Only Home takes a channel to focus (`focusChannelId`) and
- * honours the preview hold after a sleep stop; Start, Search or the Guide below get neither, so they never carry a
+ * honours the preview hold after a sleep stop; Start or Search below get neither, so they never carry a
  * stale hold into a later Home visit or a param they do not read.
  */
 export function playerLeave(below: ScreenId | undefined, lastChannelId: string | undefined): { params?: { focusChannelId: string }; holdPreview: boolean } {

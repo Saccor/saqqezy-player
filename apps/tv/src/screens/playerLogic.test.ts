@@ -156,8 +156,8 @@ describe('playerLeave', () => {
     expect(playerLeave('home', undefined)).toEqual({ holdPreview: true });
   });
 
-  it('to Start, Search or the Guide: no focus param and no hold (they would suppress a later Home resume)', () => {
-    for (const below of ['start', 'search', 'guide', 'startSports', undefined] as const) {
+  it('to Start or Search: no focus param and no hold (they would suppress a later Home resume)', () => {
+    for (const below of ['start', 'search', 'startSports', undefined] as const) {
       expect(playerLeave(below, 'c1')).toEqual({ holdPreview: false });
     }
   });

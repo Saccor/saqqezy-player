@@ -1,22 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HALF_HOUR, HOUR, NO_INFO, dayLabel, relativeLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
+  HALF_HOUR, HOUR, NO_INFO, dayLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
-  timeToX, xToTime, GUIDE_POINTER_LABELS, guideClick, guidePlayAction, pageTime, type Block,
+  timeToX, monogram, pageTime, type Block,
 } from './guideLogic.ts';
 
-describe('guidePlayAction', () => {
-  it('goes back to a Player below instead of stacking a second one', () => {
-    expect(guidePlayAction('player')).toBe('back');
-  });
-
-  it('pushes the Player from any other screen (Home, Start, Search) or the root', () => {
-    expect(guidePlayAction('home')).toBe('push');
-    expect(guidePlayAction('start')).toBe('push');
-    expect(guidePlayAction('search')).toBe('push');
-    expect(guidePlayAction(undefined)).toBe('push');
-  });
-});
 
 const T0 = Date.UTC(2026, 0, 10, 12, 0); // a half-hour boundary
 const at = (h: number) => T0 + h * HOUR;
@@ -30,13 +18,11 @@ const slots = (fromH: number, toH: number) => {
 const win = { start: at(-6), end: at(48) };
 
 describe('time <-> x', () => {
-  it('maps one hour to 480 px from the view start, and back', () => {
-    expect(PX_PER_HOUR).toBe(480);
+  it('maps one hour to 682 px from the view start', () => {
+    expect(PX_PER_HOUR).toBe(682);
     expect(timeToX(at(0), at(0))).toBe(0);
-    expect(timeToX(at(1.5), at(0))).toBe(720);
-    expect(timeToX(at(-0.5), at(0))).toBe(-240);
-    expect(xToTime(240, at(0))).toBe(at(0.5));
-    expect(xToTime(timeToX(at(2.25), at(1)), at(1))).toBe(at(2.25));
+    expect(timeToX(at(1.5), at(0))).toBe(1023);
+    expect(timeToX(at(-0.5), at(0))).toBe(-341);
   });
 
   it('floors to the half hour and builds the -6 h..+48 h window from it', () => {
@@ -52,8 +38,12 @@ describe('time <-> x', () => {
     expect(clampViewStart(at(47), win)).toBe(at(48) - VIEW_SPAN);
   });
 
+  it('two hours fill the 1364 px timeline', () => {
+    expect(PX_PER_HOUR * (VIEW_SPAN / HOUR)).toBe(1364);
+  });
+
   it('lists the 30-minute tick marks of the view', () => {
-    expect(ticks(at(0))).toEqual([0, 0.5, 1, 1.5, 2, 2.5].map(at));
+    expect(ticks(at(0))).toEqual([0, 0.5, 1, 1.5].map(at));
   });
 });
 
@@ -119,8 +109,9 @@ describe('Left / Right', () => {
   });
 
   it('scrolls time when the next programme starts in the last half hour of the view', () => {
-    expect(stepRight(blocks, idx(2), { viewStart: at(0), anchor: at(2) }, win))
-      .toEqual({ kind: 'move', index: idx(2.5), viewStart: at(1.5), anchor: at(2.5) });
+    // 2 h view: the block at 1.5 h is in the last half hour, so the view moves to put it one hour in (0.5 h).
+    expect(stepRight(blocks, idx(1), { viewStart: at(0), anchor: at(1) }, win))
+      .toEqual({ kind: 'move', index: idx(1.5), viewStart: at(0.5), anchor: at(1.5) });
   });
 
   it('moves back to the previous programme, scrolling back when it starts before the view', () => {
@@ -141,7 +132,7 @@ describe('Left / Right', () => {
     expect(stepLeft(long, 0, { viewStart: at(0), anchor: at(1) }, win))
       .toEqual({ kind: 'scroll', viewStart: at(-1), anchor: at(-1) });
     expect(stepLeft(long, 0, { viewStart: at(-6), anchor: at(-6) }, win)).toEqual({ kind: 'edge' });
-    expect(stepRight(long, 0, { viewStart: at(45), anchor: at(45) }, win)).toEqual({ kind: 'none' });
+    expect(stepRight(long, 0, { viewStart: at(46), anchor: at(46) }, win)).toEqual({ kind: 'none' });
   });
 
   it('scrolls an hour on a row that has not loaded yet', () => {
@@ -168,9 +159,9 @@ describe('Left / Right', () => {
   });
 
   it('never moves past the end of the window', () => {
-    const tail: Block[] = buildBlocks(slots(46, 48), [{ start: at(45), end: at(48) }]);
+    const tail: Block[] = buildBlocks(slots(46, 48), [{ start: at(46), end: at(48) }]);
     const last = tail.length - 1;
-    expect(stepRight(tail, last, { viewStart: at(45), anchor: at(47.5) }, win)).toEqual({ kind: 'none' });
+    expect(stepRight(tail, last, { viewStart: at(46), anchor: at(47.5) }, win)).toEqual({ kind: 'none' });
   });
 });
 
@@ -186,10 +177,10 @@ describe('Up / Down keep the time position', () => {
 });
 
 describe('paging and prefetch', () => {
-  it('prefetches 3 h either side of the visible 3 h, inside the window', () => {
-    expect(prefetchRange(at(0), win)).toEqual({ start: at(-3), end: at(6) });
-    expect(prefetchRange(at(-6), win)).toEqual({ start: at(-6), end: at(0) });
-    expect(prefetchRange(at(45), win)).toEqual({ start: at(42), end: at(48) });
+  it('prefetches 2 h either side of the visible 2 h, inside the window', () => {
+    expect(prefetchRange(at(0), win)).toEqual({ start: at(-2), end: at(4) });
+    expect(prefetchRange(at(-6), win)).toEqual({ start: at(-6), end: at(-2) });
+    expect(prefetchRange(at(45), win)).toEqual({ start: at(43), end: at(48) });
   });
 
   it('splits a time range into aligned chunks', () => {
@@ -216,14 +207,6 @@ describe('labels', () => {
     expect(dayLabel(local(9, 22), local(10, 8))).toBe('Yesterday');
     expect(dayLabel(local(13, 9), local(10, 8))).toBe('Tue 13 Jan');
   });
-  it('says whether a programme is on now, upcoming or over', () => {
-    const b = { start: local(10, 14), stop: local(10, 14, 30) };
-    expect(relativeLabel(b, local(10, 14, 10))).toBe('On now');
-    expect(relativeLabel(b, local(10, 13, 15))).toBe('Starts in 45 min');
-    expect(relativeLabel(b, local(10, 11, 55))).toBe('Starts in 2 h 5 min');
-    expect(relativeLabel(b, local(10, 12))).toBe('Starts in 2 h');
-    expect(relativeLabel(b, local(10, 14, 30))).toBe('Ended');
-  });
 });
 
 describe('guideOpenTarget', () => {
@@ -247,7 +230,7 @@ describe('guideOpenTarget', () => {
     expect(t.groupId).toBe('g:Kids');
     expect(t.rememberGroup).toBe(false);
     expect(t.anchor).toBe(gw.end - 1);
-    expect(t.viewStart).toBe(gw.end - 3 * HOUR);
+    expect(t.viewStart).toBe(gw.end - 2 * HOUR);
   });
 
   it('ignores a non-numeric `at` and a non-string channel', () => {
@@ -255,31 +238,31 @@ describe('guideOpenTarget', () => {
   });
 });
 
-describe('pointer: paging and clicks', () => {
-  it('Later and Earlier move the view by 3 h and keep the anchor inside it', () => {
-    expect(pageTime({ viewStart: at(0), anchor: at(1) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(3), anchor: at(3) });
-    expect(pageTime({ viewStart: at(0), anchor: at(1) }, -1, win)).toEqual({ kind: 'scroll', viewStart: at(-3), anchor: at(0) - 1 });
+describe('pointer: paging', () => {
+  it('Later and Earlier move the view by 2 h and keep the anchor inside it', () => {
+    expect(pageTime({ viewStart: at(0), anchor: at(1) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(2), anchor: at(2) });
+    expect(pageTime({ viewStart: at(0), anchor: at(1) }, -1, win)).toEqual({ kind: 'scroll', viewStart: at(-2), anchor: at(0) - 1 });
   });
 
   it('stops at the ends of the guide window', () => {
     expect(pageTime({ viewStart: at(-6), anchor: at(-5) }, -1, win)).toEqual({ kind: 'none' });
-    expect(pageTime({ viewStart: at(44), anchor: at(45) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(45), anchor: at(45) });
-    expect(pageTime({ viewStart: at(45), anchor: at(46) }, 1, win)).toEqual({ kind: 'none' });
+    expect(pageTime({ viewStart: at(45), anchor: at(46) }, 1, win)).toEqual({ kind: 'scroll', viewStart: at(46), anchor: at(46) });
+    expect(pageTime({ viewStart: at(46), anchor: at(47) }, 1, win)).toEqual({ kind: 'none' });
   });
+});
 
-  it('a click on an unfocused cell focuses it; on the focused cell it is Ok', () => {
-    const focus = { row: 3, area: 'grid' as const, focusStart: at(1) };
-    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, focus)).toBe('ok');
-    expect(guideClick({ area: 'grid', row: 3, start: at(2) }, focus)).toBe('focus');
-    expect(guideClick({ area: 'grid', row: 4, start: at(1) }, focus)).toBe('focus');
-    expect(guideClick({ area: 'grid', row: 3, start: at(1) }, { ...focus, area: 'channels' })).toBe('focus');
+describe('monogram (the logo tile of a channel without a logo)', () => {
+  it('uses the first letters of the first two words, uppercase', () => {
+    expect(monogram('Nordic Sample One')).toBe('NS');
+    expect(monogram('  test  channel ')).toBe('TC');
   });
-
-  it('a click on a channel name is Ok (watch)', () => {
-    expect(guideClick({ area: 'channels' }, { row: 0, area: 'grid', focusStart: undefined })).toBe('ok');
+  it('uses the first two letters of a single word', () => {
+    expect(monogram('Demo')).toBe('DE');
+    expect(monogram('x')).toBe('X');
   });
-
-  it('uses the spec copy', () => {
-    expect(GUIDE_POINTER_LABELS).toEqual({ groups: 'Groups', earlier: '‹ Earlier', later: 'Later ›' });
+  it('skips punctuation and is empty for a name without letters or digits', () => {
+    expect(monogram('- Alpha & Beta')).toBe('AB');
+    expect(monogram('')).toBe('');
+    expect(monogram('...')).toBe('');
   });
 });

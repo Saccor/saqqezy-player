@@ -104,7 +104,7 @@ describe('sourcesReaction', () => {
 
   it('keeps playing when the active source did not change (a source added or renamed) or nothing plays', () => {
     expect(sourcesReaction(remote('s1'), one, 'home', true)).toEqual({ ...off, applyState: true });
-    expect(sourcesReaction(remote('s2'), one, 'guide', false)).toEqual({ ...off, applyState: true });
+    expect(sourcesReaction(remote('s2'), one, 'search', false)).toEqual({ ...off, applyState: true });
   });
 
   it('the Player leaves for Home when its stream is stopped', () => {

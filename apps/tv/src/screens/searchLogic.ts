@@ -125,6 +125,15 @@ export function vodRoute(row: SearchRow | undefined): { screen: 'movieDetail' | 
   return { screen: row.tile.kind === 'movie' ? 'movieDetail' : 'seriesDetail', params: { id: row.tile.id, tile: row.tile } };
 }
 
+/**
+ * Where Ok on a coming-up row goes: back to Live TV (the root `home`, never a second one), opened at that channel and
+ * the programme's start.
+ */
+export function laterRoute(row: SearchRow | undefined): { screen: 'home'; params: { channelId: string; at: number } } | undefined {
+  if (row?.kind !== 'later') return undefined;
+  return { screen: 'home', params: { channelId: row.hit.channel.id, at: row.hit.start } };
+}
+
 /** A movie or series row's text: compact, no poster (title · year). */
 export function vodLine(t: VodTile): string {
   return t.year ? `${t.title} · ${t.year}` : t.title;
@@ -148,7 +157,7 @@ function pendingNote(rows: readonly SearchRow[]): string | undefined {
 
 export interface FocusInput {
   rows: readonly SearchRow[];
-  /** Back from the Player or Guide: the next full answer restores `memoryFocus`. */
+  /** Back from the Player or a detail screen: the next full answer restores `memoryFocus`. */
   returning: boolean;
   memoryFocus: number;
   prevFocus: number;
@@ -169,7 +178,7 @@ export interface FocusDecision {
 }
 
 /**
- * Focus for a settled answer. Returning from the Player, Guide or a detail screen restores the saved row, but an
+ * Focus for a settled answer. Returning from the Player or a detail screen restores the saved row, but an
  * answer still waiting for guide, movie or series results only sets a provisional focus and keeps `returning`, so the
  * full answer that follows restores the saved row exactly. A re-run of the same query keeps the focused row; a
  * new query starts at the top.
@@ -221,11 +230,11 @@ export function countText(s: SearchState<SearchRow>): string {
 export interface SearchMemory {
   query: string;
   focus: number;
-  /** The next answer restores `focus` (set when Ok opened the Player or Guide). */
+  /** The next answer restores `focus` (set when Ok opened the Player or a detail screen). */
   returning: boolean;
   /** Back left Search: start fresh next time. */
   leaveBack(): void;
-  /** Ok opened the Player or the Guide: Back returns to the same results and row. */
+  /** Ok opened the Player or a detail screen: Back returns to the same results and row. */
   leaveTo(focus: number): void;
   /** The user handled a key in the results: their own position wins over a pending restore. */
   userNavigated(): void;

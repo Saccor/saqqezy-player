@@ -14,7 +14,7 @@ const HEAD = 64;
 
 /**
  * Channel options over a scrim. One focusable node; Up/Down choose, Ok confirms. It handles no Back itself:
- * Home registers it with `router.pushOverlay`, so Back closes it like Cancel. `items` come from
+ * Live TV registers it with `router.pushOverlay`, so Back closes it like Cancel. `items` come from
  * `buildChannelMenu` (homeMenuLogic.ts); the last one should be the cancel action.
  *
  * Pointer: a click on an item chooses it, hover highlights it, the wheel moves the selection, and a click outside the
@@ -26,7 +26,7 @@ export function ContextMenu<A extends string>(props: {
   items: readonly ContextMenuItem<A>[];
   cancel: A;
   onChoose: (action: A) => void;
-  /** False: neither the panel nor the backdrop takes the pointer (Home's keyboard is open above). Default true. */
+  /** False: neither the panel nor the backdrop takes the pointer (the rename keyboard is open above). Default true. */
   pointerEnabled?: boolean;
 }) {
   const [selRaw, setSelRaw] = createSignal(0);

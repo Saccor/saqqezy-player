@@ -4,16 +4,6 @@
     "fontSize": 0,
     "scale": 0
   },
-  "components/EpgGrid.tsx": {
-    "colour": 4,
-    "fontSize": 0,
-    "scale": 0
-  },
-  "components/GroupList.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 0
-  },
   "components/InfoBanner.tsx": {
     "colour": 1,
     "fontSize": 0,
@@ -24,17 +14,7 @@
     "fontSize": 1,
     "scale": 0
   },
-  "components/PreviewPanel.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 0
-  },
   "components/QrCode.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 0
-  },
-  "components/SearchBar.tsx": {
     "colour": 1,
     "fontSize": 0,
     "scale": 0

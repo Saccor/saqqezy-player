@@ -50,10 +50,31 @@ describe('MESSAGE_BOXES', () => {
   });
 
   it('every box keeps its lines inside its height', () => {
-    const heights = { preview: 331, guide: 270, player: 206, vodCard: 124, vodCardSmall: 124 } as const;
+    const heights = { preview: 331, guide: 270, live: 234, player: 206, vodCard: 124, vodCardSmall: 124 } as const;
     for (const [key, h] of Object.entries(heights)) {
       const b = MESSAGE_BOXES[key as keyof typeof MESSAGE_BOXES];
       expect(b.maxLines * b.lineH, key).toBeLessThanOrEqual(h);
     }
+  });
+});
+
+describe('live box (416 x 234 mini window)', () => {
+  const limit = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel');
+  const messages = [
+    failureText({ reason: 'unavailable' }, 'channel'),
+    failureText({ reason: 'unavailable', httpStatus: 404 }, 'channel'),
+    failureText({ reason: 'unsupported' }, 'channel'),
+    failureText({ reason: 'gone', httpStatus: 404 }, 'channel'),
+    failureText({ reason: 'refused', httpStatus: 429 }, 'channel'),
+    failureText({ reason: 'refused', httpStatus: 403 }, 'channel'),
+    limit,
+    COOLDOWN_TEXT,
+  ];
+
+  it('every preview message fits; the account-limit refusal uses its compact form', () => {
+    const compact = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel', true);
+    const all = [...messages.filter((m) => m !== limit), compact];
+    for (const m of all) expect(fitsBox(m, MESSAGE_BOXES.live), m).toBe(true);
+    expect(fitsBox(limit, MESSAGE_BOXES.live)).toBe(false);
   });
 });

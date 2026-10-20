@@ -8,6 +8,9 @@
  * - One group at a time: `setGroup` to another group (and `invalidate()`) drops everything and makes answers
  *   still in flight be ignored.
  * - An entry older than `maxAgeMs` is refetched by the next `ensure`; its rows stay readable until then.
+ * - Every stale mark (`staleAll`, `stalePage`, `staleChannels`) starts a new stale epoch: a request still in flight
+ *   from an older epoch is not shared by later `ensure` calls (it may predate the change), and its answer is stored
+ *   stale, so the next `ensure` fetches again. An older answer never replaces a newer one.
  */
 import { chunkStarts, pageRange, type TimeRange } from './guideLogic.ts';
 
@@ -30,15 +33,18 @@ export interface EpgCacheOptions {
   onChange?: () => void;
 }
 
-interface Entry<C, P> { page: number; chunk: number; rows: EpgRowData<C, P>[]; fetchedAt: number }
+interface Entry<C, P> { page: number; chunk: number; rows: EpgRowData<C, P>[]; fetchedAt: number; epoch: number }
+interface Inflight { run: Promise<void>; epoch: number }
 
 export class EpgCache<C, P extends { start: number; stop: number }> {
   private groupId: string | undefined;
   private totalRows: number | undefined;
   /** Least recently used first. */
   private entries = new Map<string, Entry<C, P>>();
-  private inflight = new Map<string, Promise<void>>();
+  private inflight = new Map<string, Inflight>();
   private generation = 0;
+  /** Bumped by every stale mark (see the class comment). */
+  private epoch = 0;
   private readonly rowsPerPage: number;
   private readonly chunkMs: number;
   private readonly maxEntries: number;
@@ -88,7 +94,31 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
    */
   stalePage(index: number): void {
     const page = Math.floor(index / this.rowsPerPage);
+    this.epoch++;
     for (const e of this.entries.values()) if (e.page === page) e.fetchedAt = Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * Marks stale every cached page holding one of `ids` (rows on screen or not; e.g. the playing channel's now/next
+   * arrived). Returns how many pages were marked. Rows stay readable until the next `ensure` refetches them.
+   */
+  staleChannels(ids: Iterable<string>, idOf: (channel: C) => string): number {
+    const wanted = new Set(ids);
+    if (wanted.size === 0) return 0;
+    // A page in flight may hold one of them too (its channels are unknown until it lands): it is stored stale.
+    this.epoch++;
+    const pages = new Set<number>();
+    for (const e of this.entries.values()) {
+      if (e.rows.some((r) => wanted.has(idOf(r.channel)))) pages.add(e.page);
+    }
+    for (const e of this.entries.values()) if (pages.has(e.page)) e.fetchedAt = Number.NEGATIVE_INFINITY;
+    return pages.size;
+  }
+
+  /** Marks every entry stale without dropping it (a refresh): the grid keeps its rows until the refetch lands. */
+  staleAll(): void {
+    this.epoch++;
+    for (const e of this.entries.values()) e.fetchedAt = Number.NEGATIVE_INFINITY;
   }
 
   entryCount(): number {
@@ -165,16 +195,22 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
     const cached = this.entries.get(k);
     if (cached && this.now() - cached.fetchedAt < this.maxAgeMs) return Promise.resolve();
     const running = this.inflight.get(k);
-    if (running) return running;
+    if (running && running.epoch === this.epoch) return running.run;
     const gen = this.generation;
+    const epoch = this.epoch;
     const inflight = this.inflight;
-    const run = this.fetch(groupId, page * this.rowsPerPage, this.rowsPerPage, chunk, chunk + this.chunkMs).then(
+    const done = () => { if (inflight.get(k)?.run === run) inflight.delete(k); };
+    const run: Promise<void> = this.fetch(groupId, page * this.rowsPerPage, this.rowsPerPage, chunk, chunk + this.chunkMs).then(
       (res) => {
-        inflight.delete(k);
+        done();
         if (gen !== this.generation) return;
+        const old = this.entries.get(k);
+        if (old && old.epoch > epoch) return; // a newer answer already landed
         this.totalRows = res.total;
         this.entries.delete(k);
-        this.entries.set(k, { page, chunk, rows: res.rows, fetchedAt: this.now() });
+        // A request older than the last stale mark may predate the change: readable, but fetched again.
+        const fetchedAt = epoch === this.epoch ? this.now() : Number.NEGATIVE_INFINITY;
+        this.entries.set(k, { page, chunk, rows: res.rows, fetchedAt, epoch });
         while (this.entries.size > this.maxEntries) {
           const oldest = this.entries.keys().next().value;
           if (oldest === undefined) break;
@@ -183,11 +219,11 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
         this.onChange();
       },
       (err: unknown) => {
-        inflight.delete(k);
+        done();
         throw err;
       },
     );
-    inflight.set(k, run);
+    inflight.set(k, { run, epoch });
     return run;
   }
 }

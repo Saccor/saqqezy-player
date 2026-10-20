@@ -12,15 +12,15 @@ import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { HINT_Y } from '../shell/logic.ts';
-import { router } from '../shell/router.ts';
+import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
 import { pointerMode } from '../input/pointer.ts';
-import { PREVIEW_RECT } from './Home.tsx';
+import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
   SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage,
-  vodRoute, type SearchRow, type SearchState,
+  laterRoute, vodRoute, type SearchRow, type SearchState,
 } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -43,7 +43,15 @@ const memory = createSearchMemory();
  * Search: inline on-screen keyboard (left) and results (right): channels with now/next, movies and series (20 each,
  * from catalogues stored on the device), programmes. Ok plays the channel or opens the title's detail screen.
  */
-export function SearchScreen() {
+export function SearchScreen(props: { entry: ScreenEntry }) {
+  // One-shot seed (a letter typed on Live TV): the field starts with it and the search runs once (onMount). Consumed,
+  // so the Player's return to this entry keeps whatever the user typed after it.
+  const params = props.entry.params as { query?: unknown };
+  if (typeof params.query === 'string') {
+    memory.query = params.query;
+    memory.returning = false;
+  }
+  delete params.query;
   const [query, setQuery] = createSignal(memory.query);
   const [state, setState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
   const [focus, setFocus] = createSignal(0);
@@ -61,7 +69,7 @@ export function SearchScreen() {
     setState(s);
     // While a query runs the previous results stay on screen untouched (focus included).
     if (s.busy) return;
-    // Returning from the Player or Guide restores the focused row once the full answer (not a guide-pending one)
+    // Returning from the Player or a detail screen restores the focused row once the full answer (not a guide-pending one)
     // is in; a re-run of the same query keeps the focused row; a new query starts at the top.
     const d = nextFocus({
       rows: s.results, returning: memory.returning, memoryFocus: memory.focus, prevFocus: focus(),
@@ -88,7 +96,7 @@ export function SearchScreen() {
   const focusList = () => { if (state().results.some((r) => isSelectable(r))) listNode?.setFocus(); };
   const focusKeyboard = () => { kbNode?.setFocus(); return true; };
 
-  /** Channel and on-now rows play the channel; a coming-up row opens the Guide at that channel and time; a movie or series row opens its detail. */
+  /** Channel and on-now rows play the channel; a coming-up row returns to Live TV at that channel and time; a movie or series row opens its detail. */
   const open = () => {
     const r = rowAt(focus());
     if (!r || !isSelectable(r)) return true;
@@ -102,9 +110,12 @@ export function SearchScreen() {
       router.push(vod.screen, vod.params);
       return true;
     }
-    if (r.kind === 'later') {
-      memory.leaveTo(focus());
-      router.push('guide', { channelId: r.hit.channel.id, at: r.hit.start });
+    const later = laterRoute(r);
+    if (later) {
+      // Search leaves the stack (as on Back), so the next visit starts fresh. The root Live TV (never a second one)
+      // opens at that channel and time.
+      memory.leaveBack();
+      if (!router.backTo(later.screen, later.params)) router.reset(later.screen, later.params);
       return true;
     }
     const ch = r.kind === 'channel' ? r.channel : r.kind === 'onNow' ? r.hit.channel : undefined;
@@ -135,7 +146,7 @@ export function SearchScreen() {
     onCleanup(onEvent('searchReady', rerun));
     onCleanup(onEvent('refreshed', rerun));
     // Back from the Player leaves the video fullscreen behind this opaque screen: park it where Home shows it.
-    parkLiveForScreen({ preview: PREVIEW_RECT });
+    parkLiveForScreen({ preview: LIVE_PREVIEW_RECT });
     kbNode?.setFocus();
     if (memory.query !== '') searcher.setQuery(memory.query);
     else memory.returning = false;
@@ -176,7 +187,7 @@ export function SearchScreen() {
         onLeft={() => { memory.userNavigated(); return focusKeyboard(); }}
         onOk={() => { memory.userNavigated(); return open(); }}
         onRowClick={(i, double) => {
-          // The first click already opened it (the Player or the Guide): a double click adds nothing.
+          // The first click already opened it (the Player, a detail screen or Live TV): a double click adds nothing.
           if (double || !isSelectable(rowAt(i))) return;
           memory.userNavigated();
           setFocus(i);
