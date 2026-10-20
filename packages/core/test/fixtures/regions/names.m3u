@@ -13,3 +13,5 @@ http://example.test/live/64756537.ts
 http://example.test/live/85445986.ts
 #EXTINF:-1 group-title="Swedish Synthetic Docs",Synthetic Adjective
 http://example.test/live/1524521093.ts
+#EXTINF:-1 group-title="TURKEY SYNTHETIC",Synthetic Caps Word
+http://example.test/live/840211341.ts

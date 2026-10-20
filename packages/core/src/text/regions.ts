@@ -10,7 +10,7 @@ import { LANG_CODES, peelPrefix, prepare } from './nameTags.ts';
  */
 
 /** Bump whenever a rule or table changes: cached results of another version are rebuilt (after first paint). */
-export const REGION_DETECTOR_VERSION = 1;
+export const REGION_DETECTOR_VERSION = 2;
 /** Results below this are "Not sure": shown in the picker, never used to hide or reorder a group. */
 export const REGION_SURE = 0.6;
 
@@ -50,7 +50,8 @@ const COUNTRIES: [string, string, string[], string[]][] = [
   ['NO', 'Norway', ['no'], ['Norge', 'Noreg', 'Norwegian', 'Norsk']],
   ['DK', 'Denmark', ['da'], ['Danmark', 'Danish', 'Dansk']],
   ['FI', 'Finland', ['fi'], ['Suomi', 'Finnish']],
-  ['IS', 'Iceland', ['is'], ['Island', 'Icelandic']],
+  // Not the native "Island": an everyday English word.
+  ['IS', 'Iceland', ['is'], ['Icelandic']],
   ['DE', 'Germany', ['de'], ['Deutschland', 'German', 'Deutsch']],
   ['AT', 'Austria', ['de'], ['Osterreich', 'Austrian']],
   ['CH', 'Switzerland', ['de', 'fr', 'it'], ['Schweiz', 'Suisse', 'Svizzera', 'Swiss']],
@@ -127,6 +128,12 @@ const COUNTRIES: [string, string, string[], string[]][] = [
   ['NG', 'Nigeria', ['en'], ['Nigerian']],
   ['KE', 'Kenya', ['en'], []],
 ];
+
+/** The most a leading code scores, in the source style or not. */
+const CODE_MAX = 0.89;
+
+/** Country names that are also everyday English words: they count only when the whole group name is upper case. */
+const WORD_NAMES: ReadonlySet<string> = new Set(['TURKEY', 'JORDAN', 'CHILE']);
 
 /** Codes that are also common words or language codes: they count only under the strict rules of §2.3. */
 const AMBIGUOUS: ReadonlySet<string> = new Set(['IN', 'NO', 'IT', 'AR', 'UK', 'CA', 'AL', 'MY', 'ID']);
@@ -344,12 +351,13 @@ function fromFlags(name: string): GroupRegion | undefined {
 /** Whole country names and region words, any position: 1..n-word windows over the folded name. */
 function fromWords(name: string): GroupRegion | undefined {
   const words = fold(name).split(' ');
+  const caps = !/\p{Ll}/u.test(name);
   const names: string[] = [];
   const regions: string[] = [];
   for (let i = 0; i < words.length; i++) {
     for (let n = Math.min(MAX_NAME_WORDS, words.length - i); n >= 1; n--) {
       const w = n === 1 ? words[i]! : words.slice(i, i + n).join(' ');
-      const hit = NAMES.get(w);
+      const hit = !caps && WORD_NAMES.has(w) ? undefined : NAMES.get(w);
       const region = REGION_WORDS[w];
       if (hit === undefined && !region) continue;
       if (hit !== undefined) names.push(hit);
@@ -434,7 +442,8 @@ export function detectRegions(
         ? style === ' ' && !ambiguous
         : !ambiguous || (style !== undefined && l.sep === style && (codeCount.get(l.code) ?? 0) >= 2);
       if (ok) {
-        const conf = (ambiguous ? 0.6 : 0.85) + (style === undefined ? 0 : l.sep === style ? 0.1 : -0.1);
+        // Capped below tvg-country and flags (0.9): §2.3 ranks those as the stronger signals.
+        const conf = Math.min(CODE_MAX, (ambiguous ? 0.6 : 0.85) + (style === undefined ? 0 : l.sep === style ? 0.1 : -0.1));
         offer(regionOf([codeKey(l.code)!], conf, 'code'));
       }
     }

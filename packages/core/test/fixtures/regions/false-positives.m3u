@@ -29,3 +29,11 @@ http://example.test/live/62502224.ts
 http://example.test/live/1299411365.ts
 #EXTINF:-1 group-title="Duo",SE: Synthetic Duo Two
 http://example.test/live/305168212.ts
+#EXTINF:-1 group-title="Synthetic Island Docs",Synthetic Island One
+http://example.test/live/840211337.ts
+#EXTINF:-1 group-title="Synthetic Turkey Kitchen",Synthetic Kitchen One
+http://example.test/live/840211338.ts
+#EXTINF:-1 group-title="Jordan Synthetic Talk",Synthetic Talk Three
+http://example.test/live/840211339.ts
+#EXTINF:-1 group-title="Synthetic Chile Recipes",Synthetic Recipes One
+http://example.test/live/840211340.ts

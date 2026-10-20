@@ -41,7 +41,7 @@ describe('detectRegions: fixtures', () => {
   test('leading codes follow the source style; ambiguous codes need two groups', async () => {
     const r = await fixture('prefixed.m3u');
     expect(r['g:SE | Synthetic News']).toMatchObject({ countries: ['SE'], langs: ['sv'], via: 'code' });
-    expect(r['g:SE | Synthetic News']!.conf).toBeCloseTo(0.95);
+    expect(r['g:SE | Synthetic News']!.conf).toBeCloseTo(0.89);
     expect(r['g:DK | Synthetic Docs']).toMatchObject({ countries: ['DK'], langs: ['da'] });
     // NO is ambiguous: two groups, the source's separator.
     expect(r['g:NO | Synthetic Sport']).toMatchObject({ countries: ['NO'], via: 'code' });
@@ -68,7 +68,9 @@ describe('detectRegions: fixtures', () => {
   test('false positives stay undetected', async () => {
     const r = await fixture('false-positives.m3u');
     for (const g of ['IT Synthetic Crowd', 'MY Synthetic Picks', 'AL | Synthetic Gold', 'IN | Synthetic Late',
-      'UP - Synthetic Late', 'Synthetic Crowd HD', 'Synthetic | TV', 'Picks', 'Duo']) {
+      'UP - Synthetic Late', 'Synthetic Crowd HD', 'Synthetic | TV', 'Picks', 'Duo',
+      // Country names that are also English words.
+      'Synthetic Island Docs', 'Synthetic Turkey Kitchen', 'Jordan Synthetic Talk', 'Synthetic Chile Recipes']) {
       expect(r[`g:${g}`], g).toBeUndefined();
     }
     expect(r['g:FI | Synthetic Talk']).toMatchObject({ countries: ['FI'] });
@@ -81,6 +83,8 @@ describe('detectRegions: fixtures', () => {
     expect(r['g:SVERIGE']!.conf).toBeCloseTo(0.8);
     expect(r['g:Deutschland Synthetic']).toMatchObject({ countries: ['DE'], via: 'name' });
     expect(r['g:Swedish Synthetic Docs']).toMatchObject({ countries: ['SE'], via: 'name' });
+    // A name that is also an English word counts only in an all-caps group name.
+    expect(r['g:TURKEY SYNTHETIC']).toMatchObject({ countries: ['TR'], via: 'name' });
     expect(r['g:NORDIC']).toMatchObject({ countries: ['SE', 'NO', 'DK', 'FI', 'IS'], via: 'region' });
     expect(r['g:NORDIC']!.conf).toBeCloseTo(0.7);
     expect(r['g:SCANDINAVIA Synthetic']).toMatchObject({ countries: ['SE', 'NO', 'DK'], via: 'region' });
@@ -97,6 +101,17 @@ describe('detectRegions: rules', () => {
   test('a user override wins with confidence 1', () => {
     const r = detectRegions([g('SE | Synthetic News')], { 'g:SE | Synthetic News': ['DK', 'lang:en'] });
     expect(r['g:SE | Synthetic News']).toEqual({ countries: ['DK'], langs: ['en', 'da'], conf: 1, via: 'user' });
+  });
+
+  test('a tvg-country majority beats a leading code, even one in the source style', () => {
+    const tvg = { members: 4, withCountry: 4, country: { DK: 3, SE: 1 }, withLanguage: 0, language: {} };
+    const r = detectRegions([
+      { id: 'g:SE | Synthetic One', name: 'SE | Synthetic One', tvg }, g('SE | Synthetic Two'), g('FI | Synthetic Three'),
+    ]);
+    expect(r['g:SE | Synthetic One']).toMatchObject({ countries: ['DK'], via: 'tvg' });
+    expect(r['g:SE | Synthetic Two']).toMatchObject({ countries: ['SE'], via: 'code' });
+    expect(r['g:SE | Synthetic Two']!.conf).toBeLessThan(0.9);
+    expect(isSure(r['g:SE | Synthetic Two']!)).toBe(true);
   });
 
   test('an ambiguous code needs the source style', () => {
