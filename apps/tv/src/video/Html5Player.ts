@@ -154,8 +154,8 @@ export class Html5Player implements Player {
   private readonly isTv: boolean;
   private readonly autoMute: AutoMute;
   private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
-  /** Frame rates measured from presented frames, per opened URL (oldest first). */
-  private readonly measuredFps = new Map<string, number>();
+  /** Frame rates measured from presented frames, per opened URL (oldest first); null: no clear rate. */
+  private readonly measuredFps = new Map<string, number | null>();
   /** The frame-rate measurement in progress. */
   private fpsSampling: { cancel: () => void } | undefined;
 
@@ -804,8 +804,9 @@ export class Html5Player implements Player {
     if (info.fps === undefined) {
       const url = this.session?.url;
       const measured = url === undefined ? undefined : this.measuredFps.get(url);
-      if (measured !== undefined) info.fps = measured;
-      else this.measureFps();
+      // null: measured once without a clear rate; not tried again for this file this session.
+      if (measured === undefined) this.measureFps();
+      else if (measured !== null) info.fps = measured;
     }
     return info;
   }
@@ -839,9 +840,8 @@ export class Html5Player implements Player {
         return;
       }
       this.fpsSampling = undefined;
-      const fps = fpsFromSamples(samples);
-      if (fps === undefined) return;
-      this.measuredFps.set(s.url, fps);
+      // No clear rate is kept too, so polling does not measure the same file again and again.
+      this.measuredFps.set(s.url, fpsFromSamples(samples) ?? null);
       if (this.measuredFps.size > MEASURED_FPS_MAX) {
         const oldest = this.measuredFps.keys().next().value;
         if (oldest !== undefined) this.measuredFps.delete(oldest);

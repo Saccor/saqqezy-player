@@ -74,6 +74,10 @@ describe('fpsFromTrackExtra', () => {
     expect(fpsFromTrackExtra(extra('{"fps":""}'))).toBeUndefined();
     expect(fpsFromTrackExtra(extra('{"fps":"0"}'))).toBeUndefined();
     expect(fpsFromTrackExtra(extra('{"fps":"abc"}'))).toBeUndefined();
+    // A large number is thousandths only when that is a standard rate.
+    expect(fpsFromTrackExtra(extra('{"fps":"25000"}'))).toBe(25);
+    expect(fpsFromTrackExtra(extra('{"fps":"12500"}'))).toBeUndefined();
+    expect(fpsFromTrackExtra(extra('{"fps":"500"}'))).toBeUndefined();
     expect(fpsFromTrackExtra({})).toBeUndefined();
   });
 });

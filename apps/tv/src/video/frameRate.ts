@@ -61,8 +61,9 @@ function parseRate(v: unknown): number | undefined {
     n = frac ? Number(frac[1]) / Number(frac[2]) : Number(v.trim());
   } else return undefined;
   if (!Number.isFinite(n) || n <= 0) return undefined;
-  if (n > FPS_MAX && n / 1000 >= FPS_MIN && n / 1000 <= FPS_MAX) n /= 1000;
-  if (n < FPS_MIN || n > FPS_MAX) return undefined;
+  // Thousandths ("23976") only when that is a standard rate: any other large number is no frame rate.
+  if (n > FPS_MAX) return snapFps(n / 1000);
+  if (n < FPS_MIN) return undefined;
   return snapFps(n) ?? n;
 }
 

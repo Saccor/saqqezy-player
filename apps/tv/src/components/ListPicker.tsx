@@ -4,6 +4,7 @@ import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '.
 import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { pickerFooter } from './listPickerLogic.ts';
 import { moveFocus, scrollTopFor } from './virtualWindow.ts';
 
 const WIDTH = 640;
@@ -13,7 +14,8 @@ const PAD = 32;
 const HEAD = 64;
 const VIEW_ROWS = 7;
 const CHECK_W = 48;
-const HELP_LINE_GAP = 8;
+/** One footer line: meta text and a small gap. */
+const FOOTER_LINE_H = TYPE.meta + 8;
 
 /**
  * "Add to list…" picker over a scrim: the user's lists with a check on those holding the channel, then
@@ -41,9 +43,9 @@ export function ListPicker(props: {
   let panel: ElementNode | undefined;
   let top = 0;
   const shown = () => Math.min(VIEW_ROWS, Math.max(props.rows.length, 1));
-  /** A row with help (a long release name, a how-to) gets a two-line footer. */
-  const helpLines = () => (props.rows.some((r) => r.kind === 'list' && r.help) ? 2 : 1);
-  const height = () => PAD * 2 + HEAD + shown() * STEP + 40 + (helpLines() - 1) * (TYPE.meta + HELP_LINE_GAP);
+  /** A row with help (a long release name, a how-to) adds a footer line above the hint. */
+  const footer = () => pickerFooter(props.rows, current(), props.hint, more());
+  const height = () => PAD * 2 + HEAD + shown() * STEP + 40 + (footer().length - 1) * FOOTER_LINE_H;
   // The selection survives row changes (a toggle re-reads the lists), clamped to the new length.
   const current = () => Math.min(sel(), Math.max(0, props.rows.length - 1));
   const scrollTop = createMemo(() => {
@@ -51,11 +53,6 @@ export function ListPicker(props: {
     return top;
   });
   const visible = () => props.rows.slice(scrollTop(), scrollTop() + VIEW_ROWS).map((row, k) => ({ row, i: scrollTop() + k }));
-  /** The selected row's help when it has one, else the picker's hint. */
-  const hint = () => {
-    const r = props.rows[current()];
-    return (r?.kind === 'list' ? r.help : undefined) ?? props.hint ?? 'Ok adds or removes · Back closes';
-  };
   const move = (d: number) => { setSel(moveFocus(current(), d, props.rows.length)); return true; };
   const adjust = (dir: 1 | -1) => {
     const r = props.rows[current()];
@@ -120,10 +117,12 @@ export function ListPicker(props: {
             </View>
           );
         }}</For>
-        <Text x={PAD} y={PAD + HEAD + shown() * STEP} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2} contain="width"
-          maxLines={helpLines()} fontSize={TYPE.meta} color={COLORS.muted}>
-          {more() ? `${more()} · ${hint()}` : hint()}
-        </Text>
+        <For each={footer()}>{(line, k) => (
+          <Text x={PAD} y={PAD + HEAD + shown() * STEP + k() * FOOTER_LINE_H} width={WIDTH - PAD * 2} maxWidth={WIDTH - PAD * 2}
+            contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
+            {line}
+          </Text>
+        )}</For>
       </View>
     </View>
   );
