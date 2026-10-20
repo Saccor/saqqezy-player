@@ -1347,6 +1347,30 @@ describe('VodController.startRows', () => {
     expect(await c.startRows('series')).toBeUndefined();
   });
 
+  test('top rated: the best-rated titles first, unrated ones skipped, and the rated count', async () => {
+    const { c, sourceId } = await setup();
+    await c.home('movie');
+    await c.idle();
+    await c.home('movie');
+    const rows = (await c.startRows('movie'))!;
+    expect(rows.top).toHaveLength(20);
+    const ratings = rows.top.map((t) => t.rating!);
+    expect(ratings.every((r) => typeof r === 'number')).toBe(true);
+    expect([...ratings].sort((a, b) => b - a)).toEqual(ratings);
+    expect(rows.topTotal).toBe(24);
+
+    // Titles without a rating never enter the row or the count.
+    const stored = (await storage.getVod(sourceId, 'movie'))!;
+    await storage.replaceVod(sourceId, 'movie', { ...stored, items: stored.items.map((it, i) => (i < 19 ? (({ rating: _r, ...rest }) => rest)(it) : it)) });
+    c.invalidate(sourceId);
+    await c.home('movie');
+    await c.idle();
+    await c.home('movie');
+    const few = (await c.startRows('movie'))!;
+    expect(few.topTotal).toBe(5);
+    expect(few.top).toHaveLength(5);
+  });
+
   test('a source change while snapping never leaves the old rows behind', async () => {
     const { c, sourceId } = await setup();
     await c.home('movie');

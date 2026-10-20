@@ -67,7 +67,8 @@ const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /** Category grid: the rail of categories, a sort button and a 7-column poster grid with titles and years. */
 export function VodGridScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { kind?: VodKind; categoryId?: string };
+  /** `sort`: open on this order (Start's Top rated "View all"); the remembered sort is left as it was. */
+  const params = props.entry.params as { kind?: VodKind; categoryId?: string; sort?: VodSort };
   const kind: VodKind = params.kind ?? 'movie';
   const copy = KIND_COPY[kind];
 
@@ -355,7 +356,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       const i = Math.max(0, cs.findIndex((c) => c.id === params.categoryId));
       batch(() => {
         setCats(cs);
-        setSort(loadSort(kind, sortsFor(cs.some((c) => c.id === VOD_ROW_RECENT)), store()));
+        const sorts = sortsFor(cs.some((c) => c.id === VOD_ROW_RECENT));
+        setSort(params.sort && sorts.includes(params.sort) ? params.sort : loadSort(kind, sorts, store()));
         setCatIndex(i);
         setRailSel(i);
       });

@@ -2361,6 +2361,29 @@ describe('AppApi – sports in your guide', () => {
     expect(stored).not.toMatch(/"url"/);
   });
 
+  test('getStartHome: Top rated rows from the loaded catalogues, kept once the other kind is resident', async () => {
+    const { api } = makeVod(new MemoryStorage());
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.getVodHome('movie');
+    await api.idle();
+    await api.getVodHome('movie');
+    const h = await api.getStartHome();
+    const top = h.rows.find((r) => r.id === 'topMovies')!;
+    expect(top.title).toBe('Top rated movies');
+    const ratings = top.cells.flatMap((c) => (c.type === 'vod' ? [c.tile.rating!] : []));
+    expect(ratings.length).toBe(20);
+    expect([...ratings].sort((a, b) => b - a)).toEqual(ratings);
+    expect(top.cells.at(-1)).toMatchObject({ type: 'viewAll', target: 'movie', order: 'rating' });
+
+    await api.getVodHome('series');
+    await api.idle();
+    await api.getVodHome('series');
+    const after = await api.getStartHome();
+    expect(after.rows.map((r) => r.id)).toEqual(expect.arrayContaining(['topMovies', 'topSeries']));
+    expect(after.rows.find((r) => r.id === 'topMovies')).toEqual(top);
+  });
+
   const makeSpied = () => {
     const st = new MemoryStorage();
     const service = new SourceService({ storage: st, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });

@@ -20,6 +20,7 @@ export class VodCatalog {
   private readonly rows: VodItem[];
   private keys: string[] | undefined;
   private added: boolean | undefined;
+  private rated: number | undefined;
   private readonly orders = new Map<string, number[]>();
   /** Row indexes per category, built in one pass on first use. */
   private buckets: Map<string, number[]> | undefined;
@@ -111,6 +112,14 @@ export class VodCatalog {
 
   recentlyAdded(n: number): VodItem[] {
     return this.slice(VOD_ALL, 'added', 0, n).rows;
+  }
+
+  /** The best-rated titles (at most `n`; unrated ones never) and how many titles have a rating at all. */
+  topRated(n: number): { rows: VodItem[]; rated: number } {
+    this.rated ??= this.rows.reduce((k, it) => (it.rating === undefined ? k : k + 1), 0);
+    const take = Math.min(Math.max(0, Math.floor(n)), this.rated);
+    // The rating order puts unrated titles last, so the first `rated` entries are exactly the rated ones.
+    return { rows: take ? this.slice(VOD_ALL, 'rating', 0, take).rows : [], rated: this.rated };
   }
 
   /** Substring match on `searchKey`, ranked by match position, then title, then list order. */

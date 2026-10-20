@@ -495,6 +495,8 @@ export class AppApi {
       if (movie || series) parts.continueVod = [...(movie?.continue ?? []), ...(series?.continue ?? [])];
       if (movie) parts.newMovies = { items: movie.recent, total: movie.recentTotal };
       if (series) parts.newSeries = { items: series.recent, total: series.recentTotal };
+      if (movie) parts.topMovies = { items: movie.top, total: movie.topTotal };
+      if (series) parts.topSeries = { items: series.top, total: series.topTotal };
       const cached = this.startCache?.sourceId === id ? this.startCache.home : await this.getStartHomeCached();
       const home = assembleStartHome(parts, this.now(), cached);
       // Switched away or deleted meanwhile: never mix sources, and persist nothing.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { assembleStartHome } from '../src/startHome.ts';
+import { assembleStartHome, START_TOP_MIN } from '../src/startHome.ts';
 import type { ChannelRow, SportsEventTile, StartHome, VodTile } from '../src/types.ts';
 
 const chan = (n: number): ChannelRow => ({ id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
@@ -31,6 +31,33 @@ describe('assembleStartHome', () => {
     ] };
     const h = assembleStartHome({ liveNow: [], sports: [], newSeries: { items: [], total: 0 } }, 2, cached);
     expect(h.rows.map((r) => r.id)).toEqual(['continue']);
+  });
+
+  test('top rated rows: after Recently added of the same kind, hidden below the minimum, View all past the cap', () => {
+    const many = (from: number, n: number) => Array.from({ length: n }, (_, i) => vod(from + i));
+    const h = assembleStartHome({
+      liveNow: [], sports: [],
+      newMovies: { items: many(100, 3), total: 3 }, newSeries: { items: many(200, 2), total: 2 },
+      topMovies: { items: many(300, 20), total: 48 }, topSeries: { items: many(400, 6), total: 6 },
+    }, 3);
+    expect(h.rows.map((r) => [r.id, r.title])).toEqual([
+      ['newMovies', 'Recently added movies'], ['topMovies', 'Top rated movies'],
+      ['newSeries', 'Recently added series'], ['topSeries', 'Top rated series'],
+    ]);
+    const top = h.rows[1]!.cells;
+    expect(top).toHaveLength(21);
+    expect(top[20]).toEqual({ type: 'viewAll', target: 'movie', total: 48, order: 'rating' });
+    expect(h.rows[3]!.cells).toHaveLength(6);
+
+    // Fewer rated titles than START_TOP_MIN: no row (a short "top" list reads as noise).
+    const few = assembleStartHome({ liveNow: [], sports: [], topMovies: { items: many(1, START_TOP_MIN - 1), total: START_TOP_MIN - 1 } }, 4);
+    expect(few.rows).toEqual([]);
+  });
+
+  test('unknown top rated parts keep the cached rows', () => {
+    const cached: StartHome = { at: 1, rows: [{ id: 'topSeries', title: 'Top rated series', cells: [{ type: 'vod', tile: vod(7) }] }] };
+    expect(assembleStartHome({ liveNow: [], sports: [] }, 2, cached).rows.map((r) => r.id)).toEqual(['topSeries']);
+    expect(assembleStartHome({ liveNow: [], sports: [], topSeries: { items: [], total: 0 } }, 2, cached).rows).toEqual([]);
   });
 
   test('nothing at all: no rows', () => {

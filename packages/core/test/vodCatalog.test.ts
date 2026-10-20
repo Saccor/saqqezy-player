@@ -34,6 +34,14 @@ describe('VodCatalog', () => {
     expect(titles(c.slice(VOD_ALL, 'rating', 0, 10).rows)).toEqual(['Élan', 'Bravo', 'Charlie', 'alpha']);
   });
 
+  test('topRated: best rating first, unrated titles skipped, the rated count', () => {
+    expect(titles(c.topRated(10).rows)).toEqual(['Élan', 'Bravo', 'Charlie']);
+    expect(c.topRated(10).rated).toBe(3);
+    expect(c.topRated(2)).toEqual({ rows: [list.items[2], list.items[0]], rated: 3 });
+    expect(c.topRated(0).rows).toEqual([]);
+    expect(new VodCatalog('movie', { items: [it(1, 'A')], categories: [] }).topRated(5)).toEqual({ rows: [], rated: 0 });
+  });
+
   test('category slices, offsets and totals', () => {
     expect(c.slice('1', 'title', 1, 1)).toEqual({ total: 3, rows: [list.items[3]] });
     expect(c.slice('2', 'title', 0, 10).total).toBe(1);
@@ -119,6 +127,10 @@ describe('VodCatalog grouped', () => {
       ['s:m2', 'Synthetic Film', 400, 8], ['s:m4', 'Other Tale', 300, undefined], ['s:m3', 'Example Story', 200, undefined],
     ]);
     expect(rows[0]!.poster).toBe('p2.jpg');
+  });
+
+  test('topRated counts titles, not versions', () => {
+    expect(g.topRated(10)).toEqual({ rows: [g.slice(VOD_ALL, 'added', 0, 1).rows[0]], rated: 1 });
   });
 
   test('merged categories; a group is in each of its categories', () => {

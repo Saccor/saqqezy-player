@@ -208,7 +208,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       if (action === 'get_series') {
         return send(res, 200, JSON.stringify(srs.filter((s) => !catFilter || s.categoryId === catFilter).map((s) => ({
-          num: s.n, name: s.name, series_id: s.n, cover: `${base}/poster/s${s.n}.svg`, rating: '7.5',
+          num: s.n, name: s.name, series_id: s.n, cover: `${base}/poster/s${s.n}.svg`, rating: (6 + ((s.n * 3) % 35) / 10).toFixed(1),
           last_modified: String(Math.floor(now() / 1000) - s.n * 7200), category_id: s.categoryId, releaseDate: '2021-01-01',
         }))));
       }

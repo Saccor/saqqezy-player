@@ -291,11 +291,12 @@ export interface SportsEventTile {
   start: number; stop: number; channelCount: number; followed: boolean;
 }
 
-export type StartRowId = 'continue' | 'live' | 'sports' | 'newMovies' | 'newSeries';
+export type StartRowId = 'continue' | 'live' | 'sports' | 'newMovies' | 'newSeries' | 'topMovies' | 'topSeries';
 export type StartCell =
   | { type: 'vod'; tile: VodTile }
   | { type: 'channel'; channel: ChannelRow; last?: true }
   | { type: 'event'; event: SportsEventTile }
-  | { type: 'viewAll'; target: 'sports' | 'movie' | 'series'; total: number };
+  /** `order: 'rating'`: the whole kind best rated first (Top rated); otherwise that kind's Recently added. */
+  | { type: 'viewAll'; target: 'sports' | 'movie' | 'series'; total: number; order?: 'rating' };
 export interface StartRow { id: StartRowId; title: string; cells: StartCell[] }
 export interface StartHome { rows: StartRow[]; at: number }

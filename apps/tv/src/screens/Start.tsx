@@ -1,4 +1,5 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { VOD_ALL } from '@iptv/core';
 import { batch, createSignal, onCleanup, onMount } from 'solid-js';
 import { VOD_ROW_RECENT, type ChannelRow, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
@@ -110,6 +111,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     else if (c.type === 'channel') actions.tune(c.channel.id);
     else if (c.type === 'event') void actions.openEvent(c.event);
     else if (c.target === 'sports') router.push('startSports', {});
+    else if (c.order === 'rating') router.push('vodGrid', { kind: c.target, categoryId: VOD_ALL, sort: 'rating' });
     else router.push('vodGrid', { kind: c.target, categoryId: VOD_ROW_RECENT });
     return true;
   };
