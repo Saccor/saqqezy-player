@@ -25,7 +25,7 @@ import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
-  BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
@@ -168,13 +168,13 @@ export function App() {
       </Show>
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}
         defer={wordmarkDeferred()} />
-      {/* Badge and clock are App-level, so they draw above everything a screen draws: off while a screen's modal is open. */}
-      <Show when={offline() && !screenOverlayOpen(overlayIds())}><OfflineBadge /></Show>
+      {/* Badge and clock are App-level, so they draw above everything a screen draws: off over fullscreen video and while a screen's modal is open. */}
+      <Show when={offline() && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds())}><OfflineBadge /></Show>
       {/*
-        Hidden until settings are loaded, so a disabled clock never flashes. Not in the Player: its info banner has its
-        own clock (two clocks showed together).
+        Hidden until settings are loaded, so a disabled clock never flashes. Not over fullscreen video: the Player's info
+        banner has its own clock (two clocks showed together) and VodPlay's bar is the only chrome on the picture.
       */}
-      <Show when={settings()?.showClock === true && current()?.screen !== 'player' && !screenOverlayOpen(overlayIds())}><Clock /></Show>
+      <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds())}><Clock /></Show>
       <Toast />
       <Show when={exitOpen()}>
         <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />

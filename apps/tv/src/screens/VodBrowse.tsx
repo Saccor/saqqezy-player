@@ -3,6 +3,7 @@ import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, SeriesView, VodHome, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Button } from '../components/Button.tsx';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
@@ -10,9 +11,8 @@ import { PosterRow } from '../components/PosterRow.tsx';
 import { TAB_BAR_X, TAB_BAR_Y, TabBar } from '../components/TabBar.tsx';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { createDebounce } from '../playback/debounce.ts';
-import { playback } from '../playback/playback.ts';
-import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
-import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
+import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -40,6 +40,8 @@ const HERO_X = LAYOUT.safeX;
 const HERO_Y = 200;
 const HERO_W = 860;
 const ROW_LABEL_Y = 610;
+/** A row's title line: a long category name (fed by the source's own names) ends inside the safe area. */
+const ROW_TITLE_W = LAYOUT.width - LAYOUT.safeX * 2;
 const NEXT_LABEL_Y = ROW_LABEL_Y + 44 + POSTER_H + 36;
 const HERO_SETTLE_MS = 400;
 const ART_X = 640;
@@ -60,8 +62,8 @@ const memories = new Map<string, BrowseMemory>();
 const memoryFor = (key: string): BrowseMemory => lruGet(memories, key, () => ({ focus: { row: 0, col: 0 }, cols: new Map() }), MEMORY_MAX);
 
 const DETAILS_ACTION = { id: 'details', label: 'Details', width: 200 };
-const FAV_ADD_ACTION = { id: 'fav', label: 'Add to favourites', width: 300 };
-const FAV_ON_ACTION = { id: 'fav', label: 'In favourites', width: 300 };
+const FAV_ADD_ACTION = { id: 'fav', label: FAV_COPY.add, width: 300 };
+const FAV_ON_ACTION = { id: 'fav', label: FAV_COPY.in, width: 300 };
 
 /**
  * Movies or Series browse (`params.kind`): the tab bar, a hero for the focused title, and poster rows (Continue watching,
@@ -142,7 +144,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** After a load: put focus back on what the user chose, only when this load may have unmounted the focused view. */
   const restoreFocus = (before: { status: string | undefined; hasRows: boolean; hasTile: boolean }) => {
     queueMicrotask(() => {
-      if (!alive || router.topOverlay() !== undefined || menu.isOpen()) return;
+      if (!alive || screenOverlayOpen() || menu.isOpen()) return;
       const changed = before.status !== status() || before.hasRows !== (rows().length > 0) || before.hasTile !== !!focusedTile();
       if (!changed) return;
       restoring = true;
@@ -254,7 +256,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
   const launcher = createVodLauncher({
     alive: () => alive,
-    topOverlay: () => router.topOverlay(),
+    overlayOpen: screenOverlayOpen,
     getPlayable: (id, seriesId) => api.getVodPlayable(id, seriesId),
     push: (playable, fromStart) => router.push('vodPlay', { playable, fromStart }),
     toast: showToast,
@@ -309,7 +311,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
           if (alive && v && focusedTile()?.id === t.id) setHero(v);
           return v;
         },
-        still: () => alive && focusedTile()?.id === t.id && router.topOverlay() === undefined && !menu.isOpen(),
+        still: () => alive && focusedTile()?.id === t.id && !screenOverlayOpen() && !menu.isOpen(),
         launcher,
         // No episodes (or the load failed): the detail opens instead.
         noPrimary: () => router.push(copy.detailRoute, { id: t.id, tile: t }),
@@ -320,7 +322,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   };
   const onHeroAction = (id: string) => {
     const t = focusedTile();
-    if (!t || router.topOverlay() !== undefined || menu.isOpen()) return;
+    if (!t || screenOverlayOpen() || menu.isOpen()) return;
     if (id === 'play') {
       if (kind !== 'series') { void launcher.play(t.id); return; }
       // A series plays its primary episode, loading the view first when the press comes before it.
@@ -359,10 +361,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   // ---- lifecycle ----
 
   onMount(() => {
-    // The live stream stops here: Movies and Series are full screens, and a 1 GB TV needs the decoder and memory.
-    // A live channel that plays (or loads or reconnects) is remembered first: Home resumes it on the way back to Live TV.
-    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
-    playback.stop();
+    // The live stream stops here (a full screen); a live channel that plays is remembered so Home resumes it on the way back.
+    parkLiveForScreen('stop');
     const sameSource = (e: unknown) => {
       const ev = e as { sourceId?: string; kind?: string };
       return ev.sourceId === sourceId() && ev.kind === kind;
@@ -516,7 +516,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
             const y = () => (i === focus().row ? ROW_LABEL_Y : NEXT_LABEL_Y);
             return (
               <View y={y()}>
-                <Text x={LAYOUT.safeX} y={0} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
+                <Text x={LAYOUT.safeX} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{r().title}</Text>
                 <PosterRow x={LAYOUT.safeX} y={44} width={LAYOUT.width - LAYOUT.safeX} row={r()}
                   focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                   onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}

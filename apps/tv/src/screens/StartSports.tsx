@@ -3,8 +3,11 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { SportsEventTile } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { WIDE_GAP, WIDE_H, WIDE_W, WideTile } from '../components/WideTile.tsx';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
+import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { createStartActions } from './startActions.tsx';
 import { gridMove } from './startLogic.ts';
 
@@ -33,21 +36,23 @@ export function StartSportsScreen() {
   const firstRow = () => Math.max(0, Math.floor(index() / COLS) - VISIBLE_ROWS + 1);
   const shown = () => events().slice(firstRow() * COLS, (firstRow() + VISIBLE_ROWS) * COLS);
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
-    if (router.topOverlay() !== undefined) return true;
+    if (screenOverlayOpen()) return true;
     const n = gridMove(events().length, COLS, index(), key);
     if (n !== 'top') setIndex(n);
     return true;
   };
   const open = () => {
     const e = events()[index()];
-    if (e && router.topOverlay() === undefined) void actions.openEvent(e);
+    if (e && !screenOverlayOpen()) void actions.openEvent(e);
     return true;
   };
   onMount(() => {
+    // A full screen like Start: Back from a Player opened here must not leave the stream playing fullscreen behind it.
+    parkLiveForScreen('stop');
     void load();
     const off = onEvent('refreshed', () => void load());
-    const tick = setInterval(() => setNow(Date.now()), 60_000);
-    onCleanup(() => { off(); clearInterval(tick); });
+    const stopTick = visibleInterval(() => setNow(Date.now()), 60_000);
+    onCleanup(() => { off(); stopTick(); });
     queueMicrotask(() => node?.setFocus());
   });
   onCleanup(() => { alive = false; actions.close(); });

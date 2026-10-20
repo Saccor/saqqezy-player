@@ -2,7 +2,7 @@ import { Show, Text, View } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { formatRange, progressOf } from '../screens/homeLogic.ts';
+import { formatRange, nextLine, NO_GUIDE_INFO, nowLine, progressOf } from '../screens/homeLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
@@ -74,11 +74,11 @@ export function InfoBanner(props: {
         </View>
       )}</Show>
       <Show when={c().now} keyed fallback={
-        <Text x={TEXT_X} y={PAD + 76} fontSize={FONT.body} color={COLORS.muted}>{'No guide information'}</Text>
+        <Text x={TEXT_X} y={PAD + 76} fontSize={FONT.body} color={COLORS.muted}>{NO_GUIDE_INFO}</Text>
       }>{(n) => (
         <View x={TEXT_X} y={PAD + 76} width={TEXT_W} height={70}>
           <Text width={TEXT_W - BAR_W - LAYOUT.gap} maxWidth={TEXT_W - BAR_W - LAYOUT.gap} contain="width" maxLines={1}
-            fontSize={FONT.body} color={COLORS.text}>{`Now · ${n.title}`}</Text>
+            fontSize={FONT.body} color={COLORS.text}>{nowLine(n)}</Text>
           <Text y={38} fontSize={FONT.small} color={COLORS.muted}>{formatRange(n.start, n.stop)}</Text>
           <View x={TEXT_W - BAR_W} y={12} width={BAR_W} height={8} color={TRACK} borderRadius={4}>
             <View width={Math.round(BAR_W * progressOf(n, props.now))} height={8} color={COLORS.focus} borderRadius={4} />
@@ -87,7 +87,7 @@ export function InfoBanner(props: {
       )}</Show>
       <Show when={c().next} keyed>{(n) => (
         <Text x={TEXT_X} y={PAD + 160} width={TEXT_W} maxWidth={TEXT_W} contain="width" maxLines={1}
-          fontSize={FONT.body} color={COLORS.muted}>{`Next · ${formatRange(n.start, n.stop)} · ${n.title}`}</Text>
+          fontSize={FONT.body} color={COLORS.muted}>{nextLine(n)}</Text>
       )}</Show>
     </View>
   );

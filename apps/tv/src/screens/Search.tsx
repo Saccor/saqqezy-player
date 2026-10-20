@@ -7,9 +7,11 @@ import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
 import { SearchResultList } from '../components/SearchResultList.tsx';
 import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
 import { devResume } from '../playback/devResume.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
+import { HINT_Y } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
@@ -33,7 +35,6 @@ const COUNT_Y = KB_Y - 42;
 const COUNT_X = WORDMARK_RIGHT;
 const COUNT_W = LIST_X + LIST_W - COUNT_X;
 const LIST_H = LIST_ROWS * ROW_H;
-const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
 const memory = createSearchMemory();
@@ -133,9 +134,8 @@ export function SearchScreen() {
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
     onCleanup(onEvent('searchReady', rerun));
     onCleanup(onEvent('refreshed', rerun));
-    // Back from the Player leaves the video fullscreen behind this opaque screen; park it where Home shows it, so
-    // the shell's wordmark (hidden while the video is fullscreen) returns and Home needs no visible move.
-    if (playback.rectIsFullscreen()) playback.setRect(PREVIEW_RECT);
+    // Back from the Player leaves the video fullscreen behind this opaque screen: park it where Home shows it.
+    parkLiveForScreen({ preview: PREVIEW_RECT });
     kbNode?.setFocus();
     if (memory.query !== '') searcher.setQuery(memory.query);
     else memory.returning = false;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  formatRange, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
+  formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, panelChannel, pickGroup, playingInfoStale, previewMessage, progressOf, resolveFocus, restoreIndex,
   resumeTarget, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
@@ -163,5 +163,24 @@ describe('vodReturnTarget', () => {
     expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true })).toBe('ch-7');
     expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, held: true })).toBeUndefined();
     expect(vodReturnTarget({ ...base, fromVod: false, fromSearch: true, gatePaused: true })).toBeUndefined();
+  });
+});
+
+describe('nowNextLine (the Player banner and Start say the same thing)', () => {
+  const start = Date.UTC(2026, 0, 10, 18, 0);
+  const now = { title: 'Evening news', start, stop: start + 30 * 60_000 };
+  const next = { title: 'Weather', start: start + 30 * 60_000, stop: start + 45 * 60_000 };
+  const range = formatRange(next.start, next.stop);
+
+  it('reads Now · title, then Next with its time range', () => {
+    expect(nowLine(now)).toBe('Now · Evening news');
+    expect(nextLine(next)).toBe(`Next · ${range} · Weather`);
+    expect(nowNextLine({ now, next })).toBe(`Now · Evening news · Next · ${range} · Weather`);
+  });
+
+  it('with no next: the now line alone; with nothing on now: the no-guide text', () => {
+    expect(nowNextLine({ now })).toBe('Now · Evening news');
+    expect(nowNextLine({})).toBe(NO_GUIDE_INFO);
+    expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
   });
 });

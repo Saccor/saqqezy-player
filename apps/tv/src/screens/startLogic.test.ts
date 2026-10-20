@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
-import { cellId, channelsLabel, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
+import { cellId, channelMenuItems, channelsLabel, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, toPosterRow } from './startLogic.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
 const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
@@ -66,5 +66,12 @@ describe('focusAfterLoad', () => {
     expect(focusAfterLoad({ hadRows: false }, { hasRows: true }, 'rows', true)).toBeUndefined();
     expect(focusAfterLoad({ hadRows: true }, { hasRows: true }, 'rows', false)).toBeUndefined();
     expect(focusAfterLoad({ hadRows: false }, { hasRows: false }, 'rows', false)).toBeUndefined();
+  });
+});
+
+describe('channelMenuItems', () => {
+  test('a long press offers the favourite change behind a menu, with Cancel last', () => {
+    expect(channelMenuItems(false)).toEqual([{ id: 'fav', label: 'Add to favourites' }, { id: 'cancel', label: 'Cancel' }]);
+    expect(channelMenuItems(true)).toEqual([{ id: 'fav', label: 'Remove from favourites' }, { id: 'cancel', label: 'Cancel' }]);
   });
 });

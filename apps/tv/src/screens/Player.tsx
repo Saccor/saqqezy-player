@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
@@ -17,8 +18,8 @@ import { channelHistory } from '../playback/channelHistory.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
-import { playback, player, previewHold, supervisor } from '../playback/playback.ts';
-import { createSleepTimer, nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
+import { playback, player, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
+import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
@@ -33,7 +34,7 @@ import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
-  playerStatusText, sleepLabel, wheelZapAllowed,
+  playerLeave, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -210,17 +211,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
 
   // ---- sleep timer ----
 
-  const sleepTimer = createSleepTimer({
-    onChange: (s) => {
-      const wasAsking = sleep().kind === 'asking';
-      setSleep(s);
-      if (s.kind === 'asking') {
-        if (!wasAsking) openOverlay(SLEEP_ID, keepWatching);
-      } else removeOverlay(SLEEP_ID);
-      if (s.kind === 'off') setSleepMinutes(0);
-    },
-    onExpire: () => { if (alive) sleepStop(); },
-  });
+  // The timer itself is the app's (`playback.sleepTimer`): this screen attaches to it on mount and mirrors its state.
+  const onSleepChange = (s: SleepState) => {
+    const wasAsking = sleep().kind === 'asking';
+    setSleep(s);
+    if (s.kind === 'asking') {
+      if (!wasAsking) openOverlay(SLEEP_ID, keepWatching);
+    } else removeOverlay(SLEEP_ID);
+    if (s.kind === 'off') setSleepMinutes(0);
+    else if (s.kind === 'armed') setSleepMinutes(Math.round(s.minutes / SLEEP_SCALE));
+  };
 
   /** "Keep watching" (button or Back): focus returns to the options menu when it is open, else to the root. */
   function keepWatching() {
@@ -229,18 +229,18 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     else focusRoot();
   }
 
-  /** Closes this screen's layers, then pops it (back to Home, which focuses `lastChannelId`). */
+  /** Closes this screen's layers, then pops it. Home below focuses `lastChannelId`; Start, Search or the Guide get no param. */
   const leave = (lastChannelId?: string) => {
     for (const id of [...removers.keys()]) removeOverlay(id);
     while (router.topOverlay() !== undefined) router.back();
-    router.back(lastChannelId !== undefined ? { focusChannelId: lastChannelId } : undefined);
+    router.back(playerLeave(router.below()?.screen, lastChannelId).params);
   };
 
-  /** The sleep timer ran out (or "Stop"): stop playback and return to Home on the last watched channel. */
+  /** The sleep timer ran out (or "Stop"): stop playback and return to the screen below (Home: on the last watched channel, held). */
   function sleepStop() {
     const last = playback.current()?.id ?? shown()?.id;
     playback.stop();
-    previewHold.set();
+    if (playerLeave(router.below()?.screen, last).holdPreview) previewHold.set();
     leave(last);
   }
 
@@ -302,7 +302,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
-      { id: 'favourite', label: shown()?.favourite ? 'Remove from favourites' : 'Add to favourites' },
+      { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
     ];
   });
 
@@ -343,8 +343,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       api.toggleFavourite(ch.id).then((on) => {
         if (!alive) return;
         if (shown()?.id === ch.id) setShown({ ...ch, favourite: on });
-        showToast(on ? 'Added to favourites' : 'Removed from favourites');
-      }).catch(() => showToast("Couldn't change this channel."));
+        showToast(favChangedToast(on));
+      }).catch(() => showToast(FAV_COPY.failed));
     }
   };
 
@@ -437,12 +437,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     playback.setRect('fullscreen');
     player.setAspect(sessionAspect);
     showBanner();
-    // Default sleep timer (Settings > Playback): armed for each fullscreen session.
+    // The shared timer: an armed one (from a Player before the Guide or Home) shows its minutes, an open question
+    // reopens its dialog. Else the default (Settings > Playback) is armed for this fullscreen session.
+    const detachSleep = sleepTimer.attach({ onChange: onSleepChange, onExpire: () => { if (alive) sleepStop(); } });
+    onCleanup(detachSleep);
     const defaultSleep = settings()?.sleepTimerMinutes ?? 0;
-    if (defaultSleep > 0) {
-      setSleepMinutes(defaultSleep);
-      sleepTimer.set(defaultSleep * SLEEP_SCALE);
-    }
+    if (defaultSleep > 0 && sleepTimer.state().kind === 'off') sleepTimer.set(defaultSleep * SLEEP_SCALE);
     // The previous screen's focused node is gone: take focus so the keys reach this screen.
     root?.setFocus();
     // The ticks sleep while the page is hidden (visibleInterval).
@@ -475,7 +475,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     alive = false;
     zapper.cancel();
     numbers.clear();
-    sleepTimer.dispose();
     if (bannerTimer !== undefined) clearTimeout(bannerTimer);
     if (flashTimer !== undefined) clearTimeout(flashTimer);
     for (const id of [...removers.keys()]) removeOverlay(id);

@@ -1,5 +1,6 @@
 /** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
 import type { SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
+import { favToggleLabel } from '../copy.ts';
 import { formatClock } from '../shell/logic.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 
@@ -62,6 +63,14 @@ export function focusAfterLoad(prev: { hadRows: boolean }, next: { hasRows: bool
 }
 
 export const channelsLabel = (n: number) => (n === 1 ? '1 channel' : `${n} channels`);
+
+/**
+ * Long Ok / Menu on a channel cell: the same choice Home's channel menu leads with (favourite on or off), behind a
+ * menu rather than at once, so a long press never flips a favourite by surprise. Cancel is last, like Home's.
+ */
+export function channelMenuItems(favourite: boolean): { id: 'fav' | 'cancel'; label: string }[] {
+  return [{ id: 'fav', label: favToggleLabel(favourite) }, { id: 'cancel', label: 'Cancel' }];
+}
 export const emptyStartText = () => 'Your start page fills up as you watch.';
 
 export function toPosterRow(r: StartRow): RowModel {

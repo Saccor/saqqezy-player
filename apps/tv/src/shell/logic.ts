@@ -2,7 +2,7 @@
 
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { messageLines, type MessageBox } from '../components/messageFit.ts';
-import type { ScreenId } from './router.ts';
+import { router, type ScreenId } from './router.ts';
 import { LAYOUT } from './theme.ts';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -55,14 +55,20 @@ export function toastOnExpiry(s: ToastState): ToastState {
 /** Router overlay ids owned by the shell itself (not by a screen). */
 export const TOAST_OVERLAY_ID = 'toast';
 export const EXIT_OVERLAY_ID = 'exitConfirm';
-const SHELL_OVERLAYS: ReadonlySet<string> = new Set([TOAST_OVERLAY_ID, EXIT_OVERLAY_ID]);
 
 /**
- * True while a screen's own overlay (keyboard, menu, picker, dialog) is on the router's overlay stack. The shell's
- * toast and exit question do not count: they never sit under the wordmark.
+ * True while an overlay other than the shell's toast is on the router's overlay stack (defaults to the app router's):
+ * a screen's keyboard, menu, picker or dialog, or the shell's exit question. A screen gates its keys and its focus
+ * moves on this, and the shell hides its chrome (wordmark, clock, offline badge) on it. The toast is a Back layer
+ * only: it has no focus and covers nothing, so it never counts (it would swallow Ok and the arrows for 4 s).
  */
-export function screenOverlayOpen(overlayIds: readonly string[]): boolean {
-  return overlayIds.some((id) => !SHELL_OVERLAYS.has(id));
+export function screenOverlayOpen(overlayIds: readonly string[] = router.overlays()): boolean {
+  return overlayIds.some((id) => id !== TOAST_OVERLAY_ID);
+}
+
+/** The routes that show fullscreen video: the shell's clock and offline badge stay off them. */
+export function fullscreenVideoRoute(route: ScreenId | undefined): boolean {
+  return route === 'player' || route === 'vodPlay';
 }
 
 /**
@@ -103,6 +109,8 @@ export const SHELL_BACK_W = 200;
  */
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
+/** The hint line every browsing screen draws at the bottom (small text, inside the pointer-mode button row). */
+export const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
 /**
  * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the

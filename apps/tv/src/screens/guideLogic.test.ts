@@ -2,8 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   HALF_HOUR, HOUR, NO_INFO, dayLabel, relativeLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
-  timeToX, xToTime, GUIDE_POINTER_LABELS, guideClick, pageTime, type Block,
+  timeToX, xToTime, GUIDE_POINTER_LABELS, guideClick, guidePlayAction, pageTime, type Block,
 } from './guideLogic.ts';
+
+describe('guidePlayAction', () => {
+  it('goes back to a Player below instead of stacking a second one', () => {
+    expect(guidePlayAction('player')).toBe('back');
+  });
+
+  it('pushes the Player from any other screen (Home, Start, Search) or the root', () => {
+    expect(guidePlayAction('home')).toBe('push');
+    expect(guidePlayAction('start')).toBe('push');
+    expect(guidePlayAction('search')).toBe('push');
+    expect(guidePlayAction(undefined)).toBe('push');
+  });
+});
 
 const T0 = Date.UTC(2026, 0, 10, 12, 0); // a half-hour boundary
 const at = (h: number) => T0 + h * HOUR;

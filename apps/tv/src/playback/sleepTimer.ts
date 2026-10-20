@@ -86,3 +86,42 @@ export function createSleepTimer(opts: {
     },
   };
 }
+
+/** What a Player attaches to the shared timer: its state changes and the expiry it answers with a stop. */
+export interface SleepListener { onChange(s: SleepState): void; onExpire(): void }
+
+export interface SharedSleepTimer extends Omit<SleepTimer, 'dispose'> {
+  /**
+   * The Player on screen: it sees every change from now on, and the current state at once when the timer is not
+   * off (an armed timer shows its minutes; an open question reopens its dialog). Returns the detach; a later attach
+   * replaces an earlier one.
+   */
+  attach(l: SleepListener): () => void;
+}
+
+/**
+ * One sleep timer for the app (like `channelHistory`): it survives Player remounts, so a trip to the Guide or Home
+ * no longer resets it. Only one Player is ever attached. An expiry with no Player attached (the user left for Home
+ * or Start and the question had nobody to answer it) runs `onExpireUnattended`: the app's instance stops playback.
+ */
+export function createSharedSleepTimer(opts: { onExpireUnattended?(): void; askSeconds?: number; now?: () => number } = {}): SharedSleepTimer {
+  let listener: SleepListener | undefined;
+  const inner = createSleepTimer({
+    onChange: (s) => listener?.onChange(s),
+    onExpire: () => (listener ? listener.onExpire() : opts.onExpireUnattended?.()),
+    ...(opts.askSeconds !== undefined ? { askSeconds: opts.askSeconds } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  });
+  return {
+    set: (minutes) => inner.set(minutes),
+    stillWatching: () => inner.stillWatching(),
+    state: () => inner.state(),
+    minutesLeft: () => inner.minutesLeft(),
+    attach(l) {
+      listener = l;
+      const s = inner.state();
+      if (s.kind !== 'off') l.onChange(s);
+      return () => { if (listener === l) listener = undefined; };
+    },
+  };
+}

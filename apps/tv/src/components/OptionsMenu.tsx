@@ -81,7 +81,7 @@ export function OptionsMenu(props: {
       onEnter={() => { const it = props.items[sel()]; if (it) props.onChoose(it.id); return true; }}>
       {/* The click-outside area: the whole screen. No colour: it draws nothing. */}
       <View ref={(el) => { backdrop = el; }} x={-X} y={-Y} width={LAYOUT.width} height={LAYOUT.height} />
-      <Text x={PAD} y={PAD} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
+      <Text x={PAD} y={PAD} width={W - PAD * 2} maxWidth={W - PAD * 2} contain="width" maxLines={1} fontSize={FONT.heading} color={COLORS.text}>{props.title}</Text>
       <For each={shown()}>{(it, v) => {
         const i = () => v() + top();
         const labelW = () => (it.value ? LABEL_W_WITH_VALUE : W - PAD * 2 - 48);

@@ -1,7 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createSignal, onCleanup, onMount } from 'solid-js';
-import { VOD_ROW_RECENT, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
+import { VOD_ROW_RECENT, type ChannelRow, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
+import { FAV_COPY, favChangedToast } from '../copy.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
@@ -9,19 +10,20 @@ import { TabBar } from '../components/TabBar.tsx';
 import { WIDE_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { playback } from '../playback/playback.ts';
-import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
+import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
+import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
-import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
+import { nowNextLine } from './homeLogic.ts';
 import { tabNavigation, tabParams, type TabId } from '../vod/tabLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
+  cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
 const HERO_X = LAYOUT.safeX;
@@ -54,7 +56,6 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   let wheelNode: ElementNode | undefined;
   let alive = true;
   let gen = 0;
-  let lastLoad = 0;
   /** What the user chose; `area` may sit on a fallback (tabs while there are no rows). Only user moves change it. */
   let preferredArea: 'tabs' | 'rows' = startOnTabs ? 'tabs' : 'rows';
 
@@ -83,14 +84,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       setFocus(locateStart(h.rows, memory.focus));
     });
     if (h.rows.length === 0 && area() === 'rows') focusArea('tabs', false);
-    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, router.topOverlay() !== undefined) === 'rows') {
+    else if (focusAfterLoad({ hadRows }, { hasRows: h.rows.length > 0 }, preferredArea, screenOverlayOpen()) === 'rows') {
       // The rows node mounts with the rows; focus it once it exists.
-      queueMicrotask(() => { if (alive && router.topOverlay() === undefined) focusArea('rows', false); });
+      queueMicrotask(() => { if (alive && !screenOverlayOpen()) focusArea('rows', false); });
     }
   };
   const load = async () => {
     const g = ++gen;
-    lastLoad = Date.now();
     try {
       const h = await api.getStartHome();
       if (alive && g === gen) apply(h);
@@ -105,7 +105,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const openCell = () => {
     const c = focusedCell();
-    if (!c || router.topOverlay() !== undefined) return true;
+    if (!c || screenOverlayOpen()) return true;
     if (c.type === 'vod') router.push(c.tile.kind === 'series' ? 'seriesDetail' : 'movieDetail', { id: c.tile.id, tile: c.tile });
     else if (c.type === 'channel') actions.tune(c.channel.id);
     else if (c.type === 'event') void actions.openEvent(c.event);
@@ -123,14 +123,25 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     await saveSetting({ followedTeams: next });
     void load();
   };
-  /** Long Ok / Menu: favourite a channel; follow or unfollow a side of an event. */
+  /** The channel menu Home shows on a long press: favourite on or off behind a choice, never at once. */
+  const channelMenu = async (ch: ChannelRow) => {
+    const choice = await menu.choose(ch.name, channelMenuItems(ch.favourite));
+    if (!alive || choice !== 'fav') return;
+    try {
+      const on = await api.toggleFavourite(ch.id);
+      if (!alive) return;
+      showToast(favChangedToast(on));
+      void load();
+    } catch {
+      if (alive) showToast(FAV_COPY.failed);
+    }
+  };
+  /** Long Ok / Menu: the channel menu; follow or unfollow a side of an event. */
   const openMenu = () => {
     const c = focusedCell();
-    if (router.topOverlay() !== undefined) return true;
+    if (screenOverlayOpen()) return true;
     if (c?.type === 'channel') {
-      void api.toggleFavourite(c.channel.id)
-        .then((on) => { showToast(on ? 'Added to favourites' : 'Removed from favourites'); void load(); })
-        .catch(() => showToast("Couldn't change favourites."));
+      void channelMenu(c.channel);
     } else if (c?.type === 'event' && c.event.sides) {
       void followMenu(c.event.sides);
     }
@@ -162,8 +173,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   onMount(() => {
     // Like Movies and Series: a full screen over Home; Back to Live TV resumes the channel that was playing.
-    liveReturn.remember(liveToRemember(playback.current()?.id, playback.status()?.kind), initState()?.activeSourceId);
-    playback.stop();
+    parkLiveForScreen('stop');
     void api.getStartHomeCached().then((h) => { if (alive && !home()) apply(h); }).catch(() => undefined);
     void load();
     const offs = [
@@ -172,11 +182,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       onEvent('vodRefreshed', () => void load()),
       onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; memory.cols.clear(); void load(); }),
     ];
-    const tick = setInterval(() => {
-      setNow(Date.now());
-      if (Date.now() - lastLoad > REVALIDATE_MS) void load();
-    }, 60_000);
-    onCleanup(() => { for (const off of offs) off(); clearInterval(tick); });
+    // Stale-while-revalidate: re-read the rows every 30 s while the page is visible (and once when it becomes visible
+    // again), so Live now and Sports move on with the guide; the hero's times follow `now`.
+    const stopTick = visibleInterval(() => { setNow(Date.now()); void load(); }, REVALIDATE_MS);
+    onCleanup(() => { for (const off of offs) off(); stopTick(); });
     queueMicrotask(() => focusArea(startOnTabs ? 'tabs' : 'rows', false));
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
@@ -191,7 +200,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   const heroLine = () => {
     const c = focusedCell();
-    if (c?.type === 'channel') return c.channel.now ? `Now: ${c.channel.now.title}${c.channel.next ? ` · Next: ${c.channel.next.title}` : ''}` : 'No guide information';
+    if (c?.type === 'channel') return nowNextLine(c.channel);
     if (c?.type === 'event') return [eventWhen(c.event, now()), channelsLabel(c.event.channelCount), c.event.subTitle].filter(Boolean).join(' · ');
     if (c?.type === 'vod') return c.tile.year ? String(c.tile.year) : '';
     return '';

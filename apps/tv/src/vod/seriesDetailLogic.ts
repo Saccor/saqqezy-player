@@ -1,5 +1,6 @@
 import type { EpisodeView, SeasonView, SeriesPrimary, SeriesView } from '@iptv/app-api';
 import { episodeLabel } from '@iptv/core';
+import { FAV_COPY } from '../copy.ts';
 import { seriesMetaLine } from './heroLogic.ts';
 import { formatRuntime } from './posterLogic.ts';
 
@@ -142,7 +143,7 @@ export function tabSelAfterReload(area: SeriesArea, tabSel: number, placedSeason
 
 /** The action buttons: the primary episode (hidden once loaded without one) and Favourite. */
 export function seriesActions(p: { loaded: boolean; primary?: SeriesPrimary; favourite: boolean }): { id: string; label: string; width: number }[] {
-  const fav = { id: 'fav', label: p.favourite ? 'In favourites' : 'Add to favourites', width: 320 };
+  const fav = { id: 'fav', label: p.favourite ? FAV_COPY.in : FAV_COPY.add, width: 320 };
   if (p.loaded && !p.primary) return [fav];
   return [{ id: 'play', label: primaryLabel(p.primary), width: p.primary ? 360 : 220 }, fav];
 }

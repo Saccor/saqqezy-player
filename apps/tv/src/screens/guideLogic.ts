@@ -6,6 +6,8 @@
  * Left/Right (`stepLeft` / `stepRight`) move the anchor to the neighbouring block and scroll the view when needed.
  */
 
+import type { ScreenId } from '../shell/router.ts';
+
 export const MINUTE = 60_000;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
@@ -19,6 +21,15 @@ export const WINDOW_AHEAD = 48 * HOUR;
 /** Rows are fetched for the visible 3 h plus this much either side. */
 export const PREFETCH = 3 * HOUR;
 export const NO_INFO = 'No information';
+
+/**
+ * Where a channel chosen in the guide plays. Opened from the Player (`▦ Guide`), the guide goes back to it with the new
+ * channel id instead of pushing a second Player (each Player → Guide → Player cycle grew the stack by two). From
+ * anywhere else it pushes one.
+ */
+export function guidePlayAction(below: ScreenId | undefined): 'back' | 'push' {
+  return below === 'player' ? 'back' : 'push';
+}
 
 export interface TimeRange { start: number; end: number }
 export interface ProgrammeLike { title: string; start: number; stop: number; desc?: string }

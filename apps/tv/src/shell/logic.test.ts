@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
+  createTapSequence, deferWordmark, EXIT_OVERLAY_ID, formatClock, fullscreenVideoRoute, HINT_Y, msToNextMinute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
   BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastLayout, toastOnShow,
 } from './logic.ts';
+import { router } from './router.ts';
 
 describe('toastLayout', () => {
   it('sits above the bottom hint / button row, never on it', () => {
@@ -161,12 +162,43 @@ describe('showWordmark', () => {
 });
 
 describe('screenOverlayOpen', () => {
-  it("counts the screens' own overlays from the router stack, not the shell's toast or exit question", () => {
+  it("counts every overlay but the shell's toast (a Back layer with no focus)", () => {
     expect(screenOverlayOpen([])).toBe(false);
     expect(screenOverlayOpen([TOAST_OVERLAY_ID])).toBe(false);
-    expect(screenOverlayOpen([EXIT_OVERLAY_ID, TOAST_OVERLAY_ID])).toBe(false);
     expect(screenOverlayOpen(['keyboard'])).toBe(true);
     expect(screenOverlayOpen([TOAST_OVERLAY_ID, 'menu'])).toBe(true);
+    expect(screenOverlayOpen(['menu', TOAST_OVERLAY_ID])).toBe(true);
+  });
+
+  it('the exit question is a dialog with focus: it counts', () => {
+    expect(screenOverlayOpen([EXIT_OVERLAY_ID])).toBe(true);
+    expect(screenOverlayOpen([EXIT_OVERLAY_ID, TOAST_OVERLAY_ID])).toBe(true);
+  });
+
+  it('reads the app router when no ids are given', () => {
+    expect(screenOverlayOpen()).toBe(false);
+    const remove = router.pushOverlay(TOAST_OVERLAY_ID, () => undefined);
+    expect(screenOverlayOpen()).toBe(false);
+    const removeMenu = router.pushOverlay('menu', () => undefined);
+    expect(screenOverlayOpen()).toBe(true);
+    removeMenu();
+    remove();
+    expect(screenOverlayOpen()).toBe(false);
+  });
+});
+
+describe('fullscreenVideoRoute', () => {
+  it('is the Player and VodPlay only', () => {
+    expect(fullscreenVideoRoute('player')).toBe(true);
+    expect(fullscreenVideoRoute('vodPlay')).toBe(true);
+    for (const r of ['home', 'guide', 'start', 'vod', 'search', undefined] as const) expect(fullscreenVideoRoute(r)).toBe(false);
+  });
+});
+
+describe('HINT_Y', () => {
+  it('is one hint line for every screen, inside the pointer-mode bottom row', () => {
+    expect(HINT_Y).toBeGreaterThan(BOTTOM_ROW_Y);
+    expect(HINT_Y).toBeLessThan(BOTTOM_ROW_Y + BOTTOM_ROW_H);
   });
 });
 

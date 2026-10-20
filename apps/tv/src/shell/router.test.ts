@@ -10,6 +10,18 @@ describe('router screen stack', () => {
     expect(r.depth()).toBe(1);
   });
 
+  it('below is the screen a pop reveals, undefined on the root', () => {
+    const r = createRouter();
+    expect(r.below()).toBeUndefined();
+    r.reset('home');
+    expect(r.below()).toBeUndefined();
+    r.push('player', { channelId: 'c1' });
+    r.push('guide');
+    expect(r.below()).toEqual({ screen: 'player', params: { channelId: 'c1' } });
+    r.back();
+    expect(r.below()?.screen).toBe('home');
+  });
+
   it('push, replace and back move through the stack', () => {
     const r = createRouter();
     r.reset('home');
