@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
-import { VodService } from '../src/service/vodService.ts';
+import { VOD_PICKS_MAX, VodService } from '../src/service/vodService.ts';
 import { VodFetchCancelled } from '../src/vod/fetchXtream.ts';
 import { SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
 import { RefusalGuard } from '../src/net/refusalGuard.ts';
@@ -356,12 +356,20 @@ describe('VodService versions', () => {
     await svc.setVodPick('x', 'movie', 'y:b|2021', 'x:m2');
     await svc.setVodPick('x', 'movie', 'y:a|2021', 'x:m3');
     expect(await svc.getVodPicks('x', 'movie')).toEqual({ 'y:b|2021': 'x:m2', 'y:a|2021': 'x:m3' });
-    for (let i = 0; i < 2001; i++) await svc.setVodPick('x', 'series', `k${i}`, `x:s${i}`);
+    // A full map (VOD_PICKS_MAX picks, oldest first) written once, then picks through the service: the cap drops the
+    // oldest, and a re-pick moves a title to the newest end.
+    const full: Record<string, string> = {};
+    for (let i = 0; i < VOD_PICKS_MAX; i++) full[`k${i}`] = `x:s${i}`;
+    await storage.setMeta('vodPick:series:x', full);
+    await svc.setVodPick('x', 'series', 'k0', 'x:s0b'); // re-pick: k0 becomes the newest
+    await svc.setVodPick('x', 'series', `k${VOD_PICKS_MAX}`, `x:s${VOD_PICKS_MAX}`);
     const picks = await svc.getVodPicks('x', 'series');
-    expect(Object.keys(picks)).toHaveLength(2000);
-    expect(picks.k0).toBeUndefined();
-    expect(picks.k2000).toBe('x:s2000');
-  }, 30_000); // 2001 sequential writes: the default 5 s is too tight when the whole suite runs in parallel.
+    expect(Object.keys(picks)).toHaveLength(VOD_PICKS_MAX);
+    expect(picks.k1).toBeUndefined(); // the oldest went
+    expect(picks.k0).toBe('x:s0b');
+    expect(picks[`k${VOD_PICKS_MAX}`]).toBe(`x:s${VOD_PICKS_MAX}`);
+    expect(Object.keys(picks).slice(-2)).toEqual(['k0', `k${VOD_PICKS_MAX}`]);
+  });
 
   test('junk in storage reads as empty', async () => {
     await storage.setMeta('vodSplit:movie:x', 'junk');
