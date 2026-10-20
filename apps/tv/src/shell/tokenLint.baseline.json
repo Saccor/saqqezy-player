@@ -4,11 +4,6 @@
     "fontSize": 0,
     "scale": 0
   },
-  "components/EpgGrid.tsx": {
-    "colour": 4,
-    "fontSize": 0,
-    "scale": 0
-  },
   "components/GroupList.tsx": {
     "colour": 1,
     "fontSize": 0,

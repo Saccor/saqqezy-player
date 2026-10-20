@@ -11,15 +11,15 @@ import type { ScreenId } from '../shell/router.ts';
 export const MINUTE = 60_000;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
-/** Timeline scale: one hour is 480 px. */
-export const PX_PER_HOUR = 480;
-/** Visible time span of the timeline. */
-export const VIEW_SPAN = 3 * HOUR;
+/** Timeline scale: one hour is 682 px. */
+export const PX_PER_HOUR = 682;
+/** Visible 2 h time span of the timeline. */
+export const VIEW_SPAN = 2 * HOUR;
 /** The guide covers now - 6 h .. now + 48 h. */
 export const WINDOW_BACK = 6 * HOUR;
 export const WINDOW_AHEAD = 48 * HOUR;
-/** Rows are fetched for the visible 3 h plus this much either side. */
-export const PREFETCH = 3 * HOUR;
+/** Rows are fetched for the visible 2 h plus this much either side. */
+export const PREFETCH = 2 * HOUR;
 export const NO_INFO = 'No information';
 
 /**
@@ -199,7 +199,7 @@ export const isOnAir = (b: { start: number; stop: number }, now: number): boolea
 
 /**
  * The view start that shows `block`: unchanged while it starts well inside the view; when it starts before the
- * view, back to its start (or to its last 3 h when it is longer); when it starts in the last half hour or later,
+ * view, back to its start (or to its last 2 h when it is longer); when it starts in the last half hour or later,
  * forward so that it sits one hour into the view.
  */
 export function revealStart(block: Block, viewStart: number, win: TimeRange, span = VIEW_SPAN): number {
@@ -260,7 +260,7 @@ export function stepLeft(blocks: readonly Block[], index: number, view: HView, w
   return scrollBy(view, -HOUR, win, cur) ?? { kind: 'edge' };
 }
 
-/** `‹ Earlier` / `Later ›` (pointer): the view moves by its whole span (3 h) and the anchor stays inside it. */
+/** `‹ Earlier` / `Later ›` (pointer): the view moves by its whole span (2 h) and the anchor stays inside it. */
 export function pageTime(view: HView, dir: 1 | -1, win: TimeRange): HStep {
   return scrollBy(view, dir * VIEW_SPAN, win) ?? { kind: 'none' };
 }
@@ -298,6 +298,15 @@ export function pageRange(from: number, to: number, perPage: number): number[] {
   if (to <= from) return out;
   for (let p = Math.floor(Math.max(0, from) / perPage); p <= Math.floor((to - 1) / perPage); p++) out.push(p);
   return out;
+}
+
+/** Two initials for a channel without a logo: the first letters of the first two words, else the first two letters. */
+export function monogram(name: string): string {
+  const words = name.match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length === 0) return '';
+  const w0 = [...words[0]!];
+  const out = words.length > 1 ? w0[0]! + [...words[1]!][0]! : w0.slice(0, 2).join('');
+  return out.toUpperCase();
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

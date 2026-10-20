@@ -4,26 +4,31 @@ import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { rawViaDevProxy } from '../net/devProxy.ts';
-import { PX_PER_HOUR, VIEW_SPAN, isOnAir, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
+import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
 
-export const EPG_ROW_H = 72;
-export const EPG_VIEW_ROWS = 8;
+export const EPG_ROW_H = 60;
+export const EPG_CELL_H = 56;
+export const EPG_VIEW_ROWS = 11;
+/** Pointer mode: the bottom button row (y 978) must stay clear. */
+export const EPG_POINTER_ROWS = 10;
 export const RULER_H = 44;
-export const CHANNEL_W = 260;
-/** 3 h at 480 px/h. */
-export const TIMELINE_W = 1440;
-export const EPG_GRID_W = LAYOUT.width - LAYOUT.safeX * 2;
-const TL_X = EPG_GRID_W - TIMELINE_W;
+export const CHANNEL_W = 300;
+/** 2 h at 682 px/h. */
+export const TIMELINE_W = 1364;
+export const EPG_GRID_X = LAYOUT.contentX;
+export const EPG_GRID_W = LAYOUT.contentW;
+/** The timeline starts right after the channel column. */
+const TL_X = CHANNEL_W;
 /**
  * The grid's layout for pointer hit-testing (`cellAt`), in px relative to the grid node: the channel tiles start at
- * x 0 and are `CHANNEL_W` wide (no margin); the timeline starts at `TL_X`. A row is `EPG_ROW_H` tall including the
- * 6 px gap under its tiles, so a point in that gap counts as the row above.
+ * x 0 and are `CHANNEL_W` wide; the timeline starts at `TL_X`. A row is `EPG_ROW_H` tall including the 4 px gap
+ * under its tiles, so a point in that gap counts as the row above.
  */
 export const EPG_GEOMETRY: GridGeometry = {
   rulerH: RULER_H, rowH: EPG_ROW_H, viewRows: EPG_VIEW_ROWS, channelW: CHANNEL_W, timelineX: TL_X, timelineW: TIMELINE_W,
@@ -31,27 +36,35 @@ export const EPG_GEOMETRY: GridGeometry = {
 };
 /** Rows drawn beyond each edge of the viewport. */
 const ROW_BUFFER = 2;
-const CELL_H = EPG_ROW_H - 6;
+const CELL_H = EPG_CELL_H;
 const BLOCK_GAP = 4;
-const LOGO_W = 64;
-const LOGO_H = 44;
-const NOW_LINE = 0xf5a524ff;
-const ON_AIR = 0x1f2939ff;
-const FILLER = 0x10141cff;
-const ROW_BG = 0x0f131aff;
+const CELL_R = 6;
+const PAD_X = 16;
+const NUM_W = 44;
+const LOGO = 40;
+const LOGO_X = 8 + NUM_W + 12;
+const NAME_X = LOGO_X + LOGO + 12;
+const NAME_W = CHANNEL_W - BLOCK_GAP - NAME_X - 12;
 /** The archive glyph (catch-up marks): drawn before a past block's title, at the end of an on-air one. */
-const MARK = 22;
+const MARK = 20;
+/** Text sits a little above the exact middle so the glyphs look centred. */
+const TEXT_Y = (CELL_H - TYPE.meta) / 2 - 2;
 
-function Logo(props: { url: string | undefined }) {
+function Logo(props: { url: string | undefined; name: string | undefined }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
+  const key = () => logoKey(props.url, failedUrl(), (u) => logoCache.usable(u));
   return (
-    <View x={10} y={(CELL_H - LOGO_H) / 2} width={LOGO_W} height={LOGO_H} borderRadius={6} color={COLORS.background}>
-      {/* Without a logo the tile stays empty: the number is already shown next to it. */}
-      <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed>
+    <View x={LOGO_X} y={(CELL_H - LOGO) / 2} width={LOGO} height={LOGO} borderRadius={CELL_R} color={COLORS.surfaceRaised}>
+      {/* No logo in the user's own data: a tile with two initials. */}
+      <Show when={key() === undefined}>
+        <Text y={(LOGO - TYPE.meta) / 2 - 2} width={LOGO} maxWidth={LOGO} contain="width" textAlign="center" maxLines={1}
+          fontSize={TYPE.meta} color={COLORS.muted} {...STRONG}>{monogram(props.name ?? '')}</Text>
+      </Show>
+      <Show when={key()} keyed>
         {(url) => {
           logoCache.touch(url);
           return (
-            <View x={3} y={3} width={LOGO_W - 6} height={LOGO_H - 6} src={rawViaDevProxy(url)}
+            <View width={LOGO} height={LOGO} borderRadius={CELL_R} src={rawViaDevProxy(url)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
@@ -71,7 +84,7 @@ function reuse(prev: readonly Block[] | undefined, next: Block[]): Block[] {
 }
 
 /**
- * The guide grid: a ruler with 30-minute ticks, a channel column and a 3-hour timeline (480 px/h) with a now
+ * The guide grid: a ruler with 30-minute ticks, a channel column and a 2-hour timeline (682 px/h) with a now
  * line. One focusable node takes the keys (handlers come from the Guide). Virtualised in both directions: only
  * the visible rows plus 2 either side are drawn, and only the blocks overlapping the visible time span.
  *
@@ -101,6 +114,8 @@ export function EpgGrid(props: {
   onPage: (dir: 1 | -1) => boolean;
   /** Menu: the Guide's options (catch-up: From the start, Go to day). */
   onMenu?: () => boolean;
+  /** Long Ok: the same options as Menu. */
+  onLongOk?: () => boolean;
   /**
    * The archive mark of a block (spec 2026-10-20-catch-up §5.1): `past` for a programme the archive can play,
    * `onAir` for one on a catch-up channel that can play from its start. Not by colour alone: a glyph.
@@ -149,14 +164,14 @@ export function EpgGrid(props: {
       onUp={() => props.onUp()} onDown={() => props.onDown()}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onOk()}
       onChannelUp={() => props.onPage(-1)} onChannelDown={() => props.onPage(1)}
-      onMenu={() => props.onMenu?.() ?? false}>
+      onMenu={() => props.onMenu?.() ?? false} onLongOk={() => props.onLongOk?.() ?? false}>
       {/* Ruler */}
-      <Text x={10} y={(RULER_H - FONT.small) / 2 - 2} width={CHANNEL_W - 20} maxWidth={CHANNEL_W - 20} contain="width"
-        maxLines={1} fontSize={FONT.small} color={COLORS.text}>{props.dayLabel}</Text>
+      <Text x={PAD_X} y={(RULER_H - TYPE.meta) / 2 - 2} width={CHANNEL_W - PAD_X * 2} maxWidth={CHANNEL_W - PAD_X * 2}
+        contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{props.dayLabel}</Text>
       <For each={ticks(props.viewStart)}>{(t) => (
         <View x={TL_X + timeToX(t, props.viewStart)} y={0} width={240} height={RULER_H}>
-          <View x={0} y={RULER_H - 14} width={2} height={14} color={COLORS.muted} />
-          <Text x={8} y={(RULER_H - FONT.small) / 2 - 4} fontSize={FONT.small} color={COLORS.muted}>
+          <View x={0} y={RULER_H - 14} width={2} height={14} color={COLORS.track} />
+          <Text x={8} y={(RULER_H - TYPE.meta) / 2 - 4} fontSize={TYPE.meta} color={COLORS.subtle}>
             {formatClock(new Date(t))}
           </Text>
         </View>
@@ -176,40 +191,40 @@ export function EpgGrid(props: {
           });
           return (
             <View y={(i - props.top) * EPG_ROW_H} width={EPG_GRID_W} height={CELL_H}>
-              <View width={CHANNEL_W} height={CELL_H} borderRadius={LAYOUT.radius}
-                color={chLit() ? COLORS.focus : isRow() ? COLORS.surface : hoverChannel(i) ? COLORS.hover : ROW_BG}>
+              <View width={CHANNEL_W - BLOCK_GAP} height={CELL_H} borderRadius={CELL_R}
+                color={chLit() ? COLORS.focus : isRow() ? COLORS.surfaceRaised : hoverChannel(i) ? COLORS.hover : COLORS.surface}>
+                <Text x={8} y={TEXT_Y} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="right" maxLines={1}
+                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
-                <Logo url={ch()?.logo} />
-                <Text x={86} y={8} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}
-                  fontSize={FONT.small} color={chLit() ? COLORS.onFocusMuted : COLORS.muted}>
-                  {`${ch()?.number ?? ''}${ch()?.id === props.playingId && ch() ? ' ▶' : ''}`}
+                <Logo url={ch()?.logo} name={ch()?.name} />
+                <Text x={NAME_X} y={TEXT_Y} width={NAME_W} maxWidth={NAME_W} contain="width" maxLines={1}
+                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocus : COLORS.text}>
+                  {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
-                <Text x={86} y={36} width={CHANNEL_W - 96} maxWidth={CHANNEL_W - 96} contain="width" maxLines={1}
-                  fontSize={FONT.small} color={chLit() ? COLORS.onFocus : COLORS.text}>{ch()?.name ?? 'Loading…'}</Text>
               </View>
-              <View x={TL_X} width={TIMELINE_W} height={CELL_H} color={ROW_BG} borderRadius={LAYOUT.radius}>
+              <View x={TL_X} width={TIMELINE_W} height={CELL_H}>
                 <For each={visible()}>{(b) => {
                   const x = () => Math.max(0, timeToX(b.start, props.viewStart));
                   const w = () => Math.min(TIMELINE_W, timeToX(b.stop, props.viewStart)) - x() - BLOCK_GAP;
                   const lit = () => isRow() && focused() && props.area === 'grid' && b.start === props.focusStart;
                   const sel = () => isRow() && b.start === props.focusStart;
-                  const fill = () => (lit() ? COLORS.focus
-                    : sel() ? COLORS.surface : b.filler ? FILLER : isOnAir(b, props.now) ? ON_AIR : COLORS.surface);
+                  const live = () => !b.filler && isOnAir(b, props.now);
+                  const fill = () => (lit() ? COLORS.focus : live() ? COLORS.surfaceRaised : COLORS.surface);
                   const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.muted }
                     : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
                   const mark = () => (b.filler ? undefined : props.archiveMark?.(i, b));
-                  const textX = () => (mark() === 'past' ? 12 + MARK + 8 : 12);
-                  const textW = () => Math.max(0, w() - textX() - 12 - (mark() === 'onAir' ? MARK + 8 : 0));
+                  const textX = () => (mark() === 'past' ? PAD_X + MARK + 8 : PAD_X);
+                  const textW = () => Math.max(0, w() - textX() - PAD_X - (mark() === 'onAir' ? MARK + 8 : 0));
                   return (
-                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={8} border={ring()}>
+                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={CELL_R} border={ring()}>
                       <Show when={mark() && w() > 48 + MARK}>
-                        <View x={mark() === 'past' ? 12 : w() - 12 - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
+                        <View x={mark() === 'past' ? PAD_X : w() - PAD_X - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
                           src={iconTexture('archive')} color={lit() ? COLORS.onFocus : COLORS.muted} />
                       </Show>
                       <Show when={w() > 48}>
-                        <Text x={textX()} y={(CELL_H - FONT.body) / 2 - 3} width={textW()} maxWidth={textW()} contain="width"
-                          maxLines={1} fontSize={FONT.body}
-                          color={lit() ? COLORS.onFocus : b.filler ? COLORS.muted : COLORS.text}>{b.title}</Text>
+                        <Text x={textX()} y={TEXT_Y} width={textW()} maxWidth={textW()} contain="width"
+                          maxLines={1} fontSize={TYPE.meta}
+                          color={lit() ? COLORS.onFocus : live() ? COLORS.text : COLORS.muted}>{b.title}</Text>
                       </Show>
                     </View>
                   );
@@ -220,11 +235,10 @@ export function EpgGrid(props: {
         }}</For>
       </View>
 
-      {/* Now line */}
+      {/* Now line: 2 px, from the ruler to the last row. */}
       <Show when={nowX() >= 0 && nowX() <= TIMELINE_W}>
-        <View x={TL_X + nowX() - 1} y={RULER_H - 8} width={3} height={8 + EPG_VIEW_ROWS * EPG_ROW_H} color={NOW_LINE}
-          zIndex={5} />
-        <View x={TL_X + nowX() - 6} y={RULER_H - 12} width={13} height={13} borderRadius={6.5} color={NOW_LINE} zIndex={5} />
+        <View x={TL_X + nowX() - 1} y={RULER_H} width={2} height={EPG_VIEW_ROWS * EPG_ROW_H - (EPG_ROW_H - CELL_H)}
+          color={COLORS.accent} zIndex={5} />
       </Show>
     </View>
   );

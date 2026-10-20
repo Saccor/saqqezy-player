@@ -4,7 +4,7 @@ import type { ArchiveState, ChannelRow, ProgrammeLite } from '@iptv/app-api';
 import type { GroupInfo } from '@iptv/core';
 import type { Rect } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { EPG_GRID_W, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
+import { EPG_GRID_W, EPG_GRID_X, EPG_ROW_H, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../components/EpgGrid.tsx';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { CATCHUP_COPY } from '../copy.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -484,7 +484,7 @@ export function GuideScreen(props: { entry: ScreenEntry }) {
           color={COLORS.text}>{descText()}</Text>
       </View>
 
-      <EpgGrid ref={(el) => { gridNode = el; }} x={LAYOUT.safeX} y={GRID_Y} total={total()} top={top()} focusRow={row()}
+      <EpgGrid ref={(el) => { gridNode = el; }} x={EPG_GRID_X} y={GRID_Y} total={total()} top={top()} focusRow={row()}
         focusStart={focusBlock()?.start} area={area()} viewStart={viewStart()} now={now()}
         playingId={playback.current()?.id} dayLabel={dayLabel(viewStart(), now())}
         channel={channelAt} blocks={blocksAt} archiveMark={archiveMark} {...keys} onCellClick={onCellClick} onPointerWheel={onGridWheel} />
