@@ -3,7 +3,9 @@ import { createEffect, createMemo, createSignal, on } from 'solid-js';
 import { railRoute, TOAST_OVERLAY_ID } from './logic.ts';
 import { router, type ScreenEntry } from './router.ts';
 import { FOCUS, MOTION, type MotionToken } from './theme.ts';
-import { effectiveLevel, KeyCadence, parseMotionLevel, planMotion, screenEnters, type MotionLevel, type PropClass } from './motionLogic.ts';
+import {
+  AutoLite, effectiveLevel, KeyCadence, parseMotionLevel, planMotion, screenEnters, sessionLevel, type MotionLevel, type PropClass,
+} from './motionLogic.ts';
 
 /**
  * The one way the TV app animates (motion research §4 #1). The `transition` prop is broken on our stack (renderer 3.7 has
@@ -42,10 +44,15 @@ export function setMotionLevel(stored: unknown): void {
 
 const PLAYBACK_SCREENS = new Set(['player', 'vodPlay']);
 
-/** The level in force now: reduced at most while video plays. */
+const [lite, setLite] = createSignal(false);
+
+/** Auto-lite dropped this session to Reduced (low frame rate measured while animating). */
+export const motionLite = lite;
+
+/** The level in force now: auto-lite lowers Full to Reduced for the session; reduced at most while video plays. */
 function levelNow(): MotionLevel {
   const screen = router.current()?.screen;
-  return effectiveLevel(level(), screen !== undefined && PLAYBACK_SCREENS.has(screen));
+  return effectiveLevel(sessionLevel(level(), lite()), screen !== undefined && PLAYBACK_SCREENS.has(screen));
 }
 
 const cadence = new KeyCadence();
@@ -93,6 +100,33 @@ interface Owned { ctl: Controller; interrupted: boolean }
 const owners = new WeakMap<ElementNode, Map<AnimProp, Owned>>();
 let live = 0;
 
+const autoLite = new AutoLite();
+let rafId: number | undefined;
+const hasRaf = (): boolean => typeof requestAnimationFrame === 'function' && typeof cancelAnimationFrame === 'function';
+
+/** Samples frames (requestAnimationFrame) only while animations run, and only at Full: nothing to drop otherwise. */
+function onFrame(t: number): void {
+  rafId = undefined;
+  if (autoLite.frame(t)) {
+    setLite(true);
+    console.info('Motion: low frame rate while animating; motion reduced for this session');
+    return;
+  }
+  if (live > 0) rafId = requestAnimationFrame(onFrame);
+}
+
+function liveChanged(): void {
+  if (!hasRaf() || autoLite.dropped) return;
+  if (live > 0 && rafId === undefined && levelNow() === 'full') {
+    autoLite.start();
+    rafId = requestAnimationFrame(onFrame);
+  } else if (live === 0 && rafId !== undefined) {
+    cancelAnimationFrame(rafId);
+    rafId = undefined;
+    autoLite.stop();
+  }
+}
+
 /** Animations running now (debug and tests). */
 export function liveAnimations(): number {
   return live;
@@ -119,8 +153,10 @@ function animateProp(node: ElementNode, prop: AnimProp, value: number, token: Mo
   if (!props) { props = new Map(); owners.set(node, props); }
   props.set(prop, owned);
   live++;
+  liveChanged();
   ctl.on('stopped', () => {
     live--;
+    liveChanged();
     const map = owners.get(node);
     if (map?.get(prop) === owned) map.delete(prop);
     if (!owned.interrupted) onDone?.();

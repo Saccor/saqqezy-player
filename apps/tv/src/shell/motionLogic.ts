@@ -93,6 +93,57 @@ export function planMotion(token: MotionToken, prop: PropClass, c: MotionContext
   return { ms, ease };
 }
 
+/** The session's level: auto-lite (`lite`, low frame rate measured) lowers Full to Reduced; a user's Reduced or Off stays. */
+export function sessionLevel(level: MotionLevel, lite: boolean): MotionLevel {
+  return lite && level === 'full' ? 'reduced' : level;
+}
+
+/**
+ * Auto-lite (motion research §5 rule 2): samples frame intervals only while animations run (`start` when the first
+ * starts, `stop` when the last ends; the first frame of a run only sets the clock, so idle time never counts). Once
+ * `windowMs` of animated time is sampled, a median interval longer than 1000 / `minFps` ms drops the session for good
+ * (`dropped`; never back up, no flapping); otherwise a new window starts.
+ */
+export class AutoLite {
+  private samples: number[] = [];
+  private total = 0;
+  private last: number | undefined;
+  private running = false;
+  dropped = false;
+
+  constructor(private readonly windowMs: number = MOTION.liteWindow, private readonly minFps: number = MOTION.liteFps) {}
+
+  start(): void {
+    this.running = !this.dropped;
+    this.last = undefined;
+  }
+
+  stop(): void {
+    this.running = false;
+    this.last = undefined;
+  }
+
+  /** A frame at `t` (ms). True when this frame dropped the session. */
+  frame(t: number): boolean {
+    if (!this.running) return false;
+    const prev = this.last;
+    this.last = t;
+    if (prev === undefined) return false;
+    const dt = t - prev;
+    this.samples.push(dt);
+    this.total += dt;
+    if (this.total < this.windowMs) return false;
+    const sorted = [...this.samples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)]!;
+    this.samples = [];
+    this.total = 0;
+    if (median <= 1000 / this.minFps) return false;
+    this.dropped = true;
+    this.running = false;
+    return true;
+  }
+}
+
 /** While the Player or VodPlay is up, decoding owns the CPU and GPU: motion is reduced at most. */
 export function effectiveLevel(level: MotionLevel, playing: boolean): MotionLevel {
   return playing && level === 'full' ? 'reduced' : level;

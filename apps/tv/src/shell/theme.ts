@@ -169,6 +169,9 @@ export const MOTION = {
   reducedFadeMax: 150,
   /** Live animations at once; beyond this, new ones snap (1 GB TVs). */
   maxLive: 8,
+  /** Auto-lite: below `liteFps` (median) over `liteWindow` ms of running animation, the session drops to Reduced. */
+  liteFps: 45,
+  liteWindow: 2000,
 } as const;
 
 /**
