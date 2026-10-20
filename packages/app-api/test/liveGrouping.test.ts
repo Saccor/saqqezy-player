@@ -31,13 +31,15 @@ afterEach(async () => { await Promise.all(live.splice(0).map((a) => a.idle())); 
 let storage: MemoryStorage;
 beforeEach(() => { storage = new MemoryStorage(); });
 
-async function setup(st: MemoryStorage = storage) {
+/** `combine`: Settings → Combine duplicate channels (off by default until the TV UI for sources lands). */
+async function setup(st: MemoryStorage = storage, combine = true) {
   const events: AppEvent[] = [];
   const service = new SourceService({ storage: st, fetch: fetchFn, now: () => NOW });
   const api = new AppApi({ service, storage: st, emit: (e) => events.push(e), now: () => NOW });
   live.push(api);
   const { sourceId } = await api.addSource({ kind: 'm3u', name: 'Synthetic', playlistUrl: 'http://example.test/p.m3u' });
   await api.idle();
+  if (combine) await api.saveSettings({ combineChannels: true });
   const all = (await api.getChannelSlice('all', 0, 50)).rows;
   return { api, events, sourceId, all };
 }
@@ -49,6 +51,38 @@ async function memberIds(api: AppApi): Promise<string[]> {
   await api.saveSettings({ combineChannels: true });
   return rows;
 }
+
+describe('AppApi – combine duplicate channels off (the default)', () => {
+  test('every playlist entry is its own row, played as itself, with no source fields', async () => {
+    const { api, all } = await setup(storage, false);
+    expect((await api.getSettings()).combineChannels).toBe(false);
+    expect(all.map((r) => r.name)).toEqual([
+      'SE: Channel One HD', 'Example News', 'Channel One FHD', 'Channel One (backup)', 'Channel One 4K', 'Channel One +1',
+    ]);
+    for (const r of all) {
+      expect(r.sourceCount).toBeUndefined();
+      expect(r.quality).toBeUndefined();
+    }
+    const p = (await api.getPlayable(all[0]!.id))!;
+    expect(p).toMatchObject({ id: all[0]!.id, name: 'SE: Channel One HD', url: 'http://a.example.test/live/1.ts' });
+    expect(p.rowId).toBeUndefined();
+    expect(p.sources).toBeUndefined();
+    expect((await api.byNumber(5))!.id).toBe(all[4]!.id);
+    expect((await api.neighbour('all', all[0]!.id, 1))!.id).toBe(all[1]!.id);
+    expect(await api.indexOf('all', all[3]!.id)).toBe(3);
+    expect(await api.liveSources(all[0]!.id)).toHaveLength(1);
+  });
+
+  test('favourite and hide touch only the channel itself', async () => {
+    const { api, all } = await setup(storage, false);
+    expect(await api.toggleFavourite(all[4]!.id)).toBe(true);
+    expect((await api.getLayout()).lists[0]!.channelIds).toEqual([all[4]!.id]);
+    expect(await api.channelLists(all[0]!.id)).toEqual([]);
+    expect(await api.toggleHidden(all[0]!.id)).toBe(true);
+    expect((await api.getLayout()).hiddenChannels).toEqual([all[0]!.id]);
+    expect((await api.getChannelSlice('all', 0, 50)).total).toBe(5);
+  });
+});
 
 describe('AppApi – combined live channels', () => {
   test('one row per channel with its sources and best quality', async () => {

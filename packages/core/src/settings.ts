@@ -31,7 +31,10 @@ export interface AppSettings {
   followedTeams: string[];
   /** Library grid density: 8 posters a row, or 10 (Compact). */
   posterSize: PosterSize;
-  /** Live: one row per channel; its other streams take over when one fails (spec 2026-10-19-live-grouping). */
+  /**
+   * Live: one row per channel; its other streams take over when one fails (spec 2026-10-19-live-grouping). Off by
+   * default until the TV UI for sources lands (report 2026-10-20 §3.1 step 3), then on.
+   */
   combineChannels: boolean;
 }
 
@@ -50,7 +53,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openOn: 'lastChannel',
   followedTeams: [],
   posterSize: 'standard',
-  combineChannels: true,
+  combineChannels: false,
 };
 
 /** Most entries in `preferredLanguages`. */

@@ -10,7 +10,7 @@ describe('sanitizeSettings', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false,
-      combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: true,
+      combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
     });
   });
 
@@ -49,9 +49,11 @@ describe('sanitizeSettings', () => {
     for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ subtitleExactMatch: v }).subtitleExactMatch).toBe(false);
   });
 
-  test('combineChannels is a boolean, on by default', () => {
+  test('combineChannels is a boolean, off by default until the TV UI for sources lands', () => {
+    expect(sanitizeSettings({ combineChannels: true }).combineChannels).toBe(true);
     expect(sanitizeSettings({ combineChannels: false }).combineChannels).toBe(false);
-    for (const v of ['no', 0, null, undefined]) expect(sanitizeSettings({ combineChannels: v }).combineChannels).toBe(true);
+    for (const v of ['yes', 1, null, undefined]) expect(sanitizeSettings({ combineChannels: v }).combineChannels).toBe(false);
+    expect(sanitizeSettings({}).combineChannels).toBe(false);
   });
 
   test('combineDuplicates is a boolean, on by default', () => {
