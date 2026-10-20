@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
 import {
-  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, visibleRowIndexes,
+  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels,
   type RowModel,
 } from './browseLogic.ts';
 
@@ -49,6 +49,13 @@ describe('browseLogic', () => {
     const empty: RowModel = { id: 'e', title: 'e', total: 0, items: [], loaded: false };
     expect(rowsToLoad([row('a', 40, 0, false), empty], 0)).toEqual([0]);
     expect(rowsToLoad([row('a', 40, 0, false), row('b', 3, 3)], 0)).toEqual([0]);
+  });
+
+  test('rowsToLoad looks `ahead` rows below the focused one (the rows on screen)', () => {
+    const rs = [row('a', 40, 0, false), row('b', 40, 0, false), row('c', 40, 0, false), row('d', 40, 0, false)];
+    expect(rowsToLoad(rs, 0)).toEqual([0, 1]);
+    expect(rowsToLoad(rs, 0, 2)).toEqual([0, 1, 2]);
+    expect(rowsToLoad(rs, 3, 2)).toEqual([3]);
   });
 
   test('moves: left/right clamp, up at the top is an edge, rows remember their column', () => {
@@ -187,12 +194,6 @@ describe('browseLogic', () => {
     expect(prevBottom).toBeLessThanOrEqual(area.bottom);
   });
 
-  test('visible rows: the focused row and the one peeking below; pointer mode only the focused one (the shell Back sits there)', () => {
-    expect(visibleRowIndexes(0, 3, false)).toEqual([0, 1]);
-    expect(visibleRowIndexes(2, 3, false)).toEqual([2]);
-    expect(visibleRowIndexes(0, 3, true)).toEqual([0]);
-    expect(visibleRowIndexes(0, 0, false)).toEqual([]);
-  });
 
   test('drawn cells: a row still loading fills its strip with skeleton tiles (only the first takes focus)', () => {
     expect(drawnCells(row('a', 40, 0, false))).toBe(ROW_VISIBLE_COLS + 1);

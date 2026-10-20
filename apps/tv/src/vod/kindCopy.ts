@@ -6,6 +6,8 @@ export interface KindCopy {
   loadError: string;
   loading: string;
   detailRoute: 'movieDetail' | 'seriesDetail';
+  /** The grid's All entry, in running text ("Green: all movies"). */
+  allLabel: string;
 }
 
 export const KIND_COPY: Record<VodKind, KindCopy> = {
@@ -14,12 +16,14 @@ export const KIND_COPY: Record<VodKind, KindCopy> = {
     loadError: 'Movies could not be loaded.',
     loading: 'Loading movies from your source…',
     detailRoute: 'movieDetail',
+    allLabel: 'all movies',
   },
   series: {
     empty: 'This source has no series.',
     loadError: 'Series could not be loaded.',
     loading: 'Loading series from your source…',
     detailRoute: 'seriesDetail',
+    allLabel: 'all series',
   },
 };
 
