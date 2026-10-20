@@ -1,0 +1,162 @@
+{
+  "components/ActionBar.tsx": {
+    "colour": 0,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/Button.tsx": {
+    "colour": 0,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/ChannelList.tsx": {
+    "colour": 3,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/ChipRow.tsx": {
+    "colour": 0,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/EpgGrid.tsx": {
+    "colour": 4,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/EpisodeRow.tsx": {
+    "colour": 0,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/GroupList.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/InfoBanner.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/Keyboard.tsx": {
+    "colour": 2,
+    "fontSize": 1,
+    "scale": 0
+  },
+  "components/PosterTile.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/PreviewPanel.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/QrCode.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/SearchBar.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/SearchResultList.tsx": {
+    "colour": 2,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/SeasonTabs.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/SettingsList.tsx": {
+    "colour": 3,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/TabBar.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/TextField.tsx": {
+    "colour": 2,
+    "fontSize": 1,
+    "scale": 0
+  },
+  "components/Timeline.tsx": {
+    "colour": 3,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "components/VolumeOsd.tsx": {
+    "colour": 0,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "components/WideTile.tsx": {
+    "colour": 1,
+    "fontSize": 1,
+    "scale": 1
+  },
+  "main.tsx": {
+    "colour": 2,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "screens/AddSource.tsx": {
+    "colour": 3,
+    "fontSize": 2,
+    "scale": 1
+  },
+  "screens/MovieDetail.tsx": {
+    "colour": 0,
+    "fontSize": 1,
+    "scale": 0
+  },
+  "screens/Placeholder.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 1
+  },
+  "screens/SeriesDetail.tsx": {
+    "colour": 0,
+    "fontSize": 1,
+    "scale": 0
+  },
+  "screens/Settings.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "screens/VodPlay.tsx": {
+    "colour": 2,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "screens/settings/ManageOnPhonePage.tsx": {
+    "colour": 0,
+    "fontSize": 1,
+    "scale": 0
+  },
+  "shell/DebugOverlay.tsx": {
+    "colour": 1,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "vod/PosterArt.tsx": {
+    "colour": 2,
+    "fontSize": 0,
+    "scale": 0
+  },
+  "vod/posterLogic.ts": {
+    "colour": 8,
+    "fontSize": 0,
+    "scale": 0
+  }
+}
