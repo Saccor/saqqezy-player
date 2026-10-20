@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
-import { cellId, channelMenuItems, channelsLabel, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow } from './startLogic.ts';
+import {
+  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, eventMeta, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+} from './startLogic.ts';
 import { rowSlots } from '../components/rowSlots.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
@@ -38,6 +40,8 @@ describe('startLogic', () => {
     expect(eventWhen({ start: new Date(2026, 9, 20, 1, 30).getTime(), stop: now + 9e7 }, now)).toBe('Tomorrow 01:30');
     // Started yesterday, not live any more: no "Tomorrow".
     expect(eventWhen({ start: new Date(2026, 9, 18, 22, 0).getTime(), stop: new Date(2026, 9, 18, 23, 0).getTime() }, now)).toBe('22:00');
+    expect(eventWhen({ start: now + 25 * 60_000, stop: now + 9e6 }, now)).toBe('In 25 min');
+    expect(eventWhen({ start: now + 30_000, stop: now + 9e6 }, now)).toBe('In 1 min');
     expect(channelsLabel(1)).toBe('1 channel');
     expect(channelsLabel(4)).toBe('4 channels');
   });
@@ -80,5 +84,48 @@ describe('channelMenuItems', () => {
 describe('startRowSlots', () => {
   test('is the shared row slots (tests in components/rowSlots.test.ts)', () => {
     expect(startRowSlots).toBe(rowSlots);
+  });
+});
+
+describe('the match long-press menu (design note live-matches-ranking §3.7–3.8)', () => {
+  const ev = { key: 'p:a|b@1', title: 'Lakeshore v Pinecrest', sides: ['Lakeshore', 'Pinecrest'] as [string, string], start: 0, stop: 1, channelCount: 2, followed: false, competition: 'Test Cup' };
+  const st = { followedTeams: ['Pinecrest'], pinnedCompetitions: [] as string[], hiddenCompetitions: [] as string[] };
+  test('follow each side, put the competition first, hide it, cancel; From the start first when archived', () => {
+    expect(eventMenuItems(ev, st, false)).toEqual([
+      { id: 'follow:Lakeshore', label: 'Follow Lakeshore' }, { id: 'follow:Pinecrest', label: 'Unfollow Pinecrest' },
+      { id: 'pin', label: 'Put Test Cup first' }, { id: 'hide', label: 'Hide Test Cup' }, { id: 'cancel', label: 'Cancel' },
+    ]);
+    expect(eventMenuItems(ev, { ...st, pinnedCompetitions: ['test cup'] }, true).map((i) => i.label))
+      .toEqual(['From the start', 'Follow Lakeshore', 'Unfollow Pinecrest', "Don't put Test Cup first", 'Hide Test Cup', 'Cancel']);
+    const plain = { ...ev, competition: undefined, sides: undefined };
+    expect(eventMenuItems(plain, st, false)).toEqual([{ id: 'cancel', label: 'Cancel' }]);
+  });
+  test('choices become setting changes: folded competition keys, newest kept at the cap; hiding unpins', () => {
+    expect(eventMenuPatch('follow:Lakeshore', ev, st)).toEqual({ followedTeams: ['Pinecrest', 'Lakeshore'] });
+    expect(eventMenuPatch('follow:pinecrest', ev, st)).toEqual({ followedTeams: [] });
+    expect(eventMenuPatch('pin', ev, st)).toEqual({ pinnedCompetitions: ['test cup'] });
+    expect(eventMenuPatch('pin', ev, { ...st, pinnedCompetitions: ['test cup'] })).toEqual({ pinnedCompetitions: [] });
+    const full = Array.from({ length: 20 }, (_, i) => `cup ${i}`);
+    expect(eventMenuPatch('pin', ev, { ...st, pinnedCompetitions: full })!.pinnedCompetitions).toEqual([...full.slice(1), 'test cup']);
+    expect(eventMenuPatch('hide', ev, { ...st, pinnedCompetitions: ['test cup'] })).toEqual({ hiddenCompetitions: ['test cup'], pinnedCompetitions: [] });
+    expect(eventMenuPatch('fromStart', ev, st)).toBeUndefined();
+  });
+  test('strip meta: when, channels, then the competition or sub-title', () => {
+    const now = 0;
+    expect(eventMeta({ ...ev, start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Test Cup');
+    expect(eventMeta({ ...ev, competition: undefined, subTitle: 'Round 3', start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Round 3');
+  });
+});
+
+describe('See all: category chips (design note §3.7–3.8)', () => {
+  test("All, then the guide's own category texts; none without categories", () => {
+    const a = matchChipActions([{ id: 'fotboll', label: 'Fotboll' }, { id: 'ishockey', label: 'Ishockey' }]);
+    expect(a.map((x) => [x.id, x.label])).toEqual([['all', 'All'], ['fotboll', 'Fotboll'], ['ishockey', 'Ishockey']]);
+    expect(a.every((x) => x.width >= 120)).toBe(true);
+    expect(a[1]!.width).toBeGreaterThan(a[0]!.width);
+    expect(matchChipActions([])).toEqual([]);
+  });
+  test('neutral copy', () => {
+    expect(MATCHES_COPY).toEqual({ title: 'Matches in your guide', empty: 'No matches in your guide right now.' });
   });
 });

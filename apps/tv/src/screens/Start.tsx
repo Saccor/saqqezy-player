@@ -31,7 +31,8 @@ import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelMenuItems, channelsLabel, emptyStartText, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, type StartFocus, type StartMemory,
+  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, eventMeta, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+  type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
 /** Layout (1080p design space, spec §2.2): the info strip at the top, rows from y 262 at x 160. */
@@ -125,15 +126,9 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     else router.push('vodGrid', { kind: c.target, categoryId: VOD_ROW_RECENT });
     return true;
   };
-  const followMenu = async (sides: [string, string]) => {
-    const isOn = (list: readonly string[], s: string) => list.some((f) => f.toLowerCase() === s.toLowerCase());
-    const choice = await menu.choose('Teams I follow', sides.map((s) => ({ id: s, label: `${isOn(settings()?.followedTeams ?? [], s) ? 'Unfollow' : 'Follow'} ${s}` })));
-    if (!alive || !choice) return;
-    // Re-read: the list may have changed while the menu was open. saveSetting shows its own toast on failure.
-    const followed = settings()?.followedTeams ?? [];
-    const next = isOn(followed, choice) ? followed.filter((f) => f.toLowerCase() !== choice.toLowerCase()) : [...followed, choice];
-    await saveSetting({ followedTeams: next });
-    void load();
+  const matchPrefs = () => {
+    const st = settings();
+    return { followedTeams: st?.followedTeams ?? [], pinnedCompetitions: st?.pinnedCompetitions ?? [], hiddenCompetitions: st?.hiddenCompetitions ?? [] };
   };
   /** The channel menu Home shows on a long press: favourite on or off behind a choice, never at once. */
   const channelMenu = async (ch: ChannelRow) => {
@@ -151,7 +146,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       if (alive) showToast(FAV_COPY.failed);
     }
   };
-  /** Long Ok / Menu: the channel menu; follow or unfollow a side of an event. */
+  /** Long Ok / Menu: the channel menu, or the match menu (follow a side, put first or hide its competition). */
   const openMenu = () => {
     const c = focusedCell();
     if (screenOverlayOpen()) return true;
@@ -162,22 +157,24 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     }
     return true;
   };
-  /** An event on air with an archive on one of its channels offers From the start; sides offer following. */
+  /**
+   * A match: From the start when one of its channels keeps an archive, following its sides, and putting first or
+   * hiding its competition (the guide's own text).
+   */
   const eventMenu = async (e: StartEvent) => {
     const t = Date.now();
     const rows = e.start <= t && t < e.stop ? await api.getEventChannels(e.key).catch(() => [] as ChannelRow[]) : [];
     if (!alive) return;
-    const archived = rows.some((r) => canFromStart(r, t));
-    if (!archived) {
-      if (e.sides) await followMenu(e.sides);
-      return;
-    }
-    const choice = await menu.choose(e.title, [
-      { id: 'fromStart', label: CATCHUP_COPY.fromStart }, ...(e.sides ? [{ id: 'follow', label: 'Teams I follow…' }] : []),
-    ]);
-    if (!alive) return;
-    if (choice === 'fromStart') actions.fromStartRows(e, rows);
-    else if (choice === 'follow' && e.sides) await followMenu(e.sides);
+    const items = eventMenuItems(e, matchPrefs(), rows.some((r) => canFromStart(r, t)));
+    if (items.length === 1) return; // only Cancel
+    const choice = await menu.choose(e.title, items);
+    if (!alive || !choice) return;
+    if (choice === 'fromStart') { actions.fromStartRows(e, rows); return; }
+    // Re-read: the lists may have changed while the menu was open. saveSetting shows its own toast on failure.
+    const patch = eventMenuPatch(choice, e, matchPrefs());
+    if (!patch) return;
+    await saveSetting(patch);
+    void load();
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -233,7 +230,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       return { title: t.title, meta: joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t)), art: t.poster };
     }
     if (c.type === 'channel') return { title: c.channel.now?.title ?? c.channel.name, meta: joinMeta(c.channel.name, nowNextLine(c.channel)) };
-    if (c.type === 'event') return { title: c.event.title, meta: joinMeta(eventWhen(c.event, now()), channelsLabel(c.event.channelCount), c.event.subTitle) };
+    if (c.type === 'event') return { title: c.event.title, meta: eventMeta(c.event, now()) };
     return { title: rows()[focus().row]?.title ?? '', meta: '' };
   };
   const strip = dwellSignal(stripOf);

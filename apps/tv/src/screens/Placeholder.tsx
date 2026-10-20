@@ -16,7 +16,7 @@ const TITLES: Record<ScreenId, string> = {
   seriesDetail: 'Series',
   vodPlay: 'Player',
   start: 'Start',
-  startSports: 'Sports in your guide',
+  startSports: 'Matches in your guide',
 };
 
 /** Screens Home can open while they are placeholders (Tasks 6 to 11 replace them). */
