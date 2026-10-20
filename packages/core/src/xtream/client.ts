@@ -5,6 +5,8 @@ import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeou
 import { sourceHeadersOf } from '../net/headers.ts';
 import type { FetchFn, Programme, SourceHttpSettings, StreamHeaders } from '../types.ts';
 import type { MovieDetail, SeriesDetail, VodCategory, VodItem } from '../vod/types.ts';
+import { CATCHUP_DEFAULT_DAYS, CATCHUP_MAX_DAYS } from '../catchup/m3uCatchup.ts';
+import { serverOffsetFrom } from '../catchup/zone.ts';
 import { isObj, nonNegInt, posInt, str } from './json.ts';
 import {
   parseSeriesInfo, parseSeriesList, parseVodCategories, parseVodInfo, parseVodStreams,
@@ -21,8 +23,18 @@ export interface XtreamStream {
   epgChannelId?: string;
   categoryId?: string;
   num?: number;
+  /** `tv_archive` 1: the archive length in days (`tv_archive_duration`, 1–30, 3 when missing or 0). */
+  archiveDays?: number;
 }
-export interface XtreamAccount { expiresAt?: number; maxConnections?: number; activeConnections?: number }
+export interface XtreamAccount {
+  expiresAt?: number; maxConnections?: number; activeConnections?: number;
+  /** `server_info.timezone` (IANA name), when present. */
+  serverTimeZone?: string;
+  /** Panel wall clock minus UTC in minutes (`time_now` vs `timestamp_now`), rounded to 15 min. */
+  serverOffsetMin?: number;
+}
+/** One `get_simple_data_table` listing: a programme with the panel's own archive answer. */
+export interface ArchiveListing extends Programme { hasArchive: boolean }
 
 export function normalizeServer(server: string): string {
   let s = server.trim();
@@ -132,6 +144,13 @@ export class XtreamClient {
     if (max) account.maxConnections = max;
     const active = nonNegInt(info.active_cons);
     if (active !== undefined) account.activeConnections = active;
+    const server = isObj(data) ? data.server_info : undefined;
+    if (isObj(server)) {
+      const zone = str(server.timezone);
+      if (zone) account.serverTimeZone = zone;
+      const offset = serverOffsetFrom(server.time_now, server.timestamp_now);
+      if (offset !== undefined) account.serverOffsetMin = offset;
+    }
     return account;
   }
 
@@ -162,6 +181,10 @@ export class XtreamClient {
       if (cat) stream.categoryId = cat;
       const num = posInt(s.num);
       if (num) stream.num = num;
+      if (String(s.tv_archive ?? '') === '1') {
+        const days = posInt(s.tv_archive_duration);
+        stream.archiveDays = days ? Math.min(CATCHUP_MAX_DAYS, days) : CATCHUP_DEFAULT_DAYS;
+      }
       out.push(stream);
     }
     return out;
@@ -219,6 +242,28 @@ export class XtreamClient {
 
   xmltvUrl(): string {
     return `${this.base}/xmltv.php?${this.credQuery()}`;
+  }
+
+  /**
+   * `get_simple_data_table`: the panel's listings for one stream, past ones included, with its per-programme
+   * `has_archive`. Used lazily for the focused Guide row only (spec 2026-10-20-catch-up §1.4).
+   */
+  async simpleDataTable(streamId: number, epgId: string): Promise<ArchiveListing[]> {
+    const data = await this.api('get_simple_data_table', { stream_id: String(streamId) });
+    const listings = isObj(data) ? data.epg_listings : undefined;
+    const out: ArchiveListing[] = [];
+    if (!Array.isArray(listings)) return out;
+    for (const l of listings) {
+      if (!isObj(l)) continue;
+      const start = posInt(l.start_timestamp);
+      const stop = posInt(l.stop_timestamp);
+      if (!start || !stop || stop <= start) continue;
+      const p: ArchiveListing = { epgId, start: start * 1000, stop: stop * 1000, title: decodeBase64Utf8(String(l.title ?? '')), hasArchive: String(l.has_archive ?? '') === '1' };
+      const desc = str(l.description);
+      if (desc) p.desc = decodeBase64Utf8(desc);
+      out.push(p);
+    }
+    return out;
   }
 
   async shortEpg(streamId: number, epgId: string, limit = 2): Promise<Programme[]> {

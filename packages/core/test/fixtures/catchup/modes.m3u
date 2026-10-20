@@ -1,0 +1,27 @@
+#EXTM3U url-tvg="http://guide.test/epg.xml" catchup="shift" catchup-days="2" catchup-correction="1"
+#EXTINF:-1 tvg-id="a.test",Header defaults
+http://stream.test/a/index.m3u8
+#EXTINF:-1 catchup="default" catchup-source="http://archive.test/a?start={utc}&end={utcend}" catchup-days="5",Default override
+http://stream.test/b.m3u8
+#EXTINF:-1 catchup="vod" catchup-source="http://archive.test/c/{Y}{m}{d}/{H}{M}.ts" catchup-days="9.7" catchup-correction="-2.5",Default alias vod
+http://stream.test/c.m3u8
+#EXTINF:-1 catchup="append" catchup-source="?utc={utc}&lutc={lutc}" timeshift="4",Append
+http://stream.test/d.m3u8?token=x
+#EXTINF:-1 catchup-type="timeshift" tvg-rec="45",Shift alias
+http://stream.test/e.m3u8
+#EXTINF:-1 catchup="flussonic-hls",Flussonic HLS
+http://stream.test/ch1/index.m3u8?token=x
+#EXTINF:-1 catchup="fs",Flussonic TS
+http://stream.test/ch1/mpegts
+#EXTINF:-1 catchup="flussonic",Flussonic wrong shape
+http://stream.test/ch1/playlist.m3u8
+#EXTINF:-1 catchup="xtream",XC long
+http://xc.test/live/u/p/12.ts
+#EXTINF:-1 catchup="xc",XC short
+http://xc.test/u/p/13
+#EXTINF:-1 catchup="xc",XC wrong shape
+http://xc.test/movie/u/p/14.mkv
+#EXTINF:-1 catchup="default" catchup-source="http://archive.test/x?start={unknown}",Unknown placeholder
+http://stream.test/x.m3u8
+#EXTINF:-1 catchup="weird",Unknown mode
+http://stream.test/y.m3u8

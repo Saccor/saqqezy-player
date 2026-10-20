@@ -32,8 +32,9 @@ export function guidePlayAction(below: ScreenId | undefined): 'back' | 'push' {
 }
 
 export interface TimeRange { start: number; end: number }
-export interface ProgrammeLike { title: string; start: number; stop: number; desc?: string }
-export interface Block { start: number; stop: number; title: string; desc?: string; filler: boolean }
+export interface ProgrammeLike { title: string; start: number; stop: number; desc?: string; archive?: boolean }
+/** `archive`: the source's own archive answer for the programme, when its row was refined. */
+export interface Block { start: number; stop: number; title: string; desc?: string; filler: boolean; archive?: boolean }
 export interface HView { viewStart: number; anchor: number }
 export type HStep =
   | { kind: 'move'; index: number; viewStart: number; anchor: number }
@@ -49,10 +50,41 @@ export const timeToX = (t: number, viewStart: number): number => ((t - viewStart
 export const xToTime = (x: number, viewStart: number): number => viewStart + (x * HOUR) / PX_PER_HOUR;
 export const floorHalfHour = (t: number): number => Math.floor(t / HALF_HOUR) * HALF_HOUR;
 
-/** The guide's time window, fixed when it opens. Both ends are half-hour aligned. */
-export function guideWindow(now: number): TimeRange {
+/** Guide history at most (spec 2026-10-20-catch-up §5.1, decision 1). */
+export const CATCHUP_BACK_MAX = 7 * 24 * HOUR;
+
+/** The guide's time window, fixed when it opens. Both ends are half-hour aligned. `backMs`: see `guideBackMs`. */
+export function guideWindow(now: number, backMs = WINDOW_BACK): TimeRange {
   const base = floorHalfHour(now);
-  return { start: base - WINDOW_BACK, end: base + WINDOW_AHEAD };
+  return { start: base - backMs, end: base + WINDOW_AHEAD };
+}
+
+/** How far back the guide reaches: 6 h, or the source's largest archive (`catchupDays`), capped at 7 days. */
+export function guideBackMs(catchupDays: number): number {
+  return catchupDays > 0 ? Math.max(WINDOW_BACK, Math.min(catchupDays * 24 * HOUR, CATCHUP_BACK_MAX)) : WINDOW_BACK;
+}
+
+/**
+ * "Go to day" (§5.1): Today, Yesterday and older days back to the window start (labels as the ruler's). `at` is
+ * now for Today, else 18:00 that day (local time), never before the window.
+ */
+export function dayJumpTargets(now: number, win: TimeRange): { label: string; at: number }[] {
+  const out: { label: string; at: number }[] = [{ label: 'Today', at: now }];
+  const d = new Date(now);
+  for (let back = 1; back <= 8; back++) {
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back).getTime();
+    const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back + 1).getTime();
+    if (dayEnd <= win.start) break;
+    const evening = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back, 18).getTime();
+    out.push({ label: dayLabel(dayStart, now), at: Math.max(evening, win.start) });
+  }
+  return out;
+}
+
+/** The view a day jump opens: Today as the guide opens, another day from its `at`. */
+export function dayJumpView(at: number, now: number, win: TimeRange): { viewStart: number; anchor: number } {
+  if (at >= now) return { viewStart: initialViewStart(now, win), anchor: now };
+  return { viewStart: clampViewStart(floorHalfHour(at), win), anchor: at };
 }
 
 export function clampViewStart(viewStart: number, win: TimeRange, span = VIEW_SPAN): number {
@@ -124,6 +156,7 @@ export function buildBlocks(programmes: readonly ProgrammeLike[], covered: reado
     if (p.stop <= start) continue;
     const b: Block = { start, stop: p.stop, title: p.title, filler: false };
     if (p.desc !== undefined) b.desc = p.desc;
+    if (p.archive !== undefined) b.archive = p.archive;
     progs.push(b);
     prevStop = p.stop;
   }

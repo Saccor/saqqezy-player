@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { FAV_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
@@ -303,6 +303,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
       { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
+      // Catch-up channel with a programme on now: play it from its start (spec 2026-10-20-catch-up §5.2).
+      ...(shown()?.archiveDays !== undefined && shown()?.now ? [{ id: 'fromStart', label: CATCHUP_COPY.fromStart }] : []),
     ];
   });
 
@@ -336,6 +338,15 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       sleepTimer.set(next * SLEEP_SCALE);
     } else if (id === 'info') {
       setInfo(!infoOn());
+    } else if (id === 'fromStart') {
+      const ch = shown();
+      closeMenu();
+      if (!ch?.now) return;
+      api.getCatchupPlayable(ch.id, ch.now.start).then((r) => {
+        if (!alive) return;
+        if ('kind' in r) router.push('vodPlay', { catchup: r });
+        else showToast(CATCHUP_COPY.notAvailable);
+      }, (err) => console.warn('From the start failed', err instanceof Error ? err.name : 'Error'));
     } else if (id === 'favourite') {
       const ch = shown();
       closeMenu();

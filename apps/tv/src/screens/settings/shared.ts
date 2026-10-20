@@ -17,7 +17,7 @@ export interface PageProps {
   /** Yes/No dialog (No focused); Back answers No. */
   confirm: (message: string, yes: string) => Promise<boolean>;
   /** Action menu (OptionsMenu); Back or "Cancel" answers undefined. */
-  choose: (title: string, items: OptionItem[]) => Promise<string | undefined>;
+  choose: (title: string, items: OptionItem[], initial?: number) => Promise<string | undefined>;
   /** Blocks keys behind a "busy" panel until the returned function is called. */
   busy: (text: string) => () => void;
 }

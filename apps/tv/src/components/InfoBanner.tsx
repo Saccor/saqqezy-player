@@ -5,6 +5,7 @@ import { rawViaDevProxy } from '../net/devProxy.ts';
 import { formatRange, nextLine, NO_GUIDE_INFO, nowLine, progressOf } from '../screens/homeLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { iconTexture } from '../vod/icons.ts';
 import { logoCache } from './logoCache.ts';
 
 export const BANNER_H = 250;
@@ -80,6 +81,10 @@ export function InfoBanner(props: {
           <Text width={TEXT_W - BAR_W - LAYOUT.gap} maxWidth={TEXT_W - BAR_W - LAYOUT.gap} contain="width" maxLines={1}
             fontSize={FONT.body} color={COLORS.text}>{nowLine(n)}</Text>
           <Text y={38} fontSize={FONT.small} color={COLORS.muted}>{formatRange(n.start, n.stop)}</Text>
+          {/* Catch-up channel: the programme on now can play from its start (Options → From the start). */}
+          <Show when={c().archiveDays !== undefined}>
+            <View x={168} y={40} width={22} height={22} src={iconTexture('archive')} color={COLORS.muted} />
+          </Show>
           <View x={TEXT_W - BAR_W} y={12} width={BAR_W} height={8} color={TRACK} borderRadius={4}>
             <View width={Math.round(BAR_W * progressOf(n, props.now))} height={8} color={COLORS.focus} borderRadius={4} />
           </View>

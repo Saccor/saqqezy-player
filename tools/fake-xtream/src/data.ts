@@ -42,7 +42,10 @@ export const SPORT_MATCHES: readonly SportMatch[] = [
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-export function* xmltv(chs: FakeChannel[], now: number, sports = false): Generator<string> {
+/** `history`: extra programmes before the usual 6 h for a channel (catch-up channels), given the XMLTV date format. */
+export function* xmltv(
+  chs: FakeChannel[], now: number, sports = false, history?: (c: FakeChannel, xmlDate: (ms: number) => string) => string,
+): Generator<string> {
   yield '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="fake-xtream">\n';
   for (const c of chs) yield `<channel id="${c.epgId}"><display-name>${c.name}</display-name></channel>\n`;
   const s = slots(now);
@@ -64,7 +67,7 @@ export function* xmltv(chs: FakeChannel[], now: number, sports = false): Generat
       }
       buf += `<programme start="${xmlDate(slot.start)}" stop="${xmlDate(slot.stop)}" channel="${c.epgId}"><title>Programme ${slot.index}</title><desc>Synthetic listing for ${c.name}.</desc></programme>\n`;
     }
-    yield buf;
+    yield (history?.(c, xmlDate) ?? '') + buf;
   }
   yield '</tv>\n';
 }

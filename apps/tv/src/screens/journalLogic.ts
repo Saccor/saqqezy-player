@@ -75,6 +75,8 @@ export function eventText(e: JournalEvent): string {
       return FAILED[e.reason];
     case 'giveUpRetry':
       return 'Retrying in the background';
+    case 'catchupMissing':
+      return join('Catch-up not available', e.mode, e.httpStatus !== undefined && `HTTP ${e.httpStatus}`);
     case 'stop':
       return 'Stopped';
     case 'note':

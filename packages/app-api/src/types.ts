@@ -1,17 +1,50 @@
-import type { AppSettings, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, StreamHeaders, VodKind } from '@iptv/core';
 
-export type { SourceCooldown, StreamHeaders };
+export type { ArchiveState, SourceCooldown, StreamHeaders };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
 import type { RpcError } from './rpc.ts';
 
-export interface ProgrammeLite { title: string; start: number; stop: number; desc?: string }
+export interface ProgrammeLite {
+  title: string; start: number; stop: number; desc?: string;
+  /** The source's own archive answer for this programme (Xtream `has_archive`), when its row was refined. */
+  archive?: boolean;
+}
 
 export interface ChannelRow {
   id: string; number: number; name: string; logo?: string; group: string;
   favourite: boolean;
   /** Now/next from the stored guide or a cached short-EPG answer. Absent from `getEpgRows` rows (lite: the Guide draws its own programmes). */
   now?: ProgrammeLite; next?: ProgrammeLite;
+  /** Archive days when the channel has catch-up; the UI computes marks with `archiveState`. */
+  archiveDays?: number;
 }
+
+/** A past programme (or the current one from its start) from the source's archive (spec 2026-10-20-catch-up §3.4). */
+export interface CatchupPlayable {
+  kind: 'catchup';
+  /** The URL form, for the playback journal only. */
+  mode?: CatchupMode;
+  channelId: string;
+  channelName: string;
+  title: string;
+  /** Displayed programme times. */
+  start: number; stop: number;
+  /** Where in the programme this URL starts (ms from `start`); 0 unless re-opened by a seek. */
+  openedAtMs: number;
+  /** Carries credentials: never display or log it. */
+  url: string;
+  alternateUrl?: string;
+  headers?: StreamHeaders;
+  cooldownKey?: string;
+  cooldown?: SourceCooldown;
+  /** The smallest start step the URL form can express: 60 000 for xc and minute formats, 1 000 otherwise. */
+  stepMs: number;
+  /** The next programme on this channel, when it is also `available` (for the end card). */
+  next?: { start: number; stop: number; title: string };
+}
+
+/** Why `getCatchupPlayable` opened nothing. */
+export interface CatchupNotAvailable { notAvailable: ArchiveState }
 
 export interface PlayableChannel extends ChannelRow {
   url: string;
@@ -71,6 +104,8 @@ export type AppEvent =
   | { type: 'cooldown'; sourceId: string; streamKey?: string; cooldown: SourceCooldown }
   /** Background short-EPG answers changed the now/next of these channels: re-read their rows. */
   | { type: 'nowNextUpdated'; channelIds: string[] }
+  /** The source's own archive listings for this channel arrived (`refineArchive`): redraw its Guide row. */
+  | { type: 'archiveRefined'; channelId: string }
   /** A search index of `sourceId` (guide titles, or movie and series titles) became ready: re-run an open search. */
   | { type: 'searchReady'; sourceId: string }
   /** The active source's layout changed (version is the new `Layout.version`); `origin` says who changed it. */
@@ -140,7 +175,13 @@ export type { CompanionChannel, CompanionState };
 
 export interface DiagnosticsInfo {
   appVersion: string;
-  sources: { id: string; name: string; kind: string; channels: number; skipped: number; playlistAt: number; epgAt: number }[];
+  sources: {
+    id: string; name: string; kind: string; channels: number; skipped: number; playlistAt: number; epgAt: number;
+    /** Channels with catch-up and ones the app cannot build URLs for (absent when none). */
+    catchupChannels?: number; catchupUnsupported?: number;
+    /** How catch-up times are written: "Europe/Stockholm", "UTC+1:00 (fixed offset)", "UTC" or "manual +1:00". */
+    catchupTime?: string;
+  }[];
   /** Messages are already credential-free. */
   lastErrors: { at: number; where: string; message: string }[];
   settings: AppSettings;
@@ -266,6 +307,8 @@ export interface VodPlayable {
   itemId: string;
   /** Carries credentials: never display or log it. */
   url: string;
+  /** Catch-up only (the TV's stand-in title): the second archive URL form, tried once before anything played. */
+  alternateUrl?: string;
   title: string;
   /** Episodes: "S2 · E4 · Episode title". */
   episodeLabel?: string;

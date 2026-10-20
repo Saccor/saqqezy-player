@@ -18,7 +18,12 @@ export interface M3uEntry {
    * the clean `url`), so they stay what they were before the pipe was stripped.
    */
   idKey?: string;
+  /** Raw catch-up attributes (spec 2026-10-20-catch-up §1.1), the `#EXTM3U` header's as defaults; absent without any. */
+  catchup?: M3uCatchupRaw;
 }
+
+/** `catchup`/`catchup-type`, `catchup-source`, `catchup-days` (or `timeshift`, `tvg-rec`) and `catchup-correction`. */
+export interface M3uCatchupRaw { mode?: string; source?: string; days?: number; corrMin?: number }
 
 /** What an entry's id is hashed from (and de-duplicated by): the line as written. */
 export const entryIdKey = (e: M3uEntry): string => e.idKey ?? e.url;
@@ -33,6 +38,45 @@ interface Pending {
 }
 
 const ATTR_RE = /([A-Za-z0-9_-]+)="([^"]*)"/g;
+
+/** Reads one catch-up attribute into `into` (created on first use); returns it, or undefined when `key` is not one. */
+function catchupAttr(into: M3uCatchupRaw | undefined, key: string, value: string): M3uCatchupRaw | undefined {
+  if (key === 'catchup' || key === 'catchup-type') {
+    const out = into ?? {};
+    out.mode = value.toLowerCase();
+    return out;
+  }
+  if (key === 'catchup-source') {
+    const out = into ?? {};
+    out.source = value;
+    return out;
+  }
+  if (key === 'catchup-days' || key === 'timeshift' || key === 'tvg-rec') {
+    const n = Math.floor(Number.parseFloat(value));
+    if (!Number.isFinite(n) || n < 1) return into;
+    const out = into ?? {};
+    out.days = n;
+    return out;
+  }
+  if (key === 'catchup-correction') {
+    const h = Number.parseFloat(value);
+    if (!Number.isFinite(h)) return into;
+    const out = into ?? {};
+    out.corrMin = Math.round(Math.max(-12, Math.min(14, h)) * 4) * 15;
+    return out;
+  }
+  return into;
+}
+
+/** The `#EXTM3U` line's catch-up attributes: defaults for every entry. */
+function parseHeader(line: string): M3uCatchupRaw | undefined {
+  let out: M3uCatchupRaw | undefined;
+  for (const m of line.matchAll(ATTR_RE)) {
+    const value = m[2]!.trim();
+    if (value) out = catchupAttr(out, m[1]!.toLowerCase(), value);
+  }
+  return out;
+}
 
 function parseExtinf(line: string): Omit<M3uEntry, 'url'> {
   const body = line.slice('#EXTINF:'.length);
@@ -63,6 +107,9 @@ function parseExtinf(line: string): Omit<M3uEntry, 'url'> {
     } else if (key === 'tvg-shift') {
       const n = Number.parseFloat(value);
       if (Number.isFinite(n)) info.tvgShift = Math.max(-12, Math.min(12, n));
+    } else if (key.startsWith('catchup') || key === 'timeshift' || key === 'tvg-rec') {
+      const c = catchupAttr(info.catchup, key, value);
+      if (c) info.catchup = c;
     }
   }
   if (!info.name) info.name = info.tvgName ?? '';
@@ -125,9 +172,15 @@ export async function* parseM3u(
   let pendingGroup: string | undefined;
   /** Header tags seen since the last URL (before or after its #EXTINF). */
   let tagHeaders: StreamHeaders = {};
+  /** Catch-up defaults from the `#EXTM3U` header line. */
+  let headerCatchup: M3uCatchupRaw | undefined;
   for await (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
+    if (line.startsWith('#EXTM3U')) {
+      headerCatchup = parseHeader(line.slice('#EXTM3U'.length));
+      continue;
+    }
     if (line.startsWith('#EXTINF:')) {
       if (pending) {
         stats.skipped++;
@@ -163,6 +216,8 @@ export async function* parseM3u(
     }
     if (!entry.name) entry.name = redactUrl(url);
     if (!entry.groupTitle && pendingGroup) entry.groupTitle = pendingGroup;
+    // The entry's own attributes win over the header's, field by field.
+    if (headerCatchup) entry.catchup = entry.catchup ? { ...headerCatchup, ...entry.catchup } : { ...headerCatchup };
     pending = null;
     pendingGroup = undefined;
     stats.entries++;

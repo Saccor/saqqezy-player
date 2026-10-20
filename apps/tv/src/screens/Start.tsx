@@ -1,9 +1,10 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { VOD_ALL } from '@iptv/core';
 import { batch, createSignal, onCleanup, onMount } from 'solid-js';
-import { VOD_ROW_RECENT, type ChannelRow, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
+import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
-import { FAV_COPY, favChangedToast } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
+import { canFromStart } from '../vod/catchupLogic.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
@@ -134,7 +135,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   };
   /** The channel menu Home shows on a long press: favourite on or off behind a choice, never at once. */
   const channelMenu = async (ch: ChannelRow) => {
-    const choice = await menu.choose(ch.name, channelMenuItems(ch.favourite));
+    // Catch-up: the programme on now from its start, first when the channel keeps an archive.
+    const fromStart = canFromStart(ch, Date.now()) ? [{ id: 'fromStart', label: CATCHUP_COPY.fromStart }] : [];
+    const choice = await menu.choose(ch.name, [...fromStart, ...channelMenuItems(ch.favourite)]);
+    if (alive && choice === 'fromStart') actions.fromStart(ch);
     if (!alive || choice !== 'fav') return;
     try {
       const on = await api.toggleFavourite(ch.id);
@@ -151,10 +155,27 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     if (screenOverlayOpen()) return true;
     if (c?.type === 'channel') {
       void channelMenu(c.channel);
-    } else if (c?.type === 'event' && c.event.sides) {
-      void followMenu(c.event.sides);
+    } else if (c?.type === 'event') {
+      void eventMenu(c.event);
     }
     return true;
+  };
+  /** An event on air with an archive on one of its channels offers From the start; sides offer following. */
+  const eventMenu = async (e: StartEvent) => {
+    const t = Date.now();
+    const rows = e.start <= t && t < e.stop ? await api.getEventChannels(e.key).catch(() => [] as ChannelRow[]) : [];
+    if (!alive) return;
+    const archived = rows.some((r) => canFromStart(r, t));
+    if (!archived) {
+      if (e.sides) await followMenu(e.sides);
+      return;
+    }
+    const choice = await menu.choose(e.title, [
+      { id: 'fromStart', label: CATCHUP_COPY.fromStart }, ...(e.sides ? [{ id: 'follow', label: 'Teams I follow…' }] : []),
+    ]);
+    if (!alive) return;
+    if (choice === 'fromStart') actions.fromStartRows(e, rows);
+    else if (choice === 'follow' && e.sides) await followMenu(e.sides);
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {

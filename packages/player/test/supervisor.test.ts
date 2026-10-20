@@ -1256,6 +1256,24 @@ describe('PlaybackSupervisor: VOD mode', () => {
     expect(player.opened).toEqual([V, V, V, V]);
   });
 
+  it('catch-up (vodAlternate): after the reopens fail before a frame, the alternate is tried once', () => {
+    const { player, sup, statuses } = setup();
+    sup.play(V, B, { vod: true, vodAlternate: true });
+    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(8000); }
+    expect(player.opened).toEqual([V, V, V, V, B]);
+    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(8000); }
+    expect(player.opened).toEqual([V, V, V, V, B, B, B, B]);
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'unavailable' });
+  });
+
+  it('catch-up (vodAlternate): a frame played keeps the primary', () => {
+    const { player, sup } = setup();
+    sup.play(V, B, { vod: true, vodAlternate: true });
+    player.emit('playing');
+    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(8000); }
+    expect(player.opened.every((u) => u === V)).toBe(true);
+  });
+
   it('byte silence is not a stall in VOD (lazy loading parks downloads far ahead)', () => {
     const health = (player: FakePlayer) => () => ({ positionMs: player.pos, bufferAheadS: 0.3, tracksBytes: true, lastByteAt: 0 });
     const live = setup();
@@ -1597,6 +1615,20 @@ describe('PlaybackSupervisor: status probe', () => {
     await flush();
     expect(player.opened).toEqual([A]);
     expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'gone', httpStatus: 404 });
+  });
+
+  it('catch-up (vodAlternate): a primary that is gone (404) switches to the alternate at once; its failures end it', async () => {
+    const { player, sup, statuses, probe } = probed({ status: 404 });
+    sup.play(A, B, { vod: true, vodAlternate: true });
+    player.emit('error', { code: 'NETWORK' });
+    await settle();
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, B]);
+    // One probe per play: the alternate's failures take the VOD reopen path, then the play ends.
+    for (let i = 0; i < 4; i++) { player.emit('error', { code: 'NETWORK' }); await settle(); vi.advanceTimersByTime(8000); }
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(player.opened).toEqual([A, B, B, B, B]);
+    expect(statuses.at(-1)).toMatchObject({ kind: 'failed', reason: 'unavailable' });
   });
 
   it('never probes while the source is blocked', async () => {

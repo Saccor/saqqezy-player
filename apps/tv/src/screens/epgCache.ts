@@ -82,6 +82,15 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
     return this.totalRows;
   }
 
+  /**
+   * Marks the loaded chunks of row `index`'s page stale: they stay on screen, and the next `ensure` refetches them
+   * (a catch-up row whose archive listings arrived).
+   */
+  stalePage(index: number): void {
+    const page = Math.floor(index / this.rowsPerPage);
+    for (const e of this.entries.values()) if (e.page === page) e.fetchedAt = Number.NEGATIVE_INFINITY;
+  }
+
   entryCount(): number {
     return this.entries.size;
   }

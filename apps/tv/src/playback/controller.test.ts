@@ -62,6 +62,15 @@ describe('playback controller', () => {
     expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('2').url, ch('2').alternateUrl, { sourceKey: 'src-1', channel: 'Channel' });
   });
 
+  it('a catch-up stand-in passes its alternate archive URL with vodAlternate; plain VOD stays one URL', () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    const cu: VodPlayable = { kind: 'movie', itemId: 'catchup:c:1', url: 'http://x.test/timeshift/u/p/31/s/1.ts', alternateUrl: 'http://x.test/streaming/timeshift.php?stream=1', title: 'T', resumeMs: 0, tracks: {} };
+    pb.playVod(cu, 0);
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(cu.url, cu.alternateUrl, { sourceKey: 'src-1', vod: true, startMs: 0, vodAlternate: true });
+    expect(pb.current()?.id).toBe('vod:catchup:c:1');
+  });
+
   it('passes the active source id as the live-delay key', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');

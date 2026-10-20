@@ -54,6 +54,8 @@ describe('eventText', () => {
     [{ k: 'giveUpRetry', t }, 'Retrying in the background'],
     [{ k: 'stop', t }, 'Stopped'],
     [{ k: 'note', t, what: 'refererDropped' }, 'Referer not sent: this TV cannot send it'],
+    [{ k: 'catchupMissing', t, mode: 'xc', httpStatus: 404 }, 'Catch-up not available · xc · HTTP 404'],
+    [{ k: 'catchupMissing', t }, 'Catch-up not available'],
   ])('%j → %s', (e, text) => {
     expect(eventText(e)).toBe(text);
   });

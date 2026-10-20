@@ -2,7 +2,7 @@
  * Transport icons for the VOD player: white glyphs on a transparent canvas, used as image textures (a node's `color`
  * tints them). Drawn once per kind and cached as data URLs, like `scrim.ts`: no icon font, no glyphs a TV font lacks.
  */
-export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30' | 'volume' | 'mute';
+export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30' | 'volume' | 'mute' | 'archive';
 
 const SIZE = 96;
 const cache = new Map<IconKind, string>();
@@ -55,13 +55,14 @@ function draw(ctx: CanvasRenderingContext2D, kind: IconKind): void {
   }
   // A circular arrow (back: counter-clockwise, arrowhead at the top left; forward: mirrored) around "10" or "30".
   const fwd = kind === 'fwd10' || kind === 'fwd30';
-  const seconds = kind.endsWith('30') ? '30' : '10';
+  // 'archive' (catch-up marks in the Guide): the same circular arrow, thicker, with no number inside.
+  const seconds = kind === 'archive' ? '' : kind.endsWith('30') ? '30' : '10';
   ctx.save();
   if (fwd) {
     ctx.translate(SIZE, 0);
     ctx.scale(-1, 1);
   }
-  ctx.lineWidth = 7;
+  ctx.lineWidth = kind === 'archive' ? 12 : 7;
   ctx.lineCap = 'round';
   ctx.beginPath();
   // From the arrowhead at about 11 o'clock, clockwise round to about 9 o'clock (an open arc of ~300°).
@@ -78,6 +79,7 @@ function draw(ctx: CanvasRenderingContext2D, kind: IconKind): void {
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+  if (!seconds) return;
   ctx.font = 'bold 30px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

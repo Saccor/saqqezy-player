@@ -88,6 +88,11 @@ export interface PlayOptions {
   vod?: boolean;
   /** VOD start position in ms. */
   startMs?: number;
+  /**
+   * VOD only: keep `alternates` (catch-up's second archive URL form). The alternate is tried once, before anything
+   * played, when the primary is gone (404/410) or its reopens ran out. Plain VOD ignores alternates.
+   */
+  vodAlternate?: boolean;
   /** Request headers for this stream, passed to every open. */
   headers?: StreamHeaders;
 }
@@ -258,7 +263,7 @@ export class PlaybackSupervisor {
     this.active = true;
     this.givingUp = false;
     // A VOD title has one URL: the "other format" alternates are a live-channel fallback, so VOD ignores them.
-    this.urls = opts.vod === true
+    this.urls = opts.vod === true && opts.vodAlternate !== true
       ? [url]
       : [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
     this.urlIndex = 0;
@@ -825,6 +830,11 @@ export class PlaybackSupervisor {
     }
     this.failInfo = { httpStatus: status };
     if (status === 404 || status === 410) {
+      // Catch-up: the other archive URL form, once, before anything played.
+      if (this.vod && !this.playedThisPlay && this.nextUrl(false)) {
+        this.vodReopens = 0;
+        return;
+      }
       this.givingUp = false;
       this.terminal('gone');
       return;
@@ -869,6 +879,11 @@ export class PlaybackSupervisor {
     if (this.vod) {
       // A stall or a network/media error: reopen at the last position, at most VOD_MAX_REOPENS times in a row.
       if (++this.vodReopens > VOD_MAX_REOPENS) {
+        // Catch-up: the other archive URL form, once, before anything played.
+        if (!this.playedThisPlay && this.nextUrl(inline)) {
+          this.vodReopens = 0;
+          return;
+        }
         this.terminal('unavailable');
         return;
       }

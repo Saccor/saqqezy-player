@@ -11,8 +11,9 @@ export function applyShift(p: Programme, hours: number): Programme {
   return { ...p, start: p.start + ms, stop: p.stop + ms };
 }
 
-export function inWindow(p: Programme, now: number): boolean {
-  return p.stop > now - EPG_BACK_MS && p.start < now + EPG_AHEAD_MS;
+/** `backMs`: how far back to keep this programme's channel (catch-up channels keep their archive days; at least 6 h). */
+export function inWindow(p: Programme, now: number, backMs = EPG_BACK_MS): boolean {
+  return p.stop > now - Math.max(backMs, EPG_BACK_MS) && p.start < now + EPG_AHEAD_MS;
 }
 
 export function nowNext(programmes: Programme[], now: number): { now?: Programme; next?: Programme } {

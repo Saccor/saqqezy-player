@@ -153,6 +153,12 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
     const kind = KIND_LABEL[s.kind] ?? 'Other';
     lines.push([`Source ${i + 1}`, `${stripUrls(s.name)} · ${kind} · ${s.channels} channels, ${s.skipped} skipped`]);
     lines.push(['', `Channels updated ${formatTime(s.playlistAt)} · Guide updated ${formatTime(s.epgAt)}`]);
+    // Catch-up: counts and how archive times are written (never URLs or templates).
+    if (s.catchupChannels || s.catchupUnsupported) {
+      const unsupported = s.catchupUnsupported ? `, ${s.catchupUnsupported} not supported` : '';
+      lines.push(['', `Catch-up: ${s.catchupChannels ?? 0} channels${unsupported}`]);
+      if (s.catchupTime) lines.push(['', `Catch-up time: ${stripUrls(s.catchupTime)}`]);
+    }
   });
   const errors = [...info.lastErrors].sort((a, b) => b.at - a.at).slice(0, MAX_ERRORS);
   if (errors.length === 0) lines.push(['Errors', 'None']);
@@ -170,6 +176,29 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
     ['Exact-match subtitles', onOff(st.subtitleExactMatch)],
   );
   return lines;
+}
+
+// ---- Sources page: catch-up time (spec 2026-10-20-catch-up §5.6) ----
+
+/** Auto, then −12 h … +14 h in 15 min steps (ids: 'auto' or the minutes). */
+export function catchupOffsetChoices(): { id: string; label: string }[] {
+  const out = [{ id: 'auto', label: 'Auto' }];
+  for (let m = -12 * 60; m <= 14 * 60; m += 15) out.push({ id: String(m), label: catchupOffsetLabel(m) });
+  return out;
+}
+
+/** `Auto`, or the offset from UTC as `UTC+1:00` / `UTC-3:30`. */
+export function catchupOffsetLabel(min: number | undefined): string {
+  if (min === undefined) return 'Auto';
+  const a = Math.abs(min);
+  return `UTC${min < 0 ? '-' : '+'}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
+}
+
+/** The choice id back to minutes (undefined = Auto); anything unknown is undefined too. */
+export function catchupOffsetFromId(id: string): number | undefined {
+  if (id === 'auto') return undefined;
+  const n = Number(id);
+  return Number.isInteger(n) && n % 15 === 0 && n >= -720 && n <= 840 ? n : undefined;
 }
 
 // ---- Channels page: hide-without-guide toggle and "My lists" ----

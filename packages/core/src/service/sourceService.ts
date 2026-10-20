@@ -8,6 +8,9 @@ import { normalizeLayout } from '../layout/ops.ts';
 import { emptyLayout, type Layout } from '../layout/types.ts';
 import { parseM3u, type M3uEntry, type ParseStats } from '../m3u/parse.ts';
 import { m3uEntriesToChannels } from '../m3u/toChannels.ts';
+import { CatchupCollector } from '../catchup/m3uCatchup.ts';
+import { parseXcLiveUrl } from '../catchup/xc.ts';
+import { withCleanCatchupOffset } from '../catchup/zone.ts';
 import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
 import { SportsIndexBuilder, isSportsIndexRecord, type SportsIndexRecord } from '../sports/index.ts';
@@ -23,7 +26,7 @@ import type {
   Channel, FetchFn, M3uSourceConfig, Programme, SourceConfig, XtreamSourceConfig,
 } from '../types.ts';
 import { parseXmltv, type XmltvStats } from '../xmltv/parse.ts';
-import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type XtreamAccount } from '../xtream/client.ts';
+import { UNEXPECTED_RESPONSE, XtreamClient, normalizeServer, type ArchiveListing, type XtreamAccount } from '../xtream/client.ts';
 import { xtreamToChannels } from '../xtream/toChannels.ts';
 import {
   REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
@@ -36,6 +39,8 @@ export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void
 export interface RefreshOptions { automatic?: boolean }
 export interface IngestResult {
   channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
+  /** Channels with catch-up, and channels whose catch-up the app cannot build URLs for (spec 2026-10-20-catch-up §3.3). */
+  catchupChannels?: number; catchupUnsupported?: number;
   /** Xtream: the account has no live streams, and its movie or series categories were found (the titles load lazily). */
   vodCatalogue?: true;
 }
@@ -59,6 +64,10 @@ const EPG_BATCH = 5000;
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
+/** The source's interned catch-up templates (`Channel.catchup.tpl` indexes it), saved with every channel list. */
+export const catchupTemplatesKey = (id: string) => `catchupTemplates:${id}`;
+/** Guide history kept for catch-up channels, at most (spec §5.1). */
+export const CATCHUP_GUIDE_DAYS = 7;
 /** Short-EPG requests in flight at once, across all sources (spec 2026-10-15-gentle-source §3.2). */
 const SHORT_EPG_CONCURRENCY = 1;
 /** Short-EPG lookups waiting for the slot; past this the oldest waiters are dropped (they resolve to nothing). */
@@ -134,11 +143,11 @@ export class SourceService {
   }
 
   async addSource(input: NewSource, onProgress?: Progress) {
-    let source = withCleanHttpSettings({ ...input, id: this.newId() } as SourceConfig);
-    const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+    let source = withCleanCatchupOffset(withCleanHttpSettings({ ...input, id: this.newId() } as SourceConfig));
+    const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
     source = withAccount(source, account);
     try {
-      await this.saveChannels(source.id, channels, result, vod);
+      await this.saveChannels(source.id, channels, result, vod, templates);
       await this.storage.putSource(source);
       if (!(await this.getActiveSourceId())) await this.setActiveSource(source.id);
     } catch (err) {
@@ -156,14 +165,14 @@ export class SourceService {
   /** `userAgent` and `referrer` are stored trimmed and capped (absent when empty); the account limit comes from the login. */
   updateSource(input: SourceConfig, onProgress?: Progress): Promise<IngestResult> {
     return this.withLock(input.id, async () => {
-      let source = withCleanHttpSettings(input);
+      let source = withCleanCatchupOffset(withCleanHttpSettings(input));
       const prev = (await this.storage.listSources()).find((s) => s.id === source.id);
-      const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
       source = withAccount(source, account);
       await this.storage.putSource(source);
       // Another configuration: earlier failures say nothing about it, so automatic refreshes start afresh.
       for (const what of REFRESH_WHATS) await clearRefreshFailure(this.storage, source.id, what);
-      await this.saveChannels(source.id, channels, result, vod);
+      await this.saveChannels(source.id, channels, result, vod, templates);
       await this.storage.setMeta(`epgAt:${source.id}`, 0);
       if (source.kind === 'xtream') {
         // Another server or account: its stream ids mean nothing here, so the old catalogues must go.
@@ -177,6 +186,21 @@ export class SourceService {
         }
       }
       return result;
+    });
+  }
+
+  /**
+   * Settings → source → Catch-up time: the user's correction in minutes (undefined = Auto). Saved on the source without
+   * a playlist refresh (catch-up URLs are built when they play).
+   */
+  setCatchupOffset(id: string, minutes: number | undefined): Promise<SourceConfig> {
+    return this.withLock(id, async () => {
+      const source: SourceConfig = { ...(await this.requireSource(id)) };
+      delete source.catchupOffsetMin;
+      if (minutes !== undefined) source.catchupOffsetMin = minutes;
+      const next = withCleanCatchupOffset(source);
+      await this.storage.putSource(next);
+      return next;
     });
   }
 
@@ -210,7 +234,7 @@ export class SourceService {
   refreshPlaylist(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<IngestResult> {
     return this.withLock(id, () => this.withBackoff(id, 'playlist', opts, async () => {
       const source = await this.requireSource(id);
-      const { channels, result, vod, account } = await this.fetchChannels(source, onProgress);
+      const { channels, result, vod, account, templates } = await this.fetchChannels(source, onProgress);
       const stored = (await this.storage.listSources()).find((s) => s.id === id);
       if (!stored) return { channelCount: 0, skipped: 0 };
       // An empty Xtream answer never replaces a stored channel list (a provider hiccup must not wipe Live TV).
@@ -218,14 +242,9 @@ export class SourceService {
       if (source.kind === 'xtream' && channels.length === 0 && (await this.storage.getChannels(id)).length > 0) {
         throw new SourceNetworkError('The account has no live channels.');
       }
-      await this.saveChannels(id, channels, result, vod);
-      if (stored.kind === 'xtream') {
-        const next = withAccount(stored, account);
-        if (next.kind === 'xtream'
-          && (next.maxConnections !== stored.maxConnections || next.activeConnections !== stored.activeConnections)) {
-          await this.storage.putSource(next);
-        }
-      }
+      await this.saveChannels(id, channels, result, vod, templates);
+      const next = withAccount(stored, account);
+      if (accountChanged(stored, next)) await this.storage.putSource(next);
       return result;
     }));
   }
@@ -256,6 +275,7 @@ export class SourceService {
       await this.storage.setMeta(titleIndexKey(id), null);
       await this.storage.setMeta(sportsIndexKey(id), null);
       await this.storage.replaceChannels(id, []);
+      await this.storage.setMeta(catchupTemplatesKey(id), null);
       await this.storage.setMeta(`playlistAt:${id}`, 0);
       await this.storage.setMeta(`epgAt:${id}`, 0);
       // Movies and series are cached data too; progress, favourites and watched marks (VOD user state) are kept.
@@ -386,6 +406,7 @@ export class SourceService {
     await this.storage.setMeta(`epgStaging:${id}`, newGen);
 
     const matcher = new EpgMatcher(channels);
+    const backFor = catchupBackLimits(channels);
     const stats: XmltvStats = { channels: 0, programmes: 0, skipped: 0 };
     const now = this.now();
     let batch: Programme[] = [];
@@ -413,7 +434,7 @@ export class SourceService {
         }
         const p = item.programme;
         const key = matcher.resolve(p.epgId);
-        if (!key || !inWindow(p, now)) continue;
+        if (!key || !inWindow(p, now, backFor.get(key))) continue;
         // The parser's object is ours: it becomes the stored record (no copy per programme).
         p.epgId = key;
         batch.push(p);
@@ -681,9 +702,59 @@ export class SourceService {
     return res;
   }
 
+  /** The source's interned catch-up templates (empty without any). */
+  async catchupTemplates(id: string): Promise<string[]> {
+    const v = await this.storage.getMeta<unknown>(catchupTemplatesKey(id));
+    return Array.isArray(v) ? v.filter((t): t is string => typeof t === 'string') : [];
+  }
+
+  /**
+   * Xtream `get_simple_data_table` for one channel (`streamId`), through the short-EPG slot: one request at a time
+   * across sources and spaced per source. Undefined when it was skipped (guide refresh running, cooldown, source gone)
+   * or refused by our own guard; other failures throw.
+   */
+  async archiveTable(id: string, streamId: number, epgId: string): Promise<ArchiveListing[] | undefined> {
+    if (this.isRefreshingEpg(id) || (await this.guard.status(id)).state !== 'clear') return undefined;
+    if (!(await this.shortEpgSlot())) return undefined;
+    try {
+      await this.shortEpgGap(id);
+      const source = (await this.storage.listSources()).find((s) => s.id === id);
+      if (source?.kind !== 'xtream' || this.isRefreshingEpg(id) || this.guard.isBlocked(id)) return undefined;
+      this.shortEpgLastAt.set(id, this.now());
+      return await this.xtream(source).simpleDataTable(streamId, epgId);
+    } catch (err) {
+      if (err instanceof SourceRefusedError) return undefined;
+      throw err;
+    } finally {
+      this.releaseShortEpgSlot();
+    }
+  }
+
+  /**
+   * M3U with `xc` channels and Auto catch-up time (spec §4.5): one `player_api.php` login with the first `xc`
+   * channel's credentials, for the panel's zone and clock. A failure answers an empty account (the zone is then UTC).
+   */
+  private async probeXcClock(source: M3uSourceConfig, channels: Channel[]): Promise<XtreamAccount> {
+    if (source.catchupOffsetMin !== undefined) return {};
+    const first = channels.find((c) => c.catchup?.mode === 'xc');
+    const parts = first && parseXcLiveUrl(first.url);
+    if (!parts) return {};
+    try {
+      const { serverTimeZone, serverOffsetMin } = await new XtreamClient(
+        { server: parts.server, username: parts.user, password: parts.pass }, this.guard.wrap(source.id, this.fetchFn), { idleMs: this.bodyIdleMs },
+      ).authenticate();
+      const out: XtreamAccount = {};
+      if (serverTimeZone) out.serverTimeZone = serverTimeZone;
+      if (serverOffsetMin !== undefined) out.serverOffsetMin = serverOffsetMin;
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
   private async fetchChannels(
     source: SourceConfig, onProgress?: Progress,
-  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount }> {
+  ): Promise<{ channels: Channel[]; result: IngestResult; vod?: IngestVod; account?: XtreamAccount; templates?: string[] }> {
     if (source.kind === 'xtream') {
       const client = this.xtream(source);
       const account = await client.authenticate();
@@ -701,7 +772,9 @@ export class SourceService {
       onProgress?.({ phase: 'playlist', count: channels.length });
       const result: IngestResult = { channelCount: channels.length, skipped: 0 };
       if (channels.length === 0) result.vodCatalogue = true;
-      return { channels, result, account };
+      const archived = channels.reduce((n, c) => n + (c.catchup ? 1 : 0), 0);
+      if (archived) result.catchupChannels = archived;
+      return { channels, result, account, templates: [] };
     }
     const res = await this.get(source, source.playlistUrl);
     const stats: ParseStats = { entries: 0, skipped: 0 };
@@ -712,7 +785,8 @@ export class SourceService {
     }
     onProgress?.({ phase: 'playlist', count: entries.length });
     const split = splitM3uVod(source.id, entries);
-    const channels = m3uEntriesToChannels(source.id, split.live);
+    const catchup = new CatchupCollector();
+    const channels = m3uEntriesToChannels(source.id, split.live, catchup);
     const movieCount = split.movies.items.length;
     const seriesCount = split.series.items.length;
     if (channels.length === 0 && movieCount === 0 && seriesCount === 0) {
@@ -721,11 +795,15 @@ export class SourceService {
     const result: IngestResult = { channelCount: channels.length, skipped: stats.skipped };
     if (movieCount) result.movieCount = movieCount;
     if (seriesCount) result.seriesCount = seriesCount;
-    return { channels, result, vod: { movie: split.movies, series: split.series } };
+    if (catchup.channels) result.catchupChannels = catchup.channels;
+    if (catchup.unsupported) result.catchupUnsupported = catchup.unsupported;
+    const account = await this.probeXcClock(source, channels);
+    return { channels, result, vod: { movie: split.movies, series: split.series }, account, templates: catchup.templates };
   }
 
-  private async saveChannels(id: string, channels: Channel[], result: IngestResult, vod?: IngestVod): Promise<void> {
+  private async saveChannels(id: string, channels: Channel[], result: IngestResult, vod?: IngestVod, templates?: string[]): Promise<void> {
     await this.storage.replaceChannels(id, channels);
+    await this.storage.setMeta(catchupTemplatesKey(id), templates?.length ? templates : null);
     if (vod) {
       for (const kind of ['movie', 'series'] as const) {
         await this.storage.replaceVod(id, kind, vod[kind]);
@@ -742,11 +820,41 @@ export class SourceService {
  * so a stale limit never stays. An M3U source is returned unchanged.
  */
 function withAccount(source: SourceConfig, account: XtreamAccount | undefined): SourceConfig {
-  if (source.kind !== 'xtream') return source;
-  const { maxConnections: _max, activeConnections: _active, ...rest } = source;
+  if (source.kind !== 'xtream') {
+    // An M3U keeps the panel clock of its `xc` probe (none without `xc` channels or with a manual catch-up time).
+    if (!account) return source;
+    const { serverTimeZone: _z, serverOffsetMin: _o, ...m3u } = source;
+    return withClock(m3u, account);
+  }
+  const { maxConnections: _max, activeConnections: _active, serverTimeZone: _zone, serverOffsetMin: _offset, ...rest } = source;
   const out: XtreamSourceConfig = rest;
   if (account?.maxConnections !== undefined) out.maxConnections = account.maxConnections;
   if (account?.activeConnections !== undefined) out.activeConnections = account.activeConnections;
+  return withClock(out, account);
+}
+
+function withClock<T extends SourceConfig>(out: T, account: XtreamAccount | undefined): T {
+  if (account?.serverTimeZone !== undefined) out.serverTimeZone = account.serverTimeZone;
+  if (account?.serverOffsetMin !== undefined) out.serverOffsetMin = account.serverOffsetMin;
+  return out;
+}
+
+/** The login changed a stored account field (connection limit or count, panel clock). */
+function accountChanged(a: SourceConfig, b: SourceConfig): boolean {
+  return a.serverTimeZone !== b.serverTimeZone || a.serverOffsetMin !== b.serverOffsetMin
+    || (a.kind === 'xtream' && b.kind === 'xtream'
+      && (a.maxConnections !== b.maxConnections || a.activeConnections !== b.activeConnections));
+}
+
+/** Guide look-back per epg key for catch-up channels: their archive days, capped at `CATCHUP_GUIDE_DAYS`. */
+export function catchupBackLimits(channels: Channel[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of channels) {
+    if (!c.catchup) continue;
+    const key = epgKey(c);
+    const ms = Math.min(c.catchup.days, CATCHUP_GUIDE_DAYS) * 86_400_000;
+    if (ms > (out.get(key) ?? 0)) out.set(key, ms);
+  }
   return out;
 }
 
