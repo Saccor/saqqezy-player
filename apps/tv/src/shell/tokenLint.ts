@@ -13,7 +13,8 @@ const COLOUR = /0x[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b/g;
 const FONT_SIZE = /fontSize=\{\d+\}/g;
 const SCALE = /scale=\{[^}]*\b1\.\d+/g;
 /** Files where literals belong, or that are not UI. */
-const SKIP = new Set(['shell/theme.ts', 'shell/tokenLint.ts', 'shell/contrast.ts']);
+// components/QrCode.tsx: scanners need pure white and black modules, so it keeps its literals.
+const SKIP = new Set(['shell/theme.ts', 'shell/tokenLint.ts', 'shell/contrast.ts', 'components/QrCode.tsx']);
 
 export function countTokens(text: string): TokenCounts {
   return {

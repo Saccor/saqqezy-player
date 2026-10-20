@@ -79,7 +79,7 @@ const NEXT_W = 280;
 const VOLUME_W = 300;
 const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
-const SUB_OUTLINE_COLOR = 0x000000e6;
+const SUB_OUTLINE_COLOR = COLORS.subtitleOutline;
 const SUB_FONT = 40;
 const CARD_W = 1000;
 const CARD_H = 260;
@@ -1259,7 +1259,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={linkText() !== undefined}>
-        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={0x000000b3}>
+        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>
           <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
             label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
             onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}

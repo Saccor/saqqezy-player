@@ -63,12 +63,12 @@ export function PosterArt(props: {
           }}
         </Show>
         <Show when={props.progress !== undefined}>
-          <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={0x000000aa}>
+          <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={COLORS.imageTrack}>
             <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.accent} />
           </View>
         </Show>
         <Show when={props.watched}>
-          <View x={props.w - 44} y={10} width={34} height={34} zIndex={4} borderRadius={17} color={0x0b0d12cc}>
+          <View x={props.w - 44} y={10} width={34} height={34} zIndex={4} borderRadius={17} color={COLORS.panel}>
             <Text y={4} width={34} maxWidth={34} contain="width" textAlign="center" fontSize={FONT.small} color={COLORS.text}>{'✓'}</Text>
           </View>
         </Show>

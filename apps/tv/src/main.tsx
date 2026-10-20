@@ -2,6 +2,7 @@ import { Config, createRenderer, registerDefaultShaders } from '@lightningtv/sol
 import type { RendererMain } from '@lightningjs/renderer';
 import { WebGlRenderer } from '@lightningjs/renderer/webgl';
 import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
+import { COLORS } from './shell/theme.ts';
 import { CorsWebPlatform } from './shell/corsPlatform.ts';
 import { App } from './App.tsx';
 import { api } from './api.ts';
@@ -19,7 +20,7 @@ import { registerKeys } from './platform/tizen.ts';
 import { devPairing } from './screens/settings/ManageOnPhonePage.tsx';
 
 // Canvas text with the platform's default sans-serif face: no font files are bundled.
-Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: 0xe8eaf0ff };
+Config.fontSettings = { fontFamily: 'sans-serif', fontSize: 32, color: COLORS.text };
 Config.animationsEnabled = true;
 
 const appRoot = document.getElementById('app');
@@ -31,7 +32,7 @@ const { render, renderer } = createRenderer(
     appHeight: DESIGN_HEIGHT,
     deviceLogicalPixelRatio: designScale(),
     // Fully transparent: the <video> beneath shows wherever nothing is drawn.
-    clearColor: 0x00000000,
+    clearColor: COLORS.transparent,
     renderEngine: WebGlRenderer,
     fontEngines: [CanvasTextRenderer],
     // SVG posters and logos load with CORS, so a cross-origin SVG no longer taints the canvas (shell/svgLoad.ts).

@@ -36,7 +36,22 @@ export const COLORS = {
   hover: 0x232b3cff,
   /** Fully transparent, for fills that are only drawn while focused or hovered. */
   transparent: 0x00000000,
+  /** The buffered range on the movie timeline. */
+  buffered: 0xffffff4d,
+  /** The pending seek range ahead of the playhead on the timeline. */
+  scrubAhead: 0x4f8cff66,
+  /** The pending seek range behind the playhead on the timeline. */
+  scrubBack: 0xffffff80,
+  /** The outline behind subtitle text drawn over video. */
+  subtitleOutline: 0x000000e6,
+  /** A progress track drawn on artwork, where `track` would not read. */
+  imageTrack: 0x000000aa,
 } as const;
+
+/** Calm, dark title-card colours (white text stays readable on each). */
+export const TITLE_CARD_COLOURS: readonly number[] = [
+  0x1d3b53ff, 0x3a1f2bff, 0x16302bff, 0x2a2440ff, 0x40311aff, 0x13263dff, 0x2f3a1cff, 0x33202fff,
+];
 
 /** The background colour without alpha (0xRRGGBB), for the canvas fade textures (`vod/scrim.ts`). */
 export const BACKGROUND_RGB = Math.floor(COLORS.background / 0x100);

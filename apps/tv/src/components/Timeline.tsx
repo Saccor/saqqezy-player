@@ -17,9 +17,6 @@ const BUBBLE_W = 200;
 const BUBBLE_H = 84;
 const HOVER_W = 140;
 const HOVER_H = 52;
-const BUFFERED = 0xffffff4d;
-const AHEAD = 0x4f8cff66;
-const BACK = 0xffffff80;
 
 /**
  * The VOD timeline: the track, the buffered range, the played part and (focused) a knob at the playhead; a pending
@@ -73,17 +70,17 @@ export function Timeline(props: {
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onEnter()}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown()}>
-      <View y={barY()} width={props.width} height={barH()} borderRadius={barH() / 2} color={COLORS.surface} />
+      <View y={barY()} width={props.width} height={barH()} borderRadius={barH() / 2} color={COLORS.track} />
       <Show when={props.bufferedEndMs !== undefined && props.durMs !== undefined}>
         <View y={barY()} width={Math.max(barH(), xAt(props.bufferedEndMs))} height={barH()} borderRadius={barH() / 2}
-          color={BUFFERED} />
+          color={COLORS.buffered} />
       </Show>
       <View y={barY()} width={Math.max(barH(), xAt(props.posMs))} height={barH()} borderRadius={barH() / 2} color={COLORS.accent} />
       {/* A pending scrub: the stretch between the playhead and the target (ahead: light blue; back: whitened over the played part). */}
       <Show when={props.scrub}>{(s) => (
         <View x={Math.min(xAt(props.posMs), xAt(s().targetMs))} y={barY()}
           width={Math.abs(xAt(s().targetMs) - xAt(props.posMs))} height={barH()}
-          color={s().targetMs >= props.posMs ? AHEAD : BACK} />
+          color={s().targetMs >= props.posMs ? COLORS.scrubAhead : COLORS.scrubBack} />
       )}</Show>
       <Show when={focused() && !props.scrub && props.durMs !== undefined}>
         <View x={xAt(props.posMs) - KNOB / 2} y={(TIMELINE_H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}

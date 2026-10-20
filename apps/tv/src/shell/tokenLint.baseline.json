@@ -14,11 +14,6 @@
     "fontSize": 1,
     "scale": 0
   },
-  "components/QrCode.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 0
-  },
   "components/SearchResultList.tsx": {
     "colour": 2,
     "fontSize": 0,
@@ -32,16 +27,6 @@
   "components/TextField.tsx": {
     "colour": 2,
     "fontSize": 1,
-    "scale": 0
-  },
-  "components/Timeline.tsx": {
-    "colour": 3,
-    "fontSize": 0,
-    "scale": 0
-  },
-  "main.tsx": {
-    "colour": 2,
-    "fontSize": 0,
     "scale": 0
   },
   "screens/AddSource.tsx": {
@@ -59,29 +44,9 @@
     "fontSize": 0,
     "scale": 0
   },
-  "screens/VodPlay.tsx": {
-    "colour": 2,
-    "fontSize": 0,
-    "scale": 0
-  },
   "screens/settings/ManageOnPhonePage.tsx": {
     "colour": 0,
     "fontSize": 1,
-    "scale": 0
-  },
-  "shell/DebugOverlay.tsx": {
-    "colour": 1,
-    "fontSize": 0,
-    "scale": 0
-  },
-  "vod/PosterArt.tsx": {
-    "colour": 2,
-    "fontSize": 0,
-    "scale": 0
-  },
-  "vod/posterLogic.ts": {
-    "colour": 8,
-    "fontSize": 0,
     "scale": 0
   }
 }

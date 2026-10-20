@@ -1,4 +1,5 @@
 /** Poster and meta formatting. Pure: no Solid, no Lightning. */
+import { TITLE_CARD_COLOURS } from '../shell/theme.ts';
 
 /** 8 per row across the content width: (1664 − 7 × 24) / 8. */
 export const POSTER_W = 187;
@@ -6,9 +7,7 @@ export const POSTER_H = 280;
 export const POSTER_GAP = 24;
 
 /** Calm, dark title-card colours (white text stays readable on each). */
-export const CARD_COLOURS: readonly number[] = [
-  0x1d3b53ff, 0x3a1f2bff, 0x16302bff, 0x2a2440ff, 0x40311aff, 0x13263dff, 0x2f3a1cff, 0x33202fff,
-];
+export const CARD_COLOURS: readonly number[] = TITLE_CARD_COLOURS;
 
 /** A stable colour per title, for titles without a poster. */
 export function titleCardColour(title: string): number {
