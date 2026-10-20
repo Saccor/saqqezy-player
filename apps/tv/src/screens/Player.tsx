@@ -1,4 +1,4 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
@@ -7,6 +7,7 @@ import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { StatusPill } from '../components/StatusPill.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { VolumeOsd } from '../components/VolumeOsd.tsx';
@@ -56,24 +57,6 @@ const audioChoice = new Map<string, string | undefined>();
 /** Wraps channel lookups; in DEV, `?failTest=1` turns channel 1 into an unreachable stream. */
 function lookup(p: Promise<PlayableChannel | undefined>): Promise<PlayableChannel | undefined> {
   return import.meta.env.DEV ? p.then(withFailTest) : p;
-}
-
-function Spinner(props: { x: number; y: number }) {
-  const [tick, setTick] = createSignal(0);
-  const t = setInterval(() => setTick((v) => (v + 1) % 8), 120);
-  onCleanup(() => clearInterval(t));
-  const dots = [0, 1, 2, 3, 4, 5, 6, 7];
-  return (
-    <View x={props.x} y={props.y} width={36} height={36}>
-      <For each={dots}>{(i) => {
-        const a = (i / 8) * Math.PI * 2;
-        return (
-          <View x={15 + Math.cos(a) * 13} y={15 + Math.sin(a) * 13} width={6} height={6} borderRadius={3}
-            color={(i - tick() + 8) % 8 === 0 ? COLORS.focus : COLORS.muted} />
-        );
-      }}</For>
-    </View>
-  );
 }
 
 /**
@@ -503,7 +486,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   // The cooldown message replaces the stream status: nothing is open while it shows.
   const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
   const showClock = () => settings()?.showClock === true;
-  const TOAST_W = 460;
   const CENTRE_W = 1100;
   const CENTRE_BOX = MESSAGE_BOXES.player;
   const centreH = (text: string) => Math.max(160, messageLines(text, CENTRE_BOX) * CENTRE_BOX.lineH + 80);
@@ -517,13 +499,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       onMenu={unlessModal(openMenu)} onLongOk={unlessModal(openMenu)} onRed={unlessModal(previous)} {...digitHandlers}>
       <Show when={status()} keyed>{(s) => (
         s.kind === 'toast'
-          ? (
-            <View x={(LAYOUT.width - TOAST_W) / 2} y={LAYOUT.safeY} width={TOAST_W} height={64} color={COLORS.panel}
-              borderRadius={32} zIndex={25}>
-              <Spinner x={22} y={14} />
-              <Text x={72} y={(64 - FONT.body) / 2 - 4} fontSize={FONT.body} color={COLORS.text}>{s.text}</Text>
-            </View>
-          )
+          ? <StatusPill text={s.text} spinner zIndex={25} />
           : (
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
