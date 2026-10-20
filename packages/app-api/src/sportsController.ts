@@ -60,7 +60,7 @@ export interface MatchSettings {
   hidden: readonly string[];
   /** Folded guide categories; empty: all. */
   categories: readonly string[];
-  /** Chosen country prefixes ("SE"); empty until countries ship (catalogue §4.1), so K stays 0. */
+  /** Chosen country prefixes ("SE"): Your countries' codes while it is on (AppApi), else none, so K stays 0. */
   countries?: readonly string[];
 }
 

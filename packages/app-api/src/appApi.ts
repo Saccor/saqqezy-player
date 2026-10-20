@@ -19,7 +19,7 @@ import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
-import { SportsController, matchTiles, type MatchTiles } from './sportsController.ts';
+import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
 import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
@@ -1841,9 +1841,12 @@ export class AppApi {
   private async matchTiles(): Promise<MatchTiles> {
     const view = await this.sportsView();
     const st = await this.currentSettings();
-    return matchTiles(view, this.now(), {
+    const s: MatchSettings = {
       followed: st.followedTeams, pinned: st.pinnedCompetitions, hidden: st.hiddenCompetitions, categories: st.matchCategories,
-    }, this.sports.aliases());
+    };
+    // G8: a small match still shows in the row when it airs on a channel of a chosen country (Your countries on).
+    if (st.regions.mode !== 'off' && st.regions.codes.length) s.countries = st.regions.codes;
+    return matchTiles(view, this.now(), s, this.sports.aliases());
   }
 
   private async sportsView() {
