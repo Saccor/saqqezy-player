@@ -1,9 +1,9 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createMemo, createSignal } from 'solid-js';
+import { createEffect, createMemo, createSignal, on } from 'solid-js';
 import type { EpisodeView } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { useFocusScale } from '../shell/motion.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { stopMotion, tween, useFocusScale } from '../shell/motion.ts';
+import { COLORS, LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
 import { PosterArt } from '../vod/PosterArt.tsx';
 import { cardAt, episodeMeta } from '../vod/seriesDetailLogic.ts';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -72,6 +72,8 @@ export function EpisodeRow(props: {
 }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
+  /** The cards sit at fixed x's on one strip; scrolling moves only the strip (one animation, not N card writes). */
+  let strip: ElementNode | undefined;
   let lastScroll = 0;
   const count = () => (props.episodes ? props.episodes.length : SKELETON);
   const scroll = createMemo(() => {
@@ -83,6 +85,14 @@ export function EpisodeRow(props: {
     const r = renderRange(scroll(), EP_VISIBLE, count(), BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
+  // The strip glides to the scroll (180 ms; linear for the key gap while a key is held). A jump of more than a window
+  // (another season, Home/End) snaps. The pointer keeps using `scroll()`, the target, not the animated x.
+  createEffect(on(scroll, (s, prev) => {
+    if (!strip) return;
+    const x = -s * PITCH;
+    if (prev === undefined || Math.abs(s - prev) > EP_VISIBLE) { stopMotion(strip); strip.x = x; return; }
+    tween(strip, { x }, MOTION.rowScroll);
+  }));
   const colAt = (px: number) => (props.episodes ? cardAt(px, scroll(), PITCH, EP_W, props.episodes.length) : undefined);
   usePointerTarget({
     node: () => node,
@@ -93,10 +103,12 @@ export function EpisodeRow(props: {
   });
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={EP_ROW_H}>
-      <For each={cols()}>{(c) => (
-        <EpisodeCard x={(c - scroll()) * PITCH} y={0} ep={props.episodes?.[c]}
-          lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
-      )}</For>
+      <View ref={(el) => { strip = el; }} width={Math.max(1, count()) * PITCH} height={EP_ROW_H}>
+        <For each={cols()}>{(c) => (
+          <EpisodeCard x={c * PITCH} y={0} ep={props.episodes?.[c]}
+            lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
+        )}</For>
+      </View>
     </View>
   );
 }
