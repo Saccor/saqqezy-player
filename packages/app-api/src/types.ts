@@ -254,6 +254,21 @@ export interface OnlineSubtitleLanguage {
   files: number[];
   /** The best version was made for the exact file playing (exact match on, its hash matched). */
   synced: boolean;
+  /** The best version's release name, as the service gives it ("" when none). */
+  release: string;
+  /** The frame rate the best version was timed for, when known. */
+  fps?: number;
+}
+
+/** One version of a title's subtitles in one language, best first in `subtitleVersions`. */
+export interface SubtitleVersion {
+  fileId: number;
+  release: string;
+  /** The frame rate it was timed for, when known. */
+  fps?: number;
+  /** Made for the exact file playing (exact match on, its hash matched). */
+  synced: boolean;
+  downloads: number;
 }
 
 export interface MovieView {

@@ -85,7 +85,8 @@ export function searchParams(q: SubtitleSearch): string {
   }
   if (q.languages?.length) p.languages = [...q.languages].sort().join(',');
   if (q.moviehash) p.moviehash = q.moviehash;
-  if (q.page && q.page > 1) p.page = String(Math.floor(q.page));
+  const pg = Math.floor(q.page ?? 1);
+  if (pg > 1) p.page = String(pg);
   return Object.keys(p).sort().map((k) => `${k}=${enc(p[k] ?? '')}`).join('&');
 }
 
@@ -193,8 +194,14 @@ export class OpenSubtitlesClient {
   }
 
   async search(q: SubtitleSearch): Promise<OnlineSubtitle[]> {
+    return (await this.searchPage(q)).subtitles;
+  }
+
+  /** One page of results plus the page count the service reports (`total_pages`; undefined when it does not say). */
+  async searchPage(q: SubtitleSearch): Promise<{ subtitles: OnlineSubtitle[]; totalPages?: number }> {
     const body = await this.call(`/subtitles?${searchParams(q)}`, { method: 'GET', headers: this.headers() });
     const data = isObj(body) && Array.isArray(body.data) ? body.data : [];
+    const pages = isObj(body) && typeof body.total_pages === 'number' && Number.isFinite(body.total_pages) ? body.total_pages : undefined;
     const out: OnlineSubtitle[] = [];
     for (const d of data) {
       const a = isObj(d) && isObj(d.attributes) ? d.attributes : undefined;
@@ -202,7 +209,7 @@ export class OpenSubtitlesClient {
       const fileId = file && typeof file.file_id === 'number' ? file.file_id : undefined;
       const language = a && typeof a.language === 'string' ? a.language : '';
       if (!a || fileId === undefined || !language) continue;
-      const fps = typeof a.fps === 'number' && a.fps > 0 ? a.fps : undefined;
+      const fps = typeof a.fps === 'number' && Number.isFinite(a.fps) && a.fps > 0 ? a.fps : undefined;
       out.push({
         fileId,
         language,
@@ -215,7 +222,7 @@ export class OpenSubtitlesClient {
         ...(fps ? { fps } : {}),
       });
     }
-    return out;
+    return pages === undefined ? { subtitles: out } : { subtitles: out, totalPages: pages };
   }
 
   /** The file's bytes and name. Counts against the daily download quota. */

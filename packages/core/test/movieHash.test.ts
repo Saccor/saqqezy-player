@@ -50,6 +50,18 @@ describe('fetchMovieHash', () => {
     expect(s.asked).toEqual([`bytes=0-${HASH_CHUNK - 1}`, `bytes=${SIZE - HASH_CHUNK}-${SIZE - 1}`]);
   });
 
+  test('the stream\'s User-Agent and Referer go with both range requests (FetchInit.sourceHeaders)', async () => {
+    const seen: unknown[] = [];
+    const s = rangeServer();
+    const f: FetchFn = (url, init) => { seen.push(init?.sourceHeaders); return s.f(url, init); };
+    const headers = { userAgent: 'SyntheticAgent/1.0', referrer: 'http://ref.example.test/' };
+    expect(await fetchMovieHash(f, 'http://p.test/1.mkv', headers)).toBeDefined();
+    expect(seen).toEqual([headers, headers]);
+    seen.length = 0;
+    await fetchMovieHash(f, 'http://p.test/1.mkv');
+    expect(seen).toEqual([undefined, undefined]);
+  });
+
   test('a server that ignores the range: aborted at once (never downloads the film), no hash', async () => {
     const s = rangeServer({ ignoreRange: true });
     expect(await fetchMovieHash(s.f, 'http://p.test/1.mkv')).toBeUndefined();

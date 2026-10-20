@@ -37,6 +37,11 @@ describe('searchParams', () => {
     expect(searchParams({ tmdbId: 123 })).toBe('tmdb_id=123');
   });
 
+  test('page: a fraction is floored before the check (1.5 is the first page)', () => {
+    expect(searchParams({ tmdbId: 123, page: 1.5 })).toBe('tmdb_id=123');
+    expect(searchParams({ tmdbId: 123, page: 2.9 })).toBe('page=2&tmdb_id=123');
+  });
+
   test('episode by the series TMDB id plus season and episode', () => {
     expect(searchParams({ parentTmdbId: 77, season: 2, episode: 5 })).toBe('episode_number=5&parent_tmdb_id=77&season_number=2');
   });
@@ -149,6 +154,21 @@ describe('OpenSubtitlesClient', () => {
     const got = await c.search({ tmdbId: 5 });
     expect(got.map((s) => s.fps)).toEqual([23.976, undefined, undefined, undefined]);
     expect('fps' in got[1]!).toBe(false);
+  });
+
+  test('search: an infinite fps (1e400 parses to Infinity) is left out', async () => {
+    const body = `{"data":[${JSON.stringify(hit(1, 'en')).replace(/}}$/, ',"fps":1e400}}')}]}`;
+    const c = make({ '/subtitles': () => new Response(body, { headers: { 'content-type': 'application/json' } }) });
+    const got = await c.search({ tmdbId: 5 });
+    expect(got).toHaveLength(1);
+    expect('fps' in got[0]!).toBe(false);
+  });
+
+  test('searchPage: the subtitles plus the page count the service reports (undefined when it does not)', async () => {
+    let c = make({ '/subtitles': () => json({ total_pages: 3, page: 1, data: [hit(1, 'en')] }) });
+    expect(await c.searchPage({ tmdbId: 5 })).toEqual({ subtitles: [expect.objectContaining({ fileId: 1 })], totalPages: 3 });
+    c = make({ '/subtitles': () => json({ data: [hit(1, 'en')] }) });
+    expect((await c.searchPage({ tmdbId: 5 })).totalPages).toBeUndefined();
   });
 
   test('search skips entries without a file or language', async () => {
