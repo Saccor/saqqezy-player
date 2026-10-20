@@ -24,7 +24,7 @@ import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
@@ -521,14 +521,14 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
               color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={4}>
               <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
                 maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
-                fontSize={FONT.heading} color={COLORS.text}>{s.text}</Text>
+                fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{s.text}</Text>
             </View>
           )
       )}</Show>
 
       <Show when={coolCopy()}>{(c) => (
         <CooldownNotice x={(LAYOUT.width - 1100) / 2} y={(LAYOUT.height - 240) / 2} width={1100} height={240}
-          text={c().text} hint={c().hint} fontSize={FONT.heading} onRetry={() => { void retrySource(); }} />
+          text={c().text} hint={c().hint} fontSize={TYPE.body} onRetry={() => { void retrySource(); }} />
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (

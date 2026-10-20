@@ -1,47 +1,56 @@
-import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
-import { ROW_H } from '../components/ChannelList.tsx';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
-import { SearchResultList } from '../components/SearchResultList.tsx';
-import { firstSelectable, stepSelectable } from '../components/virtualWindow.ts';
+import { POSTER_H } from '../components/PosterTile.tsx';
+import { PosterRow } from '../components/PosterRow.tsx';
+import { WIDE_H } from '../components/WideTile.tsx';
+import { WideRow } from '../components/WideRow.tsx';
 import { devResume } from '../playback/devResume.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
-import { HINT_Y } from '../shell/logic.ts';
+import { wheelKey } from '../vod/browseLogic.ts';
+import { Rail } from '../shell/Rail.tsx';
+import { railBelow, type RailId } from '../shell/railLogic.ts';
+import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
-import { WORDMARK_BOTTOM, WORDMARK_RIGHT } from '../shell/Wordmark.tsx';
-import { pointerMode } from '../input/pointer.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
-  SEARCH_LIMIT, countText, createSearchMemory, createSearcher, flattenResults, isSelectable, listRows, listTop, nextFocus, rerunsSearch, resultsMessage,
-  laterRoute, vodRoute, type SearchRow, type SearchState,
+  LIVE_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, VOD_ROW_LABEL, channelToPlay, clampSearchFocus, createSearchMemory, createSearcher, focusedCell,
+  laterRoute, moveSearch, pendingNotes, rerunsSearch, resultsMessage, searchRows, searchingNote, settleFocus, vodRoute, vodRowModel,
+  type SearchFocus, type SearchRows, type SearchState,
 } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
-const KB_X = LAYOUT.safeX;
-/** Below the brand wordmark: the keyboard's top-right corner is under "MULTIMEDIA". */
-const KB_Y = WORDMARK_BOTTOM + 10;
-const LIST_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
-const LIST_W = LAYOUT.width - LAYOUT.safeX - LIST_X;
-const LIST_ROWS = 9;
-/** Result count: right-aligned above the list, beside the brand wordmark (top centre) rather than under it. */
-const COUNT_Y = KB_Y - 42;
-const COUNT_X = WORDMARK_RIGHT;
-const COUNT_W = LIST_X + LIST_W - COUNT_X;
-const LIST_H = LIST_ROWS * ROW_H;
+const KB_X = LAYOUT.contentX;
+const KB_Y = LAYOUT.safeY + 60;
+/** Results run right of the keyboard to the right safe edge (x 1000 to 1824). */
+const RESULTS_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
+const RESULTS_W = LAYOUT.width - LAYOUT.safeX - RESULTS_X;
+const RESULTS_Y = KB_Y;
+const LABEL_H = 42;
+const ROW_GAP = 36;
+const NOTE_H = 36;
+/** Cards fully visible in each row (they fit the 824 px results area). */
+const VOD_VISIBLE = 4;
+const LIVE_VISIBLE = 2;
+const KEYBOARD: SearchFocus = { area: 'keyboard', col: 0 };
+
+type RowArea = 'vod' | 'live';
+const rowHeight = (a: RowArea) => LABEL_H + (a === 'vod' ? POSTER_H : WIDE_H);
 
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
 const memory = createSearchMemory();
 
 /**
- * Search: inline on-screen keyboard (left) and results (right): channels with now/next, movies and series (20 each,
- * from catalogues stored on the device), programmes. Ok plays the channel or opens the title's detail screen.
+ * Search: the rail, an inline on-screen keyboard, and the results right of it in two rows: "Movies & series"
+ * (posters) and "Live & guide" (wide cards for channels and programmes). Ok plays the channel, opens the title's detail
+ * screen, or opens Live TV at a coming-up programme.
  */
 export function SearchScreen(props: { entry: ScreenEntry }) {
   // One-shot seed (a letter typed on Live TV): the field starts with it and the search runs once (onMount). Consumed,
@@ -52,55 +61,96 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     memory.returning = false;
   }
   delete params.query;
+  /** What is under Search, for the rail (a tab's screen, the library grid over one, or unknown: a tab choice only pops). */
+  const below = railBelow(router.below(1), router.below(2));
+
   const [query, setQuery] = createSignal(memory.query);
-  const [state, setState] = createSignal<SearchState<SearchRow>>({ query: '', results: [], busy: false, failed: false });
-  const [focus, setFocus] = createSignal(0);
+  const [state, setState] = createSignal<SearchState<SearchRows>>({ query: '', results: NO_ROWS, busy: false, failed: false });
+  const [focus, setFocus] = createSignal<SearchFocus>(KEYBOARD);
+  const [rowsFocused, setRowsFocused] = createSignal(false);
+  const [onRail, setOnRail] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
 
   let kbNode: ElementNode | undefined;
-  let listNode: ElementNode | undefined;
+  let rowsNode: ElementNode | undefined;
+  let railNode: ElementNode | undefined;
   let alive = true;
-  let lastTop = 0;
   /** The query of the last settled answer. */
   let settledQuery = '';
 
-  const searcher = createSearcher<SearchRow>(async (q) => flattenResults(await api.search(q, SEARCH_LIMIT)), (s) => {
+  const rows = () => state().results;
+  const vodRow = createMemo(() => vodRowModel(rows()));
+  const liveRow = createMemo(() => ({ cells: rows().live }));
+
+  /** Puts the focus on `f` and moves key focus there (the keyboard or the rows). */
+  const place = (f: SearchFocus) => {
+    setFocus(f);
+    (f.area === 'keyboard' ? kbNode : rowsNode)?.setFocus();
+    return true;
+  };
+  const toRail = () => { railNode?.setFocus(); return true; };
+
+  const searcher = createSearcher<SearchRows>(async (q) => searchRows(await api.search(q, SEARCH_LIMIT)), (s) => {
     if (!alive) return;
     setState(s);
     // While a query runs the previous results stay on screen untouched (focus included).
     if (s.busy) return;
-    // Returning from the Player or a detail screen restores the focused row once the full answer (not a guide-pending one)
-    // is in; a re-run of the same query keeps the focused row; a new query starts at the top.
-    const d = nextFocus({
-      rows: s.results, returning: memory.returning, memoryFocus: memory.focus, prevFocus: focus(),
-      query: s.query, settledQuery, viewRows: LIST_ROWS,
+    // Returning from the Player or a detail screen restores the focused cell once the full answer (not a pending one)
+    // is in; a re-run of the same query keeps the focused cell; a new query keeps the keyboard.
+    const restoring = memory.returning;
+    const d = settleFocus({
+      rows: s.results, returning: restoring, memory: { area: memory.area, col: memory.col }, current: focus(),
+      query: s.query, settledQuery,
     });
     settledQuery = s.query;
     setFocus(d.focus);
-    if (d.top !== undefined) lastTop = d.top;
     if (d.consumeReturning) memory.returning = false;
-    if (d.focusList) queueMicrotask(() => { if (alive) listNode?.setFocus(); });
-  });
+    // Key focus moves only for a restore, or when the row under the user emptied; never off the rail or an overlay.
+    const move = (restoring && d.focus.area !== 'keyboard') || (d.focus.area === 'keyboard' && rowsFocused());
+    if (move) queueMicrotask(() => { if (alive && !onRail() && router.topOverlay() === undefined) place(focus()); });
+  }, { empty: NO_ROWS });
 
-  const total = () => state().results.length;
-  const rowAt = (i: number) => state().results[i];
-  /** Drawn rows: none while nothing is selectable (the message area then explains why). */
-  const shownRows = createMemo(() => listRows(state().results));
-  const top = createMemo(() => {
-    lastTop = listTop(shownRows(), focus(), lastTop, LIST_ROWS);
-    return lastTop;
-  });
+  const onChange = (v: string) => {
+    memory.returning = false;
+    memory.query = v;
+    // Typing happens on the keyboard (remote, pointer or a physical keyboard). A physical keyboard can type while the
+    // rows hold key focus: move it to the keyboard, so focus never sits on an unlit row.
+    if (rowsFocused()) place(KEYBOARD);
+    else setFocus(KEYBOARD);
+    setQuery(v);
+    searcher.setQuery(v);
+  };
 
-  const onChange = (v: string) => { memory.returning = false; memory.query = v; setQuery(v); searcher.setQuery(v); };
+  /** One D-pad step from the keyboard's edge or within the rows. */
+  const step = (from: SearchFocus, key: 'up' | 'down' | 'left' | 'right') => {
+    const to = moveSearch(from, key, rows());
+    if (to === 'rail') return toRail();
+    if (from.area !== 'keyboard') memory.userNavigated();
+    return place(to === 'keyboard' ? KEYBOARD : to);
+  };
+  /** Channel up/down: a page of cards along the focused row. */
+  const page = (dir: 1 | -1) => {
+    const f = focus();
+    if (f.area === 'keyboard') return true;
+    memory.userNavigated();
+    return place(clampSearchFocus({ area: f.area, col: f.col + dir * (f.area === 'vod' ? VOD_VISIBLE : LIVE_VISIBLE) }, rows()));
+  };
+  const onWheel = (dy: number, dx: number) => {
+    const key = wheelKey(dy, dx);
+    if (!key) return true;
+    const f = focus();
+    const to = f.area === 'keyboard' ? moveSearch(f, 'right', rows()) : moveSearch(f, key, rows());
+    if (typeof to === 'object') { memory.userNavigated(); place(to); }
+    return true;
+  };
 
-  const focusList = () => { if (state().results.some((r) => isSelectable(r))) listNode?.setFocus(); };
-  const focusKeyboard = () => { kbNode?.setFocus(); return true; };
-
-  /** Channel and on-now rows play the channel; a coming-up row returns to Live TV at that channel and time; a movie or series row opens its detail. */
+  /**
+   * Channels and on-now programmes play the channel; a coming-up programme returns to Live TV at that channel and
+   * time; a movie or series opens its detail.
+   */
   const open = () => {
-    const r = rowAt(focus());
-    if (!r || !isSelectable(r)) return true;
-    const vod = vodRoute(r);
+    const cell = focusedCell(rows(), focus());
+    const vod = vodRoute(cell);
     if (vod) {
       memory.leaveTo(focus());
       // As a Movies or Series tab does on entry: the detail and its player are full screens and a 1 GB TV needs the
@@ -110,7 +160,7 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       router.push(vod.screen, vod.params);
       return true;
     }
-    const later = laterRoute(r);
+    const later = laterRoute(cell);
     if (later) {
       // Search leaves the stack (as on Back), so the next visit starts fresh. The root Live TV (never a second one)
       // opens at that channel and time.
@@ -118,7 +168,7 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       if (!router.backTo(later.screen, later.params)) router.reset(later.screen, later.params);
       return true;
     }
-    const ch = r.kind === 'channel' ? r.channel : r.kind === 'onNow' ? r.hit.channel : undefined;
+    const ch = channelToPlay(cell);
     if (!ch) return true;
     memory.leaveTo(focus());
     devResume.release(); // the user started a channel (spec §3.1)
@@ -137,11 +187,24 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     })();
     return true;
   };
+  /** A pointer click on a card: focus it, then open it. */
+  const clickCell = (area: RowArea, col: number) => {
+    memory.userNavigated();
+    place({ area, col });
+    open();
+  };
+
+  /** A rail choice leaves Search like Back does (the query is forgotten); Search itself returns to the content. */
+  const onRailSelect = (id: RailId) => {
+    if (id === 'search') { place(clampSearchFocus(focus(), rows())); return; }
+    memory.leaveBack();
+    goRailFrom('search', below, id, () => router.back({ fromVod: true }));
+  };
 
   onMount(() => {
     onCleanup(visibleInterval(() => setNow(Date.now()), 30_000)); // sleeps while the page is hidden
     // A search index (guide titles, or movies and series) became ready, or a guide import finished (the first one may
-    // finish while Search is open): re-run the open query so those results appear. A same-query re-run keeps the focused row.
+    // finish while Search is open): re-run the open query so those results appear. A same-query re-run keeps the focused cell.
     const rerun = (e: unknown) => { if (rerunsSearch(e as AppEvent) && query().trim() !== '') searcher.setQuery(query()); };
     onCleanup(onEvent('searchReady', rerun));
     onCleanup(onEvent('refreshed', rerun));
@@ -156,8 +219,33 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     searcher.dispose();
   });
 
+  /**
+   * Drawn rows (an empty row is not drawn), top to bottom. Plain area strings, compared by value: `<For>` keys by
+   * identity, so new objects on every busy or settled state would dispose and rebuild the rows and all their tiles
+   * on each keystroke (posters flash, low-end TVs churn nodes). Each row's y is computed reactively instead.
+   */
+  const drawn = createMemo<RowArea[]>(
+    () => (['vod', 'live'] as const).filter((a) => (a === 'vod' ? rows().vod : rows().live).length > 0),
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) },
+  );
+  const rowY = (area: RowArea) => {
+    let y = RESULTS_Y;
+    for (const a of drawn()) {
+      if (a === area) return y;
+      y += rowHeight(a) + ROW_GAP;
+    }
+    return y;
+  };
+  const notesY = () => {
+    const d = drawn();
+    const last = d[d.length - 1];
+    return last ? rowY(last) + rowHeight(last) + ROW_GAP : RESULTS_Y;
+  };
+  const searching = () => searchingNote(state());
+  /** Pending notes under the rows; with no rows the message (which names the first pending note) stands alone. */
+  const notes = () => (drawn().length > 0 ? pendingNotes(rows()) : []);
   const message = () => resultsMessage(state());
-  const countLine = () => countText(state());
 
   /** Back that reaches the screen (no overlay open) leaves Search: forget the query. The shell then pops. */
   const onBack = () => {
@@ -167,45 +255,52 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}
-      forwardFocus={focusKeyboard} onBack={onBack}>
-      <Text x={KB_X} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Search'}</Text>
-      <Text x={COUNT_X} y={COUNT_Y} width={COUNT_W} maxWidth={COUNT_W} contain="width" maxLines={1} textAlign="right"
-        fontSize={FONT.body} color={COLORS.muted}>{countLine()}</Text>
+      forwardFocus={() => place(clampSearchFocus(focus(), rows()))} onBack={onBack}>
+      <Rail ref={(el) => { railNode = el; }} active="search" onSelect={onRailSelect}
+        onRight={() => place(clampSearchFocus(focus(), rows()))} onFocusChanged={(f) => setOnRail(f)} />
+      <Text x={KB_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Search'}</Text>
 
       <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel, programme or title" hint="Right: results · Back returns" value={query()}
-        onChange={onChange} onDone={focusList} onEdgeRight={() => { focusList(); }} />
+        onChange={onChange} onDone={() => { step(KEYBOARD, 'right'); }}
+        onEdgeRight={() => { step(KEYBOARD, 'right'); }} onEdgeLeft={() => { step(KEYBOARD, 'left'); }} />
 
-      <SearchResultList ref={(el) => { listNode = el; }} x={LIST_X} y={KB_Y} width={LIST_W} height={LIST_H}
-        rows={shownRows()} top={top()} focus={focus()} now={now()} playingId={playback.current()?.id}
-        onMove={(d) => { memory.userNavigated(); setFocus(stepSelectable(focus(), d, total(), (i) => isSelectable(rowAt(i)))); return true; }}
-        onPage={(dir) => {
-          memory.userNavigated();
-          const target = Math.max(0, Math.min(total() - 1, focus() + dir * LIST_ROWS));
-          setFocus(firstSelectable(target, total(), (i) => isSelectable(rowAt(i))));
-          return true;
-        }}
-        onLeft={() => { memory.userNavigated(); return focusKeyboard(); }}
-        onOk={() => { memory.userNavigated(); return open(); }}
-        onRowClick={(i, double) => {
-          // The first click already opened it (the Player, a detail screen or Live TV): a double click adds nothing.
-          if (double || !isSelectable(rowAt(i))) return;
-          memory.userNavigated();
-          setFocus(i);
-          listNode?.setFocus();
-          open();
-        }} />
+      <View ref={(el) => { rowsNode = el; }} x={RESULTS_X} y={0} width={RESULTS_W} height={LAYOUT.height}
+        onFocusChanged={(f: boolean) => setRowsFocused(f)}
+        onUp={() => step(focus(), 'up')} onDown={() => step(focus(), 'down')}
+        onLeft={() => step(focus(), 'left')} onRight={() => step(focus(), 'right')}
+        onChannelUp={() => page(-1)} onChannelDown={() => page(1)}
+        onEnter={() => { memory.userNavigated(); return open(); }}
+        onLongOk={() => true} onMenu={() => true}>
+        <For each={drawn()}>{(area, i) => {
+          const focusCol = () => (focus().area === area ? focus().col : undefined);
+          const lit = () => rowsFocused() && focus().area === area;
+          return (
+            <View y={rowY(area)}>
+              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : LIVE_ROW_LABEL}</Text>
+              {/* While the next query runs over these rows: a subtle note on the first row's label line. */}
+              <Show when={i() === 0 && searching()}>
+                <Text x={0} y={(TYPE.body - TYPE.meta) / 2} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={1} textAlign="right"
+                  fontSize={TYPE.meta} color={COLORS.muted}>{searching()!}</Text>
+              </Show>
+              <Show when={area === 'vod'} fallback={
+                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={liveRow()} now={now()} visible={LIVE_VISIBLE} channelNumbers
+                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell('live', c)} onWheel={onWheel} />
+              }>
+                <PosterRow x={0} y={LABEL_H} width={RESULTS_W} row={vodRow()} visible={VOD_VISIBLE}
+                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell('vod', c)} onWheel={onWheel} />
+              </Show>
+            </View>
+          );
+        }}</For>
+        <For each={notes()}>{(n, i) => (
+          <Text x={0} y={notesY() + i() * NOTE_H} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={1}
+            fontSize={TYPE.meta} color={COLORS.muted}>{n}</Text>
+        )}</For>
+      </View>
       <Show when={message()}>{(m) => (
-        <Text x={LIST_X + 24} y={KB_Y + 24} width={LIST_W - 48} maxWidth={LIST_W - 48} contain="width" maxLines={2}
-          fontSize={FONT.body} color={COLORS.muted}>{m()}</Text>
+        <Text x={RESULTS_X} y={RESULTS_Y} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={2}
+          fontSize={TYPE.body} color={COLORS.muted}>{m()}</Text>
       )}</Show>
-
-      {/* Pointer mode: the shell's Back button stands on this line instead. */}
-      <Show when={!pointerMode()}>
-        <Text x={KB_X} y={HINT_Y} width={LAYOUT.width - KB_X * 2} maxWidth={LAYOUT.width - KB_X * 2} contain="width"
-          maxLines={1} fontSize={FONT.small} color={COLORS.muted}>
-          {'Type with the keyboard or remote · Right: results · Ok watch, open in guide or open title · Left: keyboard · Back'}
-        </Text>
-      </Show>
     </View>
   );
 }

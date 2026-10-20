@@ -6,7 +6,7 @@ import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
-import { MESSAGE_BOXES, fitsBox, messageTop } from '../components/messageFit.ts';
+import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { StatusPill } from '../components/StatusPill.tsx';
 import { onLogicalKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -19,7 +19,7 @@ import {
 } from '../vod/catchupLogic.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { BACKGROUND_RGB, COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { platformId, settings } from '../state/appState.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -79,7 +79,8 @@ const NEXT_W = 280;
 const VOLUME_W = 300;
 const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
-const SUB_OUTLINE_COLOR = 0x000000e6;
+const SUB_OUTLINE_COLOR = COLORS.subtitleOutline;
+/** Subtitle text size on the video (a user-facing size, not a UI type-scale step). */
 const SUB_FONT = 40;
 const CARD_W = 1000;
 const CARD_H = 260;
@@ -1152,7 +1153,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
   /**
    * The card's text (the failure: its cause and status, spec 2026-10-16-source-retry §2.8; else the next-episode
-   * countdown) and the box it fits: heading size, or body size for a long refusal that names the account's limit.
+   * countdown) and the box it fits (body size, up to three lines for a long refusal that names the account's limit).
    */
   const card = createMemo(() => {
     const f = failed();
@@ -1161,8 +1162,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         : f
           ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
           : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
-    const small = !fitsBox(text, MESSAGE_BOXES.vodCard);
-    return { text, box: small ? MESSAGE_BOXES.vodCardSmall : MESSAGE_BOXES.vodCard, font: small ? FONT.body : FONT.heading };
+    return { text, box: MESSAGE_BOXES.vodCard };
   });
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
@@ -1194,10 +1194,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
           <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
-            fontSize={FONT.title} color={COLORS.text}>{title}</Text>
+            fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.text}>{title}</Text>
           <Show when={label}>
             <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
-              maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{label}</Text>
+              maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
           </Show>
           <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
             posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
@@ -1210,17 +1210,17 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
               y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.accent} borderRadius={2} />
           </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
-            fontSize={FONT.body} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
+            fontSize={TYPE.meta} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
           <Show when={dur() !== undefined}>
             <Text x={CONTENT_X + CONTENT_W - TIME_W} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" textAlign="right"
-              maxLines={1} fontSize={FONT.body} color={COLORS.muted}>{remainingText(pos(), dur() ?? 0, now())}</Text>
+              maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{remainingText(pos(), dur() ?? 0, now())}</Text>
           </Show>
           <ActionBar ref={(el) => { barNode = el; }} x={CONTENT_X} y={ACTIONS_Y} actions={actions()} onAction={onAction}
             initial="toggle" onUp={focusTimeline} onDown={() => true}
             onFocusChanged={(f) => { barFocused = f; }} />
           {/* After the bar: its hit area spans the row, and the later target wins where they overlap. */}
           <Show when={row().volumeX !== undefined}>
-            <VolumeControl x={CONTENT_X + (row().volumeX ?? 0)} y={ACTIONS_Y} width={VOLUME_W} height={BUTTON_H} fill={COLORS.surface}
+            <VolumeControl x={CONTENT_X + (row().volumeX ?? 0)} y={ACTIONS_Y} width={VOLUME_W} height={BUTTON_H} fill={COLORS.surfaceRaised}
               onActive={bump} />
           </Show>
         </View>
@@ -1232,11 +1232,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
         <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
-          color={COLORS.panel} borderRadius={LAYOUT.radius * 2}>
+          color={COLORS.surface} borderRadius={LAYOUT.radius}>
           {/* The text area above the buttons: y 24 to 148. */}
           <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
             contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
-            fontSize={card().font} color={COLORS.text}>{card().text}</Text>
+            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
               x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}
@@ -1259,7 +1259,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={linkText() !== undefined}>
-        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={0x000000b3}>
+        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>
           <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
             label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
             onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}

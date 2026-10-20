@@ -4,9 +4,12 @@ import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
-import { HINT_Y } from '../shell/logic.ts';
+import { BOTTOM_ROW_Y } from '../shell/logic.ts';
+import { Rail } from '../shell/Rail.tsx';
+import { railBelow, type RailId } from '../shell/railLogic.ts';
+import { goRailFrom } from '../shell/railNav.ts';
 import { router } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
 import { DiagnosticsPage } from './settings/DiagnosticsPage.tsx';
@@ -19,14 +22,18 @@ import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
 import { SETTINGS_PAGES } from './settingsLogic.ts';
 
-const MENU_X = LAYOUT.safeX;
-const MENU_Y = 170;
+/** The menu sits at the rail's content edge; its rows are 72 apart, drawn 64 high. */
+const MENU_X = LAYOUT.contentX;
+const MENU_Y = LAYOUT.safeY + 72;
 const MENU_W = 400;
-const MENU_ROW_H = 80;
+const MENU_ROW_H = 72;
+const MENU_ROW_DRAWN = 64;
+/** The page: right of the menu (x 608) to the right safe edge, its rows level with the menu's. */
 const PAGE_X = MENU_X + MENU_W + LAYOUT.gap * 2;
 const PAGE_W = LAYOUT.width - LAYOUT.safeX - PAGE_X;
-const PAGE_Y = MENU_Y + 64;
-const PAGE_H = HINT_Y - LAYOUT.gap - PAGE_Y;
+const PAGE_Y = MENU_Y;
+/** The page runs to the safe bottom; in pointer mode it stops a gap above the shell's bottom button row. */
+const pageHeight = () => (pointerMode() ? BOTTOM_ROW_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY) - PAGE_Y;
 const DIALOG_ID = 'settingsConfirm';
 const CHOOSER_ID = 'settingsChooser';
 const BUSY_W = 640;
@@ -37,6 +44,8 @@ const memory = { page: 0, area: 'menu' as 'menu' | 'page' };
 
 function Menu(props: {
   ref: (el: ElementNode) => void; selected: number; onSelect: (i: number) => void; onEnter: () => boolean;
+  /** Left: to the rail. */
+  onLeft: () => boolean;
   /** Pointer click on page `i`: open it, the same as Ok. */
   onClickRow: (i: number) => void;
 }) {
@@ -63,14 +72,14 @@ function Menu(props: {
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={MENU_X} y={MENU_Y} width={MENU_W} height={SETTINGS_PAGES.length * MENU_ROW_H}
       onFocusChanged={setFocused} onUp={() => move(-1)} onDown={() => move(1)}
-      onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => true}>
+      onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => props.onLeft()}>
       <For each={SETTINGS_PAGES}>{(p, i) => {
         const isSel = () => i() === props.selected;
         const hovered = () => pointerMode() && hover() === i();
         return (
-          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_H - 8} borderRadius={LAYOUT.radius}
-            color={isSel() ? (focused() ? COLORS.focus : COLORS.surface) : hovered() ? COLORS.hover : 0x00000000}>
-            <Text x={24} y={(MENU_ROW_H - 8 - FONT.body) / 2 - 3} fontSize={FONT.body}
+          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_DRAWN} borderRadius={LAYOUT.radius}
+            color={isSel() ? (focused() ? COLORS.focus : COLORS.surfaceRaised) : hovered() ? COLORS.hover : COLORS.transparent}>
+            <Text x={24} y={(MENU_ROW_DRAWN - TYPE.body) / 2 - 3} fontSize={TYPE.body}
               color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
           </View>
         );
@@ -80,11 +89,14 @@ function Menu(props: {
 }
 
 /**
- * Settings: a left menu of nine pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
- * it, Left/Back return to the menu, Back on the menu leaves. Pages share the confirm dialog, the action menu
- * and the busy panel owned here (each a Back layer through `router.pushOverlay`, except busy, which ignores Back).
+ * Settings: the rail, a left menu of nine pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
+ * it, Left/Back return to the menu, Left on the menu goes to the rail, Back on the menu leaves. Pages share the confirm
+ * dialog, the action menu and the busy panel owned here (each a Back layer through `router.pushOverlay`, except busy,
+ * which ignores Back).
  */
 export function SettingsScreen() {
+  /** What is under Settings, for the rail (a tab's screen, the library grid over one, or unknown: a tab choice only pops). */
+  const below = railBelow(router.below(1), router.below(2));
   const [page, setPage] = createSignal(Math.min(memory.page, SETTINGS_PAGES.length - 1));
   const [area, setArea] = createSignal<'menu' | 'page'>('menu');
   const [dialog, setDialog] = createSignal<{ message: string; yes: string; answer: (yes: boolean) => void } | undefined>();
@@ -92,6 +104,7 @@ export function SettingsScreen() {
   const [busyText, setBusyText] = createSignal<string | undefined>(undefined);
 
   let menuNode: ElementNode | undefined;
+  let railNode: ElementNode | undefined;
   let pageNode: ElementNode | undefined;
   let chooserNode: ElementNode | undefined;
   let busyNode: ElementNode | undefined;
@@ -120,6 +133,17 @@ export function SettingsScreen() {
     else focusMenu();
   });
 
+  const toRail = () => {
+    if (busyText() === undefined) railNode?.setFocus();
+    return true;
+  };
+  /** A tab leaves Settings like Back from the menu does; Settings itself returns to the menu or page. */
+  const onRailSelect = (id: RailId) => {
+    if (id === 'settings') { restoreFocus(); return; }
+    memory.area = 'menu';
+    goRailFrom('settings', below, id, () => router.back({ fromVod: true }));
+  };
+
   const selectPage = (i: number) => {
     pageNode = undefined;
     memory.page = i;
@@ -144,7 +168,7 @@ export function SettingsScreen() {
   };
 
   const pageProps = (): PageProps => ({
-    x: PAGE_X, y: PAGE_Y, width: PAGE_W, height: PAGE_H,
+    x: PAGE_X, y: PAGE_Y, width: PAGE_W, height: pageHeight(),
     register: (el) => {
       if (!el) return;
       pageNode = el;
@@ -211,9 +235,12 @@ export function SettingsScreen() {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
-      <Text x={LAYOUT.safeX} y={LAYOUT.safeY} fontSize={FONT.title} color={COLORS.text}>{'Settings'}</Text>
-      <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onClickRow={clickMenu} />
-      <Text x={PAGE_X + 28} y={MENU_Y + 8} fontSize={FONT.heading} color={COLORS.text}>{title()}</Text>
+      <Rail ref={(el) => { railNode = el; }} active="settings" onSelect={onRailSelect}
+        onRight={() => { restoreFocus(); return true; }} />
+      <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Settings'}</Text>
+      <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onLeft={toRail}
+        onClickRow={clickMenu} />
+      <Text x={PAGE_X + 28} y={LAYOUT.safeY + TYPE.title - TYPE.body - 2} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
       <PointerFocusContext.Provider value={focusFromPointer}>
       <Switch>
         <Match when={id() === 'sources'}><SourcesPage {...pageProps()} /></Match>
@@ -227,12 +254,6 @@ export function SettingsScreen() {
         <Match when={id() === 'about'}><AboutPage {...pageProps()} /></Match>
       </Switch>
       </PointerFocusContext.Provider>
-      {/* Pointer mode: the shell's Back button stands on this line instead. */}
-      <Show when={!pointerMode()}>
-        <Text x={LAYOUT.safeX} y={HINT_Y} fontSize={FONT.small} color={COLORS.muted}>
-          {area() === 'page' ? 'Ok select · Left/Right change · Back menu' : 'Up/Down choose · Ok or Right open · Back leave'}
-        </Text>
-      </Show>
 
       <Show when={chooser()}>{(c) => (
         <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
@@ -250,8 +271,8 @@ export function SettingsScreen() {
               width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
               onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
               onBack={() => true}>
-              <Text y={(BUSY_H - FONT.heading) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
-                fontSize={FONT.heading} color={COLORS.text}>{t()}</Text>
+              <Text y={(BUSY_H - TYPE.body) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
+                fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{t()}</Text>
             </View>
           </View>
         );

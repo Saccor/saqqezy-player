@@ -1,5 +1,5 @@
 import { For, Text, View } from '@lightningtv/solid';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 /**
  * Sized to stay clear of the Player's other top and centre boxes: with 7 lines it is 96–696 × 54–400, left of the
@@ -19,12 +19,12 @@ export function StreamInfoPanel(props: { lines: [string, string][] }) {
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.safeY} width={W} height={height()} color={COLORS.panel}
       borderRadius={LAYOUT.radius * 2} zIndex={20}>
-      <Text x={PAD} y={PAD} fontSize={FONT.heading} color={COLORS.text}>{'Stream info'}</Text>
+      <Text x={PAD} y={PAD} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'Stream info'}</Text>
       <For each={props.lines}>{(line, i) => (
         <View x={PAD} y={PAD + 52 + i() * LINE_H} width={W - PAD * 2} height={LINE_H}>
-          <Text fontSize={FONT.small} color={COLORS.muted}>{line[0]}</Text>
+          <Text fontSize={TYPE.meta} color={COLORS.muted}>{line[0]}</Text>
           <Text x={LABEL_W} width={W - PAD * 2 - LABEL_W} maxWidth={W - PAD * 2 - LABEL_W} contain="width" maxLines={1}
-            fontSize={FONT.small} color={COLORS.text}>{line[1]}</Text>
+            fontSize={TYPE.meta} color={COLORS.text}>{line[1]}</Text>
         </View>
       )}</For>
     </View>

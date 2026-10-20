@@ -22,6 +22,8 @@ export function PosterRow(props: {
   row: RowModel;
   focusCol: number | undefined;
   lit: boolean;
+  /** Posters fully visible (default `ROW_VISIBLE_COLS`); the focused column scrolls within this window. */
+  visible?: number;
   onCellClick?: (col: number) => void;
   onCellOptions?: (col: number) => void;
   /** A wheel step over the row (this target wins over the screen's, so the screen's handler is passed down). */
@@ -31,13 +33,14 @@ export function PosterRow(props: {
   let node: ElementNode | undefined;
   let lastScroll = 0;
   const cells = () => cellCount(props.row);
+  const visible = () => props.visible ?? ROW_VISIBLE_COLS;
   const scroll = createMemo(() => {
-    if (props.focusCol !== undefined) lastScroll = scrollTopFor(props.focusCol, lastScroll, ROW_VISIBLE_COLS, cells());
-    else lastScroll = Math.min(lastScroll, Math.max(0, cells() - ROW_VISIBLE_COLS));
+    if (props.focusCol !== undefined) lastScroll = scrollTopFor(props.focusCol, lastScroll, visible(), cells());
+    else lastScroll = Math.min(lastScroll, Math.max(0, cells() - visible()));
     return lastScroll;
   });
   const cols = createMemo(() => {
-    const r = renderRange(scroll(), ROW_VISIBLE_COLS, drawnCells(props.row), BUFFER);
+    const r = renderRange(scroll(), visible(), drawnCells(props.row), BUFFER);
     return Array.from({ length: r.to - r.from }, (_, i) => r.from + i);
   });
   const colAt = (px: number) => {

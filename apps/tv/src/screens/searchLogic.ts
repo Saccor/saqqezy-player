@@ -1,15 +1,18 @@
 import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit, VodTile } from '@iptv/app-api';
-import { firstSelectable, scrollTopFor } from '../components/virtualWindow.ts';
+import { formatClock } from '../shell/logic.ts';
+import type { RowModel } from '../vod/browseLogic.ts';
+import { dayLabel } from './guideLogic.ts';
+import { formatRange } from './homeLogic.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
 
 export const SEARCH_DEBOUNCE_MS = 150;
 export const SEARCH_LIMIT = 50;
 
-export interface SearchState<T> {
+export interface SearchState<R> {
   /** The latest query (trimmed). While `busy`, `results` may still be the previous query's. */
   query: string;
-  results: T[];
+  results: R;
   /** A search is scheduled or running for the latest query. */
   busy: boolean;
   /** The latest search failed. */
@@ -21,21 +24,23 @@ export interface Searcher {
   dispose(): void;
 }
 
-export function createSearcher<T>(
-  run: (query: string) => Promise<T[]>,
-  onState: (s: SearchState<T>) => void,
-  opts: { delayMs?: number; setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (h: unknown) => void } = {},
+/** `empty`: the results of an empty query or a failed search. */
+export function createSearcher<R>(
+  run: (query: string) => Promise<R>,
+  onState: (s: SearchState<R>) => void,
+  opts: { empty: R; delayMs?: number; setTimer?: (fn: () => void, ms: number) => unknown; clearTimer?: (h: unknown) => void },
 ): Searcher {
   const delay = opts.delayMs ?? SEARCH_DEBOUNCE_MS;
   const setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+  const empty = opts.empty;
   let timer: unknown;
   let seq = 0;
   let disposed = false;
-  /** The last settled results: kept on screen while the next query runs, so the list does not flash empty. */
-  let shown: T[] = [];
+  /** The last settled results: kept on screen while the next query runs, so the rows do not flash empty. */
+  let shown: R = empty;
 
-  const emit = (s: SearchState<T>) => {
+  const emit = (s: SearchState<R>) => {
     if (disposed) return;
     if (!s.busy) shown = s.results;
     onState(s);
@@ -48,7 +53,7 @@ export function createSearcher<T>(
       if (timer !== undefined) clearTimer(timer);
       timer = undefined;
       if (q === '') {
-        emit({ query: '', results: [], busy: false, failed: false });
+        emit({ query: '', results: empty, busy: false, failed: false });
         return;
       }
       emit({ query: q, results: shown, busy: true, failed: false });
@@ -56,7 +61,7 @@ export function createSearcher<T>(
         timer = undefined;
         run(q).then(
           (results) => { if (mine === seq) emit({ query: q, results, busy: false, failed: false }); },
-          () => { if (mine === seq) emit({ query: q, results: [], busy: false, failed: true }); },
+          () => { if (mine === seq) emit({ query: q, results: empty, busy: false, failed: true }); },
         );
       }, delay);
     },
@@ -71,171 +76,184 @@ export function createSearcher<T>(
 
 export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
 export const VOD_PENDING_NOTE = 'Movies and series are being prepared';
-const PENDING_NOTES: readonly string[] = [GUIDE_PENDING_NOTE, VOD_PENDING_NOTE];
+export const VOD_ROW_LABEL = 'Movies & series';
+export const LIVE_ROW_LABEL = 'Live & guide';
 
 /** Events after which Search re-runs the open query: a search index became ready, or a guide import finished. */
 export function rerunsSearch(e: AppEvent): boolean {
   return e.type === 'searchReady' || (e.type === 'refreshed' && e.what === 'epg');
 }
 
-/** One row of the flat result list; headers and notes are drawn but never take focus. */
-export type SearchRow =
-  | { kind: 'header'; label: string }
-  | { kind: 'note'; label: string }
-  | { kind: 'channel'; channel: ChannelRow }
-  | { kind: 'vod'; tile: VodTile }
-  | { kind: 'onNow'; hit: ProgrammeHit }
-  | { kind: 'later'; hit: TitleHit };
+/** A programme in the live row: one on now (plays its channel) or a coming-up airing (opens Live TV at it). */
+export type ProgrammeCell =
+  | { type: 'programme'; when: 'onNow'; hit: ProgrammeHit }
+  | { type: 'programme'; when: 'later'; hit: TitleHit };
+/** A cell of the "Live & guide" row (drawn as a wide card). */
+export type LiveCell = { type: 'channel'; channel: ChannelRow } | ProgrammeCell;
+/** Any focusable result. */
+export type SearchCell = { type: 'vod'; tile: VodTile } | LiveCell;
 
-/**
- * Sections in fixed order (Channels, Movies, Series, On now, Coming up), each under a header; empty sections are
- * left out. Pending notes (guide, then movies and series) come last.
- */
-export function flattenResults(r: SearchResult): SearchRow[] {
-  const out: SearchRow[] = [];
-  if (r.channels.length) {
-    out.push({ kind: 'header', label: 'Channels' });
-    for (const channel of r.channels) out.push({ kind: 'channel', channel });
-  }
-  if (r.movies.length) {
-    out.push({ kind: 'header', label: 'Movies' });
-    for (const tile of r.movies) out.push({ kind: 'vod', tile });
-  }
-  if (r.series.length) {
-    out.push({ kind: 'header', label: 'Series' });
-    for (const tile of r.series) out.push({ kind: 'vod', tile });
-  }
-  if (r.onNow.length) {
-    out.push({ kind: 'header', label: 'On now' });
-    for (const hit of r.onNow) out.push({ kind: 'onNow', hit });
-  }
-  if (r.later.length) {
-    out.push({ kind: 'header', label: 'Coming up' });
-    for (const hit of r.later) out.push({ kind: 'later', hit });
-  }
-  // Kept even when nothing is selectable, so `resultsMessage` can say what is still being prepared.
-  if (r.guidePending) out.push({ kind: 'note', label: GUIDE_PENDING_NOTE });
-  if (r.vodPending) out.push({ kind: 'note', label: VOD_PENDING_NOTE });
-  return out;
+/** The two result rows, plus what is still being prepared. */
+export interface SearchRows {
+  /** Movies, then series. */
+  vod: VodTile[];
+  /** Channels, then programmes on now, then coming up. */
+  live: LiveCell[];
+  guidePending: boolean;
+  vodPending: boolean;
 }
 
-/** Where Ok on a movie or series row goes: its detail screen, with the tile to draw until the detail loads. */
-export function vodRoute(row: SearchRow | undefined): { screen: 'movieDetail' | 'seriesDetail'; params: { id: string; tile: VodTile } } | undefined {
-  if (row?.kind !== 'vod') return undefined;
-  return { screen: row.tile.kind === 'movie' ? 'movieDetail' : 'seriesDetail', params: { id: row.tile.id, tile: row.tile } };
+export const NO_ROWS: SearchRows = { vod: [], live: [], guidePending: false, vodPending: false };
+
+export function searchRows(r: SearchResult): SearchRows {
+  return {
+    vod: [...r.movies, ...r.series],
+    live: [
+      ...r.channels.map((channel): LiveCell => ({ type: 'channel', channel })),
+      ...r.onNow.map((hit): LiveCell => ({ type: 'programme', when: 'onNow', hit })),
+      ...r.later.map((hit): LiveCell => ({ type: 'programme', when: 'later', hit })),
+    ],
+    guidePending: r.guidePending,
+    vodPending: r.vodPending,
+  };
 }
 
-/**
- * Where Ok on a coming-up row goes: back to Live TV (the root `home`, never a second one), opened at that channel and
- * the programme's start.
- */
-export function laterRoute(row: SearchRow | undefined): { screen: 'home'; params: { channelId: string; at: number } } | undefined {
-  if (row?.kind !== 'later') return undefined;
-  return { screen: 'home', params: { channelId: row.hit.channel.id, at: row.hit.start } };
+/** What is still being prepared: the guide first, then movies and series. */
+export function pendingNotes(r: SearchRows): string[] {
+  return [...(r.guidePending ? [GUIDE_PENDING_NOTE] : []), ...(r.vodPending ? [VOD_PENDING_NOTE] : [])];
 }
 
-/** A movie or series row's text: compact, no poster (title · year). */
-export function vodLine(t: VodTile): string {
-  return t.year ? `${t.title} · ${t.year}` : t.title;
+const hasResults = (r: SearchRows) => r.vod.length > 0 || r.live.length > 0;
+
+/** The VOD row as a poster row (loaded, every title in it: no View all). */
+export function vodRowModel(r: SearchRows): RowModel {
+  return { id: 'search-vod', title: VOD_ROW_LABEL, total: r.vod.length, items: r.vod, loaded: true };
 }
 
-/** The rows the list draws: none when nothing is selectable (a lone note is shown by `resultsMessage` instead). */
-export function listRows(rows: readonly SearchRow[]): readonly SearchRow[] {
-  return selectableCount(rows) > 0 ? rows : [];
+/** A programme card's muted context line: when, then the channel ("20:00–21:30 · News", "Tomorrow 09:05 · News · +2 more"). */
+export function programmeContext(c: ProgrammeCell, now: number): string {
+  const ch = c.hit.channel.name;
+  if (c.when === 'onNow') return `${formatRange(c.hit.start, c.hit.stop)} · ${ch}`;
+  const more = c.hit.more > 0 ? ` · +${c.hit.more} more` : '';
+  return `${dayLabel(c.hit.start, now)} ${formatClock(new Date(c.hit.start))} · ${ch}${more}`;
 }
 
-/** True when the answer is still waiting for guide results (it carries the pending note). */
-export function isGuidePending(rows: readonly SearchRow[]): boolean {
-  return rows.some((r) => r.kind === 'note' && r.label === GUIDE_PENDING_NOTE);
-}
+export type SearchArea = 'keyboard' | 'vod' | 'live';
+/** Where the focus is; `col` counts only in a row. */
+export interface SearchFocus { area: SearchArea; col: number }
 
-/** The first pending note of the answer (guide, or movies and series), if it is still waiting for any results. */
-function pendingNote(rows: readonly SearchRow[]): string | undefined {
-  for (const r of rows) if (r.kind === 'note' && PENDING_NOTES.includes(r.label)) return r.label;
+const KEYBOARD: SearchFocus = { area: 'keyboard', col: 0 };
+const rowLength = (r: SearchRows, area: SearchArea) => (area === 'vod' ? r.vod.length : area === 'live' ? r.live.length : 0);
+
+export function focusedCell(r: SearchRows, f: SearchFocus): SearchCell | undefined {
+  if (f.area === 'vod') { const tile = r.vod[f.col]; return tile ? { type: 'vod', tile } : undefined; }
+  if (f.area === 'live') return r.live[f.col];
   return undefined;
 }
 
-export interface FocusInput {
-  rows: readonly SearchRow[];
-  /** Back from the Player or a detail screen: the next full answer restores `memoryFocus`. */
-  returning: boolean;
-  memoryFocus: number;
-  prevFocus: number;
-  /** The settled answer's query, and the query of the answer before it. */
-  query: string;
-  settledQuery: string;
-  viewRows: number;
-}
-
-export interface FocusDecision {
-  focus: number;
-  /** New window top; absent when the scroll position is kept (a re-run of the same query). */
-  top?: number;
-  /** The restore is done: clear `returning`. */
-  consumeReturning: boolean;
-  /** Move key focus to the result list. */
-  focusList: boolean;
+/** The focus moved onto rows that may have changed: an emptied row gives way to the other row, then the keyboard. */
+export function clampSearchFocus(f: SearchFocus, r: SearchRows): SearchFocus {
+  if (f.area === 'keyboard') return KEYBOARD;
+  const other = f.area === 'vod' ? 'live' : 'vod';
+  const area = rowLength(r, f.area) > 0 ? f.area : rowLength(r, other) > 0 ? other : undefined;
+  if (!area) return KEYBOARD;
+  return { area, col: Math.max(0, Math.min(f.col, rowLength(r, area) - 1)) };
 }
 
 /**
- * Focus for a settled answer. Returning from the Player or a detail screen restores the saved row, but an
- * answer still waiting for guide, movie or series results only sets a provisional focus and keeps `returning`, so the
- * full answer that follows restores the saved row exactly. A re-run of the same query keeps the focused row; a
- * new query starts at the top.
+ * One D-pad step. In a row: Left/Right move along it (Left at column 0 returns to the keyboard), Up/Down go to the
+ * other row when it has results. From the keyboard's edges (the keyboard moves its own cursor): Right goes to the first
+ * row with results, Left to the rail.
  */
-export function nextFocus(i: FocusInput): FocusDecision {
+export function moveSearch(f: SearchFocus, key: 'up' | 'down' | 'left' | 'right', r: SearchRows): SearchFocus | 'keyboard' | 'rail' {
+  if (f.area === 'keyboard') {
+    if (key === 'left') return 'rail';
+    if (key !== 'right') return 'keyboard';
+    if (r.vod.length > 0) return { area: 'vod', col: 0 };
+    return r.live.length > 0 ? { area: 'live', col: 0 } : 'keyboard';
+  }
+  const len = rowLength(r, f.area);
+  if (key === 'left') return f.col <= 0 ? 'keyboard' : { area: f.area, col: Math.min(f.col - 1, len - 1) };
+  if (key === 'right') return { area: f.area, col: Math.max(0, Math.min(f.col + 1, len - 1)) };
+  const target = key === 'up' ? 'vod' : 'live';
+  if (target === f.area || rowLength(r, target) === 0) return f;
+  return { area: target, col: Math.min(f.col, rowLength(r, target) - 1) };
+}
+
+export interface SettleInput {
+  rows: SearchRows;
+  /** Back from the Player or a detail screen: the next full answer restores `memory`. */
+  returning: boolean;
+  memory: SearchFocus;
+  current: SearchFocus;
+  /** The settled answer's query, and the query of the answer before it. */
+  query: string;
+  settledQuery: string;
+}
+
+/**
+ * Focus for a settled answer. Returning from the Player or a detail screen restores the saved cell, but an answer still
+ * waiting for guide, movie or series results only sets a provisional focus and keeps `returning`, so the full answer
+ * that follows restores the saved cell exactly. A re-run of the same query keeps the focused cell; a new query keeps the
+ * keyboard, or starts the focused row at its first cell.
+ */
+export function settleFocus(i: SettleInput): { focus: SearchFocus; consumeReturning: boolean } {
   const { rows } = i;
-  const sel = (n: number) => isSelectable(rows[n]);
-  const top = (f: number) => Math.max(0, f - i.viewRows + 1);
-  if (i.returning && selectableCount(rows) > 0) {
-    const focus = firstSelectable(i.memoryFocus, rows.length, sel);
-    return { focus, top: top(focus), consumeReturning: pendingNote(rows) === undefined, focusList: true };
+  if (i.returning && hasResults(rows)) {
+    return { focus: clampSearchFocus(i.memory, rows), consumeReturning: pendingNotes(rows).length === 0 };
   }
-  if (!i.returning && i.query !== '' && i.query === i.settledQuery) {
-    return { focus: firstSelectable(Math.min(i.prevFocus, rows.length - 1), rows.length, sel), consumeReturning: false, focusList: false };
-  }
-  const focus = firstSelectable(0, rows.length, sel);
-  return { focus, top: top(focus), consumeReturning: false, focusList: false };
+  if (i.returning || (i.query !== '' && i.query === i.settledQuery)) return { focus: clampSearchFocus(i.current, rows), consumeReturning: false };
+  return { focus: clampSearchFocus({ area: i.current.area, col: 0 }, rows), consumeReturning: false };
 }
 
-export function isSelectable(row: SearchRow | undefined): boolean {
-  return row !== undefined && row.kind !== 'header' && row.kind !== 'note';
+/** Where Ok on a movie or series goes: its detail screen, with the tile to draw until the detail loads. */
+export function vodRoute(c: SearchCell | undefined): { screen: 'movieDetail' | 'seriesDetail'; params: { id: string; tile: VodTile } } | undefined {
+  if (c?.type !== 'vod') return undefined;
+  return { screen: c.tile.kind === 'movie' ? 'movieDetail' : 'seriesDetail', params: { id: c.tile.id, tile: c.tile } };
 }
 
-export function selectableCount(rows: readonly SearchRow[]): number {
-  let n = 0;
-  for (const r of rows) if (isSelectable(r)) n++;
-  return n;
+/**
+ * Where Ok on a coming-up programme goes: back to Live TV (the root `home`, never a second one), opened at that
+ * channel and the programme's start.
+ */
+export function laterRoute(c: SearchCell | undefined): { screen: 'home'; params: { channelId: string; at: number } } | undefined {
+  if (c?.type !== 'programme' || c.when !== 'later') return undefined;
+  return { screen: 'home', params: { channelId: c.hit.channel.id, at: c.hit.start } };
 }
 
-/** Text for the empty/placeholder area of the results (undefined when there are results). */
-export function resultsMessage(s: SearchState<SearchRow>): string | undefined {
+/** The channel Ok plays: a channel's own, or an on-now programme's. */
+export function channelToPlay(c: SearchCell | undefined): ChannelRow | undefined {
+  if (c?.type === 'channel') return c.channel;
+  if (c?.type === 'programme' && c.when === 'onNow') return c.hit.channel;
+  return undefined;
+}
+
+/** Text for the results area when it has no rows (undefined when there are results). */
+export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
   if (s.query === '') return 'Type to search channels, programmes, movies and series';
-  if (selectableCount(s.results) > 0) return undefined;
+  if (hasResults(s.results)) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";
-  const note = pendingNote(s.results);
-  if (note) return `No channels match "${s.query}" · ${note}`;
+  const note = pendingNotes(s.results)[0];
+  if (note) return `Nothing matches "${s.query}" · ${note}`;
   return `Nothing matches "${s.query}"`;
 }
 
-/** The line above the results: a subtle `Searching…` while a query runs over the shown results, else the count. */
-export function countText(s: SearchState<SearchRow>): string {
-  const n = selectableCount(s.results);
-  if (n === 0) return '';
-  if (s.busy) return 'Searching…';
-  return `${n} ${n === 1 ? 'result' : 'results'}`;
+/** A subtle note beside the first row while the next query runs over the shown rows (with no rows the message says it). */
+export function searchingNote(s: SearchState<SearchRows>): string | undefined {
+  return s.busy && hasResults(s.results) ? 'Searching…' : undefined;
 }
 
 export interface SearchMemory {
   query: string;
-  focus: number;
-  /** The next answer restores `focus` (set when Ok opened the Player or a detail screen). */
+  area: SearchArea;
+  col: number;
+  /** The next answer restores `area` and `col` (set when Ok opened the Player or a detail screen). */
   returning: boolean;
   /** Back left Search: start fresh next time. */
   leaveBack(): void;
-  /** Ok opened the Player or a detail screen: Back returns to the same results and row. */
-  leaveTo(focus: number): void;
+  /** Ok opened the Player or a detail screen: Back returns to the same results and cell. */
+  leaveTo(focus: SearchFocus): void;
   /** The user handled a key in the results: their own position wins over a pending restore. */
   userNavigated(): void;
 }
@@ -244,22 +262,12 @@ export interface SearchMemory {
 export function createSearchMemory(): SearchMemory {
   const m: SearchMemory = {
     query: '',
-    focus: 0,
+    area: 'keyboard',
+    col: 0,
     returning: false,
-    leaveBack() { m.query = ''; m.focus = 0; m.returning = false; },
-    leaveTo(focus) { m.focus = focus; m.returning = true; },
+    leaveBack() { m.query = ''; m.area = 'keyboard'; m.col = 0; m.returning = false; },
+    leaveTo(f) { m.area = f.area; m.col = f.col; m.returning = true; },
     userNavigated() { m.returning = false; },
   };
   return m;
-}
-
-/** The row to scroll to for `focus`: the section header right above it, so the header is not clipped when scrolling up. */
-export function scrollAnchor(rows: readonly SearchRow[], focus: number): number {
-  return rows[focus - 1]?.kind === 'header' ? focus - 1 : focus;
-}
-
-/** Window top for the focus: as `scrollTopFor`, but scrolling up reveals the section header above the focused row. */
-export function listTop(rows: readonly SearchRow[], focus: number, top: number, viewRows: number): number {
-  const anchor = scrollAnchor(rows, focus);
-  return scrollTopFor(anchor < top ? anchor : focus, top, viewRows, rows.length);
 }

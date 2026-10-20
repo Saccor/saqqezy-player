@@ -1,9 +1,11 @@
 import { Text, View } from '@lightningtv/solid';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 
 const H = 110;
 /** Below the shell clock in the top-right corner. */
-const Y = LAYOUT.safeY + 64;
+export const NUMBER_ENTRY_Y = LAYOUT.safeY + 64;
+export const NUMBER_ENTRY_H = H;
+const Y = NUMBER_ENTRY_Y;
 
 /** Top-right box with the digits being typed, or a short message such as "No channel 123". */
 export function NumberEntry(props: { text: string; message?: string | undefined }) {
@@ -12,8 +14,8 @@ export function NumberEntry(props: { text: string; message?: string | undefined 
   return (
     <View x={LAYOUT.width - LAYOUT.safeX - width()} y={Y} width={width()} height={H}
       color={COLORS.panel} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.subtle }} zIndex={30}>
-      <Text y={props.message ? (H - FONT.heading) / 2 - 4 : (H - 72) / 2 - 4} width={width()} maxWidth={width()}
-        contain="width" maxLines={1} textAlign="center" fontSize={props.message ? FONT.heading : 72}
+      <Text y={props.message ? (H - TYPE.body) / 2 - 4 : (H - TYPE.numberEntry) / 2 - 4} width={width()} maxWidth={width()}
+        contain="width" maxLines={1} textAlign="center" fontSize={props.message ? TYPE.body : TYPE.numberEntry} {...STRONG}
         color={COLORS.text}>{props.message ?? props.text}</Text>
     </View>
   );

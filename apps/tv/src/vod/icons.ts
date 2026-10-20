@@ -3,7 +3,7 @@
  * tints them). Drawn once per kind and cached as data URLs, like `scrim.ts`: no icon font, no glyphs a TV font lacks.
  */
 export type IconKind = 'play' | 'pause' | 'back10' | 'fwd10' | 'back30' | 'fwd30' | 'volume' | 'mute' | 'archive'
-  | 'home' | 'tv' | 'film' | 'layers' | 'search' | 'gear' | 'chevron' | 'heart' | 'heartFilled';
+  | 'home' | 'tv' | 'film' | 'layers' | 'search' | 'gear' | 'chevron' | 'heart' | 'heartFilled' | 'close';
 
 /** Line icons for the rail and headers: 24-unit SVG paths, stroked (Path2D is in every Chromium the TVs ship). */
 const STROKES: Partial<Record<IconKind, { paths: string[]; fill?: boolean }>> = {
@@ -14,6 +14,7 @@ const STROKES: Partial<Record<IconKind, { paths: string[]; fill?: boolean }>> = 
   search: { paths: ['M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z', 'm20 20-3.5-3.5'] },
   gear: { paths: ['M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z', 'M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1'] },
   chevron: { paths: ['m6 9 6 6 6-6'] },
+  close: { paths: ['M6 6l12 12M18 6 6 18'] },
   heart: { paths: ['M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z'] },
   heartFilled: { paths: ['M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z'], fill: true },
 };

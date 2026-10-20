@@ -1,7 +1,7 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT } from '../shell/theme.ts';
+import { COLORS, TYPE } from '../shell/theme.ts';
 
 export const BUTTON_H = 64;
 
@@ -42,8 +42,8 @@ export function Button(props: {
       alpha={props.dimmed ? 0.5 : 1} onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}>
-      <Text y={(BUTTON_H - FONT.body) / 2 - 4} width={w()} maxWidth={w()} contain="width" textAlign="center"
-        fontSize={FONT.body} color={focused() ? COLORS.onFocus : COLORS.text}>{props.label}</Text>
+      <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={w()} maxWidth={w()} contain="width" textAlign="center"
+        fontSize={TYPE.body} color={focused() ? COLORS.onFocus : COLORS.text}>{props.label}</Text>
     </View>
   );
 }

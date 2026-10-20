@@ -4,7 +4,7 @@ import type { SupervisorStatus } from '@iptv/player';
 import { onLogicalKey, onUnmappedKey } from '../input/keys.ts';
 import { platformId, startupMs, supervisorStatus } from '../state/appState.ts';
 import { createTapSequence } from './logic.ts';
-import { COLORS, FONT, LAYOUT } from './theme.ts';
+import { COLORS, LAYOUT, TYPE } from './theme.ts';
 
 const WIDTH = 460;
 const LINE = 34;
@@ -82,11 +82,11 @@ export function DebugOverlay() {
 
   return (
     <Show when={visible()}>
-      <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - HEIGHT} width={WIDTH} height={HEIGHT} color={0x000000cc}
+      <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - HEIGHT} width={WIDTH} height={HEIGHT} color={COLORS.panel}
         borderRadius={LAYOUT.radius} zIndex={100}>
-        <Text x={16} y={12} fontSize={FONT.small} color={COLORS.accent}>Debug</Text>
+        <Text x={16} y={12} fontSize={TYPE.meta} color={COLORS.accent}>Debug</Text>
         <Index each={lines()}>
-          {(l, i) => <Text x={16} y={12 + LINE * (i + 1)} fontSize={FONT.small} color={COLORS.text}>{l()}</Text>}
+          {(l, i) => <Text x={16} y={12 + LINE * (i + 1)} fontSize={TYPE.meta} color={COLORS.text}>{l()}</Text>}
         </Index>
       </View>
     </Show>

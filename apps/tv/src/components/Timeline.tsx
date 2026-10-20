@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { jumpLabel, type Scrub } from '../vod/seekLogic.ts';
 import { bubbleX, fractionAt } from '../vod/timelineLogic.ts';
 import { clock } from '../vod/vodPlayerLogic.ts';
@@ -17,9 +17,6 @@ const BUBBLE_W = 200;
 const BUBBLE_H = 84;
 const HOVER_W = 140;
 const HOVER_H = 52;
-const BUFFERED = 0xffffff4d;
-const AHEAD = 0x4f8cff66;
-const BACK = 0xffffff80;
 
 /**
  * The VOD timeline: the track, the buffered range, the played part and (focused) a knob at the playhead; a pending
@@ -73,17 +70,17 @@ export function Timeline(props: {
       onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
       onLeft={() => props.onLeft()} onRight={() => props.onRight()} onEnter={() => props.onEnter()}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown()}>
-      <View y={barY()} width={props.width} height={barH()} borderRadius={barH() / 2} color={COLORS.surface} />
+      <View y={barY()} width={props.width} height={barH()} borderRadius={barH() / 2} color={COLORS.track} />
       <Show when={props.bufferedEndMs !== undefined && props.durMs !== undefined}>
         <View y={barY()} width={Math.max(barH(), xAt(props.bufferedEndMs))} height={barH()} borderRadius={barH() / 2}
-          color={BUFFERED} />
+          color={COLORS.buffered} />
       </Show>
       <View y={barY()} width={Math.max(barH(), xAt(props.posMs))} height={barH()} borderRadius={barH() / 2} color={COLORS.accent} />
       {/* A pending scrub: the stretch between the playhead and the target (ahead: light blue; back: whitened over the played part). */}
       <Show when={props.scrub}>{(s) => (
         <View x={Math.min(xAt(props.posMs), xAt(s().targetMs))} y={barY()}
           width={Math.abs(xAt(s().targetMs) - xAt(props.posMs))} height={barH()}
-          color={s().targetMs >= props.posMs ? AHEAD : BACK} />
+          color={s().targetMs >= props.posMs ? COLORS.scrubAhead : COLORS.scrubBack} />
       )}</Show>
       <Show when={focused() && !props.scrub && props.durMs !== undefined}>
         <View x={xAt(props.posMs) - KNOB / 2} y={(TIMELINE_H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
@@ -99,9 +96,9 @@ export function Timeline(props: {
               borderRadius={MARKER_W / 2} color={COLORS.text} />
             <View x={bx()} y={-BUBBLE_H - 4} width={BUBBLE_W} height={BUBBLE_H} borderRadius={LAYOUT.radius} color={COLORS.panel}>
               <Text y={8} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
-                fontSize={FONT.heading} color={COLORS.text}>{clock(s().targetMs)}</Text>
+                fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{clock(s().targetMs)}</Text>
               <Text y={50} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
-                fontSize={FONT.small} color={COLORS.muted}>{jumpLabel(s().targetMs - s().fromMs)}</Text>
+                fontSize={TYPE.meta} color={COLORS.muted}>{jumpLabel(s().targetMs - s().fromMs)}</Text>
             </View>
           </View>
         );
@@ -112,8 +109,8 @@ export function Timeline(props: {
           <View x={(hoverX() ?? 0) - 1} y={barY() - 4} width={2} height={barH() + 8} color={COLORS.text} />
           <View x={bubbleX(hoverX() ?? 0, HOVER_W, 0, props.width)} y={-HOVER_H + 4} width={HOVER_W} height={HOVER_H}
             borderRadius={LAYOUT.radius} color={COLORS.panel}>
-            <Text y={(HOVER_H - FONT.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
-              maxLines={1} fontSize={FONT.body} color={COLORS.text}>
+            <Text y={(HOVER_H - TYPE.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
+              maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
               {clock(fractionAt(hoverX() ?? 0, props.width) * (props.durMs ?? 0))}
             </Text>
           </View>

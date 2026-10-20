@@ -9,6 +9,7 @@ import {
 import { archiveFields, handleCatchup, serverInfo, simpleDataTable, xmltvHistory } from './catchup.ts';
 import { handleOpenSubtitles } from './openSubtitles.ts';
 import { movieTmdb, seriesTmdb, trendingFeed } from './trending.ts';
+import { SHOWCASE_MOVIES, SHOWCASE_SERIES, showcaseLogoSvg, showcasePosterSvg, showcaseProgramme } from './showcase.ts';
 
 export interface FakeXtreamOptions {
   port?: number;
@@ -40,6 +41,8 @@ export interface FakeXtreamOptions {
    * category order differs from first appearance in `get_live_streams`. Default: the stream order.
    */
   categoryOrder?: 'reverse';
+  /** Invented channel, programme and title names with generated posters and logos, for screenshots (`showcase.ts`). */
+  showcase?: boolean;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -72,7 +75,8 @@ const STREAM_STATUS: Record<string, { status: number; headers?: Record<string, s
 const RETRY_USERS = ['refuse403', 'limit429', 'gone404', 'down500'];
 
 export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
-  const chs = channels(opts.channels ?? 200, opts.versions === true);
+  const showcase = opts.showcase === true;
+  const chs = channels(opts.channels ?? 200, opts.versions === true, showcase);
   const now = opts.now ?? Date.now;
   const mediaDir = opts.mediaDir ?? DEFAULT_MEDIA_DIR;
   const ac3File = () => existsSync(join(mediaDir, 'ac3', 'film.mkv'));
@@ -86,8 +90,15 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   const movieExt = (n: number) =>
     ((n === AC3_MOVIE && ac3File()) || (n === MULTIAUDIO_MOVIE && multiaudioFile('mkv')) ? 'mkv' : VOD_EXT);
   const guided = chs.slice(0, opts.epgChannels ?? chs.length);
-  const mvs = movies(opts.movies ?? 120, now(), opts.versions === true);
-  const srs = seriesList(opts.series ?? 12, opts.versions === true);
+  // Showcase lists only the invented titles, so no numbered placeholder shows up in a screenshot.
+  const mvs = movies(opts.movies ?? (showcase ? SHOWCASE_MOVIES.length : 120), now(), opts.versions === true, showcase);
+  const srs = seriesList(opts.series ?? (showcase ? SHOWCASE_SERIES.length : 12), opts.versions === true, showcase);
+  /** Showcase artwork is drawn from the title, so every version of a title shares it. */
+  const titleName = (kind: string, n: number): string | undefined => {
+    if (kind === 'm' || kind === 'b') return mvs.find((m) => m.n === n)?.name.replace(/ \(\d{4}\)$/, '');
+    if (kind === 's') return srs.find((x) => x.n === n)?.name;
+    return undefined;
+  };
   let base = '';
   /** Refusal mode (`/__control/refuse?on=1`): every source request answers 403, as a refusing panel does. */
   let refusing = false;
@@ -168,7 +179,15 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     }
 
     const poster = /^\/poster\/([a-z]\d+)\.svg$/.exec(url.pathname);
+    if (poster && showcase) {
+      const kind = poster[1]![0]!;
+      const n = Number(poster[1]!.slice(1));
+      const title = titleName(kind, n) ?? (kind === 'e' ? `${srs.find((x) => x.n === Math.floor(n / 10_000))?.name ?? ''} ${n % 100}` : poster[1]!);
+      return send(res, 200, showcasePosterSvg(title, kind === 'b' || kind === 'e'), 'image/svg+xml');
+    }
     if (poster) return send(res, 200, posterSvg(`Synthetic ${poster[1]}`), 'image/svg+xml');
+    const logo = /^\/logo\/c(\d+)\.svg$/.exec(url.pathname);
+    if (logo && showcase) return send(res, 200, showcaseLogoSvg(chs.find((c) => c.n === Number(logo[1]))?.name ?? logo[1]!), 'image/svg+xml');
 
     const isValid = (u: string, p: string) =>
       (u === 'test' || u === 'slow' || u === 'expired' || u === 'vodall' || RETRY_USERS.includes(u)) && p === 'test';
@@ -193,21 +212,23 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       if (action === 'get_live_streams') {
         return send(res, 200, JSON.stringify(chs.map((c) => ({
-          num: c.n, name: c.name, stream_type: 'live', stream_id: c.n, stream_icon: '', epg_channel_id: c.epgId, category_id: c.categoryId,
+          num: c.n, name: c.name, stream_type: 'live', stream_id: c.n, stream_icon: showcase ? `${base}/logo/c${c.n}.svg` : '', epg_channel_id: c.epgId, category_id: c.categoryId,
           ...(opts.catchup ? archiveFields(c.n) : {}),
         }))));
       }
       if (action === 'get_simple_data_table' && opts.catchup) {
-        return send(res, 200, JSON.stringify(simpleDataTable(chs.find((x) => x.n === Number(url.searchParams.get('stream_id'))), now())));
+        return send(res, 200, JSON.stringify(simpleDataTable(chs.find((x) => x.n === Number(url.searchParams.get('stream_id'))), now(), showcase)));
       }
       if (action === 'get_short_epg') {
         const id = Number(url.searchParams.get('stream_id'));
         const limit = Number(url.searchParams.get('limit') ?? 2);
         const c = chs.find((x) => x.n === id);
         const upcoming = slots(now()).filter((s) => s.stop > now()).slice(0, limit);
+        const listing = (c: (typeof chs)[number], index: number) => (showcase
+          ? showcaseProgramme(Number(c.categoryId) - 1, index, c.n) : { title: `Programme ${index}`, desc: `Synthetic listing for ${c.name}.` });
         return send(res, 200, JSON.stringify({
           epg_listings: c ? upcoming.map((s) => ({
-            title: b64(`Programme ${s.index}`), description: b64(`Synthetic listing for ${c.name}.`),
+            title: b64(listing(c, s.index).title), description: b64(listing(c, s.index).desc),
             start_timestamp: String(s.start / 1000), stop_timestamp: String(s.stop / 1000),
           })) : [],
         }));
@@ -228,8 +249,10 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         if (!m) return send(res, 200, '[]');
         return send(res, 200, JSON.stringify({
           info: {
-            plot: `Synthetic plot for ${m.name}.`, duration_secs: String(5400 + m.n * 60), genre: MOVIE_GROUPS[Number(m.categoryId) - 1],
-            director: 'Synthetic Director', cast: 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
+            plot: (showcase ? SHOWCASE_MOVIES[m.title - 1]?.[1] : undefined) ?? `Synthetic plot for ${m.name}.`,
+            duration_secs: String(5400 + m.n * 60), genre: MOVIE_GROUPS[Number(m.categoryId) - 1],
+            director: showcase ? 'A. Example' : 'Synthetic Director',
+            cast: showcase ? 'Sam Example, Alex Placeholder' : 'Synthetic Actor A, Synthetic Actor B', mpaa_rating: '12',
             backdrop_path: [`${base}/poster/b${m.n}.svg`], releasedate: `${m.year}-01-01`, tmdb_id: String(900000 + m.n),
           },
           movie_data: { stream_id: m.n, name: m.name, container_extension: movieExt(m.n) },
@@ -254,13 +277,13 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
             id: String(episodeId(s.n, season, i + 1)), episode_num: i + 1, season,
             title: `${s.name} - S${String(season).padStart(2, '0')}E${String(i + 1).padStart(2, '0')} - Episode ${i + 1}`,
             container_extension: VOD_EXT,
-            info: { duration_secs: 2700 + i * 60, plot: `Synthetic episode ${i + 1}.`, movie_image: `${base}/poster/e${episodeId(s.n, season, i + 1)}.svg` },
+            info: { duration_secs: 2700 + i * 60, plot: showcase ? `Episode ${i + 1} of ${s.name}.` : `Synthetic episode ${i + 1}.`, movie_image: `${base}/poster/e${episodeId(s.n, season, i + 1)}.svg` },
           }));
         }
         return send(res, 200, JSON.stringify({
           seasons: Array.from({ length: s.seasons }, (_, i) => ({ season_number: i + 1, name: `Season ${i + 1}` })),
           info: {
-            name: s.name, plot: `Synthetic plot for ${s.name}.`, genre: SERIES_GROUPS[Number(s.categoryId) - 1], backdrop_path: [`${base}/poster/b${s.n}.svg`],
+            name: s.name, plot: showcase ? `${s.name}: a series in ${s.seasons} season${s.seasons > 1 ? 's' : ''}.` : `Synthetic plot for ${s.name}.`, genre: SERIES_GROUPS[Number(s.categoryId) - 1], backdrop_path: [`${base}/poster/b${s.n}.svg`],
             tmdb: String(800000 + s.n),
           },
           episodes,
@@ -272,8 +295,8 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
     if (url.pathname === '/xmltv.php') {
       if (!valid) return send(res, 401, '');
       res.writeHead(200, { 'content-type': 'application/xml' });
-      const history = opts.catchup ? (c: (typeof guided)[number], fmt: (ms: number) => string) => xmltvHistory(c, now(), fmt) : undefined;
-      for (const part of xmltv(guided, now(), opts.sports === true, history)) res.write(part);
+      const history = opts.catchup ? (c: (typeof guided)[number], fmt: (ms: number) => string) => xmltvHistory(c, now(), fmt, showcase) : undefined;
+      for (const part of xmltv(guided, now(), opts.sports === true, history, showcase)) res.write(part);
       return res.end();
     }
 

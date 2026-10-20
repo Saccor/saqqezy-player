@@ -58,20 +58,18 @@
     container-type: inline-size;
   }
   .stand { width: 22%; height: 10px; margin: 0 auto; background: #070a14; border-radius: 0 0 8px 8px; }
-  .tabs { position: absolute; top: 6%; left: 5%; display: flex; gap: 2.2cqw; font-size: 2.6cqw; font-weight: 500; color: var(--muted); }
-  .tabs b { font-weight: 500; padding: 0.5cqw 1.6cqw; border-radius: 99px; position: relative; z-index: 1; transition: color 200ms; }
-  .tabs b.on { color: #fff; }
-  .ring {
-    position: absolute; top: 6%; left: 5%; height: 4.6cqw; border-radius: 99px; background: var(--focus);
-    transition: transform 380ms cubic-bezier(.3, .7, .2, 1), width 380ms cubic-bezier(.3, .7, .2, 1);
+  .screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+  .shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px 32px; margin-top: 48px; }
+  .shots figure { margin: 0; }
+  .shots img {
+    display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; background: #0e1427;
+    border: 1px solid var(--line); box-shadow: 0 24px 48px -28px rgba(0, 0, 0, 0.8);
   }
-  .title { position: absolute; left: 5%; top: 22%; font-size: 5.2cqw; font-weight: 700; letter-spacing: -0.02em; }
-  .meta { position: absolute; left: 5%; top: 34.5%; font-size: 2.2cqw; color: var(--muted); }
-  .row { position: absolute; left: 5%; right: 0; top: 44%; display: flex; gap: 1.6cqw; }
-  .row div { flex: 0 0 13cqw; aspect-ratio: 2 / 3; border-radius: 1cqw; background: var(--panel); }
-  .row div:nth-child(2) { background: var(--panel-2); }
-  .row div:nth-child(4) { background: #2a3a6e; }
-  .row div:first-child { outline: 0.5cqw solid var(--focus); outline-offset: 0.5cqw; }
+  .shots figcaption { margin-top: 14px; max-width: 46ch; }
+  .shots figcaption strong { display: block; font-weight: 600; }
+  .shots figcaption span { color: var(--muted); }
+  .note { color: var(--muted); font-size: 0.95rem; margin: 40px 0 0; max-width: var(--measure); }
 
   section { padding: 72px 0; border-top: 1px solid var(--line); }
   .cols { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 56px; }
@@ -89,13 +87,13 @@
   @media (max-width: 860px) {
     .hero { grid-template-columns: 1fr; gap: 40px; padding: 16px 0 64px; }
     .cols { grid-template-columns: 1fr; gap: 20px; }
+    .shots { grid-template-columns: 1fr; gap: 32px; margin-top: 32px; }
     nav.top a { margin-left: 16px; }
   }
   @media (max-width: 520px) {
     nav.top { display: none; }
     section { padding: 56px 0; }
   }
-  @media (prefers-reduced-motion: reduce) { .ring, .tabs b { transition: none; } }
 </style>
 </head>
 <body>
@@ -103,6 +101,7 @@
   <header class="top">
     <a class="brand" href="/">Saqqezy <span>Player</span></a>
     <nav class="top" aria-label="Sections">
+      <a href="#screens">Screens</a>
       <a href="#sources">What it plays</a>
       <a href="#features">What it does</a>
       <a href="#privacy">Privacy</a>
@@ -116,17 +115,46 @@
         <p class="lede">A TV player for <strong>the playlists, guide and media library you already have</strong>. Built for the remote, on smart TVs and computers.</p>
         <p class="status"><i aria-hidden="true"></i>In beta on Samsung and LG TVs</p>
       </div>
-      <div class="tv" aria-hidden="true">
+      <div class="tv">
         <div class="screen">
-          <span class="ring" id="ring"></span>
-          <div class="tabs" id="tabs"><b class="on">Start</b><b>Live TV</b><b>Movies</b><b>Series</b></div>
-          <div class="title" id="title">Good evening</div>
-          <div class="meta" id="meta">Continue watching, live now, your guide</div>
-          <div class="row"><div></div><div></div><div></div><div></div><div></div><div></div></div>
+          <img src="/screens/player.webp" width="1600" height="900" fetchpriority="high"
+            alt="The player: a channel playing full screen, with the channel logo, the current programme, a progress bar and what is on next.">
         </div>
-        <div class="stand"></div>
+        <div class="stand" aria-hidden="true"></div>
       </div>
     </div>
+
+    <section id="screens">
+      <div class="cols">
+        <h2>A look around</h2>
+        <div class="body">
+          <p>Real screens from the app, running on a test source. Live TV and the guide share one screen, films and series get posters, and the focus is always where you can see it.</p>
+        </div>
+      </div>
+      <div class="shots">
+        <figure>
+          <img src="/screens/guide.webp" width="1600" height="900" loading="lazy"
+            alt="The TV guide: a list of channels with their logos, a timeline of programmes, and a live preview of the focused channel.">
+          <figcaption><strong>Live TV and guide in one</strong><span>Browse the timeline while the channel you are on keeps playing in the corner. The arrow marks programmes you can watch again.</span></figcaption>
+        </figure>
+        <figure>
+          <img src="/screens/movies.webp" width="1600" height="900" loading="lazy"
+            alt="The movies screen: rows of film posters by category, with the focused film's year, length, genre and plot at the top.">
+          <figcaption><strong>Your films, with posters</strong><span>Rows by category, recently added first, with details for whatever has the focus.</span></figcaption>
+        </figure>
+        <figure>
+          <img src="/screens/detail.webp" width="1600" height="900" loading="lazy"
+            alt="A film's page: title, year, length, plot, director and cast, a Play button, and more films like it.">
+          <figcaption><strong>One page per title</strong><span>Play, resume, save it for later, or find something like it.</span></figcaption>
+        </figure>
+        <figure>
+          <img src="/screens/series.webp" width="1600" height="900" loading="lazy"
+            alt="The series screen: rows of series posters, with the focused series' seasons, genre and rating at the top.">
+          <figcaption><strong>Series, season by season</strong><span>Pick up where you left off, one card per show.</span></figcaption>
+        </figure>
+      </div>
+      <p class="note">The channel, programme and title names in these pictures are made up, and so is the poster art. The video is <i>Big Buck Bunny</i> (&copy; Blender Foundation, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>).</p>
+    </section>
 
     <section id="sources">
       <div class="cols">
@@ -173,39 +201,5 @@
   </footer>
 </div>
 
-<script>
-  (function () {
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('#tabs b'));
-    var ring = document.getElementById('ring');
-    var title = document.getElementById('title');
-    var meta = document.getElementById('meta');
-    var screens = [
-      ['Good evening', 'Continue watching, live now, your guide'],
-      ['Channel 001', 'Now: Evening news. Next at 20:00'],
-      ['All movies', 'Your library, with posters'],
-      ['All series', 'Pick up where you left off'],
-    ];
-    var current = 0;
-    function place(i) {
-      var t = tabs[i];
-      var box = t.parentNode.getBoundingClientRect();
-      var r = t.getBoundingClientRect();
-      ring.style.width = r.width + 'px';
-      ring.style.transform = 'translateX(' + (r.left - box.left) + 'px)';
-      tabs.forEach(function (b, j) { b.classList.toggle('on', j === i); });
-      title.textContent = screens[i][0];
-      meta.textContent = screens[i][1];
-      current = i;
-    }
-    function start() {
-      place(0);
-      window.addEventListener('resize', function () { place(current); });
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      // One moment on load: the focus steps along the tabs like presses on a remote, then rests on Start.
-      [1, 2, 3, 0].forEach(function (i, n) { setTimeout(function () { place(i); }, 900 + n * 900); });
-    }
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(start); else start();
-  })();
-</script>
 </body>
 </html>

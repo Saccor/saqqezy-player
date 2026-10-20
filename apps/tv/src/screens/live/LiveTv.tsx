@@ -15,7 +15,7 @@ import { createDebounce } from '../../playback/debounce.ts';
 import { devResume } from '../../playback/devResume.ts';
 import { playback, previewHold } from '../../playback/playback.ts';
 import { dwellSignal } from '../../shell/dwell.ts';
-import { Rail } from '../../shell/Rail.tsx';
+import { focusRailCollapsed, Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
 import { goRail } from '../../shell/railNav.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
@@ -249,9 +249,11 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   // ---- focus ----
 
   const ctx = () => ({ row: row(), total: groupCount(), hasGroups: groups().length > 0 });
-  const focusPlace = (p: LivePlace) => {
+  /** `auto`: focus the screen moves by itself (no key), which keeps the rail collapsed. */
+  const focusPlace = (p: LivePlace, auto = false) => {
     setPlace(p);
-    (p === 'rail' ? railNode : p === 'groups' ? headerNode : gridNode)?.setFocus();
+    if (p === 'rail' && auto) focusRailCollapsed(railNode);
+    else (p === 'rail' ? railNode : p === 'groups' ? headerNode : gridNode)?.setFocus();
     return true;
   };
   /**
@@ -379,7 +381,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         });
       }
     }
-    queueMicrotask(() => { if (alive) focusPlace(contentPlace()); });
+    queueMicrotask(() => { if (alive) focusPlace(contentPlace(), true); });
   };
 
   // ---- OK ----
@@ -472,10 +474,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       const gs = await reload(id);
       // The change emptied the group (its last channel hidden or removed): focus moves to the dropdown.
       if (!alive || !gs || liveMenu.isOpen() || !onGrid() || (gs.find((g) => g.id === groupId())?.count ?? 0) > 0) return;
-      focusPlace(groups().length > 0 ? 'groups' : 'rail');
+      focusPlace(groups().length > 0 ? 'groups' : 'rail', true);
     },
     // No layer left: back to the grid or the channel cell; a group the change emptied hands focus on (`contentPlace`).
-    refocus: () => { focusPlace(groupCount() > 0 && onGrid() ? place() : contentPlace()); },
+    refocus: () => { focusPlace(groupCount() > 0 && onGrid() ? place() : contentPlace(), true); },
     dayTargets: () => dayJumpTargets(Date.now(), win()),
     goToDay: (at) => {
       const v = dayJumpView(at, Date.now(), win());
@@ -610,10 +612,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const settleFocus = (hadChannels: boolean) => {
     if (!alive || !ready() || router.topOverlay() !== undefined || layerOpen()) return;
     if (noLive()) {
-      if (place() !== 'rail') focusPlace('rail');
+      if (place() !== 'rail') focusPlace('rail', true);
       return;
     }
-    if (onGrid() && groupCount() === 0) focusPlace(contentPlace());
+    if (onGrid() && groupCount() === 0) focusPlace(contentPlace(), true);
     else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('grid');
   };
 
@@ -729,7 +731,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         if (alive && attempt === 0) {
           setReady(true);
           // The grid when it has channels, else the dropdown (an empty group), else the rail (no live channels).
-          if (router.topOverlay() === undefined) focusPlace(contentPlace());
+          if (router.topOverlay() === undefined) focusPlace(contentPlace(), true);
         } else if (alive && !groupsFailed()) {
           settleFocus(false);
         }

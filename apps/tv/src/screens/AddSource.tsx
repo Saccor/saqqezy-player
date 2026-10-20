@@ -11,7 +11,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
@@ -56,8 +56,6 @@ const FIELD_STEP = FIELD_H + 20;
 const FORM_W = 880;
 const TILE_W = 600;
 const TILE_H = 260;
-const TILE_FOCUS_FILL = 0x1b2436ff;
-const ERROR_COLOR = 0xff8a80ff;
 /** Pointer mode: the `Show password` / `Hide password` button inside the password field's right end. */
 const REVEAL_W = 240;
 /** The reveal button's inset from the field's right edge. */
@@ -71,17 +69,17 @@ function TypeTile(props: {
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
-  const ring = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.muted : 0x00000000);
+  const ring = () => (hovered() && pointerMode() && !focused() ? COLORS.muted : COLORS.transparent);
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={LAYOUT.radius}
-      color={focused() ? TILE_FOCUS_FILL : COLORS.surface} border={{ width: 3, color: ring() }}
+      color={focused() ? COLORS.focus : COLORS.surface} border={{ width: 2, color: ring() }}
       onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? false}>
-      <Text x={40} y={56} fontSize={40} color={COLORS.text}>{props.title}</Text>
-      <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={FONT.body}
-        color={COLORS.muted}>{props.body}</Text>
-      {props.badge ? <Text x={40} y={196} fontSize={FONT.small} color={COLORS.accent}>{props.badge}</Text> : null}
+      <Text x={40} y={56} fontSize={TYPE.title} {...STRONG} color={focused() ? COLORS.onFocus : COLORS.text}>{props.title}</Text>
+      <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={TYPE.body}
+        color={focused() ? COLORS.onFocusMuted : COLORS.muted}>{props.body}</Text>
+      {props.badge ? <Text x={40} y={196} fontSize={TYPE.meta} {...STRONG} color={focused() ? COLORS.onFocusMuted : COLORS.muted}>{props.badge}</Text> : null}
     </View>
   );
 }
@@ -348,8 +346,8 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Show when={ready() && step() === 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 60} fontSize={56} color={COLORS.text}>{'Add your TV source'}</Text>
-        <Text x={X} y={LAYOUT.safeY + 140} fontSize={FONT.heading} color={COLORS.muted}>
+        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.display} color={COLORS.text}>{'Add your TV source'}</Text>
+        <Text x={X} y={LAYOUT.safeY + 140} fontSize={TYPE.body} color={COLORS.muted}>
           {'Use the login details from your own provider.'}
         </Text>
         <View x={X} y={340} width={tileW2} height={TILE_H}>
@@ -358,19 +356,19 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           <TypeTile ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title="M3U link"
             body="Playlist URL + optional TV guide (EPG) URL" onPress={() => openStep('m3u')} onLeft={() => focusTile(0)} />
         </View>
-        <Text x={X} y={700} fontSize={FONT.body} color={COLORS.muted}>
+        <Text x={X} y={700} fontSize={TYPE.body} color={COLORS.muted}>
           {'This app contains no channels. You can only add sources you have the right to use.'}
         </Text>
       </Show>
 
       <Show when={ready() && step() !== 'type'}>
         {/* Ends before the wordmark zone: "Advanced · <long source name>" ran under the wordmark. */}
-        <Text x={X} y={LAYOUT.safeY + 40} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={FONT.title} color={COLORS.text}>
+        <Text x={X} y={LAYOUT.safeY + 40} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={TYPE.title} color={COLORS.text}>
           {advanced ? `Advanced · ${stored?.name ?? ''}` : editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
         </Text>
         <Show when={advanced}>
           <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + 16 + BUTTON_H + 32} width={FORM_W} maxWidth={FORM_W} contain="width"
-            maxLines={3} fontSize={FONT.body} color={COLORS.muted}>
+            maxLines={3} fontSize={TYPE.body} color={COLORS.muted}>
             {advancedHelp(headerSupportHere)}
           </Text>
         </Show>
@@ -394,12 +392,12 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           <Button x={X + FORM_W - REVEAL_W - REVEAL_INSET} y={FORM_Y + fields().findIndex((f) => f.secret === true) * FIELD_STEP + (FIELD_H - BUTTON_H) / 2}
             width={REVEAL_W} label={revealLabel(revealed())} onPress={() => setRevealed((r) => !r)} />
         </Show>
-        <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - FONT.body) / 2 - 4}
+        <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - TYPE.body) / 2 - 4}
           width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
-          fontSize={FONT.body} color={busy() ? COLORS.text : ERROR_COLOR}>{statusText()}</Text>
+          fontSize={TYPE.body} color={busy() ? COLORS.text : COLORS.error}>{statusText()}</Text>
         {/* Pointer mode: the shell's Back button stands on this line instead. */}
         <Show when={!pointerMode()}>
-          <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={FONT.small} color={COLORS.muted}>
+          <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={TYPE.meta} color={COLORS.muted}>
             {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
           </Text>
         </Show>

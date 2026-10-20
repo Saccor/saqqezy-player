@@ -81,11 +81,11 @@ export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: bool
 }
 
 /** Screens without the brand wordmark: the redesigned ones (spec §1.4) and the player. */
-const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail']);
+const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail']);
 
 /** Screens with the left rail; the rail draws the clock there, so the shell's top-right clock is off. */
 export function railRoute(route: ScreenId | undefined): boolean {
-  return route === 'home' || route === 'start' || route === 'vod' || route === 'vodGrid';
+  return route === 'home' || route === 'start' || route === 'vod' || route === 'vodGrid' || route === 'search' || route === 'settings';
 }
 
 /** The wordmark is drawn at the latest this long after the shell mounts, even if Home has not shown rows yet. */
@@ -117,8 +117,6 @@ export const SHELL_BACK_W = 200;
  */
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
-/** The hint line every browsing screen draws at the bottom (small text, inside the pointer-mode button row). */
-export const HINT_Y = LAYOUT.height - LAYOUT.safeY - 34;
 
 /**
  * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the
@@ -144,11 +142,13 @@ export function toastLayout(text: string, bottom = TOAST_BOTTOM): { y: number; h
 /** A toast's lowest bottom edge: a gap above the bottom row. A screen with controls higher up passes a higher one. */
 export const TOAST_BOTTOM = BOTTOM_ROW_Y - LAYOUT.gap;
 /**
- * The shell Back's x: the row start, except on Search, whose full keyboard reaches down to just above the row there.
- * Search puts it at the start of its results column instead (keyboard x + width + two gaps), on the same row.
+ * The shell Back's x: the row start, except on Search and Settings. Search's full keyboard reaches down to just above
+ * the row, so Back goes at the start of its results column (keyboard x + width + two gaps), on the same row. Settings
+ * has the rail, so Back starts at the content edge (x 160), clear of it.
  */
 export function shellBackX(route: ScreenId | undefined): number {
-  return route === 'search' ? LAYOUT.safeX + FULL_LAYOUT.width + LAYOUT.gap * 2 : LAYOUT.safeX;
+  if (route === 'search') return LAYOUT.contentX + FULL_LAYOUT.width + LAYOUT.gap * 2;
+  return route === 'settings' ? LAYOUT.contentX : LAYOUT.safeX;
 }
 /** Where a screen's own bottom-row buttons start: after the shell's Back, one bar gap apart. */
 export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;

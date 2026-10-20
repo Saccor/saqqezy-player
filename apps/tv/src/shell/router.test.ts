@@ -22,6 +22,18 @@ describe('router screen stack', () => {
     expect(r.below()?.screen).toBe('home');
   });
 
+  it('below(n) looks n screens under the current one', () => {
+    const r = createRouter();
+    r.reset('home');
+    r.push('vod', { kind: 'movie' });
+    r.push('vodGrid', { kind: 'movie' });
+    r.push('search');
+    expect(r.below(1)?.screen).toBe('vodGrid');
+    expect(r.below(2)).toEqual({ screen: 'vod', params: { kind: 'movie' } });
+    expect(r.below(3)?.screen).toBe('home');
+    expect(r.below(4)).toBeUndefined();
+  });
+
   it('push, replace and back move through the stack', () => {
     const r = createRouter();
     r.reset('home');

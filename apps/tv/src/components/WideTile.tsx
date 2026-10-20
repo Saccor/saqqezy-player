@@ -3,6 +3,8 @@ import type { StartCell } from '@iptv/app-api';
 import { rawViaDevProxy } from '../net/devProxy.ts';
 import { FocusRing } from './FocusRing.tsx';
 import { COLORS, FOCUS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { progressOf } from '../screens/homeLogic.ts';
+import { programmeContext, type ProgrammeCell } from '../screens/searchLogic.ts';
 import { channelsLabel, eventWhen } from '../screens/startLogic.ts';
 
 export const WIDE_W = 314;
@@ -10,25 +12,46 @@ export const WIDE_H = 176;
 export const WIDE_GAP = 24;
 const PAD = 18;
 const LOGO = 56;
+const TRACK_H = 4;
 
-/** A landscape tile for a channel or a sports event (Start page). Logos and icons come only from the user's own data. */
-export function WideTile(props: { x: number; y: number; cell: StartCell; lit: boolean; hover?: boolean; now: number }) {
-  const image = () => (props.cell.type === 'channel' ? props.cell.channel.logo : props.cell.type === 'event' ? props.cell.event.icon : undefined);
+/** A Start cell, or a programme from Search's results. */
+export type WideCell = StartCell | ProgrammeCell;
+
+/**
+ * A landscape tile for a channel, a sports event (Start page) or a programme (Search). Logos and icons come only from
+ * the user's own data.
+ */
+export function WideTile(props: {
+  x: number; y: number; cell: WideCell; lit: boolean; hover?: boolean; now: number;
+  /** Channels: "105 · Name" in the context line, so duplicates (HD/SD, regional) can be told apart (Search). */
+  channelNumbers?: boolean;
+}) {
+  const image = () => {
+    const c = props.cell;
+    if (c.type === 'channel') return c.channel.logo;
+    if (c.type === 'event') return c.event.icon;
+    return c.type === 'programme' ? c.hit.channel.logo : undefined;
+  };
   // The bold main line names the thing to watch; the muted line above it gives context (drawn only when non-empty and
-  // different from the main line). Channel: name / programme. Event: when · channels / title. View all: just the label.
+  // different from the main line). Channel: name / programme. Event: when · channels / title. Programme: when · channel /
+  // title. View all: just the label.
   const contextLine = () => {
     const c = props.cell;
-    if (c.type === 'channel') return c.channel.name;
+    if (c.type === 'channel') return props.channelNumbers ? `${c.channel.number} · ${c.channel.name}` : c.channel.name;
     if (c.type === 'event') return `${eventWhen(c.event, props.now)} · ${channelsLabel(c.event.channelCount)}`;
+    if (c.type === 'programme') return programmeContext(c, props.now);
     return '';
   };
   const mainLine = () => {
     const c = props.cell;
     if (c.type === 'channel') return c.channel.now?.title ?? 'No guide information';
     if (c.type === 'event') return c.event.title;
+    if (c.type === 'programme') return c.hit.title;
     return c.type === 'viewAll' ? 'View all' : '';
   };
   const w = WIDE_W - 2 * PAD;
+  /** On-now programmes show how far along they are. */
+  const onAir = () => (props.cell.type === 'programme' && props.cell.when === 'onNow' ? props.cell.hit : undefined);
   return (
     <View x={props.x} y={props.y} width={WIDE_W} height={WIDE_H} scale={props.lit ? FOCUS.scale : 1} zIndex={props.lit ? 2 : 1}>
       <FocusRing w={WIDE_W} h={WIDE_H} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
@@ -42,6 +65,13 @@ export function WideTile(props: { x: number; y: number; cell: StartCell; lit: bo
       </Show>
       <Text x={PAD} y={WIDE_H - PAD - TYPE.meta - 14} width={w} maxWidth={w} contain="width" maxLines={1} zIndex={3}
         fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{mainLine()}</Text>
+      <Show when={onAir()} keyed>
+        {(p) => (
+          <View x={PAD} y={WIDE_H - PAD / 2 - TRACK_H} width={w} height={TRACK_H} zIndex={3} color={COLORS.track}>
+            <View width={Math.round(w * progressOf(p, props.now))} height={TRACK_H} color={COLORS.accent} />
+          </View>
+        )}
+      </Show>
     </View>
   );
 }

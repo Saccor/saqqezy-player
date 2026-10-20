@@ -5,6 +5,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { slots, TEST_STREAM, type FakeChannel } from './data.ts';
+import { showcaseProgramme } from './showcase.ts';
 
 /** The panel's zone (`server_info.timezone`): one with DST, so the archive window crosses a change. */
 export const PANEL_ZONE = 'Europe/Stockholm';
@@ -47,11 +48,12 @@ export function historySlots(now: number, days: number): { start: number; stop: 
 }
 
 /** The extra XMLTV programmes of a channel with a 7-day archive (other channels keep the usual 6 h of history). */
-export function xmltvHistory(c: FakeChannel, now: number, xmlDate: (ms: number) => string): string {
+export function xmltvHistory(c: FakeChannel, now: number, xmlDate: (ms: number) => string, showcase = false): string {
   if (archiveDays(c.n) !== 7) return '';
   let buf = '';
   for (const s of historySlots(now, 7)) {
-    buf += `<programme start="${xmlDate(s.start)}" stop="${xmlDate(s.stop)}" channel="${c.epgId}"><title>Archive programme ${s.k}</title><desc>Synthetic archived listing for ${c.name}.</desc></programme>\n`;
+    const p = showcase ? showcaseProgramme(Number(c.categoryId) - 1, s.k, c.n) : { title: `Archive programme ${s.k}`, desc: `Synthetic archived listing for ${c.name}.` };
+    buf += `<programme start="${xmlDate(s.start)}" stop="${xmlDate(s.stop)}" channel="${c.epgId}"><title>${p.title.replace(/&/g, '&amp;')}</title><desc>${p.desc.replace(/&/g, '&amp;')}</desc></programme>\n`;
   }
   return buf;
 }
@@ -59,12 +61,13 @@ export function xmltvHistory(c: FakeChannel, now: number, xmlDate: (ms: number) 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
 /** `get_simple_data_table` for channel `c`: its archive days (or 6 h) of history to 24 h ahead, with `has_archive`. */
-export function simpleDataTable(c: FakeChannel | undefined, now: number): unknown {
+export function simpleDataTable(c: FakeChannel | undefined, now: number, showcase = false): unknown {
   if (!c) return { epg_listings: [] };
   const days = archiveDays(c.n);
+  const named = (k: number, plain: string) => (showcase ? showcaseProgramme(Number(c.categoryId) - 1, k, c.n).title : plain);
   const rows = [
-    ...(days ? historySlots(now, days).map((s) => ({ ...s, title: `Archive programme ${s.k}` })) : []),
-    ...slots(now).map((s) => ({ ...s, title: `Programme ${s.index}` })),
+    ...(days ? historySlots(now, days).map((s) => ({ ...s, title: named(s.k, `Archive programme ${s.k}`) })) : []),
+    ...slots(now).map((s) => ({ ...s, title: named(s.index, `Programme ${s.index}`) })),
   ];
   return {
     epg_listings: rows.map((s, i) => ({

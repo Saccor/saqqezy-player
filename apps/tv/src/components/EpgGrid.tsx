@@ -18,9 +18,10 @@ export const EPG_VIEW_ROWS = 11;
 /** Pointer mode: the bottom button row (y 978) must stay clear. */
 export const EPG_POINTER_ROWS = 10;
 export const RULER_H = 44;
-export const CHANNEL_W = 300;
-/** 2 h at 682 px/h. */
-export const TIMELINE_W = 1364;
+/** Wide enough for a full channel name next to the number and logo (308 px of text). */
+export const CHANNEL_W = 440;
+/** 2 h at 612 px/h. */
+export const TIMELINE_W = 1224;
 export const EPG_GRID_X = LAYOUT.contentX;
 export const EPG_GRID_W = LAYOUT.contentW;
 /** The timeline starts right after the channel column. */
@@ -84,7 +85,7 @@ function reuse(prev: readonly Block[] | undefined, next: Block[]): Block[] {
 }
 
 /**
- * The guide grid: a ruler with 30-minute ticks, a channel column and a 2-hour timeline (682 px/h) with a now
+ * The guide grid: a ruler with 30-minute ticks, a channel column and a 2-hour timeline (612 px/h) with a now
  * line. One focusable node takes the keys (handlers come from the Guide). Virtualised in both directions: only
  * the visible rows plus 2 either side are drawn, and only the blocks overlapping the visible time span.
  *

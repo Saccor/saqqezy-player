@@ -2,7 +2,7 @@ import { Text, View } from '@lightningtv/solid';
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
 import { aboutAttribution } from '../../net/trendingConfig.ts';
-import { COLORS, FONT } from '../../shell/theme.ts';
+import { COLORS, TYPE } from '../../shell/theme.ts';
 import type { PageProps } from './shared.ts';
 
 export const APP_NAME = 'IPTV Player';
@@ -28,14 +28,14 @@ export function AboutPage(props: PageProps) {
   const w = props.width - 56;
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
-      <Text x={28} y={8} fontSize={FONT.title} color={COLORS.text}>{APP_NAME}</Text>
-      <Text x={28} y={80} fontSize={FONT.body} color={COLORS.muted}>{version() ? `Version ${version()}` : ''}</Text>
-      <Text x={28} y={150} width={w} maxWidth={w} contain="width" lineHeight={40} fontSize={FONT.body}
+      <Text x={28} y={8} fontSize={TYPE.display} color={COLORS.text}>{APP_NAME}</Text>
+      <Text x={28} y={80} fontSize={TYPE.body} color={COLORS.muted}>{version() ? `Version ${version()}` : ''}</Text>
+      <Text x={28} y={150} width={w} maxWidth={w} contain="width" lineHeight={40} fontSize={TYPE.body}
         color={COLORS.text}>{LEGAL_TEXT}</Text>
-      <Text x={28} y={270} width={w} maxWidth={w} contain="width" fontSize={FONT.body}
+      <Text x={28} y={270} width={w} maxWidth={w} contain="width" fontSize={TYPE.body}
         color={COLORS.muted}>{CONTACT_TEXT}</Text>
       <For each={ATTRIBUTION}>{(line, i) => (
-        <Text x={28} y={350 + i() * 80} width={w} maxWidth={w} contain="width" lineHeight={36} fontSize={FONT.small}
+        <Text x={28} y={350 + i() * 80} width={w} maxWidth={w} contain="width" lineHeight={36} fontSize={TYPE.meta}
           color={COLORS.muted}>{line}</Text>
       )}</For>
     </View>

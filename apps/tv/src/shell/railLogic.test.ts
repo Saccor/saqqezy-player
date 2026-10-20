@@ -1,8 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import { STROKE_ICON_KINDS } from '../vod/icons.ts';
-import { belowTab, RAIL_ITEMS, railFromNested, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
+import { belowTab, onRailClose, RAIL_CLOSE, RAIL_ITEMS, railBelow, railFromNested, railIcon, railItemAt, railNavigation, railY, stepRail } from './railLogic.ts';
 
 describe('railLogic', () => {
+  test('the close button sits in the open panel top-right corner, clear of the items', () => {
+    expect(RAIL_CLOSE.x + RAIL_CLOSE.size).toBe(296);
+    expect(onRailClose(RAIL_CLOSE.x + 1, RAIL_CLOSE.y + 1)).toBe(true);
+    expect(onRailClose(RAIL_CLOSE.x - 1, RAIL_CLOSE.y + 1)).toBe(false);
+    expect(onRailClose(RAIL_CLOSE.x + 1, RAIL_CLOSE.y + RAIL_CLOSE.size)).toBe(false);
+    expect(RAIL_CLOSE.y + RAIL_CLOSE.size).toBeLessThan(railY('start') - 15);
+  });
   test('items stack from y 260, 78 apart, with Settings at the bottom', () => {
     expect(RAIL_ITEMS).toEqual(['start', 'live', 'movies', 'series', 'search', 'settings']);
     expect(railY('start')).toBe(260);
@@ -48,6 +55,44 @@ describe('railLogic', () => {
     expect(railFromNested('start', 'movies')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'movie' } }]);
     expect(railFromNested('start', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
     expect(railFromNested('start', 'settings')).toEqual([{ action: 'pushScreen', screen: 'settings' }]);
+  });
+  test('from Search or Settings: own id nothing, each other replaces, tabs pop then move as the screen below would', () => {
+    expect(railFromNested('search', undefined, 'search')).toEqual([]);
+    expect(railFromNested('settings', 'live', 'settings')).toEqual([]);
+    expect(railFromNested('settings', 'live', 'search')).toEqual([{ action: 'replaceScreen', screen: 'search' }]);
+    expect(railFromNested('search', undefined, 'settings')).toEqual([{ action: 'replaceScreen', screen: 'settings' }]);
+    expect(railFromNested('search', 'live', 'movies')).toEqual([{ action: 'pop' }, { action: 'push', to: { screen: 'vod', kind: 'movie' } }]);
+    expect(railFromNested('search', 'live', 'live')).toEqual([{ action: 'pop' }]);
+    expect(railFromNested('settings', 'movies', 'series')).toEqual([{ action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'series' } }]);
+    expect(railFromNested('search', 'start', 'live')).toEqual([{ action: 'pop' }, { action: 'back' }]);
+    expect(railFromNested('search', undefined, 'start')).toEqual([{ action: 'pop' }]);
+  });
+  test('Search and Settings know what is below them, including a library grid and the screen under it', () => {
+    const grid = { screen: 'vodGrid', params: { kind: 'series' } };
+    expect(railBelow({ screen: 'home', params: {} }, undefined)).toBe('live');
+    expect(railBelow({ screen: 'start', params: {} }, undefined)).toBe('start');
+    expect(railBelow({ screen: 'vod', params: { kind: 'series' } }, undefined)).toBe('series');
+    expect(railBelow({ screen: 'player', params: {} }, undefined)).toBeUndefined();
+    expect(railBelow(undefined, undefined)).toBeUndefined();
+    expect(railBelow(grid, { screen: 'vod', params: { kind: 'movie' } })).toEqual({ overGrid: 'movies' });
+    expect(railBelow(grid, { screen: 'start', params: {} })).toEqual({ overGrid: 'start' });
+    expect(railBelow(grid, undefined)).toEqual({ overGrid: 'series' });
+  });
+  test('from Search or Settings over the library grid: tabs pop both, then move as the screen under the grid would', () => {
+    const overMovies = { overGrid: 'movies' } as const;
+    expect(railFromNested('search', overMovies, 'live')).toEqual([{ action: 'pop' }, { action: 'pop' }, { action: 'back' }]);
+    expect(railFromNested('search', overMovies, 'series')).toEqual([
+      { action: 'pop' }, { action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'series' } },
+    ]);
+    expect(railFromNested('search', overMovies, 'movies')).toEqual([{ action: 'pop' }, { action: 'pop' }]);
+    expect(railFromNested('search', overMovies, 'start')).toEqual([
+      { action: 'pop' }, { action: 'pop' }, { action: 'replace', to: { screen: 'start' } },
+    ]);
+    expect(railFromNested('search', overMovies, 'search')).toEqual([]);
+    expect(railFromNested('settings', overMovies, 'search')).toEqual([{ action: 'replaceScreen', screen: 'search' }]);
+    expect(railFromNested('settings', { overGrid: 'start' }, 'movies')).toEqual([
+      { action: 'pop' }, { action: 'pop' }, { action: 'replace', to: { screen: 'vod', kind: 'movie' } },
+    ]);
   });
   test('every rail icon is a stroke icon', () => {
     for (const id of RAIL_ITEMS) expect(STROKE_ICON_KINDS).toContain(railIcon(id));

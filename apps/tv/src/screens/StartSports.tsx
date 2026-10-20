@@ -6,7 +6,7 @@ import { WIDE_GAP, WIDE_H, WIDE_W, WideTile } from '../components/WideTile.tsx';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
-import { COLORS, FONT, LAYOUT } from '../shell/theme.ts';
+import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { createStartActions } from './startActions.tsx';
 import { gridMove } from './startLogic.ts';
@@ -58,9 +58,9 @@ export function StartSportsScreen() {
   onCleanup(() => { alive = false; actions.close(); });
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={() => { router.back(); return true; }}>
-      <Text x={LAYOUT.safeX} y={LAYOUT.safeY + 40} fontSize={FONT.title} color={COLORS.text}>Sports in your guide</Text>
+      <Text x={LAYOUT.safeX} y={LAYOUT.safeY + 40} fontSize={TYPE.title} color={COLORS.text}>Sports in your guide</Text>
       <Show when={loaded() && events().length === 0}>
-        <Text x={LAYOUT.safeX} y={TOP + 20} fontSize={FONT.heading} color={COLORS.muted}>No sports in your guide right now.</Text>
+        <Text x={LAYOUT.safeX} y={TOP + 20} fontSize={TYPE.body} color={COLORS.muted}>No sports in your guide right now.</Text>
       </Show>
       <View ref={(el) => { node = el; }} x={LAYOUT.safeX} y={TOP} width={LAYOUT.width - 2 * LAYOUT.safeX} height={VISIBLE_ROWS * PITCH_Y}
         onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')} onEnter={open}>
