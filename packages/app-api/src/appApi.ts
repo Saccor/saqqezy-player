@@ -1732,7 +1732,9 @@ export class AppApi {
   private async commitLayoutLocked(id: string, before: Layout, layout: Layout, touched: readonly string[], origin: LayoutOrigin): Promise<void> {
     await this.service.saveLayout(id, layout, touched);
     this.index = this.index.withLayout(layout);
-    if (before.hiddenChannels !== layout.hiddenChannels || before.hiddenGroups !== layout.hiddenGroups || before.hideNoEpg !== layout.hideNoEpg) this.sportsMapping++;
+    // Shown groups and group regions decide what the region rule hides: they map candidates to channels too.
+    if (before.hiddenChannels !== layout.hiddenChannels || before.hiddenGroups !== layout.hiddenGroups || before.hideNoEpg !== layout.hideNoEpg
+      || before.shownGroups !== layout.shownGroups || before.groupRegion !== layout.groupRegion) this.sportsMapping++;
     this.favSet = undefined;
     if (before.channelNames !== layout.channelNames) this.invalidateNowNext();
     const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: layout.version, origin: origin === 'remote' ? 'remote' : 'local' };

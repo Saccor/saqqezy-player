@@ -2659,6 +2659,27 @@ describe('AppApi – sports in your guide', () => {
     expect(row.cells.at(-1)).toEqual({ type: 'viewAll', target: 'sports', total: all.length });
   });
 
+  test('matches follow Your countries at once: channels in groups the region rule hides drop out, showing them brings them back', async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.setRegions({ mode: 'only', codes: ['SE'] });
+    const northbridge = async () => (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'));
+    const nb = (await northbridge())!;
+    const rows = await api.getEventChannels(nb.key);
+    const groups = [...new Set(rows.map((r) => `g:${r.group}`))];
+    expect(groups.length).toBeGreaterThan(1);
+    // The user says the first group is the chosen country and the others another one: `only` SE hides those.
+    const [home, ...away] = groups;
+    await api.setGroupRegion(home!, ['SE']);
+    for (const g of away) await api.setGroupRegion(g, ['DK']);
+    const kept = rows.filter((r) => `g:${r.group}` === home).length;
+    expect((await northbridge())!.channelCount).toBe(kept);
+    // Shown on purpose over the rule: back at once.
+    await api.setGroupVisibility(away, 'show');
+    expect((await northbridge())!.channelCount).toBe(nb.channelCount);
+  });
+
   test("matches: a pinned competition comes first, a hidden one is gone; chips are the guide's own categories", async () => {
     const { api } = make();
     await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
