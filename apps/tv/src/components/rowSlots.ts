@@ -30,6 +30,16 @@ export function rowTops(heights: readonly number[], gap: number): number[] {
   return out;
 }
 
+/**
+ * The column's height: its last row's bottom edge. The column node needs it explicitly: a node with no height takes its
+ * parent's (the clip's), and once the column slides up by more than that, the renderer counts it out of bounds and
+ * stops updating every row in it (they are never drawn).
+ */
+export function columnHeight(heights: readonly number[], gap: number): number {
+  if (heights.length === 0) return 0;
+  return rowTops(heights, gap)[heights.length - 1]! + heights[heights.length - 1]!;
+}
+
 /** The column glides over at most this many rows; a longer move (Home/End, a pointer jump) snaps. */
 export const SHIFT_MAX_ROWS = 2;
 

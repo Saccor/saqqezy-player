@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { rowShift, rowSlots, rowTops } from './rowSlots.ts';
+import { columnHeight, rowShift, rowSlots, rowTops } from './rowSlots.ts';
 
 describe('rowSlots', () => {
   // Poster rows 326 high (label + tile), wide rows 203, rows 36 apart, the first at y 290 (Start's 1080p layout).
@@ -46,6 +46,33 @@ describe('rowTops', () => {
   test('each row sits `gap` under the one before it, the first at 0', () => {
     expect(rowTops([326, 203, 326], 36)).toEqual([0, 362, 601]);
     expect(rowTops([], 36)).toEqual([]);
+  });
+});
+
+describe('columnHeight', () => {
+  test('the column is as tall as its rows: the last row ends at its bottom edge', () => {
+    expect(columnHeight([326, 203, 326], 36)).toBe(601 + 326);
+    expect(columnHeight([], 36)).toBe(0);
+  });
+
+  // The renderer skips the children of a node whose box is outside its clip (out of bounds), and a node with no height
+  // takes its parent's: a column as tall as the clip slid up by more than that lost every row (Start went blank).
+  test("whatever row is focused, the slid column still overlaps the clip and holds every row (Start's frame)", () => {
+    const C = 42 + 100;
+    const Q = 42 + 280;
+    const heights = [C, C, Q, Q, Q, Q, Q, Q];
+    const gap = 28;
+    const top = 184;
+    const clipTop = 176;
+    const clipH = 1080 - clipTop;
+    const tops = rowTops(heights, gap);
+    const h = columnHeight(heights, gap);
+    heights.forEach((rh, i) => {
+      expect(tops[i]! + rh).toBeLessThanOrEqual(h);
+      const y = top - clipTop - tops[i]!;
+      expect(y + h).toBeGreaterThan(0);
+      expect(y).toBeLessThan(clipH);
+    });
   });
 });
 

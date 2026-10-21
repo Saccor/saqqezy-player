@@ -273,13 +273,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
           {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped under the strip). */}
           <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
-            <View ref={column.ref} width={LAYOUT.width}>
+            <View ref={column.ref} width={LAYOUT.width} height={column.height()}>
               <For each={column.rows()}>{(i) => {
                 const r = () => rows()[i]!;
                 const focusCol = () => (i === focus().row ? focus().col : undefined);
                 const lit = () => area() === 'rows' && i === focus().row;
                 return (
-                  <View y={column.rowY(i)}>
+                  <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
                     <Show when={rowKind(r()) === 'poster'} fallback={
                       <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact
