@@ -785,6 +785,8 @@ export class PlaybackSupervisor {
     const beforeFirstFrame = !this.started;
     // Read before anything else touches the engine: it describes the attempt that just failed.
     const statusAware = this.player.supportsStatus?.() === true;
+    // The ledger hears why the stream went (a source that cuts the oldest stream shows up as such drops).
+    this.session?.dropped(code ?? 'UNKNOWN');
     this.endAttempt();
     // The source ending (EOS) or refusing (AUTH) the stream is not a playback stall.
     if (wasPlaying && code !== 'EOS' && code !== 'AUTH') this.countStall(this.now());
