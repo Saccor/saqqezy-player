@@ -555,8 +555,12 @@ export class PlaybackSupervisor {
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
-    this.note({ k: 'open', attempt: id, urlIndex: this.urlIndex });
     this.beginSession();
+    // A window's open says how many other streams of its host were open (single view's stays as it was).
+    const windowed = this.ledger !== undefined && this.sourceKey !== undefined && this.tileId() !== undefined;
+    this.note(windowed
+      ? { k: 'open', attempt: id, urlIndex: this.urlIndex, concurrent: this.attemptConcurrent }
+      : { k: 'open', attempt: id, urlIndex: this.urlIndex });
     this.started = false;
     this.stableSince = undefined;
     this.tickCount = 0;

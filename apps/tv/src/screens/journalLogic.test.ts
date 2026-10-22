@@ -96,3 +96,17 @@ describe('summary, rows and copy text', () => {
       .toBe('Last 30 min: 1 reconnect (source ended the stream ×1)\n22:06:00  Reconnect · source ended the stream · 0 ms');
   });
 });
+
+describe('eventText: multiview', () => {
+  it('names the window and says what happened, in numbers only', () => {
+    expect(eventText({ k: 'tileRefused', t: 0, tile: 1, httpStatus: 403, concurrent: 1, scope: 'tile' }))
+      .toBe('Window 2 · Refused (403) · 1 other open · kept on the window');
+    expect(eventText({ k: 'tileRefused', t: 0, tile: 1, httpStatus: 429, concurrent: 1, scope: 'host' }))
+      .toBe('Window 2 · Refused (429) · 1 other open · source paused');
+    expect(eventText({ k: 'displaced', t: 0, tile: 0, byTile: 1, afterMs: 3000 })).toBe('Window 1 · Cut by the source 3.0 s after window 2 opened');
+    expect(eventText({ k: 'pingPong', t: 0, tile: 1 })).toBe('Window 2 · Stopped: windows kept cutting each other');
+    expect(eventText({ k: 'escalated', t: 0, tile: 1 })).toBe('Window 2 · Refused again and again: source paused');
+    expect(eventText({ k: 'open', t: 0, tile: 1, attempt: 3, urlIndex: 0, concurrent: 1 })).toBe('Window 2 · Connect (attempt 3) · 1 other open');
+    expect(eventText({ k: 'stop', t: 0 })).toBe('Stopped');
+  });
+});

@@ -41,7 +41,15 @@ export function logTime(t: number, now: number): string {
   return sameDay ? time : `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${time}`;
 }
 
+/** One line per event; a multiview window's events start with "Window N" (slot + 1). */
 export function eventText(e: JournalEvent): string {
+  const text = baseText(e);
+  return e.tile === undefined ? text : join(`Window ${e.tile + 1}`, text);
+}
+
+const others = (n: number | undefined) => n !== undefined && `${n} other${n === 1 ? '' : 's'} open`;
+
+function baseText(e: JournalEvent): string {
   switch (e.k) {
     case 'page':
       if (e.what === 'hidden') return 'App in background';
@@ -50,7 +58,7 @@ export function eventText(e: JournalEvent): string {
     case 'play':
       return join('Play', (e.channel && stripUrls(e.channel)) || 'Channel', PRESET[e.preset]);
     case 'open':
-      return join(`Connect (attempt ${e.attempt})`, e.urlIndex > 0 && 'other format');
+      return join(`Connect (attempt ${e.attempt})`, e.urlIndex > 0 && 'other format', others(e.concurrent));
     case 'playing':
       return join('Playing', e.engine, e.firstFrameMs !== undefined && `${secs(e.firstFrameMs)} to picture`);
     case 'stall':
@@ -93,6 +101,15 @@ export function eventText(e: JournalEvent): string {
       return join('Player switched', `${e.from} to ${e.to}`, e.reason);
     case 'beta':
       return join('Beta', e.what);
+    case 'tileRefused':
+      return join(e.httpStatus === undefined ? 'Refused' : `Refused (${e.httpStatus})`, others(e.concurrent),
+        e.scope === 'tile' ? 'kept on the window' : 'source paused');
+    case 'displaced':
+      return `Cut by the source ${secs(e.afterMs)} after window ${e.byTile + 1} opened`;
+    case 'pingPong':
+      return 'Stopped: windows kept cutting each other';
+    case 'escalated':
+      return 'Refused again and again: source paused';
   }
 }
 

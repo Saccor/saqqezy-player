@@ -167,3 +167,13 @@ describe('sanitizeEvent: multiview', () => {
     expect(sanitizeEvent({ k: 'stop', t: 1, tile: 2 })).toEqual({ k: 'stop', t: 1, tile: 2 });
   });
 });
+
+describe('journal: multiview events', () => {
+  it('keeps the new kinds with numbers and tokens only', () => {
+    expect(sanitizeEvent({ k: 'tileRefused', t: 1, tile: 1, httpStatus: 403, concurrent: 1, scope: 'tile', reported: 2, url: 'http://a.example.test/x' }))
+      .toEqual({ k: 'tileRefused', t: 1, tile: 1, httpStatus: 403, concurrent: 1, scope: 'tile', reported: 2 });
+    expect(sanitizeEvent({ k: 'displaced', t: 1, tile: 0, byTile: 1, afterMs: 3000 })).toEqual({ k: 'displaced', t: 1, tile: 0, byTile: 1, afterMs: 3000 });
+    expect(sanitizeEvent({ k: 'pingPong', t: 1, tile: 1 })).toEqual({ k: 'pingPong', t: 1, tile: 1 });
+    expect(sanitizeEvent({ k: 'escalated', t: 1, tile: 1 })).toEqual({ k: 'escalated', t: 1, tile: 1 });
+  });
+});

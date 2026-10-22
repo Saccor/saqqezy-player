@@ -2302,3 +2302,20 @@ describe('PlaybackSupervisor: ledger drops', () => {
     expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin']);
   });
 });
+
+describe('PlaybackSupervisor: open events of windows', () => {
+  it("a window's open says how many other sessions of its host were open; single view's opens are unchanged", () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const journal: JournalEvent[] = [];
+    const sink = { add: (e: JournalEvent) => { journal.push(e); } };
+    const main = setup({ ledger, journal: sink });
+    main.sup.play(A, undefined, { sourceKey: 's' });
+    const win = setup({ ledger, journal: sink, tile: 1 });
+    win.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(2000);
+    const opens = journal.filter((e) => e.k === 'open');
+    expect(opens[0]).toEqual({ k: 'open', t: expect.any(Number), attempt: expect.any(Number), urlIndex: 0 });
+    expect(opens[1]).toMatchObject({ k: 'open', tile: 1, concurrent: 1 });
+    expect(JSON.stringify(journal)).not.toContain('example.test'); // numbers only: no URL or host
+  });
+});
