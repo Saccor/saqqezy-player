@@ -73,7 +73,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
   /** The focused cell's label follows focus once it rests: holding a key does not rebuild a Text per step. */
-  const label = dwellSignal(() => focusLabel(focusedCell()));
+  const label = dwellSignal(() => `${focus().row}|${focusLabel(focusedCell())}`);
+  /** The dwelled label's text if it belongs to row `i` (a stale one from the previous row is not shown). */
+  const labelFor = (i: number): string => {
+    const v = label();
+    const k = v.indexOf('|');
+    return Number(v.slice(0, k)) === i ? v.slice(k + 1) : '';
+  };
   const remember = () => {
     const f = focus();
     const r = rows()[f.row];
@@ -262,7 +268,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                    <Show when={lit() ? label() : ''} keyed>
+                    <Show when={lit() ? labelFor(i) : ''} keyed>
                       {(t) => {
                         const x = ROW_X + labelWidth(r().title) + 24;
                         const w = LAYOUT.width - LAYOUT.safeX - x;

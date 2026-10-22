@@ -87,7 +87,7 @@ export function StartSportsScreen() {
   /** Never leave focus on an empty grid: the competition row if shown, else the sport row. */
   const rescue = () => {
     if (grid().order.length) return;
-    queueMicrotask(() => { if (alive) (compActions().length ? compsNode : sportActions().length ? sportsNode : undefined)?.setFocus(); });
+    queueMicrotask(() => { if (alive && gridFocused() && !screenOverlayOpen()) (compActions().length ? compsNode : sportActions().length ? sportsNode : undefined)?.setFocus(); });
   };
   let gen = 0;
   const load = async () => {
