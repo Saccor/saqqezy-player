@@ -33,7 +33,7 @@ describe('Catch-up time (spec 2026-10-20-catch-up §5.6)', () => {
 describe('Diagnostics catch-up lines', () => {
   const settings: DiagnosticsInfo['settings'] = {
     epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 6, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off',
-    audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
+    audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, foldCountries: true, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
   };
   const base = { appVersion: '1', lastErrors: [], settings };
   const source = { id: 'secret-id', name: 'Test', kind: 'm3u', channels: 9, skipped: 0, playlistAt: 0, epgAt: 0 };

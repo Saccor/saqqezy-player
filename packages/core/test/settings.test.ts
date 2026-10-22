@@ -14,7 +14,7 @@ describe('sanitizeSettings', () => {
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: true,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
-      regions: { codes: [], mode: 'off' }, combineCategories: false,
+      regions: { codes: [], mode: 'off' }, combineCategories: false, foldCountries: true,
       pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
     });
   });
@@ -148,5 +148,12 @@ describe('sanitizeSettings', () => {
   test('combineCategories is a boolean, off by default', () => {
     expect(sanitizeSettings({ combineCategories: true }).combineCategories).toBe(true);
     expect(sanitizeSettings({ combineCategories: 'yes' }).combineCategories).toBe(false);
+  });
+
+  test('foldCountries is a boolean, on by default, and it syncs', () => {
+    expect(DEFAULT_SETTINGS.foldCountries).toBe(true);
+    expect(sanitizeSettings({ foldCountries: false }).foldCountries).toBe(false);
+    for (const v of ['no', 0, 1, null, undefined]) expect(sanitizeSettings({ foldCountries: v }).foldCountries).toBe(true);
+    expect(SYNCED_SETTINGS.has('foldCountries')).toBe(true);
   });
 });
