@@ -1,6 +1,6 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { VOD_ALL } from '@iptv/core';
-import { batch, createSignal, onCleanup, onMount } from 'solid-js';
+import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
@@ -265,6 +265,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 const r = () => rows()[i]!;
                 const focusCol = () => (i === focus().row ? focus().col : undefined);
                 const lit = () => area() === 'rows' && i === focus().row;
+                // Built once per row change, not on every `props.row` read inside PosterRow (each tile reads it).
+                const posterRow = createMemo(() => (rowKind(r()) === 'poster' ? toPosterRow(r()) : undefined));
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
@@ -280,7 +282,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                       <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact visible={START_WIDE_VISIBLE}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     }>
-                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
+                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={posterRow()!} w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     </Show>
                   </View>

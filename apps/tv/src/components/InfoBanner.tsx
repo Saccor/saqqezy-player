@@ -1,7 +1,7 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { monogram } from '../screens/guideLogic.ts';
 import { bannerNextLine, NO_GUIDE_INFO, progressOf } from '../screens/homeLogic.ts';
 import { formatClock } from '../shell/logic.ts';
@@ -50,7 +50,7 @@ function BannerLogo(props: { url: string | undefined; name: string }) {
         {(url) => {
           logoCache.touch(url);
           return (
-            <View width={LOGO} height={LOGO} borderRadius={LAYOUT.radius} src={rawViaDevProxy(url)}
+            <View width={LOGO} height={LOGO} borderRadius={LAYOUT.radius} src={imageSrc(url, LOGO, LOGO)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}

@@ -3,7 +3,7 @@ import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { badgeWidth, cellBadge } from '../playback/sourceLogic.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
@@ -68,7 +68,7 @@ function Logo(props: { url: string | undefined; name: string | undefined }) {
         {(url) => {
           logoCache.touch(url);
           return (
-            <View width={LOGO} height={LOGO} borderRadius={CELL_R} src={rawViaDevProxy(url)}
+            <View width={LOGO} height={LOGO} borderRadius={CELL_R} src={imageSrc(url, LOGO, LOGO)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}

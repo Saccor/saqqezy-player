@@ -3,7 +3,7 @@ import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
 import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
@@ -38,7 +38,7 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
         {(url) => {
           logoCache.touch(url);
           return (
-            <View x={4} y={4} width={LOGO_W - 8} height={LOGO_H - 8} src={rawViaDevProxy(url)}
+            <View x={4} y={4} width={LOGO_W - 8} height={LOGO_H - 8} src={imageSrc(url, LOGO_W - 8, LOGO_H - 8)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}

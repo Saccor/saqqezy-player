@@ -23,7 +23,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import {
-  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels,
+  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import { greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
@@ -65,8 +65,11 @@ const CATEGORIES_ID = 'browse-categories';
 
 type Area = BrowseArea;
 
-/** The focus by identity (row id, tile id) and the last column per row id. */
-interface BrowseMemory { focus: FocusMemory; cols: Map<string, number> }
+/**
+ * The focus by identity (row id, tile id) and the last column per row id; and the last home, rows and categories
+ * shown, so a later visit draws them at once.
+ */
+interface BrowseMemory { focus: FocusMemory; cols: Map<string, number>; home?: VodHome; rows?: RowModel[]; cats?: VodCategoryView[] }
 /** Kept across visits (per source and kind) so Back from the detail or the grid returns to the same poster. */
 const memories = new Map<string, BrowseMemory>();
 const memoryFor = (key: string): BrowseMemory =>
@@ -84,16 +87,27 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const startOnRail = params.focus === 'rail';
   delete params.focus;
 
-  const [home, setHome] = createSignal<VodHome | undefined>(undefined);
-  const [rows, setRows] = createSignal<RowModel[]>([]);
   const [sourceId, setSourceId] = createSignal<string | undefined>(initState()?.activeSourceId);
   const memKey = () => `${sourceId() ?? ''}:${kind}`;
   let memory = memoryFor(memKey());
+  // The last visit's rows draw at once (loaded rows marked stale, so the ones on screen are read again); `load` then
+  // merges the fresh home over them.
+  const warmStart = memory.home !== undefined && (memory.rows?.length ?? 0) > 0;
+  const [home, setHome] = createSignal<VodHome | undefined>(memory.home);
+  const [rows, setRows] = createSignal<RowModel[]>(warmRows(memory.rows));
   const [focus, setFocus] = createSignal<BrowseFocus>({ row: memory.focus.row, col: memory.focus.col });
   const [area, setArea] = createSignal<Area>(startOnRail ? 'rail' : 'rows');
   const [hero, setHero] = createSignal<MovieView | SeriesView | undefined>(undefined);
   /** The grid's categories (the header's picker), read apart from the home (they may wait for the catalogue). */
-  const [cats, setCats] = createSignal<VodCategoryView[]>([]);
+  const [cats, setCats] = createSignal<VodCategoryView[]>(memory.cats ?? []);
+  // What this visit shows is what the next one starts from (never an error: that one reads again).
+  createEffect(() => {
+    const h = home();
+    if (h === undefined || h.status === 'error') return;
+    memory.home = h;
+    memory.rows = rows();
+    memory.cats = cats();
+  });
   let railNode: ElementNode | undefined;
   let headerNode: ElementNode | undefined;
   let rowsNode: ElementNode | undefined;
@@ -415,7 +429,12 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     onCleanup(() => { for (const off of offs) off(); });
     void load();
     // The rows take the focus once they arrive (`restoreFocus`); a rail choice that opened this screen keeps the rail.
+    // A warm start already has its rows, so nothing "arrives": focus them now.
     if (startOnRail) focusRailCollapsed(railNode);
+    else if (warmStart) {
+      restoring = true;
+      try { focusArea(preferredArea); } finally { restoring = false; }
+    }
   });
   onCleanup(() => { alive = false; removePicker?.(); });
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
 import {
-  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels,
+  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
   type RowModel,
 } from './browseLogic.ts';
 
@@ -200,5 +200,17 @@ describe('browseLogic', () => {
     expect(cellCount(row('a', 40, 0, false))).toBe(1);
     expect(drawnCells(row('a', 40, 30))).toBe(31);
     expect(drawnCells(row('a', 3, 3))).toBe(3);
+  });
+});
+
+describe('warmRows', () => {
+  test('a previous visit draws its rows; loaded ones are stale, so the visible ones are read again', () => {
+    const w = warmRows([row('a', 40, 30), row('b', 10, 0, false)]);
+    expect(w.map((r) => [r.id, r.loaded, r.stale, r.items.length])).toEqual([['a', true, true, 30], ['b', false, undefined, 0]]);
+    expect(rowsToLoad(w, 0, 1)).toEqual([0, 1]);
+  });
+
+  test('no previous visit: no rows', () => {
+    expect(warmRows(undefined)).toEqual([]);
   });
 });

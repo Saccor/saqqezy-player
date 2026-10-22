@@ -1,6 +1,6 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup } from 'solid-js';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { tween } from '../shell/motion.ts';
 import { MOTION } from '../shell/theme.ts';
 import { failLayer, pushLayer, settleLayer, type FadeLayer } from './fadeLogic.ts';
@@ -50,7 +50,7 @@ export function CrossFadeArt(props: { url: string | undefined; x: number; y: num
     };
     return (
       <View ref={(el) => { node = el; }} zIndex={p.z} width={props.width} height={props.height} alpha={START_ALPHA}
-        src={rawViaDevProxy(url)} textureOptions={COVER} onEvent={{ loaded: onLoaded, failed: onFailed }} />
+        src={imageSrc(url, props.width, props.height)} textureOptions={COVER} onEvent={{ loaded: onLoaded, failed: onFailed }} />
     );
   };
 
