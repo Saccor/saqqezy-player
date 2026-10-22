@@ -67,7 +67,7 @@ export function createLivePointer(d: LivePointerDeps) {
   /** The wheel moves rows like Up/Down; the horizontal (or Shift) wheel steps time like Left/Right on the grid. */
   const onWheel = (dy: number, dx: number) => {
     if (blocked() || d.total() === 0) return;
-    if (d.place() !== 'grid' && d.place() !== 'channels') d.focusPlace('grid');
+    if (d.place() !== 'grid' && d.place() !== 'channels') d.focusPlace('channels');
     if (dy !== 0) d.setFocusRow(moveFocus(d.row(), dy, d.total()));
     if (dx !== 0 && d.place() === 'grid') d.stepTime(dx > 0 ? 1 : -1);
   };

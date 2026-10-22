@@ -26,8 +26,9 @@ export interface LiveKeyCtx { row: number; total: number; hasGroups: boolean }
 
 /**
  * Where a key leads from a place. 'move' = the place handles it itself (rows, time); 'exit' = let Back bubble to the
- * shell's exit question. Left inside the grid is 'move' (stepLeft decides when the time edge hands over to the
- * channel column). Live TV opens in the channel column and Back on the timeline returns there (spec 2026-10-22, A).
+ * shell's exit question. Left inside the grid is 'move' (`leftFromGrid` decides when it hands over to the channel
+ * column: from the programme airing now, or at the time edge). Live TV opens in the channel column and Back on the
+ * timeline returns there (spec 2026-10-22, A).
  */
 export function liveKey(place: LivePlace, key: LiveKey, ctx: LiveKeyCtx): LivePlace | 'move' | 'exit' {
   const content: LivePlace = ctx.total > 0 ? 'channels' : ctx.hasGroups ? 'groups' : 'rail';

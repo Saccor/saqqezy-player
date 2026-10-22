@@ -301,6 +301,12 @@ describe('leftFromGrid', () => {
     expect(r).toEqual({ kind: 'move', index: idx(0), viewStart: nowView(now, win).viewStart, anchor: now });
   });
 
+  it('goes to the channel column from a future programme when no loaded block airs now', () => {
+    const later = buildBlocks([prog(2, 3), prog(3, 4)], []);
+    expect(later.some((b) => isOnAir(b, now))).toBe(false);
+    expect(leftFromGrid(later, 0, { viewStart: at(2), anchor: at(2) }, win, now)).toEqual({ kind: 'channels' });
+  });
+
   it('steps from a past programme to the previous one, as stepLeft does', () => {
     const v = { viewStart: at(-1), anchor: at(-0.5) };
     expect(leftFromGrid(rows, idx(-0.5), v, win, now)).toEqual(stepLeft(rows, idx(-0.5), v, win));
