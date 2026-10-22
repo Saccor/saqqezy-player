@@ -157,6 +157,8 @@ export const clearWindowNote = (n: number): void => { if (windowNotes().has(n)) 
 
 /** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */
 function scopeWindowRefusal(n: number, hostKey: string, facts: RefusalFacts): RefusalScope {
+  // The source cut this window because another opened (the detector said so just before): never the host's refusal.
+  if (displacedSlots.delete(n)) return 'tile';
   const scope = refusalScope.decide(hostKey, facts);
   const t = Date.now();
   const reported = activeMaxConnections();
@@ -282,14 +284,19 @@ export const otherSlots = (): PlaybackSlot[] => {
  * with the reason, the cut one gets its one normal reconnect, and the count is learned. Two windows that keep cutting
  * each other: the newer one stops. Only while multiview is open; never retried by itself.
  */
-const displacement = createDisplacementDetector();
+// 20 s, not the spec's 8 s: an HLS player notices a cut only at its next playlist reload (up to one segment, often
+// 10 s) plus its own retries; the fake panel's kick mode measured 4 s and 10+ s.
+const displacement = createDisplacementDetector({ windowMs: 20_000 });
+/** Windows the source just cut: their refusal that follows is the cut, kept on the window. */
+const displacedSlots = new Set<number>();
 ledger.onEvent((e) => {
-  if (!multiviewOpen()) return;
+  // Always fed (the stream playing before multiview opened counts), acted on only in multiview.
   const v = displacement.feed(e);
-  if (!v) return;
+  if (!v || !multiviewOpen()) return;
   const t = Date.now();
   const stopSlot = v.k === 'displaced' ? v.byTile : v.stop;
   if (v.k === 'displaced') {
+    displacedSlots.add(v.victim);
     journal.add({ k: 'displaced', t, tile: v.victim, byTile: v.byTile, afterMs: v.afterMs });
     connectionMemory.learn(v.key, v.concurrentBefore + 1);
     noteWindow(stopSlot, { kicked: v.concurrentBefore, at: t });
@@ -297,8 +304,15 @@ ledger.onEvent((e) => {
     journal.add({ k: 'pingPong', t, tile: v.stop });
     noteWindow(stopSlot, { pingPong: true, at: t });
   }
-  // Not inside the supervisor's own failure handling: one macrotask later.
-  setTimeout(() => { pool.slots().find((s) => s.n === stopSlot)?.playback.stop(); }, 0);
+  // Not inside the supervisor's own failure handling: one macrotask later. The newest window closes first; the window
+  // the source cut then gets its one normal reconnect (a window stops on a refusal, so the app opens it once more).
+  setTimeout(() => {
+    pool.slots().find((s) => s.n === stopSlot)?.playback.stop();
+    if (v.k !== 'displaced') return;
+    const victim = pool.slots().find((s) => s.n === v.victim);
+    const cur = victim?.playback.current();
+    if (victim && cur) victim.playback.playChannel(cur, { countOpen: true });
+  }, 0);
 });
 
 /** The slot with sound, read reactively (Solid tracks `primaryIndex`). */

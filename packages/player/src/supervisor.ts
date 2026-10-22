@@ -1,5 +1,5 @@
 import type { JournalEvent, JournalInput, JournalSink, ReconnectCause } from './journal.ts';
-import type { ConnectionLedger, LedgerSession } from './ledger.ts';
+import { hostOf, type ConnectionLedger, type LedgerSession } from './ledger.ts';
 import { LiveDelayController } from './liveDelay.ts';
 import { DEFAULT_BUDGET, ReconnectBudget, type BudgetRule } from './reconnectBudget.ts';
 import { DEFAULT_POLICY, decide, newWatch, observe, type RecoveryPolicy, type WatchState } from './recovery.ts';
@@ -35,7 +35,7 @@ export interface SupervisorOptions {
    * Stream sessions per source and host, shared by every supervisor (`ConnectionLedger`). Each attempt with a
    * `sourceKey` begins a session; a refusal then says how many other sessions of its host were open (`concurrent`).
    */
-  ledger?: Pick<ConnectionLedger, 'begin'>;
+  ledger?: Pick<ConnectionLedger, 'begin' | 'concurrent'>;
   /** The multiview slot this supervisor drives (absent: slot 0, the single-view player); put on every journal event. */
   tile?: number | (() => number | undefined);
   /**
@@ -903,7 +903,7 @@ export class PlaybackSupervisor {
       const retryAfterMs = typeof r.retryAfterMs === 'number' && Number.isFinite(r.retryAfterMs) ? r.retryAfterMs : undefined;
       this.failInfo = retryAfterMs === undefined ? { httpStatus: status } : { httpStatus: status, retryAfterMs };
       this.refusedIndex = this.urlIndex;
-      this.refusedConcurrent = this.attemptConcurrent;
+      this.refusedConcurrent = this.refusalConcurrent();
       if (this.givingUp) {
         // A refusal during the background retries: stop them instead of knocking again.
         this.givingUp = false;
@@ -941,7 +941,7 @@ export class PlaybackSupervisor {
     if (code === 'AUTH' && this.refusalMode() === 'stop') {
       // A tile: the source refused it, so it stops here and shows why; only the user's Retry opens it again.
       this.refusedIndex = this.urlIndex;
-      this.refusedConcurrent = this.attemptConcurrent;
+      this.refusedConcurrent = this.refusalConcurrent();
       this.givingUp = false;
       this.terminal('refused');
       return;
@@ -965,7 +965,7 @@ export class PlaybackSupervisor {
     // The source refused this URL's attempt: the cooldown lands on its host.
     if (code === 'AUTH') {
       this.refusedIndex = this.urlIndex;
-      this.refusedConcurrent = this.attemptConcurrent;
+      this.refusedConcurrent = this.refusalConcurrent();
     }
     if (this.refusedBeforePlay && !this.playedThisPlay) {
       if (!this.nextUrl(inline)) this.terminal('refused');
@@ -1274,6 +1274,21 @@ export class PlaybackSupervisor {
   private refusalMode(): 'retry' | 'stop' {
     const r = this.refusalOpt;
     return (typeof r === 'function' ? r() : r) ?? 'retry';
+  }
+
+  /**
+   * Other streams of the host for a refusal: those open when the refused attempt opened, or, for a stream that had
+   * played, those open now (a source that cuts a playing stream because another opened). Its own closing session
+   * still counts in the ledger, so it is left out.
+   */
+  private refusalConcurrent(): number {
+    if (!this.playedThisPlay || !this.ledger || this.sourceKey === undefined) return this.attemptConcurrent;
+    try {
+      const now = this.ledger.concurrent(this.sourceKey, hostOf(this.urls[this.urlIndex] ?? '')) - 1;
+      return Math.max(this.attemptConcurrent, now);
+    } catch {
+      return this.attemptConcurrent;
+    }
   }
 
   /** The attempt's stream session in the shared ledger (only with a ledger and a source key). */

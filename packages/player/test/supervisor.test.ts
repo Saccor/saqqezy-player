@@ -2319,3 +2319,29 @@ describe('PlaybackSupervisor: open events of windows', () => {
     expect(JSON.stringify(journal)).not.toContain('example.test'); // numbers only: no URL or host
   });
 });
+
+describe('PlaybackSupervisor: a refusal after playing counts the streams open now', () => {
+  it('a stream that played alone and is refused once another opened says 1 other was open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger, tile: 0, onRefusal: 'stop' });
+    const b = setup({ ledger, tile: 1, onRefusal: 'stop' });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    a.player.emit('playing');
+    vi.advanceTimersByTime(20_000);
+    b.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    b.player.emit('playing');
+    a.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(a.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0, concurrent: 1 });
+  });
+
+  it('a refusal before the first frame keeps the count from its open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger, tile: 0, onRefusal: 'stop' });
+    const b = setup({ ledger, tile: 1, onRefusal: 'stop' });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    b.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(2000);
+    a.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(a.statuses.at(-1)).not.toHaveProperty('concurrent');
+  });
+});
