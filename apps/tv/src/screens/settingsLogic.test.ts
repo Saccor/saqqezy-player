@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, settingsOpenAt, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
   addTeamError, displayItems, openOnLabel, storageLine,
 } from './settingsLogic.ts';
@@ -11,10 +11,20 @@ import {
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
-  it('lists the nine pages in menu order', () => {
+  it('lists the ten pages in menu order, Your countries first', () => {
     expect(SETTINGS_PAGES.map((p) => p.title)).toEqual([
-      'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
+      'Your countries', 'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
     ]);
+  });
+});
+
+describe('settingsOpenAt', () => {
+  it('a deep link opens its page directly (with its row); otherwise the remembered page', () => {
+    expect(settingsOpenAt({ page: 'countries' }, 4)).toEqual({ page: 0, direct: true });
+    expect(settingsOpenAt({ page: 'playback', focusItem: 'preferredLanguage' }, 0)).toEqual({ page: 4, direct: true, focusItem: 'preferredLanguage' });
+    expect(settingsOpenAt({}, 3)).toEqual({ page: 3, direct: false });
+    expect(settingsOpenAt({ page: 'nope', focusItem: 'x' }, 99)).toEqual({ page: 9, direct: false });
+    expect(settingsOpenAt(undefined, 2)).toEqual({ page: 2, direct: false });
   });
 });
 

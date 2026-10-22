@@ -22,6 +22,8 @@ export interface PageProps {
   choose: (title: string, items: OptionItem[], initial?: number) => Promise<string | undefined>;
   /** Blocks keys behind a "busy" panel until the returned function is called. */
   busy: (text: string) => () => void;
+  /** A deep link's row to select first (`router.push('settings', { page, focusItem })`). */
+  focusItem?: string;
 }
 
 let leavingForSubscreen = false;

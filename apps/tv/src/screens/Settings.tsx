@@ -8,8 +8,9 @@ import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
-import { router } from '../shell/router.ts';
+import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
 import { DiagnosticsPage } from './settings/DiagnosticsPage.tsx';
@@ -20,7 +21,7 @@ import { PlaybackPage } from './settings/PlaybackPage.tsx';
 import { consumeSubscreenLeave, type ConfirmOptions, type PageProps } from './settings/shared.ts';
 import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
-import { SETTINGS_PAGES } from './settingsLogic.ts';
+import { SETTINGS_PAGES, settingsOpenAt } from './settingsLogic.ts';
 
 /** The menu sits at the rail's content edge; its rows are 72 apart, drawn 64 high. */
 const MENU_X = LAYOUT.contentX;
@@ -89,15 +90,17 @@ function Menu(props: {
 }
 
 /**
- * Settings: the rail, a left menu of nine pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
+ * Settings: the rail, a left menu of ten pages, the selected page on the right. Up/Down pick a page, Right/Ok enter
  * it, Left/Back return to the menu, Left on the menu goes to the rail, Back on the menu leaves. Pages share the confirm
  * dialog, the action menu and the busy panel owned here (each a Back layer through `router.pushOverlay`, except busy,
  * which ignores Back).
  */
-export function SettingsScreen() {
+export function SettingsScreen(props: { entry?: ScreenEntry }) {
   /** What is under Settings, for the rail (a tab's screen, the library grid over one, or unknown: a tab choice only pops). */
   const below = railBelow(router.below(1), router.below(2));
-  const [page, setPage] = createSignal(Math.min(memory.page, SETTINGS_PAGES.length - 1));
+  /** A deep link opens its page focused (Back from it leaves Settings); otherwise the page remembered last. */
+  const open = settingsOpenAt(props.entry?.params, memory.page);
+  const [page, setPage] = createSignal(open.page);
   const [area, setArea] = createSignal<'menu' | 'page'>('menu');
   const [dialog, setDialog] = createSignal<{ message: string; yes: string; opts?: ConfirmOptions; answer: (yes: boolean) => void } | undefined>();
   const [chooser, setChooser] = createSignal<{ title: string; items: OptionItem[]; initial?: number; answer: (id?: string) => void } | undefined>();
@@ -130,6 +133,8 @@ export function SettingsScreen() {
     if (busyText() !== undefined) busyNode?.setFocus();
     else if (dialog() || chooser()) return;
     else if (area() === 'page' && pageNode) pageNode.setFocus();
+    // A deep-linked page registers its node as it renders: keep the page area until it does.
+    else if (area() === 'page' && open.direct) return;
     else focusMenu();
   });
 
@@ -176,6 +181,7 @@ export function SettingsScreen() {
       if (area() === 'page' && dialog() === undefined && chooser() === undefined) restoreFocus();
     },
     onLeftEdge: focusMenu,
+    ...(open.focusItem !== undefined && page() === open.page ? { focusItem: open.focusItem } : {}),
     confirm: (message, yes, opts) => new Promise<boolean>((resolve) => {
       const answer = (ok: boolean) => {
         removeLayer?.();
@@ -210,7 +216,7 @@ export function SettingsScreen() {
   });
 
   onMount(() => {
-    if (memory.area === 'page') setArea('page');
+    if (open.direct || memory.area === 'page') setArea('page');
     restoreFocus();
   });
   onCleanup(() => {
@@ -224,7 +230,11 @@ export function SettingsScreen() {
   const onBack = () => {
     if (router.topOverlay() !== undefined) return false; // the shell closes the top layer first
     if (busyText() !== undefined) return true;
-    if (area() === 'page') return focusMenu();
+    if (area() === 'page') {
+      // Opened at this page from elsewhere ("Choose your countries…", first run's "Change"): Back returns there.
+      if (open.direct && page() === open.page) { memory.area = 'menu'; return false; }
+      return focusMenu();
+    }
     memory.area = 'menu';
     return false; // leave Settings
   };
@@ -243,6 +253,7 @@ export function SettingsScreen() {
       <Text x={PAGE_X + 28} y={LAYOUT.safeY + TYPE.title - TYPE.body - 2} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
       <PointerFocusContext.Provider value={focusFromPointer}>
       <Switch>
+        <Match when={id() === 'countries'}><CountriesPage {...pageProps()} /></Match>
         <Match when={id() === 'sources'}><SourcesPage {...pageProps()} /></Match>
         <Match when={id() === 'phone'}><ManageOnPhonePage {...pageProps()} /></Match>
         <Match when={id() === 'guide'}><GuidePage {...pageProps()} /></Match>

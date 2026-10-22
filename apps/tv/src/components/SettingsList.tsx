@@ -49,6 +49,8 @@ export function SettingsList(props: {
   onOk?: (id: string) => void;
   onAdjust?: (id: string, dir: 1 | -1) => boolean;
   onLeftEdge: () => boolean;
+  /** Up on the first selectable row (e.g. to a grid above the list). */
+  onUpEdge?: () => boolean;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [hover, setHover] = createSignal<number | undefined>(undefined);
@@ -73,6 +75,7 @@ export function SettingsList(props: {
   const move = (d: 1 | -1) => {
     const next = stepSelectable(sel(), d, total(), selectable);
     if (next !== sel()) props.onSelect(next);
+    else if (d === -1 && props.onUpEdge) return props.onUpEdge();
     return true;
   };
   const current = () => props.items[sel()];
