@@ -16,6 +16,7 @@
     "dev:stable": "node scripts/dev.mjs --stable",
     "build:tv": "pnpm --filter @iptv/tv build",
     "build:tizen": "node tools/tizen/build-wgt.mjs",
+    "brand:export": "node tools/brand/export.mjs",
     "companion:dev": "pnpm --filter @iptv/companion dev",
     "build:companion": "pnpm --filter @iptv/companion build",
     "companion:deploy": "node scripts/companion-deploy.mjs",

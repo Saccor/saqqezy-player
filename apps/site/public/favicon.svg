@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="3" y="6" width="26" height="17" rx="3" fill="none" stroke="#4f8cff" stroke-width="3"/><path d="M11 28h10" stroke="#4f8cff" stroke-width="3" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Saqqezy Player</title>
+  <rect rx="14" width="64" height="64" fill="#121a30"/>
+  <circle cx="32" cy="32" r="19.8" fill="none" stroke="#6d72ff" stroke-width="6.47"/>
+  <path d="M41.43 41.43 L50.58 50.58" stroke="#6d72ff" stroke-width="6.47" stroke-linecap="round"/>
+  <path d="M27.43 22.48 L27.43 41.52 L42.66 32 Z" fill="#eef0f4" stroke="#eef0f4" stroke-width="2.67" stroke-linejoin="round"/>
+</svg>

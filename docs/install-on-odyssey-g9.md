@@ -12,7 +12,7 @@ with no channels. It takes about 30 minutes.
 - The Odyssey OLED G9 and its remote.
 - A Windows PC on the **same home network** as the monitor (same Wi-Fi or router, not a guest network).
 - A free **Samsung account**.
-- The file `dist-tizen/IPTV-Player-unsigned.wgt` (see Step 1).
+- The file `dist-tizen/Saqqezy-Player-unsigned.wgt` (see Step 1).
 
 ## Step 1: Build the file
 
@@ -22,7 +22,7 @@ In a terminal in the app's folder, run exactly this command:
 pnpm build:tizen
 ```
 
-It prints `Unsigned package: dist-tizen/IPTV-Player-unsigned.wgt`. That file is the app. You do not need Tizen
+It prints `Unsigned package: dist-tizen/Saqqezy-Player-unsigned.wgt`. That file is the app. You do not need Tizen
 Studio for this step. (If you only received the `.wgt` file from someone, skip this step.)
 
 ## Step 2: Find your PC's IP address
@@ -52,8 +52,8 @@ Studio for this step. (If you only received the `.wgt` file from someone, skip t
    "Apps2Samsung github") and start it.
 2. Sign in with your **Samsung account** when it asks. Apps2Samsung makes the certificate for your monitor by itself.
 3. Select the monitor in the list. If it is not found, type the monitor's IP address from Step 4.
-4. Choose **custom .wgt** as the source, then pick `dist-tizen\IPTV-Player-unsigned.wgt` in the app's folder.
-5. Start the install. When it finishes, open **Apps** on the monitor and start **IPTV Player**.
+4. Choose **custom .wgt** as the source, then pick `dist-tizen\Saqqezy-Player-unsigned.wgt` in the app's folder.
+5. Start the install. When it finishes, open **Apps** on the monitor and start **Saqqezy Player**.
 
 If Apps2Samsung says the package is rejected (a signature or author certificate error), uninstall any older
 copy from the monitor first, then try again. If it still fails, use the fallback below.

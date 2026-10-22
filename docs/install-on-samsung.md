@@ -91,12 +91,12 @@ Samsung only installs apps that are signed with a certificate made for **your** 
 3. Install it on the TV, using the `.wgt` name it printed and your TV's **device name** from step 3:
 
    ```
-   tizen install -n "IPTV Player.wgt" -t UE55XXXXX -- dist-tizen
+   tizen install -n "Saqqezy Player.wgt" -t UE55XXXXX -- dist-tizen
    ```
 
-4. The app appears on the TV's Apps screen as **IPTV Player**. Open it and add your source in Settings.
+4. The app appears on the TV's Apps screen as **Saqqezy Player**. Open it and add your source in Settings.
 
-Without the Tizen CLI, `pnpm build:tizen` still makes an **unsigned** package, `dist-tizen/IPTV-Player-unsigned.wgt`,
+Without the Tizen CLI, `pnpm build:tizen` still makes an **unsigned** package, `dist-tizen/Saqqezy-Player-unsigned.wgt`,
 which Apps2Samsung can sign and install (see [install-on-odyssey-g9.md](install-on-odyssey-g9.md), which works for
 any Samsung TV or monitor in developer mode).
 

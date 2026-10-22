@@ -70,7 +70,7 @@ describe('pnpm build:tizen', () => {
     execFileSync(process.execPath, [join(root, 'tools', 'tizen', 'build-wgt.mjs')], {
       cwd: root, stdio: 'pipe', env: { ...process.env, PATH: process.env.PATH, TIZEN_PROFILE: '' },
     });
-    const wgt = join(root, 'dist-tizen', 'IPTV-Player-unsigned.wgt');
+    const wgt = join(root, 'dist-tizen', 'Saqqezy-Player-unsigned.wgt');
     expect(existsSync(wgt)).toBe(true);
     expect(statSync(wgt).size).toBeGreaterThan(1000);
     const files = unzip(readFileSync(wgt));

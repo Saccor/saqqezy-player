@@ -5,7 +5,7 @@ import { COLORS, LAYOUT, MOTION } from './theme.ts';
 import { type Quad, curveLength, layoutLine, layoutOnCurve } from './wordmarkLayout.ts';
 
 /**
- * The arched mark is designed in a 300x130 box: "SAQQEZY" on the arc `M40,95 Q150,10 260,95`, "MULTIMEDIA"
+ * The arched mark is designed in a 300x130 box: "SAQQEZY" on the arc `M40,95 Q150,10 260,95`, "PLAYER"
  * straight underneath. Only the inked band (box y `CROP_TOP`..`CROP_BOTTOM`) is drawn, so the empty top of the
  * box does not push the mark below the overscan-safe line.
  */
@@ -16,9 +16,9 @@ const ARC: Quad = { p0: { x: 40, y: 95 }, p1: { x: 150, y: 10 }, p2: { x: 260, y
 const NAME = 'SAQQEZY';
 const NAME_SIZE = 38;
 const NAME_SPACING = 3;
-const SUB = 'MULTIMEDIA';
+const SUB = 'PLAYER';
 const SUB_SIZE = 13;
-const SUB_SPACING = 7;
+const SUB_SPACING = 12;
 const SUB_BASELINE = 112;
 /** Heavy faces common to TV and desktop browsers; the generic family synthesises bold if none is present. */
 const FONT_STACK = '"Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif';
@@ -82,7 +82,7 @@ function renderWordmark(): string | undefined {
     ctx.restore();
   });
 
-  // "MULTIMEDIA" straight and centred below; per glyph, because canvas letterSpacing is newer than Chromium 76.
+  // "PLAYER" straight and centred below; per glyph, because canvas letterSpacing is newer than Chromium 76.
   ctx.font = `600 ${SUB_SIZE}px ${FONT_STACK.replace('"Arial Black", ', '')}`;
   ctx.fillStyle = css(COLORS.muted);
   layoutLine(glyphWidths(ctx, SUB), SUB_SPACING, BOX_W / 2).forEach((x, i) => {
@@ -100,7 +100,7 @@ export function wordmarkImage(): string | undefined {
 }
 
 /**
- * "SAQQEZY" arched over "MULTIMEDIA": the brand wordmark, centred at the top. Lightning cannot set text on a
+ * "SAQQEZY" arched over "PLAYER": the brand wordmark, centred at the top. Lightning cannot set text on a
  * path, so it is drawn once to a 2D canvas and shown as an image texture. The shell renders it once above the
  * screen host; `visible` fades it in or out over 200 ms (it is hidden in the full-screen Player).
  *
