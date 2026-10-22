@@ -145,12 +145,6 @@ export function preselect(c: CountryChoices): string[] | undefined {
   return c.deviceCountry !== undefined && c.regions.codes.length === 0 ? [c.deviceCountry] : undefined;
 }
 
-/** Preselect only once per first run: false once it ran (the screen remounts after "Change"). */
-export const shouldPreselect = (alreadyRan: boolean): boolean => !alreadyRan;
-
-/** Where Down from the grid goes: always Done; Change stays reachable with Up from Done or Skip. */
-export const belowGridTarget = (): 'done' => 'done';
-
 /** With a country already picked, one press (Done) finishes. */
 export const firstRunFocus = (codes: readonly string[]): 'done' | 'grid' => (codes.length > 0 ? 'done' : 'grid');
 

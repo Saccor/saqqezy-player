@@ -114,6 +114,17 @@ export function homePollNeeded(status: VodHome['status'] | undefined): boolean {
   return status === 'loading';
 }
 
+/** The category list is read again once, when a home that was still loading settles (the first read may have run against an empty catalogue). */
+export function catsReloadNeeded(prev: VodHome['status'] | undefined, next: VodHome['status'], alreadyWithCats: boolean): boolean {
+  return !alreadyWithCats && prev === 'loading' && next !== 'loading';
+}
+
+/** Hands out request tickets; only the newest ticket of its own counter is still current. */
+export function createTicket(): { next(): number; isCurrent(t: number): boolean } {
+  let n = 0;
+  return { next: () => ++n, isCurrent: (t) => t === n };
+}
+
 export interface SkeletonRect { x: number; y: number; w: number; h: number }
 export interface SkeletonRow { label: SkeletonRect; posters: SkeletonRect[] }
 

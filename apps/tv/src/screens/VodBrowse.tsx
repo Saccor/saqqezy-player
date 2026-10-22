@@ -25,7 +25,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import {
-  HOME_POLL_MS, cellAt, homePollNeeded, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
+  HOME_POLL_MS, catsReloadNeeded, cellAt, createTicket, homePollNeeded, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import { greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
@@ -196,14 +196,17 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     });
   };
 
-  const loadCats = async (g: number) => {
+  // Its own ticket: a home-only poll must never drop a category request in flight.
+  const catTickets = createTicket();
+  const loadCats = async () => {
+    const t = catTickets.next();
     let cs: VodCategoryView[];
     try {
       cs = await api.getVodCategories(kind);
     } catch {
       return; // The header keeps what it had.
     }
-    if (!alive || g !== gen) return;
+    if (!alive || !catTickets.isCurrent(t)) return;
     const before = { status: status(), hasRows: rows().length > 0, hasHeader: hasHeader() };
     setCats(cs);
     restoreFocus(before);
@@ -212,7 +215,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   /** `withCats` false re-reads only the home (the stuck-loading poll). */
   const load = async (withCats = true) => {
     const g = ++gen;
-    if (withCats) void loadCats(g);
+    if (withCats) void loadCats();
     const before = { status: status(), hasRows: rows().length > 0, hasHeader: hasHeader() };
     let h: VodHome | undefined;
     try {
@@ -235,6 +238,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       setRows(models);
       setFocus(locateFocus(models, memory.focus));
     });
+    if (catsReloadNeeded(before.status, h.status, withCats)) void loadCats();
     remember();
     syncHero();
     void loadNear();

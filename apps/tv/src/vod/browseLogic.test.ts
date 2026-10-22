@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
 import {
-  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, homePollNeeded, toRowModels, warmRows,
+  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, homePollNeeded, catsReloadNeeded, createTicket, toRowModels, warmRows,
   type RowModel,
 } from './browseLogic.ts';
 
@@ -214,5 +214,25 @@ describe('warmRows', () => {
 
   test('no previous visit: no rows', () => {
     expect(warmRows(undefined)).toEqual([]);
+  });
+});
+
+describe('category reload after a stuck home', () => {
+  test('reloads categories once when loading settles, never ready to ready', () => {
+    expect(catsReloadNeeded('loading', 'ready', false)).toBe(true);
+    expect(catsReloadNeeded('loading', 'empty', false)).toBe(true);
+    expect(catsReloadNeeded('loading', 'loading', false)).toBe(false);
+    expect(catsReloadNeeded('ready', 'ready', false)).toBe(false);
+    expect(catsReloadNeeded(undefined, 'ready', false)).toBe(false);
+    expect(catsReloadNeeded('loading', 'ready', true)).toBe(false);
+  });
+  test('a ticket stays current until its own counter hands out another', () => {
+    const cats = createTicket();
+    const home = createTicket();
+    const t = cats.next();
+    home.next(); home.next(); // polls tick while categories are in flight
+    expect(cats.isCurrent(t)).toBe(true);
+    cats.next();
+    expect(cats.isCurrent(t)).toBe(false);
   });
 });
