@@ -5,7 +5,7 @@ import { aboutAttribution } from '../../net/trendingConfig.ts';
 import { COLORS, TYPE } from '../../shell/theme.ts';
 import type { PageProps } from './shared.ts';
 
-export const APP_NAME = 'IPTV Player';
+export const APP_NAME = 'Saqqezy Player';
 export const LEGAL_TEXT = 'This app is a media player. It does not provide any channels, streams or content. '
   + 'You are responsible for making sure you have the right to use the sources you add.';
 export const CONTACT_TEXT = 'Copyright contact: see the website listed in the store.';

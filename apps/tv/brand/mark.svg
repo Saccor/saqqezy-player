@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Saqqezy Player</title>
+  <circle cx="256" cy="256" r="198.03" fill="none" stroke="#6d72ff" stroke-width="64.74"/>
+  <path d="M350.25 350.25 L441.84 441.84" stroke="#6d72ff" stroke-width="64.74" stroke-linecap="round"/>
+  <path d="M210.3 160.79 L210.3 351.21 L362.63 256 Z" fill="#eef0f4" stroke="#eef0f4" stroke-width="26.66" stroke-linejoin="round"/>
+</svg>

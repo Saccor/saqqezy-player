@@ -2,7 +2,7 @@
 //   1. `pnpm build:tv` (Vite production build of apps/tv)
 //   2. copies apps/tv/dist + apps/tv/tizen/config.xml + icon.png into dist-tizen/, strips `crossorigin` and injects
 //      the webapis.js script tag into dist-tizen/index.html (and fails if it is missing)
-//   3. always zips dist-tizen/ into dist-tizen/IPTV-Player-unsigned.wgt (pure JS, no Tizen CLI needed; config.xml at
+//   3. always zips dist-tizen/ into dist-tizen/Saqqezy-Player-unsigned.wgt (pure JS, no Tizen CLI needed; config.xml at
 //      the zip root). Apps2Samsung or Tizen Studio sign it for the target device.
 //   4. if the Tizen CLI (`tizen`) is on PATH and TIZEN_PROFILE names a certificate profile, also signs and packages
 //      dist-tizen/ into a signed .wgt; otherwise prints what to do next and exits 0.
@@ -17,7 +17,7 @@ import { bakedValues, checkProdEnv, viteEnv } from '../build/prodEnv.mjs';
 import { makeIconPng } from './make-icon.mjs';
 import { zipDirectory } from './zip.mjs';
 
-const UNSIGNED_WGT = 'IPTV-Player-unsigned.wgt';
+const UNSIGNED_WGT = 'Saqqezy-Player-unsigned.wgt';
 /** A Tizen package id is exactly 10 letters or digits; the app id is `<package id>.<name>`. */
 const PACKAGE_ID = /^[A-Za-z0-9]{10}$/;
 const APP_ID = /^[A-Za-z0-9]{10}\.[A-Za-z0-9]+$/;
