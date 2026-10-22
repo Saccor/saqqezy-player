@@ -209,3 +209,88 @@ export function steadyPlaying(since: ReadonlyMap<number, number>, now: number): 
   for (const at of since.values()) if (now - at >= STEADY_PLAY_MS) n++;
   return n;
 }
+
+/**
+ * The streams the source lets play at once, as far as the app knows: the reported count, or one less than the window
+ * it refused or cut (`learnedRefusalAt`), whichever is lower. Undefined when neither is known.
+ */
+export function sourceLimit(f: { reported?: number; learnedRefusalAt?: number }): number | undefined {
+  const limits = [f.reported, f.learnedRefusalAt === undefined ? undefined : f.learnedRefusalAt - 1].filter((n): n is number => n !== undefined);
+  return limits.length > 0 ? Math.max(1, Math.min(...limits)) : undefined;
+}
+
+/** The source's limit is reached when the other windows playing fill it. No limit known: never. */
+export function atSourceLimit(f: { reported?: number; learnedRefusalAt?: number; othersPlaying: number }): boolean {
+  const limit = sourceLimit(f);
+  return limit !== undefined && f.othersPlaying >= limit;
+}
+
+/** "Watch this one instead": how many of the other windows playing must stop so this one fits (at least one). */
+export function windowsToStop(othersPlaying: number, limit: number | undefined): number {
+  return Math.min(othersPlaying, Math.max(1, othersPlaying - (limit ?? othersPlaying) + 1));
+}
+
+/**
+ * Retry on a window (G9 decision C). The source cut it while another window plays and the source is at its limit:
+ * a plain Retry would only cut the other window again, so it offers "Watch this one instead".
+ */
+export function retryAction(f: { cut: boolean; otherPlaying: boolean; atLimit: boolean }): 'retry' | 'watchInstead' {
+  return f.cut && f.otherPlaying && f.atLimit ? 'watchInstead' : 'retry';
+}
+
+/**
+ * The picker's info line: which `MULTIVIEW_COPY` text it shows, or nothing (owner decision 12.2: it warns, never
+ * blocks). `open` is the windows open besides the one being picked. A connection being freed comes first; then a
+ * refusal learned at or below the next window; then the reported count when the next window goes past it; with
+ * nothing known, that each window uses one connection.
+ */
+export function pickerHint(f: { reported?: number; learnedRefusalAt?: number; open: number; freeing?: boolean }): keyof typeof MULTIVIEW_COPY | undefined {
+  const next = f.open + 1;
+  if (f.freeing) return 'freeing';
+  if (f.learnedRefusalAt !== undefined && f.learnedRefusalAt <= next) return 'learned';
+  if (f.reported !== undefined) return next > f.reported ? 'infoReported' : undefined;
+  return f.learnedRefusalAt === undefined ? 'infoUnknown' : undefined;
+}
+
+/** "Watch this one instead" waits this long after stopping the other window, so the source frees its connection (§5.3). */
+export const FREEING_MS = 5000;
+
+export interface WatchInstead {
+  /** Waits `FREEING_MS`, then calls `open`. A later start replaces this one. */
+  start(slot: number, open: () => void): void;
+  /** Nothing opens later (multiview left, or the user acted on a window meanwhile). */
+  cancel(): void;
+  /** The slot waiting to open, if any. */
+  pending(): number | undefined;
+}
+
+/** The wait behind "Watch this one instead"; `onChange` hears the waiting slot (the window shows "Freeing a connection…"). */
+export function createWatchInstead(onChange: (slot: number | undefined) => void): WatchInstead {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let slot: number | undefined;
+  const set = (s: number | undefined) => {
+    if (s === slot) return;
+    slot = s;
+    onChange(s);
+  };
+  const clear = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  return {
+    start(s, open) {
+      clear();
+      set(s);
+      timer = setTimeout(() => {
+        timer = undefined;
+        set(undefined);
+        open();
+      }, FREEING_MS);
+    },
+    cancel() {
+      clear();
+      set(undefined);
+    },
+    pending: () => slot,
+  };
+}

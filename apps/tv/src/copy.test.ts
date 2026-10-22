@@ -54,6 +54,11 @@ describe('multiview copy', () => {
     expect(MULTIVIEW_COPY.addChannel).toBe('Add channel');
   });
 
+  it('offers to watch a cut window instead, and says why a window stopped', () => {
+    expect(MULTIVIEW_COPY.watchInstead).toBe('Watch this one instead');
+    expect(MULTIVIEW_COPY.stoppedForOther).toBe('Stopped so another window can play.');
+  });
+
   it('counts read naturally', () => {
     expect(MULTIVIEW_COPY.infoReported(1)).toBe('Your source reports 1 connection. Each window uses one.');
     expect(MULTIVIEW_COPY.infoReported(3)).toBe('Your source reports 3 connections. Each window uses one.');

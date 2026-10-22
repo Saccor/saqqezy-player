@@ -29,6 +29,7 @@ import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
 import { createSharedSleepTimer } from './sleepTimer.ts';
+import { createWindowNotes, type WindowNote } from './windowNotes.ts';
 import { onBackOnline } from '../state/backOnline.ts';
 
 /**
@@ -188,8 +189,14 @@ export interface PlaybackSlot {
 /** The slot with sound (the pool's primary), as a signal: the app-wide exports and the slot roles follow it. */
 const [primaryIndex, setPrimaryIndex] = createSignal(0);
 const [multiviewOpen, setMultiviewOpen] = createSignal(false);
-/** The multiview screen says when it is open: every slot is then a window, the one with sound too. */
-export const setInMultiview = (open: boolean): void => { setMultiviewOpen(open); };
+/**
+ * The multiview screen says when it is open: every slot is then a window, the one with sound too. Entering and leaving
+ * both drop the windows' notes and cut marks, so nothing from an earlier session shows on a window (G9 decision C).
+ */
+export const setInMultiview = (open: boolean): void => {
+  windowNoteStore.reset();
+  setMultiviewOpen(open);
+};
 export const inMultiview = multiviewOpen;
 const roleOf = (n: number): SlotRole => slotRole(n, primaryIndex(), multiviewOpen());
 
@@ -199,25 +206,18 @@ const refusalScope = createRefusalScope();
 /** What multiview learned per source on this device (Diagnostics -> Connections). Numbers only. */
 export const connectionMemory = createConnectionMemory(localStore);
 
-/** What a window shows beyond its status: the source cut it, two windows kept cutting each other, or escalation. */
-export interface WindowNote { kicked?: number; pingPong?: boolean; escalated?: boolean; deviceLimit?: boolean; at: number }
-const [windowNotes, setWindowNotes] = createSignal<ReadonlyMap<number, WindowNote>>(new Map());
-export { windowNotes };
-const noteWindow = (n: number, note: WindowNote | undefined) => {
-  setWindowNotes((m) => {
-    const next = new Map(m);
-    if (note) next.set(n, note);
-    else next.delete(n);
-    return next;
-  });
-};
+/** What each window shows beyond its status, and the windows the source just cut (`windowNotes.ts`). */
+const windowNoteStore = createWindowNotes();
+export type { WindowNote };
+export const windowNotes = windowNoteStore.notes;
+const noteWindow = (n: number, note: WindowNote) => windowNoteStore.note(n, note);
 /** A window opens again (Retry, another channel): its note goes. */
-export const clearWindowNote = (n: number): void => { if (windowNotes().has(n)) noteWindow(n, undefined); };
+export const clearWindowNote = (n: number): void => windowNoteStore.clear(n);
 
 /** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */
 function scopeWindowRefusal(n: number, hostKey: string, facts: RefusalFacts): RefusalScope {
   // The source cut this window because another opened (the detector said so just before): never the host's refusal.
-  if (displacedSlots.delete(n)) return 'tile';
+  if (windowNoteStore.takeDisplaced(n)) return 'tile';
   const scope = refusalScope.decide(hostKey, facts);
   const t = Date.now();
   const reported = activeMaxConnections();
@@ -358,8 +358,6 @@ export const otherSlots = (): PlaybackSlot[] => {
 // Its 30 s window counts from the other window's first picture: AVPlay shows a cut only once its buffer runs dry plus
 // its 8 s no-progress limit; an HLS player at its next playlist reload. The fake panel's kick mode measured 4 s and 10+ s.
 const displacement = createDisplacementDetector();
-/** Windows the source just cut: their refusal that follows is the cut, kept on the window. */
-const displacedSlots = new Set<number>();
 ledger.onEvent((e) => {
   // Always fed (the stream playing before multiview opened counts), acted on only in multiview.
   const v = displacement.feed(e);
@@ -367,7 +365,8 @@ ledger.onEvent((e) => {
   const t = Date.now();
   const stopSlot = v.k === 'displaced' ? v.byTile : v.stop;
   if (v.k === 'displaced') {
-    displacedSlots.add(v.victim);
+    // The cut window's refusal that follows is the cut, kept on the window.
+    windowNoteStore.markDisplaced(v.victim);
     journal.add({ k: 'displaced', t, tile: v.victim, byTile: v.byTile, afterMs: v.afterMs });
     connectionMemory.learn(v.key, v.concurrentBefore + 1);
     // The cut proves only the streams open before it fit: undo a count that included the window about to be cut.

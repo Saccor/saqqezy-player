@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { layout } from './layout.ts';
 import {
   addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
-  moveFocus, playingSince, pointerFocus, soundToPlaying, start, steadyPlaying, togglePin, wake, type MvState,
+  FREEING_MS, atSourceLimit, createWatchInstead, sourceLimit, windowsToStop, moveFocus, pickerHint, playingSince, pointerFocus, retryAction, soundToPlaying, start,
+  steadyPlaying, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
 const w = (slot: number) => ({ slot, channelId: `c${slot}` });
@@ -209,5 +210,99 @@ describe('windows playing at once', () => {
     expect(steadyPlaying(since, 16_000)).toBe(2);
     since = playingSince(since, [{ n: 0, playing: true }], 17_000);
     expect(steadyPlaying(since, 17_000)).toBe(1);
+  });
+});
+
+describe('Retry on a window the source cut (G9 decision C)', () => {
+  it('offers "Watch this one instead" only when cut, another window plays, and the source is at its limit', () => {
+    expect(retryAction({ cut: true, otherPlaying: true, atLimit: true })).toBe('watchInstead');
+    expect(retryAction({ cut: false, otherPlaying: true, atLimit: true })).toBe('retry');
+    expect(retryAction({ cut: true, otherPlaying: false, atLimit: true })).toBe('retry');
+    expect(retryAction({ cut: true, otherPlaying: true, atLimit: false })).toBe('retry');
+  });
+
+  it('the source is at its limit when the other windows playing reach the reported or the learned limit', () => {
+    expect(atSourceLimit({ reported: 1, othersPlaying: 1 })).toBe(true);
+    expect(atSourceLimit({ reported: 2, othersPlaying: 1 })).toBe(false);
+    // Learned: the source refused (or cut) window 2, so 1 fits.
+    expect(atSourceLimit({ learnedRefusalAt: 2, othersPlaying: 1 })).toBe(true);
+    expect(atSourceLimit({ learnedRefusalAt: 3, othersPlaying: 1 })).toBe(false);
+    // Either one is enough: the lower of the two counts.
+    expect(atSourceLimit({ reported: 4, learnedRefusalAt: 2, othersPlaying: 1 })).toBe(true);
+    expect(atSourceLimit({ othersPlaying: 3 })).toBe(false);
+  });
+
+  it('the limit is the lower of the reported and learned ones, never below 1', () => {
+    expect(sourceLimit({})).toBeUndefined();
+    expect(sourceLimit({ reported: 3, learnedRefusalAt: 3 })).toBe(2);
+    expect(sourceLimit({ reported: 0 })).toBe(1);
+  });
+
+  it('stops just enough of the other windows: one on a 1-connection source', () => {
+    expect(windowsToStop(1, 1)).toBe(1);
+    expect(windowsToStop(3, 2)).toBe(2);
+    expect(windowsToStop(3, undefined)).toBe(1);
+  });
+});
+
+describe('the picker info line (warns, never blocks)', () => {
+  it('reported 1 with 1 open: the reported count', () => {
+    expect(pickerHint({ reported: 1, open: 1 })).toBe('infoReported');
+  });
+  it('nothing known about the source: each window uses one connection', () => {
+    expect(pickerHint({ open: 1 })).toBe('infoUnknown');
+  });
+  it('a learned refusal at window 2 when adding window 2 (it wins over the reported count)', () => {
+    expect(pickerHint({ learnedRefusalAt: 2, open: 1 })).toBe('learned');
+    expect(pickerHint({ reported: 4, learnedRefusalAt: 2, open: 1 })).toBe('learned');
+  });
+  it('nothing to say when the next window fits what the source reports and nothing was refused there', () => {
+    expect(pickerHint({ reported: 4, open: 1 })).toBeUndefined();
+    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toBeUndefined();
+  });
+  it('while a connection is being freed, it says so', () => {
+    expect(pickerHint({ reported: 1, open: 1, freeing: true })).toBe('freeing');
+  });
+});
+
+describe('Watch this one instead: the cancellable 5 s wait', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('opens the window only after 5 s, and says which window is waiting meanwhile', () => {
+    const changes: Array<number | undefined> = [];
+    const watch = createWatchInstead((slot) => { changes.push(slot); });
+    const open = vi.fn();
+    watch.start(1, open);
+    expect(watch.pending()).toBe(1);
+    vi.advanceTimersByTime(FREEING_MS - 1);
+    expect(open).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(watch.pending()).toBeUndefined();
+    expect(changes).toEqual([1, undefined]);
+  });
+
+  it('cancelled (left multiview, or the user acted on another window): nothing opens later', () => {
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn();
+    watch.start(1, open);
+    vi.advanceTimersByTime(2_000);
+    watch.cancel();
+    expect(watch.pending()).toBeUndefined();
+    vi.advanceTimersByTime(10_000);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('a second start replaces the first: only the latest window opens', () => {
+    const watch = createWatchInstead(() => undefined);
+    const first = vi.fn();
+    const second = vi.fn();
+    watch.start(0, first);
+    vi.advanceTimersByTime(1_000);
+    watch.start(1, second);
+    vi.advanceTimersByTime(FREEING_MS);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });

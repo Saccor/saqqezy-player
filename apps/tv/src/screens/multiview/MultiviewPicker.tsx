@@ -15,7 +15,8 @@ import {
 /** The picker's panel (spec 2026-10-20-multiview §2.3): 560 px on the right, over the dimmed windows. */
 export const PICKER_W = 560;
 const PAD = 16;
-const HEAD = 96;
+/** The title, the info line under it (up to 2 lines), then the search row. */
+const HEAD = 152;
 /** The search row is one channel row high, under the title; the list starts below it. */
 const LIST_Y = HEAD + ROW_H;
 const LIST_H = Math.floor((LAYOUT.height - LIST_Y - LAYOUT.safeY) / ROW_H) * ROW_H;
@@ -36,6 +37,8 @@ const CHUNK = 40;
 export function MultiviewPicker(props: {
   ref: (el: ElementNode) => void;
   title: string;
+  /** The info line under the title (`pickerHint`): it warns, it never blocks. */
+  info?: string | undefined;
   now: number;
   onScreen: (channelId: string) => boolean;
   onPick: (channelId: string) => void;
@@ -169,8 +172,12 @@ export function MultiviewPicker(props: {
       {/* The windows keep playing behind, dimmed. */}
       <View x={0} y={0} width={x} height={LAYOUT.height} color={COLORS.scrim} />
       <View x={x} y={0} width={PICKER_W} height={LAYOUT.height} color={COLORS.panel}>
-        <Text x={PAD + 8} y={36} width={PICKER_W - PAD * 2} maxWidth={PICKER_W - PAD * 2} contain="width" maxLines={1}
+        <Text x={PAD + 8} y={28} width={PICKER_W - PAD * 2} maxWidth={PICKER_W - PAD * 2} contain="width" maxLines={1}
           fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
+        <Show when={props.info}>
+          <Text x={PAD + 8} y={72} width={PICKER_W - PAD * 2 - 16} maxWidth={PICKER_W - PAD * 2 - 16} contain="width" maxLines={2}
+            fontSize={TYPE.meta} color={COLORS.muted}>{props.info}</Text>
+        </Show>
       </View>
       {/* The search row: OK opens the keyboard; Down goes to the list. */}
       <View ref={(el) => { searchNode = el; }} x={x + PAD} y={HEAD} width={ROW_W} height={ROW_H}
