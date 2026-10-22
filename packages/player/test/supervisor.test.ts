@@ -2259,3 +2259,31 @@ describe('PlaybackSupervisor: tile options', () => {
     expect(journal.every((e) => !('tile' in e))).toBe(true);
   });
 });
+
+describe('PlaybackSupervisor: roles', () => {
+  it('onRefusal as a getter is read at each refusal', () => {
+    let role: 'retry' | 'stop' = 'stop';
+    const { player, sup, statuses } = setup({ onRefusal: () => role });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH' });
+    expect(statuses.at(-1)).toMatchObject({ kind: 'failed', reason: 'refused' });
+    role = 'retry';
+    vi.advanceTimersByTime(1000);
+    sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A, A]); // the second play retried once at once
+  });
+
+  it('tile as a getter tags journal events with the current value', () => {
+    let tile: number | undefined = 1;
+    const journal: JournalEvent[] = [];
+    const { sup } = setup({ journal: { add: (e: JournalEvent) => { journal.push(e); } }, tile: () => tile });
+    sup.play(A, undefined, { sourceKey: 's' });
+    tile = undefined;
+    sup.stop();
+    expect(journal[0]!.tile).toBe(1);
+    expect('tile' in journal.at(-1)!).toBe(false);
+  });
+});

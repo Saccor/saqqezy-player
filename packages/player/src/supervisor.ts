@@ -37,13 +37,13 @@ export interface SupervisorOptions {
    */
   ledger?: Pick<ConnectionLedger, 'begin'>;
   /** The multiview slot this supervisor drives (absent: slot 0, the single-view player); put on every journal event. */
-  tile?: number;
+  tile?: number | (() => number | undefined);
   /**
    * What a refusal does. `retry` (default): one immediate AUTH reconnect, then the other format, as for single view.
    * `stop` (multiview tiles): the play ends as `failed/refused` at once, from the engine or the status probe: no
    * reconnect, no alternate, no give-up retries. A refused tile is never retried by itself.
    */
-  onRefusal?: 'retry' | 'stop';
+  onRefusal?: 'retry' | 'stop' | (() => 'retry' | 'stop');
   /**
    * Asks the source for a stream's HTTP status (one `GET` with `Range: bytes=0-0`, aborted once the headers arrive).
    * Used when an engine that cannot see statuses (`Player.supportsStatus` false or absent) fails before its first
@@ -180,8 +180,8 @@ export class PlaybackSupervisor {
   private readonly openGap: SupervisorOptions['openGap'];
   private readonly owner = ++nextOwner;
   private readonly ledger: SupervisorOptions['ledger'];
-  private readonly tile: number | undefined;
-  private readonly onRefusal: 'retry' | 'stop';
+  private readonly tileOpt: SupervisorOptions['tile'];
+  private readonly refusalOpt: SupervisorOptions['onRefusal'];
   /** The current attempt's ledger session, and sessions waiting for the engine's teardown. */
   private session: LedgerSession | undefined;
   private closingSessions: LedgerSession[] = [];
@@ -290,8 +290,8 @@ export class PlaybackSupervisor {
     this.openRate = opts.openRate;
     this.openGap = opts.openGap;
     this.ledger = opts.ledger;
-    this.tile = opts.tile;
-    this.onRefusal = opts.onRefusal ?? 'retry';
+    this.tileOpt = opts.tile;
+    this.refusalOpt = opts.onRefusal;
     this.probe = opts.probe;
     this.blocked = opts.blocked;
     this.refusalStatuses = opts.refusalStatuses ?? DEFAULT_REFUSAL_STATUSES;
@@ -932,7 +932,7 @@ export class PlaybackSupervisor {
 
   /** The failure's path once its code is known (the part of `fail` after the attempt has ended). */
   private afterFail(code: ErrorCode | undefined, inline: boolean, why: ReconnectCause): void {
-    if (code === 'AUTH' && this.onRefusal === 'stop') {
+    if (code === 'AUTH' && this.refusalMode() === 'stop') {
       // A tile: the source refused it, so it stops here and shows why; only the user's Retry opens it again.
       this.refusedIndex = this.urlIndex;
       this.refusedConcurrent = this.attemptConcurrent;
@@ -1252,10 +1252,22 @@ export class PlaybackSupervisor {
   private note(e: JournalInput): void {
     if (!this.journal) return;
     try {
-      this.journal.add({ ...e, t: this.now(), ...(this.tile !== undefined ? { tile: this.tile } : {}) } as JournalEvent);
+      const tile = this.tileId();
+      this.journal.add({ ...e, t: this.now(), ...(tile !== undefined ? { tile } : {}) } as JournalEvent);
     } catch {
       // diagnostics only
     }
+  }
+
+  /** The slot's role may change (a window that becomes the single-view player): both are read when used. */
+  private tileId(): number | undefined {
+    const t = this.tileOpt;
+    return typeof t === 'function' ? t() : t;
+  }
+
+  private refusalMode(): 'retry' | 'stop' {
+    const r = this.refusalOpt;
+    return (typeof r === 'function' ? r() : r) ?? 'retry';
   }
 
   /** The attempt's stream session in the shared ledger (only with a ledger and a source key). */
@@ -1263,7 +1275,7 @@ export class PlaybackSupervisor {
     this.attemptConcurrent = 0;
     if (!this.ledger || this.sourceKey === undefined) return;
     try {
-      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.tile ?? 0);
+      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.tileId() ?? 0);
       this.session = b.session;
       this.attemptConcurrent = b.concurrent;
     } catch {
