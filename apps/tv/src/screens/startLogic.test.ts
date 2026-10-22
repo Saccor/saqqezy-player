@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
 import {
-  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, eventMeta, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, START_POSTER, START_ROW_Y, focusLabel, labelWidth,
 } from './startLogic.ts';
 import { rowSlots } from '../components/rowSlots.ts';
+import { gridLayout } from '../vod/gridLogic.ts';
+import { LAYOUT } from '../shell/theme.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
 const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
@@ -110,11 +112,6 @@ describe('the match long-press menu (design note live-matches-ranking §3.7–3.
     expect(eventMenuPatch('hide', ev, { ...st, pinnedCompetitions: ['test cup'] })).toEqual({ hiddenCompetitions: ['test cup'], pinnedCompetitions: [] });
     expect(eventMenuPatch('fromStart', ev, st)).toBeUndefined();
   });
-  test('strip meta: when, channels, then the competition or sub-title', () => {
-    const now = 0;
-    expect(eventMeta({ ...ev, start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Test Cup');
-    expect(eventMeta({ ...ev, competition: undefined, subTitle: 'Round 3', start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Round 3');
-  });
 });
 
 describe('See all: category chips (design note §3.7–3.8)', () => {
@@ -146,5 +143,23 @@ describe('See all: category chips (design note §3.7–3.8)', () => {
   });
   test('neutral copy', () => {
     expect(MATCHES_COPY).toEqual({ title: 'Matches in your guide', empty: 'No matches in your guide right now.' });
+  });
+});
+
+describe('Start dense layout (spec 2026-10-22 §1)', () => {
+  test('rows start just under the safe top; posters are the compact grid size', () => {
+    expect(START_ROW_Y).toBe(LAYOUT.safeY + 26);
+    const g = gridLayout('compact');
+    expect(START_POSTER).toEqual({ w: g.cellW, h: g.cellH });
+  });
+  test('the focused poster: title, year and rating, then its status; other cells say nothing', () => {
+    const tile = { id: 'm1', kind: 'movie', title: 'Synthetic Film 001', categoryId: 'c', year: 2001, rating: 5.7, watched: false, favourite: false, progress: 0.4 } as const;
+    expect(focusLabel({ type: 'vod', tile })).toBe('Synthetic Film 001 · 2001 · ★ 5.7 · 40% watched');
+    expect(focusLabel({ type: 'viewAll', target: 'sports', total: 3 })).toBe('');
+    expect(focusLabel(undefined)).toBe('');
+  });
+  test('labelWidth grows with the title', () => {
+    expect(labelWidth('Continue watching')).toBeGreaterThan(labelWidth('On now'));
+    expect(labelWidth('')).toBe(0);
   });
 });

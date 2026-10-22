@@ -2,7 +2,9 @@
 import type { SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
 import { HIDDEN_COMPETITIONS_MAX, PINNED_COMPETITIONS_MAX, competitionKey, type AppSettings } from '@iptv/core';
 import { CATCHUP_COPY, favToggleLabel } from '../copy.ts';
-import { joinMeta } from '../vod/stripLogic.ts';
+import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
+import { metaLine } from '../vod/posterLogic.ts';
+import { LAYOUT } from '../shell/theme.ts';
 import { formatClock } from '../shell/logic.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 
@@ -78,8 +80,24 @@ export function channelMenuItems(favourite: boolean): { id: 'fav' | 'cancel'; la
 }
 export const emptyStartText = () => 'Your start page fills up as you watch.';
 
-/** A match's strip meta: when, how many channels, then the guide's competition text or sub-title. */
-export const eventMeta = (e: SportsEventTile, now: number) => joinMeta(eventWhen(e, now), channelsLabel(e.channelCount), e.competition ?? e.subTitle);
+/** Start's dense layout (spec 2026-10-22 §1.1): no info strip, rows from just under the safe top. */
+export const START_ROW_Y = LAYOUT.safeY + 26;
+/** Start's posters: the compact grid size (`gridLayout('compact')`), so four rows fit at 1080p. */
+export const START_POSTER = { w: 144, h: 216 } as const;
+/** Fully visible tiles per Start row: posters 144 + 24 from x 160, compact tiles 360 + 24 (the next one peeks). */
+export const START_POSTER_VISIBLE = 10;
+export const START_WIDE_VISIBLE = 4;
+
+/** The focused poster's text on its row's label line (Start has no info strip); '' for other cells. */
+export function focusLabel(c: StartCell | undefined): string {
+  if (c?.type !== 'vod') return '';
+  const t = c.tile;
+  return joinMeta(t.title, metaLine({ year: t.year, rating: t.rating }), tileStatus(t));
+}
+
+/** Roughly the strong body face's average glyph width at 1080p: where the focus text after a row title starts. */
+const LABEL_GLYPH = 15;
+export const labelWidth = (title: string) => Math.ceil(title.length * LABEL_GLYPH);
 
 type MatchPrefs = Pick<AppSettings, 'followedTeams' | 'pinnedCompetitions' | 'hiddenCompetitions'>;
 const sameTeam = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
