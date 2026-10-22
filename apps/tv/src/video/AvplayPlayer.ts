@@ -236,6 +236,8 @@ export class AvplayPlayer implements Player {
   private readonly prepareTimeoutMs: number;
   private windowCache: { at: number; value: LiveState } | undefined;
   private stillOn = false;
+  /** A hold ended while AVPlay was closed: still mode may still be on there, so the next stream playing clears it. */
+  private stillPending = false;
   private suspended: { url: string; positionMs: number; wasPaused: boolean } | undefined;
   private readonly saver: ReturnType<typeof createScreenSaverGuard> | undefined;
   /** Ends a held frame that outlived playback (see `HOLD_MAX_MS`). */
@@ -296,7 +298,7 @@ export class AvplayPlayer implements Player {
   }
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
-    this.stop();
+    this.stop({ hold: true }); // a held frame stays until this stream plays
     const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
@@ -405,9 +407,14 @@ export class AvplayPlayer implements Player {
     }
   }
 
-  stop(): void {
+  /**
+   * Closes the stream. Unless `opts.hold` (a reconnect or probe restart that keeps the last frame under the spinner),
+   * still mode goes off first: AVPlay draws on a plane under the page, and a frame left there shows behind the next screen.
+   */
+  stop(opts?: { hold?: boolean }): void {
     const s = this.session;
     if (!s) return;
+    if (!opts?.hold) this.releaseLastFrame(); // before close(): a closed player ignores setVideoStillMode
     s.dead = true;
     clearTimeout(s.watchdog);
     clearTimeout(s.seekWatchdog);
@@ -761,11 +768,18 @@ export class AvplayPlayer implements Player {
   releaseLastFrame(): void {
     clearTimeout(this.holdTimer);
     this.holdTimer = undefined;
-    if (!this.stillOn) {
+    if (!this.stillOn && !this.stillPending) {
       this.updateSaver();
       return;
     }
     this.stillOn = false;
+    if (!this.session) {
+      // AVPlay is closed: a call would fail silently. The next stream playing clears the mode.
+      this.stillPending = true;
+      this.updateSaver();
+      return;
+    }
+    this.stillPending = false;
     try {
       this.avplay.setVideoStillMode?.('false');
     } catch {

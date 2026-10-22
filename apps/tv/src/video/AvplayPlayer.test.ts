@@ -505,6 +505,56 @@ describe('AvplayPlayer: live delay and recovery', () => {
     expect(p.health()).toEqual({ engine: 'avplay', positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
   });
 
+  test('stop() turns still mode off before AVPlay stops and closes', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    av.calls = [];
+    p.stop();
+    expect(av.calls).toEqual(['setVideoStillMode', 'stop', 'close']);
+    expect(av.still).toEqual(['true', 'false']);
+  });
+
+  test('stop({ hold: true }) keeps still mode on', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    av.calls = [];
+    p.stop({ hold: true });
+    expect(av.calls).toEqual(['stop', 'close']);
+    expect(av.still).toEqual(['true']);
+  });
+
+  test('releaseLastFrame after stop() makes no AVPlay call on the closed player', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    p.stop();
+    av.calls = [];
+    p.releaseLastFrame();
+    expect(av.calls).toEqual([]);
+    p.holdLastFrame();
+    p.stop({ hold: true });
+    p.releaseLastFrame();
+    expect(av.calls.filter((c) => c !== 'setVideoStillMode')).toEqual([]);
+  });
+
+  test('a hold kept by stop({ hold: true }) and released while closed is cleared when the next stream plays', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    p.stop({ hold: true });
+    p.releaseLastFrame(); // closed: nothing to call yet
+    expect(av.still).toEqual(['true']);
+    await p.open(URL_B);
+    av.prepared[1]!.ok();
+    expect(av.still).toEqual(['true', 'false']);
+  });
+
   test('destroy releases a held still frame', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
@@ -1132,11 +1182,11 @@ describe('AvplayPlayer: screensaver', () => {
       await p.open(URL_A, 1);
       av.prepared[0]!.ok();
       p.holdLastFrame!();
-      p.stop();
+      p.stop({ hold: true });
       expect(saver.at(-1)).toBe('off');
       vi.advanceTimersByTime(30_000);
       expect(saver.at(-1)).toBe('on');
-      expect(av.still.at(-1)).toBe('false');
+      expect(av.still).toEqual(['true']); // AVPlay is closed: no call, the next stream playing clears it
     } finally {
       vi.useRealTimers();
     }

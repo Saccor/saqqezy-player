@@ -19,8 +19,12 @@ class FakePlayer implements Player {
   recover?: (a: 'gapJump' | 'softReload') => boolean;
   setPlaybackRate?: (r: number) => void;
   setLiveProfile = vi.fn((_p: LiveProfile) => undefined);
-  holdLastFrame = vi.fn(() => undefined);
-  releaseLastFrame = vi.fn(() => undefined);
+  /** The `stop()` options, in call order; `calls` keeps the plain 'stop' entries. */
+  stopOpts: Array<{ hold?: boolean } | undefined> = [];
+  /** Whether a held last frame is showing: `stop()` clears it unless it asked to hold. */
+  still = false;
+  holdLastFrame = vi.fn(() => { this.still = true; });
+  releaseLastFrame = vi.fn(() => { this.still = false; });
   pause = vi.fn(() => undefined);
   play = vi.fn(() => undefined);
   seek?: (ms: number) => boolean;
@@ -32,7 +36,11 @@ class FakePlayer implements Player {
     if (this.throwOnOpen !== undefined) { const e = this.throwOnOpen; this.throwOnOpen = undefined; throw e; }
     return Promise.resolve();
   }
-  stop(): void { this.calls.push('stop'); }
+  stop(opts?: { hold?: boolean }): void {
+    this.calls.push('stop');
+    this.stopOpts.push(opts);
+    if (!opts?.hold) this.still = false;
+  }
   setRect(_r: Rect | 'fullscreen'): void {}
   setAspect(_m: AspectMode): void {}
   audioTracks(): TrackInfo[] { return []; }
@@ -1071,6 +1079,31 @@ describe('PlaybackSupervisor – per-source open rate', () => {
     expect(taken).toEqual(['src']);
   });
 
+  it('a reconnect restart stops the engine holding the frame; a play() or stop() does not', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    player.emit('playing');
+    expect(player.stopOpts).toEqual([undefined]); // play() clears whatever was held
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    expect(player.stopOpts).toEqual([undefined, { hold: true }]);
+    sup.stop();
+    expect(player.stopOpts).toEqual([undefined, { hold: true }, undefined]);
+  });
+
+  it('a stop() during the reconnect gap ends with the held frame cleared', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    player.emit('playing');
+    player.emit('error', { code: 'NETWORK' });
+    expect(player.still).toBe(true); // held for the reconnect
+    vi.advanceTimersByTime(1000); // restart: stop({ hold: true }), then open
+    expect(player.still).toBe(true);
+    sup.stop();
+    expect(player.still).toBe(false);
+    expect(player.stopOpts.at(-1)).toBeUndefined();
+  });
+
   it('a newer play() or stop() drops the held reconnect', () => {
     let wait = 0;
     const { player, sup } = setup({ openRate: { waitMs: () => wait, take: () => undefined } });
@@ -1496,6 +1529,7 @@ describe('PlaybackSupervisor: status probe', () => {
     expect(player.calls).toEqual(['stop', `open:${A}`]); // nothing torn down inside the engine's callback
     await settle();
     expect(player.calls).toEqual(['stop', `open:${A}`, 'stop']); // the attempt is stopped before the probe
+    expect(player.stopOpts.at(-1)).toEqual({ hold: true }); // holding the frame, like a reconnect
     expect(calls.map((c) => c.url)).toEqual([A]);
     vi.advanceTimersByTime(60_000);
     expect(player.opened).toEqual([A]); // a confirmed refusal is not tried again

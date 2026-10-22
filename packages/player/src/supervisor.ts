@@ -842,7 +842,7 @@ export class PlaybackSupervisor {
     if (this.openRate && this.sourceKey !== undefined) this.openRate.take(this.sourceKey);
     this.player.holdLastFrame?.();
     this.startSpinner();
-    this.player.stop();
+    this.player.stop({ hold: true });
     const gen = this.gen;
     this.afterClosed(() => this.afterSharedGap(() => {
       this.waiting = true;
@@ -1045,7 +1045,7 @@ export class PlaybackSupervisor {
    * gap since the last open, then opens. `beforeOpen` runs right before the open.
    */
   private restart(beforeOpen?: () => void): void {
-    this.player.stop();
+    this.player.stop({ hold: true }); // the reconnect's held frame stays under the spinner
     this.afterClosed(() => this.openAfterGap(true, beforeOpen));
   }
 
