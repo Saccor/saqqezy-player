@@ -116,6 +116,12 @@ describe('chip layout', () => {
       expect(hit(boxes[i]![1], boxes[j]![1]), `${boxes[i]![0]} vs ${boxes[j]![0]}`).toBe(false);
     }
   });
+  it('a normal chip (count line at full width, no badge) overlaps nothing; the flag is centred and clear of the pick pill', () => {
+    const wide = { ...CHIP_BOXES.count, w: CHIP_BOXES.name.w };
+    for (const name of ['flag', 'pill', 'name'] as const) expect(hit(wide, CHIP_BOXES[name]), `count vs ${name}`).toBe(false);
+    expect(CHIP_BOXES.flag.x + CHIP_BOXES.flag.w / 2).toBe(CHIP.w / 2);
+    expect(CHIP_BOXES.pill.x).toBeGreaterThan(CHIP_BOXES.flag.x + CHIP_BOXES.flag.w);
+  });
   it('every part stays inside the chip, clear of the 4 px picked border', () => {
     for (const [name, b] of boxes) {
       expect(b.x, name).toBeGreaterThanOrEqual(4);

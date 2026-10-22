@@ -141,7 +141,7 @@ describe('showWordmark', () => {
   });
 
   it('is off on the redesigned screens, the player and multiview', () => {
-    for (const r of ['home', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'player', 'multiview'] as const) expect(showWordmark(r, false, false)).toBe(false);
+    for (const r of ['home', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'player', 'multiview', 'countries'] as const) expect(showWordmark(r, false, false)).toBe(false);
   });
 
   it('screens with the rail draw the clock in the rail', () => {

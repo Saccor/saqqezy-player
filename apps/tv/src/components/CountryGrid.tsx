@@ -39,6 +39,8 @@ function Chip(p: {
   let node: ElementNode | undefined;
   useFocusScale(() => node, () => p.lit);
   const picked = () => p.number !== undefined;
+  /** The count line is shared with the "This TV" badge only on this TV's chip; otherwise it is centred across the chip. */
+  const countW = () => (p.device ? BOX.count.w : BOX.name.w);
   return (
     <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
       <FocusRing w={CHIP.w} h={CHIP.h} radius={LAYOUT.radius} lit={p.lit} hover={p.hover} />
@@ -53,7 +55,7 @@ function Chip(p: {
         }>{(src) => <View x={BOX.flag.x} y={BOX.flag.y} width={BOX.flag.w} height={BOX.flag.h} src={src()} />}</Show>
         <Text x={BOX.name.x} y={BOX.name.y} width={BOX.name.w} height={BOX.name.h} maxWidth={BOX.name.w} contain="width" maxLines={1}
           textAlign="center" fontSize={NAME_SIZE} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
-        <Text x={BOX.count.x} y={BOX.count.y} width={BOX.count.w} height={BOX.count.h} maxWidth={BOX.count.w} contain="width"
+        <Text x={BOX.count.x} y={BOX.count.y} width={countW()} height={BOX.count.h} maxWidth={countW()} contain="width"
           maxLines={1} textAlign="center" fontSize={COUNT_SIZE} color={COLORS.textSecondary}>
           {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
         </Text>

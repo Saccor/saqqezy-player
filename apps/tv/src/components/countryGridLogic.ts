@@ -15,14 +15,15 @@ export const CHIP = { w: 260, h: 164, gap: 24 } as const;
 export interface Box { x: number; y: number; w: number; h: number }
 /**
  * Where each part sits inside a chip. None overlap and all stay inside the chip with a margin for the picked border:
- * the flag on the left, the pick pill top right with "This TV" under it, then the name and the count across the bottom.
+ * the flag centred at the top, the pick pill top right (right of the flag), the name across the middle, then the count
+ * with the "This TV" badge at the right end of the same line.
  */
 export const CHIP_BOXES: Record<'flag' | 'pill' | 'device' | 'name' | 'count', Box> = {
-  flag: { x: 16, y: 10, w: 96, h: 72 },
+  flag: { x: 82, y: 12, w: 96, h: 72 },
   pill: { x: CHIP.w - 72, y: 8, w: 64, h: 36 },
-  device: { x: CHIP.w - 108, y: 48, w: 100, h: 36 },
+  device: { x: CHIP.w - 112, y: 124, w: 100, h: 34 },
   name: { x: 12, y: 86, w: CHIP.w - 24, h: 38 },
-  count: { x: 12, y: 124, w: CHIP.w - 24, h: 34 },
+  count: { x: 12, y: 124, w: CHIP.w - 24 - 112, h: 34 },
 };
 
 /** Each row's height in the grid's scroll space (a chip row: the chip plus 20 px). */
