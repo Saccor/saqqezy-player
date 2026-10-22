@@ -1549,7 +1549,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     await p.open(URL_A, 1);
     p.stop();
     const closed = p.closed();
-    expect(() => { frames.splice(0).forEach((f) => f()); }).toThrow();
+    expect(() => { frames.splice(0).forEach((f) => f()); }).not.toThrow();
     await closed;
   });
 

@@ -57,6 +57,8 @@ describe('thumbService', () => {
 
   it('answers err when posting the ok reply throws', async () => {
     const posts: ThumbReply[] = [];
+    let closed = 0;
+    const bitmap = { width: 1, height: 1, close() { closed += 1; } } as unknown as ImageBitmap;
     let gate!: (r: LoadedImage) => void;
     const svc = createThumbService({
       mode: 'full', deps: {} as ThumbDeps,
@@ -64,8 +66,9 @@ describe('thumbService', () => {
       load: (() => new Promise<LoadedImage>((o) => { gate = o; })) as unknown as typeof import('./thumbLoader.ts').loadThumb,
     });
     svc.handle(req(9));
-    gate({ data: bitmapLike, premultiplyAlpha: true, premultiplied: true, from: 'fetched' });
+    gate({ data: bitmap, premultiplyAlpha: true, premultiplied: true, from: 'fetched' });
     await flush();
     expect(posts).toEqual([{ t: 'mode', mode: 'full' }, { t: 'err', id: 9, message: 'DataCloneError' }]);
+    expect(closed).toBe(1);
   });
 });

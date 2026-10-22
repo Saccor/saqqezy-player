@@ -454,7 +454,9 @@ export class AvplayPlayer implements Player {
       try { this.avplay.stop(); } catch { /* ignore */ }
       try { this.avplay.close(); } catch { /* ignore */ }
       // The scaler is free only once AVPlay has let go of it.
-      if (resource) this.resources?.release(resource);
+      if (resource) {
+        try { this.resources?.release(resource); } catch { /* ignore */ }
+      }
     });
     this.updateSaver();
   }

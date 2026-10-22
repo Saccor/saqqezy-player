@@ -4,7 +4,9 @@ import type { ThumbReply, ThumbRequest } from './thumbService.ts';
 
 function port() {
   const sent: ThumbRequest[] = [];
-  const p: PortLike & { reply(r: ThumbReply): void; fail(): void } = {
+  const p: PortLike & { reply(r: ThumbReply): void; fail(): void; terminated: number } = {
+    terminated: 0,
+    terminate() { p.terminated += 1; },
     onmessage: null,
     onerror: null,
     postMessage: (m) => { sent.push(m); },
@@ -81,6 +83,7 @@ describe('ThumbClient worker failure', () => {
     p.fail();
     await expect(inflight).rejects.toThrow('Image worker failed');
     expect(c.stats()).toMatchObject({ failed: 1, mode: 'stock', failedWorker: true });
+    expect(p.terminated).toBe(1);
     await expect(c.load('http://img.test/c.jpg', 10, 10, true, stockOk)).resolves.toMatchObject({ data: bm });
     expect(thumbStatsLine(c.stats())).toBe('Renderer loader (worker failed)');
   });

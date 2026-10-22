@@ -8,7 +8,7 @@ export type ThumbReply =
   | { t: 'err'; id: number; message: string }
   | { t: 'copy'; kept: boolean };
 
-/** Loads at once in the worker: enough to keep the network busy, few enough that one screen's images come first. */
+/** Limits concurrent loads (network and decode memory in the worker); requests are served in arrival order. */
 const MAX_ACTIVE = 6;
 
 /**
@@ -34,6 +34,8 @@ export function createThumbService(opts: {
           try {
             opts.post({ t: 'ok', id: r.id, bitmap: img.data, premultiplyAlpha: img.premultiplyAlpha, from: img.from }, [img.data]);
           } catch (e) {
+            // Not transferred, so it is still ours to free.
+            try { img.data.close(); } catch { /* ignore */ }
             opts.post({ t: 'err', id: r.id, message: e instanceof Error ? e.message : 'Image failed' });
           }
         },

@@ -1,7 +1,7 @@
 import type { ThumbReply, ThumbRequest } from './thumbService.ts';
 import type { ThumbMode } from './workerThumbDeps.ts';
 
-export interface PortLike { postMessage(msg: ThumbRequest): void; onmessage: ((e: { data: ThumbReply }) => void) | null; onerror?: ((e: unknown) => void) | null }
+export interface PortLike { postMessage(msg: ThumbRequest): void; onmessage: ((e: { data: ThumbReply }) => void) | null; onerror?: ((e: unknown) => void) | null; terminate?(): void }
 export interface ThumbStats { stored: number; fetched: number; asIs: number; failed: number; kept: number; skipped: number; mode: ThumbMode | undefined; failedWorker?: boolean }
 /** The renderer's image result (renderer 3.7 `TextureData`, the image case). */
 export type LoadedImageLike = { data: ImageBitmap; premultiplyAlpha: boolean | null; premultiplied?: boolean };
@@ -41,6 +41,7 @@ export class ThumbClient {
     if (this.startTimer !== undefined) { this.clearTimer(this.startTimer); this.startTimer = undefined; }
     this.counts.mode = 'stock';
     this.counts.failedWorker = true;
+    try { this.port.terminate?.(); } catch { /* ignore */ }
     this.setMode('stock');
     for (const w of this.waiting.values()) {
       this.counts.failed += 1;

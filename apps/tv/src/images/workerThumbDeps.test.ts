@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { thumbMode } from './workerThumbDeps.ts';
+import { afterEach, describe, expect, it } from 'vitest';
+import { thumbMode, workerThumbDeps } from './workerThumbDeps.ts';
 
 class FullCanvas { convertToBlob() { return Promise.resolve(new Blob()); } }
 class PlainCanvas {}
@@ -16,5 +16,22 @@ describe('thumbMode', () => {
   it('stock without createImageBitmap or fetch in the worker', () => {
     expect(thumbMode({ fetch: fn, OffscreenCanvas: FullCanvas })).toBe('stock');
     expect(thumbMode({ createImageBitmap: fn })).toBe('stock');
+  });
+});
+
+describe('workerThumbDeps encodeLater', () => {
+  const original = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas;
+  afterEach(() => { (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = original; });
+
+  it('a throw while copying the bitmap resolves undefined and counts a skip', async () => {
+    class ThrowingCanvas { constructor() { throw new Error('allocation failed'); } }
+    (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = ThrowingCanvas;
+    let skipped = 0;
+    const deps = workerThumbDeps({ mode: 'full', store: {} as never, counters: { kept() {}, skipped() { skipped += 1; } } });
+    const bitmap = { width: 4, height: 4 } as unknown as ImageBitmap;
+    let result: Promise<unknown> | undefined;
+    expect(() => { result = deps.encodeLater(bitmap); }).not.toThrow();
+    await expect(result).resolves.toBeUndefined();
+    expect(skipped).toBe(1);
   });
 });

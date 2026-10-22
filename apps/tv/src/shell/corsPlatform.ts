@@ -7,6 +7,8 @@ import { loadSvgCors } from './svgLoad.ts';
 
 /** The one thumbnail worker, started by the first sized image. */
 let thumbPort: PortLike | undefined;
+/** The worker could not be constructed: sized images take the stock path from then on (not retried per image). */
+let thumbWorkerBroken = false;
 
 /**
  * The renderer's default web platform with two changes:
@@ -28,7 +30,10 @@ export class CorsWebPlatform extends WebPlatform {
     // A crop (sx/sy/sw/sh) keeps the stock path: the crop is in the source image's pixels.
     if (!sized || (sw != null && sh != null)) return super.loadImage(src, premultiplyAlpha, sx, sy, sw, sh);
     if (isSvgUrl(sized.url)) return this.loadSvg(sized.url, sized.w, sized.h);
-    thumbPort ??= new ThumbWorker() as unknown as PortLike;
+    if (!thumbPort && !thumbWorkerBroken) {
+      try { thumbPort = new ThumbWorker() as unknown as PortLike; } catch { thumbWorkerBroken = true; }
+    }
+    if (!thumbPort) return super.loadImage(sized.url, premultiplyAlpha);
     const client = startThumbClient(thumbPort);
     const url = new URL(sized.url, self.location.href).href;
     const stock = () => super.loadImage(sized.url, premultiplyAlpha) as unknown as ReturnType<typeof client.load>;

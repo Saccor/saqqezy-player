@@ -58,13 +58,20 @@ export function workerThumbDeps(opts: { mode: ThumbMode; store: ThumbDeps['store
         return Promise.resolve(undefined);
       }
       // Copied now: the bitmap is transferred to the UI thread right after this call returns.
-      const c = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = c.getContext('2d');
-      if (!ctx) {
+      let c: OffscreenCanvas;
+      try {
+        c = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const ctx = c.getContext('2d');
+        if (!ctx) {
+          opts.counters.skipped();
+          return Promise.resolve(undefined);
+        }
+        ctx.drawImage(bitmap, 0, 0);
+      } catch {
+        // Allocation can fail on a low-memory TV; the image itself still loads, only its kept copy is dropped.
         opts.counters.skipped();
         return Promise.resolve(undefined);
       }
-      ctx.drawImage(bitmap, 0, 0);
       pending += 1;
       // A macrotask later, so the reply with the bitmap is posted before the encode starts.
       return new Promise<void>((r) => setTimeout(r, 0))
