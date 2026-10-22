@@ -66,6 +66,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   let root: ElementNode | undefined;
   let menuNode: ElementNode | undefined;
   let pickerNode: ElementNode | undefined;
+  let pickerBack: (() => boolean) | undefined;
   let alive = true;
   /** Opened over nothing yet: Back from the first picker leaves multiview. */
   let entryPicker = false;
@@ -214,12 +215,15 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     setMenu(undefined);
     removeOverlay(MENU_ID);
     setPicker(mode);
-    openOverlay(PICKER_ID, () => {
+    const layer = () => openOverlay(PICKER_ID, () => {
+      // Back first clears a search query (the picker stays); only then does it close.
+      if (pickerBack?.()) { layer(); return; }
       setPicker(undefined);
       // Back from the first picker with nothing picked: back to the full-screen player.
       if (entryPicker && (state()?.windows.length ?? 0) <= 1) leave();
       else focusRoot();
     });
+    layer();
     queueMicrotask(() => pickerNode?.setFocus());
   };
   const closePicker = () => {
@@ -482,7 +486,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
           items={menuEntries()} cancel="cancel" onChoose={choose} />
       </Show>
       <Show when={picker()}>
-        <MultiviewPicker ref={(el) => { pickerNode = el; }}
+        <MultiviewPicker ref={(el) => { pickerNode = el; }} backRef={(fn) => { pickerBack = fn; }}
           title={picker()?.mode === 'change' ? MULTIVIEW_COPY.changeChannel : MULTIVIEW_COPY.addChannel}
           now={now()} onScreen={onScreen} onPick={(id) => { void pickChannel(id); }} />
       </Show>
