@@ -8,6 +8,7 @@ import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
+import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
@@ -167,6 +168,7 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />
+            : entry.screen === 'multiview' ? <MultiviewScreen entry={entry} />
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />

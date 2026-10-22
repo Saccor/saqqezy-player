@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
 import {
   ASPECT_MODES, PLAYER_POINTER_LABELS, WHEEL_ZAP_MIN_MS, aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill,
-  nextAspect, playerAutoHide, playerLeave, playerOverlayShown, playerStatusText, sleepLabel, wheelZapAllowed,
+  multiviewOffered, nextAspect, playerAutoHide, playerLeave, playerOverlayShown, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
 
 describe('playerStatusText', () => {
@@ -170,5 +170,13 @@ describe('wheelZapAllowed (trackpad inertia never zaps through many channels)', 
     expect(wheelZapAllowed(1000, 1120)).toBe(false);
     expect(wheelZapAllowed(1000, 1299)).toBe(false);
     expect(wheelZapAllowed(1000, 1300)).toBe(true);
+  });
+});
+
+describe('multiviewOffered', () => {
+  it('the player offers Multiview only where at least 2 windows fit', () => {
+    expect(multiviewOffered(2)).toBe(true);
+    expect(multiviewOffered(4)).toBe(true);
+    expect(multiviewOffered(1)).toBe(false);
   });
 });

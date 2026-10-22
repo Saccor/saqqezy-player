@@ -4,7 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CATCHUP_COPY, FAV_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, MULTIVIEW_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
@@ -19,7 +19,7 @@ import { channelHistory } from '../playback/channelHistory.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
-import { playback, player, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
+import { playback, player, pool, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
 import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
 import { mediaBadges } from '../playback/mediaBadges.ts';
@@ -37,8 +37,9 @@ import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
 import { pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
-  playerLeave, playerStatusText, sleepLabel, wheelZapAllowed,
+  multiviewOffered, playerLeave, playerStatusText, sleepLabel, wheelZapAllowed,
 } from './playerLogic.ts';
+import { deviceCeiling, windowLimit } from './multiview/windows.ts';
 
 const GROUP_ALL = 'all';
 const BANNER_MS = 4000;
@@ -324,6 +325,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
+      // Several channels at once, where this device can play them (spec 2026-10-20-multiview §2.1).
+      ...(multiviewOffered(windowLimit(deviceCeiling(pool.max), settings()?.maxWindows ?? 'auto'))
+        ? [{ id: 'multiview', label: MULTIVIEW_COPY.entry }] : []),
       { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
       // Catch-up channel with a programme on now: play it from its start (spec 2026-10-20-catch-up §5.2).
       ...(shown()?.archiveDays !== undefined && shown()?.now ? [{ id: 'fromStart', label: CATCHUP_COPY.fromStart }] : []),
@@ -333,6 +337,11 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   });
 
   const choose = (id: string) => {
+    if (id === 'multiview') {
+      closeMenu();
+      router.push('multiview', {});
+      return;
+    }
     if (id === 'audio' || id === 'source') {
       setMenuPage(id);
       queueMicrotask(() => menuNode?.setFocus());
