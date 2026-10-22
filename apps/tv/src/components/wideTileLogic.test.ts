@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ChannelRow, SportsEventTile } from '@iptv/app-api';
-import { wideLines, wideSize } from './wideTileLogic.ts';
+import { COMPACT_H, MATCH_GRID_H, wideLines, wideSize } from './wideTileLogic.ts';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const chan = (extra: Partial<ChannelRow> = {}): ChannelRow =>
@@ -27,14 +27,24 @@ describe('wideLines', () => {
   test('View all: just the label', () => {
     expect(wideLines({ type: 'viewAll', target: 'sports', total: 30 }, NOW)).toEqual({ context: '', main: 'View all', live: false });
   });
+  test('short (compact tiles): "N ch", and a match with two sides gives them for their own lines', () => {
+    const e = { ...ev(NOW - 60_000, NOW + 3600_000, 4), sides: ['Lakeshore', 'Pinecrest'] as [string, string] };
+    expect(wideLines({ type: 'event', event: e }, NOW, false, true))
+      .toEqual({ context: 'Live · 4 ch', main: 'Team A v Team B', live: true, sides: ['Lakeshore', 'Pinecrest'] });
+    expect(wideLines({ type: 'event', event: ev(NOW + 20 * 60_000, NOW + 7200_000, 1) }, NOW, false, true).context).toBe('In 20 min · 1 ch');
+  });
+  test('a title-only event has no sides', () => {
+    expect(wideLines({ type: 'event', event: ev(NOW, NOW + 1) }, NOW, false, true).sides).toBeUndefined();
+  });
   test('a context equal to the main line is dropped', () => {
     expect(wideLines({ type: 'channel', channel: chan({ name: 'Same', now: onNow('Same') }) }, NOW).context).toBe('');
   });
 });
 
 describe('wideSize', () => {
-  test('the compact tile is much shorter than the wide one', () => {
+  test('the compact tile is 360 × 112, much shorter than the wide one; the grid tile adds one 24 px line', () => {
     expect(wideSize(false)).toEqual({ w: 314, h: 176 });
-    expect(wideSize(true)).toEqual({ w: 300, h: 100 });
+    expect(wideSize(true)).toEqual({ w: 360, h: 112 });
+    expect(MATCH_GRID_H - COMPACT_H).toBe(24);
   });
 });

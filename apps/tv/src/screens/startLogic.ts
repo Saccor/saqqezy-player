@@ -66,6 +66,8 @@ export function focusAfterLoad(prev: { hadRows: boolean }, next: { hasRows: bool
 }
 
 export const channelsLabel = (n: number) => (n === 1 ? '1 channel' : `${n} channels`);
+/** Compact tiles: "4 ch" (the full form stays for the event picker). */
+export const channelsShort = (n: number) => `${n} ch`;
 
 /**
  * Long Ok / Menu on a channel cell: the same choice Home's channel menu leads with (favourite on or off), behind a
