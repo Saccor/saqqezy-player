@@ -31,6 +31,8 @@ export function ActionBar(props: {
   onUp?: () => boolean;
   onDown?: () => boolean;
   onFocusChanged?: (f: boolean) => void;
+  /** Menu or long OK on the selected button (View all's competition chips: put first, hide). Unset: the key bubbles. */
+  onOptions?: (id: string) => void;
   /** The action selected before the first Left/Right (default: the first one). */
   initial?: string;
   /** The action in effect (a chosen filter): drawn in the accent colour whenever it is not the lit one. */
@@ -55,6 +57,12 @@ export function ActionBar(props: {
   };
   const cur = createMemo((prev: number) => selectedIndex(props.actions, selId(), prev), 0);
   const select = (i: number) => setSelId(props.actions[i]?.id);
+  const options = () => {
+    const a = props.actions[cur()];
+    if (!a || !props.onOptions) return false;
+    props.onOptions(a.id);
+    return true;
+  };
   usePointerTarget({
     node: () => node,
     onHover: (p) => setHover(p ? at(p.x) : undefined),
@@ -71,7 +79,8 @@ export function ActionBar(props: {
       onLeft={() => { if (cur() === 0 && props.onLeft) return props.onLeft(); select(Math.max(0, cur() - 1)); return true; }}
       onRight={() => { select(Math.min(props.actions.length - 1, cur() + 1)); return true; }}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown?.() ?? true}
-      onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}>
+      onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}
+      onMenu={() => options()} onLongOk={() => options()}>
       <For each={props.actions}>{(a, i) => {
         const lit = () => focused() && cur() === i();
         const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover
