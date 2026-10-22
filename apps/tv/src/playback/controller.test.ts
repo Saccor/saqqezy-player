@@ -289,6 +289,47 @@ describe('playback controller', () => {
       expect(calls).toEqual([`answered:src-1:${url('1')}`, `refused:src-1:${url('1')}`, `refused:src-1:${url('2')}`]);
     });
 
+    describe('multiview tile refusals', () => {
+      const refused403 = { kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0, concurrent: 1 } as const;
+      function tiled(scope?: 'tile' | 'host') {
+        const f = fakes();
+        const calls: string[] = [];
+        const facts: unknown[] = [];
+        const gate = {
+          blocked: () => false,
+          refused: (k: string, url: string) => { calls.push(`refused:${k}:${url}`); },
+          answered: () => undefined,
+          tileRefused: (k: string, url: string, fx: unknown) => { calls.push(`tile:${k}:${url}`); facts.push(fx); },
+        };
+        const scoper = scope ? { scope: vi.fn(() => scope) } : undefined;
+        const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1', gate, undefined, undefined, scoper);
+        return { f, pb, calls, facts, scoper };
+      }
+
+      it('a refusal the scoper keeps on the tile never reaches the host cooldown', () => {
+        const { f, pb, calls, facts, scoper } = tiled('tile');
+        pb.playChannel(ch('1'));
+        f.emit(refused403);
+        expect(calls).toEqual([`tile:src-1:${ch('1').url}`]);
+        expect(facts).toEqual([{ httpStatus: 403, concurrent: 1 }]);
+        expect(scoper!.scope).toHaveBeenCalledWith('src-1', ch('1').url, { httpStatus: 403, concurrent: 1 });
+      });
+
+      it('a refusal the scoper gives to the host starts the host cooldown', () => {
+        const { f, pb, calls } = tiled('host');
+        pb.playChannel(ch('1'));
+        f.emit(refused403);
+        expect(calls).toEqual([`refused:src-1:${ch('1').url}`]);
+      });
+
+      it('without a scoper (slot 0 today) every refusal goes to the host cooldown', () => {
+        const { f, pb, calls } = tiled();
+        pb.playChannel(ch('1'));
+        f.emit(refused403);
+        expect(calls).toEqual([`refused:src-1:${ch('1').url}`]);
+      });
+    });
+
     it("a refusal passes the probe's Retry-After to the gate", () => {
       const f = fakes();
       const seen: Array<[string, string, number | undefined]> = [];

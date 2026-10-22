@@ -2,6 +2,7 @@ import { createSignal, type Accessor } from 'solid-js';
 import type { PlayableChannel, VodPlayable } from '@iptv/app-api';
 import { onHidden, onVisible, type BackgroundAction } from './backgroundPolicy.ts';
 import { canFailOver, nextSource, type FailoverDeps } from './failover.ts';
+import type { RefusalFacts, RefusalScope } from './refusalScope.ts';
 import type { Player, PlaybackSupervisor, Rect, StreamHeaders, SupervisorStatus, TrackInfo } from '@iptv/player';
 
 export interface PlaybackController {
@@ -100,6 +101,11 @@ export interface CooldownGate {
    * status probe's `Retry-After`, which replaces the wait.
    */
   refused(sourceKey: string, url: string, retryAfterMs?: number): void;
+  /**
+   * A multiview tile's refusal that stays on the tile (another stream of the host was open): the host cooldown does not
+   * start, and only that tile shows why.
+   */
+  tileRefused?(sourceKey: string, url: string, facts: RefusalFacts): void;
   /** The stream at `url` played: its host and the source answer us. */
   answered(sourceKey: string, url: string): void;
   /** The current stream changed (undefined: none): the cooldown copy and the hold follow its host. */
@@ -129,6 +135,8 @@ export function createPlaybackController(
   /** Told how a return from the background was handled (the playback journal). */
   onResumed: (what: 'resume_restore' | 'resume_reopen') => void = () => { /* no listener */ },
   failover?: FailoverDeps,
+  /** A multiview tile: decides whether a refusal stays on the tile or cools the host down. Absent (slot 0): the host. */
+  tile?: { scope(sourceKey: string, url: string, facts: RefusalFacts): RefusalScope },
 ): PlaybackController {
   const [status, setStatus] = createSignal<SupervisorStatus | undefined>(undefined);
   const [current, setCurrent] = createSignal<PlayableChannel | undefined>(undefined);
@@ -204,7 +212,14 @@ export function createPlaybackController(
         playKey = undefined;
         // Only refusals: a stream that failed otherwise never counts toward the unreachable breaker (spec §5).
         // The cooldown lands on the host of the URL the source refused (the alternate may live on another host).
-        if (s.reason === 'refused') gate.refused(key, playUrls[s.urlIndex ?? 0] ?? playUrl, s.retryAfterMs);
+        if (s.reason === 'refused') {
+          const url = playUrls[s.urlIndex ?? 0] ?? playUrl;
+          const facts: RefusalFacts = {};
+          if (s.httpStatus !== undefined) facts.httpStatus = s.httpStatus;
+          if (s.concurrent !== undefined) facts.concurrent = s.concurrent;
+          if (tile && tile.scope(key, url, facts) === 'tile') gate.tileRefused?.(key, url, facts);
+          else gate.refused(key, url, s.retryAfterMs);
+        }
       }
     }
     if (next !== undefined && from && failover) failOver(from, next, failover);

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_POLICY, PlaybackSupervisor,
+  ConnectionLedger, DEFAULT_POLICY, PlaybackSupervisor, SharedOpenGap,
   type AspectMode, type JournalEvent, type LiveProfile, type OpenOptions, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
@@ -2051,5 +2051,211 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
     sup.play(A, undefined, { vod: true, startMs: 5000, headers });
     vi.advanceTimersByTime(1000);
     expect(player.openOpts[1]).toEqual({ live: false, startMs: 5000, headers });
+  });
+});
+
+describe('PlaybackSupervisor: shared open gap (multiview tiles)', () => {
+  /** Supervisors sharing one gap; the spread is the real 300 ms, drawn at 0.5 (1150 ms). */
+  function tiles(n: number, extra: SupervisorOptions = {}) {
+    const openGap = new SharedOpenGap(() => Date.now());
+    return Array.from({ length: n }, () => setup({ openGap, ...extra, policy: { openGapSpreadMs: 300, ...extra.policy } }));
+  }
+  /** Each open's time, per tile, recorded as it happens. */
+  function openTimes(ts: ReturnType<typeof tiles>) {
+    const times: number[][] = ts.map(() => []);
+    ts.forEach((t, i) => {
+      const open = t.player.open.bind(t.player);
+      t.player.open = (url, id, o) => { times[i]!.push(Date.now()); return open(url, id, o); };
+    });
+    return times;
+  }
+
+  it('two tiles on one source started together open 1150 ms apart', () => {
+    const ts = tiles(2);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    ts[1]!.sup.play(B, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(5000);
+    expect(times.map((x) => x.map((t) => t - t0))).toEqual([[0], [1150]]);
+  });
+
+  it('four tiles open at 0, 1.15, 2.3 and 3.45 s', () => {
+    const ts = tiles(4);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    for (const t of ts) t.sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(10_000);
+    expect(times.flat().map((t) => t - t0).sort((a, b) => a - b)).toEqual([0, 1150, 2300, 3450]);
+  });
+
+  it('tiles on different sources do not wait for each other', () => {
+    const ts = tiles(2);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    ts[1]!.sup.play(B, undefined, { sourceKey: 'other' });
+    expect(times.flat().map((t) => t - t0)).toEqual([0, 0]);
+  });
+
+  it("a tile's status probe waits for another tile's gap and counts as an open", async () => {
+    const probe = vi.fn(() => Promise.resolve({}));
+    const ts = tiles(2, { probe });
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1150);
+    ts[1]!.sup.play(B, undefined, { sourceKey: 's' }); // opens at 1150
+    vi.advanceTimersByTime(100);
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' }); // a zap on tile 0 must keep the gap after tile 1's open
+    vi.advanceTimersByTime(1049);
+    expect(ts[0]!.player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(ts[0]!.player.opened).toEqual([A, A]); // 2300
+    ts[1]!.player.emit('error', { code: 'NETWORK' }); // before its first frame: the probe path
+    vi.advanceTimersByTime(0);
+    await flush();
+    expect(probe).not.toHaveBeenCalled(); // tile 0 opened at 2300: wait until 3450
+    vi.advanceTimersByTime(1149);
+    await flush();
+    expect(probe).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(Date.now() - t0).toBe(3450);
+  });
+
+  it('one supervisor opens at the same times with or without the shared gap', () => {
+    const run = (shared: boolean) => {
+      const { player, sup } = setup(shared ? { openGap: new SharedOpenGap(() => Date.now()) } : {});
+      const times: number[] = [];
+      const open = player.open.bind(player);
+      player.open = (url, id, o) => { times.push(Date.now()); return open(url, id, o); };
+      const t0 = Date.now();
+      sup.play(A, B, { sourceKey: 's' });
+      vi.advanceTimersByTime(300);
+      sup.play(B, undefined, { sourceKey: 's' });
+      vi.advanceTimersByTime(2000);
+      player.emit('playing');
+      for (let i = 0; i < 3; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(5000); }
+      sup.dispose();
+      return times.map((t) => t - t0);
+    };
+    expect(run(true)).toEqual(run(false));
+  });
+});
+
+describe('PlaybackSupervisor: connection ledger (multiview tiles)', () => {
+  const A2 = 'http://a.example.test/2';
+
+  it('a refusal while another session of the host is open says how many were open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger });
+    const b = setup({ ledger, tile: 1 });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    a.player.emit('playing');
+    b.sup.play(A2, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1000);
+    b.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    vi.advanceTimersByTime(5000);
+    b.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(b.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0, concurrent: 1 });
+    expect(a.statuses.at(-1)).toEqual({ kind: 'playing' });
+  });
+
+  it('a lone supervisor with a ledger reports refusals exactly as before', () => {
+    const { player, sup, statuses } = setup({ ledger: new ConnectionLedger({ now: () => Date.now() }) });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    vi.advanceTimersByTime(5000);
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
+  });
+
+  it('a stopped stream counts for 1.5 s; a reconnect closes the old session before the new one counts', async () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const { player, sup } = setup({ ledger });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('playing');
+    expect(ledger.concurrent('s')).toBe(1);
+    player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(1000); // reopened
+    expect(player.opened).toHaveLength(2);
+    expect(ledger.concurrent('s')).toBe(1);
+    sup.stop();
+    vi.advanceTimersByTime(1499);
+    expect(ledger.concurrent('s')).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(ledger.concurrent('s')).toBe(0);
+  });
+});
+
+describe('PlaybackSupervisor: tile options', () => {
+  it("onRefusal 'stop': an engine AUTH ends the play as refused at once, with no reconnect or alternate", () => {
+    const { player, sup, statuses } = setup({ onRefusal: 'stop' });
+    sup.play(A, B, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
+    vi.advanceTimersByTime(600_000);
+    expect(player.opened).toEqual([A]);
+  });
+
+  it("onRefusal 'stop': a refusal from the status probe ends it too, with no give-up retries", async () => {
+    const probe = vi.fn(() => Promise.resolve({ status: 403 }));
+    const { player, sup, statuses } = setup({ onRefusal: 'stop', probe });
+    sup.play(A, B, { sourceKey: 's' });
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(0);
+    await flush();
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
+    vi.advanceTimersByTime(600_000);
+    await flush();
+    expect(player.opened).toEqual([A]);
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it("onRefusal 'stop': a refusal after playing stops too (no retry while the tile was playing)", () => {
+    const { player, sup, statuses } = setup({ onRefusal: 'stop' });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('playing');
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(600_000);
+    expect(player.opened).toEqual([A]);
+    expect(statuses.at(-1)).toMatchObject({ kind: 'failed', reason: 'refused' });
+  });
+
+  it('the default still retries an AUTH once at once', () => {
+    const { player, sup } = setup();
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A]);
+  });
+
+  it('countOpen: a user open waits for room under the open rate and counts against it', () => {
+    const taken: string[] = [];
+    let wait = 5000;
+    const { player, sup } = setup({ openRate: { waitMs: () => wait, take: (k) => { taken.push(k); } } });
+    sup.play(A, undefined, { sourceKey: 's', countOpen: true });
+    vi.advanceTimersByTime(4999);
+    expect(player.opened).toEqual([]);
+    wait = 0;
+    vi.advanceTimersByTime(1);
+    expect(player.opened).toEqual([A]);
+    expect(taken).toEqual(['s']);
+  });
+
+  it('tile: every journal event of a tile carries its slot; slot 0 carries none', () => {
+    const journal: JournalEvent[] = [];
+    const sink = { add: (e: JournalEvent) => { journal.push(e); } };
+    const tile = setup({ journal: sink, tile: 2 });
+    tile.sup.play(A, undefined, { sourceKey: 's' });
+    tile.player.emit('playing');
+    tile.sup.stop();
+    expect(journal.length).toBeGreaterThan(2);
+    expect(journal.every((e) => e.tile === 2)).toBe(true);
+    journal.length = 0;
+    const main = setup({ journal: sink });
+    main.sup.play(A, undefined, { sourceKey: 's' });
+    expect(journal.every((e) => !('tile' in e))).toBe(true);
   });
 });

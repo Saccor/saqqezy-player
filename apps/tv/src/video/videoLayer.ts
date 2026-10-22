@@ -29,6 +29,18 @@ export interface VideoLayer {
 }
 
 /**
+ * A video root for multiview slot `n` (1..3), right after `#video-layer` and styled like it (`.video-slot` in
+ * index.html): `createVideoLayer` then owns it as it owns the main root. Slot 0 keeps `#video-layer` itself.
+ */
+export function createSlotRoot(root: HTMLElement, n: number): HTMLElement {
+  const el = root.ownerDocument.createElement('div');
+  el.className = 'video-slot';
+  el.dataset.slot = String(n);
+  root.after(el);
+  return el;
+}
+
+/**
  * Owns the `<video>` beneath the transparent Lightning canvas:
  * `#video-layer` (positioned at the rect) > `.video-box` (forced-aspect box) > `<video>`.
  */

@@ -161,3 +161,9 @@ describe('new kinds', () => {
     expect(sanitizeEvent({ k: 'app', t: 1, what: 'error', name: 'http://x/y' })).toEqual({ k: 'app', t: 1, what: 'error' });
   });
 });
+
+describe('sanitizeEvent: multiview', () => {
+  it('keeps a numeric tile', () => {
+    expect(sanitizeEvent({ k: 'stop', t: 1, tile: 2 })).toEqual({ k: 'stop', t: 1, tile: 2 });
+  });
+});
