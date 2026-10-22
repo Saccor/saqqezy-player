@@ -38,6 +38,11 @@ export function sourceSubtitleName(sub: SourceSubtitle): string {
 }
 
 const NOW_NEXT_TTL_MS = 60_000;
+/**
+ * Rows wait this long for their stored now/next, then go out without it (answered later as nowNextUpdated). A
+ * healthy read takes a few ms even on a TV; this only trips while the guide store is locked by a long write.
+ */
+const NOW_NEXT_WAIT_MS = 400;
 const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
@@ -94,6 +99,8 @@ export interface AppApiDeps {
   trending?: { baseUrl: string; fetch: (url: string, init: RequestInit) => Promise<Response> };
   /** PBKDF2 iterations of new backups (tests only; the default is BACKUP_PBKDF2_ITERATIONS). */
   backupIterations?: number;
+  /** How long rows wait for their stored now/next (tests only; the default is NOW_NEXT_WAIT_MS). */
+  nowNextWaitMs?: number;
 }
 
 /** How long "Restore from your phone" waits for the phone (§6.5 S1). */
@@ -146,8 +153,12 @@ export class AppApi {
   private indexLock: Promise<void> = Promise.resolve();
   /** Channels whose background short-EPG lookup is running (not started twice). */
   private readonly shortPending = new Set<string>();
-  /** Background short-EPG lookups in flight (awaited by the test-only `idle`). */
+  /** Background short-EPG lookups and late now/next reads in flight (awaited by the test-only `idle`). */
   private readonly shortJobs = new Set<Promise<void>>();
+  /** Channels whose stored now/next read outlasted `nowNextWaitMs` and still runs (not read twice). */
+  private readonly nnPending = new Set<string>();
+  /** How long rows wait for their stored now/next before going out without it. */
+  private readonly nowNextWaitMs: number;
   /** Short-EPG answers, kept until the programme found ends (15 min when nothing was found). */
   private readonly shortCache = new ShortEpgCache();
   /** The browse row the focus rests on (`focusChannel`) and the channel last asked to play: the only short-EPG targets. */
@@ -208,6 +219,7 @@ export class AppApi {
       }
     };
     this.now = deps.now ?? Date.now;
+    this.nowNextWaitMs = deps.nowNextWaitMs ?? NOW_NEXT_WAIT_MS;
     this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
     this.liveMem = new LiveSourceMemory(deps.storage, this.now);
@@ -2218,17 +2230,48 @@ export class AppApi {
       if (hit && t - hit.at < NOW_NEXT_TTL_MS) out.set(c.id, hit.nn);
       else misses.push(c);
     }
-    if (misses.length) {
-      const gen = this.generation;
-      const fetched = await this.lookupNowNext(id, misses, t, false);
-      for (const c of misses) {
+    // Rows whose guide read is still running from an earlier call: empty now, their answer comes as nowNextUpdated.
+    const fresh = misses.filter((c) => !this.nnPending.has(c.id));
+    for (const c of misses) if (this.nnPending.has(c.id)) out.set(c.id, {});
+    if (fresh.length === 0) return out;
+    const gen = this.generation;
+    const store = (fetched: Map<string, NowNext>): Map<string, NowNext> => {
+      const kept = new Map<string, NowNext>();
+      for (const c of fresh) {
         const nn = fetched.get(c.id) ?? {};
-        out.set(c.id, nn);
+        kept.set(c.id, nn);
         // A background short-EPG answer may already have landed for this channel: keep it.
         const landed = this.nnCache.get(c.id);
         if (gen === this.generation && !(landed && landed.at >= t)) this.nnCache.set(c.id, { at: t, nn });
       }
+      return kept;
+    };
+    const lookup = this.lookupNowNext(id, fresh, t, false);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = Symbol('late');
+    const first = await Promise.race([
+      lookup,
+      new Promise<typeof late>((resolve) => { timer = setTimeout(() => resolve(late), this.nowNextWaitMs); }),
+    ]).finally(() => clearTimeout(timer));
+    if (first !== late) {
+      for (const [cid, nn] of store(first)) out.set(cid, nn);
+      return out;
     }
+    // The guide store is busy (a long clear or import in another tab): the rows go out without now/next, never held.
+    for (const c of fresh) {
+      out.set(c.id, {});
+      this.nnPending.add(c.id);
+    }
+    const job = lookup.then((fetched) => {
+      const kept = store(fetched);
+      if (gen !== this.generation || this.activeId !== id) return;
+      const changed = [...kept].filter(([, nn]) => nn.now || nn.next).map(([cid]) => cid);
+      if (changed.length) this.emit({ type: 'nowNextUpdated', channelIds: changed });
+    }).catch((err: unknown) => this.note('nowNext', err instanceof Error ? err.name : 'Error')).finally(() => {
+      for (const c of fresh) this.nnPending.delete(c.id);
+      this.shortJobs.delete(job);
+    });
+    this.shortJobs.add(job);
     return out;
   }
 
