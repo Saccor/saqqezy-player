@@ -1,4 +1,5 @@
 import type { JournalEvent, JournalInput, JournalSink, ReconnectCause } from './journal.ts';
+import type { ConnectionLedger, LedgerSession } from './ledger.ts';
 import { LiveDelayController } from './liveDelay.ts';
 import { DEFAULT_BUDGET, ReconnectBudget, type BudgetRule } from './reconnectBudget.ts';
 import { DEFAULT_POLICY, decide, newWatch, observe, type RecoveryPolicy, type WatchState } from './recovery.ts';
@@ -30,6 +31,13 @@ export interface SupervisorOptions {
    * probes wait for the gap after another supervisor's latest open on the same `sourceKey`, and mark their own.
    */
   openGap?: { waitMs(sourceKey: string, owner: number): number; mark(sourceKey: string, owner: number, gapMs: number): void };
+  /**
+   * Stream sessions per source and host, shared by every supervisor (`ConnectionLedger`). Each attempt with a
+   * `sourceKey` begins a session; a refusal then says how many other sessions of its host were open (`concurrent`).
+   */
+  ledger?: Pick<ConnectionLedger, 'begin'>;
+  /** The multiview slot this supervisor drives (absent: slot 0, the single-view player). */
+  tile?: number;
   /**
    * Asks the source for a stream's HTTP status (one `GET` with `Range: bytes=0-0`, aborted once the headers arrive).
    * Used when an engine that cannot see statuses (`Player.supportsStatus` false or absent) fails before its first
@@ -63,9 +71,10 @@ export type SupervisorStatus =
    * `gone`: the source answered 404/410 (the stream is not there anymore). `httpStatus` when known (from the engine
    * or the status probe); `retryAfterMs` when a refusal came with a `Retry-After` (probe only), for the cooldown.
    * `urlIndex` (refused only): which URL of the play the source refused (0 the primary, 1+ the alternates), so the
-   * cooldown lands on that URL's host. An index, never a URL.
+   * cooldown lands on that URL's host. An index, never a URL. `concurrent` (refused only, with a `ledger`, when above
+   * 0): other sessions of that host open or closing when the refused attempt opened, so the refusal can stay on its tile.
    */
-  | { kind: 'failed'; reason: FailReason; httpStatus?: number; retryAfterMs?: number; urlIndex?: number }
+  | { kind: 'failed'; reason: FailReason; httpStatus?: number; retryAfterMs?: number; urlIndex?: number; concurrent?: number }
   /** A VOD title played to its end (live never emits it). */
   | { kind: 'ended' };
 
@@ -159,6 +168,14 @@ export class PlaybackSupervisor {
   private readonly openRate: SupervisorOptions['openRate'];
   private readonly openGap: SupervisorOptions['openGap'];
   private readonly owner = ++nextOwner;
+  private readonly ledger: SupervisorOptions['ledger'];
+  private readonly tile: number | undefined;
+  /** The current attempt's ledger session, and sessions waiting for the engine's teardown. */
+  private session: LedgerSession | undefined;
+  private closingSessions: LedgerSession[] = [];
+  /** Other sessions of the host when the latest attempt opened; and when the attempt the source refused opened. */
+  private attemptConcurrent = 0;
+  private refusedConcurrent = 0;
   private readonly probe: SupervisorOptions['probe'];
   private readonly blocked: SupervisorOptions['blocked'];
   private readonly refusalStatuses: ReadonlySet<number>;
@@ -260,6 +277,8 @@ export class PlaybackSupervisor {
     this.journal = opts.journal;
     this.openRate = opts.openRate;
     this.openGap = opts.openGap;
+    this.ledger = opts.ledger;
+    this.tile = opts.tile;
     this.probe = opts.probe;
     this.blocked = opts.blocked;
     this.refusalStatuses = opts.refusalStatuses ?? DEFAULT_REFUSAL_STATUSES;
@@ -287,6 +306,7 @@ export class PlaybackSupervisor {
     this.authRetried = false;
     this.refusedBeforePlay = false;
     this.refusedIndex = undefined;
+    this.refusedConcurrent = 0;
     this.playedThisPlay = false;
     this.sourceKey = opts.sourceKey;
     this.headers = opts.headers;
@@ -523,6 +543,7 @@ export class PlaybackSupervisor {
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
     this.note({ k: 'open', attempt: id, urlIndex: this.urlIndex });
+    this.beginSession();
     this.started = false;
     this.stableSince = undefined;
     this.tickCount = 0;
@@ -582,6 +603,7 @@ export class PlaybackSupervisor {
         this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
         this.startedCount++;
+        this.session?.playing();
         this.clearStartTimers();
         // Paused by the user before this attempt's first frame (the first attempt or a reopen): it stays paused.
         if (this.vod && this.userPaused) this.player.pause?.();
@@ -862,6 +884,7 @@ export class PlaybackSupervisor {
       const retryAfterMs = typeof r.retryAfterMs === 'number' && Number.isFinite(r.retryAfterMs) ? r.retryAfterMs : undefined;
       this.failInfo = retryAfterMs === undefined ? { httpStatus: status } : { httpStatus: status, retryAfterMs };
       this.refusedIndex = this.urlIndex;
+      this.refusedConcurrent = this.attemptConcurrent;
       if (this.givingUp) {
         // A refusal during the background retries: stop them instead of knocking again.
         this.givingUp = false;
@@ -913,7 +936,10 @@ export class PlaybackSupervisor {
     // disguise (a cross-origin 403 reaches the page as a plain network error): stop instead of retrying a source
     // that is refusing us, which can keep a temporary block alive.
     // The source refused this URL's attempt: the cooldown lands on its host.
-    if (code === 'AUTH') this.refusedIndex = this.urlIndex;
+    if (code === 'AUTH') {
+      this.refusedIndex = this.urlIndex;
+      this.refusedConcurrent = this.attemptConcurrent;
+    }
     if (this.refusedBeforePlay && !this.playedThisPlay) {
       if (!this.nextUrl(inline)) this.terminal('refused');
       return;
@@ -1028,6 +1054,10 @@ export class PlaybackSupervisor {
    * at once when the engine does not say. Dropped when a newer play() or stop() came first.
    */
   private afterClosed(fn: () => void): void {
+    // The sessions of the attempts stopped so far are gone once this teardown is (the ledger's grace covers a hang).
+    const ending = this.closingSessions;
+    this.closingSessions = [];
+    const ended = () => { for (const s of ending) s.closed(); };
     let closing: Promise<void> | undefined;
     try {
       closing = this.player.closed?.();
@@ -1035,9 +1065,11 @@ export class PlaybackSupervisor {
       closing = undefined;
     }
     if (!closing) {
+      ended();
       fn();
       return;
     }
+    closing.then(ended, ended);
     const gen = this.gen;
     this.waiting = true;
     let done = false;
@@ -1116,6 +1148,7 @@ export class PlaybackSupervisor {
       ...(carries && httpStatus !== undefined ? { httpStatus } : {}),
       ...(reason === 'refused' && retryAfterMs !== undefined ? { retryAfterMs } : {}),
       ...(reason === 'refused' ? { urlIndex: this.refusedIndex ?? this.urlIndex } : {}),
+      ...(reason === 'refused' && this.refusedConcurrent > 0 ? { concurrent: this.refusedConcurrent } : {}),
     });
     // Background retries only bring back a live stream that was playing; a channel that never started stays
     // stopped, and a VOD title waits for the user's "Try again".
@@ -1204,8 +1237,26 @@ export class PlaybackSupervisor {
     }
   }
 
+  /** The attempt's stream session in the shared ledger (only with a ledger and a source key). */
+  private beginSession(): void {
+    this.attemptConcurrent = 0;
+    if (!this.ledger || this.sourceKey === undefined) return;
+    try {
+      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.tile ?? 0);
+      this.session = b.session;
+      this.attemptConcurrent = b.concurrent;
+    } catch {
+      // diagnostics and scoping only: playback never depends on it
+    }
+  }
+
   /** The current attempt is over: its late events are ignored and its timers stop. */
   private endAttempt(): void {
+    if (this.session) {
+      this.session.closing();
+      this.closingSessions.push(this.session);
+      this.session = undefined;
+    }
     this.clearStartTimers();
     this.stopTicker();
     this.currentAttempt = undefined;

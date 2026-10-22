@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_POLICY, PlaybackSupervisor, SharedOpenGap,
+  ConnectionLedger, DEFAULT_POLICY, PlaybackSupervisor, SharedOpenGap,
   type AspectMode, type JournalEvent, type LiveProfile, type OpenOptions, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
@@ -2141,5 +2141,50 @@ describe('PlaybackSupervisor: shared open gap (multiview tiles)', () => {
       return times.map((t) => t - t0);
     };
     expect(run(true)).toEqual(run(false));
+  });
+});
+
+describe('PlaybackSupervisor: connection ledger (multiview tiles)', () => {
+  const A2 = 'http://a.example.test/2';
+
+  it('a refusal while another session of the host is open says how many were open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger });
+    const b = setup({ ledger, tile: 1 });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    a.player.emit('playing');
+    b.sup.play(A2, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1000);
+    b.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    vi.advanceTimersByTime(5000);
+    b.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(b.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0, concurrent: 1 });
+    expect(a.statuses.at(-1)).toEqual({ kind: 'playing' });
+  });
+
+  it('a lone supervisor with a ledger reports refusals exactly as before', () => {
+    const { player, sup, statuses } = setup({ ledger: new ConnectionLedger({ now: () => Date.now() }) });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    vi.advanceTimersByTime(5000);
+    player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0 });
+  });
+
+  it('a stopped stream counts for 1.5 s; a reconnect closes the old session before the new one counts', async () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const { player, sup } = setup({ ledger });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('playing');
+    expect(ledger.concurrent('s')).toBe(1);
+    player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(1000); // reopened
+    expect(player.opened).toHaveLength(2);
+    expect(ledger.concurrent('s')).toBe(1);
+    sup.stop();
+    vi.advanceTimersByTime(1499);
+    expect(ledger.concurrent('s')).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(ledger.concurrent('s')).toBe(0);
   });
 });
