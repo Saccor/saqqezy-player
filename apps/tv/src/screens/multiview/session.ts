@@ -54,6 +54,8 @@ export interface MultiviewSession {
   leave(): void;
 }
 
+const HIDDEN: Rect = { x: 0, y: 0, w: 0, h: 0 };
+
 export function createMultiviewSession<S extends SessionSlot>(d: SessionDeps<S>): MultiviewSession {
   const freeSlot = (windows: readonly MvWindow[]): number | undefined => {
     for (let n = 0; n < d.pool.max; n++) if (!windows.some((w) => w.slot === n)) return n;
@@ -93,8 +95,9 @@ export function createMultiviewSession<S extends SessionSlot>(d: SessionDeps<S>)
       for (const t of l.tiles) {
         const w = s.windows[t.tile];
         if (!w) continue;
-        const full = s.fullScreen === t.tile;
-        d.pool.slot(w.slot).playback.setRect(full ? 'fullscreen' : t.rect);
+        // Full screen: that window fills the screen; the others keep playing at no size (their boxes would cover it).
+        const rect = s.fullScreen === undefined ? t.rect : s.fullScreen === t.tile ? 'fullscreen' : HIDDEN;
+        d.pool.slot(w.slot).playback.setRect(rect);
       }
       const sound = s.windows[s.sound];
       if (sound && sound.slot !== d.pool.primary()) d.pool.setPrimary(sound.slot);

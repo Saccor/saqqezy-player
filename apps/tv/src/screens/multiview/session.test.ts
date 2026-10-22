@@ -85,6 +85,15 @@ describe('createMultiviewSession', () => {
     expect(log).toEqual(['0:rect:56,288,896', '1:rect:968,288,896']);
   });
 
+  it('full screen: that window fills the screen, the others shrink to nothing and keep playing', () => {
+    const { log, session } = setup();
+    const s = { ...addWindow(start({ slot: 0, channelId: 'c0' }), { slot: 1, channelId: 'c1' }), fullScreen: 1, sound: 1 };
+    log.length = 0;
+    session.apply(s, 2);
+    expect(log.filter((e) => e.includes(':rect:'))).toEqual(['0:rect:0,0,0', '1:rect:full']);
+    expect(log.some((e) => e.includes(':stop') || e.includes(':play:'))).toBe(false);
+  });
+
   it('the sound follows the state: the pool primary moves, no play', () => {
     const { log, pool, session } = setup();
     let s = addWindow(start({ slot: 0, channelId: 'c0' }), { slot: 1, channelId: 'c1' });

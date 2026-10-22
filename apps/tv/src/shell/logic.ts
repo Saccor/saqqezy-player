@@ -68,7 +68,7 @@ export function screenOverlayOpen(overlayIds: readonly string[] = router.overlay
 
 /** The routes that show fullscreen video: the shell's clock and offline badge stay off them. */
 export function fullscreenVideoRoute(route: ScreenId | undefined): boolean {
-  return route === 'player' || route === 'vodPlay';
+  return route === 'player' || route === 'vodPlay' || route === 'multiview';
 }
 
 /**
@@ -154,11 +154,11 @@ export function shellBackX(route: ScreenId | undefined): number {
 export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 
 /**
- * Every screen except Home (Back there is the exit question), the Player (its overlay has its own Back) and VodPlay
- * (its action bar starts with Back in pointer mode; the pill would cover Pause).
+ * Every screen except Home (Back there is the exit question), the Player (its overlay has its own Back), VodPlay
+ * (its action bar starts with Back in pointer mode; the pill would cover Pause) and multiview (its own Back).
  */
 export function shellBackShown(route: ScreenId | undefined): boolean {
-  return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay';
+  return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay' && route !== 'multiview';
 }
 
 /** Debug HUD: the longest gap between consecutive animation-frame times (ms), i.e. the worst frame in the window. */

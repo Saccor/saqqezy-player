@@ -5,7 +5,7 @@
  * Back is layered: `back()` closes the top overlay first (calling its `onClose`), then pops the screen. On the
  * root screen it changes nothing and returns `'root'`; the shell then asks to confirm exit.
  */
-export type ScreenId = 'addSource' | 'home' | 'player' | 'search' | 'settings' | 'vod' | 'vodGrid' | 'movieDetail' | 'seriesDetail' | 'vodPlay' | 'start' | 'startSports';
+export type ScreenId = 'addSource' | 'home' | 'player' | 'search' | 'settings' | 'vod' | 'vodGrid' | 'movieDetail' | 'seriesDetail' | 'vodPlay' | 'start' | 'startSports' | 'multiview';
 export type ScreenParams = Record<string, unknown>;
 export interface ScreenEntry { screen: ScreenId; params: ScreenParams }
 export type BackResult = 'overlay' | 'screen' | 'root';

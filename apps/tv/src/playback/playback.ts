@@ -15,7 +15,10 @@ import { createSignal } from 'solid-js';
 import { createPlaybackController, type CooldownGate, type PlaybackController, type PlayerKind } from './controller.ts';
 import { createPlaybackPool, type PlaybackPool } from './pool.ts';
 import { createPrimaryFacade } from './primary.ts';
-import { createRefusalScope } from './refusalScope.ts';
+import { createConnectionMemory } from './connectionMemory.ts';
+import { createDisplacementDetector } from './displacement.ts';
+import { classifyRefusal, createRefusalScope, type RefusalFacts, type RefusalScope } from './refusalScope.ts';
+import { activeMaxConnections } from '../state/activeLimit.ts';
 import { slotRole, type SlotRole } from './slotRole.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
@@ -134,6 +137,41 @@ const roleOf = (n: number): SlotRole => slotRole(n, primaryIndex(), multiviewOpe
 /** Window refusals per host this session: the 4th within 10 min cools the host down after all. */
 const refusalScope = createRefusalScope();
 
+/** What multiview learned per source on this device (Diagnostics -> Connections). Numbers only. */
+export const connectionMemory = createConnectionMemory(localStore);
+
+/** What a window shows beyond its status: the source cut it, two windows kept cutting each other, or escalation. */
+export interface WindowNote { kicked?: number; pingPong?: boolean; escalated?: boolean; at: number }
+const [windowNotes, setWindowNotes] = createSignal<ReadonlyMap<number, WindowNote>>(new Map());
+export { windowNotes };
+const noteWindow = (n: number, note: WindowNote | undefined) => {
+  setWindowNotes((m) => {
+    const next = new Map(m);
+    if (note) next.set(n, note);
+    else next.delete(n);
+    return next;
+  });
+};
+/** A window opens again (Retry, another channel): its note goes. */
+export const clearWindowNote = (n: number): void => { if (windowNotes().has(n)) noteWindow(n, undefined); };
+
+/** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */
+function scopeWindowRefusal(n: number, hostKey: string, facts: RefusalFacts): RefusalScope {
+  const scope = refusalScope.decide(hostKey, facts);
+  const t = Date.now();
+  const reported = activeMaxConnections();
+  journal.add({
+    k: 'tileRefused', t, tile: n, concurrent: facts.concurrent ?? 0, scope,
+    ...(facts.httpStatus !== undefined ? { httpStatus: facts.httpStatus } : {}),
+    ...(reported !== undefined ? { reported } : {}),
+  });
+  if (scope === 'host' && classifyRefusal(facts) === 'tile') {
+    journal.add({ k: 'escalated', t, tile: n });
+    noteWindow(n, { escalated: true, at: t });
+  }
+  return scope;
+}
+
 /**
  * Builds slot `n` around its player. Its role (`slotRole`) is read when used, so a window that keeps the sound when
  * multiview ends becomes the single-view player with no reconnect, and back. The single-view player keeps today's
@@ -162,7 +200,12 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
   const slotPlayback = createPlaybackController(
     // Status changes feed the debug overlay, and the stream's host the cooldown copy, for the slot with sound only.
     slotPlayer, slotSupervisor, (s) => { if (primary()) setSupervisorStatus(s); }, kind, () => initState()?.activeSourceId,
-    { ...cooldownGate, current: (s) => { if (primary()) setStreamCooldown(s?.cooldownKey, s?.cooldown); } },
+    {
+      ...cooldownGate,
+      current: (s) => { if (primary()) setStreamCooldown(s?.cooldownKey, s?.cooldown); },
+      // Kept on the window: the source refused window k (k = the streams open + this one).
+      tileRefused: (key, _url, facts) => { connectionMemory.learn(key, (facts.concurrent ?? 0) + 1); },
+    },
     (what) => journal.add({ k: 'page', t: Date.now(), what }),
     // A combined channel: its next stream takes over when one fails (never after a refusal; at most two per tune).
     {
@@ -170,7 +213,7 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
       failed: (id) => { api.reportSourceFailed(id).catch(reportFailed); },
       switched: () => showToast(SOURCE_COPY.switched),
     },
-    { scope: (key, url, facts) => (single() ? 'host' : refusalScope.decide(streamCooldownKey(key, url), facts)) },
+    { scope: (key, url, facts) => (single() ? 'host' : scopeWindowRefusal(n, streamCooldownKey(key, url), facts)) },
   );
   const slot: PlaybackSlot = {
     n, player: slotPlayer, supervisor: slotSupervisor, playback: slotPlayback, layer, stop: () => slotPlayback.stop(),
@@ -233,6 +276,30 @@ export const otherSlots = (): PlaybackSlot[] => {
   primaryIndex();
   return pool.slots().slice(1);
 };
+
+/**
+ * A source that cuts the oldest stream when a window opens (spec 2026-10-20-multiview §5.5): the newest window stops
+ * with the reason, the cut one gets its one normal reconnect, and the count is learned. Two windows that keep cutting
+ * each other: the newer one stops. Only while multiview is open; never retried by itself.
+ */
+const displacement = createDisplacementDetector();
+ledger.onEvent((e) => {
+  if (!multiviewOpen()) return;
+  const v = displacement.feed(e);
+  if (!v) return;
+  const t = Date.now();
+  const stopSlot = v.k === 'displaced' ? v.byTile : v.stop;
+  if (v.k === 'displaced') {
+    journal.add({ k: 'displaced', t, tile: v.victim, byTile: v.byTile, afterMs: v.afterMs });
+    connectionMemory.learn(v.key, v.concurrentBefore + 1);
+    noteWindow(stopSlot, { kicked: v.concurrentBefore, at: t });
+  } else {
+    journal.add({ k: 'pingPong', t, tile: v.stop });
+    noteWindow(stopSlot, { pingPong: true, at: t });
+  }
+  // Not inside the supervisor's own failure handling: one macrotask later.
+  setTimeout(() => { pool.slots().find((s) => s.n === stopSlot)?.playback.stop(); }, 0);
+});
 
 /** The slot with sound, read reactively (Solid tracks `primaryIndex`). */
 const primarySlot = (): PlaybackSlot => {
