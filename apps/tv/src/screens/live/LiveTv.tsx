@@ -67,6 +67,45 @@ const memory: {
   sourceId?: string; catchupDays?: number; fromCatchup?: boolean;
 } = {};
 
+/**
+ * The guide's row cache, kept across Live TV visits (per source), so Back from Movies, Start or the Player draws the
+ * rows it had at once instead of reading every page again (the screen itself is re-created). The mounted screen
+ * listens through `warmListener`. While no Live TV is mounted, a refresh, a layout change or a source switch drops it,
+ * and a short-EPG update marks its channels stale; pages older than 15 min are read again anyway (`maxAgeMs`).
+ */
+let warm: { sourceId: string | undefined; cache: EpgCache<ChannelRow, ProgrammeLite> } | undefined;
+let warmListener: () => void = () => undefined;
+let awayOffs: Array<() => void> = [];
+
+function warmCache(sourceId: string | undefined, onChange: () => void): EpgCache<ChannelRow, ProgrammeLite> {
+  for (const off of awayOffs) off();
+  awayOffs = [];
+  warmListener = onChange;
+  if (warm?.sourceId !== sourceId || !warm) {
+    warm = {
+      sourceId,
+      cache: new EpgCache<ChannelRow, ProgrammeLite>(
+        (g, o, c, f, t) => api.getEpgRows(g, o, c, f, t),
+        { rowsPerPage: 20, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: () => warmListener() },
+      ),
+    };
+  }
+  return warm.cache;
+}
+
+/** Live TV unmounted: its rows are kept, and dropped if the data changes before the next visit. */
+function leaveWarm(cache: EpgCache<ChannelRow, ProgrammeLite>): void {
+  warmListener = () => undefined;
+  if (warm?.cache !== cache) return;
+  const drop = () => { if (warm?.cache === cache) warm = undefined; };
+  awayOffs = [
+    onEvent('refreshed', drop),
+    onEvent('layoutChanged', drop),
+    onEvent('sourcesChanged', drop),
+    onEvent('nowNextUpdated', (e) => { cache.staleChannels((e as { channelIds: string[] }).channelIds, (c) => c.id); }),
+  ];
+}
+
 /** The first Live TV mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
 
@@ -164,10 +203,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   // on Back from that tab (or on the return from Search) and only for the source it came from.
   const vodReturn = liveReturn.take(initState()?.activeSourceId);
 
-  const cache = new EpgCache<ChannelRow, ProgrammeLite>(
-    (g, o, c, f, t) => api.getEpgRows(g, o, c, f, t),
-    { rowsPerPage: 20, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: () => setVersion((v) => v + 1) },
-  );
+  // The last visit's rows (same source), so the grid draws them at once (`warmCache`).
+  const cache = warmCache(sourceId, () => setVersion((v) => v + 1));
   /** The source the cached rows belong to (a remote source switch invalidates them). */
   let cacheSourceId = sourceId;
 
@@ -707,6 +744,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         if (ev.activeSourceId !== cacheSourceId) {
           cacheSourceId = ev.activeSourceId;
           cache.invalidate();
+          if (warm?.cache === cache) warm.sourceId = ev.activeSourceId;
         }
         dismissPicker();
         liveMenu.dismissAll();
@@ -788,6 +826,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   onCleanup(() => {
     alive = false;
+    leaveWarm(cache);
     clearTimeout(retryTimer);
     focusRest.cancel();
     void api.focusChannel(undefined).catch(() => undefined); // no focused row once Live TV is gone

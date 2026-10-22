@@ -16,6 +16,11 @@ export function toRowModels(home: VodHome): RowModel[] {
   return home.rows.filter((r) => r.total > 0).map((r) => ({ id: r.id, title: r.title, total: r.total, items: r.items, loaded: r.items.length > 0 }));
 }
 
+/** A previous visit's rows, drawn while the fresh ones load: every loaded row is stale, so the ones on screen are read again. */
+export function warmRows(rows: readonly RowModel[] | undefined): RowModel[] {
+  return (rows ?? []).map((r) => (r.loaded ? { ...r, stale: true } : r));
+}
+
 /** After a reload: a lazy row that was already loaded keeps its items (with the new title and total); rows that vanished are dropped. */
 export function mergeRows(prev: RowModel[], next: RowModel[]): RowModel[] {
   const byId = new Map(prev.map((r) => [r.id, r]));
