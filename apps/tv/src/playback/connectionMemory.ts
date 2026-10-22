@@ -16,6 +16,8 @@ export interface ConnectionMemory {
   maxSeen(sourceId: string): number;
   /** `n` windows of this source played at once. */
   seen(sourceId: string, n: number): void;
+  /** A cut proved at most `n` play at once: lowers the most seen to `n`, never raises it. */
+  capSeen(sourceId: string, n: number): void;
 }
 
 export function createConnectionMemory(store: () => Store | undefined): ConnectionMemory {
@@ -60,6 +62,13 @@ export function createConnectionMemory(store: () => Store | undefined): Connecti
     seen(id, n) {
       const e = entry(id);
       if (n > (e.maxSeen ?? 0)) {
+        e.maxSeen = n;
+        save();
+      }
+    },
+    capSeen(id, n) {
+      const e = all()[id];
+      if (e?.maxSeen !== undefined && e.maxSeen > n) {
         e.maxSeen = n;
         save();
       }

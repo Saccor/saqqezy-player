@@ -370,6 +370,8 @@ ledger.onEvent((e) => {
     displacedSlots.add(v.victim);
     journal.add({ k: 'displaced', t, tile: v.victim, byTile: v.byTile, afterMs: v.afterMs });
     connectionMemory.learn(v.key, v.concurrentBefore + 1);
+    // The cut proves only the streams open before it fit: undo a count that included the window about to be cut.
+    connectionMemory.capSeen(v.key, v.concurrentBefore);
     noteWindow(stopSlot, { kicked: v.concurrentBefore, at: t });
   } else {
     journal.add({ k: 'pingPong', t, tile: v.stop });

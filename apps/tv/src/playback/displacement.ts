@@ -75,6 +75,7 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
       if (e.playedMs >= steadyMs) {
         // Measured from the other window's first picture, or from its open while it has none yet.
         const from = (b: Begin) => (b.pictureAt !== undefined && b.pictureAt <= e.at ? b.pictureAt : b.at);
+        // A closed window can still be the culprit: a cut its open caused can show after it closed.
         const by = [...(begins.get(where) ?? [])].reverse()
           .find((b) => b.tile !== e.tile && owner.get(b.tile) === b.session && e.at - from(b) >= 0 && e.at - from(b) < windowMs);
         if (by) {

@@ -290,7 +290,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     return pool.slots();
   };
   // The most windows playing at once on this source (Diagnostics -> Connections): a window counts after 10 s of
-  // steady play, so one the source is about to cut (a cut can take over 10 s to show) is not counted.
+  // steady play, so one that opened and failed at once is not counted. A later cut verdict corrects any overcount.
   let since = new Map<number, number>();
   createEffect(() => {
     now(); // re-checked every second

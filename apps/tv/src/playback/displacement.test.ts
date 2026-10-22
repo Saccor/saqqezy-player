@@ -18,7 +18,7 @@ const dropped = (tile: number, at: number, playedMs: number, code = 'EOS', sessi
 const closed = (tile: number, at: number, session = sessionOf(tile)): LedgerEvent => ({ k: 'closed', key: 's', host, tile, at, session });
 
 describe('createDisplacementDetector', () => {
-  it('a window that played steadily and drops within 8 s of another opening was displaced', () => {
+  it("a window that played steadily and drops within 30 s of another window's first picture was displaced", () => {
     const d = createDisplacementDetector();
     d.feed(begin(0, 0));
     d.feed(playing(0, 1000));
@@ -103,7 +103,7 @@ describe('createDisplacementDetector', () => {
     const verdict = d.feed(dropped(0, (t += 1000), 21_000)); // the source cut window 0
     expect(verdict?.k).toBe('displaced');
     // Response: window 1 stops (never retried), window 0 reconnects once.
-    d.feed(dropped(1, (t += 10), 1010, 'stop'));
+    d.feed(closed(1, (t += 10)));
     open(0);
     d.feed(playing(0, (t += 1000)));
     expect(begins).toBeLessThanOrEqual(4);
