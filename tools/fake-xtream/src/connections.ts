@@ -14,14 +14,15 @@ export interface ConnectionsOptions {
 }
 
 export interface SessionTable {
-  open(user: string): { ok: true; sid: string } | { ok: false };
+  /** A live open by `user` of `stream`; a reopen of the same stream replaces its earlier session (a reconnect). */
+  open(user: string, stream?: number): { ok: true; sid: string } | { ok: false };
   /** A read of the session: false when it is unknown, kicked or idle (answer 403). */
   touch(sid: string): boolean;
   stats(): { max: number; mode: ConnectionsMode; open: Record<string, number>; refused: number; kicked: number };
   reset(): void;
 }
 
-interface Session { user: string; openedAt: number; lastReadAt: number; kicked: boolean }
+interface Session { user: string; stream?: number; openedAt: number; lastReadAt: number; kicked: boolean }
 
 const DEFAULT_IDLE_MS = 20_000;
 
@@ -38,9 +39,13 @@ export function createSessionTable(opts: ConnectionsOptions, now: () => number):
   const liveOf = (user: string, t: number) => [...sessions.values()].filter((s) => s.user === user && alive(s, t));
 
   return {
-    open(user) {
+    open(user, stream) {
       const t = now();
       prune(t);
+      // The same stream again (a player reconnecting, or trying the other format) is not a second connection.
+      if (stream !== undefined) {
+        for (const [sid, s] of sessions) if (s.user === user && s.stream === stream && !s.kicked) sessions.delete(sid);
+      }
       const live = liveOf(user, t);
       if (live.length >= opts.max) {
         if (opts.mode === 'refuse') {
@@ -52,7 +57,7 @@ export function createSessionTable(opts: ConnectionsOptions, now: () => number):
         kicked++;
       }
       const sid = `s${++seq}`;
-      sessions.set(sid, { user, openedAt: t, lastReadAt: t, kicked: false });
+      sessions.set(sid, { user, ...(stream !== undefined ? { stream } : {}), openedAt: t, lastReadAt: t, kicked: false });
       return { ok: true, sid };
     },
     touch(sid) {
@@ -98,5 +103,5 @@ export function livePlaylist(sid: string, nowMs: number): string {
 
 /** Where segment `n` of a wrapper playlist lives: the licensed public test stream (same as `TEST_STREAM`). */
 export function segmentLocation(n: number): string {
-  return `https://test-streams.mux.dev/x36xhzz/url_${FIRST_SEGMENT + (n % SEGMENTS)}/193039199_mp4_h264_aac_7.ts`;
+  return `https://test-streams.mux.dev/x36xhzz/url_4/url_${FIRST_SEGMENT + (n % SEGMENTS)}/193039199_mp4_h264_aac_7.ts`;
 }

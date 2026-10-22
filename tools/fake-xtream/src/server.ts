@@ -199,7 +199,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         return send(res, 404, '', 'text/plain');
       }
       if (sessions && stream[1] === 'live') {
-        const opened = sessions.open(effectiveUser);
+        const opened = sessions.open(effectiveUser, Number(stream[4]));
         if (!opened.ok) return send(res, 403, '', 'text/plain');
         res.writeHead(302, { location: `${base}/__mv/${opened.sid}/live.m3u8` });
         return res.end();

@@ -41,6 +41,17 @@ describe('session table', () => {
     expect(s.stats()).toMatchObject({ kicked: 1, open: { u: 2 } });
   });
 
+  test('reopening the same stream replaces the earlier session (a client reconnecting, not a second stream)', () => {
+    const s = createSessionTable({ max: 1, mode: 'refuse' }, () => 0);
+    const a = s.open('u', 5);
+    const b = s.open('u', 5);
+    if (!a.ok || !b.ok) throw new Error('both open');
+    expect(s.touch(a.sid)).toBe(false);
+    expect(s.touch(b.sid)).toBe(true);
+    expect(s.open('u', 6)).toEqual({ ok: false }); // another stream is still a second connection
+    expect(s.stats()).toMatchObject({ refused: 1, kicked: 0, open: { u: 1 } });
+  });
+
   test('reset clears sessions and counters', () => {
     const s = createSessionTable({ max: 1, mode: 'refuse' }, () => 0);
     s.open('u');
@@ -64,6 +75,7 @@ describe('live wrapper playlist', () => {
     const p = livePlaylist('s1', 62 * 10_000);
     expect(p).toMatch(/\/__mv\/s1\/62\.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:10\.000,\n\/__mv\/s1\/63\.ts/);
     expect(segmentLocation(63)).toBe(segmentLocation(0));
-    expect(segmentLocation(0)).toMatch(/\/url_718\/[^/]+\.ts$/);
+    // The rendition's segment paths are relative to its own playlist, under url_4/.
+    expect(segmentLocation(0)).toBe('https://test-streams.mux.dev/x36xhzz/url_4/url_718/193039199_mp4_h264_aac_7.ts');
   });
 });
