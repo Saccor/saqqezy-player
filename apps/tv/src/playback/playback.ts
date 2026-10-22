@@ -9,7 +9,8 @@ import {
 } from '../platform/tizen.ts';
 import { createSharedSaver } from '../platform/screenSaverGuard.ts';
 import { createVideoResources, tizenWindowCeiling, type TizenMultiviewGlobals } from '../platform/tizenMultiview.ts';
-import { AvplayPlayer, type AvplayLike } from '../video/AvplayPlayer.ts';
+import { AvplayPlayer, flushAvplayTeardowns, type AvplayLike } from '../video/AvplayPlayer.ts';
+import { afterFrame } from '../video/afterFrame.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player, type EngineOverrides } from '../video/Html5Player.ts';
 import { createSlotRoot, createVideoLayer } from '../video/videoLayer.ts';
@@ -66,12 +67,7 @@ const panelCaps = avplay ? readPanelCaps() : undefined;
 /** The windows' AVPlay instances, reused across multiview sessions (the store makes 4 at most). */
 const storePlayers = createAvplayStorePool();
 // The app is going away: hand the screensaver back to the TV.
-if (avplay) window.addEventListener('pagehide', () => { setScreenSaver('on'); });
-
-/** After the frame that shows the key press: rAF, then a macrotask (the frame is painted by then). */
-const afterFrame = (fn: () => void): void => {
-  requestAnimationFrame(() => { setTimeout(fn, 0); });
-};
+if (avplay) window.addEventListener('pagehide', () => { flushAvplayTeardowns(); setScreenSaver('on'); });
 
 function createAvplayPlayer(av: AvplayLike, n: number): AvplayPlayer {
   // `journal`, `multiviewOpen` and `refuseDevice` are read when used, after this module has finished loading.
@@ -423,6 +419,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     hiddenAt = Date.now();
     if (canSuspend) for (const s of pool.slots()) s.playback.suspendForBackground();
+    // A hidden page paints no frames: close AVPlay now so the stream, decoder and audio are released.
+    flushAvplayTeardowns();
     return;
   }
   if (canSuspend) for (const s of pool.slots()) s.playback.resumeFromBackground({ networkUp: navigator.onLine !== false });

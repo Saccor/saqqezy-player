@@ -223,6 +223,10 @@ const pendingTeardowns = new Set<() => void>();
 function flushTeardowns(): void {
   for (const run of [...pendingTeardowns]) run();
 }
+/** Runs every pending AVPlay teardown now: the app is hiding or exiting and no frame may come. */
+export function flushAvplayTeardowns(): void {
+  flushTeardowns();
+}
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -464,8 +468,7 @@ export class AvplayPlayer implements Player {
         if (this.teardown !== t) return;
         this.teardown = undefined;
         pendingTeardowns.delete(t.run);
-        native();
-        resolve();
+        try { native(); } finally { resolve(); }
       },
     };
     this.teardown = t;

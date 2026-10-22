@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Player, PlayerState, StateDetail } from '@iptv/player';
 import {
-  AvplayPlayer, avplayDisplay, avplayErrorName, mapAvplayError,
+  AvplayPlayer, avplayDisplay, avplayErrorName, flushAvplayTeardowns, mapAvplayError,
   type AvplayLike, type AvplayListener, type AvplayTrack,
 } from './AvplayPlayer.ts';
 import { createVideoResources } from '../platform/tizenMultiview.ts';
@@ -22,8 +22,11 @@ class FakeAvplay implements AvplayLike {
   selected: [string, number][] = [];
   throwOn = new Set<string>();
 
+  /** Optional shared log across fakes: `tag:call`, in global call order. */
+  trace: { log: string[]; tag: string } | undefined;
   private hit(name: string): void {
     this.calls.push(name);
+    this.trace?.log.push(`${this.trace.tag}:${name}`);
     if (this.throwOn.has(name)) throw Object.assign(new Error('boom'), { name: 'InvalidStateError' });
   }
   open(_url: string): void { this.hit('open'); }
@@ -1488,16 +1491,66 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     const afterFrame = (fn: () => void) => { frames.push(fn); };
     const a = new AvplayPlayer(avA, { afterFrame, resources, coversScreen: () => true });
     const b = new AvplayPlayer(avB, { afterFrame, resources, coversScreen: () => true });
+    const log: string[] = [];
+    avA.trace = { log, tag: 'A' };
+    avB.trace = { log, tag: 'B' };
+    const avC = new FakeAvplay();
+    avC.trace = { log, tag: 'C' };
     await a.open(URL_A, 1); // MAIN
-    const c = new AvplayPlayer(new FakeAvplay(), { afterFrame, resources, coversScreen: () => true });
+    const c = new AvplayPlayer(avC, { afterFrame, resources, coversScreen: () => true });
     await c.open(URL_A, 3); // SUB
     c.stop(); // SUB release pending
     await b.open(URL_B, 2);
     expect(avB.props).toContainEqual(['IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB']);
     expect(avB.calls).toContain('prepareAsync');
+    // C was stopped and closed (flushed by B's open) before B opened on the scaler C held.
+    expect(log.indexOf('C:close')).toBeGreaterThan(-1);
+    expect(log.indexOf('C:close')).toBeLessThan(log.indexOf('B:open'));
     a.stop();
     b.stop();
     frames.splice(0).forEach((f) => f());
+  });
+
+  test('flushAvplayTeardowns() closes AVPlay even if the frame never comes', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    let closed = false;
+    void p.closed().then(() => { closed = true; });
+    flushAvplayTeardowns();
+    await Promise.resolve();
+    expect(av.calls).toEqual(['stop', 'close']);
+    expect(closed).toBe(true);
+  });
+
+  test('a second stop() with no session keeps the same pending closed() until the frame', async () => {
+    const { p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    const first = p.closed();
+    p.stop();
+    expect(p.closed()).toBe(first);
+    let closed = false;
+    void first.then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    runFrame();
+    await first;
+    expect(closed).toBe(true);
+  });
+
+  test('closed() resolves even if the native teardown throws', async () => {
+    const resources = createVideoResources();
+    const av = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const throwing = { ...resources, release: () => { throw new Error('boom'); } };
+    const p = new AvplayPlayer(av, { afterFrame: (fn) => { frames.push(fn); }, resources: throwing as typeof resources, coversScreen: () => true });
+    await p.open(URL_A, 1);
+    p.stop();
+    const closed = p.closed();
+    expect(() => { frames.splice(0).forEach((f) => f()); }).toThrow();
+    await closed;
   });
 
   test('destroy() runs a pending teardown at once', async () => {
