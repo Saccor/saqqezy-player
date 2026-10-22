@@ -37,6 +37,9 @@ const tvLanguage = (): string | undefined => (typeof navigator === 'undefined' ?
  * Done, so one press finishes. Skip (and Back: Add source is gone from the stack) turns the rule off with no picks.
  * Done also fills the preferred languages from the picks while the user has none of their own.
  */
+/** The preselect of this TV's country already ran this first run (the screen remounts after "Change"). */
+let preselected = false;
+
 export function CountriesScreen(_props: { entry: ScreenEntry }) {
   const model = createCountriesModel();
   const [sort, setSort] = createSignal<GridSort>('most');
@@ -75,7 +78,8 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
     return true;
   };
   const aboveButtons = () => { (showLanguages() ? changeNode : gridNode)?.setFocus(); return true; };
-  const belowGrid = () => { (showLanguages() ? changeNode : doneNode)?.setFocus(); return true; };
+  /** Down from the grid always lands on Done; Change stays reachable with Up from Done or Skip. */
+  const belowGrid = () => { doneNode?.setFocus(); return true; };
 
   onMount(() => {
     void (async () => {
@@ -84,7 +88,9 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
       const loaded = c();
       // The worker did not answer within 2 s: never hold up the first run.
       if (!loaded) { finish(); return; }
-      const pre = preselect(loaded);
+      // Once per first run: coming back from "Change" must not re-pick a country the person cleared.
+      const pre = preselected ? undefined : preselect(loaded);
+      preselected = true;
       if (pre) {
         model.apply({ codes: pre, mode: 'first' });
         model.flush();
