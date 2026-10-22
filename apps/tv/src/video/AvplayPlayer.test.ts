@@ -1394,3 +1394,38 @@ describe('AvplayPlayer: Tizen multiview (scalers, audio stream)', () => {
     expect(saver.at(-1)).toBe('on');
   });
 });
+
+describe('AvplayPlayer: the TV refuses a second picture', () => {
+  test('IN_APP_MULTIVIEW refused: the open fails as UNSUPPORTED and the device refusal is reported', async () => {
+    class NoSub extends FakeAvplay {
+      override setStreamingProperty(t: string, v: string): void {
+        if (t === 'IN_APP_MULTIVIEW') throw Object.assign(new Error('x'), { name: 'NotSupportedError' });
+        super.setStreamingProperty(t, v);
+      }
+    }
+    const resources = createVideoResources();
+    resources.claim();
+    const av = new NoSub();
+    const refused: string[] = [];
+    const p = new AvplayPlayer(av, { resources, deviceRefused: (why) => refused.push(why) });
+    const events: [PlayerState, StateDetail | undefined][] = [];
+    p.onState((s, d) => events.push([s, d]));
+    await p.open(URL_A, 3);
+    expect(refused).toEqual(['subScaler']);
+    expect(av.calls).not.toContain('prepareAsync');
+    expect(events.at(-1)).toEqual(['error', { code: 'UNSUPPORTED', message: 'Playback error', detail: 'subScalerRefused', attemptId: 3 }]);
+  });
+
+  test('the audio stream call not supported is a device refusal; a state error is not', () => {
+    const refused: string[] = [];
+    const av = new FakeAvplay() as FakeAvplay & { disableAudioStream(): void };
+    let name = 'InvalidStateError';
+    av.disableAudioStream = () => { throw Object.assign(new Error('x'), { name }); };
+    const p = new AvplayPlayer(av, { deviceRefused: (why) => refused.push(why) });
+    p.setMuted(true);
+    expect(refused).toEqual([]);
+    name = 'NotSupportedError';
+    p.setMuted(true);
+    expect(refused).toEqual(['audioStream']);
+  });
+});

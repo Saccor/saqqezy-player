@@ -92,6 +92,11 @@ function unavailableAvplay(): AvplayLike {
 
 const stubs = new WeakSet<AvplayLike>();
 
+/** True for the player `getAvplayStorePlayer` hands out when the store refused an instance. */
+export function isUnavailableAvplay(p: AvplayLike): boolean {
+  return stubs.has(p);
+}
+
 /**
  * `avplaystore` instances for multiview windows, reused: the store makes at most 4 and has no call to give one back,
  * so a window's instance goes back here when its slot is freed and the next window takes it.

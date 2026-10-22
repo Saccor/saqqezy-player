@@ -5,7 +5,7 @@ import {
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
 import {
-  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver,
+  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, getAvplay, isUnavailableAvplay, mountAvplayObject, readPanelCaps, setScreenSaver,
 } from '../platform/tizen.ts';
 import { createSharedSaver } from '../platform/screenSaverGuard.ts';
 import { createVideoResources, tizenWindowCeiling, type TizenMultiviewGlobals } from '../platform/tizenMultiview.ts';
@@ -20,6 +20,7 @@ import { createPlaybackController, type CooldownGate, type PlaybackController, t
 import { createPlaybackPool, type PlaybackPool } from './pool.ts';
 import { createPrimaryFacade } from './primary.ts';
 import { createConnectionMemory } from './connectionMemory.ts';
+import { createDeviceWindows, type DeviceRefusal } from './deviceWindows.ts';
 import { createDisplacementDetector } from './displacement.ts';
 import { classifyRefusal, createRefusalScope, type RefusalFacts, type RefusalScope } from './refusalScope.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
@@ -34,8 +35,8 @@ import { onBackOnline } from '../state/backOnline.ts';
  * The app's playback: a pool of stacks (video layer, player, `PlaybackSupervisor`, controller). Outside multiview one
  * stack plays: the Home preview and the fullscreen Player share it, so going fullscreen is just a rect change.
  * On Tizen (with `webapis.avplay` available) the player is `AvplayPlayer` on Samsung's video plane; everywhere
- * else it is `Html5Player` on a `<video>`. Tizen 7.0+ gets two windows: slot 0 on `webapis.avplay`, the other on an
- * `avplaystore` instance, sharing the MAIN and SUB scalers (spec 2026-10-22-tizen-multiview).
+ * else it is `Html5Player` on a `<video>`. Tizen 7.0+ gets two windows, each on an `avplaystore` instance (Samsung's
+ * documented two-player pattern), sharing the MAIN and SUB scalers (spec 2026-10-22-tizen-multiview).
  */
 const videoRoot = document.getElementById('video-layer');
 if (!videoRoot) throw new Error('index.html is missing #video-layer');
@@ -67,23 +68,39 @@ const storePlayers = createAvplayStorePool();
 // The app is going away: hand the screensaver back to the TV.
 if (avplay) window.addEventListener('pagehide', () => { setScreenSaver('on'); });
 
-function createAvplayPlayer(av: AvplayLike): AvplayPlayer {
-  // `journal` and `multiviewOpen` are read when used, after this module has finished loading.
+function createAvplayPlayer(av: AvplayLike, n: number): AvplayPlayer {
+  // `journal`, `multiviewOpen` and `refuseDevice` are read when used, after this module has finished loading.
   const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
   return new AvplayPlayer(av, {
     displaySpace: AVPLAY_DISPLAY_SPACE,
     note,
     screenSaver: sharedSaver.member(),
     ...(panelCaps ? { panel: panelCaps } : {}),
-    ...(videoResources ? { resources: videoResources, coversScreen: () => multiviewOpen() } : {}),
+    ...(videoResources ? {
+      resources: videoResources, coversScreen: () => multiviewOpen(), deviceRefused: (why: DeviceRefusal) => refuseDevice(why, n),
+    } : {}),
   });
+}
+
+/**
+ * Slot 0's AVPlay: on a multiview TV a store instance too, so both windows are the same kind of player as in Samsung's
+ * sample (`webapis.avplay` beside a store instance is undocumented). No instance free: `webapis.avplay`.
+ */
+function mainAvplay(): { av: AvplayLike; fromStore: boolean } {
+  if (videoResources) {
+    const av = storePlayers.take();
+    if (!isUnavailableAvplay(av)) return { av, fromStore: true };
+  }
+  return { av: avplay!, fromStore: false };
 }
 
 function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(): void; destroy?(): void } } {
   if (avplay) {
     mountAvplayObject(root);
-    // AVPlay works in design space, so a window resize needs no relayout.
-    return { player: createAvplayPlayer(avplay), layer: { relayout: () => {} } };
+    const { av, fromStore } = mainAvplay();
+    const player = createAvplayPlayer(av, 0);
+    // AVPlay works in design space, so a window resize needs no relayout. A freed store instance is kept for reuse.
+    return { player, layer: { relayout: () => {}, ...(fromStore ? { destroy: () => storePlayers.give(av) } : {}) } };
   }
   const layer = createVideoLayer(root);
   // Native HLS only on TVs. Desktop Chrome reports native HLS too, but its built-in player cannot decode HEVC in
@@ -98,6 +115,30 @@ const localStore = () => {
     return undefined;
   }
 };
+
+/** Multiview windows this device may open: the platform's, or 1 once the TV refused a second picture (remembered). */
+const deviceWindows = createDeviceWindows(avplay ? tizenWindows : 1, localStore);
+const [deviceWindowsVersion, setDeviceWindowsVersion] = createSignal(0);
+/** The device's window ceiling, read reactively (Options, Multiview, Settings > Playback). */
+export const deviceWindowMax = (): number => {
+  deviceWindowsVersion();
+  return avplay ? Math.min(pool.max, deviceWindows.max()) : pool.max;
+};
+/** Why this TV is down to one window (Diagnostics), read reactively. */
+export const deviceRefusal = () => {
+  deviceWindowsVersion();
+  return deviceWindows.refusal();
+};
+/** Diagnostics' Test again: the platform's ceiling back, until the TV refuses again. */
+export const testMultiviewAgain = (): void => {
+  deviceWindows.reset();
+  setDeviceWindowsVersion((v) => v + 1);
+};
+/** The TV refused a second picture: one window from now on, and the window says why. Never a stream's failure. */
+function refuseDevice(why: DeviceRefusal, n: number): void {
+  if (deviceWindows.refuse(why, Date.now())) setDeviceWindowsVersion((v) => v + 1);
+  if (multiviewOpen()) noteWindow(n, { deviceLimit: true, at: Date.now() });
+}
 
 /** Learned live delay per source (this device only). */
 const liveTargets = createLiveTargetStore(localStore);
@@ -159,7 +200,7 @@ const refusalScope = createRefusalScope();
 export const connectionMemory = createConnectionMemory(localStore);
 
 /** What a window shows beyond its status: the source cut it, two windows kept cutting each other, or escalation. */
-export interface WindowNote { kicked?: number; pingPong?: boolean; escalated?: boolean; at: number }
+export interface WindowNote { kicked?: number; pingPong?: boolean; escalated?: boolean; deviceLimit?: boolean; at: number }
 const [windowNotes, setWindowNotes] = createSignal<ReadonlyMap<number, WindowNote>>(new Map());
 export { windowNotes };
 const noteWindow = (n: number, note: WindowNote | undefined) => {
@@ -260,7 +301,9 @@ function createMainSlot(): PlaybackSlot {
 function createWindowSlot(n: number): PlaybackSlot {
   if (avplay) {
     const av = storePlayers.take();
-    const windowPlayer = createAvplayPlayer(av);
+    const windowPlayer = createAvplayPlayer(av, n);
+    // The store had no instance left: the TV cannot show this window.
+    if (isUnavailableAvplay(av)) windowPlayer.onState((st) => { if (st === 'error') refuseDevice('noInstance', n); });
     return buildSlot(n, windowPlayer, { relayout: () => {} }, 'AVPlay', () => {
       windowPlayer.destroy();
       storePlayers.give(av);

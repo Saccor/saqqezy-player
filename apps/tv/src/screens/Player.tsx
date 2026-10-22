@@ -19,7 +19,7 @@ import { channelHistory } from '../playback/channelHistory.ts';
 import { cooling, retrySource } from '../playback/cooldown.ts';
 import { createNumberEntry } from '../playback/numberEntry.ts';
 import { devResume } from '../playback/devResume.ts';
-import { playback, player, pool, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
+import { deviceWindowMax, playback, player, pool, previewHold, sleepTimer, supervisor } from '../playback/playback.ts';
 import { nextSleepOption, type SleepState } from '../playback/sleepTimer.ts';
 import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
 import { mediaBadges } from '../playback/mediaBadges.ts';
@@ -326,7 +326,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
       // Several channels at once, where this device can play them (spec 2026-10-20-multiview §2.1).
-      ...(multiviewOffered(windowLimit(deviceCeiling(pool.max), settings()?.maxWindows ?? 'auto'))
+      ...(multiviewOffered(windowLimit(deviceCeiling(deviceWindowMax()), settings()?.maxWindows ?? 'auto'))
         ? [{ id: 'multiview', label: MULTIVIEW_COPY.entry }] : []),
       { id: 'favourite', label: favToggleLabel(shown()?.favourite === true) },
       // Catch-up channel with a programme on now: play it from its start (spec 2026-10-20-catch-up §5.2).

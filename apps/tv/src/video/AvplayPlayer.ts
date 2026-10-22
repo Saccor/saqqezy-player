@@ -241,6 +241,7 @@ export class AvplayPlayer implements Player {
   private readonly panel: PanelCaps | undefined;
   private readonly resources: VideoResources | undefined;
   private readonly coversScreen: (() => boolean) | undefined;
+  private readonly deviceRefused: ((why: 'subScaler' | 'audioStream') => void) | undefined;
   /** undefined: never muted, so the audio stream is never touched (single view). */
   private muted: boolean | undefined;
 
@@ -254,10 +255,13 @@ export class AvplayPlayer implements Player {
       resources?: VideoResources;
       /** Multiview is open: the windows cover the screen, so a playing window keeps the screensaver off. */
       coversScreen?: () => boolean;
+      /** The TV itself refused the SUB scaler or the per-player audio call (not a stream's failure). */
+      deviceRefused?: (why: 'subScaler' | 'audioStream') => void;
     } = {},
   ) {
     this.resources = opts.resources;
     this.coversScreen = opts.coversScreen;
+    this.deviceRefused = opts.deviceRefused;
     this.note = opts.note;
     this.panel = opts.panel;
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
@@ -306,7 +310,15 @@ export class AvplayPlayer implements Player {
     try {
       av.open(url);
       // IDLE, before prepare: the second window decodes on the SUB scaler (MAIN is AVPlay's default).
-      if (s.resource === 'SUB') av.setStreamingProperty?.('IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB');
+      if (s.resource === 'SUB') {
+        try {
+          av.setStreamingProperty?.('IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB');
+        } catch {
+          this.deviceRefused?.('subScaler');
+          this.emit(s, 'error', { code: 'UNSUPPORTED', message: MESSAGE, detail: 'subScalerRefused' });
+          return Promise.resolve();
+        }
+      }
       this.applyAudio();
       av.setListener({
         onbufferingstart: () => this.emit(s, 'buffering'),
@@ -477,8 +489,9 @@ export class AvplayPlayer implements Player {
     try {
       if (this.muted) this.avplay.disableAudioStream?.();
       else this.avplay.enableAudioStream?.();
-    } catch {
-      // Not supported, or not in a state that accepts it: applied again at the next open.
+    } catch (e) {
+      // Not in a state that accepts it: applied again at the next open. Not supported: the TV cannot do multiview.
+      if (/not_?supported/i.test(avplayErrorName(e))) this.deviceRefused?.('audioStream');
     }
   }
 

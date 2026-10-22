@@ -13,7 +13,7 @@ import { pointerMode } from '../../input/pointer.ts';
 import { cooling } from '../../playback/cooldown.ts';
 import { createDebounce } from '../../playback/debounce.ts';
 import { devResume } from '../../playback/devResume.ts';
-import { playback, pool, previewHold } from '../../playback/playback.ts';
+import { deviceWindowMax, playback, pool, previewHold } from '../../playback/playback.ts';
 import { multiviewOffered } from '../playerLogic.ts';
 import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { dwellSignal } from '../../shell/dwell.ts';
@@ -497,7 +497,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     },
     // The playing channel (or this one) opens full screen as window 1; multiview then adds this row as window 2.
     multiview: {
-      offered: () => multiviewOffered(windowLimit(deviceCeiling(pool.max), settings()?.maxWindows ?? 'auto')),
+      offered: () => multiviewOffered(windowLimit(deviceCeiling(deviceWindowMax()), settings()?.maxWindows ?? 'auto')),
       add: (rowId) => {
         const base = playback.currentRowId() ?? rowId;
         // Right after the Player is pushed (this screen is gone by then): multiview opens over it.

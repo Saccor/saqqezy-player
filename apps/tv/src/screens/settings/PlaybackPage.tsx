@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from 'solid-js';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
-import { playback, pool } from '../../playback/playback.ts';
+import { deviceWindowMax, playback, pool } from '../../playback/playback.ts';
 import { deviceCeiling } from '../multiview/windows.ts';
 import { settings } from '../../state/appState.ts';
 import {
@@ -29,9 +29,9 @@ export function PlaybackPage(props: PageProps) {
   const combine = () => settings()?.combineDuplicates ?? true;
   const prefLang = () => preferredLanguageOption(settings()?.preferredLanguages);
   const maxWindows = () => settings()?.maxWindows ?? 'auto';
-  const ceiling = deviceCeiling(pool.max);
-  const multiviewItems = (): SettingItem[] => (ceiling < 2 ? [] : [
-    { id: 'maxWindows', label: 'Max windows', value: maxWindowsLabel(maxWindows(), ceiling), adjustable: true,
+  const ceiling = (): number => deviceCeiling(deviceWindowMax());
+  const multiviewItems = (): SettingItem[] => (ceiling() < 2 ? [] : [
+    { id: 'maxWindows', label: 'Max windows', value: maxWindowsLabel(maxWindows(), ceiling()), adjustable: true,
       help: 'Multiview: channels on screen at once. Each window uses one connection from your source.' },
   ]);
   const items = (): SettingItem[] => [

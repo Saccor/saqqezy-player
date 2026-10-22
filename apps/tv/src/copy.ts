@@ -67,6 +67,7 @@ export const MULTIVIEW_COPY = {
   freeing: 'Freeing a connection…',
   onScreen: 'On screen',
   infoUnknown: 'Each window uses one connection from your source.',
+  deviceLimit: 'This TV can show one channel at a time.',
   escalated: 'Your source refused extra streams several times. Try again in a few minutes.',
   infoReported: (n: number): string => `Your source reports ${n} ${n === 1 ? 'connection' : 'connections'}. Each window uses one.`,
   kicked: (k: number): string => `Your source seems to allow ${k} ${k === 1 ? 'stream' : 'streams'} at once.`,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
 import {
-  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, exit, getAvplayStorePlayer, mountAvplayObject, readPanelCaps, registerKeys, setScreenSaver, type TizenLike,
+  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, exit, getAvplayStorePlayer, isUnavailableAvplay, mountAvplayObject, readPanelCaps, registerKeys, setScreenSaver, type TizenLike,
 } from './tizen.ts';
 
 function fakeTizen(opts: { batch?: boolean; batchThrows?: boolean } = {}) {
@@ -156,7 +156,9 @@ describe('getAvplayStorePlayer', () => {
       expect((thrown as Error).name).toBe('NotSupportedError');
       expect(() => { av.stop(); av.close(); av.setDisplayRect(0, 0, 1, 1); }).not.toThrow();
       expect(av.getTotalTrackInfo()).toEqual([]);
+      expect(isUnavailableAvplay(av)).toBe(true);
     }
+    expect(isUnavailableAvplay(getAvplayStorePlayer({ webapis: { avplaystore: { getPlayer: () => ({ open() {} }) as never } } }))).toBe(false);
   });
 });
 
