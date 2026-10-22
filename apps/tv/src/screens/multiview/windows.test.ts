@@ -26,9 +26,11 @@ describe('canAddWindow', () => {
 });
 
 describe('deviceCeiling', () => {
-  it('is what the pool allows, at most the ceiling of this phase (2 in P1)', () => {
-    expect(MULTIVIEW_CEILING).toBe(2);
-    expect(deviceCeiling(4)).toBe(2);
+  it('is what the pool allows, at most 6 (owner decision 2026-10-22)', () => {
+    expect(MULTIVIEW_CEILING).toBe(6);
+    expect(deviceCeiling(6)).toBe(6);
+    expect(deviceCeiling(8)).toBe(6);
+    expect(deviceCeiling(4)).toBe(4);
     expect(deviceCeiling(1)).toBe(1);
   });
 });

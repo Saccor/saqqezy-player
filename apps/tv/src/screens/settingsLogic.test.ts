@@ -331,6 +331,6 @@ describe('display page items', () => {
 
 describe('maxWindowsLabel', () => {
   it('Auto names what this device can play; the numbers are plain', () => {
-    expect(MAX_WINDOWS_OPTIONS.map((v) => maxWindowsLabel(v, 2))).toEqual(['Auto (this device: 2)', '2', '3', '4']);
+    expect(MAX_WINDOWS_OPTIONS.map((v) => maxWindowsLabel(v, 6))).toEqual(['Auto (this device: 6)', '2', '3', '4', '5', '6']);
   });
 });

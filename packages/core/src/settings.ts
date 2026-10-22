@@ -6,8 +6,8 @@ export type PosterSize = 'standard' | 'compact';
 /** How much the TV UI moves (motion research 2026-10-20 §5): all motion, fades only, or none. */
 export type MotionSetting = 'full' | 'reduced' | 'off';
 /** Multiview: the most windows at once. Auto is what this device can play. On-device only (not synced). */
-export type MaxWindows = 'auto' | 2 | 3 | 4;
-const MAX_WINDOWS_CHOICES: readonly MaxWindows[] = ['auto', 2, 3, 4];
+export type MaxWindows = 'auto' | 2 | 3 | 4 | 5 | 6;
+const MAX_WINDOWS_CHOICES: readonly MaxWindows[] = ['auto', 2, 3, 4, 5, 6];
 const MOTION_CHOICES: readonly MotionSetting[] = ['full', 'reduced', 'off'];
 /** Your countries: off (no effect), put first, or show only these (report 2026-10-20 §2.2). */
 export type RegionMode = 'off' | 'first' | 'only';
