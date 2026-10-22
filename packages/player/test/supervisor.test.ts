@@ -888,6 +888,21 @@ describe('PlaybackSupervisor: journal', () => {
     expect(log.every((e) => typeof e.t === 'number')).toBe(true);
   });
 
+  it('the attempt count starts at 1 for every play (G9 decision C); the ids the player gets stay unique', () => {
+    const { player, sup, log } = journaled();
+    sup.play(A);
+    player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(5000);
+    sup.play(B);
+    vi.advanceTimersByTime(2000);
+    player.emit('playing');
+    const opens = log.filter((e) => e.k === 'open');
+    expect(opens.map((e) => (e as { attempt: number }).attempt)).toEqual([1, 2, 1]);
+    expect(log.at(-1)).toMatchObject({ k: 'playing', attempt: 1 });
+    // A late event of the first play's stream is still told apart from this play's.
+    expect(new Set(player.ids).size).toBe(player.ids.length);
+  });
+
   it('a no-bytes ladder step: ladder reconnect, then reconnect with its cause and real delay', () => {
     const { player, sup, log } = journaled();
     const start = Date.now();

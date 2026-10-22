@@ -231,8 +231,12 @@ export class PlaybackSupervisor {
   /** Index of the next background retry wait. */
   private giveUpStep = 0;
   private sourceKey: string | undefined;
+  /** Unique across plays: the player echoes it, so a late event of an earlier stream is told apart. */
   private attemptCounter = 0;
   private currentAttempt: number | undefined;
+  /** The journal's attempt number: 1 for each play()'s first open (G9 decision C; it once counted across zaps). */
+  private playAttempts = 0;
+  private currentPlayAttempt = 0;
   private started = false; // first frame seen in the current attempt
   private isPlaying = false;
   private playerState: PlayerState = 'idle';
@@ -322,6 +326,7 @@ export class PlaybackSupervisor {
       ? [url]
       : [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
     this.urlIndex = 0;
+    this.playAttempts = 0;
     if (opts.automatic !== true) this.fails = 0;
     this.authRetried = false;
     this.refusedBeforePlay = false;
@@ -562,12 +567,14 @@ export class PlaybackSupervisor {
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
+    const attempt = ++this.playAttempts;
+    this.currentPlayAttempt = attempt;
     this.beginSession();
     // A window's open says how many other streams of its host were open (single view's stays as it was).
     const windowed = this.ledger !== undefined && this.sourceKey !== undefined && this.tileId() !== undefined;
     this.note(windowed
-      ? { k: 'open', attempt: id, urlIndex: this.urlIndex, concurrent: this.attemptConcurrent }
-      : { k: 'open', attempt: id, urlIndex: this.urlIndex });
+      ? { k: 'open', attempt, urlIndex: this.urlIndex, concurrent: this.attemptConcurrent }
+      : { k: 'open', attempt, urlIndex: this.urlIndex });
     this.started = false;
     this.stableSince = undefined;
     this.tickCount = 0;
@@ -624,7 +631,7 @@ export class PlaybackSupervisor {
     if (s === 'playing') {
       this.playedThisPlay = true;
       if (!this.started) {
-        this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
+        this.note({ k: 'playing', attempt: this.currentPlayAttempt, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
         this.startedCount++;
         this.session?.playing();
