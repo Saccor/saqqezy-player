@@ -215,7 +215,7 @@ export interface DiagnosticsInfo {
     catchupTime?: string;
   }[];
   /** Messages are already credential-free. */
-  lastErrors: { at: number; where: string; message: string }[];
+  lastErrors: { at: number; where: string; message: string; name?: string; code?: number | string; status?: number }[];
   settings: AppSettings;
 }
 

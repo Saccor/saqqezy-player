@@ -150,6 +150,15 @@ export function screenLines(d: DeviceInfo, platform: string): [string, string][]
  * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
  * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
  */
+/** `name: message (code 22, HTTP 503)`; the name is left out when generic or already in the message. */
+function errorText(e: DiagnosticsInfo['lastErrors'][number]): string {
+  const message = stripUrls(e.message);
+  if (!message && e.name) return e.name;
+  const showName = e.name && e.name !== 'Error' && !message.includes(e.name);
+  const extra = [e.code !== undefined ? `code ${e.code}` : '', e.status !== undefined ? `HTTP ${e.status}` : ''].filter(Boolean).join(', ');
+  return `${showName ? `${e.name}: ` : ''}${message}${extra ? ` (${extra})` : ''}`;
+}
+
 export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo }): [string, string][] {
   const lines: [string, string][] = [
     ['App version', info.appVersion],
@@ -170,7 +179,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
   });
   const errors = [...info.lastErrors].sort((a, b) => b.at - a.at).slice(0, MAX_ERRORS);
   if (errors.length === 0) lines.push(['Errors', 'None']);
-  for (const e of errors) lines.push([`Error ${formatTime(e.at)}`, `${stripUrls(e.where)}: ${stripUrls(e.message)}`]);
+  for (const e of errors) lines.push([`Error ${formatTime(e.at)}`, `${stripUrls(e.where)}: ${errorText(e)}`]);
   const st = info.settings;
   lines.push(
     ['Guide offset', offsetLabel(st.epgOffsetHours)],

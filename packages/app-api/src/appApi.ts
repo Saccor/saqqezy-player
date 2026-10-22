@@ -13,7 +13,7 @@ import {
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
 import { LiveSourceMemory, livePickKey } from './liveSources.ts';
-import { toRpcError } from './rpc.ts';
+import { toRpcError, type RpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
@@ -1605,16 +1605,21 @@ export class AppApi {
     const message = scrub(rpc.message);
     const out = err instanceof Error && message === rpc.message
       ? err
-      : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}) });
+      : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}), ...(rpc.code !== undefined ? { code: rpc.code } : {}) });
     if (this.recorded.has(out)) return out;
     this.recorded.add(out);
-    this.note(where, message);
+    this.note(where, message, rpc);
     return out;
   }
 
   /** Adds a credential-free message to the diagnostics ring. */
-  private note(where: string, message: string): void {
-    this.errors.push({ at: this.now(), where, message });
+  private note(where: string, message: string, rpc?: RpcError): void {
+    this.errors.push({
+      at: this.now(), where, message,
+      ...(rpc ? { name: rpc.name } : {}),
+      ...(rpc?.code !== undefined ? { code: rpc.code } : {}),
+      ...(rpc?.status !== undefined ? { status: rpc.status } : {}),
+    });
     if (this.errors.length > ERROR_RING) this.errors.shift();
   }
 

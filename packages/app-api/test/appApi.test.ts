@@ -864,6 +864,28 @@ describe('AppApi', () => {
     expect((await api.diagnostics()).lastErrors.some((e) => e.message === 'disk unavailable')).toBe(true);
   });
 
+  test('a DOMException with an empty message is logged by name, with non-empty text', async () => {
+    class Quota extends SourceService {
+      override deleteSource(): never { throw new DOMException('', 'QuotaExceededError'); }
+    }
+    const { api } = make(storage, Quota);
+    const err = await api.deleteSource('x').catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('QuotaExceededError');
+    const entry = (await api.diagnostics()).lastErrors.find((e) => e.where === 'deleteSource')!;
+    expect(entry.name).toBe('QuotaExceededError');
+    expect(entry.message).toBe('QuotaExceededError');
+  });
+
+  test('the log keeps code and status when the error has them', async () => {
+    class Coded extends SourceService {
+      override deleteSource(): never { throw Object.assign(new Error('nope'), { name: 'HttpError', status: 503, code: 22 }); }
+    }
+    const { api } = make(storage, Coded);
+    await api.deleteSource('x').catch(() => undefined);
+    expect((await api.diagnostics()).lastErrors.find((e) => e.where === 'deleteSource'))
+      .toMatchObject({ name: 'HttpError', message: 'nope', status: 503, code: 22 });
+  });
+
   test('non-Error throws are rethrown as scrubbed Errors', async () => {
     class Thrower extends SourceService {
       override listSources(): never {

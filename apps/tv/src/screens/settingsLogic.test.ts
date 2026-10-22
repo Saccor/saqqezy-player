@@ -139,6 +139,18 @@ describe('diagnosticsLines', () => {
     expect(hits[0]!.join(' ')).toMatch(/Test · Xtream/);
   });
 
+  it('renders where: name: message, and only the name when the message is empty or the same', () => {
+    const lines = (lastErrors: DiagnosticsInfo['lastErrors']) =>
+      diagnosticsLines({ ...info, lastErrors }, { platform: 'tizen' }).filter(([k]) => k.startsWith('Error ')).map(([, v]) => v);
+    expect(lines([{ at: 1, where: 'refreshVod', name: 'QuotaExceededError', message: '' }])).toEqual(['refreshVod: QuotaExceededError']);
+    expect(lines([{ at: 1, where: 'refreshVod', name: 'QuotaExceededError', message: 'QuotaExceededError' }])).toEqual(['refreshVod: QuotaExceededError']);
+    expect(lines([{ at: 1, where: 'saveVodProgress', name: 'QuotaExceededError', message: 'IndexedDB QuotaExceededError' }]))
+      .toEqual(['saveVodProgress: IndexedDB QuotaExceededError']);
+    expect(lines([{ at: 1, where: 'x', name: 'TypeError', message: 'bad', code: 22, status: 503 }])).toEqual(['x: TypeError: bad (code 22, HTTP 503)']);
+    // Entries without a name, or the generic one, read as before.
+    expect(lines([{ at: 1, where: 'x', message: 'bad' }, { at: 0, where: 'y', name: 'Error', message: 'worse' }])).toEqual(['x: bad', 'y: worse']);
+  });
+
   it('says so when there are no sources or errors', () => {
     const text = diagnosticsLines({ ...info, sources: [], lastErrors: [] }, { platform: 'tizen' })
       .map(([k, v]) => `${k}: ${v}`);
