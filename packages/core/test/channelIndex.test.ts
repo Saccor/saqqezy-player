@@ -272,10 +272,10 @@ describe('ChannelIndex – ordering', () => {
     expect(ids(new ChannelIndex(cs, l).slice('fav', 0, 10))).toEqual(['s:5', 's:1', 's:2']);
   });
 
-  test('groupOrder puts listed existing groups first, then the rest in provider order', () => {
+  test('groupOrder puts listed existing groups first (above All channels), then the rest in provider order', () => {
     const many = [ch(1, 'A'), ch(2, 'B'), ch(3, 'C'), ch(4, 'D')];
     const idx = new ChannelIndex(many, lay({ op: 'setGroupOrder', ids: ['g:C', 'g:Gone', 'g:A'] }));
-    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'all', 'g:C', 'g:A', 'g:B', 'g:D']);
+    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'g:C', 'g:A', 'all', 'g:B', 'g:D']);
   });
 
   test('neighbour and indexOf follow the effective order', () => {

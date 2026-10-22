@@ -100,6 +100,11 @@ export interface GroupInfo {
   count: number;
   /** Provider groups while your countries are on: not a chosen country's group (listed under "Other groups"). */
   other?: boolean;
+  /**
+   * Your countries (spec 2026-10-22-your-countries-flags): set on another country's group while the fold is active,
+   * the region key it folds under ("BE", "lang:en"). Such groups come after All channels, in country order.
+   */
+  fold?: string;
 }
 
 /** `RequestInit` plus a per-call header timeout, honoured (and stripped) by `withTimeout`. */

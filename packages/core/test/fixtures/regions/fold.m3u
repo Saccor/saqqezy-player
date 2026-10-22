@@ -1,0 +1,23 @@
+#EXTM3U
+#EXTINF:-1 group-title="SE | Synthetic News",Synthetic One
+http://example.test/live/fold1.ts
+#EXTINF:-1 group-title="SE | Synthetic News",Synthetic Two
+http://example.test/live/fold2.ts
+#EXTINF:-1 group-title="BE | Synthetic News",Synthetic Three
+http://example.test/live/fold3.ts
+#EXTINF:-1 group-title="NORDIC",Synthetic Four
+http://example.test/live/fold4.ts
+#EXTINF:-1 group-title="DE | Synthetic Docs",Synthetic Five
+http://example.test/live/fold5.ts
+#EXTINF:-1 group-title="BE | Synthetic Kids",Synthetic Six
+http://example.test/live/fold6.ts
+#EXTINF:-1 group-title="EN | Synthetic Films",Synthetic Seven
+http://example.test/live/fold7.ts
+#EXTINF:-1 group-title="Synthetic Music",Synthetic Eight
+http://example.test/live/fold8.ts
+#EXTINF:-1 group-title="Synthetic Weekly (FI)",Synthetic Nine
+http://example.test/live/fold9.ts
+#EXTINF:-1 group-title="DK | Synthetic Kids",Synthetic Ten
+http://example.test/live/fold10.ts
+#EXTINF:-1 group-title="BE | Synthetic Docs",Synthetic Eleven
+http://example.test/live/fold11.ts
