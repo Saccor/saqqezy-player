@@ -114,6 +114,25 @@ describe('diagnosticsLines', () => {
     settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' },
   };
 
+  it('shows the guide import in place of "Guide updated": importing with a count and time, or failed with the reason', () => {
+    const NOW = Date.UTC(2026, 9, 22, 12, 0);
+    const guideLine = (guideImport: NonNullable<DiagnosticsInfo['sources'][number]['guideImport']>, epgAt = 0) =>
+      diagnosticsLines({ ...info, sources: [{ ...info.sources[0]!, epgAt, guideImport }] }, { platform: 'tizen', now: NOW })
+        .map(([, v]) => v).find((v) => v.startsWith('Channels updated'))!;
+    expect(guideLine({ stage: 'idle', count: 0, startedAt: 0 })).toContain('Guide updated Never');
+    expect(guideLine({ stage: 'importing', count: 412_000, startedAt: NOW - 3 * 60_000 - 5_000 }))
+      .toContain('Guide: importing 412,000 programmes (3 min)');
+    expect(guideLine({ stage: 'importing', count: 0, startedAt: NOW - 10_000 })).toContain('Guide: importing 0 programmes (<1 min)');
+    const failed = guideLine({
+      stage: 'failed', count: 0, startedAt: NOW,
+      error: { name: 'SourceNetworkError', message: 'Guide at http://example.test/xmltv.php?username=u&password=p failed', status: 502 },
+    }, NOW - 86_400_000);
+    expect(failed).toContain('Guide: failed: SourceNetworkError: Guide at');
+    expect(failed).toContain('(HTTP 502)');
+    expect(failed).not.toMatch(/password|username=u/);
+    expect(failed).not.toContain('Guide updated');
+  });
+
   it('shows version, platform, sources, errors and settings', () => {
     const text = diagnosticsLines(info, { platform: 'browser' }).map(([k, v]) => `${k}: ${v}`);
     expect(text).toContain('App version: 1.2.3');

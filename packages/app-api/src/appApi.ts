@@ -2190,10 +2190,12 @@ export class AppApi {
     const state: GuideImportState = { stage: 'importing', count: 0, startedAt: this.now() };
     this.guideImports.set(id, state);
     try {
+      // The active source's channels are in memory already: the import matches against them (no 54k re-read).
+      const channels = () => (this.activeId === id && this.channels.length ? this.channels : undefined);
       await this.service.refreshEpg(id, (p) => {
         state.count = p.count;
         this.emit({ type: 'progress', ...p });
-      }, { automatic });
+      }, { automatic, channels });
     } catch (err) {
       try {
         this.failed('epg', id, 'refreshEpg', err);

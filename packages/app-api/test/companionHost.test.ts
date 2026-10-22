@@ -740,6 +740,8 @@ describe('CompanionHost', () => {
   test('end() clears the cached state', async () => {
     const s = setup();
     await s.api.addSource(xt());
+    // The background guide import ends with a coverage change, which drops the cache: let it finish first.
+    await s.api.idle();
     const { p } = await pairQr(s);
     await hello(p);
     await p.ch.send({ t: 'getState' });

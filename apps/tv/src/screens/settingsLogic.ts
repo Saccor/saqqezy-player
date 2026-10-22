@@ -147,7 +147,7 @@ export function screenLines(d: DeviceInfo, platform: string): [string, string][]
 }
 
 /** `name: message (code 22, HTTP 503)`; the name is left out when generic or already in the message. */
-function errorText(e: DiagnosticsInfo['lastErrors'][number]): string {
+function errorText(e: Pick<DiagnosticsInfo['lastErrors'][number], 'message' | 'name' | 'code' | 'status'>): string {
   const message = stripUrls(e.message);
   if (!message && e.name) return e.name;
   const showName = e.name && e.name !== 'Error' && !message.includes(e.name);
@@ -155,9 +155,26 @@ function errorText(e: DiagnosticsInfo['lastErrors'][number]): string {
   return `${showName ? `${e.name}: ` : ''}${message}${extra ? ` (${extra})` : ''}`;
 }
 
+/** Thousands grouped by hand (`412,000`): the TV engines' `toLocaleString` differ. */
+const grouped = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/**
+ * The guide half of a source's "updated" line: a running import (programmes so far, whole minutes), a failed one
+ * (its reason), else the last good import's time.
+ */
+export function guideStatus(s: DiagnosticsInfo['sources'][number], now: number): string {
+  const g = s.guideImport;
+  if (g?.stage === 'importing') {
+    const min = Math.floor(Math.max(0, now - g.startedAt) / 60_000);
+    return `Guide: importing ${grouped(g.count)} programmes (${min < 1 ? '<1' : min} min)`;
+  }
+  if (g?.stage === 'failed' && g.error) return `Guide: failed: ${errorText(g.error)}`;
+  return `Guide updated ${formatTime(s.epgAt)}`;
+}
+
 /** `123 MB of 2,048 MB`: what the device lets the app keep (whole megabytes, thousands grouped by hand). */
 export function storageLine(s: { used: number; quota: number }): string {
-  const mb = (bytes: number) => String(Math.round(bytes / 1048576)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const mb = (bytes: number) => grouped(Math.round(bytes / 1048576));
   return `${mb(s.used)} MB of ${mb(s.quota)} MB`;
 }
 
@@ -165,7 +182,8 @@ export function storageLine(s: { used: number; quota: number }): string {
  * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
  * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
  */
-export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo }): [string, string][] {
+export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo; now?: number }): [string, string][] {
+  const now = env.now ?? Date.now();
   const lines: [string, string][] = [
     ['App version', info.appVersion],
     ['Platform', env.platform],
@@ -175,7 +193,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
   info.sources.forEach((s, i) => {
     const kind = KIND_LABEL[s.kind] ?? 'Other';
     lines.push([`Source ${i + 1}`, `${stripUrls(s.name)} · ${kind} · ${s.channels} channels, ${s.skipped} skipped`]);
-    lines.push(['', `Channels updated ${formatTime(s.playlistAt)} · Guide updated ${formatTime(s.epgAt)}`]);
+    lines.push(['', `Channels updated ${formatTime(s.playlistAt)} · ${guideStatus(s, now)}`]);
     // Catch-up: counts and how archive times are written (never URLs or templates).
     if (s.catchupChannels || s.catchupUnsupported) {
       const unsupported = s.catchupUnsupported ? `, ${s.catchupUnsupported} not supported` : '';

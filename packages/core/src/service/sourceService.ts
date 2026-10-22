@@ -41,8 +41,12 @@ import {
 
 export type NewSource = Omit<XtreamSourceConfig, 'id'> | Omit<M3uSourceConfig, 'id'>;
 export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void;
-/** `automatic`: a background refresh (its failure records the refresh backoff); a manual one records nothing. */
-export interface RefreshOptions { automatic?: boolean }
+/**
+ * `automatic`: a background refresh (its failure records the refresh backoff); a manual one records nothing.
+ * `channels` (guide only): the source's channels the caller already holds, asked for inside the source lock; the
+ * guide import then skips reading them again (a 54k list costs a long structured clone on a TV). Undefined: read them.
+ */
+export interface RefreshOptions { automatic?: boolean; channels?: () => Channel[] | undefined }
 export interface IngestResult {
   channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
   /** Channels with catch-up, and channels whose catch-up the app cannot build URLs for (spec 2026-10-20-catch-up §3.3). */
@@ -484,14 +488,14 @@ export class SourceService {
     return this.withLock(id, async () => {
       this.epgRefreshing.add(id);
       try {
-        return await this.withBackoff(id, 'epg', opts, () => this.refreshEpgLocked(id, onProgress));
+        return await this.withBackoff(id, 'epg', opts, () => this.refreshEpgLocked(id, onProgress, opts.channels));
       } finally {
         this.epgRefreshing.delete(id);
       }
     });
   }
 
-  private async refreshEpgLocked(id: string, onProgress?: Progress): Promise<EpgResult> {
+  private async refreshEpgLocked(id: string, onProgress?: Progress, held?: () => Channel[] | undefined): Promise<EpgResult> {
     const source = await this.requireSource(id);
     const url = source.kind === 'm3u' ? source.epgUrl : this.xtream(source).xmltvUrl();
     if (!url) {
@@ -511,7 +515,7 @@ export class SourceService {
     }
     const res = await this.get(source, url);
     if (!(await this.sourceExists(id))) return { programmes: 0, skipped: 0 };
-    const channels = await this.storage.getChannels(id);
+    const channels = held?.() ?? await this.storage.getChannels(id);
 
     const staleStaging = await this.stagingGen(id);
     const current = await this.currentGen(id);
@@ -540,10 +544,10 @@ export class SourceService {
     // One worker thread serves the UI too: give it back every YIELD_EVERY_MS of import work.
     let sliceStart = this.clock();
     const share = async () => {
-      const t = this.clock();
-      if (t - sliceStart < YIELD_EVERY_MS) return;
+      if (this.clock() - sliceStart < YIELD_EVERY_MS) return;
       await this.yieldNow();
-      sliceStart = t;
+      // From the end of the pause: a slow timer (Windows rounds to its tick) must not make every item pause.
+      sliceStart = this.clock();
     };
     const store = async (rows: Programme[]) => {
       try {
@@ -623,6 +627,8 @@ export class SourceService {
         // Best effort: an older record has another gen, so it still reads as missing.
       }
     }
+    // The closing writes are separate pauses too (each clones its value; in memory nothing else would break them up).
+    await share();
     // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
     try {
       await this.storage.setMeta(sportsIndexKey(id), sportsOk ? sports.record(newGen, now) : null);
@@ -633,6 +639,7 @@ export class SourceService {
         // Best effort: an older record has another gen, so it still reads as missing.
       }
     }
+    await share();
     await this.storage.setMeta(epgLongestKey(id), { gen: newGen, ms: longest } satisfies EpgLongestRecord);
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);

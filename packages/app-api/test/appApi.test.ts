@@ -995,6 +995,19 @@ describe('AppApi', () => {
       expect(indexOf(api)).not.toBe(first);
     });
 
+    test('a guide refresh of the active source reuses its channels in memory instead of reading them again', async () => {
+      await seeded();
+      const { api } = make();
+      await api.init();
+      await api.idle();
+      let reads = 0;
+      const get = storage.getChannels.bind(storage);
+      storage.getChannels = (id) => { reads++; return get(id); };
+      await api.refresh('epg');
+      expect(reads).toBe(0);
+      expect((await api.getChannelSlice('all', 0, 1)).rows[0]!.now?.title).toMatch(/^Programme /);
+    });
+
     test('Diagnostics shows the guide import: idle, importing with a count, then idle or failed with the reason', async () => {
       const { sourceId } = await seeded();
       const g = gate();

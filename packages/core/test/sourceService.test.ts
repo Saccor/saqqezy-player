@@ -272,6 +272,19 @@ describe('SourceService – m3u', () => {
       expect(tv.writes() - before).toBe(1);
     });
 
+    test('the channels the caller already holds are used instead of reading them again', async () => {
+      const { source } = await service.addSource(m3uInput);
+      const held = await storage.getChannels(source.id);
+      let reads = 0;
+      const get = storage.getChannels.bind(storage);
+      storage.getChannels = (id) => { reads++; return get(id); };
+      expect((await service.refreshEpg(source.id, undefined, { channels: () => held })).programmes).toBe(2);
+      expect(reads).toBe(0);
+      // Nothing held (not loaded yet): read from storage as before.
+      expect((await service.refreshEpg(source.id, undefined, { channels: () => undefined })).programmes).toBe(2);
+      expect(reads).toBe(1);
+    });
+
     test('with a clock that moves 3 ms per programme, the import yields at least every 3 programmes', async () => {
       routes['/epg.xml'] = () => new Response(longGuide(900));
       let t = 0;
