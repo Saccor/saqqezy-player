@@ -1,6 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import type { ProgrammeHit } from '@iptv/app-api';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { FocusRing } from './FocusRing.tsx';
 import { useFocusScale } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
@@ -60,7 +60,7 @@ function FullBody(props: { image: string | undefined; context: string; main: str
   return (
     <>
       <Show when={props.image} keyed>
-        {(u) => <View x={PAD} y={PAD} width={LOGO} height={LOGO} zIndex={2} src={rawViaDevProxy(u)} />}
+        {(u) => <View x={PAD} y={PAD} width={LOGO} height={LOGO} zIndex={2} src={imageSrc(u, LOGO, LOGO)} />}
       </Show>
       <Show when={props.context}>
         <Text x={PAD + tx()} y={PAD + (LOGO - TYPE.meta) / 2 - 2} width={w - tx()} maxWidth={w - tx()}
@@ -87,7 +87,7 @@ function CompactBody(props: { image: string | undefined; context: string; main: 
   return (
     <>
       <Show when={props.image} keyed>
-        {(u) => <View x={C_PAD} y={(COMPACT_H - C_LOGO) / 2} width={C_LOGO} height={C_LOGO} zIndex={2} src={rawViaDevProxy(u)} />}
+        {(u) => <View x={C_PAD} y={(COMPACT_H - C_LOGO) / 2} width={C_LOGO} height={C_LOGO} zIndex={2} src={imageSrc(u, C_LOGO, C_LOGO)} />}
       </Show>
       <Show when={props.context}>
         <Text x={tx()} y={C_LINE1_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}

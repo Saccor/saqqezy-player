@@ -4,6 +4,7 @@ import { WebGlRenderer } from '@lightningjs/renderer/webgl';
 import { CanvasTextRenderer } from '@lightningjs/renderer/canvas';
 import { COLORS, TYPE } from './shell/theme.ts';
 import { CorsWebPlatform } from './shell/corsPlatform.ts';
+import { setImageScale } from './images/sizedSrc.ts';
 import { App } from './App.tsx';
 import { api } from './api.ts';
 import { router } from './shell/router.ts';
@@ -31,6 +32,8 @@ if (!appRoot) throw new Error('index.html is missing #app');
 
 // TVs draw a 1920×1080 buffer whatever their graphics plane (see renderScale.ts); the canvas still fills the viewport.
 const ratios = renderPixelRatios(platformId);
+// Source images are shrunk to the buffer pixels they cover (1 per design pixel on TVs).
+setImageScale(ratios.logical * ratios.physical);
 const { render, renderer } = createRenderer(
   {
     appWidth: DESIGN_WIDTH,
@@ -43,14 +46,14 @@ const { render, renderer } = createRenderer(
     fontEngines: [CanvasTextRenderer],
     // SVG posters and logos load with CORS, so a cross-origin SVG no longer taints the canvas (shell/svgLoad.ts).
     platform: CorsWebPlatform,
-    // Poster and backdrop textures on a 1 GB TV. Images are decoded at their natural size: renderer 3.7 has no
-    // decode-time resize (ImageTexture `sx/sy/sw/sh` only crop, and its image worker never passes `resizeWidth` /
-    // `resizeHeight` to `createImageBitmap`), so a 600×900 poster shown at 188×282 still costs ~2 MB of GPU memory.
-    // Until a resize step exists (Plan 4/5), the budget bounds it: past 100 MB (the 25 MB WebGL baseline included) the
-    // renderer frees textures that are off screen down to half of that, and an idle scene is tidied every 5 s.
+    // Poster, logo and backdrop textures on a 1 GB TV. Renderer 3.7 decodes images at their natural size, so source
+    // images are tagged with their drawn size and shrunk by our loader (images/sizedSrc.ts): a poster drawn at
+    // 188×282 costs ~0.2 MB instead of ~6 MB for a 1000×1500 original. Past 100 MB (the 25 MB WebGL baseline
+    // included) the renderer frees textures that are off screen down to 75 % of that (small textures: many stay, so
+    // scrolling back draws at once), and an idle scene is tidied every 5 s.
     textureMemory: {
       criticalThreshold: 100e6,
-      targetThresholdLevel: 0.5,
+      targetThresholdLevel: 0.75,
       cleanupInterval: 5_000,
     },
     // TVs: texture uploads spread over frames, and the next tiles preload before they scroll in.
@@ -63,6 +66,7 @@ registerDefaultShaders((renderer as RendererMain).stage.shManager);
 
 window.addEventListener('resize', () => {
   const next = renderPixelRatios(platformId);
+  setImageScale(next.logical * next.physical);
   (renderer as RendererMain).setOptions({ deviceLogicalPixelRatio: next.logical, devicePhysicalPixelRatio: next.physical });
   layer.relayout();
 });

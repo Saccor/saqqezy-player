@@ -2,7 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, type JSX } from 'solid-js';
 import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
-import { rawViaDevProxy } from '../net/devProxy.ts';
+import { imageSrc } from '../images/imageSrc.ts';
 import { fadeInLoaded, motionNow } from '../shell/motion.ts';
 import { COLORS, LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
@@ -70,7 +70,7 @@ export function PosterArt(props: {
             };
             return (
               <View ref={(el) => { img = el; }} alpha={MOTION.startAlpha} width={props.w} height={props.h} zIndex={3}
-                borderRadius={LAYOUT.radius} src={rawViaDevProxy(u)}
+                borderRadius={LAYOUT.radius} src={imageSrc(u, props.w, props.h)}
                 onEvent={{ loaded: onLoaded, failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
             );
           }}
