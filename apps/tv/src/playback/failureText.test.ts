@@ -70,3 +70,19 @@ describe('failureText (spec 2026-10-16-source-retry §2.8)', () => {
     expect(all).not.toMatch(/https?:|www\.|free|buy|subscribe/i);
   });
 });
+
+describe('failureText: multiview window', () => {
+  it('a refusal says another stream was refused, with the reported limit when known', () => {
+    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 2 }, 'window')).toBe('Your source refused another stream (403). It reports 2 connections.');
+    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 1 }, 'window')).toBe('Your source refused another stream (403). It reports 1 connection.');
+    expect(failureText({ reason: 'refused', httpStatus: 403 }, 'window')).toBe('Your source refused another stream (403).');
+    expect(failureText({ reason: 'refused' }, 'window')).toBe('Your source refused another stream.');
+  });
+
+  it('rate limiting keeps the shared wording; the other causes have window wording', () => {
+    expect(failureText({ reason: 'refused', httpStatus: 429 }, 'window')).toBe('Your source is limiting connections (429).');
+    expect(failureText({ reason: 'unavailable', httpStatus: 500 }, 'window')).toBe("This channel can't play right now (500).");
+    expect(failureText({ reason: 'unsupported' }, 'window')).toBe("This device can't play this channel's format.");
+    expect(failureText({ reason: 'gone', httpStatus: 404 }, 'window')).toBe("This channel isn't on your source anymore (404).");
+  });
+});

@@ -10,25 +10,29 @@ export interface FailureFacts {
 }
 
 /**
- * Which screen asks: the Player (`stream`), Home's and the Guide's preview (`channel`) or VodPlay (`video`). Only the
- * unavailable, unsupported and gone texts differ; each keeps that screen's existing wording.
+ * Which screen asks: the Player (`stream`), Home's and the Guide's preview (`channel`), VodPlay (`video`) or a multiview
+ * window (`window`). Only the unavailable, unsupported and gone texts differ, plus a window's account refusal (another
+ * stream was refused, so the other windows play on); each keeps that screen's existing wording.
  */
-export type FailureSubject = 'stream' | 'channel' | 'video';
+export type FailureSubject = 'stream' | 'channel' | 'video' | 'window';
 
 const UNAVAILABLE: Record<FailureSubject, string> = {
   stream: "This channel isn't available right now.",
   channel: "This channel isn't available right now.",
   video: "This video can't play right now.",
+  window: "This channel can't play right now.",
 };
 const UNSUPPORTED: Record<FailureSubject, string> = {
   stream: "This stream's format isn't supported on this device.",
   channel: "This channel's format isn't supported on this device.",
   video: "This video format can't play on this device.",
+  window: "This device can't play this channel's format.",
 };
 const GONE: Record<FailureSubject, string> = {
   stream: "This channel isn't on your source anymore.",
   channel: "This channel isn't on your source anymore.",
   video: "This video isn't on your source anymore.",
+  window: "This channel isn't on your source anymore.",
 };
 
 /** Statuses after which another device on the account is a likely cause (spec §2.8: 401/403, or none known). */
@@ -52,8 +56,14 @@ export function failureText(f: FailureFacts, subject: FailureSubject = 'channel'
       if (f.httpStatus !== undefined && RATE_LIMIT_STATUSES.has(f.httpStatus)) {
         return `Your source is limiting connections (${f.httpStatus}).`;
       }
-      const base = withStatus('Your source refused this stream.', f.httpStatus);
       const n = f.maxConnections;
+      if (subject === 'window') {
+        // Another stream was refused (owner decision 2026-10-20 §12.2): the source's reported limit when known.
+        const refused = withStatus('Your source refused another stream.', f.httpStatus);
+        if (n === undefined || !Number.isInteger(n) || n < 1) return refused;
+        return `${refused} It reports ${n} connection${n === 1 ? '' : 's'}.`;
+      }
+      const base = withStatus('Your source refused this stream.', f.httpStatus);
       if (f.httpStatus !== undefined && !ACCOUNT_STATUSES.has(f.httpStatus)) return base;
       if (n === undefined || !Number.isInteger(n) || n < 1) return base;
       // `compact` (Live TV's small window) keeps the cause and the limit, and drops the rest.

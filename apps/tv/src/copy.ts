@@ -46,3 +46,31 @@ export const SOURCE_COPY = {
   setting: 'Combine duplicate channels',
   settingHelp: 'One row per channel. If a stream fails, the next one takes over.',
 } as const;
+
+/**
+ * Multiview (spec 2026-10-20-multiview §4, owner decisions §12): a tile is a "window"; neutral wording only, no source
+ * names. The source's reported connection count is information, never a limit the app enforces.
+ */
+export const MULTIVIEW_COPY = {
+  entry: 'Multiview',
+  addToMultiview: 'Add to multiview',
+  addChannel: 'Add channel',
+  changeChannel: 'Change channel',
+  fullScreen: 'Full screen',
+  makeLarge: 'Make large',
+  equalSize: 'Equal size',
+  keepSound: 'Keep sound here',
+  soundFollows: 'Sound follows focus',
+  closeWindow: 'Close window',
+  retry: 'Retry',
+  starting: 'Starting…',
+  freeing: 'Freeing a connection…',
+  onScreen: 'On screen',
+  infoUnknown: 'Each window uses one connection from your source.',
+  escalated: 'Your source refused extra streams several times. Try again in a few minutes.',
+  infoReported: (n: number): string => `Your source reports ${n} ${n === 1 ? 'connection' : 'connections'}. Each window uses one.`,
+  kicked: (k: number): string => `Your source seems to allow ${k} ${k === 1 ? 'stream' : 'streams'} at once.`,
+  learned: (k: number): string => `Last time your source refused window ${k}.`,
+  device: (n: number): string => `This device can play ${n} at once.`,
+  setting: (n: number): string => `Max windows is set to ${n} in Settings.`,
+} as const;
