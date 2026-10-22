@@ -8,6 +8,8 @@ import { Button } from '../components/Button.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
+import { flagFor } from '../assets/flags/index.ts';
+import { TOP_LEVEL, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { useRowColumn } from '../components/rowColumn.ts';
@@ -20,7 +22,7 @@ import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { initState } from '../state/appState.ts';
+import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import {
   cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
@@ -28,7 +30,7 @@ import {
 } from '../vod/browseLogic.ts';
 import { greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
 import { Backdrop } from '../vod/Backdrop.tsx';
-import { catalogueCategories, categoryRows } from '../vod/categoryPicker.ts';
+import { catalogueCategories } from '../vod/categoryPicker.ts';
 import { heroArt } from '../vod/fadeLogic.ts';
 import { lruGet } from '../vod/memoryLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
@@ -37,7 +39,7 @@ import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { regularSeasonCount } from '../vod/seriesDetailLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
-import { KIND_COPY, vodStatusLine } from '../vod/kindCopy.ts';
+import { KIND_COPY, grouped, vodStatusLine } from '../vod/kindCopy.ts';
 import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
 
 /**
@@ -341,27 +343,66 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  // ---- category picker ----
+  // ---- category picker: other countries fold into one row (spec 2026-10-22-your-countries-flags) ----
   const [picking, setPicking] = createSignal(false);
+  const [pickerLevel, setPickerLevel] = createSignal<FoldLevel>(TOP_LEVEL);
+  const [pickerFocusId, setPickerFocusId] = createSignal<string | undefined>(undefined);
   let removePicker: (() => void) | undefined;
+  /** The open level, one level up when a refresh left its country without folders (never an empty list). */
+  const effectiveLevel = (): FoldLevel => {
+    const l = pickerLevel();
+    if (l.kind === 'top') return l;
+    const cs = categories();
+    if (l.kind === 'country' && cs.some((c) => c.fold === l.key)) return l;
+    return cs.some((c) => c.fold !== undefined) ? { kind: 'countries' } : TOP_LEVEL;
+  };
+  // Built only while the picker is open: a library can have 1,000+ categories.
+  const pickerView = createMemo(() => {
+    if (!picking()) return undefined;
+    const r = settings()?.regions;
+    return foldView(categories(), effectiveLevel(), {
+      title: copy.categoriesTitle, picked: r !== undefined && r.mode !== 'off' && r.codes.length > 0, focusId: pickerFocusId(),
+      label: (c) => `${c.name} · ${grouped(c.count)}`, flagOf: flagFor,
+      onlyCount: r?.mode === 'only' ? r.codes.length : 0,
+    });
+  });
   const openCategories = () => {
     if (picking() || !hasHeader() || screenOverlayOpen() || menu.isOpen()) return;
+    setPickerLevel(TOP_LEVEL);
+    setPickerFocusId(undefined);
     setPicking(true);
     removePicker = router.pushOverlay(CATEGORIES_ID, closeCategories);
     queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
   };
+  /** Back on the picker: up one level (focus on the row that opened it), or closed from the top level. */
   function closeCategories() {
     removePicker = undefined;
+    const level = effectiveLevel();
+    const up = levelUp(level);
+    if (up) {
+      setPickerFocusId(levelRowId(level));
+      setPickerLevel(up);
+      removePicker = router.pushOverlay(CATEGORIES_ID, closeCategories);
+      return;
+    }
     setPicking(false);
     queueMicrotask(() => { if (alive) focusArea('header'); });
   }
-  /** A pick opens the grid on that category (the screen leaves, so nothing is refocused here). */
+  /** OK: a level opens in place; a category opens the grid on it (the screen leaves, so nothing is refocused). */
   const pickCategory = (row: PickerRow) => {
+    const act = foldPick(effectiveLevel(), row);
+    if (act.kind === 'level') {
+      setPickerFocusId(undefined);
+      setPickerLevel(act.level);
+      return;
+    }
+    if (act.kind === 'none') return;
     removePicker?.();
     removePicker = undefined;
     setPicking(false);
-    if (row.kind === 'list') router.push('vodGrid', { kind, categoryId: row.id });
-    else queueMicrotask(() => { if (alive) focusArea('header'); });
+    setPickerLevel(TOP_LEVEL);
+    if (act.kind === 'choose') router.push('settings', { page: 'countries' });
+    else router.push('vodGrid', { kind, categoryId: act.id });
   };
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
@@ -560,9 +601,11 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       </Show>
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={categoryRows(categories(), undefined)}
-          onPick={(row) => pickCategory(row)} hint="Ok opens · Back closes" />
+      <Show when={pickerView()}>
+        {(view) => (
+          <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
+            initial={view().initial} resetKey={view().key} onPick={(row) => pickCategory(row)} hint="Ok opens · Back closes" />
+        )}
       </Show>
     </View>
   );
