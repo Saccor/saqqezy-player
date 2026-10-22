@@ -21,10 +21,33 @@ class FakePlayer implements Player {
   setLiveProfile = vi.fn((_p: LiveProfile) => undefined);
   /** The `stop()` options, in call order; `calls` keeps the plain 'stop' entries. */
   stopOpts: Array<{ hold?: boolean } | undefined> = [];
-  /** Whether a held last frame is showing: `stop()` clears it unless it asked to hold. */
+  /**
+   * Mirrors AvplayPlayer's still mode: a hold needs an open stream; a release on an open one clears it ('false'); on a
+   * closed one (the reconnect gap) it is tried once ('false:closed', unverified on TVs) and stays pending until the
+   * next 'playing'. `still` is whether a hold is running; `stillCalls` lists what the engine would send.
+   */
+  isOpen = false;
   still = false;
-  holdLastFrame = vi.fn(() => { this.still = true; });
-  releaseLastFrame = vi.fn(() => { this.still = false; });
+  stillPending = false;
+  stillCalls: string[] = [];
+  holdLastFrame = vi.fn(() => {
+    if (!this.isOpen || this.still) return;
+    this.still = true;
+    this.stillCalls.push('true');
+  });
+  releaseLastFrame = vi.fn(() => this.release());
+  private release(): void {
+    if (!this.still && !this.stillPending) return;
+    const wasOn = this.still;
+    this.still = false;
+    if (!this.isOpen) {
+      this.stillPending = true;
+      if (wasOn) this.stillCalls.push('false:closed');
+      return;
+    }
+    this.stillPending = false;
+    this.stillCalls.push('false');
+  }
   pause = vi.fn(() => undefined);
   play = vi.fn(() => undefined);
   seek?: (ms: number) => boolean;
@@ -33,13 +56,15 @@ class FakePlayer implements Player {
   private listeners = new Set<Listener>();
   open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void> {
     this.opened.push(url); this.ids.push(attemptId); this.openOpts.push(opts); this.calls.push(`open:${url}`);
+    this.isOpen = true;
     if (this.throwOnOpen !== undefined) { const e = this.throwOnOpen; this.throwOnOpen = undefined; throw e; }
     return Promise.resolve();
   }
   stop(opts?: { hold?: boolean }): void {
     this.calls.push('stop');
     this.stopOpts.push(opts);
-    if (!opts?.hold) this.still = false;
+    if (!opts?.hold) this.release();
+    this.isOpen = false;
   }
   setRect(_r: Rect | 'fullscreen'): void {}
   setAspect(_m: AspectMode): void {}
@@ -52,6 +77,7 @@ class FakePlayer implements Player {
   /** Emits a state event for open() number `idx` (default: the latest). */
   emit(s: PlayerState, d: StateDetail = {}, idx = this.ids.length - 1): void {
     const attemptId = this.ids[idx];
+    if (s === 'playing' && this.isOpen) this.release(); // like AvplayPlayer.startPlay
     for (const l of [...this.listeners]) l(s, attemptId === undefined ? d : { ...d, attemptId });
   }
 }
@@ -1091,17 +1117,28 @@ describe('PlaybackSupervisor – per-source open rate', () => {
     expect(player.stopOpts).toEqual([undefined, { hold: true }, undefined]);
   });
 
-  it('a stop() during the reconnect gap ends with the held frame cleared', () => {
+  it('a stop() during the reconnect gap tries to clear the held frame and leaves the clear pending', () => {
     const { player, sup } = setup();
     sup.play(A);
     player.emit('playing');
     player.emit('error', { code: 'NETWORK' });
-    expect(player.still).toBe(true); // held for the reconnect
-    vi.advanceTimersByTime(1000); // restart: stop({ hold: true }), then open
+    expect(player.stillCalls).toEqual(['true']); // held for the reconnect
+    // The engine's teardown is still running: the restart's open waits for it.
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>(() => undefined);
+    vi.advanceTimersByTime(1000); // restart: stop({ hold: true })
+    expect(player.calls.at(-1)).toBe('stop');
+    expect(player.isOpen).toBe(false); // in the gap
     expect(player.still).toBe(true);
     sup.stop();
-    expect(player.still).toBe(false);
     expect(player.stopOpts.at(-1)).toBeUndefined();
+    expect(player.stillCalls).toEqual(['true', 'false:closed']); // tried once on the closed engine
+    expect(player.stillPending).toBe(true); // and retried when the next stream plays
+    delete (player as FakePlayer & { closed?: () => Promise<void> }).closed;
+    sup.play(B);
+    vi.advanceTimersByTime(2000);
+    player.emit('playing');
+    expect(player.stillCalls).toEqual(['true', 'false:closed', 'false']);
+    expect(player.stillPending).toBe(false);
   });
 
   it('a newer play() or stop() drops the held reconnect', () => {

@@ -527,7 +527,7 @@ describe('AvplayPlayer: live delay and recovery', () => {
     expect(av.still).toEqual(['true']);
   });
 
-  test('releaseLastFrame after stop() makes no AVPlay call on the closed player', async () => {
+  test('after stop(), a release or a hold makes no AVPlay call on the closed player', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
     av.prepared[0]!.ok();
@@ -536,22 +536,75 @@ describe('AvplayPlayer: live delay and recovery', () => {
     av.calls = [];
     p.releaseLastFrame();
     expect(av.calls).toEqual([]);
-    p.holdLastFrame();
+    p.holdLastFrame(); // closed: nothing to hold
     p.stop({ hold: true });
     p.releaseLastFrame();
-    expect(av.calls.filter((c) => c !== 'setVideoStillMode')).toEqual([]);
+    expect(av.calls).toEqual([]);
+    expect(av.still).toEqual(['true', 'false']);
   });
 
-  test('a hold kept by stop({ hold: true }) and released while closed is cleared when the next stream plays', async () => {
+  test('a hold kept by stop({ hold: true }) and released while closed is tried at once and again when the next stream plays', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
     av.prepared[0]!.ok();
     p.holdLastFrame();
     p.stop({ hold: true });
-    p.releaseLastFrame(); // closed: nothing to call yet
+    p.releaseLastFrame(); // closed: tried once, still pending
+    expect(av.still).toEqual(['true', 'false']);
+    await p.open(URL_B);
+    av.prepared[1]!.ok();
+    expect(av.still).toEqual(['true', 'false', 'false']);
+  });
+
+  test('the reconnect gap: hold, stop({ hold: true }), then stop() tries to clear still mode on the closed player', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    av.calls = [];
+    p.holdLastFrame();
+    p.stop({ hold: true });
+    p.stop();
+    expect(av.calls).toEqual(['setVideoStillMode', 'stop', 'close', 'setVideoStillMode']);
+    expect(av.still).toEqual(['true', 'false']);
+    p.stop(); // tried once: a second stop makes no call
+    p.releaseLastFrame();
+    expect(av.calls).toHaveLength(4);
+    av.calls = [];
+    await p.open(URL_B);
+    av.prepared[1]!.ok();
+    // Unverified on TVs whether a closed player honours it: the next stream playing clears it again.
+    expect(av.calls.slice(av.calls.indexOf('play'))).toEqual(['play', 'setVideoStillMode']);
+    expect(av.still).toEqual(['true', 'false', 'false']);
+  });
+
+  test('a throwing clear in the reconnect gap is retried when the next stream plays', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    p.stop({ hold: true });
+    av.throwOn.add('setVideoStillMode');
+    expect(() => p.stop()).not.toThrow();
+    av.throwOn.delete('setVideoStillMode');
     expect(av.still).toEqual(['true']);
     await p.open(URL_B);
     av.prepared[1]!.ok();
+    expect(av.still).toEqual(['true', 'false']);
+  });
+
+  test('a throwing clear on an open player is retried when the next stream plays', async () => {
+    const { av, p } = setup();
+    await p.open(URL_A);
+    av.prepared[0]!.ok();
+    p.holdLastFrame();
+    av.throwOn.add('setVideoStillMode');
+    p.releaseLastFrame();
+    av.throwOn.delete('setVideoStillMode');
+    expect(av.still).toEqual(['true']);
+    await p.open(URL_B);
+    av.calls = [];
+    av.prepared[1]!.ok();
+    expect(av.calls.slice(av.calls.indexOf('play'))).toEqual(['play', 'setVideoStillMode']);
     expect(av.still).toEqual(['true', 'false']);
   });
 
@@ -1186,7 +1239,7 @@ describe('AvplayPlayer: screensaver', () => {
       expect(saver.at(-1)).toBe('off');
       vi.advanceTimersByTime(30_000);
       expect(saver.at(-1)).toBe('on');
-      expect(av.still).toEqual(['true']); // AVPlay is closed: no call, the next stream playing clears it
+      expect(av.still).toEqual(['true', 'false']); // AVPlay is closed: tried once, the next stream playing clears it again
     } finally {
       vi.useRealTimers();
     }

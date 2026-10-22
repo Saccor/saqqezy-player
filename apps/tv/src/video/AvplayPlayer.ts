@@ -413,8 +413,8 @@ export class AvplayPlayer implements Player {
    */
   stop(opts?: { hold?: boolean }): void {
     const s = this.session;
+    if (!opts?.hold) this.releaseLastFrame(); // before close(): a closed player may ignore setVideoStillMode
     if (!s) return;
-    if (!opts?.hold) this.releaseLastFrame(); // before close(): a closed player ignores setVideoStillMode
     s.dead = true;
     clearTimeout(s.watchdog);
     clearTimeout(s.seekWatchdog);
@@ -752,7 +752,7 @@ export class AvplayPlayer implements Player {
   }
 
   holdLastFrame(): void {
-    if (!this.avplay.setVideoStillMode) return;
+    if (!this.avplay.setVideoStillMode || !this.session) return; // closed: no frame to hold
     if (this.stillOn) return; // a hold is already running: its 30 s cap must not be re-armed
     try {
       this.avplay.setVideoStillMode('true');
@@ -772,10 +772,19 @@ export class AvplayPlayer implements Player {
       this.updateSaver();
       return;
     }
+    const wasOn = this.stillOn;
     this.stillOn = false;
     if (!this.session) {
-      // AVPlay is closed: a call would fail silently. The next stream playing clears the mode.
+      // AVPlay is closed (a stop in the reconnect gap). Unverified on TVs whether a closed player honours the call, so
+      // it is tried once here and stays pending either way: the next stream playing clears the mode again.
       this.stillPending = true;
+      if (wasOn) {
+        try {
+          this.avplay.setVideoStillMode?.('false');
+        } catch {
+          // still pending
+        }
+      }
       this.updateSaver();
       return;
     }
@@ -783,7 +792,7 @@ export class AvplayPlayer implements Player {
     try {
       this.avplay.setVideoStillMode?.('false');
     } catch {
-      // ignore
+      this.stillPending = true; // the next stream playing retries
     }
     this.updateSaver();
   }
@@ -922,7 +931,10 @@ export class AvplayPlayer implements Player {
     }
   }
 
-  /** Screensaver off only while a picture plays fullscreen (see `desiredScreenSaver`). */
+  /**
+   * Screensaver off only while a picture plays fullscreen (see `desiredScreenSaver`). `stillPending` does not count:
+   * it has no time cap and would keep the screensaver off after the user has left playback.
+   */
   private updateSaver(): void {
     this.saver?.update({
       fullscreen: isFullscreen(this.rect) || this.coversScreen?.() === true, video: this.video || this.stillOn, paused: this.userPaused,
