@@ -1,4 +1,4 @@
-import { SourceNetworkError, StorageWriteError, storageFullMessage } from '../errors.ts';
+import { SourceNetworkError, StorageWriteError, isQuotaError, storageFailedMessage, storageFullMessage } from '../errors.ts';
 import { BODY_IDLE_MS } from '../net/timeout.ts';
 import { sanitizeSettings } from '../settings.ts';
 import type { Storage } from '../storage.ts';
@@ -147,7 +147,7 @@ export class VodService {
       try {
         await this.storage.replaceVod(sourceId, kind, list);
       } catch (cause) {
-        throw new StorageWriteError(`vod:${kind}`, cause, storageFullMessage(kind), list);
+        throw new StorageWriteError(`vod:${kind}`, cause, isQuotaError(cause) ? storageFullMessage(kind) : storageFailedMessage(kind), list);
       }
       await this.storage.setMeta(vodAtKey(kind, sourceId), this.now());
       return { count: list.items.length, truncated: list.truncated === true, list };
@@ -161,7 +161,7 @@ export class VodService {
       out = await fn();
     } catch (err) {
       if (automatic && countsAsRefreshFailure(err) && (await this.source(sourceId).catch(() => undefined))) {
-        await recordRefreshFailure(this.storage, sourceId, `vod:${kind}`, this.now(), err instanceof StorageWriteError ? 'storage' : undefined);
+        await recordRefreshFailure(this.storage, sourceId, `vod:${kind}`, this.now(), err instanceof StorageWriteError && err.quota ? 'storage' : undefined);
       }
       throw err;
     }

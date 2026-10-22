@@ -57,8 +57,6 @@ const COMPANION_ORIGIN = (import.meta.env.VITE_COMPANION_ORIGIN as string | unde
 const APP_VERSION = '0.0.0';
 
 let emitter: { emit(type: string, payload: unknown): void } | undefined;
-// Asks the browser to keep this app's data (no prompt in a worker); the answer does not matter, so errors are ignored.
-try { void navigator.storage?.persist?.()?.catch(() => undefined); } catch { /* not available */ }
 
 const api = new AppApi({
   service,

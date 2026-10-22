@@ -1578,7 +1578,7 @@ describe('VodController when the list cannot be saved', () => {
 
   test('after a restart the list is not downloaded again before the backoff ends', async () => {
     let t = NOW;
-    const { c, vod, sourceId } = await setup('xtream', () => t);
+    const { c, sourceId } = await setup('xtream', () => t);
     failSave();
     await c.home('series');
     await c.idle();
@@ -1597,6 +1597,36 @@ describe('VodController when the list cannot be saved', () => {
     expect((await later.c.home('series')).status).toBe('loading');
     await later.c.idle();
     expect(fetches).toBeGreaterThan(0);
-    void vod;
+  });
+  test('a write failure that is not a quota error says so neutrally, and a restart fetches again', async () => {
+    const { c, events, sourceId } = await setup();
+    storage.replaceVod = async () => { throw Object.assign(new Error('closing'), { name: 'InvalidStateError' }); };
+    await c.home('series');
+    await c.idle();
+    expect(events.find((e) => e.type === 'vodRefreshFailed')).toMatchObject({ error: { message: 'Could not save the series list on this TV' } });
+    expect((await c.home('series')).status).toBe('ready');
+    const rec = await storage.getMeta<{ storage?: true }>(`refreshFail:${sourceId}:vod:series`);
+    expect(rec).toBeTruthy();
+    expect(rec?.storage).toBeUndefined();
+    let fetches = 0;
+    const counting = new VodService({ storage, fetch: (u, i) => { if (/action=get_series/.test(u)) fetches++; return fetchFn(u, i); }, now: () => NOW, fallbackGapMs: 0 });
+    const again = restart(sourceId, counting);
+    expect((await again.c.home('series')).status).toBe('loading');
+    await again.c.idle();
+    expect(fetches).toBeGreaterThan(0);
+  });
+
+  test('the error log names the cause, the message the user sees stays neutral', async () => {
+    const logged: unknown[] = [];
+    const { vod, sourceId } = await setup();
+    const events: AppEvent[] = [];
+    const c = new VodController({ vod, emit: (e) => events.push(e), record: (_w, err) => { logged.push(err); return err instanceof Error ? err : new Error(String(err)); } });
+    c.reset(sourceId);
+    failSave();
+    await c.home('series');
+    await c.idle();
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ name: 'StorageWriteError', message: 'Not enough storage on this TV to save the series list (QuotaExceededError)' });
+    expect(events.find((e) => e.type === 'vodRefreshFailed')).toMatchObject({ error: { name: 'StorageWriteError', message: 'Not enough storage on this TV to save the series list' } });
   });
 });

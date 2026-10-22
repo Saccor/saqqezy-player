@@ -471,4 +471,27 @@ describe('VodService when the list cannot be saved', () => {
     await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(StorageWriteError);
     expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
   });
+
+  test('a write failure that is not a quota error gets the neutral message, no storage mark and no foreground hold', async () => {
+    storage.replaceVod = async () => { throw Object.assign(new Error('closing'), { name: 'InvalidStateError' }); };
+    const err = await svc.refresh('x', 'series', { automatic: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StorageWriteError);
+    expect(err).toMatchObject({ message: 'Could not save the series list on this TV', quota: false });
+    expect((err as StorageWriteError<{ items: unknown[] }>).value?.items).toHaveLength(1);
+    const rec = await storage.getMeta<{ count: number; storage?: true }>('refreshFail:x:vod:series');
+    expect(rec?.count).toBe(1);
+    expect(rec?.storage).toBeUndefined();
+    expect(await svc.storageBlocked('x', 'series')).toBe(false);
+    expect(await svc.needsRefresh('x', 'series', { foreground: true })).toBe(true);
+  });
+
+  test.each([
+    ['a QuotaExceededError name', Object.assign(new Error('x'), { name: 'QuotaExceededError' })],
+    ['a DOMException code 22', Object.assign(new Error('x'), { name: 'Error', code: 22 })],
+    ['the IndexedDB message', new Error('IndexedDB QuotaExceededError')],
+  ])('%s counts as storage full', async (_n, cause) => {
+    storage.replaceVod = async () => { throw cause; };
+    const err = await svc.refresh('x', 'movie').catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: 'Not enough storage on this TV to save the movie list', quota: true });
+  });
 });

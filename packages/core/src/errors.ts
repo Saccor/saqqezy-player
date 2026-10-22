@@ -57,17 +57,32 @@ export class SourceRefusedError extends Error {
   }
 }
 
-/** What the app says when a downloaded list cannot be saved on the device (neutral: no provider). */
+/** What the app says when a downloaded list cannot be saved because the device is full (neutral: no provider). */
 export const storageFullMessage = (what: 'movie' | 'series'): string => `Not enough storage on this TV to save the ${what} list`;
+/** What the app says when saving failed for another reason (a closing or refusing database). */
+export const storageFailedMessage = (what: 'movie' | 'series'): string => `Could not save the ${what} list on this TV`;
+
+/** Whether a write failed because the device is full: a `QuotaExceededError`, a DOMException with code 22, or the form `idbStorage` produces. */
+export function isQuotaError(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause === null) return false;
+  const c = cause as { name?: unknown; code?: unknown; message?: unknown };
+  return c.name === 'QuotaExceededError' || c.code === 22 || c.message === 'IndexedDB QuotaExceededError';
+}
+
+/** The name of an error (for the log), or '' when it has none. */
+export const causeName = (cause: unknown): string =>
+  typeof cause === 'object' && cause !== null && typeof (cause as { name?: unknown }).name === 'string' ? (cause as { name: string }).name : '';
 
 /**
  * Thrown when saving something that was fetched fine failed on the device (a full or refusing database). The name and
- * message reach the error log; `cause` keeps the original error. `value` is what could not be saved, so a caller can
- * keep using it for the session.
+ * message reach the error log; `cause` keeps the original error and `quota` says whether it was a full device.
+ * `value` is what could not be saved, so a caller can keep using it for the session.
  */
 export class StorageWriteError<V = unknown> extends Error {
+  readonly quota: boolean;
   constructor(readonly store: string, override readonly cause: unknown, message = `Could not save ${store}`, readonly value?: V) {
     super(message);
+    this.quota = isQuotaError(cause);
     this.name = 'StorageWriteError';
   }
 }

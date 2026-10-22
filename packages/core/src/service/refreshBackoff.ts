@@ -27,7 +27,7 @@ function isRecord(v: unknown): v is RefreshFailRecord {
  * saved counts too: downloading it again at the next launch would fail the same way and load the source for nothing.
  */
 export function countsAsRefreshFailure(err: unknown): boolean {
-  if (err instanceof StorageWriteError) return true;
+  if (err instanceof StorageWriteError) return true;  // quota or not: the write failed, so a fetch right away would too (the `storage` mark is for quota only)
   return err instanceof SourceNetworkError && (err.status === undefined || !REFUSAL_STATUSES.has(err.status));
 }
 

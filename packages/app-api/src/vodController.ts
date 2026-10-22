@@ -1,5 +1,5 @@
 import {
-  QUALITY_LABELS, StorageWriteError, storageFullMessage, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
+  QUALITY_LABELS, StorageWriteError, causeName, storageFullMessage, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
   buildVodSearchIndex, buildTrendingIndex, dvFromTitle, matchTrendingHits, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
   type TrendingFeed, type TrendingIndex,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
@@ -1190,8 +1190,12 @@ export class VodController {
           this.indexGens[kind]++;
         }
         if (err instanceof VodFetchCancelled) return;
-        const out = this.record('refreshVod', err);
-        const error = toRpcError(out);
+        // The log names the original error too (Diagnostics: "... (QuotaExceededError)"); the user's message stays neutral.
+        const named = causeName(err instanceof StorageWriteError ? err.cause : undefined);
+        const out = this.record('refreshVod', err instanceof StorageWriteError && named
+          ? Object.assign(new Error(`${err.message} (${named})`), { name: err.name })
+          : err);
+        const error = err instanceof StorageWriteError ? { name: err.name, message: err.message } : toRpcError(out);
         this.failures.set(kind, error);
         this.emit({ type: 'vodRefreshFailed', sourceId: id, kind, error });
         throw out;
