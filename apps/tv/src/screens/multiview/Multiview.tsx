@@ -373,8 +373,12 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     closeMenu();
     // Acting on any window: a pending "Watch this one instead" opens nothing later (it starts again below if chosen).
     if (action !== 'cancel') watch.cancel();
-    if (action === 'retry') retry(i);
-    else if (action === 'retryNow') retryNow(i);
+    if (action === 'retry') {
+      // The user's own Retry: a refusal mark left by a "Watch this one instead" reopen is not its to keep.
+      const w = s.windows[i];
+      if (w) forgetReopen(w.slot);
+      retry(i);
+    } else if (action === 'retryNow') retryNow(i);
     else if (action === 'watchInstead') watchInstead(i);
     else if (action === 'fullScreen') update(enterFullScreen(s, i));
     else if (action === 'makeLarge') update(makeLarge(s, i));

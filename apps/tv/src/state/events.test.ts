@@ -86,10 +86,16 @@ describe('offlineAfter', () => {
     expect(offlineAfter(true, { type: 'offline', value: false })).toBe(false);
   });
 
-  it('a network failure without HTTP status sets offline; a successful refresh clears it', () => {
+  it('a stall or timeout (a network failure without HTTP status) leaves the badge as it was', () => {
+    // Only the worker knows a source was unreachable; it says so with its own `offline` event first.
     const net = { name: 'SourceNetworkError', message: 'x' };
-    expect(offlineAfter(false, { type: 'refreshFailed', what: 'playlist', sourceId: 's', error: net })).toBe(true);
+    expect(offlineAfter(false, { type: 'refreshFailed', what: 'playlist', sourceId: 's', error: net })).toBe(false);
+    expect(offlineAfter(true, { type: 'refreshFailed', what: 'epg', sourceId: 's', error: net })).toBe(true);
+  });
+
+  it('a successful refresh clears it', () => {
     expect(offlineAfter(true, { type: 'refreshed', what: 'playlist', sourceId: 's' })).toBe(false);
+    expect(offlineAfter(false, { type: 'refreshed', what: 'epg', sourceId: 's' })).toBe(false);
   });
 
   it('HTTP and auth failures leave the state alone', () => {

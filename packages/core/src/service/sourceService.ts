@@ -47,7 +47,11 @@ export type Progress = (p: { phase: 'playlist' | 'epg'; count: number }) => void
  * `channels` (guide only): the source's channels the caller already holds, asked for inside the source lock; the
  * guide import then skips reading them again (a 54k list costs a long structured clone on a TV). Undefined: read them.
  */
-export interface RefreshOptions { automatic?: boolean; channels?: () => Channel[] | undefined }
+export interface RefreshOptions {
+  automatic?: boolean; channels?: () => Channel[] | undefined;
+  /** Called once the refresh holds the source lock and really starts (not while it waits behind another task). */
+  onStart?: () => void;
+}
 export interface IngestResult {
   channelCount: number; skipped: number; movieCount?: number; seriesCount?: number;
   /** Channels with catch-up, and channels whose catch-up the app cannot build URLs for (spec 2026-10-20-catch-up §3.3). */
@@ -490,6 +494,7 @@ export class SourceService {
   refreshEpg(id: string, onProgress?: Progress, opts: RefreshOptions = {}): Promise<EpgResult> {
     return this.withLock(id, async () => {
       this.epgRefreshing.add(id);
+      opts.onStart?.();
       try {
         return await this.withBackoff(id, 'epg', opts, () => this.refreshEpgLocked(id, onProgress, opts.channels));
       } finally {

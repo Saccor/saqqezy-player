@@ -412,6 +412,25 @@ describe('Watch this one instead: a dropped reopen never hides a later refusal',
     expect(open).toHaveBeenCalledTimes(1);
   });
 
+  it('a plain Retry from the menu while the reopen is starting: the retry never inherits the refusal mark', () => {
+    // Mirrors Multiview's menu: Retry cancels the watch and forgets the window's reopen before it retries.
+    const notes = createWindowNotes();
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn(() => { notes.markDisplaced(1); });
+    watch.start(1, open);
+    vi.advanceTimersByTime(FREEING_MS);
+    expect(watch.observe(1, 'starting')).toBe('none');
+    watch.cancel();
+    watch.forget(1);
+    notes.takeDisplaced(1);
+    // The user's own retry is refused: judged as usual, not as the watch's displaced window.
+    expect(notes.takeDisplaced(1)).toBe(false);
+    expect(watch.observe(1, 'starting')).toBe('none');
+    expect(watch.observe(1, 'refused')).toBe('none');
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
   it("forget leaves the other windows' reopens alone", () => {
     const watch = createWatchInstead(() => undefined);
     watch.start(1, vi.fn());

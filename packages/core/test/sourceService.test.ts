@@ -159,6 +159,22 @@ describe('SourceService – m3u', () => {
     expect((await service.loadIndex(source.id)).groupSize('all')).toBe(2);
   });
 
+  test('refreshEpg calls onStart once it holds the source lock, not while it is queued', async () => {
+    const { source } = await service.addSource(m3uInput);
+    let release!: () => void;
+    routes['/p.m3u'] = () => new Promise<Response>((r) => { release = () => r(new Response(m3u)); });
+    const playlist = service.refreshPlaylist(source.id);
+    const started: string[] = [];
+    const guide = service.refreshEpg(source.id, (p) => started.push(`progress ${p.count}`), { onStart: () => started.push('start') });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(started).toEqual([]);
+    release();
+    await playlist;
+    await guide;
+    expect(started[0]).toBe('start');
+    expect(started.filter((x) => x === 'start')).toHaveLength(1);
+  });
+
   test('a failed guide refresh keeps the previous coverage', async () => {
     const { source } = await service.addSource(m3uInput);
     await service.refreshEpg(source.id);

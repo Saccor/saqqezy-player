@@ -2198,14 +2198,23 @@ export class AppApi {
 
   private async refreshEpgFor(id: string, automatic = false): Promise<void> {
     const state: GuideImportState = { stage: 'importing', count: 0, startedAt: this.now() };
-    this.guideImports.set(id, state);
+    // Shown as importing once the import holds the source lock (or reports progress): while it waits behind
+    // another task, Diagnostics keeps the previous state instead of "importing 0 programmes".
+    let begun = false;
+    const begin = () => {
+      if (begun) return;
+      begun = true;
+      state.startedAt = this.now();
+      this.guideImports.set(id, state);
+    };
     try {
       // The active source's channels are in memory already: the import matches against them (no 54k re-read).
       const channels = () => (this.activeId === id && this.channels.length ? this.channels : undefined);
       await this.service.refreshEpg(id, (p) => {
+        begin();
         state.count = p.count;
         this.emit({ type: 'progress', ...p });
-      }, { automatic, channels });
+      }, { automatic, channels, onStart: begin });
     } catch (err) {
       try {
         this.failed('epg', id, 'refreshEpg', err);

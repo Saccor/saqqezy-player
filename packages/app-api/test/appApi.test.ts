@@ -1211,6 +1211,37 @@ describe('AppApi', () => {
     });
   });
 
+  test('Diagnostics shows the guide import as importing only once it really starts, not while queued', async () => {
+    const { sourceId } = await seeded();
+    const queued = gate();
+    const reading = gate();
+    let hold = false;
+    class Queued extends SourceService {
+      override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1], o?: Parameters<SourceService['refreshEpg']>[2]) {
+        if (!hold) return super.refreshEpg(id, p, o);
+        // Waiting for the source lock (a playlist refresh holds it): nothing is imported yet.
+        await queued.p;
+        o?.onStart?.();
+        await reading.p;
+        return { programmes: 0, skipped: 0 };
+      }
+    }
+    const { api } = make(storage, Queued);
+    await api.init();
+    await api.idle();
+    const guide = async () => (await api.diagnostics()).sources.find((s) => s.id === sourceId)!.guideImport;
+    hold = true;
+    const running = api.refresh('epg');
+    await settle();
+    expect(await guide()).toEqual({ stage: 'idle', count: 0, startedAt: 0 });
+    queued.open();
+    await settle();
+    expect(await guide()).toEqual({ stage: 'importing', count: 0, startedAt: NOW });
+    reading.open();
+    await running;
+    expect((await guide())?.stage).toBe('idle');
+  });
+
   test('a DOMException with an empty message is logged by name, with non-empty text', async () => {
     class Quota extends SourceService {
       override deleteSource(): never { throw new DOMException('', 'QuotaExceededError'); }

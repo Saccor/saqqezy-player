@@ -47,14 +47,14 @@ export function toastPriority(e: AppEvent): number {
 }
 
 /**
- * Offline badge state after an event. Mirrors the worker's rule: a network failure without an HTTP status
- * means offline; any successful refresh means online again.
+ * Offline badge state after an event. The worker decides: only a source it could not reach means offline, and it
+ * sends `offline` itself (a stall or timeout is not offline, and that difference does not cross RPC). Any
+ * successful refresh means online again.
  */
 export function offlineAfter(prev: boolean, e: AppEvent): boolean {
   switch (e.type) {
     case 'offline': return e.value;
     case 'refreshed': return false;
-    case 'refreshFailed': return e.error.name === 'SourceNetworkError' && e.error.status === undefined ? true : prev;
     default: return prev;
   }
 }

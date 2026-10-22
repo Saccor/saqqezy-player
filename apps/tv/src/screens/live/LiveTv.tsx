@@ -309,7 +309,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** Where focus lands on open: `contentPlace`, but a return to a programme (Search target, catch-up) lands on the timeline. */
   const openPlace = (): LivePlace => {
     const p = contentPlace();
-    return p === 'channels' && (hasTarget || fromCatchup) ? 'grid' : p;
+    return p === 'channels' ? livePlaceOnOpen({ hasTarget, fromCatchup }) : p;
   };
   /** Routes a key through `liveKey`: `move` runs the place's own handler; `exit` lets Back bubble to the shell. */
   const go = (key: LiveKey, move: () => boolean = () => true): boolean => {
