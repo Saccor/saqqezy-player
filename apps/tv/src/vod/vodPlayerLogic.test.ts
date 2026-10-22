@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
+  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, coverVideo, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -271,5 +271,18 @@ describe('noSoundText', () => {
     expect(noSoundText(1)).toBe("No sound: this device can't play this video's audio format.");
     expect(noSoundText(0)).toBe("No sound: this device can't play this video's audio format.");
     expect(noSoundText(2)).toBe("No sound: this device can't play this video's audio format. Try another track in Audio & subtitles.");
+  });
+});
+
+describe('coverVideo', () => {
+  it('covers until the first picture: no status, loading, reconnecting', () => {
+    expect(coverVideo(undefined, false)).toBe(true);
+    expect(coverVideo({ kind: 'loading' }, false)).toBe(true);
+    expect(coverVideo({ kind: 'reconnecting', attempt: 1 }, false)).toBe(true);
+  });
+  it('uncovers on playing, and stays uncovered after the first play (a later buffer keeps the picture)', () => {
+    expect(coverVideo({ kind: 'playing' }, false)).toBe(false);
+    expect(coverVideo({ kind: 'loading' }, true)).toBe(false);
+    expect(coverVideo({ kind: 'ended' }, true)).toBe(false);
   });
 });

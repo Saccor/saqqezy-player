@@ -1,5 +1,5 @@
 import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
-import type { StreamInfo, Support } from '@iptv/player';
+import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import { oneSpace } from './tracks.ts';
 
@@ -161,4 +161,13 @@ export function dvColoursWarning(hint: VideoRange | undefined, info: StreamInfo,
 export function noSoundText(audioTrackCount: number): string {
   const base = "No sound: this device can't play this video's audio format.";
   return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;
+}
+
+/**
+ * Whether VodPlay covers the video area with an opaque view: until the first `playing` of this open, so whatever sits on
+ * the hardware plane (a frozen frame of the last stream) never shows. `played` latches after that first picture, so a
+ * later buffer or reconnect keeps the picture visible.
+ */
+export function coverVideo(status: SupervisorStatus | undefined, played: boolean): boolean {
+  return !played && status?.kind !== 'playing';
 }

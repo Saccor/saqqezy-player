@@ -171,3 +171,12 @@ const VIDEO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['player', 'vodPl
 export function screenEnters(change: ScreenChange | undefined, screen: ScreenId, railStays = false): boolean {
   return (change === 'push' || change === 'replace') && !VIDEO_SCREENS.has(screen) && !railStays;
 }
+
+/**
+ * Whether the app draws an opaque background under the screen host. The WebGL canvas clears transparent over the
+ * hardware video plane, so wherever nothing opaque is drawn (a screen fading in from alpha ~0, a screen that does not
+ * fill the canvas) the plane shows through, a frozen frame included. Video screens draw their own picture or box.
+ */
+export function screenUnderlay(screen: ScreenId): boolean {
+  return !VIDEO_SCREENS.has(screen);
+}
