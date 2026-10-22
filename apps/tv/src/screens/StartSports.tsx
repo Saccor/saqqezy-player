@@ -45,7 +45,9 @@ export function StartSportsScreen() {
   const [loaded, setLoaded] = createSignal(false);
   const [now, setNow] = createSignal(Date.now());
   const [gridFocused, setGridFocused] = createSignal(false);
-  const [chipsFocused, setChipsFocused] = createSignal(false);
+  const [sportsFocused, setSportsFocused] = createSignal(false);
+  const [compsFocused, setCompsFocused] = createSignal(false);
+  const chipsFocused = () => sportsFocused() || compsFocused();
   let gridNode: ElementNode | undefined;
   let sportsNode: ElementNode | undefined;
   let compsNode: ElementNode | undefined;
@@ -82,23 +84,31 @@ export function StartSportsScreen() {
     const p = layout().places[i];
     if (p) setScroll((s) => scrollToShow(p.y, MATCH_GRID_H, FRAME.labelH, s, viewH()));
   };
+  let gen = 0;
   const load = async () => {
+    const g = ++gen;
     const [list, filters] = await Promise.all([
       api.getSportsEvents().catch(() => [] as SportsEventTile[]),
       api.getMatchFilters().catch(() => ({ competitions: [], categories: [] })),
     ]);
+    if (!alive || g !== gen) return;
     const sport = activeMatchChip(filters.categories, settings()?.matchCategories ?? []);
-    const cs = sport === 'all' ? NO_COMPS : await api.getMatchCompetitions(sport).catch(() => NO_COMPS);
-    if (!alive) return;
     batch(() => {
       setEvents(list);
       setSports(filters.categories);
-      setComps(cs);
-      const k = comp();
-      if (k !== undefined && ![...cs.chips, ...cs.more].some((c) => c.id === k)) setComp(undefined);
+      if (sport === 'all') { setComps(NO_COMPS); setComp(undefined); }
       setLoaded(true);
     });
     focusTile(Math.min(index(), Math.max(0, grid().order.length - 1)));
+    if (sport === 'all') return;
+    // The competitions arrive after the grid is on screen: never block the UI on them.
+    const cs = await api.getMatchCompetitions(sport).catch(() => NO_COMPS);
+    if (!alive || g !== gen) return;
+    batch(() => {
+      setComps(cs);
+      const k = comp();
+      if (k !== undefined && ![...cs.chips, ...cs.more].some((c) => c.id === k)) setComp(undefined);
+    });
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => gridNode?.setFocus()) });
   const menu = createChoiceMenu('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
@@ -174,12 +184,12 @@ export function StartSportsScreen() {
       </Show>
       <Show when={sportActions().length > 0}>
         <ActionBar ref={(el) => { sportsNode = el; }} x={LAYOUT.safeX} y={SPORTS_Y} actions={sportActions()} initial={activeSport()} current={activeSport()}
-          onAction={(id) => void pickSport(id)} onFocusChanged={setChipsFocused}
+          onAction={(id) => void pickSport(id)} onFocusChanged={setSportsFocused}
           onDown={() => { (compActions().length ? compsNode : gridNode)?.setFocus(); return true; }} />
       </Show>
       <Show when={compActions().length > 0}>
         <ActionBar ref={(el) => { compsNode = el; }} x={LAYOUT.safeX} y={COMPS_Y} actions={compActions()} initial={compId()} current={compId()}
-          onAction={(id) => void pickComp(id)} onOptions={(id) => void compOptions(id)} onFocusChanged={setChipsFocused}
+          onAction={(id) => void pickComp(id)} onOptions={(id) => void compOptions(id)} onFocusChanged={setCompsFocused}
           onUp={() => { sportsNode?.setFocus(); return true; }} onDown={() => { gridNode?.setFocus(); return true; }} />
       </Show>
       <Show when={loaded() && shown().length === 0}>
