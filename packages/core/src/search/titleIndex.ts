@@ -100,6 +100,18 @@ export class TitleIndexBuilder {
   }
 
   build(): TitleIndexData {
+    const steps = this.buildSteps();
+    for (;;) {
+      const r = steps.next();
+      if (r.done) return r.value;
+    }
+  }
+
+  /**
+   * As `build`, in steps: pauses after every `every` titles, so a caller on a shared thread (the worker) can let
+   * other requests run between them. The builder must not be touched until the steps are done.
+   */
+  *buildSteps(every = 256): Generator<void, TitleIndexData, void> {
     const n = this.titles.size;
     const offsets = new Uint32Array(n);
     const display: string[] = new Array<string>(n);
@@ -126,6 +138,7 @@ export class TitleIndexBuilder {
         a++;
       }
       t++;
+      if (t % every === 0) yield;
     }
     airFirst[n] = a;
     this.titles.clear();

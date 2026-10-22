@@ -41,7 +41,7 @@ import {
 import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
 import {
   DV_COLOURS_TEXT, NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, dvColoursWarning, SUBTITLE_KEY_OFF, SUBTITLES_OFF, cueText, knownDuration, nextCardText, noSoundText,
-  oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
+  oneSpace, overlayVisible, coverVideo, coverLatch, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import { SyncRecorder, syncReferenceTrack } from '../vod/syncRecorder.ts';
 import { pickAudioTrack, type TrackLanguageInput } from '../vod/tracks.ts';
@@ -213,6 +213,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   let soundWarned = false;
   /** Catch-up: a frame was seen (a later failure is a normal one), when the stream was asked for, and the last re-open. */
   let everPlayed = false;
+  /** True from the first picture of this open; until then an opaque view covers the video plane (`coverVideo`). */
+  const [latch, setLatch] = createSignal({ armed: false, played: false });
+  const played = () => latch().played;
   let openedWall = Date.now();
   let lastReopenAt: number | undefined;
   let reopenTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1278,7 +1281,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // A (re)start that reaches 'playing': re-apply the remembered tracks at once (the tick catches a quick reopen).
   createEffect(on(() => status()?.kind, (kind) => {
-    if (kind === 'playing') {
+    setLatch(coverLatch(latch(), kind));
+    if (kind === 'playing' && latch().armed) {
       everPlayed = true;
       applyTracks();
     }
@@ -1486,6 +1490,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onPlay={() => mediaKey('Play')} onPause={() => mediaKey('Pause')} onStop={() => mediaKey('Stop')}
       onFastForward={() => mediaKey('FastForward')} onRewind={() => mediaKey('Rewind')}
       onChannelUp={nextNow} onChannelDown={prevNow} onInfo={toggleInfo}>
+
+      {/* Under everything (subtitles 5, overlay 10, cards 30): hides what sits on the video plane until the first picture. */}
+      <Show when={coverVideo(status(), played(), latch().armed)}>
+        <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} zIndex={1} />
+      </Show>
 
       <Show when={infoOn()}>
         <StreamInfoPanel lines={infoLines()} />

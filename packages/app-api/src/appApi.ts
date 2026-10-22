@@ -2,7 +2,7 @@ import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
-  compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
@@ -13,7 +13,7 @@ import {
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
 import { LiveSourceMemory, livePickKey } from './liveSources.ts';
-import { toRpcError } from './rpc.ts';
+import { toRpcError, type RpcError } from './rpc.ts';
 import { ShortEpgCache, shortEpgUntil } from './shortEpgCache.ts';
 import { maxShiftMs, shiftSpan, type ShiftSpan } from './shiftSpan.ts';
 import {
@@ -25,7 +25,7 @@ import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
-  AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
+  AppEvent, ChannelRow, GuideImportState, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
@@ -43,6 +43,10 @@ const NOW_NEXT_TTL_MS = 60_000;
  * healthy read takes a few ms even on a TV; this only trips while the guide store is locked by a long write.
  */
 const NOW_NEXT_WAIT_MS = 400;
+/** `withinWait`'s answer when the read outlasted `nowNextWaitMs` (it goes on in the background). */
+const LATE = Symbol('late');
+/** Late Guide reads kept for the re-read their `nowNextUpdated` asks for, at most. */
+const EPG_LATE_MAX = 8;
 const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
@@ -76,6 +80,8 @@ export interface AppApiDeps {
   emit: (e: AppEvent) => void;
   now?: () => number;
   appVersion?: string;
+  /** `navigator.storage.estimate` (bytes used and available to this app); absent where the device has none. */
+  storageEstimate?: () => Promise<{ usage?: number; quota?: number }>;
   /**
    * Builds the phone companion host (the worker passes a CompanionHost factory). `onStatus` emits
    * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
@@ -112,6 +118,7 @@ export class AppApi {
   private readonly emit: (e: AppEvent) => void;
   private readonly now: () => number;
   private readonly appVersion: string;
+  private readonly storageEstimate: AppApiDeps['storageEstimate'];
 
   private activeId: string | undefined;
   /** The last Start page answer for the active source (also kept in meta `startHome:<id>`). */
@@ -155,6 +162,13 @@ export class AppApi {
   private readonly shortPending = new Set<string>();
   /** Background short-EPG lookups and late now/next reads in flight (awaited by the test-only `idle`). */
   private readonly shortJobs = new Set<Promise<void>>();
+  /** Guide reads of `getEpgRows` that outlasted the wait: running (`epgPending`) and answered (`epgLate`), by rows. */
+  private readonly epgPending = new Set<string>();
+  private readonly epgLate = new Map<string, Map<string, Programme[]>>();
+  /** Page keys whose late read failed this generation: they ask the grid to re-read once, not on every failure. */
+  private readonly epgFailed = new Set<string>();
+  /** Each source's guide import, for Diagnostics (this session only). */
+  private readonly guideImports = new Map<string, GuideImportState>();
   /** Channels whose stored now/next read outlasted `nowNextWaitMs` and still runs (not read twice). */
   private readonly nnPending = new Set<string>();
   /** How long rows wait for their stored now/next before going out without it. */
@@ -222,6 +236,7 @@ export class AppApi {
     this.nowNextWaitMs = deps.nowNextWaitMs ?? NOW_NEXT_WAIT_MS;
     this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
+    this.storageEstimate = deps.storageEstimate;
     this.liveMem = new LiveSourceMemory(deps.storage, this.now);
     this.companion = deps.companion?.(this, (status) => {
       // Why a session ended, for diagnostics (relay close reasons carry no secrets).
@@ -319,6 +334,7 @@ export class AppApi {
       this.companionStale();
       this.shortCache.dropSource(id);
       this.formats.delete(id);
+      this.guideImports.delete(id);
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
@@ -543,7 +559,7 @@ export class AppApi {
         // Displayed = stored + shift, so the stored window is [from - shift, to - shift]; widen it to cover every channel.
         const lo = from - Math.max(...shifts) * HOUR;
         const hi = to - Math.min(...shifts) * HOUR;
-        byChannel = await this.service.programmesFor(id, this.originals(channels), lo, hi);
+        byChannel = await this.guideRead(id, channels, lo, hi);
       }
       const t = this.now();
       const inWindow = (list: Programme[], hours: number) => list
@@ -1555,16 +1571,30 @@ export class AppApi {
           skipped: stats?.skipped ?? 0,
           playlistAt: (await this.storage.getMeta<number>(`playlistAt:${s.id}`)) ?? 0,
           epgAt: (await this.storage.getMeta<number>(`epgAt:${s.id}`)) ?? 0,
+          guideImport: { ...(this.guideImports.get(s.id) ?? { stage: 'idle', count: 0, startedAt: 0 }) },
           ...catchupDiagnostics(s, stats),
         };
       }));
+      const storage = await this.storageUse();
       return {
         appVersion: this.appVersion,
         sources,
         lastErrors: this.errors.map((e) => ({ ...e })),
         settings: await this.currentSettings(),
+        ...(storage ? { storage } : {}),
       };
     });
+  }
+
+  /** Bytes used and available, when the device can say (any failure reads as "unknown"). */
+  private async storageUse(): Promise<{ used: number; quota: number } | undefined> {
+    try {
+      const e = await this.storageEstimate?.();
+      if (e && typeof e.usage === 'number' && typeof e.quota === 'number' && e.quota > 0) return { used: e.usage, quota: e.quota };
+    } catch {
+      // Unknown: the line is left out.
+    }
+    return undefined;
   }
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
@@ -1601,20 +1631,31 @@ export class AppApi {
 
   /** Returns what to rethrow: the original Error when its message is clean, else a new Error with the scrubbed message. */
   private record(where: string, err: unknown): Error {
-    const rpc = toRpcError(err);
-    const message = scrub(rpc.message);
-    const out = err instanceof Error && message === rpc.message
+    const raw = toRpcError(err);
+    // The name and a string code go through the same scrub as the message: any of them may hold a link.
+    const rpc: RpcError = { ...raw, name: scrub(raw.name), ...(typeof raw.code === 'string' ? { code: scrub(raw.code) } : {}) };
+    const message = scrub(raw.message);
+    const clean = message === raw.message && rpc.name === raw.name && rpc.code === raw.code;
+    const out = err instanceof Error && clean
       ? err
-      : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}) });
+      : Object.assign(new Error(message), {
+        name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}), ...(rpc.code !== undefined ? { code: rpc.code } : {}),
+        ...(isUnreachable(err) ? { unreachable: true } : {}),
+      });
     if (this.recorded.has(out)) return out;
     this.recorded.add(out);
-    this.note(where, message);
+    this.note(where, message, rpc);
     return out;
   }
 
   /** Adds a credential-free message to the diagnostics ring. */
-  private note(where: string, message: string): void {
-    this.errors.push({ at: this.now(), where, message });
+  private note(where: string, message: string, rpc?: RpcError): void {
+    this.errors.push({
+      at: this.now(), where, message,
+      ...(rpc ? { name: rpc.name } : {}),
+      ...(rpc?.code !== undefined ? { code: rpc.code } : {}),
+      ...(rpc?.status !== undefined ? { status: rpc.status } : {}),
+    });
     if (this.errors.length > ERROR_RING) this.errors.shift();
   }
 
@@ -1761,12 +1802,19 @@ export class AppApi {
     });
   }
 
-  /** After a guide refresh: rebuild the active index with the new coverage (the channels in memory are reused). */
+  /**
+   * After a guide refresh: rebuild the active index with the new coverage (the channels in memory are reused). The
+   * same coverage keeps the index (a rebuild costs up to a second on a TV); what came from the old guide still goes.
+   */
   private reloadCoverage(id: string): Promise<void> {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
       const coverage = await this.service.loadEpgCoverage(id);
-      this.setIndex(this.channels, this.index.layout(), coverage);
+      if (sameCoverage(this.coverage, coverage)) {
+        this.dropGuideDerived();
+      } else {
+        this.setIndex(this.channels, this.index.layout(), coverage);
+      }
       this.invalidateNowNext();
     });
   }
@@ -1781,6 +1829,11 @@ export class AppApi {
     this.index = new ChannelIndex(channels, layout, coverage, regions ? { fold, regions } : { fold });
     this.favSet = undefined;
     this.companionStale();
+    this.dropGuideDerived();
+  }
+
+  /** Forgets what was built from the guide and the index: the title index and the sports mapping. */
+  private dropGuideDerived(): void {
     this.titles = undefined;
     this.titlesEpoch++;
     this.dropSports();
@@ -1915,6 +1968,8 @@ export class AppApi {
   private invalidateNowNext(): void {
     this.generation++;
     this.nnCache = new Map();
+    this.epgLate.clear();
+    this.epgFailed.clear();
   }
 
   private async matchTiles(): Promise<MatchTiles> {
@@ -2094,7 +2149,8 @@ export class AppApi {
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
-    if (error.name === 'SourceNetworkError' && error.status === undefined) {
+    // Only a request that never reached the source means offline: a stall, a timeout or an odd answer does not.
+    if (isUnreachable(err)) {
       this.setOffline(true);
       this.offlineFails.add(`${sourceId}\u0000${what}`);
     }
@@ -2141,13 +2197,34 @@ export class AppApi {
   }
 
   private async refreshEpgFor(id: string, automatic = false): Promise<void> {
+    const state: GuideImportState = { stage: 'importing', count: 0, startedAt: this.now() };
+    // Shown as importing once the import holds the source lock (or reports progress): while it waits behind
+    // another task, Diagnostics keeps the previous state instead of "importing 0 programmes".
+    let begun = false;
+    const begin = () => {
+      if (begun) return;
+      begun = true;
+      state.startedAt = this.now();
+      this.guideImports.set(id, state);
+    };
     try {
-      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
+      // The active source's channels are in memory already: the import matches against them (no 54k re-read).
+      const channels = () => (this.activeId === id && this.channels.length ? this.channels : undefined);
+      await this.service.refreshEpg(id, (p) => {
+        begin();
+        state.count = p.count;
+        this.emit({ type: 'progress', ...p });
+      }, { automatic, channels, onStart: begin });
     } catch (err) {
-      this.failed('epg', id, 'refreshEpg', err);
+      try {
+        this.failed('epg', id, 'refreshEpg', err);
+      } catch (out) {
+        this.guideImports.set(id, { stage: 'failed', count: state.count, startedAt: state.startedAt, error: toRpcError(out) });
+        throw out;
+      }
     }
+    this.guideImports.set(id, { ...state, stage: 'idle' });
     await this.reloadCoverage(id);
-    this.dropSports();
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
@@ -2187,7 +2264,10 @@ export class AppApi {
     // A cooling source gets nothing, and no "couldn't refresh" toast: the cooldown copy says it all. The end of the
     // wait (or a retry) starts this pass again.
     if ((await this.service.guard.status(id)).state !== 'clear') return;
-    let playlist: boolean;
+    // Each step is caught on its own: a failed channel refresh (already recorded, with its backoff, and emitted as
+    // refreshFailed) must not keep the guide from updating. No retry is added: each step still runs at most once.
+    let failure: unknown;
+    let playlist = false;
     try {
       // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
       // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
@@ -2197,16 +2277,42 @@ export class AppApi {
         && !(await this.service.refreshBackedOff(id, 'playlist')))
         || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
-      this.failed('playlist', id, 'backgroundRefresh', err);
+      try { this.failed('playlist', id, 'backgroundRefresh', err); } catch (out) { failure = out; }
     }
-    if (playlist) await this.refreshPlaylistFor(id, true);
-    let epg: boolean;
+    if (playlist) {
+      try {
+        await this.refreshPlaylistFor(id, true);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    // The failed step may have started a cooldown (a refusing source): then the guide waits like everything else.
+    // So does a step whose request never reached the source (offline), when the guide comes from that same host: its
+    // much larger download would fail the same way. A stall, a timeout or an odd answer still lets the guide run.
+    if (failure !== undefined && ((isUnreachable(failure) && await this.guideSharesHost(id))
+      || (await this.service.guard.status(id)).state !== 'clear')) {
+      throw failure;
+    }
+    let epg = false;
     try {
       epg = await this.service.needsEpgRefresh(id);
     } catch (err) {
-      this.failed('epg', id, 'backgroundRefresh', err);
+      try { this.failed('epg', id, 'backgroundRefresh', err); } catch (out) { failure ??= out; }
     }
-    if (epg) await this.refreshEpgFor(id, true);
+    if (epg) {
+      try {
+        await this.refreshEpgFor(id, true);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    if (failure !== undefined) throw failure;
+  }
+
+  /** `guideOnPlaylistHost` for source `id`; a source that is gone counts as the same host (nothing to download). */
+  private async guideSharesHost(id: string): Promise<boolean> {
+    const source = (await this.service.listSources()).find((s) => s.id === id);
+    return source === undefined || guideOnPlaylistHost(source);
   }
 
   /**
@@ -2270,13 +2376,8 @@ export class AppApi {
       return kept;
     };
     const lookup = this.lookupNowNext(id, fresh, t, false);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = Symbol('late');
-    const first = await Promise.race([
-      lookup,
-      new Promise<typeof late>((resolve) => { timer = setTimeout(() => resolve(late), this.nowNextWaitMs); }),
-    ]).finally(() => clearTimeout(timer));
-    if (first !== late) {
+    const first = await this.withinWait(lookup);
+    if (first !== LATE) {
       for (const [cid, nn] of store(first)) out.set(cid, nn);
       return out;
     }
@@ -2296,6 +2397,63 @@ export class AppApi {
     });
     this.shortJobs.add(job);
     return out;
+  }
+
+  /**
+   * `read`, or `LATE` once it has taken `nowNextWaitMs` (it keeps running). A healthy guide read takes a few ms even on
+   * a TV; this only trips while the guide store is busy (a long write of an import, or a clear in another tab).
+   */
+  private async withinWait<T>(read: Promise<T>): Promise<T | typeof LATE> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      read,
+      new Promise<typeof LATE>((resolve) => { timer = setTimeout(() => resolve(LATE), this.nowNextWaitMs); }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * The stored programmes of the Guide rows `channels`, like `nowNextCached`: a read that outlasts `nowNextWaitMs`
+   * answers nothing now (the rows go out lite, never held) and `nowNextUpdated` once it is done. Its answer is kept
+   * for the re-read that event asks for, which uses it once instead of reading again.
+   */
+  private async guideRead(id: string, channels: Channel[], lo: number, hi: number): Promise<Map<string, Programme[]>> {
+    const key = `${id}\u0000${lo}\u0000${hi}\u0000${channels.map((c) => c.id).join('\u0001')}`;
+    const ready = this.epgLate.get(key);
+    if (ready) {
+      this.epgLate.delete(key);
+      return ready;
+    }
+    // The same rows' read from an earlier call still runs: lite now, its answer comes as nowNextUpdated.
+    if (this.epgPending.has(key)) return new Map();
+    const gen = this.generation;
+    const read = this.service.programmesFor(id, this.originals(channels), lo, hi);
+    const first = await this.withinWait(read);
+    if (first !== LATE) return first;
+    this.epgPending.add(key);
+    let emit = true;
+    const job = read.then((got) => {
+      // An answer from a source that is no longer active is dropped without a word: nobody reads its rows now.
+      if (this.activeId !== id) { emit = false; return; }
+      // An answer from before a guide change is dropped; the rows still hear about it and read again.
+      if (gen !== this.generation) return;
+      this.epgLate.set(key, got);
+      for (const old of this.epgLate.keys()) {
+        if (this.epgLate.size <= EPG_LATE_MAX) break;
+        this.epgLate.delete(old);
+      }
+    }).catch((err: unknown) => {
+      this.note('epgRows', err instanceof Error ? err.name : 'Error');
+      // A failing read asks for one re-read per page and generation; if reads always fail, the grid must not loop.
+      if (this.epgFailed.has(key)) emit = false;
+      else this.epgFailed.add(key);
+    }).finally(() => {
+      this.epgPending.delete(key);
+      this.shortJobs.delete(job);
+      // Also after a dropped or first failed read: lite rows must never wait for the next 15-minute guide tick.
+      if (emit) this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
+    });
+    this.shortJobs.add(job);
+    return new Map();
   }
 
   /**
@@ -2562,6 +2720,28 @@ export class AppApi {
     }
     return this.formats.get(id) ?? undefined;
   }
+}
+
+/**
+ * Whether the guide of `source` is downloaded from the host its channel list comes from: an Xtream source always; an
+ * M3U source when its guide link has the playlist's host (a guide elsewhere may still answer while the playlist host
+ * is down). A link that does not parse counts as the same host: its download would fail anyway.
+ */
+function guideOnPlaylistHost(source: SourceConfig): boolean {
+  if (source.kind === 'xtream' || !source.epgUrl) return true;
+  try {
+    return new URL(source.epgUrl).host === new URL(source.playlistUrl).host;
+  } catch {
+    return true;
+  }
+}
+
+/** Whether two guide coverages hold the same channels (undefined: no guide configured, not "covers nothing"). */
+function sameCoverage(a: Set<string> | undefined, b: Set<string> | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.size !== b.size) return false;
+  for (const k of b) if (!a.has(k)) return false;
+  return true;
 }
 
 /** Diagnostics fields for a source's catch-up: counts from the last ingest and how times are written. */

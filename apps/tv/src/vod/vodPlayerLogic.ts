@@ -1,5 +1,5 @@
 import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
-import type { StreamInfo, Support } from '@iptv/player';
+import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import { oneSpace } from './tracks.ts';
 
@@ -161,4 +161,27 @@ export function dvColoursWarning(hint: VideoRange | undefined, info: StreamInfo,
 export function noSoundText(audioTrackCount: number): string {
   const base = "No sound: this device can't play this video's audio format.";
   return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;
+}
+
+/**
+ * Whether VodPlay covers the video area with an opaque view: until the first `playing` of this open, so whatever sits on
+ * the hardware plane (a frozen frame of the last stream) never shows. `played` latches after that first picture, so a
+ * later buffer or reconnect keeps the picture visible.
+ */
+export function coverVideo(status: SupervisorStatus | undefined, played: boolean, armed = true): boolean {
+  return !played && !(armed && status?.kind === 'playing');
+}
+
+/**
+ * The `played` latch, armed only for the stream this screen opened. On an episode switch the screen remounts while the
+ * status can still read `playing` from the previous episode; that stale value is ignored until the status first leaves
+ * `playing` (playVod sets loading). Only a `playing` after that counts as this open's first picture.
+ */
+export function coverLatch(
+  s: { armed: boolean; played: boolean },
+  kind: SupervisorStatus['kind'] | undefined,
+): { armed: boolean; played: boolean } {
+  if (s.played) return s;
+  if (kind !== 'playing') return s.armed ? s : { ...s, armed: true };
+  return s.armed ? { armed: true, played: true } : s;
 }

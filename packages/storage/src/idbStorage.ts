@@ -7,18 +7,25 @@ const DB_VERSION = 3;
 const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser', 'syncMeta'];
 type ProgRecord = Programme & { sourceId: string };
 
-function req<T>(r: IDBRequest<T>): Promise<T> {
+/** Keeps the original error's name; an empty message (a quota abort has one) becomes `IndexedDB <name>`. */
+function named(err: DOMException | Error | null | undefined, fallback: string): Error {
+  const name = err?.name || fallback;
+  if (err && err.message) return err;
+  return Object.assign(new Error(`IndexedDB ${name}`), { name });
+}
+
+export function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
+    r.onerror = () => reject(named(r.error, 'UnknownError'));
   });
 }
 
-function done(tx: IDBTransaction): Promise<void> {
+export function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
-    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'));
+    tx.onerror = () => reject(named(tx.error, 'AbortError'));
+    tx.onabort = () => reject(named(tx.error, 'AbortError'));
   });
 }
 

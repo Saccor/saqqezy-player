@@ -29,6 +29,7 @@ import {
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { exitApp } from './shell/platformExit.ts';
+import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
 import { Toast, showToast } from './shell/Toast.tsx';
@@ -154,6 +155,10 @@ export function App() {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} onBack={onBack}>
+      {/* Opaque under every non-video screen, so the video plane (a frozen frame too) never shows through a fade-in. */}
+      <Show when={current() && screenUnderlay(current()!.screen)}>
+        <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} zIndex={-1} />
+      </Show>
       <View ref={screenHost} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
         <Show when={current()} keyed fallback={
           <Show when={initFailed()} fallback={<View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} />}>

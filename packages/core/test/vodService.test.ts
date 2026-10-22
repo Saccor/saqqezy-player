@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { MemoryStorage } from '../../storage/src/memoryStorage.ts';
 import { VOD_PICKS_MAX, VodService } from '../src/service/vodService.ts';
 import { VodFetchCancelled } from '../src/vod/fetchXtream.ts';
-import { SourceNetworkError, SourceRefusedError } from '../src/errors.ts';
+import { SourceNetworkError, SourceRefusedError, StorageWriteError } from '../src/errors.ts';
 import { RefusalGuard } from '../src/net/refusalGuard.ts';
 import type { FetchFn, SourceConfig } from '../src/types.ts';
 
@@ -438,4 +438,60 @@ test('a pick or split for a removed source leaves no clock behind', async () => 
   await svc.setVodPick('x', 'movie', 't:42', 'x:m10');
   await svc.setVodSplit('x', 'movie', 't:42', true);
   expect(await storage.listSyncMeta('x')).toEqual([]);
+});
+
+describe('VodService when the list cannot be saved', () => {
+  const quota = () => Object.assign(new Error(''), { name: 'QuotaExceededError' });
+  const failWrite = () => { storage.replaceVod = async () => { throw quota(); }; };
+
+  test('rejects with a StorageWriteError that names the store, keeps the cause and carries the fetched list', async () => {
+    failWrite();
+    const err = await svc.refresh('x', 'series').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StorageWriteError);
+    expect(err).toMatchObject({ name: 'StorageWriteError', store: 'vod:series', message: 'Not enough storage on this TV to save the series list' });
+    expect((err as StorageWriteError).cause).toMatchObject({ name: 'QuotaExceededError' });
+    expect((err as StorageWriteError<{ items: unknown[] }>).value?.items).toHaveLength(1);
+    expect(await svc.fetchedAt('x', 'series')).toBe(0);
+  });
+
+  test('an automatic fetch records the backoff, and even a screen with nothing to show waits for it', async () => {
+    failWrite();
+    await expect(svc.refresh('x', 'movie', { automatic: true })).rejects.toBeInstanceOf(StorageWriteError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toMatchObject({ count: 1, at: NOW, storage: true });
+    expect(await svc.needsRefresh('x', 'movie')).toBe(false);
+    expect(await svc.needsRefresh('x', 'movie', { foreground: true })).toBe(false);
+    expect(await svc.storageBlocked('x', 'movie')).toBe(true);
+    now = NOW + 15 * 60_000;
+    expect(await svc.needsRefresh('x', 'movie', { foreground: true })).toBe(true);
+    expect(await svc.storageBlocked('x', 'movie')).toBe(false);
+  });
+
+  test('a manual fetch (Try again) records nothing', async () => {
+    failWrite();
+    await expect(svc.refresh('x', 'movie')).rejects.toBeInstanceOf(StorageWriteError);
+    expect(await storage.getMeta('refreshFail:x:vod:movie')).toBeFalsy();
+  });
+
+  test('a write failure that is not a quota error gets the neutral message, no storage mark and no foreground hold', async () => {
+    storage.replaceVod = async () => { throw Object.assign(new Error('closing'), { name: 'InvalidStateError' }); };
+    const err = await svc.refresh('x', 'series', { automatic: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StorageWriteError);
+    expect(err).toMatchObject({ message: 'Could not save the series list on this TV', quota: false });
+    expect((err as StorageWriteError<{ items: unknown[] }>).value?.items).toHaveLength(1);
+    const rec = await storage.getMeta<{ count: number; storage?: true }>('refreshFail:x:vod:series');
+    expect(rec?.count).toBe(1);
+    expect(rec?.storage).toBeUndefined();
+    expect(await svc.storageBlocked('x', 'series')).toBe(false);
+    expect(await svc.needsRefresh('x', 'series', { foreground: true })).toBe(true);
+  });
+
+  test.each([
+    ['a QuotaExceededError name', Object.assign(new Error('x'), { name: 'QuotaExceededError' })],
+    ['a DOMException code 22', Object.assign(new Error('x'), { name: 'Error', code: 22 })],
+    ['the IndexedDB message', new Error('IndexedDB QuotaExceededError')],
+  ])('%s counts as storage full', async (_n, cause) => {
+    storage.replaceVod = async () => { throw cause; };
+    const err = await svc.refresh('x', 'movie').catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: 'Not enough storage on this TV to save the movie list', quota: true });
+  });
 });

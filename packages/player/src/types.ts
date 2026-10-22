@@ -126,7 +126,11 @@ export interface OpenOptions {
  */
 export interface Player {
   open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void>; // resolves when loading starts; state events report the progress
-  stop(): void;
+  /**
+   * `hold` (reconnect and probe restarts only) keeps the last frame on screen under the spinner; without it, a stop
+   * clears the picture. Engines without a held frame ignore it.
+   */
+  stop(opts?: { hold?: boolean }): void;
   /**
    * Resolves once the network work of the session ended by the last `stop()` is torn down (hls.js destroy and loader
    * abort, mpegts.js unload/destroy, native `src` removal plus `load()`, AVPlay `close()`); at once when nothing is

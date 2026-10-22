@@ -75,6 +75,11 @@ export function dayJumpView(at: number, now: number, win: TimeRange): { viewStar
   return { viewStart: clampViewStart(floorHalfHour(at), win), anchor: at };
 }
 
+/** The view "now" resets to: what `dayJumpView` gives for Today, as the guide opens. */
+export function nowView(now: number, win: TimeRange): { viewStart: number; anchor: number } {
+  return dayJumpView(now, now, win);
+}
+
 export function clampViewStart(viewStart: number, win: TimeRange, span = VIEW_SPAN): number {
   return clamp(viewStart, win.start, Math.max(win.start, win.end - span));
 }
@@ -246,6 +251,25 @@ export function stepLeft(blocks: readonly Block[], index: number, view: HView, w
   }
   if (cur.start <= win.start || view.viewStart <= win.start) return { kind: 'edge' };
   return scrollBy(view, -HOUR, win, cur) ?? { kind: 'edge' };
+}
+
+/**
+ * Left on the timeline (spec 2026-10-22, A). The programme airing now (a "No information" gap or an empty row counts as
+ * now) leads to the channel column; a future programme steps to the one airing now with the view reset to now; a past
+ * programme steps back as `stepLeft` does, ending in its `edge`.
+ */
+export function leftFromGrid(
+  blocks: readonly Block[], index: number, view: HView, win: TimeRange, now: number,
+): HStep | { kind: 'channels' } {
+  const cur = blocks[index];
+  if (!cur || isOnAir(cur, now)) return { kind: 'channels' };
+  if (cur.start > now) {
+    const i = blockIndexAt(blocks, now);
+    const nowBlock = blocks[i];
+    if (!nowBlock || !isOnAir(nowBlock, now)) return { kind: 'channels' };
+    return { kind: 'move', index: i, ...nowView(now, win) };
+  }
+  return stepLeft(blocks, index, view, win);
 }
 
 /** `‹ Earlier` / `Later ›` (pointer): the view moves by its whole span (2 h) and the anchor stays inside it. */

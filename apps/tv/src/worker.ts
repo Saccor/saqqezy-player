@@ -7,6 +7,7 @@ import { routedFetch } from './net/routedFetch.ts';
 import { tvHeaderSupport } from './net/headerSupport.ts';
 import { trendingBaseUrl } from './net/trendingConfig.ts';
 import { detectPlatform } from '@iptv/platform';
+import { guideBatchFor } from './workerOptions.ts';
 
 // All parsing, storage and networking for the UI runs here, off the UI thread.
 const storage = new IdbStorage();
@@ -17,7 +18,10 @@ const fetchFn = withTimeout(
   routedFetch(async (url, init) => unwrapDevProxyResponse(await fetch(url, init)), rawViaDevProxy),
   API_TIMEOUT_MS,
 );
-const service = new SourceService({ storage, fetch: fetchFn });
+const platform = detectPlatform(self.navigator.userAgent, {});
+// TVs write the guide in smaller batches: a Guide read waits behind at most one of them.
+const epgBatch = guideBatchFor(platform);
+const service = new SourceService({ storage, fetch: fetchFn, ...(epgBatch ? { epgBatch } : {}) });
 // Movies and series: same storage, network path and refusal cooldown; catalogues load lazily and one stays resident.
 const vod = new VodService({ storage, fetch: fetchFn, guard: service.guard, syncClock: service.syncClock });
 // Subtitles the user loads from a link or a file: fetched and kept on this device only.
@@ -57,6 +61,7 @@ const COMPANION_ORIGIN = (import.meta.env.VITE_COMPANION_ORIGIN as string | unde
 const APP_VERSION = '0.0.0';
 
 let emitter: { emit(type: string, payload: unknown): void } | undefined;
+
 const api = new AppApi({
   service,
   storage,
@@ -69,6 +74,7 @@ const api = new AppApi({
   ...(TRENDING_URL ? { trending: { baseUrl: TRENDING_URL, fetch: trendingFetch } } : {}),
   emit: (e: AppEvent) => emitter?.emit(e.type, e),
   appVersion: APP_VERSION,
+  storageEstimate: () => navigator.storage.estimate(),
   companion: (appApi, onStatus) => new CompanionHost({
     api: appApi,
     tvLabel: 'TV',
@@ -76,7 +82,7 @@ const api = new AppApi({
     companionOrigin: COMPANION_ORIGIN,
     // What this TV can send of a source's User-Agent and Referer, for the phone's Advanced help (protocol 2).
     // Workers have no `tizen`/`webOS` globals; the user agent names both platforms.
-    headerSupport: tvHeaderSupport(detectPlatform(self.navigator.userAgent, {}), import.meta.env.DEV),
+    headerSupport: tvHeaderSupport(platform, import.meta.env.DEV),
     onStatus,
     // One long-lived transport per session: it reconnects with backoff (status `reconnecting`) and gives up
     // after about 60 s of failures, on a final relay close code, or at the session deadline.

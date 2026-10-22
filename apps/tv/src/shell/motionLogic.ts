@@ -161,7 +161,7 @@ export function parseMotionLevel(stored: unknown, prefersReduced: boolean): Moti
 }
 
 /** Screens that show video: they appear at once (the picture must not fade, and decoding owns the GPU). */
-const VIDEO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['player', 'vodPlay', 'home']);
+const VIDEO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['player', 'vodPlay', 'home', 'multiview']);
 
 /**
  * Whether a screen reached by `change` fades in (motion research §4 #9): only going forward (a push or a replace),
@@ -170,4 +170,13 @@ const VIDEO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(['player', 'vodPl
  */
 export function screenEnters(change: ScreenChange | undefined, screen: ScreenId, railStays = false): boolean {
   return (change === 'push' || change === 'replace') && !VIDEO_SCREENS.has(screen) && !railStays;
+}
+
+/**
+ * Whether the app draws an opaque background under the screen host. The WebGL canvas clears transparent over the
+ * hardware video plane, so wherever nothing opaque is drawn (a screen fading in from alpha ~0, a screen that does not
+ * fill the canvas) the plane shows through, a frozen frame included. Video screens (player, vodPlay, home, multiview) draw their own picture or video holes.
+ */
+export function screenUnderlay(screen: ScreenId): boolean {
+  return !VIDEO_SCREENS.has(screen);
 }

@@ -39,6 +39,11 @@ export interface SupervisorOptions {
   /** The multiview slot this supervisor drives (absent: slot 0, the single-view player); put on every journal event. */
   tile?: number | (() => number | undefined);
   /**
+   * The pool slot this supervisor drives, in single view and in multiview alike: its ledger sessions begin under this
+   * label, so two streams never share one after the sound moved to another slot (absent: the tile, else 0).
+   */
+  slot?: number;
+  /**
    * What a refusal does. `retry` (default): one immediate AUTH reconnect, then the other format, as for single view.
    * `stop` (multiview tiles): the play ends as `failed/refused` at once, from the engine or the status probe: no
    * reconnect, no alternate, no give-up retries. A refused tile is never retried by itself.
@@ -181,6 +186,7 @@ export class PlaybackSupervisor {
   private readonly owner = ++nextOwner;
   private readonly ledger: SupervisorOptions['ledger'];
   private readonly tileOpt: SupervisorOptions['tile'];
+  private readonly slotOpt: number | undefined;
   private readonly refusalOpt: SupervisorOptions['onRefusal'];
   /** The current attempt's ledger session, and sessions waiting for the engine's teardown. */
   private session: LedgerSession | undefined;
@@ -225,8 +231,12 @@ export class PlaybackSupervisor {
   /** Index of the next background retry wait. */
   private giveUpStep = 0;
   private sourceKey: string | undefined;
+  /** Unique across plays: the player echoes it, so a late event of an earlier stream is told apart. */
   private attemptCounter = 0;
   private currentAttempt: number | undefined;
+  /** The journal's attempt number: 1 for each play()'s first open (G9 decision C; it once counted across zaps). */
+  private playAttempts = 0;
+  private currentPlayAttempt = 0;
   private started = false; // first frame seen in the current attempt
   private isPlaying = false;
   private playerState: PlayerState = 'idle';
@@ -291,6 +301,7 @@ export class PlaybackSupervisor {
     this.openGap = opts.openGap;
     this.ledger = opts.ledger;
     this.tileOpt = opts.tile;
+    this.slotOpt = opts.slot;
     this.refusalOpt = opts.onRefusal;
     this.probe = opts.probe;
     this.blocked = opts.blocked;
@@ -315,6 +326,7 @@ export class PlaybackSupervisor {
       ? [url]
       : [url, ...(alternates === undefined ? [] : typeof alternates === 'string' ? [alternates] : alternates)];
     this.urlIndex = 0;
+    this.playAttempts = 0;
     if (opts.automatic !== true) this.fails = 0;
     this.authRetried = false;
     this.refusedBeforePlay = false;
@@ -555,12 +567,14 @@ export class PlaybackSupervisor {
     const gen = this.gen;
     const id = ++this.attemptCounter;
     this.currentAttempt = id;
+    const attempt = ++this.playAttempts;
+    this.currentPlayAttempt = attempt;
     this.beginSession();
     // A window's open says how many other streams of its host were open (single view's stays as it was).
     const windowed = this.ledger !== undefined && this.sourceKey !== undefined && this.tileId() !== undefined;
     this.note(windowed
-      ? { k: 'open', attempt: id, urlIndex: this.urlIndex, concurrent: this.attemptConcurrent }
-      : { k: 'open', attempt: id, urlIndex: this.urlIndex });
+      ? { k: 'open', attempt, urlIndex: this.urlIndex, concurrent: this.attemptConcurrent }
+      : { k: 'open', attempt, urlIndex: this.urlIndex });
     this.started = false;
     this.stableSince = undefined;
     this.tickCount = 0;
@@ -617,7 +631,7 @@ export class PlaybackSupervisor {
     if (s === 'playing') {
       this.playedThisPlay = true;
       if (!this.started) {
-        this.note({ k: 'playing', attempt: this.currentAttempt ?? 0, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
+        this.note({ k: 'playing', attempt: this.currentPlayAttempt, firstFrameMs: now - this.lastOpenAt, engine: this.player.health?.().engine });
         this.started = true;
         this.startedCount++;
         this.session?.playing();
@@ -842,7 +856,7 @@ export class PlaybackSupervisor {
     if (this.openRate && this.sourceKey !== undefined) this.openRate.take(this.sourceKey);
     this.player.holdLastFrame?.();
     this.startSpinner();
-    this.player.stop();
+    this.player.stop({ hold: true });
     const gen = this.gen;
     this.afterClosed(() => this.afterSharedGap(() => {
       this.waiting = true;
@@ -1045,7 +1059,7 @@ export class PlaybackSupervisor {
    * gap since the last open, then opens. `beforeOpen` runs right before the open.
    */
   private restart(beforeOpen?: () => void): void {
-    this.player.stop();
+    this.player.stop({ hold: true }); // the reconnect's held frame stays under the spinner
     this.afterClosed(() => this.openAfterGap(true, beforeOpen));
   }
 
@@ -1296,7 +1310,7 @@ export class PlaybackSupervisor {
     this.attemptConcurrent = 0;
     if (!this.ledger || this.sourceKey === undefined) return;
     try {
-      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.tileId() ?? 0);
+      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.slotOpt ?? this.tileId() ?? 0);
       this.session = b.session;
       this.attemptConcurrent = b.concurrent;
     } catch {

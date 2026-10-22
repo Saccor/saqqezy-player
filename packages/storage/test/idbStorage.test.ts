@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { IdbStorage } from '../src/idbStorage.ts';
+import { IdbStorage, done, req } from '../src/idbStorage.ts';
 import { storageContract } from './storageContract.ts';
 
 storageContract('indexeddb', () => new IdbStorage(new IDBFactory()));
@@ -132,5 +132,48 @@ describe('IdbStorage open', () => {
     await a.setMeta('k', 1);
     const b = new IdbStorage(factory, 'reopen-db');
     expect(await b.getMeta('k')).toBe(1);
+  });
+});
+
+describe('IdbStorage error names', () => {
+  const fakeTx = (error: unknown) => {
+    const tx: Record<string, any> = { error };
+    return tx as unknown as IDBTransaction & { onabort: () => void };
+  };
+
+  test('an aborted transaction with an empty-message error keeps its name and is never blank', async () => {
+    const tx = fakeTx(new DOMException('', 'QuotaExceededError'));
+    const p = done(tx);
+    tx.onabort!();
+    const err = await p.catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('QuotaExceededError');
+    expect(err.message).toBe('IndexedDB QuotaExceededError');
+  });
+
+  test('a message that is present is kept as is', async () => {
+    const tx = fakeTx(new DOMException('disk is full', 'QuotaExceededError'));
+    const p = done(tx);
+    tx.onabort!();
+    const err = await p.catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('QuotaExceededError');
+    expect(err.message).toBe('disk is full');
+  });
+
+  test('an abort without any error is named AbortError', async () => {
+    const tx = fakeTx(null);
+    const p = done(tx);
+    tx.onabort!();
+    const err = await p.catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('AbortError');
+    expect(err.message).toBe('IndexedDB AbortError');
+  });
+
+  test('a failed request with an empty message is named too', async () => {
+    const r: Record<string, any> = { error: new DOMException('', 'ConstraintError') };
+    const p = req(r as unknown as IDBRequest);
+    r.onerror();
+    const err = await p.catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('ConstraintError');
+    expect(err.message).toBe('IndexedDB ConstraintError');
   });
 });

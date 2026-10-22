@@ -6,20 +6,21 @@ import { ContextMenu, type ContextMenuItem } from '../../components/ContextMenu.
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import {
-  clearWindowNote, connectionMemory, deviceWindowMax, otherSlots, playback, pool, setInMultiview, windowNotes,
+  clearWindowNote, connectionMemory, deviceWindowMax, dropRefusalMark, keepRefusalOnWindow, otherSlots, playback, pool, setInMultiview,
+  windowNotes,
 } from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
-import { initState, settings } from '../../state/appState.ts';
+import { cooldownForStream, initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
 import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
 import {
-  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle,
-  layoutInput, makeLarge, menuItems, moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MenuId, type MvState,
-  type MvWindow,
+  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, atSourceLimit, click, closeWindow, createWatchInstead, enterFullScreen, equalSize,
+  exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems, moveFocus, pickerHint, playingSince, pointerFocus, reopenStatus, retryAction,
+  soundToPlaying, sourceLimit, start, steadyPlaying, togglePin, wake, windowsToStop, type MenuId, type MvState, type MvWindow, wasCut,
 } from './mvLogic.ts';
 import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
@@ -27,7 +28,7 @@ import { canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
 const MENU_ID = 'multiviewMenu';
 const PICKER_ID = 'multiviewPicker';
-type MenuAction = MenuId | 'retry' | 'cancel';
+type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
 
 /** A window's pointer area: hover focuses it (the sound follows after the rest), click, double click, right click. */
 function WindowHit(props: {
@@ -68,6 +69,19 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   let pickerNode: ElementNode | undefined;
   let pickerBack: (() => boolean) | undefined;
   let alive = true;
+  /** "Watch this one instead": the window waiting for the source to free a connection (it shows "Freeing…"). */
+  const [freeingSlot, setFreeingSlot] = createSignal<number | undefined>(undefined);
+  const watch = createWatchInstead(setFreeingSlot, (slot) => pool.slots().find((p) => p.n === slot)?.playback.status());
+  /** Windows stopped so another could play: they say so and offer Retry. */
+  const [yielded, setYielded] = createSignal<ReadonlySet<number>>(new Set());
+  const unyield = (slot: number) => {
+    if (!yielded().has(slot)) return;
+    setYielded((y) => {
+      const next = new Set(y);
+      next.delete(slot);
+      return next;
+    });
+  };
   /** Opened over nothing yet: Back from the first picker leaves multiview. */
   let entryPicker = false;
 
@@ -135,6 +149,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
 
   const leave = (keep?: MvWindow) => {
     if (!alive) return;
+    watch.cancel();
     if (keep && keep.slot !== pool.primary()) pool.setPrimary(keep.slot);
     closeOverlays();
     session.leave();
@@ -146,6 +161,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const pickChannel = async (channelId: string) => {
     const mode = picker();
     closePicker();
+    // Acting on a window meanwhile: a pending "Watch this one instead" opens nothing later.
+    watch.cancel();
     const s = state();
     if (!s || !mode) return;
     const existing = s.windows.findIndex((w) => w.channelId === channelId);
@@ -156,7 +173,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     if (mode.mode === 'change') {
       const w = s.windows[mode.index];
       if (!w) return;
+      forgetReopen(w.slot);
       clearWindowNote(w.slot);
+      unyield(w.slot);
       const changed = await session.changeChannel(w, channelId);
       const cur = state();
       if (alive && changed && cur) update({ ...cur, windows: cur.windows.map((x, k) => (k === mode.index ? changed : x)) });
@@ -176,8 +195,83 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const w = windowAt(i);
     if (!w) return;
     clearWindowNote(w.slot);
+    unyield(w.slot);
     failedAt.delete(w.slot);
     void session.changeChannel(w, w.channelId);
+  };
+  /** A window the cooldown holds: one probe of its source (as the single-view player's Retry now); the hold opens it. */
+  const retryNow = (i: number) => {
+    const slot = slotOf(i);
+    const cur = slot?.playback.current();
+    if (!slot || !cur) return;
+    api.retrySource(cur.url).then(() => {
+      if (alive && cooldownForStream(slot.playback.current()).state === 'clear') slot.playback.resumeHeld();
+    }, (err: unknown) => { console.warn('Retry failed', err instanceof Error ? err.name : 'Error'); });
+  };
+
+  // ---- a source at its limit (G9 decision C): "Watch this one instead" ----
+  const statusOf = (slot: number) => pool.slots().find((p) => p.n === slot)?.playback.status()?.kind;
+  /** The reported and learned limits of the active source (both inform; neither blocks). */
+  const limits = (): { reported?: number; learnedRefusalAt?: number } => {
+    const source = initState()?.activeSourceId;
+    // A source reporting 0 connections reports nothing (it is not a limit of 1).
+    const max = activeMaxConnections();
+    const reported = max !== undefined && max > 0 ? max : undefined;
+    const learned = source ? connectionMemory.refusedAt(source) : undefined;
+    return { ...(reported !== undefined ? { reported } : {}), ...(learned !== undefined ? { learnedRefusalAt: learned } : {}) };
+  };
+  /** The source cut or refused window `i` (not the TV, not an escalation). */
+  const cutAt = (i: number): boolean => {
+    const w = windowAt(i);
+    return w ? wasCut(windowNotes().get(w.slot), slotOf(i)?.playback.status()) : false;
+  };
+  /** The other windows playing now, newest first. */
+  const othersPlaying = (i: number): MvWindow[] =>
+    (state()?.windows ?? []).filter((w, k) => k !== i && statusOf(w.slot) === 'playing').reverse();
+  const retryKind = (i: number) => {
+    const others = othersPlaying(i).length;
+    return retryAction({ cut: cutAt(i), otherPlaying: others > 0, atLimit: atSourceLimit({ ...limits(), othersPlaying: others }) });
+  };
+  /**
+   * Stops just enough of the other windows, gives this one the sound, waits 5 s for the source, then opens it. Its
+   * refusal stays on the window (no source cooldown); refused once, it tries once more 20 s later, then never again.
+   */
+  const watchInstead = (i: number) => {
+    const s = state();
+    const w = windowAt(i);
+    if (!s || !w) return;
+    const others = othersPlaying(i);
+    const stop = others.slice(0, windowsToStop(others.length, sourceLimit(limits())));
+    for (const o of stop) {
+      session.close(o);
+      clearWindowNote(o.slot);
+    }
+    setYielded((y) => new Set([...y, ...stop.map((o) => o.slot)]));
+    clearWindowNote(w.slot);
+    failedAt.delete(w.slot);
+    if (!s.pinned) update({ ...s, sound: i });
+    watch.start(w.slot, () => {
+      const k = state()?.windows.findIndex((x) => x.slot === w.slot) ?? -1;
+      if (!alive || k < 0) return;
+      keepRefusalOnWindow(w.slot);
+      retry(k);
+    });
+  };
+  // The reopens it made: refused once, "Freeing…" again and one more try; played or failed otherwise, the mark goes.
+  createEffect(() => {
+    for (const w of state()?.windows ?? []) {
+      const st = pool.slots().find((p) => p.n === w.slot)?.playback.status();
+      const r = watch.observe(w.slot, reopenStatus(st), st);
+      if (r === 'played' || r === 'failed') dropRefusalMark(w.slot);
+    }
+  });
+  /**
+   * Window `slot` moves on (zap, another channel, closed) while a reopen may be starting: the reopen is no longer
+   * watched and its mark goes, so a later refusal there is judged as usual (host cooldown, escalation).
+   */
+  const forgetReopen = (slot: number) => {
+    watch.forget(slot);
+    dropRefusalMark(slot);
   };
 
   const zap = (delta: 1 | -1) => {
@@ -186,10 +280,13 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const w = s.windows[s.focus];
     if (!w) return true;
     const i = s.focus;
+    watch.cancel();
     api.neighbour(GROUP_ALL, w.channelId, delta).then(async (ch) => {
       if (!ch || !alive) return;
       remember(ch.id, ch.name);
+      forgetReopen(w.slot);
       clearWindowNote(w.slot);
+      unyield(w.slot);
       const changed = await session.changeChannel(w, ch.id);
       const cur = state();
       if (alive && changed && cur) update({ ...cur, windows: cur.windows.map((x, k) => (k === i ? changed : x)) });
@@ -253,7 +350,12 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const i = menu();
     if (!s || i === undefined) return [];
     const out: ContextMenuItem<MenuAction>[] = [];
-    if (failure(i)?.retry.enabled) out.push({ action: 'retry', label: MULTIVIEW_COPY.retry });
+    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retryNow });
+    else if (failure(i)?.retry.enabled) {
+      // A plain Retry stays offered beside it: the app warns, it never blocks (decision 12.2).
+      if (retryKind(i) === 'watchInstead') out.push({ action: 'watchInstead', label: MULTIVIEW_COPY.watchInstead });
+      out.push({ action: 'retry', label: MULTIVIEW_COPY.retry });
+    }
     for (const it of menuItems(s, i, canAdd())) out.push({ action: it.id, label: it.disabled ? `${it.label}: ${it.disabled}` : it.label });
     out.push({ action: 'cancel', label: 'Cancel' });
     return out;
@@ -269,14 +371,26 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     }
     if (action === 'changeChannel') { openPicker({ mode: 'change', index: i }); return; }
     closeMenu();
-    if (action === 'retry') retry(i);
+    // Acting on any window: a pending "Watch this one instead" opens nothing later (it starts again below if chosen).
+    if (action !== 'cancel') watch.cancel();
+    if (action === 'retry') {
+      // The user's own Retry: a refusal mark left by a "Watch this one instead" reopen is not its to keep.
+      const w = s.windows[i];
+      if (w) forgetReopen(w.slot);
+      retry(i);
+    } else if (action === 'retryNow') retryNow(i);
+    else if (action === 'watchInstead') watchInstead(i);
     else if (action === 'fullScreen') update(enterFullScreen(s, i));
     else if (action === 'makeLarge') update(makeLarge(s, i));
     else if (action === 'equalSize') update(equalSize(s));
     else if (action === 'keepSound' || action === 'soundFollows') update(togglePin(s, i));
     else if (action === 'closeWindow') {
       const w = s.windows[i];
-      if (w) session.close(w);
+      if (w) {
+        forgetReopen(w.slot);
+        session.close(w);
+        unyield(w.slot);
+      }
       const next = closeWindow(s, i);
       if ('leave' in next) leave(next.leave);
       else update(next);
@@ -288,9 +402,14 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     otherSlots();
     return pool.slots();
   };
-  // The most windows playing at once on this source (Diagnostics -> Connections).
+  // The most windows playing at once on this source (Diagnostics -> Connections): a window counts after 10 s of
+  // steady play, so one that opened and failed at once is not counted. A later cut verdict corrects any overcount.
+  let since = new Map<number, number>();
   createEffect(() => {
-    const playing = slotsNow().filter((s) => s.playback.status()?.kind === 'playing').length;
+    now(); // re-checked every second
+    const t = Date.now();
+    since = playingSince(since, slotsNow().map((s) => ({ n: s.n, playing: s.playback.status()?.kind === 'playing' })), t);
+    const playing = steadyPlaying(since, t);
     const source = initState()?.activeSourceId;
     if (source && playing > 0) connectionMemory.seen(source, playing);
   });
@@ -307,11 +426,21 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const w = windowAt(i);
     const slot = slotOf(i);
     if (!w || !slot) return undefined;
+    // Waiting to open after "Watch this one instead": it shows "Freeing a connection…", not the old failure.
+    if (freeingSlot() === w.slot) return undefined;
     const note = windowNotes().get(w.slot);
     const st = slot.playback.status();
     const t = now();
     if (note?.deviceLimit) {
       return tileFailure({ reason: st?.kind === 'failed' ? st.reason : 'unsupported', deviceLimit: true, at: note.at, now: t });
+    }
+    // Held by a cooldown (its stream stopped, nothing opens): the cooldown's words and Retry now, never a black window.
+    const cooldown = cooldownForStream(slot.playback.current());
+    if (cooldown.state !== 'clear' && st?.kind !== 'playing') {
+      return tileFailure({ reason: st?.kind === 'failed' ? st.reason : 'refused', cooldown, at: t, now: t });
+    }
+    if (yielded().has(w.slot) && st?.kind !== 'playing' && st?.kind !== 'loading' && st?.kind !== 'reconnecting') {
+      return { text: MULTIVIEW_COPY.stoppedForOther, retry: { enabled: true, inMs: 0 }, close: true as const };
     }
     if (note) {
       const kicked = note.kicked ?? (note.pingPong ? Math.max(1, (state()?.windows.length ?? 2) - 1) : undefined);
@@ -372,7 +501,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  if (import.meta.env.DEV) (globalThis as { __multiview?: unknown }).__multiview = { state, menu, picker, overlays: () => router.overlays() };
+  if (import.meta.env.DEV) (globalThis as { __multiview?: unknown }).__multiview = { state, menu, picker, freeingSlot, pickerInfo: () => pickerInfo(), overlays: () => router.overlays() };
   onMount(() => {
     const first = session.enter();
     if (!first) {
@@ -396,6 +525,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     }
   });
   onCleanup(() => {
+    watch.cancel();
     if (alive) {
       // Left another way (a hand-off, the sleep timer): the window with sound keeps playing as the single player.
       alive = false;
@@ -405,6 +535,22 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     if (idleTimer !== undefined) clearTimeout(idleTimer);
     for (const id of [...removers.keys()]) removeOverlay(id);
   });
+
+  /** The picker's info line (decision 12.2: it warns, it never blocks). */
+  const pickerInfo = (): string | undefined => {
+    const p = picker();
+    const s = state();
+    if (!p || !s) return undefined;
+    const l = limits();
+    const open = p.mode === 'add' ? s.windows.length : s.windows.length - 1;
+    const lines = pickerHint({ ...l, open, freeing: freeingSlot() !== undefined }).map((key) => {
+      if (key === 'infoReported') return MULTIVIEW_COPY.infoReported(l.reported ?? 0);
+      if (key === 'learned') return MULTIVIEW_COPY.learned(l.learnedRefusalAt ?? 0);
+      const text = MULTIVIEW_COPY[key];
+      return typeof text === 'string' ? text : '';
+    });
+    return lines.length > 0 ? lines.join(' ') : undefined;
+  };
 
   const chrome = () => state()?.chromeAwake ?? true;
   const full = () => state()?.fullScreen;
@@ -431,10 +577,19 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
               textAlign="center" fontSize={large() ? TYPE.body : TYPE.meta} color={COLORS.text}>{f().text}</Text>
             <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
               textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
-              {f().retry.enabled ? `OK: ${MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}` : `OK: ${MULTIVIEW_COPY.closeWindow}`}
+              {f().retryNow
+                ? `${f().hint} · OK: ${MULTIVIEW_COPY.retryNow} · ${MULTIVIEW_COPY.closeWindow}`
+                : f().retry.enabled
+                ? `OK: ${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
+                : `OK: ${MULTIVIEW_COPY.closeWindow}`}
             </Text>
           </View>
         )}</Show>
+        <Show when={freeingSlot() !== undefined && freeingSlot() === windowAt(t().tile)?.slot}>
+          <View x={r().x + pad()} y={r().y + pad()} width={300} height={40} borderRadius={20} color={COLORS.panel}>
+            <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
+          </View>
+        </Show>
         <Show when={!fail() && starting(t().tile)}>
           <View x={r().x + pad()} y={r().y + pad()} width={160} height={40} borderRadius={20} color={COLORS.panel}>
             <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
@@ -488,7 +643,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       <Show when={picker()}>
         <MultiviewPicker ref={(el) => { pickerNode = el; }} backRef={(fn) => { pickerBack = fn; }}
           title={picker()?.mode === 'change' ? MULTIVIEW_COPY.changeChannel : MULTIVIEW_COPY.addChannel}
-          now={now()} onScreen={onScreen} onPick={(id) => { void pickChannel(id); }} />
+          info={pickerInfo()} now={now()} onScreen={onScreen} onPick={(id) => { void pickChannel(id); }} />
       </Show>
     </View>
   );
