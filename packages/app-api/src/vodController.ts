@@ -93,6 +93,8 @@ export interface VodControllerDeps {
     combineCategories?: boolean;
     /** Your countries: the same rule as Live TV groups, over categories. */
     regions?: RegionSettings;
+    /** Other countries' categories fold under "Other countries" (absent: no fold). */
+    foldCountries?: boolean;
   }>;
   /** The device language ("sv-SE"), for preferred languages left empty. */
   locale?: () => string | undefined;
@@ -111,6 +113,7 @@ interface GroupConfig {
   picks: Record<VodKind, Record<string, string>>;
   mergeCategories: boolean;
   regions: RegionSettings;
+  foldCountries: boolean;
   /** The user's category layout per kind. */
   layouts: Record<VodKind, VodLayout>;
 }
@@ -183,6 +186,12 @@ export class VodController {
   private cfgLoad: { sourceEpoch: number; p: Promise<GroupConfig | undefined> } | undefined;
   /** Bumped when the settings change: a config load started before does not install. */
   private cfgGen = 0;
+  /**
+   * Per kind: the sure region keys of each category the user has not hidden, from the last catalogue shaped for the
+   * active source (Your countries' grid counts). Kept across regroups (they drop the resident catalogue on every
+   * regions change), cleared by `reset`; absent while categories are merged across languages.
+   */
+  private readonly summaries = new Map<VodKind, (readonly string[])[]>();
 
   constructor(deps: VodControllerDeps) {
     this.vod = deps.vod;
@@ -211,6 +220,7 @@ export class VodController {
     this.wanted = undefined;
     this.cfg = undefined;
     this.cfgLoad = undefined;
+    this.summaries.clear();
     this.epoch++;
     this.sourceEpoch++;
   }
@@ -413,6 +423,10 @@ export class VodController {
     return home;
   }
 
+  /**
+   * Continue, Favourites, then your categories (moved by hand, then chosen countries'), Recently added, All, then
+   * (fold active) other countries' categories with `fold`, then the rest (spec 2026-10-22-your-countries-flags).
+   */
   async categories(kind: VodKind): Promise<VodCategoryView[]> {
     const catalog = this.sourceId ? await this.catalog(kind) : undefined;
     if (!catalog) return [];
@@ -421,9 +435,16 @@ export class VodController {
       { id: VOD_ROW_CONTINUE, name: LABELS[VOD_ROW_CONTINUE]!, count: this.continueItems(kind, catalog, records).length },
       { id: VOD_ROW_FAVOURITES, name: LABELS[VOD_ROW_FAVOURITES]!, count: this.favouriteItems(catalog, records).length },
     ];
+    const cats = catalog.categories();
+    const view = catalog.categoryView;
+    const yours = view?.yours ?? 0;
+    for (const c of cats.slice(0, yours)) out.push({ id: c.id, name: c.name, count: c.count });
     if (catalog.hasAddedDates) out.push({ id: VOD_ROW_RECENT, name: LABELS[VOD_ROW_RECENT]!, count: Math.min(catalog.size, VOD_RECENT_MAX) });
     out.push({ id: VOD_ALL, name: allLabel(kind), count: catalog.size });
-    for (const c of catalog.categories()) out.push({ id: c.id, name: c.name, count: c.count });
+    for (const c of cats.slice(yours)) {
+      const fold = view?.foldOf.get(c.id);
+      out.push(fold ? { id: c.id, name: c.name, count: c.count, fold } : { id: c.id, name: c.name, count: c.count });
+    }
     return out;
   }
 
@@ -964,6 +985,7 @@ export class VodController {
         sourceEpoch, combine: s.combineDuplicates, langs: [...s.preferredLanguages],
         splits: { movie: ms, series: ss }, picks: { movie: mp, series: sp },
         mergeCategories: s.combineCategories === true, regions: s.regions ?? { codes: [], mode: 'off' },
+        foldCountries: s.foldCountries === true,
         layouts: { movie: ml, series: sl },
       };
       if (this.sourceEpoch === sourceEpoch && this.cfgGen === gen) this.cfg = cfg;
@@ -986,10 +1008,29 @@ export class VodController {
     const merge = cfg.combine && cfg.mergeCategories;
     const shaped = cfg.combine ? catalog.withGroups(groupVod(catalog.source, cfg.splits[catalog.kind], { mergeCategories: merge })) : catalog;
     // Merged categories have lost their language prefix: the region rule needs provider categories.
-    const regions = merge ? undefined : { detected: this.detectedOf(catalog.source), codes: cfg.regions.codes, mode: cfg.regions.mode };
+    const regions = merge ? undefined : {
+      detected: this.detectedOf(catalog.source), codes: cfg.regions.codes, mode: cfg.regions.mode, fold: cfg.foldCountries,
+    };
     const plainLayout = cfg.layouts[catalog.kind];
     const view = vodCategoryView(shaped.categories(), plainLayout, regions);
+    if (regions) {
+      const userHidden = new Set(plainLayout.hiddenCategories);
+      const keys: (readonly string[])[] = [];
+      for (const c of shaped.categories()) {
+        if (userHidden.has(c.id)) continue;
+        const k = view.keysOf.get(c.id);
+        if (k?.length) keys.push(k);
+      }
+      this.summaries.set(catalog.kind, keys);
+    } else {
+      this.summaries.delete(catalog.kind);
+    }
     return shaped.withView(view);
+  }
+
+  /** Your countries: what `shape` last saw per kind (see `summaries`). Never loads a catalogue. */
+  regionSummaries(): { kind: VodKind; keys: readonly (readonly string[])[] }[] {
+    return [...this.summaries].map(([kind, keys]) => ({ kind, keys }));
   }
 
   /** Detected regions of a stored list's categories, computed once per list object (category names only change with it). */

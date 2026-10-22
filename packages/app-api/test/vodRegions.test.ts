@@ -13,7 +13,7 @@ afterAll(async () => { await server.close(); });
 const movie = (n: number, title: string, categoryId: string): VodItem => ({ id: `SRC:m${n}`, kind: 'movie', title, categoryId, xid: n });
 
 let storage: MemoryStorage;
-let settings: { combineDuplicates: boolean; preferredLanguages: string[]; combineCategories: boolean; regions: RegionSettings };
+let settings: { combineDuplicates: boolean; preferredLanguages: string[]; combineCategories: boolean; regions: RegionSettings; foldCountries?: boolean };
 beforeEach(() => {
   storage = new MemoryStorage();
   settings = { combineDuplicates: true, preferredLanguages: [], combineCategories: false, regions: { codes: [], mode: 'off' } };
@@ -83,5 +83,51 @@ describe('VodController categories', () => {
     c.settingsChanged(true);
     await c.applyLayoutOps('movie', [{ op: 'showCategories', ids: ['2'] }]);
     expect(await catIds(c)).toEqual(['3', '2']);
+  });
+});
+
+const shape = (cats: { id: string; fold?: string }[]) => cats.map((x) => (x.fold ? `${x.id}@${x.fold}` : x.id));
+
+describe('VodController categories: your countries', () => {
+  test('no picks: other countries fold after All (ties by label: English before Sweden)', async () => {
+    const { c } = await setup();
+    settings.foldCountries = true;
+    c.settingsChanged(true);
+    expect(shape(await c.categories('movie'))).toEqual(['vod:continue', 'vod:favourites', VOD_ALL, '2@lang:en', '1@SE', '3']);
+  });
+
+  test('picks: yours above All, the rest folded after it; without the setting, the list stays flat', async () => {
+    const { c } = await setup();
+    settings.foldCountries = true;
+    settings.regions = { codes: ['SE'], mode: 'first' };
+    c.settingsChanged(true);
+    expect(shape(await c.categories('movie'))).toEqual(['vod:continue', 'vod:favourites', '1', VOD_ALL, '2@lang:en', '3']);
+    delete settings.foldCountries;
+    c.settingsChanged(true);
+    expect(shape(await c.categories('movie'))).toEqual(['vod:continue', 'vod:favourites', '1', VOD_ALL, '2', '3']);
+  });
+
+  test("regionSummaries: the shaped catalogue's sure keys, user-hidden left out, kept across a regroup, never a load", async () => {
+    const { c } = await setup();
+    expect(c.regionSummaries()).toEqual([]);
+    await c.categories('movie');
+    expect(c.regionSummaries()).toEqual([{ kind: 'movie', keys: [['SE'], ['lang:en']] }]);
+    settings.regions = { codes: ['SE'], mode: 'first' };
+    c.settingsChanged(true);
+    expect(c.residentKind()).toBeUndefined();
+    expect(c.regionSummaries()).toEqual([{ kind: 'movie', keys: [['SE'], ['lang:en']] }]);
+    c.reset('another-source');
+    expect(c.regionSummaries()).toEqual([]);
+  });
+
+  test('regionSummaries leaves out user-hidden categories, and merged categories have none', async () => {
+    const { c } = await setup();
+    await c.applyLayoutOps('movie', [{ op: 'hideCategories', ids: ['2'] }]);
+    await c.categories('movie');
+    expect(c.regionSummaries()).toEqual([{ kind: 'movie', keys: [['SE']] }]);
+    settings.combineCategories = true;
+    c.settingsChanged(true);
+    await c.categories('movie');
+    expect(c.regionSummaries()).toEqual([]);
   });
 });

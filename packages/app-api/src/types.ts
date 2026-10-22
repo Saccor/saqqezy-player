@@ -286,7 +286,8 @@ export interface VodHome {
 }
 
 /** A grid rail entry: pseudo-categories first, then the source's categories. */
-export interface VodCategoryView { id: string; name: string; count: number }
+/** One entry of a kind's category list. `fold`: another country's category, folded under that region key. */
+export interface VodCategoryView { id: string; name: string; count: number; fold?: string }
 
 export interface VodTracks { audio?: string; subtitle?: string }
 
