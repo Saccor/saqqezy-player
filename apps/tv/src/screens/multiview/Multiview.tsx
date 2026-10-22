@@ -6,7 +6,7 @@ import { ContextMenu, type ContextMenuItem } from '../../components/ContextMenu.
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import {
-  clearWindowNote, connectionMemory, otherSlots, playback, pool, setInMultiview, windowNotes,
+  clearWindowNote, connectionMemory, deviceWindowMax, otherSlots, playback, pool, setInMultiview, windowNotes,
 } from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
@@ -53,7 +53,7 @@ function WindowHit(props: {
  */
 export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { channelId?: string };
-  const limit = () => windowLimit(deviceCeiling(pool.max), settings()?.maxWindows ?? 'auto');
+  const limit = () => windowLimit(deviceCeiling(deviceWindowMax()), settings()?.maxWindows ?? 'auto');
   const [state, setState] = createSignal<MvState | undefined>(undefined);
   const [picker, setPicker] = createSignal<{ mode: 'add' } | { mode: 'change'; index: number } | undefined>(undefined);
   const [menu, setMenu] = createSignal<number | undefined>(undefined);
@@ -127,7 +127,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const onScreen = (channelId: string) => state()?.windows.some((w) => w.channelId === channelId) ?? false;
   const canAdd = () => {
     const s = state();
-    const r = canAddWindow({ deviceMax: deviceCeiling(pool.max), userMax: settings()?.maxWindows ?? 'auto', open: s?.windows.length ?? 0 });
+    const r = canAddWindow({ deviceMax: deviceCeiling(deviceWindowMax()), userMax: settings()?.maxWindows ?? 'auto', open: s?.windows.length ?? 0 });
     if (r.ok) return { ok: true as const };
     return { ok: false as const, reason: r.reason === 'setting' ? MULTIVIEW_COPY.setting(r.limit) : MULTIVIEW_COPY.device(r.limit) };
   };
@@ -306,6 +306,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const note = windowNotes().get(w.slot);
     const st = slot.playback.status();
     const t = now();
+    if (note?.deviceLimit) {
+      return tileFailure({ reason: st?.kind === 'failed' ? st.reason : 'unsupported', deviceLimit: true, at: note.at, now: t });
+    }
     if (note) {
       const kicked = note.kicked ?? (note.pingPong ? Math.max(1, (state()?.windows.length ?? 2) - 1) : undefined);
       return tileFailure({ reason: 'refused', ...(kicked !== undefined ? { kicked } : {}), escalated: note.escalated === true, at: note.at, now: t });

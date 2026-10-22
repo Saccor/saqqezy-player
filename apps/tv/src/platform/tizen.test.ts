@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
-import { AVPLAY_DISPLAY_SPACE, exit, readPanelCaps, registerKeys, setScreenSaver, type TizenLike } from './tizen.ts';
+import {
+  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, exit, getAvplayStorePlayer, isUnavailableAvplay, mountAvplayObject, readPanelCaps, registerKeys, setScreenSaver, type TizenLike,
+} from './tizen.ts';
 
 function fakeTizen(opts: { batch?: boolean; batchThrows?: boolean } = {}) {
   const calls: { batch: string[][]; single: string[]; exits: number } = { batch: [], single: [], exits: 0 };
@@ -105,5 +107,82 @@ describe('readPanelCaps', () => {
   test('answered false is recorded as answered', () => {
     const g = { webapis: { productinfo: { isUdPanelSupported: () => false, is8KPanelSupported: () => false }, avinfo: { isHdrTvSupport: () => false } } };
     expect(readPanelCaps(g as never)).toEqual({ uhd: false, eightK: false, hdrTv: false, answered: { uhd: true, eightK: true, hdrTv: true } });
+  });
+});
+
+describe('mountAvplayObject', () => {
+  function fakeDom() {
+    const made: { type?: string; style: Record<string, string> }[] = [];
+    const children: unknown[] = [];
+    const doc = {
+      createElement: () => {
+        const el = { style: {} as Record<string, string>, type: undefined as string | undefined, setAttribute(_k: string, v: string) { el.type = v; } };
+        made.push(el);
+        return el;
+      },
+      documentElement: { style: {} as Record<string, string> },
+      body: { style: {} as Record<string, string> },
+    };
+    const root = {
+      style: {} as Record<string, string>,
+      appendChild: (c: unknown) => { children.push(c); },
+      querySelector: (sel: string) => (sel === 'object[type="application/avplayer"]' ? children[0] ?? null : null),
+    };
+    return { doc: doc as unknown as Document, root: root as unknown as HTMLElement, made, children };
+  }
+
+  test('one object for the document: mounting again (slot 0 remade after multiview) reuses it', () => {
+    const { doc, root, made, children } = fakeDom();
+    const first = mountAvplayObject(root, doc);
+    const again = mountAvplayObject(root, doc);
+    expect(again).toBe(first);
+    expect(made).toHaveLength(1);
+    expect(children).toHaveLength(1);
+    expect(made[0]!.type).toBe('application/avplayer');
+  });
+});
+
+describe('getAvplayStorePlayer', () => {
+  test('a new instance from webapis.avplaystore', () => {
+    const inst = { open() {} };
+    expect(getAvplayStorePlayer({ webapis: { avplaystore: { getPlayer: () => inst as never } } })).toBe(inst);
+  });
+
+  test('no store, or a refused instance (QUOTA_EXCEEDED_ERR): a player whose every open fails as not supported', () => {
+    for (const g of [{}, { webapis: { avplaystore: { getPlayer: () => { throw Object.assign(new Error('max'), { name: 'QuotaExceededError' }); } } } }]) {
+      const av = getAvplayStorePlayer(g);
+      let thrown: unknown;
+      try { av.open('http://example.test/a.ts'); } catch (e) { thrown = e; }
+      expect((thrown as Error).name).toBe('NotSupportedError');
+      expect(() => { av.stop(); av.close(); av.setDisplayRect(0, 0, 1, 1); }).not.toThrow();
+      expect(av.getTotalTrackInfo()).toEqual([]);
+      expect(isUnavailableAvplay(av)).toBe(true);
+    }
+    expect(isUnavailableAvplay(getAvplayStorePlayer({ webapis: { avplaystore: { getPlayer: () => ({ open() {} }) as never } } }))).toBe(false);
+  });
+});
+
+describe('createAvplayStorePool', () => {
+  test('a freed instance is reused: the store (4 at most, no release call) is asked only for new ones', () => {
+    let made = 0;
+    const g = { webapis: { avplaystore: { getPlayer: () => ({ id: ++made }) as never } } };
+    const pool = createAvplayStorePool(g);
+    const a = pool.take();
+    pool.give(a);
+    expect(pool.take()).toBe(a);
+    const b = pool.take();
+    expect(b).not.toBe(a);
+    expect(made).toBe(2);
+  });
+
+  test('a stub that never played is not kept, so a later take asks the store again', () => {
+    let ok = false;
+    const inst = { id: 1 };
+    const g = { webapis: { avplaystore: { getPlayer: () => { if (!ok) throw new Error('quota'); return inst as never; } } } };
+    const pool = createAvplayStorePool(g);
+    const stub = pool.take();
+    pool.give(stub);
+    ok = true;
+    expect(pool.take()).toBe(inst);
   });
 });

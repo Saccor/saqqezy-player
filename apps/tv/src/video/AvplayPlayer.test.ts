@@ -4,6 +4,7 @@ import {
   AvplayPlayer, avplayDisplay, avplayErrorName, mapAvplayError,
   type AvplayLike, type AvplayListener, type AvplayTrack,
 } from './AvplayPlayer.ts';
+import { createVideoResources } from '../platform/tizenMultiview.ts';
 
 const URL_A = 'http://example.test/live/user/pass/1.ts';
 const URL_B = 'http://example.test/live/user/pass/2.m3u8';
@@ -1298,5 +1299,149 @@ describe('AvplayPlayer: panel caps', () => {
     expect(p.panelCaps()).toEqual(panel);
     expect(p.panelCaps()).not.toBe(panel);
     expect(new AvplayPlayer(new FakeAvplay()).panelCaps()).toBeUndefined();
+  });
+});
+
+describe('AvplayPlayer: Tizen multiview (scalers, audio stream)', () => {
+  class StoreAvplay extends FakeAvplay {
+    audio: string[] = [];
+    enableAudioStream(): void { this.hit2('enableAudioStream'); this.audio.push('on'); }
+    disableAudioStream(): void { this.hit2('disableAudioStream'); this.audio.push('off'); }
+    private hit2(name: string): void { this.calls.push(name); }
+  }
+  const SUB: [string, string] = ['IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB'];
+  function two() {
+    const resources = createVideoResources();
+    const panel = { uhd: true, eightK: false, hdrTv: true };
+    const a = new StoreAvplay();
+    const b = new StoreAvplay();
+    const pa = new AvplayPlayer(a, { resources, panel });
+    const pb = new AvplayPlayer(b, { resources, panel });
+    return { a, b, pa, pb, resources };
+  }
+
+  test('the first open takes MAIN and sets nothing; the second takes SUB before prepare, capped at 1080p', async () => {
+    const { a, b, pa, pb } = two();
+    await pa.open(URL_A, 1);
+    expect(a.props.some(([k]) => k === 'IN_APP_MULTIVIEW')).toBe(false);
+    expect(a.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=3840X2160']);
+    await pb.open(URL_B, 1);
+    expect(b.props).toContainEqual(SUB);
+    expect(b.props).toContainEqual(['ADAPTIVE_INFO', 'STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=1920X1080']);
+    const subAt = b.calls.indexOf('setStreamingProperty');
+    expect(b.calls.indexOf('open')).toBeLessThan(subAt);
+    expect(subAt).toBeLessThan(b.calls.indexOf('prepareAsync'));
+  });
+
+  test('a reopen keeps its own scaler; a stop frees it for the next open', async () => {
+    const { a, b, pa, pb } = two();
+    await pa.open(URL_A, 1);
+    await pb.open(URL_B, 1);
+    await pa.open(URL_B, 2);
+    expect(a.props.some(([k]) => k === 'IN_APP_MULTIVIEW')).toBe(false);
+    pa.stop();
+    b.props = [];
+    await pb.open(URL_A, 2);
+    expect(b.props.some(([k]) => k === 'IN_APP_MULTIVIEW')).toBe(false);
+  });
+
+  test('no free scaler: the open fails as UNSUPPORTED without opening', async () => {
+    const resources = createVideoResources();
+    resources.claim();
+    resources.claim();
+    const av = new StoreAvplay();
+    const p = new AvplayPlayer(av, { resources });
+    const events: [PlayerState, StateDetail | undefined][] = [];
+    p.onState((s, d) => events.push([s, d]));
+    await p.open(URL_A, 7);
+    expect(av.calls).not.toContain('open');
+    expect(events.at(-1)).toEqual(['error', { code: 'UNSUPPORTED', message: 'Playback error', detail: 'noVideoScaler', attemptId: 7 }]);
+    p.stop();
+    resources.release('SUB');
+    await p.open(URL_A, 8);
+    expect(av.calls).toContain('open');
+  });
+
+  test('setMuted drives the audio stream, and the wanted state is applied again after every open', async () => {
+    const { a, pa } = two();
+    pa.setMuted(true);
+    expect(a.audio).toEqual(['off']);
+    await pa.open(URL_A, 1);
+    expect(a.audio).toEqual(['off', 'off']);
+    expect(a.calls.lastIndexOf('disableAudioStream')).toBeLessThan(a.calls.indexOf('prepareAsync'));
+    pa.setMuted(false);
+    expect(a.audio).toEqual(['off', 'off', 'on']);
+    await pa.open(URL_B, 2);
+    expect(a.audio).toEqual(['off', 'off', 'on', 'on']);
+  });
+
+  test('a player never muted never touches the audio stream (single view unchanged)', async () => {
+    const { a, pa } = two();
+    await pa.open(URL_A, 1);
+    a.prepared[0]!.ok();
+    expect(a.audio).toEqual([]);
+  });
+
+  test('a throwing audio stream call is swallowed', () => {
+    const av = new FakeAvplay() as FakeAvplay & { disableAudioStream(): void };
+    av.disableAudioStream = () => { throw new Error('NotSupportedError'); };
+    const p = new AvplayPlayer(av);
+    expect(() => p.setMuted(true)).not.toThrow();
+  });
+
+  test('a zero-size rect (a window hidden behind Full screen) is drawn 1x1 at the corner', async () => {
+    const { a, pa } = two();
+    pa.setRect({ x: 0, y: 0, w: 0, h: 0 });
+    await pa.open(URL_A, 1);
+    expect(a.rects.at(-1)).toEqual([0, 0, 1, 1]);
+  });
+
+  test('coversScreen: a playing window in multiview keeps the screensaver off', async () => {
+    const av = new FakeAvplay();
+    const saver: string[] = [];
+    let mv = true;
+    const p = new AvplayPlayer(av, { screenSaver: (s) => saver.push(s), coversScreen: () => mv });
+    p.setRect({ x: 56, y: 37, w: 896, h: 504 });
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    expect(saver.at(-1)).toBe('off');
+    mv = false;
+    p.setRect({ x: 56, y: 37, w: 896, h: 504 });
+    expect(saver.at(-1)).toBe('on');
+  });
+});
+
+describe('AvplayPlayer: the TV refuses a second picture', () => {
+  test('IN_APP_MULTIVIEW refused: the open fails as UNSUPPORTED and the device refusal is reported', async () => {
+    class NoSub extends FakeAvplay {
+      override setStreamingProperty(t: string, v: string): void {
+        if (t === 'IN_APP_MULTIVIEW') throw Object.assign(new Error('x'), { name: 'NotSupportedError' });
+        super.setStreamingProperty(t, v);
+      }
+    }
+    const resources = createVideoResources();
+    resources.claim();
+    const av = new NoSub();
+    const refused: string[] = [];
+    const p = new AvplayPlayer(av, { resources, deviceRefused: (why) => refused.push(why) });
+    const events: [PlayerState, StateDetail | undefined][] = [];
+    p.onState((s, d) => events.push([s, d]));
+    await p.open(URL_A, 3);
+    expect(refused).toEqual(['subScaler']);
+    expect(av.calls).not.toContain('prepareAsync');
+    expect(events.at(-1)).toEqual(['error', { code: 'UNSUPPORTED', message: 'Playback error', detail: 'subScalerRefused', attemptId: 3 }]);
+  });
+
+  test('the audio stream call not supported is a device refusal; a state error is not', () => {
+    const refused: string[] = [];
+    const av = new FakeAvplay() as FakeAvplay & { disableAudioStream(): void };
+    let name = 'InvalidStateError';
+    av.disableAudioStream = () => { throw Object.assign(new Error('x'), { name }); };
+    const p = new AvplayPlayer(av, { deviceRefused: (why) => refused.push(why) });
+    p.setMuted(true);
+    expect(refused).toEqual([]);
+    name = 'NotSupportedError';
+    p.setMuted(true);
+    expect(refused).toEqual(['audioStream']);
   });
 });

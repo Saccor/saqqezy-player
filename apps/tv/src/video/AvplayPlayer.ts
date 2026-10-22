@@ -5,6 +5,7 @@ import { dvFromFourCC, subtitleText } from '@iptv/core';
 import { audioCodecOf, staticCaps, type AudioCodec } from '@iptv/player';
 import { codecFamily } from '../vod/tracks.ts';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
+import type { VideoResource, VideoResources } from '../platform/tizenMultiview.ts';
 import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
 import { avplayBuffering } from './engineConfig.ts';
 import { fpsFromTrackExtra } from './frameRate.ts';
@@ -50,6 +51,10 @@ export interface AvplayLike {
   suspend?(): void;
   /** Re-opens after `suspend()`: `resumeMs` start position; `bPrepare` false lets AVPlay prepare itself. */
   restore?(url: string, resumeMs: number, bPrepare: boolean): void;
+  /** Gives this instance the sound, taking it from the one that had it (Tizen 6.5+). */
+  enableAudioStream?(): void;
+  /** Silences this instance (Tizen 6.5+). */
+  disableAudioStream?(): void;
 }
 
 export interface AvplayListener {
@@ -109,6 +114,11 @@ export function avplayDisplay(
   return {
     x: Math.round(r.x * sx), y: Math.round(r.y * sy), w: Math.round(r.w * sx), h: Math.round(r.h * sy), method,
   };
+}
+
+/** A rect AVPlay draws: a zero-size one (a window hidden behind Full screen) becomes 1x1 at the corner. */
+function drawable(r: Rect): Rect {
+  return r.w > 0 && r.h > 0 ? r : { x: 0, y: 0, w: 1, h: 1 };
 }
 
 function isFullscreen(r: Rect): boolean {
@@ -187,6 +197,8 @@ interface Session {
   startMs?: number;
   /** Subtitles turned off with `selectTextTrack(null)`. */
   textOff?: boolean;
+  /** The video scaler this open claimed (multiview), released at stop. */
+  resource?: VideoResource;
 }
 
 const MESSAGE = 'Playback error';
@@ -232,6 +244,11 @@ export class AvplayPlayer implements Player {
   private userPaused = false;
 
   private readonly panel: PanelCaps | undefined;
+  private readonly resources: VideoResources | undefined;
+  private readonly coversScreen: (() => boolean) | undefined;
+  private readonly deviceRefused: ((why: 'subScaler' | 'audioStream') => void) | undefined;
+  /** undefined: never muted, so the audio stream is never touched (single view). */
+  private muted: boolean | undefined;
 
   constructor(
     private readonly avplay: AvplayLike,
@@ -239,8 +256,17 @@ export class AvplayPlayer implements Player {
     opts: {
       displaySpace?: Size; prepareTimeoutMs?: number; note?: (what: 'refererDropped') => void;
       screenSaver?: (s: 'on' | 'off') => void; panel?: PanelCaps;
+      /** Tizen multiview: the shared scalers; a SUB open sets `IN_APP_MULTIVIEW` (spec 2026-10-22-tizen-multiview). */
+      resources?: VideoResources;
+      /** Multiview is open: the windows cover the screen, so a playing window keeps the screensaver off. */
+      coversScreen?: () => boolean;
+      /** The TV itself refused the SUB scaler or the per-player audio call (not a stream's failure). */
+      deviceRefused?: (why: 'subScaler' | 'audioStream') => void;
     } = {},
   ) {
+    this.resources = opts.resources;
+    this.coversScreen = opts.coversScreen;
+    this.deviceRefused = opts.deviceRefused;
     this.note = opts.note;
     this.panel = opts.panel;
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
@@ -279,8 +305,26 @@ export class AvplayPlayer implements Player {
     this.windowCache = undefined;
     this.emit(s, 'loading');
     const av = this.avplay;
+    if (this.resources) {
+      s.resource = this.resources.claim();
+      if (!s.resource) {
+        this.emit(s, 'error', { code: 'UNSUPPORTED', message: MESSAGE, detail: 'noVideoScaler' });
+        return Promise.resolve();
+      }
+    }
     try {
       av.open(url);
+      // IDLE, before prepare: the second window decodes on the SUB scaler (MAIN is AVPlay's default).
+      if (s.resource === 'SUB') {
+        try {
+          av.setStreamingProperty?.('IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB');
+        } catch {
+          this.deviceRefused?.('subScaler');
+          this.emit(s, 'error', { code: 'UNSUPPORTED', message: MESSAGE, detail: 'subScalerRefused' });
+          return Promise.resolve();
+        }
+      }
+      this.applyAudio();
       av.setListener({
         onbufferingstart: () => this.emit(s, 'buffering'),
         onbufferingcomplete: () => { if (s.started) this.emit(s, 'playing'); },
@@ -372,6 +416,7 @@ export class AvplayPlayer implements Player {
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
+    if (s.resource) this.resources?.release(s.resource);
     this.video = false;
     // Separate guards: a failing stop() (e.g. already idle) must not skip close().
     try { this.avplay.stop(); } catch { /* ignore */ }
@@ -436,6 +481,23 @@ export class AvplayPlayer implements Player {
     this.rect = rect === 'fullscreen' ? FULL : { ...rect };
     if (this.session) this.applyDisplay();
     this.updateSaver();
+  }
+
+  /** Multiview: silences this window while another has the sound (`disable/enableAudioStream`; guarded). */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    this.applyAudio();
+  }
+
+  private applyAudio(): void {
+    if (this.muted === undefined) return;
+    try {
+      if (this.muted) this.avplay.disableAudioStream?.();
+      else this.avplay.enableAudioStream?.();
+    } catch (e) {
+      // Not in a state that accepts it: applied again at the next open. Not supported: the TV cannot do multiview.
+      if (/not_?supported/i.test(avplayErrorName(e))) this.deviceRefused?.('audioStream');
+    }
   }
 
   setAspect(mode: AspectMode): void {
@@ -771,7 +833,8 @@ export class AvplayPlayer implements Player {
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_PLAY', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.play));
     attempt(() => av.setBufferingParam?.('PLAYER_BUFFER_FOR_RESUME', 'PLAYER_BUFFER_SIZE_IN_SECOND', b.resume));
     attempt(() => av.setTimeoutForBuffering?.(b.timeout));
-    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', adaptiveInfo(this.panel ?? { uhd: false, eightK: false, hdrTv: false })));
+    const max1080 = this.session?.resource === 'SUB';
+    attempt(() => av.setStreamingProperty?.('ADAPTIVE_INFO', adaptiveInfo(this.panel ?? { uhd: false, eightK: false, hdrTv: false }, { max1080 })));
     if (userAgent) attempt(() => av.setStreamingProperty?.('USER_AGENT', userAgent));
   }
 
@@ -837,7 +900,7 @@ export class AvplayPlayer implements Player {
 
   private applyDisplay(): void {
     try {
-      const d = avplayDisplay(this.rect, this.aspect, this.space, this.aspect === 'zoom' ? this.sourceAspect() : undefined);
+      const d = avplayDisplay(drawable(this.rect), this.aspect, this.space, this.aspect === 'zoom' ? this.sourceAspect() : undefined);
       this.avplay.setDisplayMethod(d.method);
       this.avplay.setDisplayRect(d.x, d.y, d.w, d.h);
     } catch {
@@ -848,7 +911,7 @@ export class AvplayPlayer implements Player {
   /** Screensaver off only while a picture plays fullscreen (see `desiredScreenSaver`). */
   private updateSaver(): void {
     this.saver?.update({
-      fullscreen: isFullscreen(this.rect), video: this.video || this.stillOn, paused: this.userPaused,
+      fullscreen: isFullscreen(this.rect) || this.coversScreen?.() === true, video: this.video || this.stillOn, paused: this.userPaused,
     });
   }
 

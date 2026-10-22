@@ -18,6 +18,10 @@ describe('tileFailure', () => {
       .toBe('Your source refused extra streams several times. Try again in a few minutes.');
   });
 
+  it('the TV refused a second picture: says so, whatever the stream did', () => {
+    expect(tileFailure({ reason: 'unsupported', deviceLimit: true, at, now: at }).text).toBe('This TV can show one channel at a time.');
+  });
+
   it('other failures use the window wording', () => {
     expect(tileFailure({ reason: 'unavailable', at, now: at }).text).toBe("This channel can't play right now.");
   });

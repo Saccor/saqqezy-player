@@ -11,4 +11,8 @@ describe('adaptiveInfo', () => {
   it('8K panel', () => {
     expect(adaptiveInfo({ uhd: true, eightK: true, hdrTv: true })).toBe('STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=7680X4320');
   });
+  it('the SUB scaler (Tizen multiview): capped at 1080p whatever the panel', () => {
+    expect(adaptiveInfo({ uhd: true, eightK: true, hdrTv: true }, { max1080: true })).toBe('STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=1920X1080');
+    expect(adaptiveInfo({ uhd: false, eightK: false, hdrTv: false }, { max1080: true })).toBe('STARTBITRATE=LOWEST|FIXED_MAX_RESOLUTION=1920X1080');
+  });
 });
