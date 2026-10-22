@@ -156,14 +156,14 @@ describe('AvplayPlayer: open and listener mapping', () => {
 });
 
 describe('AvplayPlayer: stale events', () => {
-  test('stop() calls avplay.close() only, and drops later events of that stream', async () => {
+  test('stop() calls avplay.stop() then close(), and drops later events of that stream', async () => {
     const { av, p, events } = setup();
     await p.open(URL_A, 1);
     const old = av.listener!;
     const prep = av.prepared[0]!;
     av.calls = [];
     p.stop();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
     old.onbufferingstart?.();
     old.onerror?.('PLAYER_ERROR_CONNECTION_FAILED');
     prep.ok();
@@ -177,7 +177,7 @@ describe('AvplayPlayer: stale events', () => {
     const oldListener = av.listener!;
     const oldPrep = av.prepared[0]!;
     await p.open(URL_B, 2);
-    expect(av.calls.filter((c) => c === 'close')).toEqual(['close']);
+    expect(av.calls.filter((c) => c === 'stop' || c === 'close')).toEqual(['stop', 'close']);
     oldListener.onerror?.('PLAYER_ERROR_CONNECTION_FAILED');
     oldPrep.ok();
     av.prepared[1]!.ok();
@@ -188,13 +188,13 @@ describe('AvplayPlayer: stale events', () => {
     ]);
   });
 
-  test('stop() survives a throwing close()', async () => {
+  test('stop() survives throwing stop/close and still closes', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
-    av.throwOn.add('close');
+    av.throwOn.add('stop');
     av.calls = [];
     expect(() => p.stop()).not.toThrow();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
   });
 
   test('stop() without a stream does nothing; destroy stops and clears listeners', async () => {
@@ -204,7 +204,7 @@ describe('AvplayPlayer: stale events', () => {
     await p.open(URL_A, 1);
     const l = av.listener!;
     p.destroy();
-    expect(av.calls.slice(-1)).toEqual(['close']);
+    expect(av.calls.slice(-2)).toEqual(['stop', 'close']);
     l.onbufferingstart?.();
     expect(events).toHaveLength(1);
   });
@@ -508,14 +508,14 @@ describe('AvplayPlayer: live delay and recovery', () => {
     expect(p.health()).toEqual({ engine: 'avplay', positionMs: 150_000, behindLiveS: 10, behindLiveSource: 'edge', isLive: true });
   });
 
-  test('stop() turns still mode off before AVPlay closes', async () => {
+  test('stop() turns still mode off before AVPlay stops and closes', async () => {
     const { av, p } = setup();
     await p.open(URL_A);
     av.prepared[0]!.ok();
     p.holdLastFrame();
     av.calls = [];
     p.stop();
-    expect(av.calls).toEqual(['setVideoStillMode', 'close']);
+    expect(av.calls).toEqual(['setVideoStillMode', 'stop', 'close']);
     expect(av.still).toEqual(['true', 'false']);
   });
 
@@ -526,7 +526,7 @@ describe('AvplayPlayer: live delay and recovery', () => {
     p.holdLastFrame();
     av.calls = [];
     p.stop({ hold: true });
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
     expect(av.still).toEqual(['true']);
   });
 
@@ -567,11 +567,11 @@ describe('AvplayPlayer: live delay and recovery', () => {
     p.holdLastFrame();
     p.stop({ hold: true });
     p.stop();
-    expect(av.calls).toEqual(['setVideoStillMode', 'close', 'setVideoStillMode']);
+    expect(av.calls).toEqual(['setVideoStillMode', 'stop', 'close', 'setVideoStillMode']);
     expect(av.still).toEqual(['true', 'false']);
     p.stop(); // tried once: a second stop makes no call
     p.releaseLastFrame();
-    expect(av.calls).toHaveLength(3);
+    expect(av.calls).toHaveLength(4);
     av.calls = [];
     await p.open(URL_B);
     av.prepared[1]!.ok();
@@ -1573,7 +1573,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     expect(closed).toBe(false);
     runFrame();
     await Promise.resolve();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
     expect(closed).toBe(true);
   });
 
@@ -1583,7 +1583,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     p.stop();
     av.calls.length = 0;
     await p.open(URL_B, 2);
-    expect(av.calls.slice(0, 2)).toEqual(['close', 'open']);
+    expect(av.calls.slice(0, 3)).toEqual(['stop', 'close', 'open']);
   });
 
   test('an open on another player flushes this one, releasing its scaler first', async () => {
@@ -1623,7 +1623,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     void p.closed().then(() => { closed = true; });
     flushAvplayTeardowns();
     await Promise.resolve();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
     expect(closed).toBe(true);
   });
 
@@ -1662,7 +1662,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     p.stop();
     av.calls.length = 0;
     p.destroy();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
   });
 
   test('a second stop() before the frame tears down once', async () => {
@@ -1672,7 +1672,7 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     p.stop();
     av.calls.length = 0;
     runFrame();
-    expect(av.calls).toEqual(['close']);
+    expect(av.calls).toEqual(['stop', 'close']);
   });
 });
 
