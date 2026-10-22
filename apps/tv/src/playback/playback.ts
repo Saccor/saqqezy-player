@@ -29,7 +29,7 @@ import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
 import { createSharedSleepTimer } from './sleepTimer.ts';
-import { createWindowNotes, type WindowNote } from './windowNotes.ts';
+import { createWindowNotes, multiviewSwitch, type WindowNote } from './windowNotes.ts';
 import { onBackOnline } from '../state/backOnline.ts';
 
 /**
@@ -189,14 +189,6 @@ export interface PlaybackSlot {
 /** The slot with sound (the pool's primary), as a signal: the app-wide exports and the slot roles follow it. */
 const [primaryIndex, setPrimaryIndex] = createSignal(0);
 const [multiviewOpen, setMultiviewOpen] = createSignal(false);
-/**
- * The multiview screen says when it is open: every slot is then a window, the one with sound too. Entering and leaving
- * both drop the windows' notes and cut marks, so nothing from an earlier session shows on a window (G9 decision C).
- */
-export const setInMultiview = (open: boolean): void => {
-  windowNoteStore.reset();
-  setMultiviewOpen(open);
-};
 export const inMultiview = multiviewOpen;
 const roleOf = (n: number): SlotRole => slotRole(n, primaryIndex(), multiviewOpen());
 
@@ -211,6 +203,11 @@ const windowNoteStore = createWindowNotes();
 export type { WindowNote };
 export const windowNotes = windowNoteStore.notes;
 const noteWindow = (n: number, note: WindowNote) => windowNoteStore.note(n, note);
+/**
+ * The multiview screen says when it is open: every slot is then a window, the one with sound too. Entering and leaving
+ * both drop the windows' notes and cut marks, so nothing from an earlier session shows on a window (G9 decision C).
+ */
+export const setInMultiview = multiviewSwitch(windowNoteStore, setMultiviewOpen);
 /** A window opens again (Retry, another channel): its note goes. */
 export const clearWindowNote = (n: number): void => windowNoteStore.clear(n);
 /**
@@ -218,7 +215,7 @@ export const clearWindowNote = (n: number): void => windowNoteStore.clear(n);
  * starts no host cooldown and records no escalation, as a cut window's refusal does (the same mark).
  */
 export const keepRefusalOnWindow = (n: number): void => windowNoteStore.markDisplaced(n);
-/** That reopen played or failed otherwise: a later refusal of window `n` is judged as usual. */
+/** That reopen played or failed otherwise, or the window moved on: a later refusal of window `n` is judged as usual. */
 export const dropRefusalMark = (n: number): void => { windowNoteStore.takeDisplaced(n); };
 
 /** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */

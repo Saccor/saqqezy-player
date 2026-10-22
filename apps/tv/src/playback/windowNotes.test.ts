@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWindowNotes } from './windowNotes.ts';
+import { createWindowNotes, multiviewSwitch } from './windowNotes.ts';
 
 describe('window notes', () => {
   it('a note stays on its window until that window opens again', () => {
@@ -34,5 +34,19 @@ describe('window notes', () => {
     const before = w.notes();
     w.reset();
     expect(w.notes()).toBe(before);
+  });
+});
+
+describe('setInMultiview (multiviewSwitch)', () => {
+  it.each([true, false])('setInMultiview(%s) resets the window notes and displaced marks, then sets the flag', (open) => {
+    const w = createWindowNotes();
+    const flags: boolean[] = [];
+    const setInMultiview = multiviewSwitch(w, (o) => { flags.push(o); });
+    w.note(0, { kicked: 1, at: 1 });
+    w.markDisplaced(1);
+    setInMultiview(open);
+    expect(w.notes().size).toBe(0);
+    expect(w.takeDisplaced(1)).toBe(false);
+    expect(flags).toEqual([open]);
   });
 });

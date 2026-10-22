@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createWindowNotes } from '../../playback/windowNotes.ts';
 import { layout } from './layout.ts';
 import {
   addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
-  FREEING_MS, FREEING_RETRY_MS, atSourceLimit, createWatchInstead, sourceLimit, windowsToStop, moveFocus, pickerHint, playingSince, pointerFocus, retryAction, soundToPlaying, start,
+  FREEING_MS, FREEING_RETRY_MS, atSourceLimit, createWatchInstead, sourceLimit, windowsToStop, moveFocus, pickerHint, playingSince, pointerFocus, reopenStatus, retryAction, soundToPlaying, start, wasCut,
   steadyPlaying, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
@@ -249,7 +250,7 @@ describe('the picker info line (warns, never blocks)', () => {
   it('the reported count always shows when the source reports one (spec §4)', () => {
     expect(pickerHint({ reported: 1, open: 1 })).toEqual(['infoReported']);
     expect(pickerHint({ reported: 4, open: 1 })).toEqual(['infoReported']);
-    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toEqual(['infoReported']);
+    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toEqual(['infoReported', 'learned']);
   });
   it('nothing known about the source: each window uses one connection', () => {
     expect(pickerHint({ open: 1 })).toEqual(['infoUnknown']);
@@ -258,8 +259,12 @@ describe('the picker info line (warns, never blocks)', () => {
     expect(pickerHint({ learnedRefusalAt: 2, open: 1 })).toEqual(['learned']);
     expect(pickerHint({ reported: 4, learnedRefusalAt: 2, open: 1 })).toEqual(['infoReported', 'learned']);
   });
-  it('nothing to say: no count reported and the learned refusal is beyond the next window', () => {
-    expect(pickerHint({ learnedRefusalAt: 3, open: 1 })).toEqual([]);
+  it('a learned refusal always shows, even beyond the next window: the line is never empty', () => {
+    expect(pickerHint({ learnedRefusalAt: 3, open: 1 })).toEqual(['learned']);
+  });
+  it('a source reporting 0 connections reports nothing (0 is unknown)', () => {
+    expect(pickerHint({ reported: 0, open: 1 })).toEqual(['infoUnknown']);
+    expect(pickerHint({ reported: 0, learnedRefusalAt: 2, open: 1 })).toEqual(['learned']);
   });
   it('while a connection is being freed, it says so first', () => {
     expect(pickerHint({ reported: 1, open: 1, freeing: true })).toEqual(['freeing', 'infoReported']);
@@ -381,5 +386,83 @@ describe('Watch this one instead: a refused reopen gets exactly one more try aft
     expect(watch.observe(1, 'refused')).toBe('gaveUp');
     vi.advanceTimersByTime(60_000);
     expect(open).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Watch this one instead: a dropped reopen never hides a later refusal', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('the reopen is starting, the user changes the channel: the next refusal is scoped as usual', () => {
+    const notes = createWindowNotes();
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn(() => { notes.markDisplaced(1); });
+    watch.start(1, open);
+    vi.advanceTimersByTime(FREEING_MS);
+    expect(watch.observe(1, 'starting')).toBe('none');
+    // The user picks another channel for the window (or zaps, or closes it) while the reopen starts.
+    watch.cancel();
+    watch.forget(1);
+    notes.takeDisplaced(1);
+    // The new channel starts, then the source refuses it: not the watch's, and not kept on the window.
+    expect(watch.observe(1, 'starting')).toBe('none');
+    expect(watch.observe(1, 'refused')).toBe('none');
+    expect(notes.takeDisplaced(1)).toBe(false);
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it("forget leaves the other windows' reopens alone", () => {
+    const watch = createWatchInstead(() => undefined);
+    watch.start(1, vi.fn());
+    vi.advanceTimersByTime(FREEING_MS);
+    watch.observe(1, 'starting');
+    watch.forget(2);
+    expect(watch.observe(1, 'refused')).toBe('again');
+  });
+});
+
+describe('Watch this one instead: a batched status change cannot swallow the second try', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('a new failure after the reopen was issued counts, even when "starting" was never seen', () => {
+    const old = { kind: 'failed' };
+    let current: unknown = old;
+    const watch = createWatchInstead(() => undefined, () => current);
+    const open = vi.fn();
+    watch.start(1, open);
+    vi.advanceTimersByTime(FREEING_MS);
+    // The old failure still showing is not the reopen's.
+    expect(watch.observe(1, 'refused', old)).toBe('none');
+    // Loading and the new refusal arrived in one batch: only the new failure is seen.
+    current = { kind: 'failed' };
+    expect(watch.observe(1, 'refused', current)).toBe('again');
+    vi.advanceTimersByTime(FREEING_RETRY_MS);
+    expect(open).toHaveBeenCalledTimes(2);
+    current = { kind: 'failed' };
+    expect(watch.observe(1, 'refused', current)).toBe('gaveUp');
+  });
+});
+
+describe('the window statuses Watch this one instead reads', () => {
+  it('wasCut: the source cut or refused the window (its note, else its status)', () => {
+    expect(wasCut({ kicked: 1, at: 0 }, undefined)).toBe(true);
+    expect(wasCut({ pingPong: true, at: 0 }, undefined)).toBe(true);
+    expect(wasCut({ escalated: true, at: 0 }, { kind: 'failed', reason: 'refused' })).toBe(false);
+    expect(wasCut(undefined, { kind: 'failed', reason: 'refused' })).toBe(true);
+    expect(wasCut(undefined, { kind: 'failed', reason: 'unavailable' })).toBe(false);
+    expect(wasCut(undefined, { kind: 'playing' })).toBe(false);
+    expect(wasCut(undefined, undefined)).toBe(false);
+  });
+
+  it('reopenStatus maps a window status for the watch', () => {
+    expect(reopenStatus({ kind: 'loading' })).toBe('starting');
+    expect(reopenStatus({ kind: 'reconnecting' })).toBe('starting');
+    expect(reopenStatus({ kind: 'playing' })).toBe('played');
+    expect(reopenStatus({ kind: 'failed', reason: 'refused' })).toBe('refused');
+    expect(reopenStatus({ kind: 'failed', reason: 'unavailable' })).toBe('failed');
+    expect(reopenStatus({ kind: 'idle' })).toBe('other');
+    expect(reopenStatus(undefined)).toBe('other');
   });
 });

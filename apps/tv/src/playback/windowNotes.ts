@@ -39,3 +39,14 @@ export function createWindowNotes(): WindowNotes {
     },
   };
 }
+
+/**
+ * `setInMultiview`: entering and leaving multiview both drop the windows' notes and cut marks, so nothing from an
+ * earlier session shows on a window (G9 decision C), then set the flag.
+ */
+export function multiviewSwitch(notes: WindowNotes, setOpen: (open: boolean) => void): (open: boolean) => void {
+  return (open) => {
+    notes.reset();
+    setOpen(open);
+  };
+}

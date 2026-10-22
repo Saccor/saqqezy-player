@@ -19,8 +19,8 @@ import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
 import {
   CHROME_IDLE_MS, SOUND_REST_MS, addWindow, atSourceLimit, click, closeWindow, createWatchInstead, enterFullScreen, equalSize,
-  exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems, moveFocus, pickerHint, playingSince, pointerFocus, retryAction,
-  soundToPlaying, sourceLimit, start, steadyPlaying, togglePin, wake, windowsToStop, type MenuId, type MvState, type MvWindow, type ReopenStatus,
+  exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems, moveFocus, pickerHint, playingSince, pointerFocus, reopenStatus, retryAction,
+  soundToPlaying, sourceLimit, start, steadyPlaying, togglePin, wake, windowsToStop, type MenuId, type MvState, type MvWindow, wasCut,
 } from './mvLogic.ts';
 import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
@@ -71,7 +71,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   let alive = true;
   /** "Watch this one instead": the window waiting for the source to free a connection (it shows "Freeing…"). */
   const [freeingSlot, setFreeingSlot] = createSignal<number | undefined>(undefined);
-  const watch = createWatchInstead(setFreeingSlot);
+  const watch = createWatchInstead(setFreeingSlot, (slot) => pool.slots().find((p) => p.n === slot)?.playback.status());
   /** Windows stopped so another could play: they say so and offer Retry. */
   const [yielded, setYielded] = createSignal<ReadonlySet<number>>(new Set());
   const unyield = (slot: number) => {
@@ -173,6 +173,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     if (mode.mode === 'change') {
       const w = s.windows[mode.index];
       if (!w) return;
+      forgetReopen(w.slot);
       clearWindowNote(w.slot);
       unyield(w.slot);
       const changed = await session.changeChannel(w, channelId);
@@ -213,25 +214,23 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   /** The reported and learned limits of the active source (both inform; neither blocks). */
   const limits = (): { reported?: number; learnedRefusalAt?: number } => {
     const source = initState()?.activeSourceId;
-    const reported = activeMaxConnections();
+    // A source reporting 0 connections reports nothing (it is not a limit of 1).
+    const max = activeMaxConnections();
+    const reported = max !== undefined && max > 0 ? max : undefined;
     const learned = source ? connectionMemory.refusedAt(source) : undefined;
     return { ...(reported !== undefined ? { reported } : {}), ...(learned !== undefined ? { learnedRefusalAt: learned } : {}) };
   };
   /** The source cut or refused window `i` (not the TV, not an escalation). */
-  const wasCut = (i: number): boolean => {
+  const cutAt = (i: number): boolean => {
     const w = windowAt(i);
-    if (!w) return false;
-    const note = windowNotes().get(w.slot);
-    if (note) return note.kicked !== undefined || note.pingPong === true;
-    const st = slotOf(i)?.playback.status();
-    return st?.kind === 'failed' && st.reason === 'refused';
+    return w ? wasCut(windowNotes().get(w.slot), slotOf(i)?.playback.status()) : false;
   };
   /** The other windows playing now, newest first. */
   const othersPlaying = (i: number): MvWindow[] =>
     (state()?.windows ?? []).filter((w, k) => k !== i && statusOf(w.slot) === 'playing').reverse();
   const retryKind = (i: number) => {
     const others = othersPlaying(i).length;
-    return retryAction({ cut: wasCut(i), otherPlaying: others > 0, atLimit: atSourceLimit({ ...limits(), othersPlaying: others }) });
+    return retryAction({ cut: cutAt(i), otherPlaying: others > 0, atLimit: atSourceLimit({ ...limits(), othersPlaying: others }) });
   };
   /**
    * Stops just enough of the other windows, gives this one the sound, waits 5 s for the source, then opens it. Its
@@ -259,19 +258,21 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     });
   };
   // The reopens it made: refused once, "Freeing…" again and one more try; played or failed otherwise, the mark goes.
-  const reopenStatus = (slot: number): ReopenStatus => {
-    const st = pool.slots().find((p) => p.n === slot)?.playback.status();
-    if (st?.kind === 'loading' || st?.kind === 'reconnecting') return 'starting';
-    if (st?.kind === 'playing') return 'played';
-    if (st?.kind === 'failed') return st.reason === 'refused' ? 'refused' : 'failed';
-    return 'other';
-  };
   createEffect(() => {
     for (const w of state()?.windows ?? []) {
-      const r = watch.observe(w.slot, reopenStatus(w.slot));
+      const st = pool.slots().find((p) => p.n === w.slot)?.playback.status();
+      const r = watch.observe(w.slot, reopenStatus(st), st);
       if (r === 'played' || r === 'failed') dropRefusalMark(w.slot);
     }
   });
+  /**
+   * Window `slot` moves on (zap, another channel, closed) while a reopen may be starting: the reopen is no longer
+   * watched and its mark goes, so a later refusal there is judged as usual (host cooldown, escalation).
+   */
+  const forgetReopen = (slot: number) => {
+    watch.forget(slot);
+    dropRefusalMark(slot);
+  };
 
   const zap = (delta: 1 | -1) => {
     const s = state();
@@ -283,6 +284,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     api.neighbour(GROUP_ALL, w.channelId, delta).then(async (ch) => {
       if (!ch || !alive) return;
       remember(ch.id, ch.name);
+      forgetReopen(w.slot);
       clearWindowNote(w.slot);
       unyield(w.slot);
       const changed = await session.changeChannel(w, ch.id);
@@ -381,6 +383,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     else if (action === 'closeWindow') {
       const w = s.windows[i];
       if (w) {
+        forgetReopen(w.slot);
         session.close(w);
         unyield(w.slot);
       }
