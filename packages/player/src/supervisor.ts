@@ -26,6 +26,11 @@ export interface SupervisorOptions {
    */
   openRate?: { waitMs(sourceKey: string): number; take(sourceKey: string): void };
   /**
+   * The gap between opens shared by every supervisor on a source (`SharedOpenGap`, multiview tiles). Opens and status
+   * probes wait for the gap after another supervisor's latest open on the same `sourceKey`, and mark their own.
+   */
+  openGap?: { waitMs(sourceKey: string, owner: number): number; mark(sourceKey: string, owner: number, gapMs: number): void };
+  /**
    * Asks the source for a stream's HTTP status (one `GET` with `Range: bytes=0-0`, aborted once the headers arrive).
    * Used when an engine that cannot see statuses (`Player.supportsStatus` false or absent) fails before its first
    * frame with a NETWORK error: at most once per `play()`, only after the failed attempt has closed, counted against
@@ -125,6 +130,9 @@ const VOD_SEEK_GRACE_MS = 10_000;
 
 type Timer = ReturnType<typeof setTimeout>;
 
+/** Each supervisor's id in a shared open gap. */
+let nextOwner = 0;
+
 function codeOf(e: unknown): ErrorCode | undefined {
   const c = (e as { code?: unknown } | null)?.code;
   return typeof c === 'string' && ERROR_CODES.has(c) ? (c as ErrorCode) : undefined;
@@ -149,6 +157,8 @@ export class PlaybackSupervisor {
   private readonly store: LiveTargetStore | undefined;
   private readonly journal: JournalSink | undefined;
   private readonly openRate: SupervisorOptions['openRate'];
+  private readonly openGap: SupervisorOptions['openGap'];
+  private readonly owner = ++nextOwner;
   private readonly probe: SupervisorOptions['probe'];
   private readonly blocked: SupervisorOptions['blocked'];
   private readonly refusalStatuses: ReadonlySet<number>;
@@ -249,6 +259,7 @@ export class PlaybackSupervisor {
     this.store = opts.liveTargets;
     this.journal = opts.journal;
     this.openRate = opts.openRate;
+    this.openGap = opts.openGap;
     this.probe = opts.probe;
     this.blocked = opts.blocked;
     this.refusalStatuses = opts.refusalStatuses ?? DEFAULT_REFUSAL_STATUSES;
@@ -497,7 +508,8 @@ export class PlaybackSupervisor {
         const gen = this.gen;
         this.retryTimer = this.clock.setTimeout(() => {
           this.retryTimer = undefined;
-          if (gen === this.gen && this.active) this.openCurrent(true);
+          // Through the gap again: another tile may have opened on this source meanwhile.
+          if (gen === this.gen && this.active) this.openAfterGap(true);
         }, wait);
         return;
       }
@@ -791,7 +803,7 @@ export class PlaybackSupervisor {
     this.startSpinner();
     this.player.stop();
     const gen = this.gen;
-    this.afterClosed(() => {
+    this.afterClosed(() => this.afterSharedGap(() => {
       this.waiting = true;
       this.markOpen(); // the probe is a connection too: the next open keeps the gap after it
       const ctl = new AbortController();
@@ -821,7 +833,21 @@ export class PlaybackSupervisor {
         answer = Promise.resolve({});
       }
       answer.then((r) => finish(r ?? {}), () => finish({}));
-    });
+    }));
+  }
+
+  /** Runs `fn` once no other supervisor's open on this source is within its gap (at once without a shared gap). */
+  private afterSharedGap(fn: () => void): void {
+    const wait = this.sharedGapWait();
+    if (wait <= 0) {
+      fn();
+      return;
+    }
+    const gen = this.gen;
+    this.retryTimer = this.clock.setTimeout(() => {
+      this.retryTimer = undefined;
+      if (gen === this.gen && this.active) this.afterSharedGap(fn);
+    }, wait);
   }
 
   /** Maps the probe's answer: a refusal takes the AUTH path, 404/410 ends as gone, anything else stays NETWORK. */
@@ -984,7 +1010,8 @@ export class PlaybackSupervisor {
     const gen = this.gen;
     this.retryTimer = this.clock.setTimeout(() => {
       this.retryTimer = undefined;
-      if (gen === this.gen && this.active) open();
+      // Checked again on waking: another tile on this source may have opened meanwhile.
+      if (gen === this.gen && this.active) this.openAfterGap(automatic, beforeOpen);
     }, gap);
   }
 
@@ -993,6 +1020,7 @@ export class PlaybackSupervisor {
     const p = this.policy;
     this.lastOpenAt = this.now();
     this.openGapMs = p.minOpenGapMs + (p.openGapSpreadMs > 0 ? Math.round(p.openGapSpreadMs * this.random()) : 0);
+    if (this.openGap && this.sourceKey !== undefined) this.openGap.mark(this.sourceKey, this.owner, this.openGapMs);
   }
 
   /**
@@ -1064,7 +1092,17 @@ export class PlaybackSupervisor {
 
   /** How long until another connection attempt is allowed (the minimum gap since the last open). */
   private gapWait(): number {
-    return Math.max(0, Math.ceil(this.openGapMs - (this.now() - this.lastOpenAt)));
+    return Math.max(0, Math.ceil(this.openGapMs - (this.now() - this.lastOpenAt)), this.sharedGapWait());
+  }
+
+  /** The wait for other supervisors' opens on this source (0 without a shared gap or a source key). */
+  private sharedGapWait(): number {
+    if (!this.openGap || this.sourceKey === undefined) return 0;
+    try {
+      return this.openGap.waitMs(this.sourceKey, this.owner);
+    } catch {
+      return 0;
+    }
   }
 
   private terminal(reason: FailReason): void {

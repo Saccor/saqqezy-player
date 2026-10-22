@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_POLICY, PlaybackSupervisor,
+  DEFAULT_POLICY, PlaybackSupervisor, SharedOpenGap,
   type AspectMode, type JournalEvent, type LiveProfile, type OpenOptions, type PlaybackHealth, type Player, type PlayerState, type Rect, type StateDetail,
   type StreamInfo, type SupervisorOptions, type SupervisorStatus, type TrackInfo,
 } from '../src/index.ts';
@@ -2051,5 +2051,95 @@ describe('PlaybackSupervisor: gap jitter, close before open, open-rate wake', ()
     sup.play(A, undefined, { vod: true, startMs: 5000, headers });
     vi.advanceTimersByTime(1000);
     expect(player.openOpts[1]).toEqual({ live: false, startMs: 5000, headers });
+  });
+});
+
+describe('PlaybackSupervisor: shared open gap (multiview tiles)', () => {
+  /** Supervisors sharing one gap; the spread is the real 300 ms, drawn at 0.5 (1150 ms). */
+  function tiles(n: number, extra: SupervisorOptions = {}) {
+    const openGap = new SharedOpenGap(() => Date.now());
+    return Array.from({ length: n }, () => setup({ openGap, ...extra, policy: { openGapSpreadMs: 300, ...extra.policy } }));
+  }
+  /** Each open's time, per tile, recorded as it happens. */
+  function openTimes(ts: ReturnType<typeof tiles>) {
+    const times: number[][] = ts.map(() => []);
+    ts.forEach((t, i) => {
+      const open = t.player.open.bind(t.player);
+      t.player.open = (url, id, o) => { times[i]!.push(Date.now()); return open(url, id, o); };
+    });
+    return times;
+  }
+
+  it('two tiles on one source started together open 1150 ms apart', () => {
+    const ts = tiles(2);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    ts[1]!.sup.play(B, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(5000);
+    expect(times.map((x) => x.map((t) => t - t0))).toEqual([[0], [1150]]);
+  });
+
+  it('four tiles open at 0, 1.15, 2.3 and 3.45 s', () => {
+    const ts = tiles(4);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    for (const t of ts) t.sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(10_000);
+    expect(times.flat().map((t) => t - t0).sort((a, b) => a - b)).toEqual([0, 1150, 2300, 3450]);
+  });
+
+  it('tiles on different sources do not wait for each other', () => {
+    const ts = tiles(2);
+    const times = openTimes(ts);
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    ts[1]!.sup.play(B, undefined, { sourceKey: 'other' });
+    expect(times.flat().map((t) => t - t0)).toEqual([0, 0]);
+  });
+
+  it("a tile's status probe waits for another tile's gap and counts as an open", async () => {
+    const probe = vi.fn(() => Promise.resolve({}));
+    const ts = tiles(2, { probe });
+    const t0 = Date.now();
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1150);
+    ts[1]!.sup.play(B, undefined, { sourceKey: 's' }); // opens at 1150
+    vi.advanceTimersByTime(100);
+    ts[0]!.sup.play(A, undefined, { sourceKey: 's' }); // a zap on tile 0 must keep the gap after tile 1's open
+    vi.advanceTimersByTime(1049);
+    expect(ts[0]!.player.opened).toEqual([A]);
+    vi.advanceTimersByTime(1);
+    expect(ts[0]!.player.opened).toEqual([A, A]); // 2300
+    ts[1]!.player.emit('error', { code: 'NETWORK' }); // before its first frame: the probe path
+    vi.advanceTimersByTime(0);
+    await flush();
+    expect(probe).not.toHaveBeenCalled(); // tile 0 opened at 2300: wait until 3450
+    vi.advanceTimersByTime(1149);
+    await flush();
+    expect(probe).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(Date.now() - t0).toBe(3450);
+  });
+
+  it('one supervisor opens at the same times with or without the shared gap', () => {
+    const run = (shared: boolean) => {
+      const { player, sup } = setup(shared ? { openGap: new SharedOpenGap(() => Date.now()) } : {});
+      const times: number[] = [];
+      const open = player.open.bind(player);
+      player.open = (url, id, o) => { times.push(Date.now()); return open(url, id, o); };
+      const t0 = Date.now();
+      sup.play(A, B, { sourceKey: 's' });
+      vi.advanceTimersByTime(300);
+      sup.play(B, undefined, { sourceKey: 's' });
+      vi.advanceTimersByTime(2000);
+      player.emit('playing');
+      for (let i = 0; i < 3; i++) { player.emit('error', { code: 'NETWORK' }); vi.advanceTimersByTime(5000); }
+      sup.dispose();
+      return times.map((t) => t - t0);
+    };
+    expect(run(true)).toEqual(run(false));
   });
 });
