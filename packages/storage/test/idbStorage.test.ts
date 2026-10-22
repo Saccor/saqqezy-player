@@ -49,7 +49,7 @@ describe('IdbStorage open', () => {
     expect(await s.getVod('s1', 'movie')).toEqual({ items: [], categories: [] });
   });
 
-  test('upgrades a version-2 database to version 3 (syncMeta) and keeps every hot structure as it was', async () => {
+  test('upgrades a version-2 database to version 4 (syncMeta, catalogs, chunks) and keeps every hot structure as it was', async () => {
     const factory = new IDBFactory();
     const layout = { version: 4, lists: [], hiddenChannels: ['s1:x1'], hiddenGroups: [], groupOrder: [], channelOrder: {}, channelNames: {}, groupNames: {}, sort: {}, hideNoEpg: false, recent: [] };
     const state = { position: 120_000, duration: 3600_000, watched: false, favourite: true, updatedAt: 5 };
@@ -86,8 +86,8 @@ describe('IdbStorage open', () => {
       open.onsuccess = () => resolve(open.result);
       open.onerror = () => reject(open.error);
     });
-    expect(db.version).toBe(3);
-    expect([...db.objectStoreNames].sort()).toEqual(['channels', 'meta', 'programmes', 'sources', 'syncMeta', 'vod', 'vodUser']);
+    expect(db.version).toBe(4);
+    expect([...db.objectStoreNames].sort()).toEqual(['catalogs', 'channels', 'chunks', 'meta', 'programmes', 'sources', 'syncMeta', 'vod', 'vodUser']);
     db.close();
   });
 

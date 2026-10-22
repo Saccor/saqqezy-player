@@ -2,9 +2,11 @@ import {
   MAX_PROGRAMME_MS,
   type Channel, type Programme, type SourceConfig, type Storage, type SyncMetaEntry, type VodKind, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
+import { CHUNK_ROWS, deleteCatalogs, encodeCatalog, readCatalog, writeCatalog, type CatalogKind, type LegacyRef } from './catalogStore.ts';
+import { createChunkCodec, type ChunkCodec } from './compress.ts';
 
-const DB_VERSION = 3;
-const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser', 'syncMeta'];
+const DB_VERSION = 4;
+const ALL_STORES = ['sources', 'channels', 'meta', 'programmes', 'vod', 'vodUser', 'syncMeta', 'catalogs', 'chunks'];
 type ProgRecord = Programme & { sourceId: string };
 
 /** Keeps the original error's name; an empty message (a quota abort has one) becomes `IndexedDB <name>`. */
@@ -29,15 +31,46 @@ export function done(tx: IDBTransaction): Promise<void> {
   });
 }
 
+export interface IdbStorageOptions {
+  codec?: ChunkCodec;
+  chunkRows?: number;
+  estimate?: () => Promise<{ usage?: number; quota?: number }>;
+  beforeLargeWrite?: (bytes: number) => Promise<void>;
+}
+
 export class IdbStorage implements Storage {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private readonly codec: ChunkCodec;
+  private readonly chunkRows: number;
+  /** One catalogue write (or migration) per source and kind at a time. */
+  private readonly locks = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly factory: IDBFactory = indexedDB,
     private readonly dbName = 'iptv',
     /** Programmes deleted per transaction by `clearProgrammes`. */
     private readonly clearChunk = 2000,
-  ) {}
+    private readonly opts: IdbStorageOptions = {},
+  ) {
+    this.codec = opts.codec ?? createChunkCodec();
+    this.chunkRows = opts.chunkRows ?? CHUNK_ROWS;
+  }
+
+  private withKeyLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.locks.get(key) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    const tail = run.then(() => undefined, () => undefined);
+    this.locks.set(key, tail);
+    void tail.then(() => { if (this.locks.get(key) === tail) this.locks.delete(key); });
+    return run;
+  }
+
+  private writeKey(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef): Promise<void> {
+    return this.withKeyLock(`${sourceId}\u0000${kind}`, async () => {
+      const enc = await encodeCatalog(rows, extra, this.codec, this.chunkRows);
+      await writeCatalog(await this.db(), sourceId, kind, enc, legacy);
+    });
+  }
 
   private db(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
@@ -67,6 +100,11 @@ export class IdbStorage implements Storage {
           if (e.oldVersion < 3) {
             // Sync sidecar (clocks, pending records): hot structures (layout, vodUser) keep their shape.
             db.createObjectStore('syncMeta', { keyPath: ['scope', 'key'] });
+          }
+          if (e.oldVersion < 4) {
+            // Catalogues as packed, compressed chunks (spec 2026-10-22-compact-catalogs); `channels`/`vod` stay for migration.
+            db.createObjectStore('catalogs', { keyPath: ['sourceId', 'kind'] });
+            db.createObjectStore('chunks', { keyPath: ['sourceId', 'kind', 'gen', 'n'] });
           }
         };
         // Another tab holds an older version open and does not let go: fail now instead of waiting forever.
@@ -123,20 +161,21 @@ export class IdbStorage implements Storage {
     tx.objectStore('vod').delete(sourceRange);
     tx.objectStore('vodUser').delete(sourceRange);
     tx.objectStore('syncMeta').delete(sourceRange);
+    void deleteCatalogs(tx, id);
     this.deleteProgrammesIn(tx, id);
     await done(tx);
   }
 
   async getChannels(sourceId: string): Promise<Channel[]> {
     const db = await this.db();
+    const cat = await readCatalog(db, sourceId, 'channels', this.codec);
+    if (cat) return cat.rows as unknown as Channel[];
     const rec = await req(db.transaction('channels').objectStore('channels').get(sourceId));
     return (rec as { channels: Channel[] } | undefined)?.channels ?? [];
   }
 
-  async replaceChannels(sourceId: string, channels: Channel[]): Promise<void> {
-    const tx = (await this.db()).transaction('channels', 'readwrite');
-    tx.objectStore('channels').put({ sourceId, channels });
-    await done(tx);
+  replaceChannels(sourceId: string, channels: Channel[]): Promise<void> {
+    return this.writeKey(sourceId, 'channels', channels, undefined, { store: 'channels', key: sourceId });
   }
 
   async getMeta<T>(key: string): Promise<T | undefined> {
@@ -230,14 +269,15 @@ export class IdbStorage implements Storage {
 
   async getVod(sourceId: string, kind: VodKind): Promise<VodList | undefined> {
     const db = await this.db();
+    const cat = await readCatalog(db, sourceId, kind, this.codec);
+    if (cat) return { items: cat.rows as unknown as VodList['items'], ...(cat.extra as Omit<VodList, 'items'>) };
     const rec = await req(db.transaction('vod').objectStore('vod').get([sourceId, kind]));
     return (rec as { list: VodList } | undefined)?.list;
   }
 
-  async replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void> {
-    const tx = (await this.db()).transaction('vod', 'readwrite');
-    tx.objectStore('vod').put({ sourceId, kind, list });
-    await done(tx);
+  replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void> {
+    const { items, ...extra } = list;
+    return this.writeKey(sourceId, kind, items, extra, { store: 'vod', key: [sourceId, kind] });
   }
 
   async getVodUser(sourceId: string, itemId: string): Promise<VodUserState | undefined> {
