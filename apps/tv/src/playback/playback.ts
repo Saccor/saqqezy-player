@@ -7,7 +7,7 @@ import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStat
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
-import { Html5Player } from '../video/Html5Player.ts';
+import { Html5Player, type EngineOverrides } from '../video/Html5Player.ts';
 import { createSlotRoot, createVideoLayer } from '../video/videoLayer.ts';
 import { SOURCE_COPY } from '../copy.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -39,6 +39,10 @@ export interface AppPlayer extends Player {
   unmuteIfAutoMuted?(): void;
   /** HTML5 only: the app's volume, 0..1. */
   setVolume?(level: number): void;
+  /** HTML5 only (multiview): mutes this window while another has the sound. */
+  setMuted?(muted: boolean): void;
+  /** HTML5 only (multiview): a window's engine profile from its next live open; undefined clears it. */
+  setEngineOverrides?(o: EngineOverrides | undefined): void;
 }
 
 const isTv = isTvPlatform(platformId);
@@ -209,8 +213,11 @@ function createWindowSlot(n: number): PlaybackSlot {
 export const pool: PlaybackPool<PlaybackSlot> = createPlaybackPool<PlaybackSlot>(
   createMainSlot(), (n) => (n === 0 ? createMainSlot() : createWindowSlot(n)), isTv || avplay ? 1 : 4,
 );
-pool.onPrimary((n) => {
+pool.onPrimary((n, prev) => {
   setPrimaryIndex(n);
+  // Exactly one window has sound.
+  pool.slot(prev).player.setMuted?.(true);
+  pool.slot(n).player.setMuted?.(false);
   // The new single-view player's status and stream feed the overlay and the cooldown copy from now on.
   const p = pool.slot(n).playback;
   setSupervisorStatus(p.status());
