@@ -1,4 +1,4 @@
-import { SourceNetworkError } from '../errors.ts';
+import { SourceNetworkError, StorageWriteError, storageFullMessage } from '../errors.ts';
 import { BODY_IDLE_MS } from '../net/timeout.ts';
 import { sanitizeSettings } from '../settings.ts';
 import type { Storage } from '../storage.ts';
@@ -90,12 +90,13 @@ export class VodService {
   /**
    * Whether a fetch should run: Xtream only (M3U catalogues come with the playlist refresh), never fetched or stale.
    * A background refresh (stale-while-revalidate) is also held off after a failed one (15 min, 1 h, then 6 h);
-   * `foreground` (the screen has nothing to show yet) skips that wait. `refresh` itself is never held off.
+   * `foreground` (the screen has nothing to show yet) skips that wait, except after a failed save (the list would be
+   * downloaded again for nothing). `refresh` itself is never held off.
    */
   async needsRefresh(sourceId: string, kind: VodKind, opts: { foreground?: boolean } = {}): Promise<boolean> {
     const source = await this.source(sourceId);
     if (!source || source.kind !== 'xtream') return false;
-    if (!opts.foreground && await refreshBackedOff(this.storage, sourceId, `vod:${kind}`, this.now())) return false;
+    if (await refreshBackedOff(this.storage, sourceId, `vod:${kind}`, this.now(), { foreground: opts.foreground === true })) return false;
     const at = await this.fetchedAt(sourceId, kind);
     if (!at) return true;
     const hours = sanitizeSettings(await this.storage.getMeta<unknown>('settings')).autoRefreshHours;
@@ -103,9 +104,16 @@ export class VodService {
     return this.now() - at > hours * 3600_000;
   }
 
+  /** Whether a fetch of `kind` is held off because its last result could not be saved on this device. */
+  storageBlocked(sourceId: string, kind: VodKind): Promise<boolean> {
+    return refreshBackedOff(this.storage, sourceId, `vod:${kind}`, this.now(), { foreground: true });
+  }
+
   /**
    * Fetches and stores the catalogue (Xtream). A source removed or switched to another account (server or user name)
    * meanwhile, or a cancel, rejects with `VodFetchCancelled` and stores nothing.
+   * A list that downloaded but could not be saved rejects with `StorageWriteError` (its `value` is the list, still good
+   * for the session; an automatic fetch records the backoff).
    * An empty answer never replaces a non-empty stored catalogue (it rejects with `SourceNetworkError`). One refresh per source and kind at a time.
    */
   refresh(
@@ -136,7 +144,11 @@ export class VodService {
       }
       // Checked right before the write: an abort during the awaits above must store nothing.
       if (opts.signal?.aborted) throw new VodFetchCancelled();
-      await this.storage.replaceVod(sourceId, kind, list);
+      try {
+        await this.storage.replaceVod(sourceId, kind, list);
+      } catch (cause) {
+        throw new StorageWriteError(`vod:${kind}`, cause, storageFullMessage(kind), list);
+      }
       await this.storage.setMeta(vodAtKey(kind, sourceId), this.now());
       return { count: list.items.length, truncated: list.truncated === true, list };
     }));
@@ -149,7 +161,7 @@ export class VodService {
       out = await fn();
     } catch (err) {
       if (automatic && countsAsRefreshFailure(err) && (await this.source(sourceId).catch(() => undefined))) {
-        await recordRefreshFailure(this.storage, sourceId, `vod:${kind}`, this.now());
+        await recordRefreshFailure(this.storage, sourceId, `vod:${kind}`, this.now(), err instanceof StorageWriteError ? 'storage' : undefined);
       }
       throw err;
     }

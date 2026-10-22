@@ -886,6 +886,31 @@ describe('AppApi', () => {
       .toMatchObject({ name: 'HttpError', message: 'nope', status: 503, code: 22 });
   });
 
+  test('a name or string code that holds a link is scrubbed in the log too', async () => {
+    class Odd extends SourceService {
+      override deleteSource(): never { throw Object.assign(new Error('nope'), { name: 'Failed http://example.test/live/u1/p1/1.ts?x=1', code: 'ERR http://example.test/live/u1/p1/2.ts' }); }
+    }
+    const { api } = make(storage, Odd);
+    await api.deleteSource('x').catch(() => undefined);
+    const e = (await api.diagnostics()).lastErrors.find((l) => l.where === 'deleteSource')!;
+    expect(JSON.stringify(e)).not.toMatch(/u1|p1|x=1/);
+    expect(e.name).toContain('example.test');
+    expect(String(e.code)).toContain('example.test');
+  });
+
+  test('diagnostics reports the storage estimate when the device has one', async () => {
+    const withEstimate = (storageEstimate?: () => Promise<{ usage?: number; quota?: number }>) => {
+      const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW });
+      const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW, appVersion: '1.2.3', ...(storageEstimate ? { storageEstimate } : {}) });
+      live.push(api);
+      return api;
+    };
+    expect((await withEstimate().diagnostics()).storage).toBeUndefined();
+    expect((await withEstimate(async () => ({ usage: 5, quota: 10 })).diagnostics()).storage).toEqual({ used: 5, quota: 10 });
+    expect((await withEstimate(async () => ({})).diagnostics()).storage).toBeUndefined();
+    expect((await withEstimate(async () => { throw new Error('no'); }).diagnostics()).storage).toBeUndefined();
+  });
+
   test('non-Error throws are rethrown as scrubbed Errors', async () => {
     class Thrower extends SourceService {
       override listSources(): never {

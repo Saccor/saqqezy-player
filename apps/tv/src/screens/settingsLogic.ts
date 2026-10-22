@@ -146,10 +146,6 @@ export function screenLines(d: DeviceInfo, platform: string): [string, string][]
   return lines;
 }
 
-/**
- * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
- * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
- */
 /** `name: message (code 22, HTTP 503)`; the name is left out when generic or already in the message. */
 function errorText(e: DiagnosticsInfo['lastErrors'][number]): string {
   const message = stripUrls(e.message);
@@ -159,6 +155,16 @@ function errorText(e: DiagnosticsInfo['lastErrors'][number]): string {
   return `${showName ? `${e.name}: ` : ''}${message}${extra ? ` (${extra})` : ''}`;
 }
 
+/** `123 MB of 2,048 MB`: what the device lets the app keep (whole megabytes, thousands grouped by hand). */
+export function storageLine(s: { used: number; quota: number }): string {
+  const mb = (bytes: number) => String(Math.round(bytes / 1048576)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${mb(s.used)} MB of ${mb(s.quota)} MB`;
+}
+
+/**
+ * Diagnostics as label/value lines. Built from a whitelist of fields only: no source id, server, playlist URL,
+ * username or password is ever read, and free text (source names, error messages) goes through `stripUrls`.
+ */
 export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo }): [string, string][] {
   const lines: [string, string][] = [
     ['App version', info.appVersion],
@@ -177,6 +183,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
       if (s.catchupTime) lines.push(['', `Catch-up time: ${stripUrls(s.catchupTime)}`]);
     }
   });
+  if (info.storage) lines.push(['Storage', storageLine(info.storage)]);
   const errors = [...info.lastErrors].sort((a, b) => b.at - a.at).slice(0, MAX_ERRORS);
   if (errors.length === 0) lines.push(['Errors', 'None']);
   for (const e of errors) lines.push([`Error ${formatTime(e.at)}`, `${stripUrls(e.where)}: ${errorText(e)}`]);

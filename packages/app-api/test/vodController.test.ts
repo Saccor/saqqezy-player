@@ -358,6 +358,7 @@ function fakeController() {
   const fake = {
     storedCatalog: async (_id: string, kind: VodKind): Promise<VodCatalog | undefined> => { calls.stored.push(kind); return undefined; },
     needsRefresh: async (): Promise<boolean> => false,
+    storageBlocked: async (): Promise<boolean> => false,
     refresh: async (_id: string, kind: VodKind) => { calls.refresh++; return { count: 0, truncated: false, list: listOf(kind) }; },
     listUser: async () => [],
   };
@@ -1539,5 +1540,63 @@ describe('VodController language hints on playable', () => {
     }));
     c.reset('src');
     expect((await c.playable(epId(showId(1), 1), showId(1)))!.languageHints).toEqual({ firstAudio: 'no', title: 'no', titleScope: 'audio' });
+  });
+});
+
+describe('VodController when the list cannot be saved', () => {
+  const quota = () => Object.assign(new Error(''), { name: 'QuotaExceededError' });
+  const failSave = () => { storage.replaceVod = async () => { throw quota(); }; };
+  const restart = (sourceId: string, vod: VodService) => {
+    const events: AppEvent[] = [];
+    const c = new VodController({ vod, emit: (e) => events.push(e), record: (_w, err) => (err instanceof Error ? err : new Error(String(err))) });
+    c.reset(sourceId);
+    return { c, events };
+  };
+
+  test('a first load that cannot be saved keeps the downloaded titles for the session and says why', async () => {
+    const { c, events, recorded } = await setup();
+    failSave();
+    await c.home('series');
+    await c.idle();
+    const failed = events.find((e) => e.type === 'vodRefreshFailed');
+    expect(failed).toMatchObject({ kind: 'series', error: { name: 'StorageWriteError', message: 'Not enough storage on this TV to save the series list' } });
+    expect(recorded).toEqual(['refreshVod']);
+    const h = await c.home('series');
+    expect(h.status).toBe('ready');
+    expect(h.rows.length).toBeGreaterThan(0);
+    await c.idle();
+    expect(events.filter((e) => e.type === 'vodLoading')).toHaveLength(1);
+  });
+
+  test('movies say "movie list"', async () => {
+    const { c, events } = await setup();
+    failSave();
+    await c.home('movie');
+    await c.idle();
+    expect(events.find((e) => e.type === 'vodRefreshFailed')).toMatchObject({ error: { message: 'Not enough storage on this TV to save the movie list' } });
+  });
+
+  test('after a restart the list is not downloaded again before the backoff ends', async () => {
+    let t = NOW;
+    const { c, vod, sourceId } = await setup('xtream', () => t);
+    failSave();
+    await c.home('series');
+    await c.idle();
+    expect(await storage.getMeta(`refreshFail:${sourceId}:vod:series`)).toMatchObject({ count: 1, storage: true });
+    let fetches = 0;
+    const counting = new VodService({ storage, fetch: (u, i) => { if (/action=get_series/.test(u)) fetches++; return fetchFn(u, i); }, now: () => t, fallbackGapMs: 0 });
+    const again = restart(sourceId, counting);
+    const h = await again.c.home('series');
+    await again.c.idle();
+    expect(fetches).toBe(0);
+    expect(again.events.map((e) => e.type)).toEqual([]);
+    expect(h.status).toBe('error');
+    expect(h.error?.message).toBe('Not enough storage on this TV to save the series list');
+    t = NOW + 15 * 60_000;
+    const later = restart(sourceId, counting);
+    expect((await later.c.home('series')).status).toBe('loading');
+    await later.c.idle();
+    expect(fetches).toBeGreaterThan(0);
+    void vod;
   });
 });

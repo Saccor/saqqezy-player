@@ -76,6 +76,8 @@ export interface AppApiDeps {
   emit: (e: AppEvent) => void;
   now?: () => number;
   appVersion?: string;
+  /** `navigator.storage.estimate` (bytes used and available to this app); absent where the device has none. */
+  storageEstimate?: () => Promise<{ usage?: number; quota?: number }>;
   /**
    * Builds the phone companion host (the worker passes a CompanionHost factory). `onStatus` emits
    * `{ type: 'companion', status }`. Without it the companion methods report `idle` / not available.
@@ -112,6 +114,7 @@ export class AppApi {
   private readonly emit: (e: AppEvent) => void;
   private readonly now: () => number;
   private readonly appVersion: string;
+  private readonly storageEstimate: AppApiDeps['storageEstimate'];
 
   private activeId: string | undefined;
   /** The last Start page answer for the active source (also kept in meta `startHome:<id>`). */
@@ -222,6 +225,7 @@ export class AppApi {
     this.nowNextWaitMs = deps.nowNextWaitMs ?? NOW_NEXT_WAIT_MS;
     this.sports = new SportsController({ storage: deps.storage, now: this.now });
     this.appVersion = deps.appVersion ?? '0.0.0';
+    this.storageEstimate = deps.storageEstimate;
     this.liveMem = new LiveSourceMemory(deps.storage, this.now);
     this.companion = deps.companion?.(this, (status) => {
       // Why a session ended, for diagnostics (relay close reasons carry no secrets).
@@ -1558,13 +1562,26 @@ export class AppApi {
           ...catchupDiagnostics(s, stats),
         };
       }));
+      const storage = await this.storageUse();
       return {
         appVersion: this.appVersion,
         sources,
         lastErrors: this.errors.map((e) => ({ ...e })),
         settings: await this.currentSettings(),
+        ...(storage ? { storage } : {}),
       };
     });
+  }
+
+  /** Bytes used and available, when the device can say (any failure reads as "unknown"). */
+  private async storageUse(): Promise<{ used: number; quota: number } | undefined> {
+    try {
+      const e = await this.storageEstimate?.();
+      if (e && typeof e.usage === 'number' && typeof e.quota === 'number' && e.quota > 0) return { used: e.usage, quota: e.quota };
+    } catch {
+      // Unknown: the line is left out.
+    }
+    return undefined;
   }
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
@@ -1601,9 +1618,12 @@ export class AppApi {
 
   /** Returns what to rethrow: the original Error when its message is clean, else a new Error with the scrubbed message. */
   private record(where: string, err: unknown): Error {
-    const rpc = toRpcError(err);
-    const message = scrub(rpc.message);
-    const out = err instanceof Error && message === rpc.message
+    const raw = toRpcError(err);
+    // The name and a string code go through the same scrub as the message: any of them may hold a link.
+    const rpc: RpcError = { ...raw, name: scrub(raw.name), ...(typeof raw.code === 'string' ? { code: scrub(raw.code) } : {}) };
+    const message = scrub(raw.message);
+    const clean = message === raw.message && rpc.name === raw.name && rpc.code === raw.code;
+    const out = err instanceof Error && clean
       ? err
       : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}), ...(rpc.code !== undefined ? { code: rpc.code } : {}) });
     if (this.recorded.has(out)) return out;

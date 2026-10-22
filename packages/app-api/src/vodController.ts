@@ -1,5 +1,5 @@
 import {
-  QUALITY_LABELS, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
+  QUALITY_LABELS, StorageWriteError, storageFullMessage, VOD_ALL, VodCatalog, VodFetchCancelled, continueMovies, groupVod, orderVersions, parseVodTitle, preferredLanguages, continueSeries, episodeLabel, isBeforeSeriesPoint, isInProgress, nextEpisode, prevEpisode, resumeMs,
   buildVodSearchIndex, buildTrendingIndex, dvFromTitle, matchTrendingHits, searchKey, searchTitle, searchVodIndex, vodIndexEntry,
   type TrendingFeed, type TrendingIndex,
   type Episode, type MovieDetail, type SeriesDetail, type SeriesPointer, type VodItem, type VodKind, type VodSearchIndex, type VodService, type VodSort,
@@ -62,6 +62,9 @@ export const VOD_DETAIL_CACHE = 50;
 export const VERSION_LANG_LOADS = 6;
 /** "More in <category>" on the movie detail. */
 export const VOD_MORE_ITEMS = 20;
+
+/** What a screen with nothing to show says while the last download is held off because it could not be saved. */
+const storageFullError = (kind: VodKind): RpcError => ({ name: 'StorageWriteError', message: storageFullMessage(kind) });
 
 const LABELS: Record<string, string> = {
   [VOD_ROW_CONTINUE]: 'Continue watching',
@@ -383,6 +386,8 @@ export class VodController {
         void this.startFetch(kind, id, epoch, true, true);
         return { status: 'loading', rows: [], truncated: false };
       }
+      // The last download could not be saved and the backoff still holds: say why instead of showing an empty page.
+      if (await this.vod.storageBlocked(id, kind)) return { status: 'error', rows: [], truncated: false, error: storageFullError(kind) };
       return { status: 'empty', rows: [], truncated: false };
     }
     if (catalog.size === 0) {
@@ -1127,6 +1132,23 @@ export class VodController {
     this.pending.add(p);
   }
 
+  /**
+   * Swaps a fresh list in without reading it back. It takes over from a stored read of the same kind (which would be
+   * older), and never installs next to the other kind: a load or resident of the other kind wins. Search rebuilds this
+   * kind's index from it on its next query; returns whether there was one to drop.
+   */
+  private swapIn(kind: VodKind, list: VodList): boolean {
+    const otherLoading = this.loading !== undefined && this.loading.kind !== kind;
+    const otherResident = this.resident !== undefined && this.resident.kind !== kind;
+    if (!otherLoading && !otherResident) {
+      this.resident = { kind, catalog: this.shape(new VodCatalog(kind, list)) };
+      this.loading = undefined;
+    }
+    const searched = this.indexes.delete(kind);
+    this.indexGens[kind]++;
+    return searched;
+  }
+
   private startFetch(kind: VodKind, id: string, epoch: number, automatic = false, first = false): Promise<void> {
     if (this.epoch !== epoch) return Promise.resolve();
     const existing = this.jobs.get(kind);
@@ -1151,23 +1173,17 @@ export class VodController {
         if (this.epoch !== epoch) return;
         this.progress.delete(kind);
         this.failures.delete(kind);
-        // Swap the fresh list in without reading it back. It takes over from a stored read of the same kind (which
-        // would be older), and never installs next to the other kind: a load or resident of the other kind wins.
-        const otherLoading = this.loading !== undefined && this.loading.kind !== kind;
-        const otherResident = this.resident !== undefined && this.resident.kind !== kind;
-        if (!otherLoading && !otherResident) {
-          this.resident = { kind, catalog: this.shape(new VodCatalog(kind, r.list)) };
-          this.loading = undefined;
-        }
-        // Search rebuilds this kind's index from the fresh list on its next query (told below, when it had one).
-        const searched = this.indexes.delete(kind);
-        this.indexGens[kind]++;
+        const searched = this.swapIn(kind, r.list);
         this.emit({ type: 'vodRefreshed', sourceId: id, kind, count: r.count, truncated: r.truncated });
         if (searched) this.emit({ type: 'searchReady', sourceId: id });
       } catch (err) {
         if (this.epoch !== epoch) return;
+        // The whole list downloaded but could not be saved: it stays the catalogue for this session.
+        if (err instanceof StorageWriteError && err.value) {
+          this.progress.delete(kind);
+          if (this.swapIn(kind, err.value as VodList)) this.emit({ type: 'searchReady', sourceId: id });
         // The titles so far were never stored: a failed first load must not leave them looking like the catalogue.
-        if (this.progress.delete(kind)) {
+        } else if (this.progress.delete(kind)) {
           if (this.resident?.kind === kind) this.resident = undefined;
           // A Search index built from those titles goes too (a build in flight must not install it).
           if (this.indexes.delete(kind)) this.emit({ type: 'searchReady', sourceId: id });

@@ -217,6 +217,8 @@ export interface DiagnosticsInfo {
   /** Messages are already credential-free. */
   lastErrors: { at: number; where: string; message: string; name?: string; code?: number | string; status?: number }[];
   settings: AppSettings;
+  /** What this device lets the app keep, in bytes (absent when it cannot say). */
+  storage?: { used: number; quota: number };
 }
 
 /** One poster in a row or grid. */

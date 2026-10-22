@@ -56,3 +56,18 @@ export class SourceRefusedError extends Error {
     this.name = 'SourceRefused';
   }
 }
+
+/** What the app says when a downloaded list cannot be saved on the device (neutral: no provider). */
+export const storageFullMessage = (what: 'movie' | 'series'): string => `Not enough storage on this TV to save the ${what} list`;
+
+/**
+ * Thrown when saving something that was fetched fine failed on the device (a full or refusing database). The name and
+ * message reach the error log; `cause` keeps the original error. `value` is what could not be saved, so a caller can
+ * keep using it for the session.
+ */
+export class StorageWriteError<V = unknown> extends Error {
+  constructor(readonly store: string, override readonly cause: unknown, message = `Could not save ${store}`, readonly value?: V) {
+    super(message);
+    this.name = 'StorageWriteError';
+  }
+}

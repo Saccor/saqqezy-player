@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
   AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
-  addTeamError, displayItems, openOnLabel,
+  addTeamError, displayItems, openOnLabel, storageLine,
 } from './settingsLogic.ts';
 import {
   HIDE_NO_EPG_HELP, HIDE_NO_EPG_NO_GUIDE, HIDE_NO_EPG_UNAVAILABLE, guideLoaded, hideNoEpgRow, listActions, listMoveTarget,
@@ -149,6 +149,15 @@ describe('diagnosticsLines', () => {
     expect(lines([{ at: 1, where: 'x', name: 'TypeError', message: 'bad', code: 22, status: 503 }])).toEqual(['x: TypeError: bad (code 22, HTTP 503)']);
     // Entries without a name, or the generic one, read as before.
     expect(lines([{ at: 1, where: 'x', message: 'bad' }, { at: 0, where: 'y', name: 'Error', message: 'worse' }])).toEqual(['x: bad', 'y: worse']);
+  });
+
+  it('shows how much storage is used when the device says', () => {
+    expect(storageLine({ used: 123 * 1048576, quota: 2048 * 1048576 })).toBe('123 MB of 2,048 MB');
+    expect(storageLine({ used: 0, quota: 900 * 1048576 })).toBe('0 MB of 900 MB');
+    expect(storageLine({ used: 1048576 * 1234567, quota: 1048576 * 2000000 })).toBe('1,234,567 MB of 2,000,000 MB');
+    const text = diagnosticsLines({ ...info, storage: { used: 123 * 1048576, quota: 2048 * 1048576 } }, { platform: 'tizen' }).map(([k, v]) => `${k}: ${v}`);
+    expect(text).toContain('Storage: 123 MB of 2,048 MB');
+    expect(diagnosticsLines(info, { platform: 'tizen' }).some(([k]) => k === 'Storage')).toBe(false);
   });
 
   it('says so when there are no sources or errors', () => {

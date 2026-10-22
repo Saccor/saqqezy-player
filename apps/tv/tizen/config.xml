@@ -16,6 +16,8 @@
     <tizen:privilege name="http://developer.samsung.com/privilege/avplay"/>
     <!-- productinfo: Settings > Diagnostics reads the real model name (webapis.productinfo.getRealModel). -->
     <tizen:privilege name="http://developer.samsung.com/privilege/productinfo"/>
+    <!-- unlimitedstorage: the movie and series lists (tens of thousands of titles) need more than the default quota. -->
+    <tizen:privilege name="http://tizen.org/privilege/unlimitedstorage"/>
     <tizen:profile name="tv-samsung"/>
     <!--
       32:9 experiment (OFF). By default the app gets a 1920x1080 (16:9) viewport, letterboxed on ultrawide panels
