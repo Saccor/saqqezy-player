@@ -457,8 +457,7 @@ export class AvplayPlayer implements Player {
     this.video = false;
     const resource = s.resource;
     this.scheduleTeardown(() => {
-      // Separate guards: a failing stop() (e.g. already idle) must not skip close().
-      try { this.avplay.stop(); } catch { /* ignore */ }
+      // close() alone is valid from any state (Samsung AVPlay docs); on the G9 stop() first cost ~200 ms of UI thread per switch, close() ~10 ms.
       try { this.avplay.close(); } catch { /* ignore */ }
       // The scaler is free only once AVPlay has let go of it.
       if (resource) {
