@@ -13,3 +13,6 @@ export function pickerFooter(rows: readonly PickerRow[], selected: number, hint:
   const r = rows[selected];
   return [(r?.kind === 'list' ? r.help : undefined) ?? '', hintLine];
 }
+
+/** Rows Up/Down and OK can land on: every row but a heading. */
+export const pickerSelectable = (r: PickerRow | undefined): boolean => r !== undefined && r.kind !== 'heading';

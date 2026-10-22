@@ -305,6 +305,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const pickVersion = async (row: PickerRow) => {
     removePicker?.();
     closeVersions();
+    if (row.kind === 'heading') return;
     if (row.kind === 'new') {
       await api.setVodSplit(params.id, true).catch((err: unknown) => console.warn('Split failed', errName(err)));
     } else {

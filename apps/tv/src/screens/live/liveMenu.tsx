@@ -247,6 +247,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     const s = picker();
     if (!s || edit()) return;
     if (p.kind === 'new') { openKeyboard('newList', s.row, 'New list'); return; }
+    if (p.kind === 'heading') return;
     const op: LayoutOp = p.checked
       ? { op: 'removeFromList', listId: p.id, channelIds: [s.row.id] }
       : { op: 'addToList', listId: p.id, channelIds: [s.row.id] };
