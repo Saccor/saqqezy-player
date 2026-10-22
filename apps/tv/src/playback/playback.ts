@@ -254,6 +254,8 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
     openGap,
     ledger,
     tile: () => (single() ? undefined : n),
+    // The ledger labels the stream by slot in both roles (the journal's "Window N" is slot n + 1 too).
+    slot: n,
     onRefusal: () => (single() ? 'retry' : 'stop'),
     ...retryDeps,
   });

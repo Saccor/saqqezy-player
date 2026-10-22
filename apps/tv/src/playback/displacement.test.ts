@@ -3,10 +3,11 @@ import type { LedgerEvent } from '@iptv/player';
 import { createDisplacementDetector } from './displacement.ts';
 
 const host = 'a.example.test';
-const begin = (tile: number, at: number): LedgerEvent => ({ k: 'begin', key: 's', host, tile, at });
-const playing = (tile: number, at: number): LedgerEvent => ({ k: 'playing', key: 's', host, tile, at });
-const dropped = (tile: number, at: number, playedMs: number, code = 'EOS'): LedgerEvent =>
-  ({ k: 'dropped', key: 's', host, tile, at, code, playedMs });
+// `session` defaults to the label: one stream per label unless a test says otherwise.
+const begin = (tile: number, at: number, session = tile): LedgerEvent => ({ k: 'begin', key: 's', host, tile, at, session });
+const playing = (tile: number, at: number, session = tile): LedgerEvent => ({ k: 'playing', key: 's', host, tile, at, session });
+const dropped = (tile: number, at: number, playedMs: number, code = 'EOS', session = tile): LedgerEvent =>
+  ({ k: 'dropped', key: 's', host, tile, at, code, playedMs, session });
 
 describe('createDisplacementDetector', () => {
   it('a window that played steadily and drops within 8 s of another opening was displaced', () => {
@@ -22,7 +23,7 @@ describe('createDisplacementDetector', () => {
     d.feed(begin(1, 20_000));
     expect(d.feed(dropped(0, 21_000, 9_000))).toBeUndefined();
     expect(d.feed(dropped(2, 28_000, 60_000))).toBeUndefined();
-    expect(d.feed({ k: 'dropped', key: 's', host: 'b.example.test', tile: 3, at: 21_000, code: 'EOS', playedMs: 60_000 })).toBeUndefined();
+    expect(d.feed({ k: 'dropped', key: 's', host: 'b.example.test', tile: 3, at: 21_000, code: 'EOS', playedMs: 60_000, session: 3 })).toBeUndefined();
     expect(d.feed(dropped(1, 21_500, 60_000))).toBeUndefined(); // the window that opened is not displaced by itself
   });
 
@@ -63,5 +64,27 @@ describe('createDisplacementDetector', () => {
     open(0);
     d.feed(playing(0, (t += 1000)));
     expect(begins).toBeLessThanOrEqual(4);
+  });
+
+  it('ignores a stream that reuses a label: a label belongs to its latest stream', () => {
+    // Two streams under label 0 (a slot labelled the same as another): the older one's events cannot be told apart
+    // from the newer one's, so they are left out; the newer one is detected as usual.
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0, 10));
+    d.feed(playing(0, 1000, 10));
+    d.feed(begin(0, 15_000, 11));
+    d.feed(playing(0, 16_000, 11));
+    d.feed(begin(1, 30_000, 12));
+    expect(d.feed(dropped(0, 31_000, 30_000, 'EOS', 10))).toBeUndefined();
+    // Nor do its drops count towards two windows taking turns.
+    expect(d.feed(dropped(1, 32_000, 0, 'EOS', 12))).toBeUndefined();
+    expect(d.feed(dropped(0, 33_000, 0, 'EOS', 10))).toBeUndefined();
+    // The label's latest stream still counts: it played steadily and the source cut it after window 1 opened.
+    const e = createDisplacementDetector();
+    e.feed(begin(0, 0, 10));
+    e.feed(begin(0, 1000, 11));
+    e.feed(playing(0, 2000, 11));
+    e.feed(begin(1, 20_000, 12));
+    expect(e.feed(dropped(0, 23_000, 21_000, 'EOS', 11))).toMatchObject({ k: 'displaced', victim: 0, byTile: 1 });
   });
 });

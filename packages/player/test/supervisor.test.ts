@@ -2260,6 +2260,39 @@ describe('PlaybackSupervisor: connection ledger (multiview tiles)', () => {
   });
 });
 
+describe('PlaybackSupervisor: ledger label by pool slot', () => {
+  it('single view on slot 1 opens under label 1 (its journal events still carry no tile)', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const journal: JournalEvent[] = [];
+    const { sup } = setup({ ledger, slot: 1, tile: () => undefined, journal: { add: (e: JournalEvent) => { journal.push(e); } } });
+    sup.play(A, undefined, { sourceKey: 's' });
+    expect(ledger.snapshot('s').map((r) => r.tile)).toEqual([1]);
+    expect(journal.every((e) => !('tile' in e))).toBe(true);
+  });
+
+  it('entering multiview again after leaving with slot 1 kept gives two distinct labels', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    let multiview = false;
+    // Slot 1 kept the sound when multiview ended: it is the single-view player, then a window again.
+    const kept = setup({ ledger, slot: 1, tile: () => (multiview ? 1 : undefined) });
+    kept.sup.play(A, undefined, { sourceKey: 's' });
+    kept.player.emit('playing');
+    multiview = true;
+    // Slot 0 is made again for the new window.
+    const fresh = setup({ ledger, slot: 0, tile: () => (multiview ? 0 : undefined) });
+    fresh.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    const labels = ledger.snapshot('s').map((r) => r.tile);
+    expect(labels).toEqual([1, 0]);
+  });
+
+  it('without a slot the label stays the tile, else 0', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    setup({ ledger, tile: 2 }).sup.play(A, undefined, { sourceKey: 's' });
+    setup({ ledger }).sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    expect(ledger.snapshot('s').map((r) => r.tile)).toEqual([2, 0]);
+  });
+});
+
 describe('PlaybackSupervisor: tile options', () => {
   it("onRefusal 'stop': an engine AUTH ends the play as refused at once, with no reconnect or alternate", () => {
     const { player, sup, statuses } = setup({ onRefusal: 'stop' });

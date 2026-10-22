@@ -39,6 +39,11 @@ export interface SupervisorOptions {
   /** The multiview slot this supervisor drives (absent: slot 0, the single-view player); put on every journal event. */
   tile?: number | (() => number | undefined);
   /**
+   * The pool slot this supervisor drives, in single view and in multiview alike: its ledger sessions begin under this
+   * label, so two streams never share one after the sound moved to another slot (absent: the tile, else 0).
+   */
+  slot?: number;
+  /**
    * What a refusal does. `retry` (default): one immediate AUTH reconnect, then the other format, as for single view.
    * `stop` (multiview tiles): the play ends as `failed/refused` at once, from the engine or the status probe: no
    * reconnect, no alternate, no give-up retries. A refused tile is never retried by itself.
@@ -181,6 +186,7 @@ export class PlaybackSupervisor {
   private readonly owner = ++nextOwner;
   private readonly ledger: SupervisorOptions['ledger'];
   private readonly tileOpt: SupervisorOptions['tile'];
+  private readonly slotOpt: number | undefined;
   private readonly refusalOpt: SupervisorOptions['onRefusal'];
   /** The current attempt's ledger session, and sessions waiting for the engine's teardown. */
   private session: LedgerSession | undefined;
@@ -291,6 +297,7 @@ export class PlaybackSupervisor {
     this.openGap = opts.openGap;
     this.ledger = opts.ledger;
     this.tileOpt = opts.tile;
+    this.slotOpt = opts.slot;
     this.refusalOpt = opts.onRefusal;
     this.probe = opts.probe;
     this.blocked = opts.blocked;
@@ -1296,7 +1303,7 @@ export class PlaybackSupervisor {
     this.attemptConcurrent = 0;
     if (!this.ledger || this.sourceKey === undefined) return;
     try {
-      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.tileId() ?? 0);
+      const b = this.ledger.begin(this.sourceKey, this.urls[this.urlIndex] ?? '', this.slotOpt ?? this.tileId() ?? 0);
       this.session = b.session;
       this.attemptConcurrent = b.concurrent;
     } catch {

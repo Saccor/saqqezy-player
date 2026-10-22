@@ -16,11 +16,15 @@ export interface LedgerSession {
   closed(): void;
 }
 
+/**
+ * `tile`: the label the session began under (the supervisor's pool slot). `session`: the session's own number, 1 up
+ * per ledger, so a label reused by a later stream (a zap, a reconnect) can be told apart.
+ */
 export type LedgerEvent =
-  | { k: 'begin'; key: string; host: string; tile: number; at: number }
-  | { k: 'playing'; key: string; host: string; tile: number; at: number }
+  | { k: 'begin'; key: string; host: string; tile: number; at: number; session: number }
+  | { k: 'playing'; key: string; host: string; tile: number; at: number; session: number }
   /** `playedMs`: how long the stream had played before it dropped (0 when it never showed a frame). */
-  | { k: 'dropped'; key: string; host: string; tile: number; at: number; code: string; playedMs: number };
+  | { k: 'dropped'; key: string; host: string; tile: number; at: number; code: string; playedMs: number; session: number };
 
 export interface LedgerRow {
   tile: number;
@@ -49,6 +53,7 @@ export class ConnectionLedger {
   private entries: Entry[] = [];
   private readonly peak = new Map<string, number>();
   private readonly listeners = new Set<(e: LedgerEvent) => void>();
+  private serial = 0;
 
   constructor(opts: { now?: () => number; closingGraceMs?: number } = {}) {
     this.now = opts.now ?? Date.now;
@@ -59,9 +64,10 @@ export class ConnectionLedger {
     const host = hostOf(url);
     const concurrent = this.concurrent(key, host);
     const e: Entry = { key, host, tile, since: this.now(), closed: false };
+    const session = ++this.serial;
     this.entries.push(e);
     this.peak.set(key, Math.max(this.peak.get(key) ?? 0, this.concurrent(key)));
-    this.emit({ k: 'begin', key, host, tile, at: e.since });
+    this.emit({ k: 'begin', key, host, tile, at: e.since, session });
     const closing = () => { e.closingAt ??= this.now(); };
     return {
       concurrent,
@@ -69,12 +75,12 @@ export class ConnectionLedger {
         playing: () => {
           if (e.playingSince !== undefined) return;
           e.playingSince = this.now();
-          this.emit({ k: 'playing', key, host, tile, at: e.playingSince });
+          this.emit({ k: 'playing', key, host, tile, at: e.playingSince, session });
         },
         dropped: (code) => {
           const at = this.now();
           closing();
-          this.emit({ k: 'dropped', key, host, tile, at, code, playedMs: e.playingSince === undefined ? 0 : at - e.playingSince });
+          this.emit({ k: 'dropped', key, host, tile, at, code, playedMs: e.playingSince === undefined ? 0 : at - e.playingSince, session });
         },
         closing,
         closed: () => {

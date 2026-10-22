@@ -5,7 +5,8 @@ import type { LedgerEvent } from '@iptv/player';
  * connection ledger's events; pure. A window that played steadily (10 s or more) and drops within 8 s of another
  * window opening on the same source and host was displaced: the app then stops the newest window, so the two never
  * knock each other out in turn. Two windows that keep failing alternately (3 drops in 60 s) are a ping-pong: the one
- * that began last stops.
+ * that began last stops. A label (the window's slot) belongs to its latest stream: events of an older stream under the
+ * same label are ignored, since the windows they would name cannot be told apart.
  */
 export type DisplacementVerdict =
   | { k: 'displaced'; key: string; host: string; victim: number; byTile: number; afterMs: number; concurrentBefore: number }
@@ -29,6 +30,8 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
   const begins = new Map<string, Begin[]>();
   const active = new Map<string, Set<number>>();
   const drops = new Map<string, Array<{ tile: number; at: number }>>();
+  /** Per source and host, each label's latest session. */
+  const owners = new Map<string, Map<number, number>>();
   const list = <T>(m: Map<string, T[]>, k: string): T[] => {
     let l = m.get(k);
     if (!l) m.set(k, (l = []));
@@ -40,7 +43,10 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
       const where = `${e.key}\n${e.host}`;
       const open = active.get(where) ?? new Set<number>();
       active.set(where, open);
+      let owner = owners.get(where);
+      if (!owner) owners.set(where, (owner = new Map()));
       if (e.k === 'begin') {
+        owner.set(e.tile, e.session);
         open.delete(e.tile);
         const b = list(begins, where);
         b.push({ tile: e.tile, at: e.at, concurrentBefore: open.size });
@@ -50,6 +56,8 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
         return undefined;
       }
       if (e.k !== 'dropped') return undefined;
+      // A later stream reused this label: this drop is not the window's.
+      if (owner.has(e.tile) && owner.get(e.tile) !== e.session) return undefined;
       open.delete(e.tile);
       if (e.playedMs >= steadyMs) {
         const by = [...(begins.get(where) ?? [])].reverse()
