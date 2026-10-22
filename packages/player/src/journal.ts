@@ -3,8 +3,11 @@ import type { EngineName, ErrorCode, LivePreset } from './types.ts';
 export type ReconnectReason = 'noBytes' | 'emptyBuffer' | 'frozenVideo' | 'backstop';
 export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'drift' | 'goLive' | 'edgeSeekFailed' | 'seek';
 
-/** One thing the player did. Never a URL or credentials (CLAUDE.md rules 6-7); `t` is clock ms (Date.now). */
-export type JournalEvent =
+/**
+ * One thing the player did. Never a URL or credentials (CLAUDE.md rules 6-7); `t` is clock ms (Date.now). `tile`: the
+ * multiview slot that did it (absent: slot 0, the single-view player).
+ */
+export type JournalEvent = { tile?: number } & (
   | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible' | 'resume_restore' | 'resume_reopen'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
   | { k: 'play'; t: number; channel?: string; preset: LivePreset; urls: number }
   | { k: 'open'; t: number; attempt: number; urlIndex: number }
@@ -29,7 +32,7 @@ export type JournalEvent =
   | { k: 'app'; t: number; what: 'error' | 'rejection' | 'workerError' | 'workerCrash' | 'workerRestart' | 'workerGaveUp'; name?: string }
   | { k: 'audio'; t: number; action: 'switch' | 'none'; from?: string; to?: string; because?: 'codec' | 'language' }
   | { k: 'engineSwitch'; t: number; from: EngineName; to: EngineName; reason: string }
-  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' };
+  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' });
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 /** A journal event before its time stamp is added. */

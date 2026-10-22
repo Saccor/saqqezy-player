@@ -36,8 +36,14 @@ export interface SupervisorOptions {
    * `sourceKey` begins a session; a refusal then says how many other sessions of its host were open (`concurrent`).
    */
   ledger?: Pick<ConnectionLedger, 'begin'>;
-  /** The multiview slot this supervisor drives (absent: slot 0, the single-view player). */
+  /** The multiview slot this supervisor drives (absent: slot 0, the single-view player); put on every journal event. */
   tile?: number;
+  /**
+   * What a refusal does. `retry` (default): one immediate AUTH reconnect, then the other format, as for single view.
+   * `stop` (multiview tiles): the play ends as `failed/refused` at once, from the engine or the status probe: no
+   * reconnect, no alternate, no give-up retries. A refused tile is never retried by itself.
+   */
+  onRefusal?: 'retry' | 'stop';
   /**
    * Asks the source for a stream's HTTP status (one `GET` with `Range: bytes=0-0`, aborted once the headers arrive).
    * Used when an engine that cannot see statuses (`Player.supportsStatus` false or absent) fails before its first
@@ -114,6 +120,11 @@ export interface PlayOptions {
    * the per-source open rate and counts against it, and the fail count and reconnect budget are kept, not reset.
    */
   automatic?: boolean;
+  /**
+   * A user open that still waits for room under the per-source open rate and counts against it (a multiview tile's
+   * first open, a tile Retry). Unlike `automatic`, the fail count and reconnect budget start afresh.
+   */
+  countOpen?: boolean;
 }
 
 /** Same values as `REFUSAL_STATUSES` in @iptv/core (this package does not depend on core). */
@@ -170,6 +181,7 @@ export class PlaybackSupervisor {
   private readonly owner = ++nextOwner;
   private readonly ledger: SupervisorOptions['ledger'];
   private readonly tile: number | undefined;
+  private readonly onRefusal: 'retry' | 'stop';
   /** The current attempt's ledger session, and sessions waiting for the engine's teardown. */
   private session: LedgerSession | undefined;
   private closingSessions: LedgerSession[] = [];
@@ -279,6 +291,7 @@ export class PlaybackSupervisor {
     this.openGap = opts.openGap;
     this.ledger = opts.ledger;
     this.tile = opts.tile;
+    this.onRefusal = opts.onRefusal ?? 'retry';
     this.probe = opts.probe;
     this.blocked = opts.blocked;
     this.refusalStatuses = opts.refusalStatuses ?? DEFAULT_REFUSAL_STATUSES;
@@ -340,7 +353,7 @@ export class PlaybackSupervisor {
     this.emit({ kind: 'loading' });
     // A new play() never overlaps the old stream's teardown and keeps the minimum gap after the last open. It is the
     // user's open: the open-rate cap neither holds nor counts it.
-    this.afterClosed(() => this.openAfterGap(opts.automatic === true));
+    this.afterClosed(() => this.openAfterGap(opts.automatic === true || opts.countOpen === true));
   }
 
   stop(): void {
@@ -919,6 +932,14 @@ export class PlaybackSupervisor {
 
   /** The failure's path once its code is known (the part of `fail` after the attempt has ended). */
   private afterFail(code: ErrorCode | undefined, inline: boolean, why: ReconnectCause): void {
+    if (code === 'AUTH' && this.onRefusal === 'stop') {
+      // A tile: the source refused it, so it stops here and shows why; only the user's Retry opens it again.
+      this.refusedIndex = this.urlIndex;
+      this.refusedConcurrent = this.attemptConcurrent;
+      this.givingUp = false;
+      this.terminal('refused');
+      return;
+    }
     if (this.givingUp) {
       this.scheduleGiveUpRetry();
       return;
@@ -1231,7 +1252,7 @@ export class PlaybackSupervisor {
   private note(e: JournalInput): void {
     if (!this.journal) return;
     try {
-      this.journal.add({ ...e, t: this.now() } as JournalEvent);
+      this.journal.add({ ...e, t: this.now(), ...(this.tile !== undefined ? { tile: this.tile } : {}) } as JournalEvent);
     } catch {
       // diagnostics only
     }
