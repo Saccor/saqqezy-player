@@ -7,9 +7,9 @@
     <style>
       html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0d12; }
       /* Video sits beneath the Lightning canvas; the canvas is cleared to fully transparent. */
-      #video-layer { position: absolute; left: 0; top: 0; z-index: 0; overflow: hidden; background: #000; }
-      #video-layer .video-box { position: absolute; }
-      #video-layer video { display: block; width: 100%; height: 100%; background: #000; }
+      #video-layer, .video-slot { position: absolute; left: 0; top: 0; z-index: 0; overflow: hidden; background: #000; }
+      #video-layer .video-box, .video-slot .video-box { position: absolute; }
+      #video-layer video, .video-slot video { display: block; width: 100%; height: 100%; background: #000; }
       #app { position: absolute; left: 0; top: 0; z-index: 1; }
       #app canvas { display: block; }
     </style>

@@ -1,14 +1,19 @@
-import { PlaybackJournal, PlaybackSupervisor, SourceOpenRate, type JournalEvent, type Player } from '@iptv/player';
+import { streamCooldownKey } from '@iptv/core';
+import {
+  ConnectionLedger, PlaybackJournal, PlaybackSupervisor, SharedOpenGap, SourceOpenRate, type JournalEvent, type Player,
+} from '@iptv/player';
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
 import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver } from '../platform/tizen.ts';
 import { AvplayPlayer } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player } from '../video/Html5Player.ts';
-import { createVideoLayer } from '../video/videoLayer.ts';
+import { createSlotRoot, createVideoLayer } from '../video/videoLayer.ts';
 import { SOURCE_COPY } from '../copy.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { createPlaybackController } from './controller.ts';
+import { createPlaybackController, type CooldownGate, type PlaybackController } from './controller.ts';
+import { createPlaybackPool, type PlaybackPool } from './pool.ts';
+import { createRefusalScope } from './refusalScope.ts';
 import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
@@ -90,6 +95,11 @@ const openRate = new SourceOpenRate({
   },
 });
 
+/** Per source, the gap between opens of every slot (multiview tiles open about 1.15 s apart). */
+const openGap = new SharedOpenGap();
+/** Per source and host, the streams every slot has open: a tile's refusal can stay on that tile. */
+export const ledger = new ConnectionLedger();
+
 export const supervisor = new PlaybackSupervisor(player, {
   preset: () => settings()?.liveDelay ?? 'balanced',
   // TVs mute or ignore playbackRate changes: they correct drift by seeking only.
@@ -97,22 +107,25 @@ export const supervisor = new PlaybackSupervisor(player, {
   liveTargets,
   journal,
   openRate,
+  openGap,
+  ledger,
   ...retryDeps,
 });
 
 const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
 
 /** `playChannel`, `stop`, `setRect`, `playerKind`, `status` and `current`; status changes also feed the debug overlay. */
+/** The worker owns the refusal cooldown: no stream opens while its host or the active source is cooling down. */
+const cooldownGate: CooldownGate = {
+  // The playable's seed counts until the worker announces that host (it is published only after this decision).
+  blocked: (s) => cooldownOf(s.cooldownKey, s.cooldown).state !== 'clear',
+  refused: (key, url, retryAfterMs) => { api.reportStreamRefused(key, url, retryAfterMs).catch(reportFailed); },
+  answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
+};
+
 export const playback = createPlaybackController(
   player, supervisor, setSupervisorStatus, avplay ? 'AVPlay' : 'HTML5', () => initState()?.activeSourceId,
-  // The worker owns the refusal cooldown: no stream opens while its host or the active source is cooling down.
-  {
-    // The playable's seed counts until the worker announces that host (it is published only after this decision).
-    blocked: (s) => cooldownOf(s.cooldownKey, s.cooldown).state !== 'clear',
-    refused: (key, url, retryAfterMs) => { api.reportStreamRefused(key, url, retryAfterMs).catch(reportFailed); },
-    answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
-    current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown),
-  },
+  { ...cooldownGate, current: (s) => setStreamCooldown(s?.cooldownKey, s?.cooldown) },
   (what) => journal.add({ k: 'page', t: Date.now(), what }),
   // A combined channel: its next stream takes over when one fails (never after a refusal; at most two per tune).
   {
@@ -120,6 +133,56 @@ export const playback = createPlaybackController(
     failed: (id) => { api.reportSourceFailed(id).catch(reportFailed); },
     switched: () => showToast(SOURCE_COPY.switched),
   },
+);
+
+/** One playback slot: slot 0 is the stack above; slots 1..3 are multiview tiles. */
+export interface PlaybackSlot {
+  player: AppPlayer;
+  supervisor: PlaybackSupervisor;
+  playback: PlaybackController;
+  stop(): void;
+  dispose?(): void;
+}
+
+/** Tile refusals per host this session: the 4th within 10 min cools the host down after all. */
+const refusalScope = createRefusalScope();
+
+/**
+ * A multiview tile (spec 2026-10-20-multiview §7.1): its own `<video>` and supervisor, sharing the source's open
+ * rate, open gap and ledger. A refusal stops only the tile (never retried by itself) unless it is about the host.
+ * Tiles use the `stable` delay and learn no live targets. Nothing creates one yet (P1).
+ */
+function createTileSlot(n: number): PlaybackSlot {
+  const root = createSlotRoot(videoRoot!, n);
+  const layer = createVideoLayer(root);
+  const tilePlayer = new Html5Player(layer, { preferNativeHls: isTv, isTv });
+  const tileSupervisor = new PlaybackSupervisor(tilePlayer, {
+    preset: () => 'stable', allowRate: !isTv, journal, openRate, openGap, ledger, tile: n, onRefusal: 'stop', ...retryDeps,
+  });
+  const tilePlayback = createPlaybackController(
+    tilePlayer, tileSupervisor, undefined, 'HTML5', () => initState()?.activeSourceId, cooldownGate, undefined, undefined,
+    { scope: (key, url, facts) => refusalScope.decide(streamCooldownKey(key, url), facts) },
+  );
+  return {
+    player: tilePlayer,
+    supervisor: tileSupervisor,
+    playback: tilePlayback,
+    stop: () => tilePlayback.stop(),
+    dispose: () => {
+      tileSupervisor.dispose();
+      tilePlayer.destroy();
+      layer.destroy();
+      root.remove();
+    },
+  };
+}
+
+/**
+ * Every playback slot. Slot 0 is today's single-view stack. TVs keep one video until the P4 spike, so only desktop
+ * may have tiles.
+ */
+export const pool: PlaybackPool<PlaybackSlot> = createPlaybackPool<PlaybackSlot>(
+  { player, supervisor, playback, stop: () => playback.stop() }, createTileSlot, isTv || avplay ? 1 : 4,
 );
 
 // Engines that can suspend (AVPlay) get the multitasking path: live closes, VOD suspends (spec 3.1).
@@ -166,7 +229,7 @@ export const previewHold = {
  * out while no Player is on screen to ask "Still watching?", live playback simply stops. A film or episode
  * (`vod:` ids, VodPlay's own screen) is never cut: the timer belongs to live TV.
  */
-export const sleepTimer = createSharedSleepTimer({ onExpireUnattended: () => { if (!isVodId(playback.current()?.id)) playback.stop(); } });
+export const sleepTimer = createSharedSleepTimer({ onExpireUnattended: () => { if (!isVodId(playback.current()?.id)) pool.stopAll(); } });
 
 /** VodPlay's playables carry a `vod:` id (see `liveReturn.ts`). */
 export function isVodId(id: string | undefined): boolean {
