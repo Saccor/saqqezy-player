@@ -115,7 +115,7 @@ const cooldownGate: CooldownGate = {
   answered: (key, url) => { api.reportStreamAnswered(key, url).catch(reportFailed); },
 };
 
-/** One playback stack. Slot 0 starts as the single-view player; slots 1..3 are made for multiview windows. */
+/** One playback stack. Slot 0 starts as the single-view player; slots 1..5 are made for multiview windows. */
 export interface PlaybackSlot {
   readonly n: number;
   player: AppPlayer;
@@ -256,7 +256,7 @@ function createWindowSlot(n: number): PlaybackSlot {
  * the sound.
  */
 export const pool: PlaybackPool<PlaybackSlot> = createPlaybackPool<PlaybackSlot>(
-  createMainSlot(), (n) => (n === 0 ? createMainSlot() : createWindowSlot(n)), isTv || avplay ? 1 : 4,
+  createMainSlot(), (n) => (n === 0 ? createMainSlot() : createWindowSlot(n)), isTv || avplay ? 1 : 6,
 );
 pool.onPrimary((n, prev) => {
   setPrimaryIndex(n);

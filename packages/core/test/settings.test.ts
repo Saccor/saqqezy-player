@@ -19,9 +19,9 @@ describe('sanitizeSettings', () => {
     });
   });
 
-  test('maxWindows keeps Auto, 2, 3 and 4, and falls back to Auto; it never syncs', () => {
-    for (const v of ['auto', 2, 3, 4] as const) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe(v);
-    for (const v of [1, 5, '2', null, undefined]) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe('auto');
+  test('maxWindows keeps Auto and 2 to 6, and falls back to Auto; it never syncs', () => {
+    for (const v of ['auto', 2, 3, 4, 5, 6] as const) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe(v);
+    for (const v of [1, 7, '2', null, undefined]) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe('auto');
     expect(SYNCED_SETTINGS.has('maxWindows')).toBe(false);
   });
 

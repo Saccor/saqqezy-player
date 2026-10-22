@@ -29,7 +29,7 @@ export interface VideoLayer {
 }
 
 /**
- * A video root for multiview slot `n` (1..3), right after `#video-layer` and styled like it (`.video-slot` in
+ * A video root for multiview slot `n` (1..5), right after `#video-layer` and styled like it (`.video-slot` in
  * index.html): `createVideoLayer` then owns it as it owns the main root. Slot 0 keeps `#video-layer` itself.
  */
 export function createSlotRoot(root: HTMLElement, n: number): HTMLElement {

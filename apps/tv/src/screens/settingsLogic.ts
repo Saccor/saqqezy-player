@@ -29,7 +29,7 @@ export const LIVE_DELAY_OPTIONS = ['low', 'balanced', 'stable'] as const;
 export const liveDelayLabel = (v: AppSettings['liveDelay']): string =>
   (v === 'low' ? 'Low' : v === 'stable' ? 'Stable' : 'Balanced (default)');
 /** Multiview's Max windows (core's `MaxWindows`). */
-export const MAX_WINDOWS_OPTIONS = ['auto', 2, 3, 4] as const;
+export const MAX_WINDOWS_OPTIONS = ['auto', 2, 3, 4, 5, 6] as const;
 export const maxWindowsLabel = (v: AppSettings['maxWindows'], ceiling: number): string =>
   (v === 'auto' ? `Auto (this device: ${ceiling})` : String(v));
 /** Same choices as the Player's sleep timer (and core's sanitizer). */
