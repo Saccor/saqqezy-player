@@ -62,7 +62,7 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
       d.push({ tile: e.tile, at: e.at });
       while (d.length && e.at - d[0]!.at > pingPongMs) d.shift();
       // The latest run of drops that alternate between two windows.
-      const run = [d.at(-1)!];
+      const run = [d[d.length - 1]!];
       for (let i = d.length - 2; i >= 0; i--) {
         const prev = run[run.length - 1]!;
         if (d[i]!.tile === prev.tile) break;

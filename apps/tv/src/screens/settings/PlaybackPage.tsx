@@ -1,9 +1,11 @@
 import { createSignal, onCleanup } from 'solid-js';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
-import { playback } from '../../playback/playback.ts';
+import { playback, pool } from '../../playback/playback.ts';
+import { deviceCeiling } from '../multiview/windows.ts';
 import { settings } from '../../state/appState.ts';
 import {
-  FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel, onOff, sleepDefaultLabel,
+  FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel,
+  maxWindowsLabel, onOff, sleepDefaultLabel,
 } from '../settingsLogic.ts';
 import { AUDIO_LANGUAGE_OPTIONS, SUBTITLE_LANGUAGE_OPTIONS, audioLanguageLabel, subtitleLanguageLabel } from '../../vod/subtitleLogic.ts';
 import {
@@ -13,7 +15,8 @@ import { saveSetting, type PageProps } from './shared.ts';
 
 /**
  * Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle and audio languages, exact-match subtitles,
- * and for movies and series: combine duplicates and the preferred language.
+ * for movies and series: combine duplicates and the preferred language, and multiview's Max windows where the device
+ * can play more than one channel at once.
  */
 export function PlaybackPage(props: PageProps) {
   const [sel, setSel] = createSignal(0);
@@ -25,6 +28,12 @@ export function PlaybackPage(props: PageProps) {
   const exact = () => settings()?.subtitleExactMatch ?? true;
   const combine = () => settings()?.combineDuplicates ?? true;
   const prefLang = () => preferredLanguageOption(settings()?.preferredLanguages);
+  const maxWindows = () => settings()?.maxWindows ?? 'auto';
+  const ceiling = deviceCeiling(pool.max);
+  const multiviewItems = (): SettingItem[] => (ceiling < 2 ? [] : [
+    { id: 'maxWindows', label: 'Max windows', value: maxWindowsLabel(maxWindows(), ceiling), adjustable: true,
+      help: 'Multiview: channels on screen at once. Each window uses one connection from your source.' },
+  ]);
   const items = (): SettingItem[] => [
     { id: 'format', label: 'Preferred stream format', value: formatLabel(format()), adjustable: true,
       help: "If channels don't start, try the other format." },
@@ -42,6 +51,7 @@ export function PlaybackPage(props: PageProps) {
       help: 'Movies and series: one card per title. Languages and qualities are under Versions.' },
     { id: 'preferredLanguage', label: 'Preferred language', value: preferredLanguageLabel(prefLang()), adjustable: true,
       help: 'Which version of a title Play starts' },
+    ...multiviewItems(),
   ];
   const change = (id: string, dir: 1 | -1) => {
     if (id === 'format') {
@@ -73,6 +83,10 @@ export function PlaybackPage(props: PageProps) {
     }
     if (id === 'subtitleLanguage') {
       void saveSetting({ subtitleLanguage: cycleOption(SUBTITLE_LANGUAGE_OPTIONS, subLang(), dir) });
+      return true;
+    }
+    if (id === 'maxWindows') {
+      void saveSetting({ maxWindows: cycleOption(MAX_WINDOWS_OPTIONS, maxWindows(), dir) });
       return true;
     }
     if (id === 'audioLanguage') {

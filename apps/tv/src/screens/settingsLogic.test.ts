@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
   addTeamError, displayItems, openOnLabel,
 } from './settingsLogic.ts';
@@ -111,7 +111,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [] },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' },
   };
 
   it('shows version, platform, sources, errors and settings', () => {
@@ -184,7 +184,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [] } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');
@@ -326,5 +326,11 @@ describe('display page items', () => {
     expect(addTeamError(['Pinecrest'], 'pinecrest')).toBe('Already in the list');
     expect(addTeamError(Array.from({ length: 50 }, (_, i) => `T${i}`), 'New')).toBe('The list is full (50)');
     expect(addTeamError(['Pinecrest'], 'Lakeshore')).toBeUndefined();
+  });
+});
+
+describe('maxWindowsLabel', () => {
+  it('Auto names what this device can play; the numbers are plain', () => {
+    expect(MAX_WINDOWS_OPTIONS.map((v) => maxWindowsLabel(v, 2))).toEqual(['Auto (this device: 2)', '2', '3', '4']);
   });
 });

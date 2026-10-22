@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAddWindow, windowLimit } from './windows.ts';
+import { MULTIVIEW_CEILING, canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
 describe('windowLimit', () => {
   it('Auto is the device ceiling; a user value above the ceiling is clamped', () => {
@@ -22,5 +22,13 @@ describe('canAddWindow', () => {
 
   it("at the user's Max windows below the ceiling the reason is the setting", () => {
     expect(canAddWindow({ deviceMax: 4, userMax: 2, open: 2 })).toEqual({ ok: false, reason: 'setting', limit: 2 });
+  });
+});
+
+describe('deviceCeiling', () => {
+  it('is what the pool allows, at most the ceiling of this phase (2 in P1)', () => {
+    expect(MULTIVIEW_CEILING).toBe(2);
+    expect(deviceCeiling(4)).toBe(2);
+    expect(deviceCeiling(1)).toBe(1);
   });
 });
