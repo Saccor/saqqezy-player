@@ -205,10 +205,23 @@ export interface ListSummary { id: string; groupId: string; name: string; count:
 /** Defined in @iptv/companion-protocol (app-api depends on it); re-exported here for compatibility. */
 export type { CompanionChannel, CompanionState };
 
+/**
+ * A source's guide import this session: `importing` (programmes stored so far, since `startedAt`), `idle` (none
+ * running; `startedAt` 0 when none ran), or `failed` with its credential-free error.
+ */
+export interface GuideImportState {
+  stage: 'idle' | 'importing' | 'failed';
+  count: number;
+  startedAt: number;
+  error?: RpcError;
+}
+
 export interface DiagnosticsInfo {
   appVersion: string;
   sources: {
     id: string; name: string; kind: string; channels: number; skipped: number; playlistAt: number; epgAt: number;
+    /** Always sent by app-api; optional for older callers and fixtures. */
+    guideImport?: GuideImportState;
     /** Channels with catch-up and ones the app cannot build URLs for (absent when none). */
     catchupChannels?: number; catchupUnsupported?: number;
     /** How catch-up times are written: "Europe/Stockholm", "UTC+1:00 (fixed offset)", "UTC" or "manual +1:00". */

@@ -25,7 +25,7 @@ import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
-  AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
+  AppEvent, ChannelRow, GuideImportState, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
@@ -43,6 +43,10 @@ const NOW_NEXT_TTL_MS = 60_000;
  * healthy read takes a few ms even on a TV; this only trips while the guide store is locked by a long write.
  */
 const NOW_NEXT_WAIT_MS = 400;
+/** `withinWait`'s answer when the read outlasted `nowNextWaitMs` (it goes on in the background). */
+const LATE = Symbol('late');
+/** Late Guide reads kept for the re-read their `nowNextUpdated` asks for, at most. */
+const EPG_LATE_MAX = 8;
 const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
@@ -158,6 +162,11 @@ export class AppApi {
   private readonly shortPending = new Set<string>();
   /** Background short-EPG lookups and late now/next reads in flight (awaited by the test-only `idle`). */
   private readonly shortJobs = new Set<Promise<void>>();
+  /** Guide reads of `getEpgRows` that outlasted the wait: running (`epgPending`) and answered (`epgLate`), by rows. */
+  private readonly epgPending = new Set<string>();
+  private readonly epgLate = new Map<string, Map<string, Programme[]>>();
+  /** Each source's guide import, for Diagnostics (this session only). */
+  private readonly guideImports = new Map<string, GuideImportState>();
   /** Channels whose stored now/next read outlasted `nowNextWaitMs` and still runs (not read twice). */
   private readonly nnPending = new Set<string>();
   /** How long rows wait for their stored now/next before going out without it. */
@@ -547,7 +556,7 @@ export class AppApi {
         // Displayed = stored + shift, so the stored window is [from - shift, to - shift]; widen it to cover every channel.
         const lo = from - Math.max(...shifts) * HOUR;
         const hi = to - Math.min(...shifts) * HOUR;
-        byChannel = await this.service.programmesFor(id, this.originals(channels), lo, hi);
+        byChannel = await this.guideRead(id, channels, lo, hi);
       }
       const t = this.now();
       const inWindow = (list: Programme[], hours: number) => list
@@ -1559,6 +1568,7 @@ export class AppApi {
           skipped: stats?.skipped ?? 0,
           playlistAt: (await this.storage.getMeta<number>(`playlistAt:${s.id}`)) ?? 0,
           epgAt: (await this.storage.getMeta<number>(`epgAt:${s.id}`)) ?? 0,
+          guideImport: { ...(this.guideImports.get(s.id) ?? { stage: 'idle', count: 0, startedAt: 0 }) },
           ...catchupDiagnostics(s, stats),
         };
       }));
@@ -1786,12 +1796,22 @@ export class AppApi {
     });
   }
 
-  /** After a guide refresh: rebuild the active index with the new coverage (the channels in memory are reused). */
+  /**
+   * After a guide refresh: rebuild the active index with the new coverage (the channels in memory are reused). The
+   * same coverage keeps the index (a rebuild costs up to a second on a TV); what came from the old guide still goes.
+   */
   private reloadCoverage(id: string): Promise<void> {
     return this.withIndex(async () => {
       if (this.activeId !== id) return;
       const coverage = await this.service.loadEpgCoverage(id);
-      this.setIndex(this.channels, this.index.layout(), coverage);
+      if (sameCoverage(this.coverage, coverage)) {
+        this.titles = undefined;
+        this.titlesEpoch++;
+        this.dropSports();
+        this.sportsMapping++;
+      } else {
+        this.setIndex(this.channels, this.index.layout(), coverage);
+      }
       this.invalidateNowNext();
     });
   }
@@ -1940,6 +1960,7 @@ export class AppApi {
   private invalidateNowNext(): void {
     this.generation++;
     this.nnCache = new Map();
+    this.epgLate.clear();
   }
 
   private async matchTiles(): Promise<MatchTiles> {
@@ -2119,7 +2140,7 @@ export class AppApi {
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
-    if (error.name === 'SourceNetworkError' && error.status === undefined) {
+    if (noAnswer(error)) {
       this.setOffline(true);
       this.offlineFails.add(`${sourceId}\u0000${what}`);
     }
@@ -2166,11 +2187,22 @@ export class AppApi {
   }
 
   private async refreshEpgFor(id: string, automatic = false): Promise<void> {
+    const state: GuideImportState = { stage: 'importing', count: 0, startedAt: this.now() };
+    this.guideImports.set(id, state);
     try {
-      await this.service.refreshEpg(id, (p) => this.emit({ type: 'progress', ...p }), { automatic });
+      await this.service.refreshEpg(id, (p) => {
+        state.count = p.count;
+        this.emit({ type: 'progress', ...p });
+      }, { automatic });
     } catch (err) {
-      this.failed('epg', id, 'refreshEpg', err);
+      try {
+        this.failed('epg', id, 'refreshEpg', err);
+      } catch (out) {
+        this.guideImports.set(id, { stage: 'failed', count: state.count, startedAt: state.startedAt, error: toRpcError(out) });
+        throw out;
+      }
     }
+    this.guideImports.set(id, { ...state, stage: 'idle' });
     await this.reloadCoverage(id);
     this.dropSports();
     this.setOffline(false);
@@ -2235,7 +2267,10 @@ export class AppApi {
       }
     }
     // The failed step may have started a cooldown (a refusing source): then the guide waits like everything else.
-    if (failure !== undefined && (await this.service.guard.status(id)).state !== 'clear') throw failure;
+    // So does a step that got no answer at all (offline): the guide's much larger download would fail the same way.
+    if (failure !== undefined && (noAnswer(toRpcError(failure)) || (await this.service.guard.status(id)).state !== 'clear')) {
+      throw failure;
+    }
     let epg = false;
     try {
       epg = await this.service.needsEpgRefresh(id);
@@ -2313,13 +2348,8 @@ export class AppApi {
       return kept;
     };
     const lookup = this.lookupNowNext(id, fresh, t, false);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = Symbol('late');
-    const first = await Promise.race([
-      lookup,
-      new Promise<typeof late>((resolve) => { timer = setTimeout(() => resolve(late), this.nowNextWaitMs); }),
-    ]).finally(() => clearTimeout(timer));
-    if (first !== late) {
+    const first = await this.withinWait(lookup);
+    if (first !== LATE) {
       for (const [cid, nn] of store(first)) out.set(cid, nn);
       return out;
     }
@@ -2339,6 +2369,53 @@ export class AppApi {
     });
     this.shortJobs.add(job);
     return out;
+  }
+
+  /**
+   * `read`, or `LATE` once it has taken `nowNextWaitMs` (it keeps running). A healthy guide read takes a few ms even on
+   * a TV; this only trips while the guide store is busy (a long write of an import, or a clear in another tab).
+   */
+  private async withinWait<T>(read: Promise<T>): Promise<T | typeof LATE> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      read,
+      new Promise<typeof LATE>((resolve) => { timer = setTimeout(() => resolve(LATE), this.nowNextWaitMs); }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * The stored programmes of the Guide rows `channels`, like `nowNextCached`: a read that outlasts `nowNextWaitMs`
+   * answers nothing now (the rows go out lite, never held) and `nowNextUpdated` once it is done. Its answer is kept
+   * for the re-read that event asks for, which uses it once instead of reading again.
+   */
+  private async guideRead(id: string, channels: Channel[], lo: number, hi: number): Promise<Map<string, Programme[]>> {
+    const key = `${id}\u0000${lo}\u0000${hi}\u0000${channels.map((c) => c.id).join('\u0001')}`;
+    const ready = this.epgLate.get(key);
+    if (ready) {
+      this.epgLate.delete(key);
+      return ready;
+    }
+    // The same rows' read from an earlier call still runs: lite now, its answer comes as nowNextUpdated.
+    if (this.epgPending.has(key)) return new Map();
+    const gen = this.generation;
+    const read = this.service.programmesFor(id, this.originals(channels), lo, hi);
+    const first = await this.withinWait(read);
+    if (first !== LATE) return first;
+    this.epgPending.add(key);
+    const job = read.then((got) => {
+      if (gen !== this.generation || this.activeId !== id) return;
+      this.epgLate.set(key, got);
+      for (const old of this.epgLate.keys()) {
+        if (this.epgLate.size <= EPG_LATE_MAX) break;
+        this.epgLate.delete(old);
+      }
+      this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
+    }).catch((err: unknown) => this.note('epgRows', err instanceof Error ? err.name : 'Error')).finally(() => {
+      this.epgPending.delete(key);
+      this.shortJobs.delete(job);
+    });
+    this.shortJobs.add(job);
+    return new Map();
   }
 
   /**
@@ -2605,6 +2682,17 @@ export class AppApi {
     }
     return this.formats.get(id) ?? undefined;
   }
+}
+
+/** A network error with no HTTP status: nothing answered (offline, or the source is unreachable). */
+const noAnswer = (e: RpcError): boolean => e.name === 'SourceNetworkError' && e.status === undefined;
+
+/** Whether two guide coverages hold the same channels (undefined: no guide configured, not "covers nothing"). */
+function sameCoverage(a: Set<string> | undefined, b: Set<string> | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  if (a.size !== b.size) return false;
+  for (const k of b) if (!a.has(k)) return false;
+  return true;
 }
 
 /** Diagnostics fields for a source's catch-up: counts from the last ingest and how times are written. */

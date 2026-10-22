@@ -14,7 +14,7 @@ export { CatchupController, REFINE_EVERY_MS } from './catchupController.ts';
 export { expose, wrap, toRpcError, type PortLike, type Remote, type RpcError } from './rpc.ts';
 export type {
   ArchiveState, CatchupNotAvailable, CatchupPlayable,
-  AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
+  AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, GuideImportState, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, SportsEventTile, MatchCompetitionChips, MatchFilterChip, MatchFilterChips, StartCell, StartHome, StartRow, StartRowId, TitleHit,
   EpisodeView, LanguageHints, MovieView, OnlineSubtitleLanguage, SubtitleVersion, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,

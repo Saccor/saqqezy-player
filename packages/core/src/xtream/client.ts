@@ -192,7 +192,8 @@ export class XtreamClient {
   /** Every live stream in one streamed request (a large account's answer is never held as one string). */
   async liveStreams(): Promise<XtreamStream[]> {
     const out: XtreamStream[] = [];
-    for await (const batch of this.streamList('get_live_streams', parseLiveStreams)) out.push(...batch);
+    // A loop, not push(...batch): a spread of a very large batch can overflow the argument limit on old engines.
+    for await (const batch of this.streamList('get_live_streams', parseLiveStreams)) for (const s of batch) out.push(s);
     return out;
   }
 
