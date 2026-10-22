@@ -88,6 +88,45 @@ describe('layout(): the spec tables, to the pixel', () => {
     expect(equal.tiles.map((t) => t.tile)).toEqual([0, 1, 2, 3]); // insertion order, nothing swapped
   });
 
+  it('(e) 5-6 windows, nothing marked Large: the 3x2 grid (P2)', () => {
+    const rows: Row[] = [
+      [[56, 199, 592, 333], [48, 191, 608, 349], [592, 215, 40], [56, 460, 592, 72]],
+      [[664, 199, 592, 333], [656, 191, 608, 349], [1200, 215, 40], [664, 460, 592, 72]],
+      [[1272, 199, 592, 333], [1264, 191, 608, 349], [1808, 215, 40], [1272, 460, 592, 72]],
+      [[56, 548, 592, 333], [48, 540, 608, 349], [592, 564, 40], [56, 809, 592, 72]],
+      [[664, 548, 592, 333], [656, 540, 608, 349], [1200, 564, 40], [664, 809, 592, 72]],
+      [[1272, 548, 592, 333], [1264, 540, 608, 349], [1808, 564, 40], [1272, 809, 592, 72]],
+    ];
+    const six = layout({ tiles: 6, windowLimit: 6 });
+    expect(six.kind).toBe('e');
+    expectRows(six, rows);
+    expect(six.tiles.map((t) => t.tile)).toEqual([0, 1, 2, 3, 4, 5]);
+    const equal = layout({ tiles: 6, large: 4, equal: true, windowLimit: 6 });
+    expect(equal.kind).toBe('e');
+    const five = layout({ tiles: 5, windowLimit: 6 });
+    expectRows(five, rows.slice(0, 5));
+    expect(five.empty).toEqual({ rect: r([1272, 548, 592, 333]), ring: r([1264, 540, 608, 349]) });
+    expect(layout({ tiles: 5, windowLimit: 5 }).empty).toBeUndefined();
+  });
+
+  it('(f) 5-6 windows with one marked Large: 1 Large + 5 (P2)', () => {
+    const rows: Row[] = [
+      [[56, 24, 1200, 682], [48, 16, 1216, 698], [1184, 48, 48], [56, 578, 1200, 128]],
+      [[1272, 24, 592, 333], [1264, 16, 608, 349], [1808, 40, 40], [1272, 285, 592, 72]],
+      [[1272, 373, 592, 333], [1264, 365, 608, 349], [1808, 389, 40], [1272, 634, 592, 72]],
+      [[56, 722, 592, 333], [48, 714, 608, 349], [592, 738, 40], [56, 983, 592, 72]],
+      [[664, 722, 592, 333], [656, 714, 608, 349], [1200, 738, 40], [664, 983, 592, 72]],
+      [[1272, 722, 592, 333], [1264, 714, 608, 349], [1808, 738, 40], [1272, 983, 592, 72]],
+    ];
+    const six = layout({ tiles: 6, large: 3, windowLimit: 6 });
+    expect(six.kind).toBe('f');
+    expectRows(six, rows);
+    expect(six.tiles.map((t) => t.tile)).toEqual([3, 0, 1, 2, 4, 5]);
+    const five = layout({ tiles: 5, large: 0, windowLimit: 6 });
+    expectRows(five, rows.slice(0, 5));
+    expect(five.empty).toEqual({ rect: r([1272, 722, 592, 333]), ring: r([1264, 714, 608, 349]) });
+  });
+
   it('1 tile is the full-screen player', () => {
     const l = layout({ tiles: 1, windowLimit: 4 });
     expect(l.kind).toBe('single');
@@ -103,8 +142,8 @@ describe('layout(): the spec tables, to the pixel', () => {
 /** Every layout the rules can produce. */
 function allInputs(): LayoutInput[] {
   const out: LayoutInput[] = [];
-  for (const tiles of [2, 3, 4]) {
-    for (const windowLimit of [2, 3, 4].filter((w) => w >= tiles)) {
+  for (const tiles of [2, 3, 4, 5, 6]) {
+    for (const windowLimit of [2, 3, 4, 5, 6].filter((w) => w >= tiles)) {
       for (const large of [undefined, ...Array.from({ length: tiles }, (_, i) => i)]) {
         for (const equal of [false, true]) out.push(large === undefined ? { tiles, equal, windowLimit } : { tiles, large, equal, windowLimit });
       }
@@ -114,10 +153,12 @@ function allInputs(): LayoutInput[] {
 }
 
 describe('layout(): invariants', () => {
-  it('every tile is exactly 16:9 and inside the screen', () => {
+  it('every tile is exactly 16:9 (except the Large one of 1 Large + 5) and inside the screen', () => {
     for (const i of allInputs()) {
-      for (const t of layout(i).tiles) {
-        expect(t.rect.w * 9, JSON.stringify(i)).toBe(t.rect.h * 16);
+      const l = layout(i);
+      for (const t of l.tiles) {
+        if (l.kind === 'f' && t.sizeClass === 'large') expect([t.rect.w, t.rect.h]).toEqual([1200, 682]);
+        else expect(t.rect.w * 9, JSON.stringify(i)).toBe(t.rect.h * 16);
         expect(t.ring.x >= 0 && t.ring.y >= 0 && t.ring.x + t.ring.w <= 1920 && t.ring.y + t.ring.h <= 1080).toBe(true);
       }
     }
@@ -158,7 +199,7 @@ describe('layout(): invariants', () => {
     let equal = false;
     for (let step = 0; step < 500; step++) {
       const op = Math.floor(rand() * 4);
-      if (op === 0 && tiles < 4) tiles++;
+      if (op === 0 && tiles < 6) tiles++;
       else if (op === 1 && tiles > 2) {
         const closed = Math.floor(rand() * tiles);
         tiles--;
@@ -167,10 +208,11 @@ describe('layout(): invariants', () => {
       } else if (op === 2) {
         large = Math.floor(rand() * tiles);
         equal = false;
-      } else if (op === 3 && tiles === 4) equal = true;
-      const l = layout(large === undefined ? { tiles, equal, windowLimit: 4 } : { tiles, large, equal, windowLimit: 4 });
+      } else if (op === 3 && tiles >= 4) equal = true;
+      const l = layout(large === undefined ? { tiles, equal, windowLimit: 6 } : { tiles, large, equal, windowLimit: 6 });
       const big = l.tiles.filter((t) => t.sizeClass === 'large').length;
       if (l.kind === 'a' || l.kind === 'd2') expect(big).toBe(l.tiles.length);
+      else if (l.kind === 'e') expect(big).toBe(0);
       else expect(big).toBe(1);
       expect(l.tiles).toHaveLength(tiles);
       expect(new Set(l.tiles.map((t) => t.tile)).size).toBe(tiles);

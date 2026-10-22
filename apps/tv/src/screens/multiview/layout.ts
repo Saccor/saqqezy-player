@@ -1,9 +1,10 @@
 /**
- * Multiview geometry in the 1920x1080 design space (spec 2026-10-20-multiview §3, owner decision §12.4). Pure: the
- * canvas chrome and the DOM video boxes both read this one function, so they stay pixel-locked. Every tile is 16:9
- * with 16 px gutters; there is never more than one Large-class tile except in the equal layouts (a) and (d2).
+ * Multiview geometry in the 1920x1080 design space (spec 2026-10-20-multiview §3, owner decisions §12.4 and 14; up to
+ * 6 windows: plan 2026-10-22-multiview-p2). Pure: the canvas chrome and the DOM video boxes both read this one
+ * function, so they stay pixel-locked. Every tile is 16:9 (except the Large one of (f), 1200x682) with 16 px gutters;
+ * there is never more than one Large-class tile except in the equal layouts (a) and (d2).
  */
-export type LayoutKind = 'single' | 'a' | 'b' | 'c' | 'd1' | 'd2';
+export type LayoutKind = 'single' | 'a' | 'b' | 'c' | 'd1' | 'd2' | 'e' | 'f';
 export type SizeClass = 'large' | 'small';
 
 export interface Rect {
@@ -55,6 +56,16 @@ const SMALL_C = [rect(360, 719, 592, 333), rect(968, 719, 592, 333)];
 const SMALL_CENTRED = rect(664, 719, 592, 333);
 const D1 = [rect(296, 37, 1328, 747), rect(296, 800, 432, 243), rect(744, 800, 432, 243), rect(1192, 800, 432, 243)];
 const D2 = [rect(56, 28, 896, 504), rect(968, 28, 896, 504), rect(56, 548, 896, 504), rect(968, 548, 896, 504)];
+/** (e) 5-6 windows: a 3x2 grid of 592x333. */
+const E = [
+  rect(56, 199, 592, 333), rect(664, 199, 592, 333), rect(1272, 199, 592, 333),
+  rect(56, 548, 592, 333), rect(664, 548, 592, 333), rect(1272, 548, 592, 333),
+];
+/** (f) 1 Large + 5: a 3x3 grid of 592x333 cells; the Large window covers the top-left 2x2 block (7 px off 16:9). */
+const F = [
+  rect(56, 24, 1200, 682), rect(1272, 24, 592, 333), rect(1272, 373, 592, 333),
+  rect(56, 722, 592, 333), rect(664, 722, 592, 333), rect(1272, 722, 592, 333),
+];
 
 /** A tile 800 px wide or more is Large class. */
 const LARGE_MIN_W = 800;
@@ -82,7 +93,7 @@ function largeFirst(tiles: number, large: number): number[] {
 }
 
 export function layout(i: LayoutInput): Layout {
-  const n = Math.max(1, Math.min(4, Math.floor(i.tiles)));
+  const n = Math.max(1, Math.min(6, Math.floor(i.tiles)));
   const large = i.large !== undefined && i.large >= 0 && i.large < n ? i.large : undefined;
   const place = (kind: LayoutKind, order: number[], rects: Rect[]): Layout => ({
     kind, tiles: order.map((t, k) => geometry(t, rects[k]!)),
@@ -95,6 +106,13 @@ export function layout(i: LayoutInput): Layout {
     return place('b', largeFirst(2, large), [LARGE_C, SMALL_CENTRED]);
   }
   if (n === 3) return place('c', largeFirst(3, large ?? 0), [LARGE_C, ...SMALL_C]);
-  if (large === undefined || i.equal) return place('d2', inOrder, D2);
-  return place('d1', largeFirst(4, large), D1);
+  if (n === 4) {
+    if (large === undefined || i.equal) return place('d2', inOrder, D2);
+    return place('d1', largeFirst(4, large), D1);
+  }
+  // 5-6: the 3x2 grid, or 1 Large + 5; with 5 windows and room for a 6th, the last slot is the empty one.
+  const [kind, order, rects] = large === undefined || i.equal ? ['e' as const, inOrder, E] : ['f' as const, largeFirst(n, large), F];
+  const l = place(kind, order, rects);
+  if (n === 5 && i.windowLimit >= 6) l.empty = { rect: rects[5]!, ring: ringOf(rects[5]!) };
+  return l;
 }
