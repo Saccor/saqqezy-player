@@ -105,7 +105,8 @@ describe('SportsController v2: Matches in your guide', () => {
     progs.push({ key: 'k24', title: 'Lakeshore v Pinecrest', cats: ['Football'], startMin: 30 });
     const index = new ChannelIndex(channels(25, 3));
     const r = await tiles(v2(progs), index);
-    expect(r.row.map((t) => t.title)).toEqual(['Northbridge FC v Eastport', 'Lakeshore v Pinecrest']);
+    expect(r.row.map((t) => t.title)).toEqual(['Northbridge FC v Eastport']);
+    expect(r.all.map((t) => t.title)).toContain('Lakeshore v Pinecrest');
     expect(r.row[0]!.channelCount).toBe(72);
     expect(r.row[0]!.onAir).toBe(true);
     const folded = new ChannelIndex(channels(25, 3), undefined, undefined, { fold: true });
@@ -235,7 +236,7 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(multi.all.map((t) => t.title)).toContain('Player One v Player Two');
     const single = await tiles(v2(progs), new ChannelIndex(channels(31, 1, () => 'SE: ')));
     expect(single.row.map((t) => t.title)).toContain('Player One v Player Two');
-    // No prefixes at all is unknown, not single-country: the cut-off is relaxed (10 %), not turned off.
+    // No prefixes at all is unknown, not single-country: the cut-off (25 %, at least 1) still applies.
     const unknown = await tiles(v2(progs), new ChannelIndex(channels(31)));
     expect(unknown.view.countryScope).toBe('unknown');
     expect(unknown.row.map((t) => t.title)).not.toContain('Player One v Player Two');

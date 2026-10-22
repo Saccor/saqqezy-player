@@ -2744,9 +2744,9 @@ describe('AppApi – sports in your guide', () => {
     const row = home.rows.find((r) => r.id === 'sports')!;
     expect(row.title).toBe('Matches in your guide');
     const rowTitles = row.cells.flatMap((c) => (c.type === 'event' ? [c.event.title] : []));
-    // The fake guide has no country prefixes (single-country): the size cut-off is relaxed, so the one-channel match
-    // is in the row, after the broader ones. Sport with no sides is never in the row.
-    expect(rowTitles.indexOf('Player One v Player Two')).toBeGreaterThan(rowTitles.findIndex((t) => t.includes('Northbridge')));
+    // The fake guide has no country prefixes (unknown scope): the 25 % cut-off applies and the row is never padded, so the
+    // one-channel match stays in See all only. Sport with no sides is never in the row.
+    expect(rowTitles).not.toContain('Player One v Player Two');
     expect(rowTitles).not.toContain('Lakeside Open, Round 3');
     expect(row.cells.at(-1)).toEqual({ type: 'viewAll', target: 'sports', total: all.length });
   });

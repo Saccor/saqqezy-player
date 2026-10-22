@@ -103,19 +103,30 @@ describe('rankMatches gates (design note §3.5)', () => {
     expect(titles(rankMatches([...big, home], opts()).row)).toContain('Player One v Player Two');
   });
 
-  test('G8 fills the row to 4 with the next best; a single-country guide relaxes the size cut-off', () => {
-    const top = ev({ title: 'Top', breadth: 24 });
-    const small = [1, 1, 1, 1].map((b, i) => ev({ title: `Small ${i}`, breadth: b, inMin: 60 + i }));
-    expect(rankMatches([top, ...small], opts()).row).toHaveLength(4);
-    expect(rankMatches([top, ...small], opts({ countryScope: 'one' })).row).toHaveLength(5);
+  test('G8 never pads the row: small matches stay in See all; a single-country guide turns the cut-off off', () => {
+    const top = ev({ title: 'Top', breadth: 16 });
+    const small = [1, 2, 1].map((b, i) => ev({ title: `Small ${i}`, breadth: b, inMin: 60 + i }));
+    const r = rankMatches([top, ...small], opts());
+    expect(titles(r.row)).toEqual(['Top']);
+    expect(r.all).toHaveLength(4);
+    expect(rankMatches([top, ...small], opts({ countryScope: 'one' })).row).toHaveLength(4);
   });
 
-  test('G8 with no country prefixes seen keeps a relaxed cut-off: 10 % of the top breadth, at least 1', () => {
+  test('G8 never pads: followed and pinned small matches still join the row', () => {
+    const top = ev({ title: 'Top', breadth: 16 });
+    const followed = ev({ title: 'Followed', breadth: 1, followed: true, inMin: 70 });
+    const pinned = ev({ title: 'Pinned', breadth: 1, comp: 'Test Cup', inMin: 80 });
+    const plain = ev({ title: 'Plain', breadth: 1, inMin: 90 });
+    const r = rankMatches([top, followed, pinned, plain], opts({ pinned: [competitionKey('Test Cup')] }));
+    expect(titles(r.row).sort()).toEqual(['Followed', 'Pinned', 'Top']);
+  });
+
+  test('G8 with no country prefixes seen: 25 % of the top breadth, at least 1', () => {
     const top = ev({ title: 'Top', breadth: 24 });
-    const mid = [3, 3].map((b, i) => ev({ title: `Mid ${i}`, breadth: b, inMin: 50 + i }));
+    const mid = [6, 5].map((b, i) => ev({ title: `Mid ${i}`, breadth: b, inMin: 50 + i }));
     const small = Array.from({ length: 8 }, (_, i) => ev({ title: `Small ${i}`, breadth: 1, inMin: 60 + i }));
     const r = rankMatches([top, ...mid, ...small], opts({ countryScope: 'unknown' }));
-    expect(titles(r.row)).toEqual(['Top', 'Mid 0', 'Mid 1', 'Small 0']);
+    expect(titles(r.row)).toEqual(['Top', 'Mid 0']);
     const flat = Array.from({ length: 6 }, (_, i) => ev({ title: `Flat ${i}`, breadth: 1, inMin: 60 + i }));
     expect(rankMatches(flat, opts({ countryScope: 'unknown' })).row).toHaveLength(6);
   });
