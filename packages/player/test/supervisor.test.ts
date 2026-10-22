@@ -19,8 +19,35 @@ class FakePlayer implements Player {
   recover?: (a: 'gapJump' | 'softReload') => boolean;
   setPlaybackRate?: (r: number) => void;
   setLiveProfile = vi.fn((_p: LiveProfile) => undefined);
-  holdLastFrame = vi.fn(() => undefined);
-  releaseLastFrame = vi.fn(() => undefined);
+  /** The `stop()` options, in call order; `calls` keeps the plain 'stop' entries. */
+  stopOpts: Array<{ hold?: boolean } | undefined> = [];
+  /**
+   * Mirrors AvplayPlayer's still mode: a hold needs an open stream; a release on an open one clears it ('false'); on a
+   * closed one (the reconnect gap) it is tried once ('false:closed', unverified on TVs) and stays pending until the
+   * next 'playing'. `still` is whether a hold is running; `stillCalls` lists what the engine would send.
+   */
+  isOpen = false;
+  still = false;
+  stillPending = false;
+  stillCalls: string[] = [];
+  holdLastFrame = vi.fn(() => {
+    if (!this.isOpen || this.still) return;
+    this.still = true;
+    this.stillCalls.push('true');
+  });
+  releaseLastFrame = vi.fn(() => this.release());
+  private release(): void {
+    if (!this.still && !this.stillPending) return;
+    const wasOn = this.still;
+    this.still = false;
+    if (!this.isOpen) {
+      this.stillPending = true;
+      if (wasOn) this.stillCalls.push('false:closed');
+      return;
+    }
+    this.stillPending = false;
+    this.stillCalls.push('false');
+  }
   pause = vi.fn(() => undefined);
   play = vi.fn(() => undefined);
   seek?: (ms: number) => boolean;
@@ -29,10 +56,16 @@ class FakePlayer implements Player {
   private listeners = new Set<Listener>();
   open(url: string, attemptId?: number, opts?: OpenOptions): Promise<void> {
     this.opened.push(url); this.ids.push(attemptId); this.openOpts.push(opts); this.calls.push(`open:${url}`);
+    this.isOpen = true;
     if (this.throwOnOpen !== undefined) { const e = this.throwOnOpen; this.throwOnOpen = undefined; throw e; }
     return Promise.resolve();
   }
-  stop(): void { this.calls.push('stop'); }
+  stop(opts?: { hold?: boolean }): void {
+    this.calls.push('stop');
+    this.stopOpts.push(opts);
+    if (!opts?.hold) this.release();
+    this.isOpen = false;
+  }
   setRect(_r: Rect | 'fullscreen'): void {}
   setAspect(_m: AspectMode): void {}
   audioTracks(): TrackInfo[] { return []; }
@@ -44,6 +77,7 @@ class FakePlayer implements Player {
   /** Emits a state event for open() number `idx` (default: the latest). */
   emit(s: PlayerState, d: StateDetail = {}, idx = this.ids.length - 1): void {
     const attemptId = this.ids[idx];
+    if (s === 'playing' && this.isOpen) this.release(); // like AvplayPlayer.startPlay
     for (const l of [...this.listeners]) l(s, attemptId === undefined ? d : { ...d, attemptId });
   }
 }
@@ -854,6 +888,21 @@ describe('PlaybackSupervisor: journal', () => {
     expect(log.every((e) => typeof e.t === 'number')).toBe(true);
   });
 
+  it('the attempt count starts at 1 for every play (G9 decision C); the ids the player gets stay unique', () => {
+    const { player, sup, log } = journaled();
+    sup.play(A);
+    player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(5000);
+    sup.play(B);
+    vi.advanceTimersByTime(2000);
+    player.emit('playing');
+    const opens = log.filter((e) => e.k === 'open');
+    expect(opens.map((e) => (e as { attempt: number }).attempt)).toEqual([1, 2, 1]);
+    expect(log.at(-1)).toMatchObject({ k: 'playing', attempt: 1 });
+    // A late event of the first play's stream is still told apart from this play's.
+    expect(new Set(player.ids).size).toBe(player.ids.length);
+  });
+
   it('a no-bytes ladder step: ladder reconnect, then reconnect with its cause and real delay', () => {
     const { player, sup, log } = journaled();
     const start = Date.now();
@@ -1069,6 +1118,42 @@ describe('PlaybackSupervisor – per-source open rate', () => {
     vi.advanceTimersByTime(1000);
     expect(player.opened).toEqual([A, B]);
     expect(taken).toEqual(['src']);
+  });
+
+  it('a reconnect restart stops the engine holding the frame; a play() or stop() does not', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    player.emit('playing');
+    expect(player.stopOpts).toEqual([undefined]); // play() clears whatever was held
+    player.emit('error', { code: 'NETWORK' });
+    vi.advanceTimersByTime(1000);
+    expect(player.stopOpts).toEqual([undefined, { hold: true }]);
+    sup.stop();
+    expect(player.stopOpts).toEqual([undefined, { hold: true }, undefined]);
+  });
+
+  it('a stop() during the reconnect gap tries to clear the held frame and leaves the clear pending', () => {
+    const { player, sup } = setup();
+    sup.play(A);
+    player.emit('playing');
+    player.emit('error', { code: 'NETWORK' });
+    expect(player.stillCalls).toEqual(['true']); // held for the reconnect
+    // The engine's teardown is still running: the restart's open waits for it.
+    (player as FakePlayer & { closed?: () => Promise<void> }).closed = () => new Promise<void>(() => undefined);
+    vi.advanceTimersByTime(1000); // restart: stop({ hold: true })
+    expect(player.calls.at(-1)).toBe('stop');
+    expect(player.isOpen).toBe(false); // in the gap
+    expect(player.still).toBe(true);
+    sup.stop();
+    expect(player.stopOpts.at(-1)).toBeUndefined();
+    expect(player.stillCalls).toEqual(['true', 'false:closed']); // tried once on the closed engine
+    expect(player.stillPending).toBe(true); // and retried when the next stream plays
+    delete (player as FakePlayer & { closed?: () => Promise<void> }).closed;
+    sup.play(B);
+    vi.advanceTimersByTime(2000);
+    player.emit('playing');
+    expect(player.stillCalls).toEqual(['true', 'false:closed', 'false']);
+    expect(player.stillPending).toBe(false);
   });
 
   it('a newer play() or stop() drops the held reconnect', () => {
@@ -1496,6 +1581,7 @@ describe('PlaybackSupervisor: status probe', () => {
     expect(player.calls).toEqual(['stop', `open:${A}`]); // nothing torn down inside the engine's callback
     await settle();
     expect(player.calls).toEqual(['stop', `open:${A}`, 'stop']); // the attempt is stopped before the probe
+    expect(player.stopOpts.at(-1)).toEqual({ hold: true }); // holding the frame, like a reconnect
     expect(calls.map((c) => c.url)).toEqual([A]);
     vi.advanceTimersByTime(60_000);
     expect(player.opened).toEqual([A]); // a confirmed refusal is not tried again
@@ -2189,6 +2275,39 @@ describe('PlaybackSupervisor: connection ledger (multiview tiles)', () => {
   });
 });
 
+describe('PlaybackSupervisor: ledger label by pool slot', () => {
+  it('single view on slot 1 opens under label 1 (its journal events still carry no tile)', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const journal: JournalEvent[] = [];
+    const { sup } = setup({ ledger, slot: 1, tile: () => undefined, journal: { add: (e: JournalEvent) => { journal.push(e); } } });
+    sup.play(A, undefined, { sourceKey: 's' });
+    expect(ledger.snapshot('s').map((r) => r.tile)).toEqual([1]);
+    expect(journal.every((e) => !('tile' in e))).toBe(true);
+  });
+
+  it('entering multiview again after leaving with slot 1 kept gives two distinct labels', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    let multiview = false;
+    // Slot 1 kept the sound when multiview ended: it is the single-view player, then a window again.
+    const kept = setup({ ledger, slot: 1, tile: () => (multiview ? 1 : undefined) });
+    kept.sup.play(A, undefined, { sourceKey: 's' });
+    kept.player.emit('playing');
+    multiview = true;
+    // Slot 0 is made again for the new window.
+    const fresh = setup({ ledger, slot: 0, tile: () => (multiview ? 0 : undefined) });
+    fresh.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    const labels = ledger.snapshot('s').map((r) => r.tile);
+    expect(labels).toEqual([1, 0]);
+  });
+
+  it('without a slot the label stays the tile, else 0', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    setup({ ledger, tile: 2 }).sup.play(A, undefined, { sourceKey: 's' });
+    setup({ ledger }).sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    expect(ledger.snapshot('s').map((r) => r.tile)).toEqual([2, 0]);
+  });
+});
+
 describe('PlaybackSupervisor: tile options', () => {
   it("onRefusal 'stop': an engine AUTH ends the play as refused at once, with no reconnect or alternate", () => {
     const { player, sup, statuses } = setup({ onRefusal: 'stop' });
@@ -2289,7 +2408,7 @@ describe('PlaybackSupervisor: roles', () => {
 });
 
 describe('PlaybackSupervisor: ledger drops', () => {
-  it('a stream that fails reports the drop to the ledger with its code; a stop does not', () => {
+  it('a stream that fails reports the drop to the ledger with its code; a stop reports a close, not a drop', () => {
     const ledger = new ConnectionLedger({ now: () => Date.now() });
     const kinds: string[] = [];
     ledger.onEvent((e) => { kinds.push(e.k === 'dropped' ? `dropped:${e.code}` : e.k); });
@@ -2299,7 +2418,7 @@ describe('PlaybackSupervisor: ledger drops', () => {
     player.emit('error', { code: 'EOS' });
     vi.advanceTimersByTime(1000);
     sup.stop();
-    expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin']);
+    expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin', 'closed']);
   });
 });
 

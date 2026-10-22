@@ -21,7 +21,7 @@ import { createPlaybackPool, type PlaybackPool } from './pool.ts';
 import { createPrimaryFacade } from './primary.ts';
 import { createConnectionMemory } from './connectionMemory.ts';
 import { createDeviceWindows, type DeviceRefusal } from './deviceWindows.ts';
-import { createDisplacementDetector } from './displacement.ts';
+import { applyCutResponse, createDisplacementDetector } from './displacement.ts';
 import { classifyRefusal, createRefusalScope, type RefusalFacts, type RefusalScope } from './refusalScope.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { slotRole, type SlotRole } from './slotRole.ts';
@@ -29,6 +29,7 @@ import { createJournalPersist, pageLoadEvent } from './journalStore.ts';
 import { createLiveTargetStore } from './liveTargets.ts';
 import { retryDeps } from './retryDeps.ts';
 import { createSharedSleepTimer } from './sleepTimer.ts';
+import { createWindowNotes, multiviewSwitch, type WindowNote } from './windowNotes.ts';
 import { onBackOnline } from '../state/backOnline.ts';
 
 /**
@@ -188,8 +189,6 @@ export interface PlaybackSlot {
 /** The slot with sound (the pool's primary), as a signal: the app-wide exports and the slot roles follow it. */
 const [primaryIndex, setPrimaryIndex] = createSignal(0);
 const [multiviewOpen, setMultiviewOpen] = createSignal(false);
-/** The multiview screen says when it is open: every slot is then a window, the one with sound too. */
-export const setInMultiview = (open: boolean): void => { setMultiviewOpen(open); };
 export const inMultiview = multiviewOpen;
 const roleOf = (n: number): SlotRole => slotRole(n, primaryIndex(), multiviewOpen());
 
@@ -199,25 +198,30 @@ const refusalScope = createRefusalScope();
 /** What multiview learned per source on this device (Diagnostics -> Connections). Numbers only. */
 export const connectionMemory = createConnectionMemory(localStore);
 
-/** What a window shows beyond its status: the source cut it, two windows kept cutting each other, or escalation. */
-export interface WindowNote { kicked?: number; pingPong?: boolean; escalated?: boolean; deviceLimit?: boolean; at: number }
-const [windowNotes, setWindowNotes] = createSignal<ReadonlyMap<number, WindowNote>>(new Map());
-export { windowNotes };
-const noteWindow = (n: number, note: WindowNote | undefined) => {
-  setWindowNotes((m) => {
-    const next = new Map(m);
-    if (note) next.set(n, note);
-    else next.delete(n);
-    return next;
-  });
-};
+/** What each window shows beyond its status, and the windows the source just cut (`windowNotes.ts`). */
+const windowNoteStore = createWindowNotes();
+export type { WindowNote };
+export const windowNotes = windowNoteStore.notes;
+const noteWindow = (n: number, note: WindowNote) => windowNoteStore.note(n, note);
+/**
+ * The multiview screen says when it is open: every slot is then a window, the one with sound too. Entering and leaving
+ * both drop the windows' notes and cut marks, so nothing from an earlier session shows on a window (G9 decision C).
+ */
+export const setInMultiview = multiviewSwitch(windowNoteStore, setMultiviewOpen);
 /** A window opens again (Retry, another channel): its note goes. */
-export const clearWindowNote = (n: number): void => { if (windowNotes().has(n)) noteWindow(n, undefined); };
+export const clearWindowNote = (n: number): void => windowNoteStore.clear(n);
+/**
+ * "Watch this one instead" reopens window `n` (G9 task 2.5): its refusal is that window's, never the source's. It
+ * starts no host cooldown and records no escalation, as a cut window's refusal does (the same mark).
+ */
+export const keepRefusalOnWindow = (n: number): void => windowNoteStore.markDisplaced(n);
+/** That reopen played or failed otherwise, or the window moved on: a later refusal of window `n` is judged as usual. */
+export const dropRefusalMark = (n: number): void => { windowNoteStore.takeDisplaced(n); };
 
 /** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */
 function scopeWindowRefusal(n: number, hostKey: string, facts: RefusalFacts): RefusalScope {
   // The source cut this window because another opened (the detector said so just before): never the host's refusal.
-  if (displacedSlots.delete(n)) return 'tile';
+  if (windowNoteStore.takeDisplaced(n)) return 'tile';
   const scope = refusalScope.decide(hostKey, facts);
   const t = Date.now();
   const reported = activeMaxConnections();
@@ -254,6 +258,8 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
     openGap,
     ledger,
     tile: () => (single() ? undefined : n),
+    // The ledger labels the stream by slot in both roles (the journal's "Window N" is slot n + 1 too).
+    slot: n,
     onRefusal: () => (single() ? 'retry' : 'stop'),
     ...retryDeps,
   });
@@ -265,7 +271,8 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
       ...cooldownGate,
       current: (s) => { if (primary()) setStreamCooldown(s?.cooldownKey, s?.cooldown); },
       // Kept on the window: the source refused window k (k = the streams open + this one).
-      tileRefused: (key, _url, facts) => { connectionMemory.learn(key, (facts.concurrent ?? 0) + 1); },
+      // With no other stream open (a reopen after "Watch this one instead"), it says nothing about a window count.
+      tileRefused: (key, _url, facts) => { if ((facts.concurrent ?? 0) > 0) connectionMemory.learn(key, facts.concurrent! + 1); },
     },
     (what) => journal.add({ k: 'page', t: Date.now(), what }),
     // A combined channel: its next stream takes over when one fails (never after a refusal; at most two per tune).
@@ -353,11 +360,9 @@ export const otherSlots = (): PlaybackSlot[] => {
  * with the reason, the cut one gets its one normal reconnect, and the count is learned. Two windows that keep cutting
  * each other: the newer one stops. Only while multiview is open; never retried by itself.
  */
-// 20 s, not the spec's 8 s: an HLS player notices a cut only at its next playlist reload (up to one segment, often
-// 10 s) plus its own retries; the fake panel's kick mode measured 4 s and 10+ s.
-const displacement = createDisplacementDetector({ windowMs: 20_000 });
-/** Windows the source just cut: their refusal that follows is the cut, kept on the window. */
-const displacedSlots = new Set<number>();
+// Its 30 s window counts from the other window's first picture: AVPlay shows a cut only once its buffer runs dry plus
+// its 8 s no-progress limit; an HLS player at its next playlist reload. The fake panel's kick mode measured 4 s and 10+ s.
+const displacement = createDisplacementDetector();
 ledger.onEvent((e) => {
   // Always fed (the stream playing before multiview opened counts), acted on only in multiview.
   const v = displacement.feed(e);
@@ -365,9 +370,12 @@ ledger.onEvent((e) => {
   const t = Date.now();
   const stopSlot = v.k === 'displaced' ? v.byTile : v.stop;
   if (v.k === 'displaced') {
-    displacedSlots.add(v.victim);
+    // The cut window's refusal that follows is the cut, kept on the window.
+    windowNoteStore.markDisplaced(v.victim);
     journal.add({ k: 'displaced', t, tile: v.victim, byTile: v.byTile, afterMs: v.afterMs });
     connectionMemory.learn(v.key, v.concurrentBefore + 1);
+    // The cut proves only the streams open before it fit: undo a count that included the window about to be cut.
+    connectionMemory.capSeen(v.key, v.concurrentBefore);
     noteWindow(stopSlot, { kicked: v.concurrentBefore, at: t });
   } else {
     journal.add({ k: 'pingPong', t, tile: v.stop });
@@ -375,13 +383,16 @@ ledger.onEvent((e) => {
   }
   // Not inside the supervisor's own failure handling: one macrotask later. The newest window closes first; the window
   // the source cut then gets its one normal reconnect (a window stops on a refusal, so the app opens it once more).
-  setTimeout(() => {
-    pool.slots().find((s) => s.n === stopSlot)?.playback.stop();
-    if (v.k !== 'displaced') return;
-    const victim = pool.slots().find((s) => s.n === v.victim);
-    const cur = victim?.playback.current();
-    if (victim && cur) victim.playback.playChannel(cur, { countOpen: true });
-  }, 0);
+  // Left multiview meanwhile: nothing (the single view's stream is never stopped by a late verdict).
+  setTimeout(() => applyCutResponse(v, {
+    multiviewOpen,
+    stop: (n) => pool.slots().find((s) => s.n === n)?.playback.stop(),
+    reconnect: (n) => {
+      const victim = pool.slots().find((s) => s.n === n);
+      const cur = victim?.playback.current();
+      if (victim && cur) victim.playback.playChannel(cur, { countOpen: true });
+    },
+  }), 0);
 });
 
 /** The slot with sound, read reactively (Solid tracks `primaryIndex`). */

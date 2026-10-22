@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
+import type { ScreenId } from './router.ts';
 import { EASE, MOTION } from './theme.ts';
-import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, sessionLevel, AutoLite, type MotionContext } from './motionLogic.ts';
+import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, screenUnderlay, sessionLevel, AutoLite, type MotionContext } from './motionLogic.ts';
 
 const ctx = (o: Partial<MotionContext> = {}): MotionContext => ({ level: 'full', cadence: 'normal', gap: undefined, live: 0, ...o });
 
@@ -205,5 +206,23 @@ describe('sessionLevel', () => {
     expect(sessionLevel('full', false)).toBe('full');
     expect(sessionLevel('reduced', true)).toBe('reduced');
     expect(sessionLevel('off', true)).toBe('off');
+  });
+});
+
+describe('screenUnderlay', () => {
+  const ALL: readonly ScreenId[] = ['addSource', 'home', 'player', 'search', 'settings', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'vodPlay', 'start', 'startSports', 'multiview'];
+  const VIDEO = ['player', 'vodPlay', 'home', 'multiview'] as const;
+  test('is off for the video screens only (multiview draws its windows as holes over the plane)', () => {
+    for (const s of VIDEO) expect(screenUnderlay(s)).toBe(false);
+    for (const s of ALL.filter((x) => !(VIDEO as readonly ScreenId[]).includes(x))) expect(screenUnderlay(s)).toBe(true);
+  });
+  test('covers every screen that can fade in, so the video plane never shows through the fade', () => {
+    for (const s of ALL) {
+      for (const change of ['push', 'replace'] as const) {
+        // Video screens neither fade in nor get an underlay, so one condition implies the other.
+        if (screenEnters(change, s)) expect(screenUnderlay(s)).toBe(true);
+        if (!screenUnderlay(s)) expect(screenEnters(change, s)).toBe(false);
+      }
+    }
   });
 });

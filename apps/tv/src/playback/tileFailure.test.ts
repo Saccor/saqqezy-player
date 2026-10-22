@@ -25,4 +25,18 @@ describe('tileFailure', () => {
   it('other failures use the window wording', () => {
     expect(tileFailure({ reason: 'unavailable', at, now: at }).text).toBe("This channel can't play right now.");
   });
+
+  it('a window the cooldown holds is never black: the cooldown text, Retry now and Close window', () => {
+    const cooldown = { state: 'waiting' as const, until: at + 150_000, reason: 'refused' as const };
+    const v = tileFailure({ reason: 'refused', cooldown, at, now: at });
+    expect(v.text).toBe("Your source is refusing connections. The app is waiting so you don't get blocked.");
+    expect(v.retry).toEqual({ enabled: true, inMs: 0 });
+    expect(v.retryNow).toBe(true);
+    expect(v.hint).toBe('Trying again in 3 min');
+    expect(v.close).toBe(true);
+    // Unreachable says so; a clear cooldown changes nothing.
+    expect(tileFailure({ reason: 'unavailable', cooldown: { ...cooldown, reason: 'unreachable' }, at, now: at }).text)
+      .toBe("Your source isn't answering. The app is waiting so it doesn't flood it.");
+    expect(tileFailure({ reason: 'unavailable', cooldown: { state: 'clear' }, at, now: at }).retryNow).toBeUndefined();
+  });
 });

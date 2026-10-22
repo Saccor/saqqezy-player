@@ -21,6 +21,17 @@ describe('connectionMemory', () => {
     expect(m.maxSeen('other')).toBe(0);
   });
 
+  it('a cut verdict caps the most seen at the count it proves: an overcount from a window about to be cut is undone', () => {
+    const m = createConnectionMemory(() => store());
+    m.seen('src', 2);
+    m.capSeen('src', 1);
+    expect(m.maxSeen('src')).toBe(1);
+    m.capSeen('src', 3); // a cap never raises it
+    expect(m.maxSeen('src')).toBe(1);
+    m.capSeen('other', 1);
+    expect(m.maxSeen('other')).toBe(0);
+  });
+
   it('survives a reload, stores numbers by source id only, and ignores junk', () => {
     const s = store();
     createConnectionMemory(() => s).learn('src', 2);

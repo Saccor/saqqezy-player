@@ -1,4 +1,5 @@
 import { MULTIVIEW_COPY } from '../../copy.ts';
+import type { WindowNote } from '../../playback/windowNotes.ts';
 import type { Layout, LayoutInput, Rect } from './layout.ts';
 
 /**
@@ -185,4 +186,180 @@ export function layoutInput(s: MvState, windowLimit: number): LayoutInput {
   const i: LayoutInput = { tiles: s.windows.length, equal: s.equal, windowLimit };
   if (s.large !== undefined) i.large = s.large;
   return i;
+}
+
+/**
+ * "Most windows playing at once" counts a window only after this much play without a break (G9 decision C), so one
+ * that opened and failed at once is not counted. A later cut verdict corrects any overcount (`capSeen`).
+ */
+export const STEADY_PLAY_MS = 10_000;
+
+/**
+ * When each slot's current run of play began: kept while it plays, set at `now` when it starts, dropped on any break
+ * (buffering, a failure, a stop) or when the slot is gone.
+ */
+export function playingSince(prev: ReadonlyMap<number, number>, slots: ReadonlyArray<{ n: number; playing: boolean }>, now: number): Map<number, number> {
+  const next = new Map<number, number>();
+  for (const s of slots) if (s.playing) next.set(s.n, prev.get(s.n) ?? now);
+  return next;
+}
+
+/** The windows that have played steadily for `STEADY_PLAY_MS` at `now`. */
+export function steadyPlaying(since: ReadonlyMap<number, number>, now: number): number {
+  let n = 0;
+  for (const at of since.values()) if (now - at >= STEADY_PLAY_MS) n++;
+  return n;
+}
+
+/**
+ * The streams the source lets play at once, as far as the app knows: the reported count, or one less than the window
+ * it refused or cut (`learnedRefusalAt`), whichever is lower. Undefined when neither is known.
+ */
+export function sourceLimit(f: { reported?: number; learnedRefusalAt?: number }): number | undefined {
+  const limits = [f.reported, f.learnedRefusalAt === undefined ? undefined : f.learnedRefusalAt - 1].filter((n): n is number => n !== undefined);
+  return limits.length > 0 ? Math.max(1, Math.min(...limits)) : undefined;
+}
+
+/** The source's limit is reached when the other windows playing fill it. No limit known: never. */
+export function atSourceLimit(f: { reported?: number; learnedRefusalAt?: number; othersPlaying: number }): boolean {
+  const limit = sourceLimit(f);
+  return limit !== undefined && f.othersPlaying >= limit;
+}
+
+/** "Watch this one instead": how many of the other windows playing must stop so this one fits (at least one). */
+export function windowsToStop(othersPlaying: number, limit: number | undefined): number {
+  return Math.min(othersPlaying, Math.max(1, othersPlaying - (limit ?? othersPlaying) + 1));
+}
+
+/**
+ * Retry on a window (G9 decision C). The source cut it while another window plays and the source is at its limit:
+ * a plain Retry would only cut the other window again, so it offers "Watch this one instead".
+ */
+export function retryAction(f: { cut: boolean; otherPlaying: boolean; atLimit: boolean }): 'retry' | 'watchInstead' {
+  return f.cut && f.otherPlaying && f.atLimit ? 'watchInstead' : 'retry';
+}
+
+/**
+ * The picker's info lines, as `MULTIVIEW_COPY` keys in order (owner decision 12.2: it warns, never blocks). `open` is
+ * the windows open besides the one being picked. A connection being freed comes first. The reported count always shows
+ * when the source reports one (spec §4; 0 reports nothing); a learned refusal always shows too. With nothing known,
+ * that each window uses one connection, so the line is never empty.
+ */
+export function pickerHint(f: { reported?: number; learnedRefusalAt?: number; open: number; freeing?: boolean }): Array<keyof typeof MULTIVIEW_COPY> {
+  const lines: Array<keyof typeof MULTIVIEW_COPY> = [];
+  const reported = f.reported !== undefined && f.reported > 0;
+  if (f.freeing) lines.push('freeing');
+  if (reported) lines.push('infoReported');
+  if (f.learnedRefusalAt !== undefined) lines.push('learned');
+  if (!reported && f.learnedRefusalAt === undefined) lines.push('infoUnknown');
+  return lines;
+}
+
+/** "Watch this one instead" waits this long after stopping the other window, so the source frees its connection (§5.3). */
+export const FREEING_MS = 5000;
+/**
+ * The reopen was refused all the same (a panel can free a connection late; the fake panel keeps an HLS session for
+ * 20 s): one more try this much later, and never another by itself.
+ */
+export const FREEING_RETRY_MS = 20_000;
+
+/** What a reopening window's stream did, as the screen reads its status. */
+export type ReopenStatus = 'starting' | 'played' | 'refused' | 'failed' | 'other';
+
+/** A window's playback status, as much as these mappings read of it. */
+export interface WindowStatus { kind: string; reason?: string }
+
+/** A window's status for the watch: loading or reconnecting is a reopen starting; a refusal is told from other failures. */
+export function reopenStatus(st: WindowStatus | undefined): ReopenStatus {
+  if (st?.kind === 'loading' || st?.kind === 'reconnecting') return 'starting';
+  if (st?.kind === 'playing') return 'played';
+  if (st?.kind === 'failed') return st.reason === 'refused' ? 'refused' : 'failed';
+  return 'other';
+}
+
+/** The source cut or refused the window (not the TV, not an escalation): its note says so, else its refused status. */
+export function wasCut(note: WindowNote | undefined, st: WindowStatus | undefined): boolean {
+  if (note) return note.kicked !== undefined || note.pingPong === true;
+  return st?.kind === 'failed' && st.reason === 'refused';
+}
+
+export interface WatchInstead {
+  /** Waits `FREEING_MS`, then calls `open`. A later start replaces this one. */
+  start(slot: number, open: () => void): void;
+  /**
+   * Feeds the status of `slot`. Only a reopen this watch made, and only once it started, counts (the old failure still
+   * showing does not). `again`: refused the first time, it waits `FREEING_RETRY_MS` (the window shows "Freeing…") and
+   * opens once more. `gaveUp`: refused the second time, or after a cancel: the window shows its failure as usual.
+   * `played` / `failed`: the watch is over. `none`: not one of its reopens, or nothing to say yet. `token` is the raw
+   * status: a failure other than the one showing when the reopen was issued counts as started (a batched status change
+   * may never show 'starting').
+   */
+  observe(slot: number, status: ReopenStatus, token?: unknown): 'again' | 'gaveUp' | 'played' | 'failed' | 'none';
+  /** No wait opens anything later (multiview left, or the user acted on a window meanwhile). */
+  cancel(): void;
+  /** Window `slot` plays something else or closed: its reopen is no longer watched (a later refusal is its own). */
+  forget(slot: number): void;
+  /** The slot waiting to open, if any. */
+  pending(): number | undefined;
+}
+
+/**
+ * The wait behind "Watch this one instead"; `onChange` hears the waiting slot (the window shows "Freeing a
+ * connection…"). `tokenOf` reads a slot's raw status, kept when a reopen is issued (see `observe`).
+ */
+export function createWatchInstead(onChange: (slot: number | undefined) => void, tokenOf?: (slot: number) => unknown): WatchInstead {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let slot: number | undefined;
+  /** Reopens in flight: whether each has started, whether it is the last try, how to open it again, the status before. */
+  const reopens = new Map<number, { started: boolean; last: boolean; open: () => void; before: unknown }>();
+  const set = (s: number | undefined) => {
+    if (s === slot) return;
+    slot = s;
+    onChange(s);
+  };
+  const clear = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
+  const wait = (s: number, ms: number, last: boolean, open: () => void) => {
+    clear();
+    set(s);
+    timer = setTimeout(() => {
+      timer = undefined;
+      set(undefined);
+      reopens.set(s, { started: false, last, open, before: tokenOf?.(s) });
+      open();
+    }, ms);
+  };
+  return {
+    start(s, open) {
+      reopens.delete(s);
+      wait(s, FREEING_MS, false, open);
+    },
+    observe(s, status, token) {
+      const r = reopens.get(s);
+      if (!r) return 'none';
+      if (status === 'starting') {
+        r.started = true;
+        return 'none';
+      }
+      if (status === 'other') return 'none';
+      // A failure that is not the one showing when the reopen was issued is the reopen's, 'starting' seen or not.
+      if (!r.started && (token === undefined || token === r.before)) return 'none';
+      reopens.delete(s);
+      if (status === 'played') return 'played';
+      if (status === 'failed') return 'failed';
+      if (r.last) return 'gaveUp';
+      wait(s, FREEING_RETRY_MS, true, r.open);
+      return 'again';
+    },
+    cancel() {
+      clear();
+      set(undefined);
+      // A reopen already on its way is still watched (its refusal stays on the window), but never tried again.
+      for (const r of reopens.values()) r.last = true;
+    },
+    forget(s) { reopens.delete(s); },
+    pending: () => slot,
+  };
 }

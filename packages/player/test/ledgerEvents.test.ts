@@ -15,9 +15,9 @@ describe('ConnectionLedger: events and snapshot', () => {
     t = 14_000;
     session.dropped('EOS');
     expect(events).toEqual([
-      { k: 'begin', key: 's', host: 'a.example.test', tile: 1, at: 1000 },
-      { k: 'playing', key: 's', host: 'a.example.test', tile: 1, at: 2000 },
-      { k: 'dropped', key: 's', host: 'a.example.test', tile: 1, at: 14_000, code: 'EOS', playedMs: 12_000 },
+      { k: 'begin', key: 's', host: 'a.example.test', tile: 1, at: 1000, session: 1 },
+      { k: 'playing', key: 's', host: 'a.example.test', tile: 1, at: 2000, session: 1 },
+      { k: 'dropped', key: 's', host: 'a.example.test', tile: 1, at: 14_000, code: 'EOS', playedMs: 12_000, session: 1 },
     ]);
     expect(JSON.stringify(events)).not.toContain('/live/');
   });
@@ -32,6 +32,34 @@ describe('ConnectionLedger: events and snapshot', () => {
     expect(events.at(-1)).toMatchObject({ k: 'dropped', playedMs: 0 });
     t = 1500;
     expect(l.concurrent('s')).toBe(0);
+  });
+
+  it('every event names its session: a label reused by a later stream can be told apart', () => {
+    const l = new ConnectionLedger({ now: () => 0 });
+    const events: LedgerEvent[] = [];
+    l.onEvent((e) => events.push(e));
+    const a = l.begin('s', A, 0).session;
+    const b = l.begin('s', A, 0).session;
+    a.dropped('EOS');
+    b.playing();
+    expect(events.map((e) => [e.k, e.tile, e.session])).toEqual([['begin', 0, 1], ['begin', 0, 2], ['dropped', 0, 1], ['playing', 0, 2]]);
+  });
+
+  it('a normal stop reports `closed` once; a stream that dropped reports no `closed`', () => {
+    let t = 0;
+    const l = new ConnectionLedger({ now: () => t });
+    const events: LedgerEvent[] = [];
+    l.onEvent((e) => events.push(e));
+    const a = l.begin('s', A, 0).session;
+    const b = l.begin('s', A, 1).session;
+    t = 500;
+    a.closing();
+    a.closing();
+    a.closed();
+    b.dropped('EOS');
+    b.closing();
+    expect(events.map((e) => [e.k, e.tile, e.session])).toEqual([['begin', 0, 1], ['begin', 1, 2], ['closed', 0, 1], ['dropped', 1, 2]]);
+    expect(events[2]).toEqual({ k: 'closed', key: 's', host: 'a.example.test', tile: 0, at: 500, session: 1 });
   });
 
   it('snapshot lists the counted sessions of a source', () => {
