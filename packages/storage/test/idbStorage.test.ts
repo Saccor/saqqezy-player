@@ -196,6 +196,7 @@ async function makeV3(factory: IDBFactory): Promise<void> {
       tx.objectStore('vod').put({ sourceId: 's1', kind: 'movie', list: { items: [{ id: 's1:m1', kind: 'movie', title: 'Synthetic Film', categoryId: '1' }], categories: [] } });
       tx.objectStore('meta').put({ count: 2, at: 1, storage: true }, 'refreshFail:s1:vod:series');
       tx.objectStore('meta').put({ count: 1, at: 1 }, 'refreshFail:s1:epg');
+      tx.objectStore('meta').put({ storage: true, note: 'keep' }, 'other:s1');
     };
     open.onsuccess = () => { open.result.close(); resolve(); };
     open.onerror = () => reject(open.error);
@@ -211,6 +212,7 @@ describe('IdbStorage v4 migration', () => {
     expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Synthetic Film');
     expect(await s.getMeta('refreshFail:s1:vod:series')).toBeUndefined();
     expect(await s.getMeta('refreshFail:s1:epg')).toEqual({ count: 1, at: 1 });
+    expect(await s.getMeta('other:s1')).toEqual({ storage: true, note: 'keep' });
     await s.settled();
   });
 
@@ -242,5 +244,81 @@ describe('IdbStorage v4 migration', () => {
     vi.restoreAllMocks();
     expect(failed).toBe(true);
     expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Newer Film');
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+  });
+
+  test('a quota failure with no legacy record is rethrown and not retried', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory);
+    const put = IDBObjectStore.prototype.put;
+    let attempts = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') { attempts++; throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }
+      return put.call(this, value, key);
+    });
+    try {
+      await expect(s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Film', categoryId: '1' }], categories: [] })).rejects.toThrow();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(attempts).toBe(1);
+  });
+
+  test('two reads before the first migration commits produce one migration (generation 1, one set of chunks)', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await Promise.all([s.getVod('s1', 'movie'), s.getVod('s1', 'movie')]);
+    await s.settled();
+    const heads = await rawAll(factory, 'catalogs');
+    const head = heads.find((h: any) => h.kind === 'movie') as any;
+    expect(head.gen).toBe(1);
+    const chunks = (await rawAll(factory, 'chunks')).filter((c: any) => c.kind === 'movie');
+    expect(chunks).toHaveLength(head.chunks);
+    expect(new Set(chunks.map((c: any) => c.gen))).toEqual(new Set([1]));
+  });
+
+  test('a migration queued behind a refresh never overwrites the newer list', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const replacing = s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Newer Film', categoryId: '1' }], categories: [] });
+    await s.getVod('s1', 'movie');
+    await replacing;
+    await s.settled();
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Newer Film');
+    await s.settled();
+  });
+
+  test('a failed migration is logged once with the kind and error name only', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') throw new DOMException('x', 'DataError');
+      return put.call(this, value, key);
+    });
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Catalogue migration failed', 'movie', 'DataError');
   });
 });
+
+function rawAll(factory: IDBFactory, store: string): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const open = factory.open('iptv');
+    open.onsuccess = () => {
+      const r = open.result.transaction(store).objectStore(store).getAll();
+      r.onsuccess = () => { open.result.close(); resolve(r.result); };
+      r.onerror = () => reject(r.error);
+    };
+    open.onerror = () => reject(open.error);
+  });
+}

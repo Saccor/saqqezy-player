@@ -72,14 +72,31 @@ export class IdbStorage implements Storage {
     while (this.migrations.size > 0) await Promise.allSettled([...this.migrations]);
   }
 
+  private readonly pendingMigrations = new Set<string>();
+
   private migrateLater(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef): void {
-    const p = this.writeKey(sourceId, kind, rows, extra, legacy).catch(() => undefined);
+    const key = `${sourceId}\u0000${kind}`;
+    // One migration per catalogue: later reads of the same legacy record would only queue another copy of the list.
+    if (this.pendingMigrations.has(key)) return;
+    this.pendingMigrations.add(key);
+    const p = this.writeKey(sourceId, kind, rows, extra, legacy, { onlyIfLegacy: true }).catch((err: unknown) => {
+      console.warn('Catalogue migration failed', kind, err instanceof Error ? err.name : 'Error');
+    });
     this.migrations.add(p);
-    void p.then(() => this.migrations.delete(p));
+    void p.then(() => { this.migrations.delete(p); this.pendingMigrations.delete(key); });
   }
 
-  private writeKey(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef): Promise<void> {
+  private writeKey(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef, opts: { onlyIfLegacy?: boolean } = {}): Promise<void> {
     return this.withKeyLock(`${sourceId}\u0000${kind}`, async () => {
+      if (opts.onlyIfLegacy) {
+        // A refresh may have committed while this migration waited: then the legacy list is older than what is stored.
+        const chk = (await this.db()).transaction(['catalogs', legacy.store], 'readonly');
+        const [head, old] = await Promise.all([
+          req(chk.objectStore('catalogs').count([sourceId, kind])),
+          req(chk.objectStore(legacy.store).count(legacy.key)),
+        ]);
+        if (head > 0 || old === 0) return;
+      }
       const enc = await encodeCatalog(rows, extra, this.codec, this.chunkRows);
       const db = await this.db();
       try {
@@ -133,7 +150,7 @@ export class IdbStorage implements Storage {
             // the storage backoff (which holds back even a screen with nothing to show).
             if (e.oldVersion >= 1) {
               const meta = open.transaction!.objectStore('meta');
-              const cur = meta.openCursor();
+              const cur = meta.openCursor(IDBKeyRange.bound('refreshFail:', 'refreshFail:\uffff'));
               cur.onsuccess = () => {
                 const c = cur.result;
                 if (!c) return;
