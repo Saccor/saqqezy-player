@@ -38,6 +38,14 @@ export interface IdbStorageOptions {
   beforeLargeWrite?: (bytes: number) => Promise<void>;
 }
 
+type StorageEstimate = { usage?: number; quota?: number };
+
+/** The engine's own storage estimate, when it has one (not in every browser or worker). */
+function nativeEstimate(): (() => Promise<StorageEstimate>) | undefined {
+  const storage = (globalThis as { navigator?: { storage?: { estimate?: () => Promise<StorageEstimate> } } }).navigator?.storage;
+  return storage?.estimate?.bind(storage);
+}
+
 export class IdbStorage implements Storage {
   private dbPromise: Promise<IDBDatabase> | null = null;
   private readonly codec: ChunkCodec;
@@ -98,6 +106,7 @@ export class IdbStorage implements Storage {
         if (head > 0 || old === 0) return;
       }
       const enc = await encodeCatalog(rows, extra, this.codec, this.chunkRows);
+      await this.makeRoom(enc.bytes);
       const db = await this.db();
       try {
         await writeCatalog(db, sourceId, kind, enc, legacy);
@@ -111,6 +120,30 @@ export class IdbStorage implements Storage {
         await writeCatalog(db, sourceId, kind, enc, legacy);
       }
     });
+  }
+
+  /** Free space by the storage estimate; undefined when the engine cannot tell. */
+  private async freeBytes(): Promise<number | undefined> {
+    const estimate = this.opts.estimate ?? nativeEstimate();
+    if (!estimate) return undefined;
+    try {
+      const e = await estimate();
+      return typeof e.quota === 'number' && typeof e.usage === 'number' ? e.quota - e.usage : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Short of room for a catalogue write: let the app free caches first (best effort). */
+  private async makeRoom(bytes: number): Promise<void> {
+    if (!this.opts.beforeLargeWrite) return;
+    const free = await this.freeBytes();
+    if (free === undefined || free >= bytes * 1.2 + 2e6) return;
+    try {
+      await this.opts.beforeLargeWrite(bytes);
+    } catch {
+      // Best effort: a failed clean-up must not fail the write itself.
+    }
   }
 
   private db(): Promise<IDBDatabase> {

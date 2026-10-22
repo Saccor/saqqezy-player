@@ -322,3 +322,25 @@ function rawAll(factory: IDBFactory, store: string): Promise<any[]> {
     open.onerror = () => reject(open.error);
   });
 }
+
+describe('IdbStorage quota hook', () => {
+  const chans = Array.from({ length: 50 }, (_, i) => ({ id: `s1:${i}`, sourceId: 's1', name: `Channel ${i}`, url: `http://example.test/${i}.ts`, group: 'G', number: i }));
+
+  test('called with the encoded size when free space is short', async () => {
+    const hook = vi.fn(async () => {});
+    const s = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 82e6, quota: 83.9e6 }), beforeLargeWrite: hook });
+    await s.replaceChannels('s1', chans);
+    expect(hook).toHaveBeenCalledOnce();
+    expect((hook.mock.calls[0] as unknown as [number])[0]).toBeGreaterThan(0);
+  });
+
+  test('not called when there is room, and a failing hook never fails the write', async () => {
+    const roomy = vi.fn(async () => {});
+    const s1 = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 10e6, quota: 83.9e6 }), beforeLargeWrite: roomy });
+    await s1.replaceChannels('s1', chans);
+    expect(roomy).not.toHaveBeenCalled();
+    const s2 = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 83e6, quota: 83.9e6 }), beforeLargeWrite: async () => { throw new Error('busy'); } });
+    await s2.replaceChannels('s1', chans);
+    expect(await s2.getChannels('s1')).toHaveLength(50);
+  });
+});
