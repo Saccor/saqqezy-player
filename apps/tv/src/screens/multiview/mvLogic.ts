@@ -119,6 +119,16 @@ export function focusRested(s: MvState): MvState {
   return { ...s, sound: s.focus };
 }
 
+/**
+ * The window with sound failed (refused, unavailable): the sound goes to a window that has not failed (`ok[i]`: playing
+ * or starting), the focused one first, so the screen never falls silent over a message. A pinned sound stays.
+ */
+export function soundToPlaying(s: MvState, ok: readonly boolean[]): MvState {
+  if (s.pinned || ok[s.sound] !== false) return s;
+  const to = typeof s.focus === 'number' && ok[s.focus] ? s.focus : ok.findIndex((p) => p);
+  return to < 0 || to === s.sound ? s : { ...s, sound: to };
+}
+
 /** Mouse hover (desktop): focus now; the sound follows after the rest, as for the D-pad (owner 2026-10-22). */
 export function pointerFocus(s: MvState, i: number): MvState {
   return s.focus === i ? { ...s, chromeAwake: true } : { ...s, focus: i, chromeAwake: true };

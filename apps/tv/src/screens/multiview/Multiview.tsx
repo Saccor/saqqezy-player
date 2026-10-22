@@ -18,7 +18,7 @@ import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
 import {
   CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, closeWindow, enterFullScreen, exitFullScreen, focusRested, idle,
-  layoutInput, makeLarge, menuItems, moveFocus, pointerFocus, start, togglePin, wake, type MenuId, type MvState,
+  layoutInput, makeLarge, menuItems, moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MenuId, type MvState,
   type MvWindow,
 } from './mvLogic.ts';
 import { createMultiviewSession } from './session.ts';
@@ -101,7 +101,11 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
   createEffect(on(() => state()?.focus, () => {
     if (restTimer !== undefined) clearTimeout(restTimer);
-    restTimer = setTimeout(() => { const s = state(); if (alive && s) update(focusRested(s)); }, SOUND_REST_MS);
+    restTimer = setTimeout(() => {
+      const s = state();
+      // The sound never moves onto a window that shows a failure.
+      if (alive && s && !(typeof s.focus === 'number' && failure(s.focus))) update(focusRested(s));
+    }, SOUND_REST_MS);
   }, { defer: true }));
 
   /** A key arrived: wakes the chrome; true when that is all it does. */
@@ -313,6 +317,13 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       ...(reported !== undefined ? { maxConnections: reported } : {}),
     });
   };
+  // The window with sound failed: the sound goes to one that has not (never silent over a message).
+  createEffect(() => {
+    const s = state();
+    if (!s) return;
+    const next = soundToPlaying(s, s.windows.map((_, i) => failure(i) === undefined));
+    if (next !== s) update(next);
+  });
   const starting = (i: number) => {
     const k = slotOf(i)?.playback.status()?.kind;
     return k === 'loading' || k === 'reconnecting';

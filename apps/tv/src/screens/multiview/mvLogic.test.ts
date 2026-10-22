@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { layout } from './layout.ts';
 import {
   addWindow, click, closeWindow, enterFullScreen, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
-  moveFocus, pointerFocus, start, togglePin, wake, type MvState,
+  moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
 const w = (slot: number) => ({ slot, channelId: `c${slot}` });
@@ -147,5 +147,21 @@ describe('menuItems', () => {
   it('Add channel stays visible with the reason when no window can be added', () => {
     const add = menuItems(two(), 0, { ok: false, reason: 'This device can play 2 at once.' }).find((i) => i.id === 'addChannel');
     expect(add).toEqual({ id: 'addChannel', label: 'Add channel', disabled: 'This device can play 2 at once.' });
+  });
+});
+
+describe('soundToPlaying', () => {
+  it('a failed window with sound hands it to a playing one, the focused one first', () => {
+    const s = { ...addWindow(addWindow(start(w(0)), w(1)), w(2)), sound: 1, focus: 2 as const };
+    expect(soundToPlaying(s, [true, false, true]).sound).toBe(2);
+    expect(soundToPlaying({ ...s, focus: 1 }, [true, false, false]).sound).toBe(0);
+  });
+
+  it('nothing changes while the sound window plays, nothing else plays, or the sound is pinned', () => {
+    const s = { ...two(), sound: 1 };
+    expect(soundToPlaying(s, [true, true])).toBe(s);
+    expect(soundToPlaying(s, [false, false])).toBe(s);
+    const pinned = togglePin(two(), 1);
+    expect(soundToPlaying(pinned, [true, false])).toBe(pinned);
   });
 });
