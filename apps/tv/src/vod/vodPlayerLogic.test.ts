@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, coverVideo, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
+  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, coverVideo, coverLatch, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
 } from './vodPlayerLogic.ts';
 
 describe('clock', () => {
@@ -287,5 +287,18 @@ describe('coverVideo', () => {
     expect(coverVideo({ kind: 'playing' }, false)).toBe(false);
     expect(coverVideo({ kind: 'loading' }, true)).toBe(false);
     expect(coverVideo({ kind: 'ended' }, true)).toBe(false);
+  });
+});
+
+describe('coverLatch', () => {
+  const run = (kinds: Array<'playing' | 'loading' | 'ended'>) => {
+    let st = { armed: false, played: false };
+    return kinds.map((k) => ((st = coverLatch(st, k)), coverVideo({ kind: k }, st.played, st.armed)));
+  };
+  it("ignores the previous episode's stale playing: the cover stays on until the second playing", () => {
+    expect(run(['playing', 'loading', 'playing'])).toEqual([true, true, false]);
+  });
+  it('a fresh open (loading first) uncovers on its first playing and keeps it after a buffer', () => {
+    expect(run(['loading', 'playing', 'loading'])).toEqual([true, false, false]);
   });
 });
