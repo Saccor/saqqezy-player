@@ -6,6 +6,7 @@ import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 
 const TITLES: Record<ScreenId, string> = {
   addSource: 'Add source',
+  countries: 'Your countries',
   home: 'Home',
   player: 'Player',
   search: 'Search',

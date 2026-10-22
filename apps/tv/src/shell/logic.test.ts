@@ -232,6 +232,7 @@ describe('shell Back button (pointer mode)', () => {
   it('shows on every screen except Home (Back there is the exit question) and the Player (it has its own)', () => {
     expect(shellBackShown('multiview')).toBe(false); // its own Back and pointer bar
     expect(shellBackShown('addSource')).toBe(true);
+    expect(shellBackShown('countries')).toBe(false); // its own Skip; Back there skips the step
     expect(shellBackShown('search')).toBe(true);
     expect(shellBackShown('settings')).toBe(true);
     expect(shellBackShown('home')).toBe(false);

@@ -7,6 +7,7 @@ import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
+import { CountriesScreen } from './screens/Countries.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
 import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
@@ -172,6 +173,7 @@ export function App() {
         }>
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen entry={entry} />
+            : entry.screen === 'countries' ? <CountriesScreen entry={entry} />
             : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen entry={entry} />

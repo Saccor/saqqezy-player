@@ -4,6 +4,7 @@ import type { AppEvent } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
+import { firstRunTarget, loadChoices } from './countriesLogic.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
@@ -241,7 +242,13 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       }
       if (!alive) return;
       const go = afterAdd({ depth: router.depth(), becameActive });
-      if (go === 'replaceHome') router.replace('home');
+      if (go === 'replaceHome') {
+        // First run: one more step when the playlist's folders name two or more countries (2 s at most).
+        const choices = await loadChoices(() => api.getCountryChoices());
+        if (!alive) return;
+        if (firstRunTarget(choices) === 'countries') router.replace('countries', { firstRun: true });
+        else router.replace('home');
+      }
       else if (go === 'resetHome') router.reset('home');
       else {
         // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.
