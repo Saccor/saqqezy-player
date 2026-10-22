@@ -1,6 +1,6 @@
 import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
-  applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
+  applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys, normalizeCountry, sanitizeSettings,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
@@ -28,8 +28,9 @@ import type {
   AppEvent, ChannelRow, GuideImportState, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
   ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
-  GroupVisibility, RegionCount, RegionsOverview,
+  GroupVisibility, RegionCount, RegionsOverview, CountriesPatch, CountryChoices,
 } from './types.ts';
+import { buildCountryChoices } from './countryChoices.ts';
 
 /** A source subtitle file's display name: its label, else its language, then where it comes from. */
 export function sourceSubtitleName(sub: SourceSubtitle): string {
@@ -136,6 +137,8 @@ export class AppApi {
   private regionView: { rec: RegionsRecord; key: string; view: ChannelRegionView } | undefined;
   /** Region rebuilds in flight (awaited by the test-only `idle`). */
   private readonly regionJobs = new Set<Promise<void>>();
+  /** This TV's country (ISO alpha-2, closed table), sent once by the UI at boot (`setDeviceCountry`). */
+  private deviceCountry: string | undefined;
   /** The active source's channels as stored (playlist names), kept so layout and coverage rebuilds never refetch. */
   private channels: Channel[] = [];
   /** The channels' guide-shift span, from `setIndex` (programme search needs its widest shift per keystroke). */
@@ -889,6 +892,48 @@ export class AppApi {
     return this.run('setRegions', async () => (await this.saveSettings({ regions })).regions);
   }
 
+  /**
+   * Your countries' grid (spec 2026-10-22-your-countries-flags): detected countries with folder counts per section,
+   * the setting, and how many folders go first. Cached records only: never loads a catalogue, never waits on a job.
+   */
+  getCountryChoices(): Promise<CountryChoices> {
+    return this.run('getCountryChoices', async () => this.countryChoices(await this.currentSettings()));
+  }
+
+  /**
+   * Saves a Your countries change in one settings write and answers with fresh choices. Picking countries (codes and
+   * a mode other than off) turns "Combine categories across languages" off in the same save (owner decision Q4).
+   */
+  setCountries(patch: CountriesPatch): Promise<CountryChoices> {
+    return this.run('setCountries', async () => {
+      const cur = await this.currentSettings();
+      const regions = sanitizeSettings({
+        regions: { codes: Array.isArray(patch.codes) ? patch.codes : cur.regions.codes, mode: patch.mode ?? cur.regions.mode },
+      }).regions;
+      const next: Partial<AppSettings> = { regions };
+      if (typeof patch.foldCountries === 'boolean') next.foldCountries = patch.foldCountries;
+      if (regions.codes.length > 0 && regions.mode !== 'off') next.combineCategories = false;
+      return this.countryChoices(await this.applySettings(next));
+    });
+  }
+
+  /** The TV's own country, from its locale (undefined: unknown). Kept for this session; puts it first in the grid. */
+  setDeviceCountry(code: string | undefined): Promise<void> {
+    return this.run('setDeviceCountry', async () => {
+      this.deviceCountry = typeof code === 'string' ? normalizeCountry(code) : undefined;
+    });
+  }
+
+  private countryChoices(s: AppSettings): CountryChoices {
+    return buildCountryChoices({
+      live: this.index.allProviderGroups().map((g) => ({ keys: g.regions, hidden: g.hidden })),
+      // While categories are merged across languages, Movies and Series are not sorted by country.
+      vod: s.combineCategories ? [] : this.vodc?.regionSummaries() ?? [],
+      regions: s.regions, foldCountries: s.foldCountries, combineCategories: s.combineCategories,
+      ...(this.deviceCountry ? { deviceCountry: this.deviceCountry } : {}),
+    });
+  }
+
   /** Shows, hides, or returns to the region rule provider groups of the active source (one layout batch). */
   setGroupVisibility(ids: string[], visibility: GroupVisibility): Promise<LayoutOpsResult> {
     const ops: LayoutOp[] = visibility === 'show' ? [{ op: 'showGroups', ids }]
@@ -1378,7 +1423,7 @@ export class AppApi {
     // Cached now/next was picked on the old offset's timeline.
     this.invalidateNowNext();
     const refold = before.combineChannels !== this.settings.combineChannels;
-    const reregion = !sameRegions(before.regions, this.settings.regions);
+    const reregion = !sameRegions(before.regions, this.settings.regions) || before.foldCountries !== this.settings.foldCountries;
     if (opts.locked && (refold || reregion)) {
       this.setIndex(this.channels, this.index.layout(), this.coverage);
       this.invalidateNowNext();
@@ -1387,7 +1432,7 @@ export class AppApi {
     } else if (refold) await this.refold();
     else if (reregion) await this.reregion();
     const regroup = before.combineDuplicates !== this.settings.combineDuplicates
-      || before.combineCategories !== this.settings.combineCategories || !sameRegions(before.regions, this.settings.regions);
+      || before.combineCategories !== this.settings.combineCategories || reregion;
     if (regroup || before.preferredLanguages.join() !== this.settings.preferredLanguages.join()) this.vodc?.settingsChanged(regroup);
     return this.settings;
   }
@@ -1770,10 +1815,10 @@ export class AppApi {
   private regionViewFor(): ChannelRegionView | undefined {
     const r = this.regionRec;
     if (!r || r.sourceId !== this.activeId) return undefined;
-    const s = (this.settings ?? DEFAULT_SETTINGS).regions;
-    const key = `${s.mode}|${s.codes.join(',')}`;
+    const s = this.settings ?? DEFAULT_SETTINGS;
+    const key = `${s.regions.mode}|${s.regions.codes.join(',')}|${s.foldCountries ? 'fold' : 'flat'}`;
     if (this.regionView?.rec === r.rec && this.regionView.key === key) return this.regionView.view;
-    const view: ChannelRegionView = { detected: r.rec.groups, codes: [...s.codes], mode: s.mode };
+    const view: ChannelRegionView = { detected: r.rec.groups, codes: [...s.regions.codes], mode: s.regions.mode, fold: s.foldCountries };
     this.regionView = { rec: r.rec, key, view };
     return view;
   }
@@ -2806,7 +2851,7 @@ export const APP_API_METHODS = [
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search', 'searchChannels',
   'getSportsEvents', 'getMatchFilters', 'getMatchCompetitions', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
-  'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
+  'getRegions', 'setRegions', 'getCountryChoices', 'setCountries', 'setDeviceCountry', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
   'getVodHome', 'getVodCategories', 'getVodSlice', 'getMovie', 'getVersionLanguages', 'getSeries', 'getVodPlayable', 'pickVodVersion', 'setVodSplit',
   'saveVodProgress', 'setVodFavourite', 'setVodWatched', 'clearVodProgress', 'clearSeriesContinue', 'setVodTracks', 'loadSubtitle', 'loadSourceSubtitle', 'syncSubtitle', 'getSubtitle', 'clearSubtitle', 'onlineSubtitlesAvailable', 'findSubtitlesOnline', 'subtitleVersions', 'loadOnlineSubtitle', 'setSubtitleDelay', 'setSubtitleSpeed', 'refreshVod', 'preloadVod',

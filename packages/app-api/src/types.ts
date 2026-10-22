@@ -1,4 +1,4 @@
-import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, SourceSubtitle, StreamHeaders, VideoRange, VodKind } from '@iptv/core';
+import type { AppSettings, ArchiveState, BackupEnvelope, RegionMode, RegionSettings, CatchupMode, GroupInfo, MovieDetail, SeriesDetail, SeriesPointer, SourceCooldown, SourceSubtitle, StreamHeaders, VideoRange, VodKind } from '@iptv/core';
 
 export type { ArchiveState, SourceCooldown, SourceSubtitle, StreamHeaders, VideoRange };
 import type { CompanionChannel, CompanionSourceSummary, CompanionState } from '@iptv/companion-protocol';
@@ -458,6 +458,36 @@ export interface RegionsOverview {
   /** Groups with no region at all. */
   other: { groups: number; channels: number };
 }
+
+/** One country (or language) Your countries can pick: folders per section, sure detections only (spec 2026-10-22). */
+export interface CountryChoice {
+  key: string;
+  label: string;
+  isLanguage: boolean;
+  /** Live TV groups the user has not hidden. */
+  live: number;
+  /** Categories of a catalogue already known this session; absent when not. */
+  movies?: number;
+  series?: number;
+}
+
+/** The flag grid's data: one worker call, from cached records only (never a catalogue load). */
+export interface CountryChoices {
+  /** This TV's country first, then most folders (live + movies + series), ties by label. */
+  choices: CountryChoice[];
+  /** From the TV locale, when it is among the choices. */
+  deviceCountry?: string;
+  regions: RegionSettings;
+  foldCountries: boolean;
+  combineCategories: boolean;
+  /** Codes picked (mode not off) but none matches this source. */
+  stale: boolean;
+  /** Folders that go first with the current picks. */
+  counts: { live: number; movies?: number; series?: number };
+}
+
+/** One Your countries change, saved in one settings write. */
+export interface CountriesPatch { codes?: string[]; mode?: RegionMode; foldCountries?: boolean }
 
 /** `show`: shown on purpose; `hide`: hidden; `rule`: back to the region rule. */
 export type GroupVisibility = 'show' | 'hide' | 'rule';
