@@ -25,7 +25,12 @@ function done(tx: IDBTransaction): Promise<void> {
 export class IdbStorage implements Storage {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
-  constructor(private readonly factory: IDBFactory = indexedDB, private readonly dbName = 'iptv') {}
+  constructor(
+    private readonly factory: IDBFactory = indexedDB,
+    private readonly dbName = 'iptv',
+    /** Programmes deleted per transaction by `clearProgrammes`. */
+    private readonly clearChunk = 2000,
+  ) {}
 
   private db(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
@@ -151,10 +156,27 @@ export class IdbStorage implements Storage {
     };
   }
 
+  /**
+   * A big guide holds millions of programmes, and one transaction over all of them locks the store for minutes:
+   * every guide read (the channel rows' now/next) would wait. Short transactions of `clearChunk` deletes each let
+   * those reads in between.
+   */
   async clearProgrammes(sourceId: string): Promise<void> {
-    const tx = (await this.db()).transaction('programmes', 'readwrite');
-    this.deleteProgrammesIn(tx, sourceId);
-    await done(tx);
+    const db = await this.db();
+    const range = IDBKeyRange.bound([sourceId], [sourceId, []]);
+    for (;;) {
+      const tx = db.transaction('programmes', 'readwrite');
+      let deleted = 0;
+      const cursorReq = tx.objectStore('programmes').index('byChannel').openKeyCursor(range);
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) return;
+        tx.objectStore('programmes').delete(cursor.primaryKey);
+        if (++deleted < this.clearChunk) cursor.continue();
+      };
+      await done(tx);
+      if (deleted < this.clearChunk) return;
+    }
   }
 
   async addProgrammes(sourceId: string, batch: Programme[]): Promise<void> {

@@ -136,6 +136,41 @@ describe('AppApi', () => {
     expect((await api.getPlayable(slice.rows[0]!.id))?.next).toBeDefined();
   });
 
+  test('a slow guide read never holds the rows: names now, now/next later as nowNextUpdated', async () => {
+    const { seed } = await seeded();
+    await seed.refresh('epg');
+    await seed.idle();
+    const g = gate();
+    const state = { held: true, reads: 0 };
+    class SlowGuide extends SourceService {
+      override async programmesFor(...args: Parameters<SourceService['programmesFor']>) {
+        state.reads++;
+        if (state.held) await g.p;
+        return super.programmesFor(...args);
+      }
+    }
+    const events: AppEvent[] = [];
+    const service = new SlowGuide({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+    const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3', nowNextWaitMs: 20 });
+    live.push(api);
+    await api.init();
+    const slice = await api.getChannelSlice('all', 0, 3);
+    expect(slice.total).toBe(40);
+    expect(slice.rows.map((r) => r.name)).toHaveLength(3);
+    expect(slice.rows[0]!.now).toBeUndefined();
+    // Rows asked again while the first read still waits: answered at once, without a second guide read.
+    const before = state.reads;
+    await api.getChannelSlice('all', 0, 3);
+    expect(state.reads).toBe(before);
+    state.held = false;
+    g.open();
+    await api.idle();
+    const updated = events.filter((e): e is Extract<AppEvent, { type: 'nowNextUpdated' }> => e.type === 'nowNextUpdated');
+    expect(updated.flatMap((e) => e.channelIds)).toEqual(slice.rows.map((r) => r.id));
+    const again = await api.getChannelSlice('all', 0, 3);
+    expect(again.rows[0]!.now?.title).toMatch(/^Programme /);
+  });
+
   test('preferredFormat m3u8 swaps url and alternateUrl', async () => {
     const { api } = make();
     await api.addSource(xt());

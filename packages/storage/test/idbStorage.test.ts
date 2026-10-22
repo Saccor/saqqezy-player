@@ -6,6 +6,24 @@ import { storageContract } from './storageContract.ts';
 
 storageContract('indexeddb', () => new IdbStorage(new IDBFactory()));
 
+describe('IdbStorage clearProgrammes', () => {
+  test('deletes in short transactions, so a guide read started meanwhile does not wait for the whole clear', async () => {
+    const s = new IdbStorage(new IDBFactory(), 'iptv', 3);
+    const progs = (n: number) => Array.from({ length: n }, (_, i) => ({ epgId: 'a', start: i * 60_000, stop: (i + 1) * 60_000, title: `p${i}` }));
+    await s.addProgrammes('old', progs(30));
+    await s.addProgrammes('live', progs(2));
+    const order: string[] = [];
+    const clearing = s.clearProgrammes('old').then(() => order.push('clear'));
+    await Promise.resolve();
+    const reading = s.getProgrammes('live', ['a'], 0, 10 * 60_000).then((got) => { order.push('read'); return got; });
+    expect(await reading).toHaveLength(2);
+    await clearing;
+    expect(order).toEqual(['read', 'clear']);
+    expect(await s.getProgrammes('old', ['a'], 0, 60 * 60_000)).toEqual([]);
+    expect(await s.getProgrammes('live', ['a'], 0, 10 * 60_000)).toHaveLength(2);
+  });
+});
+
 describe('IdbStorage open', () => {
   test('upgrades a version-1 database to version 2 and keeps its data', async () => {
     const factory = new IDBFactory();
