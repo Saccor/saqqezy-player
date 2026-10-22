@@ -1,5 +1,5 @@
 import {
-  MAX_PROGRAMME_MS,
+  MAX_PROGRAMME_MS, isQuotaError,
   type Channel, type Programme, type SourceConfig, type Storage, type SyncMetaEntry, type VodKind, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
 import { CHUNK_ROWS, deleteCatalogs, encodeCatalog, readCatalog, writeCatalog, type CatalogKind, type LegacyRef } from './catalogStore.ts';
@@ -65,10 +65,34 @@ export class IdbStorage implements Storage {
     return run;
   }
 
+  private readonly migrations = new Set<Promise<unknown>>();
+
+  /** Resolves when every background migration started so far has finished (tests, and a clean shutdown). */
+  async settled(): Promise<void> {
+    while (this.migrations.size > 0) await Promise.allSettled([...this.migrations]);
+  }
+
+  private migrateLater(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef): void {
+    const p = this.writeKey(sourceId, kind, rows, extra, legacy).catch(() => undefined);
+    this.migrations.add(p);
+    void p.then(() => this.migrations.delete(p));
+  }
+
   private writeKey(sourceId: string, kind: CatalogKind, rows: readonly object[], extra: unknown, legacy: LegacyRef): Promise<void> {
     return this.withKeyLock(`${sourceId}\u0000${kind}`, async () => {
       const enc = await encodeCatalog(rows, extra, this.codec, this.chunkRows);
-      await writeCatalog(await this.db(), sourceId, kind, enc, legacy);
+      const db = await this.db();
+      try {
+        await writeCatalog(db, sourceId, kind, enc, legacy);
+      } catch (err) {
+        // The legacy single record of this key is what leaves no room (47 MB of movies on the G9): the list being
+        // written is the same data or newer, so drop it and try once more.
+        if (!isQuotaError(err) || (await req(db.transaction(legacy.store).objectStore(legacy.store).count(legacy.key))) === 0) throw err;
+        const tx = db.transaction(legacy.store, 'readwrite');
+        tx.objectStore(legacy.store).delete(legacy.key);
+        await done(tx);
+        await writeCatalog(db, sourceId, kind, enc, legacy);
+      }
     });
   }
 
@@ -105,6 +129,19 @@ export class IdbStorage implements Storage {
             // Catalogues as packed, compressed chunks (spec 2026-10-22-compact-catalogs); `channels`/`vod` stay for migration.
             db.createObjectStore('catalogs', { keyPath: ['sourceId', 'kind'] });
             db.createObjectStore('chunks', { keyPath: ['sourceId', 'kind', 'gen', 'n'] });
+            // A catalogue that could not be saved before this version fits now: fetch it again at once instead of after
+            // the storage backoff (which holds back even a screen with nothing to show).
+            if (e.oldVersion >= 1) {
+              const meta = open.transaction!.objectStore('meta');
+              const cur = meta.openCursor();
+              cur.onsuccess = () => {
+                const c = cur.result;
+                if (!c) return;
+                const v = c.value as { storage?: unknown } | null;
+                if (String(c.key).startsWith('refreshFail:') && v && typeof v === 'object' && v.storage === true) c.delete();
+                c.continue();
+              };
+            }
           }
         };
         // Another tab holds an older version open and does not let go: fail now instead of waiting forever.
@@ -171,7 +208,10 @@ export class IdbStorage implements Storage {
     const cat = await readCatalog(db, sourceId, 'channels', this.codec);
     if (cat) return cat.rows as unknown as Channel[];
     const rec = await req(db.transaction('channels').objectStore('channels').get(sourceId));
-    return (rec as { channels: Channel[] } | undefined)?.channels ?? [];
+    const legacy = (rec as { channels: Channel[] } | undefined)?.channels;
+    if (!legacy) return [];
+    this.migrateLater(sourceId, 'channels', legacy, undefined, { store: 'channels', key: sourceId });
+    return legacy;
   }
 
   replaceChannels(sourceId: string, channels: Channel[]): Promise<void> {
@@ -272,7 +312,12 @@ export class IdbStorage implements Storage {
     const cat = await readCatalog(db, sourceId, kind, this.codec);
     if (cat) return { items: cat.rows as unknown as VodList['items'], ...(cat.extra as Omit<VodList, 'items'>) };
     const rec = await req(db.transaction('vod').objectStore('vod').get([sourceId, kind]));
-    return (rec as { list: VodList } | undefined)?.list;
+    const legacy = (rec as { list: VodList } | undefined)?.list;
+    if (legacy) {
+      const { items, ...extra } = legacy;
+      this.migrateLater(sourceId, kind, items, extra, { store: 'vod', key: [sourceId, kind] });
+    }
+    return legacy;
   }
 
   replaceVod(sourceId: string, kind: VodKind, list: VodList): Promise<void> {

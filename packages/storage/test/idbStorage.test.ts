@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test, vi } from 'vitest';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { IdbStorage, done, req } from '../src/idbStorage.ts';
 import { storageContract } from './storageContract.ts';
 
@@ -175,5 +175,72 @@ describe('IdbStorage error names', () => {
     const err = await p.catch((e: unknown) => e) as Error;
     expect(err.name).toBe('ConstraintError');
     expect(err.message).toBe('IndexedDB ConstraintError');
+  });
+});
+
+/** Creates a version-3 database with legacy catalogue records and a storage-failure backoff record. */
+async function makeV3(factory: IDBFactory): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const open = factory.open('iptv', 3);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      db.createObjectStore('sources', { keyPath: 'id' });
+      db.createObjectStore('channels', { keyPath: 'sourceId' });
+      db.createObjectStore('meta');
+      db.createObjectStore('programmes', { autoIncrement: true }).createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+      db.createObjectStore('vod', { keyPath: ['sourceId', 'kind'] });
+      db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
+      db.createObjectStore('syncMeta', { keyPath: ['scope', 'key'] });
+      const tx = open.transaction!;
+      tx.objectStore('channels').put({ sourceId: 's1', channels: [{ id: 's1:1', sourceId: 's1', name: 'Channel 1', url: 'http://example.test/1.ts', group: 'G', number: 1 }] });
+      tx.objectStore('vod').put({ sourceId: 's1', kind: 'movie', list: { items: [{ id: 's1:m1', kind: 'movie', title: 'Synthetic Film', categoryId: '1' }], categories: [] } });
+      tx.objectStore('meta').put({ count: 2, at: 1, storage: true }, 'refreshFail:s1:vod:series');
+      tx.objectStore('meta').put({ count: 1, at: 1 }, 'refreshFail:s1:epg');
+    };
+    open.onsuccess = () => { open.result.close(); resolve(); };
+    open.onerror = () => reject(open.error);
+  });
+}
+
+describe('IdbStorage v4 migration', () => {
+  test('upgrade keeps legacy catalogues readable and clears storage-failure backoff only', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    expect((await s.getChannels('s1')).map((c) => c.name)).toEqual(['Channel 1']);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Synthetic Film');
+    expect(await s.getMeta('refreshFail:s1:vod:series')).toBeUndefined();
+    expect(await s.getMeta('refreshFail:s1:epg')).toEqual({ count: 1, at: 1 });
+    await s.settled();
+  });
+
+  test('a legacy record is rewritten in the background and its legacy copy deleted', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await s.getVod('s1', 'movie');
+    await s.settled();
+    const raw = await new Promise<number>((resolve) => {
+      const open = factory.open('iptv');
+      open.onsuccess = () => { const r = open.result.transaction('vod').objectStore('vod').count(); r.onsuccess = () => { open.result.close(); resolve(r.result); }; };
+    });
+    expect(raw).toBe(0);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Synthetic Film');
+  });
+
+  test('a quota failure with a legacy record of the same key deletes the legacy record and retries once', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const put = IDBObjectStore.prototype.put;
+    let failed = false;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks' && !failed) { failed = true; throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }
+      return put.call(this, value, key);
+    });
+    await s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Newer Film', categoryId: '1' }], categories: [] });
+    vi.restoreAllMocks();
+    expect(failed).toBe(true);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Newer Film');
   });
 });
