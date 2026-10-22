@@ -108,6 +108,15 @@ describe('liveMenuItems', () => {
     expect(items.slice(0, 2)).toEqual([{ action: 'fromStart', label: 'From the start' }, { action: 'addToMultiview', label: 'Add to multiview' }]);
     expect(liveMenuItems({ channel, fromStart: false, goToDay: false }).map((i) => i.action)).not.toContain('addToMultiview');
   });
+  test('OK opens the menu with Watch first, then Preview when asked', () => {
+    const items = liveMenuItems({ channel, fromStart: true, goToDay: false, watch: true, preview: true });
+    expect(items.slice(0, 3).map((i) => i.action)).toEqual(['watch', 'preview', 'fromStart']);
+    expect(items[0]!.label).toBe('Watch');
+    expect(items[1]!.label).toBe('Preview');
+    expect(liveMenuItems({ channel, fromStart: false, goToDay: false, watch: true }).map((i) => i.action))
+      .not.toContain('preview');
+    expect(liveMenuItems({ channel, fromStart: false, goToDay: false }).map((i) => i.action)).not.toContain('watch');
+  });
   test('a combined channel offers Choose source', () => {
     expect(liveMenuItems({ channel: { ...channel, sources: 4 }, fromStart: false, goToDay: false }).map((i) => i.action))
       .toContain('chooseSource');

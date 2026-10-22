@@ -36,6 +36,7 @@ const FAV_LIST_ID = 'fav';
 interface MenuState {
   row: ChannelRow; items: { action: LiveMenuAction; label: string }[];
   inListId?: string; isFavourite: boolean; fromStart?: () => void; goToDay: boolean;
+  watch?: () => void; preview?: () => void;
 }
 /** "Add to list…": every list and the ids of those holding the channel. */
 interface PickerState { row: ChannelRow; lists: ListSummary[]; member: Set<string> }
@@ -111,14 +112,17 @@ export function createLiveMenu(d: LiveMenuDeps) {
     channel: {
       inListId: s.inListId, isHidden: false, isFavourite: s.isFavourite, lists: listsFromGroups(), sources: s.row.sourceCount,
     },
-    fromStart: s.fromStart !== undefined, goToDay: s.goToDay, multiview: d.multiview?.offered() === true,
+    fromStart: s.fromStart !== undefined, goToDay: s.goToDay,
+    watch: s.watch !== undefined, preview: s.preview !== undefined, multiview: d.multiview?.offered() === true,
   });
 
   /**
-   * Opens the menu on `row`. The programme items (see `liveMenuItems`): `fromStart` (set for an on-air programme whose
-   * channel keeps an archive) runs it; `goToDay` offers the day choice.
+   * Opens the menu on `row`. `watch` and `preview` run the play items. The programme items (see `liveMenuItems`):
+   * `fromStart` (set for an on-air programme whose channel keeps an archive) runs it; `goToDay` offers the day choice.
    */
-  const openMenu = (row: ChannelRow, o: { fromStart?: () => void; goToDay: boolean }) => {
+  const openMenu = (row: ChannelRow, o: {
+    fromStart?: () => void; goToDay: boolean; watch?: () => void; preview?: () => void;
+  }) => {
     if (open() || router.topOverlay() !== undefined) return;
     d.stopPreview();
     const s = { row, inListId: listIdOfGroup(d.groupId()), isFavourite: row.favourite, ...o };
@@ -216,6 +220,8 @@ export function createLiveMenu(d: LiveMenuDeps) {
     if (action === 'addToList') { await openPicker(r); return; }
     if (action === 'rename') { openKeyboard('rename', r, r.name); return; }
     dismissMenu();
+    if (action === 'watch') { m.watch?.(); return; }
+    if (action === 'preview') { m.preview?.(); return; }
     if (action === 'fromStart') { m.fromStart?.(); return; }
     if (action === 'goToDay') { await chooseDay(); return; }
     if (action === 'chooseSource') { await chooseSource(r); return; }

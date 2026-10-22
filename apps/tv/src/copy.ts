@@ -18,6 +18,9 @@ export const favToggleLabel = (isFavourite: boolean): string => (isFavourite ? F
 /** The toast after a change: what is now true. */
 export const favChangedToast = (isFavourite: boolean): string => (isFavourite ? FAV_COPY.added : FAV_COPY.removed);
 
+/** Live TV's channel menu, opened by OK: its play items above the programme and channel items. */
+export const LIVE_MENU_COPY = { watch: 'Watch', preview: 'Preview' } as const;
+
 /**
  * Catch-up strings (spec 2026-10-20-catch-up §5): neutral wording only (CLAUDE.md rule 3), no source or provider
  * names, nothing that suggests free content.

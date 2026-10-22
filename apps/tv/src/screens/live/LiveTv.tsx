@@ -400,7 +400,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
    * a second on the playing or requested channel goes fullscreen. Anything else toggles the details. While the source
    * cools down, OK is Retry (the preview box says so).
    */
-  const ok = () => {
+  /** A pointer click on a cell: plays at once (preview, then full screen), as OK did before it opened the menu. */
+  const play = () => {
     if (router.topOverlay() !== undefined) return true;
     const ch = focusChannel();
     const g = groupId();
@@ -519,8 +520,34 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const b = place() === 'grid' ? focusBlock() : undefined;
     // The same rule as the cell's archive mark (`stateOf`): on air on a channel that keeps an archive.
     const fromStart = b !== undefined && stateOf(ch, b) === 'onAir' ? () => openCatchup(ch, b) : undefined;
-    liveMenu.openMenu(ch, { fromStart, goToDay: catchupDays() > 0 });
+    const g = groupId() ?? GROUP_ALL;
+    const action = liveOkAction({
+      channelId: ch.id,
+      onAir: b === undefined || isOnAir(b, Date.now()),
+      archive: b === undefined ? 'none' : stateOf(ch, b),
+      playingId: playback.currentRowId(),
+      requestedId: preview.requested(),
+    });
+    // "Watch" plays the programme's archive for a past one that has it, else the channel live in full screen.
+    const watch = () => {
+      memory.channelId = ch.id;
+      if (action === 'catchup' && b) openCatchup(ch, b);
+      else preview.openFullscreen(ch.id, g);
+    };
+    const toPreview = action === 'preview' ? () => { memory.channelId = ch.id; preview.playHere(ch.id, g); } : undefined;
+    liveMenu.openMenu(ch, { watch, preview: toPreview, fromStart, goToDay: catchupDays() > 0 });
     return true;
+  };
+
+  /** OK opens the menu (owner 2026-10-22); a cooling channel's OK still retries it here. */
+  const ok = () => {
+    if (router.topOverlay() !== undefined) return true;
+    const ch = focusChannel();
+    if (ch && cooling()) {
+      void preview.retryHere(ch.id);
+      return true;
+    }
+    return openMenu();
   };
 
   const gridKeys = {
@@ -557,7 +584,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       if (s.kind !== 'edge') applyStep(s);
     },
     pageTime: (dir) => applyStep(pageTime(view(), dir, win())),
-    ok,
+    ok: play,
     openMenu,
     videoChannel: () => preview.requested() ?? playback.currentRowId(),
     // The open group when the video shows the focused channel, else All (as on Home).
