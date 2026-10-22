@@ -27,3 +27,31 @@ export function createScreenSaverGuard(set: (s: SaverState) => void): { update(i
     },
   };
 }
+
+/**
+ * One screensaver for several players (Tizen multiview): each member reports what it wants; the TV's screensaver is
+ * off while any member wants it off. `set` runs only on a change and never throws.
+ */
+export function createSharedSaver(set: (s: SaverState) => void): { member(): (s: SaverState) => void } {
+  const wants: SaverState[] = [];
+  let last: SaverState | undefined;
+  const apply = () => {
+    const want: SaverState = wants.includes('off') ? 'off' : 'on';
+    if (want === last) return;
+    last = want;
+    try {
+      set(want);
+    } catch {
+      // Not available on this TV: the platform default stays.
+    }
+  };
+  return {
+    member() {
+      const i = wants.push('on') - 1;
+      return (s) => {
+        wants[i] = s;
+        apply();
+      };
+    },
+  };
+}
