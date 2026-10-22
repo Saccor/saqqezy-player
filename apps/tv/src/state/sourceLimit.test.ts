@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSourceLimit, maxConnectionsOf } from './sourceLimit.ts';
+import { activeConnectionsOf, createSourceLimit, maxConnectionsOf } from './sourceLimit.ts';
 
 const xtream = (id: string, maxConnections?: number) => ({
   kind: 'xtream' as const, id, name: 'A', server: 'http://example.test', username: 'u', password: 'p',
@@ -12,6 +12,14 @@ describe('maxConnectionsOf', () => {
     expect(maxConnectionsOf(xtream('s1'))).toBeUndefined();
     expect(maxConnectionsOf({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' })).toBeUndefined();
     expect(maxConnectionsOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('activeConnectionsOf', () => {
+  it('is what the Xtream account had in use at its last sign-in; M3U and unknown have none', () => {
+    expect(activeConnectionsOf({ ...xtream('s1', 2), activeConnections: 1 })).toBe(1);
+    expect(activeConnectionsOf(xtream('s1', 2))).toBeUndefined();
+    expect(activeConnectionsOf({ kind: 'm3u', id: 's2', name: 'B', playlistUrl: 'http://example.test/a.m3u' })).toBeUndefined();
   });
 });
 

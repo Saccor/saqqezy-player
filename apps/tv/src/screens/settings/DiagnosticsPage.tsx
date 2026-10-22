@@ -9,6 +9,7 @@ import { platformId } from '../../state/appState.ts';
 import { readDeviceInfo } from '../../platform/deviceInfo.ts';
 import { diagnosticsLines, liveLines, onOff } from '../settingsLogic.ts';
 import { journalSummary } from '../journalLogic.ts';
+import { ConnectionsView } from './ConnectionsView.tsx';
 import { PlaybackLogView } from './PlaybackLogView.tsx';
 import type { PageProps } from './shared.ts';
 
@@ -17,18 +18,20 @@ const LABEL_W = 300;
 
 /**
  * Diagnostics: app version, platform, sources with counts and times, the last errors and the settings, built
- * by `diagnosticsLines` (no credentials or URLs), a "Playback" summary line, the "Show debug overlay" toggle
- * and the "Playback log" row that opens `PlaybackLogView`.
+ * by `diagnosticsLines` (no credentials or URLs), a "Playback" summary line, the "Show debug overlay" toggle,
+ * the "Playback log" row that opens `PlaybackLogView` and the "Connections" row (multiview) that opens
+ * `ConnectionsView`.
  */
 export function DiagnosticsPage(props: PageProps) {
   const [lines, setLines] = createSignal<[string, string][]>([]);
   const [sel, setSel] = createSignal(0);
-  const [logOpen, setLogOpen] = createSignal(false);
+  const [view, setView] = createSignal<'list' | 'log' | 'connections'>('list');
   let alive = true;
   const items = (): SettingItem[] => [
     { id: 'debug', label: 'Show debug overlay', value: onOff(debugOverlayVisible()), adjustable: true,
       help: 'Frame rate, memory and player state' },
     { id: 'log', label: 'Playback log', help: 'What the player did, newest first' },
+    { id: 'connections', label: 'Connections', help: 'Multiview: what your source reports, and each window opened or refused' },
   ];
   const toggle = (id: string) => {
     if (id !== 'debug') return false;
@@ -36,7 +39,8 @@ export function DiagnosticsPage(props: PageProps) {
     return true;
   };
   const ok = (id: string) => {
-    if (id === 'log') setLogOpen(true);
+    if (id === 'log') setView('log');
+    else if (id === 'connections') setView('connections');
     else toggle(id);
   };
   onMount(() => {
@@ -54,15 +58,15 @@ export function DiagnosticsPage(props: PageProps) {
   });
   onCleanup(() => { alive = false; props.register(undefined); });
 
-  const linesY = SETTING_ROW_H * 2 + LAYOUT.gap;
+  const linesY = SETTING_ROW_H * 3 + LAYOUT.gap;
   const maxLines = () => Math.floor((props.height - linesY) / LINE_H);
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
-      <Show when={!logOpen()} fallback={
-        <PlaybackLogView width={props.width} height={props.height} register={props.register}
-          onClose={() => setLogOpen(false)} />
+      <Show when={view() === 'list'} fallback={view() === 'log'
+        ? <PlaybackLogView width={props.width} height={props.height} register={props.register} onClose={() => setView('list')} />
+        : <ConnectionsView width={props.width} height={props.height} register={props.register} onClose={() => setView('list')} />
       }>
-        <SettingsList ref={props.register} x={0} y={0} width={props.width} height={SETTING_ROW_H * 2}
+        <SettingsList ref={props.register} x={0} y={0} width={props.width} height={SETTING_ROW_H * 3}
           items={items()} selected={sel()} onSelect={setSel} onAdjust={(id) => toggle(id)} onOk={ok}
           onLeftEdge={props.onLeftEdge} />
         <For each={lines().slice(0, maxLines())}>{(line, i) => (

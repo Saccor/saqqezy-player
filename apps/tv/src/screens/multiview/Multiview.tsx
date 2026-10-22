@@ -5,12 +5,14 @@ import { api } from '../../api.ts';
 import { ContextMenu, type ContextMenuItem } from '../../components/ContextMenu.tsx';
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
-import { clearWindowNote, playback, pool, setInMultiview, windowNotes } from '../../playback/playback.ts';
+import {
+  clearWindowNote, connectionMemory, otherSlots, playback, pool, setInMultiview, windowNotes,
+} from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
-import { settings } from '../../state/appState.ts';
+import { initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
 import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
@@ -272,9 +274,21 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     }
   };
 
+  /** Every slot, read reactively (a new window or a sound move re-runs the effect). */
+  const slotsNow = () => {
+    otherSlots();
+    return pool.slots();
+  };
+  // The most windows playing at once on this source (Diagnostics -> Connections).
+  createEffect(() => {
+    const playing = slotsNow().filter((s) => s.playback.status()?.kind === 'playing').length;
+    const source = initState()?.activeSourceId;
+    if (source && playing > 0) connectionMemory.seen(source, playing);
+  });
+
   // ---- failures ----
   createEffect(() => {
-    for (const s of pool.slots()) {
+    for (const s of slotsNow()) {
       const kind = s.playback.status()?.kind;
       if (kind === 'failed' && !failedAt.has(s.n)) failedAt.set(s.n, Date.now());
       else if (kind !== 'failed') failedAt.delete(s.n);

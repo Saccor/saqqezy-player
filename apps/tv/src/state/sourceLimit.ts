@@ -35,3 +35,8 @@ export function createSourceLimit(getSource: (id: string) => Promise<SourceConfi
     },
   };
 }
+
+/** What an Xtream account had in use at its last login or refresh (Diagnostics → Connections); M3U has none. */
+export function activeConnectionsOf(src: SourceConfig | undefined): number | undefined {
+  return src?.kind === 'xtream' ? src.activeConnections : undefined;
+}
