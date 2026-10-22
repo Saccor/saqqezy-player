@@ -309,7 +309,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** Where focus lands on open: `contentPlace`, but a return to a programme (Search target, catch-up) lands on the timeline. */
   const openPlace = (): LivePlace => {
     const p = contentPlace();
-    return p === 'channels' && livePlaceOnOpen({ hasTarget, fromCatchup }) === 'grid' ? 'grid' : p;
+    return p === 'channels' && (hasTarget || fromCatchup) ? 'grid' : p;
   };
   /** Routes a key through `liveKey`: `move` runs the place's own handler; `exit` lets Back bubble to the shell. */
   const go = (key: LiveKey, move: () => boolean = () => true): boolean => {
@@ -699,7 +699,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   /**
    * After a refresh or a source change: no live channels: the rail; the open group became empty: the dropdown; the
-   * group the empty state parked focus above (`hadChannels` false) got channels: the grid. Never under a layer.
+   * group the empty state parked focus above (`hadChannels` false) got channels: the channel column. Never under a layer.
    */
   const settleFocus = (hadChannels: boolean) => {
     if (!alive || !ready() || router.topOverlay() !== undefined || layerOpen()) return;
@@ -708,7 +708,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       return;
     }
     if (onGrid() && groupCount() === 0) focusPlace(contentPlace(), true);
-    else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('grid');
+    else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('channels');
   };
 
   onMount(() => {
