@@ -7,8 +7,8 @@ import type { MaxWindows } from '@iptv/core';
  */
 export type { MaxWindows };
 
-/** The most windows any device gets in this phase (P1: 2 on desktop; P2 raises it to 4). */
-export const MULTIVIEW_CEILING = 2;
+/** The most windows any device gets: 4 on desktop since 2026-10-22 (the 3- and 4-window layouts); 5–6 come with P2. */
+export const MULTIVIEW_CEILING = 4;
 
 /** What this device can play at once: the pool's slots, at most this phase's ceiling. */
 export function deviceCeiling(poolMax: number): number {
