@@ -1491,3 +1491,53 @@ describe('VodController.startRows trending', () => {
     expect((await c.startRows('movie'))!.trending).toBeUndefined();
   });
 });
+
+describe('VodController language hints on playable', () => {
+  const oneMovie = (title: string, catName = 'Cat') => async (_id: string, kind: VodKind) => new VodCatalog(kind, {
+    items: kind === 'movie' ? [{ id: movieId(1), kind, title, categoryId: '1' }] : [], categories: [{ id: '1', kind, name: catName, count: 1 }],
+  });
+
+  test('a movie: the title prefix names the speech; none without one', async () => {
+    const { c, fake } = detailFake(0);
+    fake.storedCatalog.mockImplementation(oneMovie('SE | Synthetic Film'));
+    c.reset('src');
+    expect((await c.playable(movieId(1)))!.languageHints).toEqual({ title: 'sv', titleScope: 'audio' });
+    fake.storedCatalog.mockImplementation(oneMovie('Synthetic Film'));
+    c.reset('src');
+    expect((await c.playable(movieId(1)))!.languageHints).toBeUndefined();
+  });
+
+  test('a movie tagged SUB: the prefix names the subtitles', async () => {
+    const { c, fake } = detailFake(0);
+    fake.storedCatalog.mockImplementation(oneMovie('[EN] Synthetic Film (2020) SUB'));
+    c.reset('src');
+    expect((await c.playable(movieId(1)))!.languageHints).toEqual({ title: 'en', titleScope: 'subtitles' });
+  });
+
+  test('a movie: the category prefix when the title has none', async () => {
+    const { c, fake } = detailFake(0);
+    fake.storedCatalog.mockImplementation(oneMovie('Synthetic Film 4K', 'DE | Action'));
+    c.reset('src');
+    expect((await c.playable(movieId(1)))!.languageHints).toEqual({ title: 'de', titleScope: 'audio' });
+  });
+
+  test('a movie: the probe language of a cached detail names the first audio stream', async () => {
+    const { c, fake } = detailFake(1);
+    fake.movieDetail.mockImplementation(async () => ({ plot: 'P', audioLang: 'fr' }));
+    await c.movie(movieId(1));
+    expect((await c.playable(movieId(1)))!.languageHints).toEqual({ firstAudio: 'fr' });
+  });
+
+  test('an episode: its probe language, and the show title prefix', async () => {
+    const { c, fake } = detailFake(0, 1);
+    fake.storedCatalog.mockImplementation(async (_id: string, kind: VodKind) => new VodCatalog(kind, {
+      items: kind === 'series' ? [{ id: showId(1), kind, title: 'NO - Synthetic Show', categoryId: '1' }] : [],
+      categories: [{ id: '1', kind, name: 'Cat', count: 1 }],
+    }));
+    fake.seriesDetail.mockImplementation(async (_src: string, it: VodItem) => ({
+      plot: 'P', seasons: seasonsOf(it.id).map((s) => ({ ...s, episodes: s.episodes.map((e) => ({ ...e, audioLang: 'no' })) })),
+    }));
+    c.reset('src');
+    expect((await c.playable(epId(showId(1), 1), showId(1)))!.languageHints).toEqual({ firstAudio: 'no', title: 'no', titleScope: 'audio' });
+  });
+});

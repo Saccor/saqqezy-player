@@ -1,3 +1,4 @@
+import { detectTextLanguage, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
@@ -142,6 +143,25 @@ export function sourceSubtitleName(sub: SourceSubtitleInfo): string {
   return `${what} (from source)`;
 }
 
+/**
+ * A loaded file's language: the one stored with it (given, found online, or inferred on load), else its file name's
+ * ("Film.sv.srt"), else its first cues' text (files loaded before languages were inferred). ISO 639-1, maybe with a
+ * region; undefined when nothing tells.
+ */
+export function loadedLanguage(loaded: LoadedSubtitle): string | undefined {
+  return loaded.language ?? loaded.online?.language ?? languageFromFileName(loaded.name)
+    ?? detectTextLanguage(loaded.cues.slice(0, DETECT_CUES).map((c) => c.text).join('\n'));
+}
+
+/** How many of a loaded file's cues `loadedLanguage` reads. */
+const DETECT_CUES = 40;
+
+/** A loaded file's row name: its language first when its name does not say it ("Swedish · subs.srt"). */
+function externalName(ext: { name: string; language?: string }): string {
+  const lang = ext.language ? languageName(ext.language.split(/[-_]/)[0] ?? '') : undefined;
+  return lang && !languageFromFileName(ext.name) ? `${lang} · ${ext.name}` : ext.name;
+}
+
 /** The index of the source file a picker row loads; undefined for any other row. */
 export function sourceRowIndex(rowId: string): number | undefined {
   if (!rowId.startsWith(SOURCE_PREFIX)) return undefined;
@@ -156,7 +176,8 @@ export function sourceRowIndex(rowId: string): number | undefined {
 export function subtitleExtraRows(s: {
   /** Subtitle files the source lists (`VodPlayable.subtitles`): a row each, first. */
   source?: readonly SourceSubtitleInfo[];
-  external?: { name: string; active: boolean };
+  /** The loaded file: its name, whether it shows, and its language (`loadedLanguage`) when known. */
+  external?: { name: string; active: boolean; language?: string };
   /** The loaded file's delay (the row shows while the file is on). */
   delayMs?: number;
   /** Pointer mode: the delay also gets earlier/later rows to click. */
@@ -178,7 +199,7 @@ export function subtitleExtraRows(s: {
     rows.push({ kind: 'list', id: `${SOURCE_PREFIX}${i}`, label: `Subtitles: ${name}`, checked: isLoaded && s.external?.active === true });
   });
   if (s.external && !loadedIsSource) {
-    rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${s.external.name} (loaded)`, checked: s.external.active });
+    rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${externalName(s.external)} (loaded)`, checked: s.external.active });
   }
   if (s.external?.active) {
     rows.push({ kind: 'list', id: DELAY_ROW, label: `Subtitle delay: ${delayLabel(s.delayMs ?? 0)} (Left/Right)`, checked: false });

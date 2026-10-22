@@ -90,6 +90,14 @@ describe('mediaBadges', () => {
     expect(mediaBadges({ info: {}, audio: [track({ active: true, label: 'und', language: 'und' })], text: [] })).toEqual([]);
   });
 
+  it('languages from labels, detected text and the source\'s hints', () => {
+    const audio = [track({ id: '0', label: 'Track 1', active: true })];
+    const text = [track({ id: '3', label: 'Subtitles 1', active: true })];
+    expect(mediaBadges({ info: {}, audio: [track({ label: 'Svenska 5.1', active: true })], text: [] })).toEqual(['Swedish']);
+    expect(mediaBadges({ info: {}, audio, text, languages: { hints: { firstAudio: 'de' }, detected: { 3: 'fi' } } }))
+      .toEqual(['German', 'Finnish subtitles']);
+  });
+
   it('subtitles: forced, regular, and a loaded file', () => {
     const forced = [track({ label: 'English forced', language: 'en', active: true, forced: true })];
     expect(mediaBadges({ info: {}, audio: [], text: forced })).toEqual(['English forced']);

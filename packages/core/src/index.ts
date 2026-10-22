@@ -22,11 +22,12 @@ export { orderGroupChannels } from './index/order.ts';
 export { type Storage, type SyncMetaEntry, MAX_PROGRAMME_MS } from './storage.ts';
 export * from './vod/types.ts';
 export { ISO_LANGUAGES, englishLanguageName, isoLanguage } from './text/language.ts';
+export { detectTextLanguage, languageFromFileName, languageFromLabel } from './text/trackLanguage.ts';
 export { dvFromFourCC, dvFromTitle, videoRangeOf, wrongColoursWithoutDv } from './vod/videoRange.ts';
 export { splitYear, parseEpisodeMarker } from './vod/title.ts';
 export { buildVodList, emptyVodList, seasonsOf } from './vod/list.ts';
 export { VodCatalog, type VodMember } from './vod/catalog.ts';
-export { parseVodTitle, categoryBase, QUALITY_LABELS, QUALITY_UNKNOWN, type ParsedTitle } from './vod/titleParse.ts';
+export { parseVodTitle, categoryBase, prefixLang, QUALITY_LABELS, QUALITY_UNKNOWN, type ParsedTitle } from './vod/titleParse.ts';
 export { groupVod, mergedCategoryId, type VodGroup, type VodGroups } from './vod/grouping.ts';
 export {
   applyVodOps, detectVodRegions, emptyVodLayout, isVodLayoutOp, isVodLayoutOpBatch, normalizeVodLayout, vodCategoryView, vodLayoutKey,

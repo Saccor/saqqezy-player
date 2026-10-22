@@ -1,4 +1,5 @@
-import { englishLanguageName } from '@iptv/core';
+import type { LanguageHints } from '@iptv/app-api';
+import { englishLanguageName, isoLanguage, languageFromLabel, prefixLang } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 
@@ -60,29 +61,83 @@ export function findTrack(tracks: readonly TrackInfo[], want: string | undefined
     ?? tracks.find((t) => t.label === label);
 }
 
+export type TrackKind = 'audio' | 'subtitle';
+
+/** What is known about a stream's languages besides its tracks' own data (spec 2026-10-22-track-languages). */
+export interface TrackLanguageInput {
+  /** What the source says about the title (`VodPlayable.languageHints`) or the channel's name prefix. */
+  hints?: LanguageHints;
+  /** Subtitle languages detected from the cue text this open, by engine track id. */
+  detected?: Readonly<Record<string, string>>;
+}
+
 /**
- * A track's display label: a bare language code (AVPlay labels tracks by language only) becomes its English name;
- * any other label is kept. The codec family follows in parentheses where the engine knows it ("Svenska (AC-3)").
- * Labels that repeat get " (2)", " (3)" in list order.
+ * Each track's language (ISO 639-1), first signal that names one: the track's language code (`und` counts as none),
+ * its label, the language detected from its cues; then the source's hints for tracks still without one: the probe
+ * data's language for the first audio track, and the title prefix (audio or subtitles, as it names) for the only
+ * track without a language when no other track has that language. Undefined when nothing names one.
  */
-export function trackLabels(tracks: readonly TrackInfo[]): string[] {
+export function trackLanguages(tracks: readonly TrackInfo[], kind: TrackKind, input?: TrackLanguageInput): (string | undefined)[] {
+  const detected = kind === 'subtitle' ? input?.detected : undefined;
+  const out = tracks.map((t) => isoLanguage(t.language) ?? languageFromLabel(t.label) ?? isoLanguage(detected?.[t.id]));
+  const hints = input?.hints;
+  if (!hints) return out;
+  if (kind === 'audio' && hints.firstAudio && out.length > 0 && out[0] === undefined) out[0] = isoLanguage(hints.firstAudio);
+  const title = isoLanguage(hints.title);
+  const scope: TrackKind = hints.titleScope === 'subtitles' ? 'subtitle' : 'audio';
+  if (title && scope === kind && !out.includes(title)) {
+    const missing = out.flatMap((l, i) => (l === undefined ? [i] : []));
+    if (missing.length === 1) out[missing[0]!] = title;
+  }
+  return out;
+}
+
+/** A live channel's language hint: the language prefix of its name ("SE | …"), else of its group's. */
+export function channelLanguageInput(name: string | undefined, group: string | undefined): TrackLanguageInput | undefined {
+  const lang = (name ? prefixLang(name) : undefined) ?? (group ? prefixLang(group) : undefined);
+  return lang ? { hints: { title: lang, titleScope: 'audio' } } : undefined;
+}
+
+/** "Mono", "Stereo", "5.1", "7.1" for a channel count; undefined when unknown. */
+export function channelsLabel(n: number | undefined): string | undefined {
+  if (!n || n <= 0) return undefined;
+  if (n === 1) return 'Mono';
+  if (n === 2) return 'Stereo';
+  return `${n - 1}.1`;
+}
+
+/** A label that says nothing of its own: empty, a bare code, or an engine's placeholder ("Track 3", "Subtitles 1"). */
+const PLACEHOLDER = /^(?:|[a-z]{2,3}(?:[-_][a-z0-9]{2,4})?|(?:track|audio|sound|subtitles?|text|cc)\s*\d*)$/i;
+
+/**
+ * Track display labels, never "Unknown". A label that says nothing (a bare code, "Track 3") becomes the language's
+ * name, or "Audio 2" / "Subtitle 1" when no language is known at all. A descriptive label is kept, after the language
+ * when it does not name it ("English · Commentary"). Codec and channels follow in parentheses where known ("Swedish
+ * (AC-3 5.1)"); labels that repeat get " (2)", " (3)" in list order.
+ */
+export function trackLabels(tracks: readonly TrackInfo[], kind: TrackKind, input?: TrackLanguageInput): string[] {
+  const langs = trackLanguages(tracks, kind, input);
   const seen = new Map<string, number>();
-  return tracks.map((t) => {
+  return tracks.map((t, i) => {
     const raw = oneSpace(t.label);
-    // A bare code (or no label at all) names the language; an untagged track says so rather than showing "und".
-    const bare = raw === '' || /^[a-z]{2,3}([-_][a-z0-9]{2,4})?$/i.test(raw);
-    const name = bare ? languageName(raw) ?? (t.language ? languageName(t.language) : undefined) ?? (raw && !/^und$/i.test(raw) ? raw : 'Unknown language') : raw;
-    const base = t.codec ? `${name} (${t.codec})` : name;
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return n === 1 ? base : `${base} (${n})`;
+    const lang = langs[i];
+    const name = lang ? languageName(lang) : undefined;
+    let base: string;
+    if (PLACEHOLDER.test(raw)) base = name ?? `${kind === 'audio' ? 'Audio' : 'Subtitle'} ${i + 1}`;
+    else base = name && !languageFromLabel(raw) ? `${name} · ${raw}` : raw;
+    const channels = channelsLabel(t.channels);
+    const extra = [t.codec, channels && !raw.toLowerCase().includes(channels.toLowerCase()) ? channels : undefined].filter(Boolean);
+    const full = extra.length > 0 ? `${base} (${extra.join(' ')})` : base;
+    const n = (seen.get(full) ?? 0) + 1;
+    seen.set(full, n);
+    return n === 1 ? full : `${full} (${n})`;
   });
 }
 
 /** "Audio & subtitles" picker rows: audio tracks, then subtitles, then "Subtitles off"; the active ones are checked. */
-export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[]): PickerRow[] {
-  const audioLabels = trackLabels(audio);
-  const textLabels = trackLabels(text);
+export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[], input?: TrackLanguageInput): PickerRow[] {
+  const audioLabels = trackLabels(audio, 'audio', input);
+  const textLabels = trackLabels(text, 'subtitle', input);
   return [
     ...audio.map((t, i): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: `Audio: ${audioLabels[i]}`, checked: t.active })),
     ...text.map((t, i): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: `Subtitles: ${textLabels[i]}`, checked: t.active })),
@@ -100,7 +155,10 @@ const isForced = (t: TrackInfo) => /\bforced\b/i.test(t.label);
 export function preferredTrack(tracks: readonly TrackInfo[], code: string): TrackInfo | undefined {
   const name = code === 'off' || code === 'auto' ? undefined : languageName(code);
   if (!name) return undefined;
-  const byLang = tracks.filter((t) => t.language !== undefined && languageName(t.language) === name);
+  const byLang = tracks.filter((t) => {
+    const lang = isoLanguage(t.language) ?? languageFromLabel(t.label);
+    return lang !== undefined && languageName(lang) === name;
+  });
   const lower = name.toLowerCase();
   const matches = byLang.length > 0
     ? byLang

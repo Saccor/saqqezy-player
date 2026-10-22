@@ -1,6 +1,6 @@
 import type { VideoRange } from '@iptv/core';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
-import { codecFamily, languageName } from '../vod/tracks.ts';
+import { channelsLabel, codecFamily, languageName, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
 import { formatBitrate } from './streamInfo.ts';
 
 /**
@@ -18,6 +18,8 @@ export interface MediaBadgeInput {
   external?: string;
   /** The loaded file is made for the hearing impaired. */
   externalCc?: boolean;
+  /** The source's language hints and the subtitle languages detected this open (as the track picker uses them). */
+  languages?: TrackLanguageInput;
 }
 
 /** "4K", "1440p", "1080p", "720p" or "SD" by the picture's size (wide and cropped films by their width); "1080i" interlaced. */
@@ -62,38 +64,33 @@ function rangeLabel(info: StreamInfo, hint: VideoRange | undefined): string | un
   return r && r !== 'sdr' ? RANGE[r] : undefined;
 }
 
-function channelsLabel(n: number | undefined): string | undefined {
-  if (!n || n <= 0) return undefined;
-  if (n === 1) return 'Mono';
-  if (n === 2) return 'Stereo';
-  return `${n - 1}.1`;
-}
-
-/** A track's language name: its language tag, else a label that is a bare code or a language's name. */
-function trackLanguage(t: TrackInfo): string | undefined {
-  const byTag = t.language ? languageName(t.language) : undefined;
-  if (byTag) return byTag;
-  const label = t.label.trim();
-  return label ? languageName(label) : undefined;
+/** The language name of `tracks[i]`, from every signal `trackLanguages` reads. */
+function languageAt(tracks: readonly TrackInfo[], i: number, kind: 'audio' | 'subtitle', input: TrackLanguageInput | undefined): string | undefined {
+  if (i < 0) return undefined;
+  const code = trackLanguages(tracks, kind, input)[i];
+  return code ? languageName(code) : undefined;
 }
 
 const HEARING_IMPAIRED = /\b(sdh|cc|hoh|hearing)\b/i;
 const FORCED = /\bforced\b/i;
 
-function subtitleBadge(text: readonly TrackInfo[], external: string | undefined, externalCc?: boolean): string | undefined {
+function subtitleBadge(text: readonly TrackInfo[], external: string | undefined, externalCc?: boolean, input?: TrackLanguageInput): string | undefined {
   if (external !== undefined && externalCc) return external ? `${external} CC` : 'CC';
   if (external !== undefined) return external ? `${external} subtitles` : 'Subtitles';
-  const t = text.find((x) => x.active);
+  const at = text.findIndex((x) => x.active);
+  const t = text[at];
   if (!t) return undefined;
-  const lang = trackLanguage(t);
+  const lang = languageAt(text, at, 'subtitle', input);
   if (t.forced || FORCED.test(t.label)) return lang ? `${lang} forced` : 'Forced subtitles';
   if (t.hearingImpaired || HEARING_IMPAIRED.test(t.label)) return lang ? `${lang} CC` : 'CC';
   return lang ? `${lang} subtitles` : 'Subtitles';
 }
 
 export function mediaBadges(input: MediaBadgeInput): string[] {
-  const { info, hint, audio, text, external, externalCc } = input;
-  const a = audio.find((t) => t.active) ?? (audio.length === 1 ? audio[0] : undefined);
+  const { info, hint, audio, text, external, externalCc, languages } = input;
+  const activeAt = audio.findIndex((t) => t.active);
+  const aAt = activeAt >= 0 ? activeAt : audio.length === 1 ? 0 : -1;
+  const a = audio[aAt];
   const sound = [
     channelsLabel(a?.channels ?? info.audioChannels),
     a?.codec ?? codecFamily(info.audioCodec),
@@ -104,9 +101,9 @@ export function mediaBadges(input: MediaBadgeInput): string[] {
     rangeLabel(info, hint),
     fpsLabel(info.fps),
     videoCodecLabel(info.videoCodec),
-    a ? trackLanguage(a) : undefined,
+    languageAt(audio, aAt, 'audio', languages),
     sound || undefined,
-    subtitleBadge(text, external, externalCc),
+    subtitleBadge(text, external, externalCc, languages),
     info.bitrate && info.bitrate > 0 ? formatBitrate(info.bitrate) : undefined,
   ].filter((b): b is string => Boolean(b));
 }

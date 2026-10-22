@@ -353,6 +353,19 @@ export interface SeriesView {
   split?: boolean;
 }
 
+/**
+ * What the source says about a title's languages, for tracks whose own data names none (spec
+ * 2026-10-22-track-languages). All ISO 639-1.
+ */
+export interface LanguageHints {
+  /** The first audio stream's language, from the source's probe data. */
+  firstAudio?: string;
+  /** The title's (or its category's) language prefix ("SE | …"). */
+  title?: string;
+  /** What the prefix names: the speech, or the subtitles (a title tagged SUB). */
+  titleScope?: 'audio' | 'subtitles';
+}
+
 export interface VodPlayable {
   kind: 'movie' | 'episode';
   itemId: string;
@@ -370,6 +383,8 @@ export interface VodPlayable {
   video?: VideoRange;
   /** Subtitle files the source lists for this title. Their links can carry credentials: never display or log them. */
   subtitles?: SourceSubtitle[];
+  /** Languages the source gives, for tracks that name none. */
+  languageHints?: LanguageHints;
   /** Episodes: pass back with every `saveVodProgress` / `setVodWatched`. */
   series?: SeriesPointer;
   /** Episodes: what the next-episode card offers. */
