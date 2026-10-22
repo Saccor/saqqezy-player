@@ -155,6 +155,8 @@ export class SourceService {
   /** The device's sync clock: layout writes stamp it here; share it with `VodService`. */
   readonly syncClock: SyncClock;
   private readonly locks = new Map<string, Promise<void>>();
+  /** Serialises `saveSettings` (read-modify-write); never rejects, so one failed save does not block later ones. */
+  private settingsChain: Promise<void> = Promise.resolve();
   private readonly epgRefreshing = new Set<string>();
   private shortEpgActive = 0;
   private readonly shortEpgWaiting: ((granted: boolean) => void)[] = [];
@@ -319,7 +321,14 @@ export class SourceService {
    * Stores a settings change. A synced setting (§6.3) whose value changed stamps its clock (`#settings` scope), so a
    * restore or a later sync can tell which side wrote last; a restore passes `stamp: false` and adopts its stamps.
    */
-  async saveSettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
+  saveSettings(partial: Partial<AppSettings>, opts: { stamp?: boolean } = {}): Promise<AppSettings> {
+    // One at a time: the read-modify-write below would otherwise lose a concurrent save's fields.
+    const run = this.settingsChain.then(() => this.writeSettings(partial, opts));
+    this.settingsChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async writeSettings(partial: Partial<AppSettings>, opts: { stamp?: boolean }): Promise<AppSettings> {
     const defined = Object.fromEntries(Object.entries(partial).filter(([, v]) => v !== undefined));
     const prev = await this.getSettings();
     const next = sanitizeSettings({ ...prev, ...defined });
