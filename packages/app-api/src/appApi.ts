@@ -2212,7 +2212,10 @@ export class AppApi {
     // A cooling source gets nothing, and no "couldn't refresh" toast: the cooldown copy says it all. The end of the
     // wait (or a retry) starts this pass again.
     if ((await this.service.guard.status(id)).state !== 'clear') return;
-    let playlist: boolean;
+    // Each step is caught on its own: a failed channel refresh (already recorded, with its backoff, and emitted as
+    // refreshFailed) must not keep the guide from updating. No retry is added: each step still runs at most once.
+    let failure: unknown;
+    let playlist = false;
     try {
       // An empty channel cache means "not loaded yet" (or lost), unless the source only has movies and series: then
       // the normal staleness rule applies, so a VOD-only playlist is not downloaded again on every cold start.
@@ -2222,16 +2225,31 @@ export class AppApi {
         && !(await this.service.refreshBackedOff(id, 'playlist')))
         || await this.service.needsPlaylistRefresh(id);
     } catch (err) {
-      this.failed('playlist', id, 'backgroundRefresh', err);
+      try { this.failed('playlist', id, 'backgroundRefresh', err); } catch (out) { failure = out; }
     }
-    if (playlist) await this.refreshPlaylistFor(id, true);
-    let epg: boolean;
+    if (playlist) {
+      try {
+        await this.refreshPlaylistFor(id, true);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    // The failed step may have started a cooldown (a refusing source): then the guide waits like everything else.
+    if (failure !== undefined && (await this.service.guard.status(id)).state !== 'clear') throw failure;
+    let epg = false;
     try {
       epg = await this.service.needsEpgRefresh(id);
     } catch (err) {
-      this.failed('epg', id, 'backgroundRefresh', err);
+      try { this.failed('epg', id, 'backgroundRefresh', err); } catch (out) { failure ??= out; }
     }
-    if (epg) await this.refreshEpgFor(id, true);
+    if (epg) {
+      try {
+        await this.refreshEpgFor(id, true);
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    if (failure !== undefined) throw failure;
   }
 
   /**

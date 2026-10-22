@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { normalizeServer, XtreamClient } from '../src/xtream/client.ts';
+import { describe, expect, test, vi } from 'vitest';
+import { normalizeServer, UNEXPECTED_RESPONSE, XtreamClient } from '../src/xtream/client.ts';
 import { xtreamToChannels } from '../src/xtream/toChannels.ts';
 import { ChannelIndex } from '../src/index/channelIndex.ts';
 import { SourceAuthError, SourceNetworkError } from '../src/errors.ts';
@@ -239,5 +239,35 @@ describe('XtreamClient – source headers', () => {
     const f: FetchFn = async (_url, init) => { inits.push(init); return authOk(); };
     await new XtreamClient(cfg, f).authenticate();
     expect(inits[0] && 'sourceHeaders' in inits[0]).toBe(false);
+  });
+});
+
+describe('liveStreams streams like the VOD lists', () => {
+  test('a panel that answers after 20 s still succeeds (the first byte gets the download timeout)', async () => {
+    vi.useFakeTimers();
+    try {
+      const slow: FetchFn = (url, init) => new Promise((resolve, reject) => {
+        const action = new URL(url).searchParams.get('action');
+        const limit = init?.timeoutMs ?? 0;
+        const delay = 20_000;
+        // The real fetch gives up after `timeoutMs`; the fake does the same on the fake clock.
+        setTimeout(() => (limit < delay ? reject(new SourceNetworkError('timed out')) : resolve(
+          action === 'get_live_streams' ? json([{ stream_id: 5, name: 'Channel 005' }]) : json({}),
+        )), Math.min(limit, delay));
+      });
+      const c = new XtreamClient(cfg, slow);
+      const done = c.liveStreams();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect((await done).map((s) => s.streamId)).toEqual([5]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a malformed live list is the same neutral SourceNetworkError', async () => {
+    const c = new XtreamClient(cfg, fakeFetch({ get_live_streams: () => new Response('[{"stream_id": 1, "name": ') }));
+    await expect(c.liveStreams()).rejects.toBeInstanceOf(SourceNetworkError);
+    const html = new XtreamClient(cfg, fakeFetch({ get_live_streams: () => new Response('<html>') }));
+    await expect(html.liveStreams()).rejects.toMatchObject({ name: 'SourceNetworkError', message: UNEXPECTED_RESPONSE });
   });
 });

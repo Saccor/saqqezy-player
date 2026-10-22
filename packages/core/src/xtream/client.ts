@@ -52,6 +52,32 @@ function decodeBase64Utf8(b64: string): string {
   }
 }
 
+function parseLiveStreams(data: unknown): XtreamStream[] {
+  if (!Array.isArray(data)) return [];
+  const out: XtreamStream[] = [];
+  for (const s of data) {
+    if (!isObj(s)) continue;
+    const streamId = posInt(s.stream_id);
+    const name = nameStr(s.name);
+    if (!streamId || !name) continue;
+    const stream: XtreamStream = { streamId, name };
+    const icon = str(s.stream_icon);
+    if (icon) stream.icon = icon;
+    const epg = str(s.epg_channel_id);
+    if (epg) stream.epgChannelId = epg;
+    const cat = str(s.category_id);
+    if (cat) stream.categoryId = cat;
+    const num = posInt(s.num);
+    if (num) stream.num = num;
+    if (String(s.tv_archive ?? '') === '1') {
+      const days = posInt(s.tv_archive_duration);
+      stream.archiveDays = days ? Math.min(CATCHUP_MAX_DAYS, days) : CATCHUP_DEFAULT_DAYS;
+    }
+    out.push(stream);
+  }
+  return out;
+}
+
 export class XtreamClient {
   private readonly base: string;
   private readonly idleMs: number;
@@ -163,30 +189,10 @@ export class XtreamClient {
       .filter((c): c is XtreamCategory => !!c.id && !!c.name);
   }
 
+  /** Every live stream in one streamed request (a large account's answer is never held as one string). */
   async liveStreams(): Promise<XtreamStream[]> {
-    const data = await this.api('get_live_streams');
-    if (!Array.isArray(data)) return [];
     const out: XtreamStream[] = [];
-    for (const s of data) {
-      if (!isObj(s)) continue;
-      const streamId = posInt(s.stream_id);
-      const name = nameStr(s.name);
-      if (!streamId || !name) continue;
-      const stream: XtreamStream = { streamId, name };
-      const icon = str(s.stream_icon);
-      if (icon) stream.icon = icon;
-      const epg = str(s.epg_channel_id);
-      if (epg) stream.epgChannelId = epg;
-      const cat = str(s.category_id);
-      if (cat) stream.categoryId = cat;
-      const num = posInt(s.num);
-      if (num) stream.num = num;
-      if (String(s.tv_archive ?? '') === '1') {
-        const days = posInt(s.tv_archive_duration);
-        stream.archiveDays = days ? Math.min(CATCHUP_MAX_DAYS, days) : CATCHUP_DEFAULT_DAYS;
-      }
-      out.push(stream);
-    }
+    for await (const batch of this.streamList('get_live_streams', parseLiveStreams)) out.push(...batch);
     return out;
   }
 

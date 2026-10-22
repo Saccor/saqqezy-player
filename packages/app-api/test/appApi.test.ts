@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, OpenSubtitlesClient, RefusalGuard, SourceService, SourceAuthError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, OpenSubtitlesClient, RefusalGuard, SourceService, SourceAuthError, SourceNetworkError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -862,6 +862,26 @@ describe('AppApi', () => {
     expect(events.find((e) => e.type === 'refreshFailed'))
       .toMatchObject({ what: 'playlist', error: { message: 'disk unavailable' } });
     expect((await api.diagnostics()).lastErrors.some((e) => e.message === 'disk unavailable')).toBe(true);
+  });
+
+  test('a failed channel refresh still lets the guide step run, and both failures are recorded', async () => {
+    const { sourceId } = await seeded();
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    let epgCalls = 0;
+    class PlaylistDown extends SourceService {
+      override async refreshPlaylist(): Promise<never> { throw new SourceNetworkError('Could not reach the provider.', 500); }
+      override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+        epgCalls++;
+        return super.refreshEpg(id, p);
+      }
+    }
+    const { api, events } = make(storage, PlaylistDown);
+    await api.init();
+    await api.idle();
+    expect(epgCalls).toBe(1);
+    expect(events.find((e) => e.type === 'refreshFailed' && e.what === 'playlist')).toMatchObject({ sourceId });
+    expect(events.some((e) => e.type === 'refreshed' && e.what === 'epg')).toBe(true);
   });
 
   test('a DOMException with an empty message is logged by name, with non-empty text', async () => {

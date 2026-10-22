@@ -383,7 +383,7 @@ describe('SourceService – robustness', () => {
 });
 
 describe('SourceService – timeouts', () => {
-  test('playlist and guide downloads get 90 s to first byte; API calls 15 s', async () => {
+  test('playlist, guide and live-list downloads get 90 s to first byte; other API calls 15 s', async () => {
     const seen: [string, number | undefined][] = [];
     const recording: FetchFn = async (url, init) => {
       seen.push([new URL(url).pathname, init?.timeoutMs]);
@@ -398,7 +398,7 @@ describe('SourceService – timeouts', () => {
     routes['api:get_live_categories'] = () => json([]);
     routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
     await svc.addSource({ kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' });
-    expect(seen.map(([, ms]) => ms)).toEqual([15_000, 15_000, 15_000]);
+    expect(seen.map(([, ms]) => ms)).toEqual([15_000, 15_000, 90_000]); // sign-in, categories, then the streamed live list
   });
 
   test('a stalled playlist body fails with a neutral error and releases the source lock', async () => {
