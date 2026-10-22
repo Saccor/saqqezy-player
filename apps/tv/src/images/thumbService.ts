@@ -30,7 +30,13 @@ export function createThumbService(opts: {
       const r = queue.shift()!;
       active += 1;
       load(r.url, r.w, r.h, r.alpha, opts.deps).then(
-        (img) => opts.post({ t: 'ok', id: r.id, bitmap: img.data, premultiplyAlpha: img.premultiplyAlpha, from: img.from }, [img.data]),
+        (img) => {
+          try {
+            opts.post({ t: 'ok', id: r.id, bitmap: img.data, premultiplyAlpha: img.premultiplyAlpha, from: img.from }, [img.data]);
+          } catch (e) {
+            opts.post({ t: 'err', id: r.id, message: e instanceof Error ? e.message : 'Image failed' });
+          }
+        },
         (err: unknown) => opts.post({ t: 'err', id: r.id, message: err instanceof Error ? err.message : 'Image failed' }),
       ).finally(() => { active -= 1; next(); });
     }

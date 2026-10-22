@@ -4,10 +4,12 @@ import type { ThumbReply, ThumbRequest } from './thumbService.ts';
 
 function port() {
   const sent: ThumbRequest[] = [];
-  const p: PortLike & { reply(r: ThumbReply): void } = {
+  const p: PortLike & { reply(r: ThumbReply): void; fail(): void } = {
     onmessage: null,
+    onerror: null,
     postMessage: (m) => { sent.push(m); },
     reply(r) { p.onmessage?.({ data: r }); },
+    fail() { p.onerror?.(new Error('boom')); },
   };
   return { p, sent };
 }
@@ -54,6 +56,57 @@ describe('ThumbClient', () => {
     p.reply({ t: 'copy', kept: false });
     p.reply({ t: 'copy', kept: true });
     expect(c.stats()).toMatchObject({ kept: 2, skipped: 1 });
+  });
+});
+
+describe('ThumbClient worker failure', () => {
+  const stockOk = () => Promise.resolve({ data: bm, premultiplyAlpha: true });
+
+  it('an error before the mode rejects pending loads and sends later ones to the stock path', async () => {
+    const { p, sent } = port();
+    const c = new ThumbClient(p);
+    const pending = c.load('http://img.test/a.jpg', 10, 10, true, stockOk);
+    p.fail();
+    // before the mode, nothing was posted, so the pending load takes the stock path
+    await expect(pending).resolves.toEqual({ data: bm, premultiplyAlpha: true });
+    expect(sent).toEqual([]);
+  });
+
+  it('an error rejects loads already sent and counts them; later loads are stock', async () => {
+    const { p } = port();
+    const c = new ThumbClient(p);
+    p.reply({ t: 'mode', mode: 'full' });
+    const inflight = c.load('http://img.test/b.jpg', 10, 10, true, neverStock);
+    await Promise.resolve();
+    p.fail();
+    await expect(inflight).rejects.toThrow('Image worker failed');
+    expect(c.stats()).toMatchObject({ failed: 1, mode: 'stock', failedWorker: true });
+    await expect(c.load('http://img.test/c.jpg', 10, 10, true, stockOk)).resolves.toMatchObject({ data: bm });
+    expect(thumbStatsLine(c.stats())).toBe('Renderer loader (worker failed)');
+  });
+
+  it('no mode within the startup timeout falls back to stock', async () => {
+    const { p, sent } = port();
+    let fire: () => void = () => {};
+    const c = new ThumbClient(p, {
+      startTimeoutMs: 5000,
+      setTimer: (fn, ms) => { expect(ms).toBe(5000); fire = fn; return 7; },
+      clearTimer: () => {},
+    });
+    const pending = c.load('http://img.test/d.jpg', 10, 10, true, stockOk);
+    fire();
+    await expect(pending).resolves.toMatchObject({ data: bm });
+    expect(sent).toEqual([]);
+    expect(c.stats()).toMatchObject({ mode: 'stock', failedWorker: true });
+  });
+
+  it('clears the startup timer when the mode arrives', () => {
+    const { p } = port();
+    const cleared: unknown[] = [];
+    const c = new ThumbClient(p, { setTimer: () => 9, clearTimer: (h) => { cleared.push(h); } });
+    p.reply({ t: 'mode', mode: 'full' });
+    expect(cleared).toEqual([9]);
+    expect(c.stats().failedWorker).toBeUndefined();
   });
 });
 

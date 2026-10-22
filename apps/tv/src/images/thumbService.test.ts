@@ -54,4 +54,18 @@ describe('thumbService', () => {
     svc.handle(req(5));
     expect(posts).toEqual([{ t: 'mode', mode: 'stock' }, { t: 'err', id: 5, message: 'stock' }]);
   });
+
+  it('answers err when posting the ok reply throws', async () => {
+    const posts: ThumbReply[] = [];
+    let gate!: (r: LoadedImage) => void;
+    const svc = createThumbService({
+      mode: 'full', deps: {} as ThumbDeps,
+      post: (m) => { if (m.t === 'ok') throw new Error('DataCloneError'); posts.push(m); },
+      load: (() => new Promise<LoadedImage>((o) => { gate = o; })) as unknown as typeof import('./thumbLoader.ts').loadThumb,
+    });
+    svc.handle(req(9));
+    gate({ data: bitmapLike, premultiplyAlpha: true, premultiplied: true, from: 'fetched' });
+    await flush();
+    expect(posts).toEqual([{ t: 'mode', mode: 'full' }, { t: 'err', id: 9, message: 'DataCloneError' }]);
+  });
 });

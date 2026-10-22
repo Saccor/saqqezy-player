@@ -1,10 +1,17 @@
 import type { ThumbReply, ThumbRequest } from './thumbService.ts';
 import type { ThumbMode } from './workerThumbDeps.ts';
 
-export interface PortLike { postMessage(msg: ThumbRequest): void; onmessage: ((e: { data: ThumbReply }) => void) | null }
-export interface ThumbStats { stored: number; fetched: number; asIs: number; failed: number; kept: number; skipped: number; mode: ThumbMode | undefined }
+export interface PortLike { postMessage(msg: ThumbRequest): void; onmessage: ((e: { data: ThumbReply }) => void) | null; onerror?: ((e: unknown) => void) | null }
+export interface ThumbStats { stored: number; fetched: number; asIs: number; failed: number; kept: number; skipped: number; mode: ThumbMode | undefined; failedWorker?: boolean }
 /** The renderer's image result (renderer 3.7 `TextureData`, the image case). */
 export type LoadedImageLike = { data: ImageBitmap; premultiplyAlpha: boolean | null; premultiplied?: boolean };
+
+const START_TIMEOUT_MS = 5000;
+export interface ThumbClientOptions {
+  startTimeoutMs?: number;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+}
 
 /**
  * UI side of the thumbnail worker: one request per sized image, answered with a transferred `ImageBitmap`. Nothing
@@ -17,9 +24,29 @@ export class ThumbClient {
   private readonly modeReady: Promise<ThumbMode>;
   private setMode!: (m: ThumbMode) => void;
 
-  constructor(private readonly port: PortLike) {
+  private readonly clearTimer: (h: unknown) => void;
+  private startTimer: unknown;
+
+  constructor(private readonly port: PortLike, opts: ThumbClientOptions = {}) {
     this.modeReady = new Promise((r) => { this.setMode = r; });
     port.onmessage = (e) => this.receive(e.data);
+    port.onerror = () => this.workerFailed();
+    const setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+    this.clearTimer = opts.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+    this.startTimer = setTimer(() => this.workerFailed(), opts.startTimeoutMs ?? START_TIMEOUT_MS);
+  }
+
+  /** The worker did not start or died: images take the renderer's path, and loads in flight fail instead of hanging. */
+  private workerFailed(): void {
+    if (this.startTimer !== undefined) { this.clearTimer(this.startTimer); this.startTimer = undefined; }
+    this.counts.mode = 'stock';
+    this.counts.failedWorker = true;
+    this.setMode('stock');
+    for (const w of this.waiting.values()) {
+      this.counts.failed += 1;
+      w.fail(new Error('Image worker failed'));
+    }
+    this.waiting.clear();
   }
 
   async load(url: string, w: number, h: number, alpha: boolean | null, stock: () => Promise<LoadedImageLike>): Promise<LoadedImageLike> {
@@ -38,6 +65,8 @@ export class ThumbClient {
 
   private receive(m: ThumbReply): void {
     if (m.t === 'mode') {
+      if (this.counts.failedWorker) return;
+      if (this.startTimer !== undefined) { this.clearTimer(this.startTimer); this.startTimer = undefined; }
       this.counts.mode = m.mode;
       this.setMode(m.mode);
     } else if (m.t === 'copy') {
@@ -58,6 +87,7 @@ export class ThumbClient {
 
 export function thumbStatsLine(s: ThumbStats): string {
   if (s.mode === undefined) return 'Starting';
+  if (s.failedWorker) return 'Renderer loader (worker failed)';
   if (s.mode === 'stock') return 'Renderer loader (no worker support)';
   return `Worker · ${s.stored} from device, ${s.fetched} shrunk, ${s.asIs} as is, ${s.failed} failed`
     + ` · copies kept ${s.kept}, skipped ${s.skipped}`;
