@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HALF_HOUR, HOUR, NO_INFO, dayLabel, PX_PER_HOUR, VIEW_SPAN, blockIndexAt, buildBlocks, chunkStarts, clampViewStart,
   floorHalfHour, guideOpenTarget, guideWindow, initialViewStart, isOnAir, pageRange, prefetchRange, stepLeft, stepRight, ticks,
-  timeToX, monogram, pageTime, type Block,
+  timeToX, monogram, pageTime, leftFromGrid, nowView, type Block,
 } from './guideLogic.ts';
 
 
@@ -264,5 +264,66 @@ describe('monogram (the logo tile of a channel without a logo)', () => {
     expect(monogram('- Alpha & Beta')).toBe('AB');
     expect(monogram('')).toBe('');
     expect(monogram('...')).toBe('');
+  });
+});
+
+describe('leftFromGrid', () => {
+  // now = T0 + 20 min, so the half hour [0, 0.5) is airing.
+  const now = at(0) + 20 * 60_000;
+  const rows = buildBlocks(slots(-3, 3), [{ start: at(-3), end: at(3) }]);
+  const idx = (h: number) => rows.findIndex((b) => b.start === at(h));
+  const view = { viewStart: at(0), anchor: now };
+
+  it('goes to the channel column from the programme airing now', () => {
+    expect(leftFromGrid(rows, idx(0), view, win, now)).toEqual({ kind: 'channels' });
+  });
+
+  it('goes to the channel column from a long programme that started 3 h ago and still airs', () => {
+    const long = buildBlocks([{ title: 'Long', start: at(-3), stop: at(2) }], [{ start: at(-6), end: at(48) }]);
+    const i = long.findIndex((b) => b.title === 'Long');
+    expect(leftFromGrid(long, i, { viewStart: at(-1), anchor: now }, win, now)).toEqual({ kind: 'channels' });
+  });
+
+  it('treats a "No information" gap covering now as now', () => {
+    const gap = buildBlocks([prog(-3, -1), prog(2, 3)], [{ start: at(-3), end: at(3) }]);
+    const i = gap.findIndex((b) => b.filler && b.start <= now && now < b.stop);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(gap[i]!.title).toBe(NO_INFO);
+    expect(leftFromGrid(gap, i, view, win, now)).toEqual({ kind: 'channels' });
+  });
+
+  it('goes to the channel column on a row with no blocks', () => {
+    expect(leftFromGrid([], -1, view, win, now)).toEqual({ kind: 'channels' });
+  });
+
+  it('steps from a future programme to the programme airing now, and resets the view to now', () => {
+    const r = leftFromGrid(rows, idx(1.5), { viewStart: at(1), anchor: at(1.5) }, win, now);
+    expect(r).toEqual({ kind: 'move', index: idx(0), viewStart: nowView(now, win).viewStart, anchor: now });
+  });
+
+  it('steps from a past programme to the previous one, as stepLeft does', () => {
+    const v = { viewStart: at(-1), anchor: at(-0.5) };
+    expect(leftFromGrid(rows, idx(-0.5), v, win, now)).toEqual(stepLeft(rows, idx(-0.5), v, win));
+    expect(leftFromGrid(rows, idx(-0.5), v, win, now)).toMatchObject({ kind: 'move', index: idx(-1) });
+  });
+
+  it('gives the stepLeft edge for a past programme at the window start', () => {
+    const first = buildBlocks(slots(-6, 3), [{ start: at(-6), end: at(3) }]);
+    const v = { viewStart: at(-6), anchor: at(-6) };
+    expect(leftFromGrid(first, 0, v, win, now)).toEqual({ kind: 'edge' });
+  });
+});
+
+describe('nowView', () => {
+  it('aligns the start to the half hour before now and anchors at now', () => {
+    const now = at(0) + 20 * 60_000;
+    expect(nowView(now, win)).toEqual({ viewStart: at(0), anchor: now });
+  });
+
+  it('clamps the start to the window', () => {
+    const tight = { start: at(0) + HALF_HOUR, end: at(48) };
+    expect(nowView(at(0) + 20 * 60_000, tight).viewStart).toBe(tight.start);
+    const late = { start: at(-6), end: at(1) };
+    expect(nowView(at(0.9), late)).toEqual({ viewStart: at(-1), anchor: at(0.9) });
   });
 });

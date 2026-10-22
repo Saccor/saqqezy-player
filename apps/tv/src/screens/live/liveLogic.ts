@@ -27,16 +27,17 @@ export interface LiveKeyCtx { row: number; total: number; hasGroups: boolean }
 /**
  * Where a key leads from a place. 'move' = the place handles it itself (rows, time); 'exit' = let Back bubble to the
  * shell's exit question. Left inside the grid is 'move' (stepLeft decides when the time edge hands over to the
- * channel column).
+ * channel column). Live TV opens in the channel column and Back on the timeline returns there (spec 2026-10-22, A).
  */
 export function liveKey(place: LivePlace, key: LiveKey, ctx: LiveKeyCtx): LivePlace | 'move' | 'exit' {
-  const content: LivePlace = ctx.total > 0 ? 'grid' : ctx.hasGroups ? 'groups' : 'rail';
+  const content: LivePlace = ctx.total > 0 ? 'channels' : ctx.hasGroups ? 'groups' : 'rail';
   if (place === 'rail') return key === 'back' ? 'exit' : key === 'right' ? content : 'move';
   if (place === 'groups') {
     if (key === 'left') return 'rail';
-    if (key === 'down' || key === 'back') return ctx.total > 0 ? 'grid' : key === 'back' ? 'rail' : 'groups';
+    if (key === 'down' || key === 'back') return ctx.total > 0 ? 'channels' : key === 'back' ? 'rail' : 'groups';
     return 'groups';
   }
+  if (ctx.total > 0 && place === 'grid' && key === 'back') return 'channels';
   if (key === 'back' || (key === 'left' && ctx.total === 0)) return 'rail';
   if (ctx.total === 0) return ctx.hasGroups ? 'groups' : 'rail'; // nothing to move over
   if (key === 'up' && ctx.row === 0 && ctx.hasGroups) return 'groups';
@@ -45,6 +46,11 @@ export function liveKey(place: LivePlace, key: LiveKey, ctx: LiveKeyCtx): LivePl
     if (key === 'right') return 'grid';
   }
   return 'move';
+}
+
+/** Where Live TV opens: the channel column, unless it returns to a programme (Search target, catch-up return). */
+export function livePlaceOnOpen(o: { hasTarget: boolean; fromCatchup: boolean }): 'grid' | 'channels' {
+  return o.hasTarget || o.fromCatchup ? 'grid' : 'channels';
 }
 
 export function liveOkAction(o: {
