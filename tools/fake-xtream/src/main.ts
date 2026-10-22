@@ -17,6 +17,8 @@ const { url } = await startFakeXtream({
   // FAKE_DEAD_LIVE=4K: live streams whose name ends with " 4K" answer 404 (a combined channel fails over).
   ...(deadLive ? { deadLive: ` ${deadLive}` } : {}),
   ...(connections ? { connections } : {}),
+  // FAKE_COUNTRIES=1: live groups and movie and series categories carry synthetic country prefixes ("SE | News").
+  ...(process.env.FAKE_COUNTRIES === '1' ? { countries: true } : {}),
 });
 if (versions) console.log('Versions mode: each movie and series title is listed three times (language and quality variants); each channel four times.');
 console.log(`Fake Xtream provider running at ${url}  (login: test / test)`);

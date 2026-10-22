@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  channels, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
+  channels, COUNTRY_LIVE_GROUPS, COUNTRY_MOVIE_GROUPS, COUNTRY_SERIES_GROUPS, episodeId, GROUPS, m3u, MOVIE_GROUPS, movies, posterSvg, SERIES_GROUPS, seriesList, slots, TEST_STREAM, VOD_EXT, xmltv,
 } from './data.ts';
 import { archiveFields, handleCatchup, serverInfo, simpleDataTable, xmltvHistory } from './catchup.ts';
 import { handleOpenSubtitles } from './openSubtitles.ts';
@@ -56,6 +56,11 @@ export interface FakeXtreamOptions {
    * playlist; past `max` open sessions the next open is refused (403) or the oldest is cut. Off by default.
    */
   connections?: ConnectionsOptions;
+  /**
+   * Live groups, movie categories and series categories get synthetic country prefixes ("SE | News", "BE | Music", a
+   * language-only "EN | Music", some unprefixed), for the Your countries grid. Off by default: the plain names.
+   */
+  countries?: boolean;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -254,13 +259,13 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       if (!valid) return send(res, 200, '[]');
       if (action === 'get_live_categories') {
-        const cats = GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }));
+        const cats = (opts.countries ? COUNTRY_LIVE_GROUPS : GROUPS).map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }));
         if (opts.categoryOrder === 'reverse') cats.reverse();
         return send(res, 200, JSON.stringify(cats));
       }
       if (action === 'get_live_streams') {
         return send(res, 200, JSON.stringify(chs.map((c) => ({
-          num: c.n, name: c.name, stream_type: 'live', stream_id: c.n, stream_icon: showcase ? `${base}/logo/c${c.n}.svg` : '', epg_channel_id: c.epgId, category_id: c.categoryId,
+          num: c.n, name: c.name, stream_type: 'live', stream_id: c.n, stream_icon: showcase ? `${base}/logo/c${c.n}.svg` : '', epg_channel_id: c.epgId, category_id: opts.countries ? String((c.n - 1) % COUNTRY_LIVE_GROUPS.length + 1) : c.categoryId,
           ...(opts.catchup ? archiveFields(c.n) : {}),
         }))));
       }
@@ -283,7 +288,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       }
       const catFilter = user === 'vodall' ? null : url.searchParams.get('category_id');
       if (action === 'get_vod_categories') {
-        return send(res, 200, JSON.stringify(MOVIE_GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
+        return send(res, 200, JSON.stringify((opts.countries ? COUNTRY_MOVIE_GROUPS : MOVIE_GROUPS).map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
       }
       if (action === 'get_vod_streams') {
         return send(res, 200, JSON.stringify(mvs.filter((m) => !catFilter || m.categoryId === catFilter).map((m) => ({
@@ -313,7 +318,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         }));
       }
       if (action === 'get_series_categories') {
-        return send(res, 200, JSON.stringify(SERIES_GROUPS.map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
+        return send(res, 200, JSON.stringify((opts.countries ? COUNTRY_SERIES_GROUPS : SERIES_GROUPS).map((name, i) => ({ category_id: String(i + 1), category_name: name, parent_id: 0 }))));
       }
       if (action === 'get_series') {
         return send(res, 200, JSON.stringify(srs.filter((s) => !catFilter || s.categoryId === catFilter).map((s) => ({

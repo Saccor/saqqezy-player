@@ -6,7 +6,7 @@ public test stream or to a file generated on your machine from test patterns and
 
 - Start: `pnpm fake-xtream` (port 8899) or `pnpm dev` (with the TV app). Login `test` / `test`.
 - Options through the environment: `PORT`, `CHANNELS` (default 200), `FAKE_VOD_VERSIONS=1` (each title listed as three
-  language and quality variants), `SPORTS=0`, `FAKE_CATEGORY_ORDER=reverse` (`get_live_categories` lists the live groups
+  language and quality variants), `SPORTS=0`, `FAKE_COUNTRIES=1` (live groups and movie and series categories get synthetic country prefixes such as "SE | News"), `FAKE_CATEGORY_ORDER=reverse` (`get_live_categories` lists the live groups
   last to first, so the provider's category order differs from the stream order), `SHOWCASE=1` (made-up channel,
   programme, film and series names with generated logos and posters, for website and store screenshots; see
   `src/showcase.ts`).
