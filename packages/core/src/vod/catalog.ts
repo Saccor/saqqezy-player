@@ -98,6 +98,11 @@ export class VodCatalog {
     return (this.added ??= this.rows.some((i) => i.added !== undefined));
   }
 
+  /** A source category's own name (not a merged one's), whatever the view hides. */
+  categoryName(id: string): string | undefined {
+    return this.list.categories.find((c) => c.id === id)?.name;
+  }
+
   categories(): VodCategory[] {
     const all = this.groups ? this.groups.categories : this.list.categories;
     if (!this.view) return [...all];

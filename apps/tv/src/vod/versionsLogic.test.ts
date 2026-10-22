@@ -16,9 +16,10 @@ describe('versionLabel', () => {
     expect(versionLabel(v('a', 'sv', '4K', ['HDR']))).toBe('Swedish · 4K · HDR');
     expect(versionLabel(v('a', 'en', 'HD'))).toBe('English · HD');
   });
-  test('no language detected', () => {
-    expect(versionLabel(v('a', undefined, 'FHD'))).toBe('Unknown language · FHD');
-    expect(versionLabel(v('a'))).toBe('Unknown language');
+  test('no language detected: numbered, never "Unknown"', () => {
+    expect(versionLabel(v('a', undefined, 'FHD'), 2)).toBe('Version 2 · FHD');
+    expect(versionLabel(v('a'), 1)).toBe('Version 1');
+    expect(versionRows([v('a', 'sv'), v('b', undefined, '4K')], 'a')[1]).toMatchObject({ label: 'Version 2 · 4K' });
   });
   test('the automatic pick is marked', () => {
     expect(versionLabel(v('a', 'da', undefined, [], true))).toBe('Danish · Auto');

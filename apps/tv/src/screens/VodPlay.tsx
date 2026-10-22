@@ -44,10 +44,11 @@ import {
   oneSpace, overlayVisible, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import { SyncRecorder, syncReferenceTrack } from '../vod/syncRecorder.ts';
-import { pickAudioTrack } from '../vod/tracks.ts';
+import { pickAudioTrack, type TrackLanguageInput } from '../vod/tracks.ts';
+import { cueLanguageCollector } from '../vod/cueLanguage.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
-  REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineFileId, onlineLanguageLabel, onlineLanguageRows, sourceRowIndex, sourceSubtitleName, stepDelay, type OnlineLanguage,
+  REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, loadedLanguage, onlineFileId, onlineLanguageLabel, onlineLanguageRows, sourceRowIndex, sourceSubtitleName, stepDelay, type OnlineLanguage,
   delayLabel, pickSubtitle, subtitleExtraRows, SPEED_ROW, autoSpeed, normalizeSpeed, stepSpeed, subtitleTime, versionFileId, versionRows,
   type SubtitleSpeed, type VersionInfo,
 } from '../vod/subtitleLogic.ts';
@@ -140,6 +141,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   /** Subtitles the user loaded for this title (a link or a file), and whether they show instead of the stream's. */
   const [external, setExternal] = createSignal<LoadedSubtitle | undefined>(undefined);
   const [extOn, setExtOn] = createSignal(false);
+  /** The loaded file's language (stored, or from its name or text). */
+  const extLanguage = createMemo(() => {
+    const ext = external();
+    return ext ? loadedLanguage(ext) : undefined;
+  });
+  /** Embedded subtitle tracks' languages detected from their cues this open, by engine track id. */
+  const [detectedLangs, setDetectedLangs] = createSignal<Record<string, string>>({});
+  const cueLangs = cueLanguageCollector((id, lang) => setDetectedLangs((d) => ({ ...d, [id]: lang })));
+  /** Everything the track labels and badges know about languages besides the tracks' own data. */
+  const langInput = (): TrackLanguageInput => ({ ...(p.languageHints ? { hints: p.languageHints } : {}), detected: detectedLangs() });
   /** The link being typed for "Load subtitles from a link…" (undefined: the keyboard is closed). */
   const [linkText, setLinkText] = createSignal<string | undefined>(undefined);
   const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
@@ -270,9 +281,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (!visible()) return [];
     now();
     const ext = external();
-    const extLang = ext?.language ?? ext?.online?.language;
+    const extLang = extLanguage();
     return mediaBadges({
-      info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(),
+      info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(), languages: langInput(),
       ...(ext && chosen.subtitle === SUBTITLE_KEY_EXT ? { external: extLang ? onlineLanguageLabel(extLang) : '', externalCc: ext.cc === true } : {}),
     });
   }, [], { equals: (a, b) => a.join('|') === b.join('|') });
@@ -572,13 +583,13 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const ext = external();
     const on = extOn();
     // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
-    const base = trackRows(playback.audioTracks(), playback.textTracks())
+    const base = trackRows(playback.audioTracks(), playback.textTracks(), langInput())
       .map((r) => (r.kind === 'list' && on && (r.id === SUBTITLES_OFF || r.id.startsWith('s:')) ? { ...r, checked: false } : r));
     // Catch-up: the stream's own tracks only (a loaded file would be kept per title, and catch-up keeps nothing).
     if (cu) return base;
     return [...base, ...subtitleExtraRows({
       ...(p.subtitles ? { source: p.subtitles } : {}),
-      external: ext && { name: oneSpace(ext.name), active: on }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
+      external: ext && { name: oneSpace(ext.name), active: on, ...(extLanguage() ? { language: extLanguage() } : {}) }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
       delayMs: subDelay(), speed: subSpeed(), pointer: pointerMode(),
       ...(ext?.online && onlineOk() ? { another: { label: onlineLanguageLabel(ext.online.language) } } : {}),
     })];
@@ -1389,7 +1400,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const offKeys = onLogicalKey(() => bump());
     const offSubs = playback.onSubtitle((text) => {
       if (!alive) return;
-      if (!extOn()) setCue(cueText(text));
+      if (!extOn()) {
+        setCue(cueText(text));
+        cueLangs.add(text, () => playback.textTracks().find((t) => t.active));
+      }
       else if (sync) {
         const at = trustedPos();
         if (at !== undefined && Number.isFinite(at)) sync.recorder.cue(text !== null && text.trim() !== '', at);

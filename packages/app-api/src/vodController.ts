@@ -10,9 +10,24 @@ import {
 import { toRpcError, type RpcError } from './rpc.ts';
 import type { StartTimedTile, StartTrendTile } from './startHome.ts';
 import type {
-  AppEvent, EpisodeView, MovieView, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
+  AppEvent, EpisodeView, LanguageHints, MovieView, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
   RegionCount, RegionsOverview,
 } from './types.ts';
+
+/**
+ * A title's language hints: the probe data's audio language, and the language prefix of its name or category (the
+ * subtitles' when the name is tagged SUB). Undefined when neither says anything.
+ */
+function languageHints(item: VodItem, catalog: VodCatalog | undefined, probed: string | undefined): LanguageHints | undefined {
+  const parsed = parseVodTitle(item.title, catalog?.categoryName(item.categoryId));
+  const out: LanguageHints = {};
+  if (probed) out.firstAudio = probed;
+  if (parsed.lang) {
+    out.title = parsed.lang;
+    out.titleScope = parsed.tags.includes('SUB') ? 'subtitles' : 'audio';
+  }
+  return out.firstAudio || out.title ? out : undefined;
+}
 
 export const VOD_ROW_CONTINUE = 'vod:continue';
 export const VOD_ROW_FAVOURITES = 'vod:favourites';
@@ -532,6 +547,8 @@ export class VodController {
       if (video) movie.video = { ...video };
       // The source's own subtitle files, likewise from a detail already loaded (the detail page loads it).
       if (cached?.subtitles) movie.subtitles = cached.subtitles.map((x) => ({ ...x }));
+      const hints = languageHints(item, catalog, cached?.audioLang);
+      if (hints) movie.languageHints = hints;
       return movie;
     }
     const s = user.get(itemId);
@@ -560,6 +577,8 @@ export class VodController {
     const video = ep.video ?? dvFromTitle(ep.title);
     if (video) out.video = { ...video };
     if (ep.subtitles) out.subtitles = ep.subtitles.map((x) => ({ ...x }));
+    const hints = languageHints(show, shows, ep.audioLang);
+    if (hints) out.languageHints = hints;
     if (next) out.next = { id: next.id, label: `${episodeLabel(next.season, next.episode)} · ${next.title}` };
     const prev = prevEpisode(detail.seasons, itemId);
     if (prev) out.prev = { id: prev.id, label: `${episodeLabel(prev.season, prev.episode)} · ${prev.title}` };

@@ -29,7 +29,7 @@ describe('SubtitleService', () => {
   test('a link: downloads, parses, names it after the file, and keeps it for that title', async () => {
     routes['http://example.test/subs/My%20Film.en.srt?x=1'] = () => new Response(SRT);
     const got = await svc.load('src', 'item1', { url: ' http://example.test/subs/My%20Film.en.srt?x=1 ' });
-    expect(got).toEqual({ name: 'My Film.en.srt', cues: [{ startMs: 1000, endMs: 2000, text: 'Hello' }] });
+    expect(got).toEqual({ name: 'My Film.en.srt', language: 'en', cues: [{ startMs: 1000, endMs: 2000, text: 'Hello' }] });
     expect(await svc.get('src', 'item1')).toEqual(got);
     expect(await svc.get('src', 'item2')).toBeUndefined();
     expect(await svc.get('other', 'item1')).toBeUndefined();
@@ -86,6 +86,20 @@ describe('SubtitleService', () => {
     const got = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'x' }, { language: 'en', name: 'English (from source)' });
     expect(got).toMatchObject({ name: 'English (from source)', language: 'en' });
     expect('online' in got).toBe(false);
+  });
+
+  test('a file without a given language: from its name, else from its text, else none', async () => {
+    const named = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'Synthetic.Film.2020.sv.srt' });
+    expect(named.language).toBe('sv');
+    const swedish = '1\n00:00:01,000 --> 00:00:02,000\nJag vet inte vad du pratar om.\n\n'
+      + '2\n00:00:03,000 --> 00:00:04,000\nVi måste gå nu, det är inte säkert här.\n';
+    const byText = await svc.load('src', 'item1', { bytes: bytes(swedish), name: 'subs.srt' });
+    expect(byText.language).toBe('sv');
+    const none = await svc.load('src', 'item1', { bytes: bytes(SRT), name: 'subs.srt' });
+    expect('language' in none).toBe(false);
+    // A given language is never replaced.
+    const given = await svc.load('src', 'item1', { bytes: bytes(swedish), name: 'Film.en.srt' }, { language: 'da' });
+    expect(given.language).toBe('da');
   });
 
   test('clear forgets a title', async () => {

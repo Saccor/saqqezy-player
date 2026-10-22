@@ -691,6 +691,22 @@ describe('AvplayPlayer: VOD controls', () => {
     expect(p.duration()).toBeUndefined();
   });
 
+  test('track languages under any of the keys firmwares use: language, lang, track_lang', async () => {
+    const { av, p } = setup();
+    av.tracks = [
+      { index: 1, type: 'AUDIO', extra_info: '{"lang":"fra","fourCC":"AAC"}' },
+      { index: 2, type: 'TEXT', extra_info: '{"track_num":"0","track_lang":"fin","subtitle_type":"-1","fourCC":"TTML"}' },
+      { index: 3, type: 'TEXT', extra_info: '{"track_lang":""}' },
+    ];
+    await p.open(URL_B, 1, { live: false });
+    av.prepared[0]!.ok();
+    expect(p.audioTracks()[0]).toMatchObject({ label: 'fra', language: 'fra' });
+    expect(p.textTracks()).toEqual([
+      { id: '2', label: 'fin', language: 'fin', active: false },
+      { id: '3', label: 'Subtitles 2', active: false },
+    ]);
+  });
+
   test('text tracks: listed from TEXT entries, selected with setSelectTrack, turned off silently', async () => {
     const { av, p } = setup();
     av.tracks = [

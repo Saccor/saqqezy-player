@@ -34,7 +34,7 @@ import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { cooldownCopy, freshNow } from '../state/cooldownLogic.ts';
-import { pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
+import { channelLanguageInput, pickAudioTrack, trackKey, trackLabels } from '../vod/tracks.ts';
 import {
   aspectLabel, bannerLift, bannerNowNextStale, createJumpGuard, isModalOpen, livePill, nextAspect, playerAutoHide, playerOverlayShown,
   multiviewOffered, playerLeave, playerStatusText, sleepLabel, wheelZapAllowed,
@@ -87,11 +87,17 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const [infoTick, setInfoTick] = createSignal(0);
   const [pillTick, setPillTick] = createSignal(0);
   const pill = createMemo(() => { pillTick(); return livePill(playback.status(), supervisor.liveInfo()); });
+  /** The channel's (or its group's) language prefix, for audio tracks that name no language. */
+  const liveLangs = () => {
+    const c = playback.current();
+    return channelLanguageInput(c?.name, c?.group);
+  };
   // What is playing, as badges in the banner: re-read on the pill's 1 s tick, redrawn only when a badge changes.
   const badges = createMemo((): string[] => {
     pillTick();
     if (!bannerOn()) return [];
-    return mediaBadges({ info: player.streamInfo(), audio: playback.audioTracks(), text: playback.textTracks() });
+    const languages = liveLangs();
+    return mediaBadges({ info: player.streamInfo(), audio: playback.audioTracks(), text: playback.textTracks(), ...(languages ? { languages } : {}) });
   }, [], { equals: (a, b) => a.join('|') === b.join('|') });
   const [aspect, setAspect] = createSignal<AspectMode>(sessionAspect);
   const [sleep, setSleep] = createSignal<SleepState>({ kind: 'off' });
@@ -304,7 +310,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       const tracks = player.audioTracks();
       if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this stream' }];
       if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
-      const labels = trackLabels(tracks);
+      const labels = trackLabels(tracks, 'audio', liveLangs());
       return [
         ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
         { id: 'back', label: 'Back' },
@@ -321,7 +327,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const tracks = player.audioTracks();
     const activeAt = tracks.findIndex((t) => t.active);
     return [
-      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks)[activeAt] ?? 'Default' : 'Default' },
+      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks, 'audio', liveLangs())[activeAt] ?? 'Default' : 'Default' },
       { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
       { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
       { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },

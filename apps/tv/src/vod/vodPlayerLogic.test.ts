@@ -103,13 +103,13 @@ describe('tracks', () => {
   it('trackRows names bare language codes and numbers labels that repeat', () => {
     const rows = trackRows([t('1', 'eng', 'eng', true), t('2', 'eng', 'eng'), t('3', 'swe', 'swe')], [t('4', 'Track 1')]);
     expect(rows.map((r) => r.kind === 'list' && r.label)).toEqual([
-      'Audio: English', 'Audio: English (2)', 'Audio: Swedish', 'Subtitles: Track 1', 'Subtitles off',
+      'Audio: English', 'Audio: English (2)', 'Audio: Swedish', 'Subtitles: Subtitle 1', 'Subtitles off',
     ]);
   });
 
-  it('trackRows keeps a label that is not a bare language code', () => {
+  it('trackRows keeps a label that is not a bare language code, after its language', () => {
     const rows = trackRows([t('1', 'Director commentary', 'en')], []);
-    expect(rows[0]!.kind === 'list' && rows[0]!.label).toBe('Audio: Director commentary');
+    expect(rows[0]!.kind === 'list' && rows[0]!.label).toBe('Audio: English · Director commentary');
   });
 
   it('trackRows checks a subtitle and leaves Off unchecked', () => {

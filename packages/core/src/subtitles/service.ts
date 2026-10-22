@@ -1,6 +1,10 @@
 import type { Storage } from '../storage.ts';
 import type { FetchFn } from '../types.ts';
+import { detectTextLanguage, languageFromFileName } from '../text/trackLanguage.ts';
 import { SUBTITLE_MAX_BYTES, decodeSubtitle, parseSubtitles, type SubtitleCue } from './parse.ts';
+
+/** How many cues the language detection reads when a file's language is not known. */
+const DETECT_CUES = 40;
 
 /** A subtitle file the user loaded for one title (a movie or an episode). */
 export interface LoadedSubtitle {
@@ -91,7 +95,10 @@ export class SubtitleService {
     const loaded: LoadedSubtitle = { name: details?.name ?? name, cues };
     const fps = details?.fps;
     if (fps !== undefined && Number.isFinite(fps) && fps > 0) loaded.fps = fps;
-    if (details?.language) loaded.language = details.language;
+    // Without a given language: the file's name ("Film.sv.srt"), else the text of its first cues.
+    const language = details?.language || languageFromFileName(loaded.name) || (details?.name ? languageFromFileName(name) : undefined)
+      || detectTextLanguage(cues.slice(0, DETECT_CUES).map((c) => c.text).join('\n'));
+    if (language) loaded.language = language;
     if (details?.cc) loaded.cc = true;
     if (details?.language && details.fileId !== undefined) loaded.online = { language: details.language, fileId: details.fileId };
     const key = keyOf(sourceId, itemId);

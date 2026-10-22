@@ -160,6 +160,11 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
+/** A track's language code: firmwares put it under `language`, `lang` or (TEXT tracks) `track_lang`. */
+function langOf(x: Record<string, unknown>): string | undefined {
+  return str(x.language) ?? str(x.lang) ?? str(x.track_lang);
+}
+
 function num(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -458,7 +463,7 @@ export class AvplayPlayer implements Player {
       if (t.type !== 'AUDIO') continue;
       n++;
       const x = parseExtra(t);
-      const language = str(x.language);
+      const language = langOf(x);
       // `codec` is the display family ("AC-3", for track labels); the caps check uses the normalised name.
       const norm = audioCodecOf(str(x.fourCC));
       const codec = (norm && AUDIO_LABEL[norm]) ?? codecFamily(str(x.fourCC));
@@ -645,7 +650,7 @@ export class AvplayPlayer implements Player {
     for (const t of all) {
       if (t.type !== 'TEXT') continue;
       n++;
-      const language = str(parseExtra(t).language);
+      const language = langOf(parseExtra(t));
       const info: TrackInfo = { id: String(t.index), label: language ?? `Subtitles ${n}`, active: t.index === activeIndex };
       if (language) info.language = language;
       out.push(info);

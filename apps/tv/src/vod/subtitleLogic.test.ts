@@ -6,7 +6,7 @@ import {
   SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, languageName, stepDelay,
   onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
   SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
-  subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName,
+  subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName, loadedLanguage,
 } from './subtitleLogic.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
@@ -282,7 +282,25 @@ describe('subtitle versions', () => {
   });
 });
 
+describe('loadedLanguage', () => {
+  const cue = (text: string) => ({ startMs: 0, endMs: 1, text });
+  it('the stored language, else the file name, else the text of its cues, else none', () => {
+    expect(loadedLanguage({ name: 'film.srt', cues: [], language: 'da' })).toBe('da');
+    expect(loadedLanguage({ name: 'film.srt', cues: [], online: { language: 'pt-BR', fileId: 1 } })).toBe('pt-BR');
+    expect(loadedLanguage({ name: 'Film.2020.sv.srt', cues: [] })).toBe('sv');
+    expect(loadedLanguage({ name: 'subs.srt', cues: [cue('Jag vet inte vad du pratar om.'), cue('Vi måste gå nu, det är inte säkert här.')] })).toBe('sv');
+    expect(loadedLanguage({ name: 'subs.srt', cues: [cue('OK')] })).toBeUndefined();
+  });
+});
+
 describe('subtitleExtraRows', () => {
+  it('a loaded file whose name does not say its language: the language first', () => {
+    expect(subtitleExtraRows({ external: { name: 'subs.srt', active: false, language: 'sv' }, canLoadFile: false })[0])
+      .toMatchObject({ label: 'Subtitles: Swedish · subs.srt (loaded)' });
+    expect(subtitleExtraRows({ external: { name: 'Film.sv.srt', active: false, language: 'sv' }, canLoadFile: false })[0])
+      .toMatchObject({ label: 'Subtitles: Film.sv.srt (loaded)' });
+  });
+
   it('a loaded file (checked when on), load rows, and remove', () => {
     expect(subtitleExtraRows({ external: { name: 'film.srt', active: true }, canLoadFile: true })).toEqual([
       { kind: 'list', id: SUBTITLE_EXT_ROW, label: 'Subtitles: film.srt (loaded)', checked: true },
