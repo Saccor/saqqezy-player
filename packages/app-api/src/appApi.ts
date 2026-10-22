@@ -729,6 +729,14 @@ export class AppApi {
     });
   }
 
+  /** Channels of the active source matching `query` (multiview's picker). No guide or VOD work; `[]` for a blank query. */
+  searchChannels(query: string, limit: number): Promise<ChannelRow[]> {
+    return this.run('searchChannels', async () => {
+      if (query.trim() === '') return [];
+      return this.toRows(this.index.search(query, Math.max(0, limit)));
+    });
+  }
+
   /** Movies and series for Search: never waits on building an index, and a failure never fails the search. */
   private async vodSearch(query: string, limit: number): Promise<VodSearchHits> {
     const none: VodSearchHits = { movies: [], series: [], pending: false };
@@ -2615,7 +2623,7 @@ const liveAudioKey = (sourceId: string) => `liveAudio:${sourceId}`;
 export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
-  'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
+  'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search', 'searchChannels',
   'getSportsEvents', 'getMatchFilters', 'getMatchCompetitions', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',

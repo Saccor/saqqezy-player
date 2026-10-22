@@ -403,6 +403,17 @@ describe('AppApi', () => {
     expect(r.vodPending).toBe(false);
   });
 
+  test('searchChannels: matching channels only, limited, empty for a blank query', async () => {
+    const { api } = make();
+    await api.addSource(xt());
+    const one = await api.searchChannels('channel 007', 5);
+    expect(one.map((c) => c.name)).toEqual(['Channel 007']);
+    const many = await api.searchChannels('channel', 3);
+    expect(many).toHaveLength(3);
+    expect(await api.searchChannels('   ', 5)).toEqual([]);
+    expect(await api.searchChannels('zzzz nothing', 5)).toEqual([]);
+  });
+
   test('search: on now (capped at 20) and coming up, one row per title', async () => {
     const { api } = make();
     await api.addSource(xt());
