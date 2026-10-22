@@ -5,7 +5,7 @@ import { COUNTRIES_COPY } from '../copy.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
 import {
   OTHER_FOLDERS, RESET_PATCH, SKIP_PATCH, applyPatch, createCountrySaver, firstRunFocus, firstRunLanguages, firstRunTarget, hasGrid,
-  languageLine, loadChoices, notices, otherFoldersLabel, otherFoldersOf, otherFoldersPatch, pickPatch, preselect,
+  languageLine, loadApplies, loadChoices, notices, otherFoldersLabel, otherFoldersOf, otherFoldersPatch, pickPatch, preselect,
 } from './countriesLogic.ts';
 
 const choices = (over: Partial<CountryChoices> = {}): CountryChoices => ({
@@ -91,6 +91,46 @@ describe('createCountrySaver', () => {
     await Promise.resolve();
     expect(saved).toEqual([choices({ foldCountries: false })]);
   });
+  it('a reply while a newer patch waits is not adopted; the last reply with nothing pending is', async () => {
+    vi.useFakeTimers();
+    const answers: ((c: CountryChoices) => void)[] = [];
+    const send = vi.fn((_p: unknown) => new Promise<CountryChoices>((r) => { answers.push(r); }));
+    const saved: CountryChoices[] = [];
+    const s = createCountrySaver(send, (c) => saved.push(c), () => {});
+    s.save({ codes: ['A'] });
+    vi.advanceTimersByTime(300);
+    s.save({ codes: ['A', 'B'] });
+    expect(s.busy()).toBe(true);
+    answers[0]!(choices());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(saved).toEqual([]);
+    s.save({ codes: ['A', 'B', 'C'] });
+    vi.advanceTimersByTime(300);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ codes: ['A', 'B', 'C'] });
+    const last = choices({ stale: true });
+    answers[1]!(last);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(saved).toEqual([last]);
+    expect(s.busy()).toBe(false);
+  });
+  it('a late reply after cancel is dropped', async () => {
+    vi.useFakeTimers();
+    const answers: ((c: CountryChoices) => void)[] = [];
+    const send = vi.fn((_p: unknown) => new Promise<CountryChoices>((r) => { answers.push(r); }));
+    const saved: CountryChoices[] = [];
+    const s = createCountrySaver(send, (c) => saved.push(c), () => {});
+    s.save({ codes: ['A'] });
+    s.flush();
+    s.cancel();
+    answers[0]!(choices());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(saved).toEqual([]);
+    expect(s.busy()).toBe(false);
+  });
   it('cancel drops a pending write; a failure calls onError', async () => {
     vi.useFakeTimers();
     const send = vi.fn(() => Promise.reject(new Error('x')));
@@ -105,6 +145,14 @@ describe('createCountrySaver', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('loadApplies', () => {
+  it('only the newest load applies, and never while a save is pending or in flight', () => {
+    expect(loadApplies(2, 2, false)).toBe(true);
+    expect(loadApplies(1, 2, false)).toBe(false);
+    expect(loadApplies(2, 2, true)).toBe(false);
   });
 });
 

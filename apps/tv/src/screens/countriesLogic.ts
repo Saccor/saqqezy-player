@@ -86,23 +86,31 @@ export interface CountrySaver {
   save(patch: CountriesPatch): void;
   /** Sends the pending write now (leaving the page, Done). */
   flush(): void;
-  /** Drops the pending write (Skip). */
+  /** Drops the pending write and ignores the answer of one in flight (Skip). */
   cancel(): void;
+  /** A write is waiting or in flight. */
+  busy(): boolean;
 }
 
-/** Debounced `setCountries`: one write per burst; an answer older than a later write is ignored. */
+/** Debounced `setCountries`: one write per burst; only the last write's answer counts, and only once nothing newer waits. */
 export function createCountrySaver(
   send: (patch: CountriesPatch) => Promise<CountryChoices>, onSaved: (c: CountryChoices) => void, onError: () => void,
   ms = SAVE_DEBOUNCE_MS,
 ): CountrySaver {
   let pending: CountriesPatch | undefined;
   let seq = 0;
+  let settled = 0;
   const fire = () => {
     const patch = pending;
     pending = undefined;
     if (!patch) return;
     const mine = ++seq;
-    send(patch).then((c) => { if (mine === seq) onSaved(c); }, () => { if (mine === seq) onError(); });
+    // An answer older than a later write is dropped; so is one that arrives while presses wait unsent (adopting it
+    // would erase them). The last write's answer, with nothing pending, is the server's truth and is adopted.
+    send(patch).then(
+      (c) => { if (mine === seq) { settled = mine; if (!pending) onSaved(c); } },
+      () => { if (mine === seq) { settled = mine; onError(); } },
+    );
   };
   const timer = createDebounce<void>(ms, fire);
   return {
@@ -117,9 +125,15 @@ export function createCountrySaver(
     cancel() {
       timer.cancel();
       pending = undefined;
+      seq++;
+      settled = seq;
     },
+    busy: () => pending !== undefined || settled !== seq,
   };
 }
+
+/** A `getCountryChoices` result applies only if it is the newest load and no save is pending or in flight. */
+export const loadApplies = (mine: number, latest: number, saving: boolean): boolean => mine === latest && !saving;
 
 /** After the first source: the countries step with two or more choices, else Home as before. */
 export function firstRunTarget(c: CountryChoices | undefined): 'countries' | 'home' {

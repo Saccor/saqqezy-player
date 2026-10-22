@@ -5,10 +5,10 @@ import { togglePick } from '../components/countryGridLogic.ts';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { patchSettings, settings } from '../state/appState.ts';
-import { applyPatch, createCountrySaver, loadChoices, notices as noticesOf, pickPatch } from './countriesLogic.ts';
+import { applyPatch, createCountrySaver, loadApplies, loadChoices, notices as noticesOf, pickPatch } from './countriesLogic.ts';
 
 export interface CountriesModel {
-  /** The grid's data: the latest answer with the presses since applied. Undefined until loaded (or after a failure). */
+  /** The grid's data: the latest answer with the presses since applied. Undefined until the first load succeeds; a failed reload keeps the last answer. */
   choices: () => CountryChoices | undefined;
   /** The last load failed or took longer than 2 s. */
   failed: () => boolean;
@@ -39,16 +39,19 @@ export function createCountriesModel(): CountriesModel {
     const s = settings();
     if (s) patchSettings({ ...s, regions: c.regions, foldCountries: c.foldCountries, combineCategories: c.combineCategories });
   };
+  let loadToken = 0;
   const load = async () => {
+    const mine = ++loadToken;
     setFailed(false);
     const c = await loadChoices(() => api.getCountryChoices());
+    if (!loadApplies(mine, loadToken, saver.busy())) return;
     if (!c) { setFailed(true); return; }
     setBefore(undefined);
     setSaved(c);
     setChoices(c);
   };
   const saver = createCountrySaver((p) => api.setCountries(p), adopt, () => {
-    showToast("Couldn't save the setting.");
+    showToast(COUNTRIES_COPY.saveError);
     void load();
   });
   const apply = (patch: CountriesPatch) => {

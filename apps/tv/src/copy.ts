@@ -114,6 +114,7 @@ export const COUNTRIES_COPY = {
   combineOn: 'Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.',
   none: "Your playlist doesn't sort its folders by country.",
   loadError: "Couldn't load your countries · Try again",
+  saveError: "Couldn't save the setting.",
   firstTitle: 'Which countries do you watch?',
   firstSub: (n: number): string => `We found folders for ${n} countries in your playlist. Pick one or more.`,
   firstFoot: 'You can change this later in Settings › Your countries.',
