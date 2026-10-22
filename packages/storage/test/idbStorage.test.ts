@@ -344,3 +344,85 @@ describe('IdbStorage quota hook', () => {
     expect(await s2.getChannels('s1')).toHaveLength(50);
   });
 });
+
+function rawPut(factory: IDBFactory, store: string, fn: (s: IDBObjectStore) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const open = factory.open('iptv');
+    open.onsuccess = () => {
+      const tx = open.result.transaction(store, 'readwrite');
+      fn(tx.objectStore(store));
+      tx.oncomplete = () => { open.result.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    open.onerror = () => reject(open.error);
+  });
+}
+
+describe('IdbStorage resilience', () => {
+  const film = { items: [{ id: 's1:m2', kind: 'movie' as const, title: 'Film', categoryId: '1' }], categories: [] };
+
+  test('a migration in flight never resurrects a source deleted meanwhile', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const codec = {
+      async encode(text: string) { await gate; return { enc: 'none' as const, bytes: new TextEncoder().encode(text).buffer as ArrayBuffer }; },
+      async decode(c: { bytes: ArrayBuffer }) { return new TextDecoder().decode(c.bytes); },
+    };
+    const s = new IdbStorage(factory, 'iptv', 2000, { codec });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.deleteSource('s1');
+      release();
+      await s.settled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+    expect(await s.getVod('s1', 'movie')).toBeUndefined();
+  });
+
+  test('an undecodable chunk reads as missing, the head is dropped, and nothing rejects', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory);
+    await s.replaceVod('s1', 'movie', film);
+    await rawPut(factory, 'chunks', (st) => {
+      const c = st.openCursor();
+      c.onsuccess = () => { const cur = c.result; if (cur) cur.update({ ...cur.value, bytes: new Uint8Array([1, 2, 3, 4]).buffer }); };
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith('Catalogue chunk unreadable', 'movie');
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    await s.replaceVod('s1', 'movie', film);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Film');
+  });
+
+  test('a head whose chunks are not all stored reads as missing', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory, 'iptv', 2000, { chunkRows: 2 });
+    const chans = Array.from({ length: 6 }, (_, i) => ({ id: `s1:${i}`, sourceId: 's1', name: `Channel ${i}`, url: `http://example.test/${i}.ts`, group: 'G', number: i }));
+    await s.replaceChannels('s1', chans);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(3);
+    await rawPut(factory, 'chunks', (st) => { st.delete(['s1', 'channels', 1, 1]); });
+    expect(await s.getChannels('s1')).toEqual([]);
+  });
+
+  test('a quota hook that never resolves cannot hold the write', async () => {
+    const s = new IdbStorage(new IDBFactory(), 'iptv', 2000, {
+      estimate: async () => ({ usage: 83e6, quota: 83.9e6 }),
+      beforeLargeWrite: () => new Promise<void>(() => undefined),
+      hookTimeoutMs: 20,
+    });
+    await s.replaceChannels('s1', [{ id: 's1:1', sourceId: 's1', name: 'C', url: 'http://example.test/1.ts', group: 'G', number: 1 }]);
+    expect(await s.getChannels('s1')).toHaveLength(1);
+  });
+});

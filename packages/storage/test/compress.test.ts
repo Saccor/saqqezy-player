@@ -28,4 +28,11 @@ describe('chunk codec', () => {
     const gz = await createChunkCodec(globalThis).encode(text);
     await expect(createChunkCodec({}).decode(gz)).rejects.toThrow(/gzip/);
   });
+
+  test('a CompressionStream that throws falls back to plain bytes', async () => {
+    const codec = createChunkCodec({ CompressionStream: function () { throw new Error('boom'); } });
+    const enc = await codec.encode('Ålänning ✓');
+    expect(enc.enc).toBe('none');
+    expect(await codec.decode(enc)).toBe('Ålänning ✓');
+  });
 });

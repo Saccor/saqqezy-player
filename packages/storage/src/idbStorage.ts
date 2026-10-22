@@ -2,7 +2,7 @@ import {
   MAX_PROGRAMME_MS, isQuotaError,
   type Channel, type Programme, type SourceConfig, type Storage, type SyncMetaEntry, type VodKind, type VodList, type VodUserRecord, type VodUserState,
 } from '@iptv/core';
-import { CHUNK_ROWS, deleteCatalogs, encodeCatalog, readCatalog, writeCatalog, type CatalogKind, type LegacyRef } from './catalogStore.ts';
+import { CHUNK_ROWS, MIGRATION_SUPERSEDED, deleteCatalogs, encodeCatalog, readCatalog, writeCatalog, type CatalogKind, type LegacyRef } from './catalogStore.ts';
 import { createChunkCodec, type ChunkCodec } from './compress.ts';
 
 const DB_VERSION = 4;
@@ -36,6 +36,8 @@ export interface IdbStorageOptions {
   chunkRows?: number;
   estimate?: () => Promise<{ usage?: number; quota?: number }>;
   beforeLargeWrite?: (bytes: number) => Promise<void>;
+  /** Longest the `beforeLargeWrite` hook may take before the write goes ahead (default 5 s). */
+  hookTimeoutMs?: number;
 }
 
 type StorageEstimate = { usage?: number; quota?: number };
@@ -88,6 +90,8 @@ export class IdbStorage implements Storage {
     if (this.pendingMigrations.has(key)) return;
     this.pendingMigrations.add(key);
     const p = this.writeKey(sourceId, kind, rows, extra, legacy, { onlyIfLegacy: true }).catch((err: unknown) => {
+      // The legacy record vanished while encoding (source deleted, or a refresh won): a normal skip.
+      if (err instanceof Error && err.name === MIGRATION_SUPERSEDED) return;
       console.warn('Catalogue migration failed', kind, err instanceof Error ? err.name : 'Error');
     });
     this.migrations.add(p);
@@ -109,7 +113,7 @@ export class IdbStorage implements Storage {
       await this.makeRoom(enc.bytes);
       const db = await this.db();
       try {
-        await writeCatalog(db, sourceId, kind, enc, legacy);
+        await writeCatalog(db, sourceId, kind, enc, legacy, { requireLegacy: opts.onlyIfLegacy === true });
       } catch (err) {
         // The legacy single record of this key is what leaves no room (47 MB of movies on the G9): the list being
         // written is the same data or newer, so drop it and try once more.
@@ -139,10 +143,17 @@ export class IdbStorage implements Storage {
     if (!this.opts.beforeLargeWrite) return;
     const free = await this.freeBytes();
     if (free === undefined || free >= bytes * 1.2 + 2e6) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.opts.beforeLargeWrite(bytes);
+      // Bounded: a hung hook must not hold the key lock for ever.
+      await Promise.race([
+        this.opts.beforeLargeWrite(bytes),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, this.opts.hookTimeoutMs ?? 5000); }),
+      ]);
     } catch {
       // Best effort: a failed clean-up must not fail the write itself.
+    } finally {
+      clearTimeout(timer);
     }
   }
 

@@ -19,8 +19,13 @@ export function createChunkCodec(g: { CompressionStream?: unknown; Decompression
     async encode(text) {
       const u8 = new TextEncoder().encode(text);
       if (!C) return { enc: 'none', bytes: exact(u8) };
-      const stream = new Blob([u8]).stream().pipeThrough(new C('gzip'));
-      return { enc: 'gzip', bytes: await new Response(stream).arrayBuffer() };
+      try {
+        const stream = new Blob([u8]).stream().pipeThrough(new C('gzip'));
+        return { enc: 'gzip', bytes: await new Response(stream).arrayBuffer() };
+      } catch {
+        // The engine has the API but the pipeline fails: store plain rather than fail the write.
+        return { enc: 'none', bytes: exact(u8) };
+      }
     },
     async decode(chunk) {
       if (chunk.enc === 'none') return new TextDecoder().decode(chunk.bytes);

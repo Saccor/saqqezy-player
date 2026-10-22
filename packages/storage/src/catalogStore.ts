@@ -39,11 +39,15 @@ async function deleteRange(db: IDBDatabase, range: IDBKeyRange): Promise<void> {
   await done(tx);
 }
 
-export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: CatalogKind, enc: EncodedCatalog, legacy: LegacyRef): Promise<void> {
+/** A migration found its legacy record gone (the source was deleted, or a refresh replaced it): nothing was written. */
+export const MIGRATION_SUPERSEDED = 'MigrationSuperseded';
+
+export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: CatalogKind, enc: EncodedCatalog, legacy: LegacyRef, opts: { requireLegacy?: boolean } = {}): Promise<void> {
   const prev = (await req(db.transaction('catalogs').objectStore('catalogs').get([sourceId, kind]))) as Head | undefined;
   const gen = (prev?.gen ?? 0) + 1;
   // A crashed earlier attempt may have left chunks at this generation.
   await deleteRange(db, genRange(sourceId, kind, gen));
+  let superseded = false;
   try {
     for (let n = 0; n < enc.chunks.length; n++) {
       const tx = db.transaction('chunks', 'readwrite');
@@ -52,9 +56,22 @@ export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: Cata
     }
     const head: Head = { sourceId, kind, gen, chunks: enc.chunks.length, count: enc.count, ...(enc.extra ? { extra: enc.extra } : {}) };
     const tx = db.transaction(['catalogs', legacy.store], 'readwrite');
-    tx.objectStore('catalogs').put(head);
-    tx.objectStore(legacy.store).delete(legacy.key);
-    await done(tx);
+    const commit = () => {
+      tx.objectStore('catalogs').put(head);
+      tx.objectStore(legacy.store).delete(legacy.key);
+    };
+    if (opts.requireLegacy) {
+      // A migration encodes for seconds: the source may have been deleted meanwhile. Only commit while the legacy record is there.
+      const check = tx.objectStore(legacy.store).count(legacy.key);
+      check.onsuccess = () => {
+        if (check.result > 0) commit();
+        else { superseded = true; tx.abort(); }
+      };
+    } else {
+      commit();
+    }
+    await done(tx).catch((err: unknown) => { if (!superseded) throw err; });
+    if (superseded) throw Object.assign(new Error('Catalogue migration superseded'), { name: MIGRATION_SUPERSEDED });
   } catch (err) {
     await deleteRange(db, genRange(sourceId, kind, gen)).catch(() => undefined);
     throw err;
@@ -80,12 +97,28 @@ export async function readCatalog(db: IDBDatabase, sourceId: string, kind: Catal
   if (!head) return undefined;
   // Only a truly incomplete store (chunks missing from disk) reads as missing: the caller fetches again.
   if (recs.length !== head.chunks) return undefined;
-  const rows: Record<string, unknown>[] = [];
-  for (const rec of recs) {
-    for (const row of unpackRows(JSON.parse(await codec.decode(rec)) as PackedRows)) rows.push(row);
+  try {
+    const rows: Record<string, unknown>[] = [];
+    for (const rec of recs) {
+      for (const row of unpackRows(JSON.parse(await codec.decode(rec)) as PackedRows)) rows.push(row);
+    }
+    const extra = head.extra ? (JSON.parse(await codec.decode(head.extra)) as unknown) : undefined;
+    return { rows, extra };
+  } catch {
+    // A chunk that cannot be decoded would fail every read for good: drop the head so the caller falls back or refetches.
+    console.warn('Catalogue chunk unreadable', kind);
+    await dropHead(db, sourceId, kind, head.gen).catch(() => undefined);
+    return undefined;
   }
-  const extra = head.extra ? (JSON.parse(await codec.decode(head.extra)) as unknown) : undefined;
-  return { rows, extra };
+}
+
+/** Deletes the head of one generation (not a newer one a refresh committed meanwhile). */
+async function dropHead(db: IDBDatabase, sourceId: string, kind: CatalogKind, gen: number): Promise<void> {
+  const tx = db.transaction('catalogs', 'readwrite');
+  const store = tx.objectStore('catalogs');
+  const cur = store.get([sourceId, kind]);
+  cur.onsuccess = () => { if ((cur.result as Head | undefined)?.gen === gen) store.delete([sourceId, kind]); };
+  await done(tx);
 }
 
 export function deleteCatalogs(tx: IDBTransaction, sourceId: string): void {
