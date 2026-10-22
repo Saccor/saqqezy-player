@@ -83,3 +83,18 @@ describe('createPlaybackPool: the primary slot (the one with sound)', () => {
     expect(make).toHaveBeenLastCalledWith(0);
   });
 });
+
+describe('createPlaybackPool: slot changes', () => {
+  it('listeners hear when a slot is made and when release frees slots', () => {
+    const pool = createPlaybackPool(slot('0', []), (n) => slot(String(n), []));
+    let calls = 0;
+    pool.onSlots(() => { calls++; });
+    pool.slot(1);
+    pool.slot(1);
+    expect(calls).toBe(1);
+    pool.release();
+    expect(calls).toBe(2);
+    pool.release(); // nothing to free
+    expect(calls).toBe(2);
+  });
+});

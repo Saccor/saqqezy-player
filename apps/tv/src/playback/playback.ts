@@ -225,6 +225,15 @@ pool.onPrimary((n, prev) => {
   setStreamCooldown(cur?.cooldownKey, cur?.cooldown);
 });
 
+const [slotsVersion, setSlotsVersion] = createSignal(0);
+pool.onSlots(() => setSlotsVersion((v) => v + 1));
+/** The multiview windows without sound, read reactively (each gets its own cooldown hold in `App.tsx`). */
+export const otherSlots = (): PlaybackSlot[] => {
+  slotsVersion();
+  primaryIndex();
+  return pool.slots().slice(1);
+};
+
 /** The slot with sound, read reactively (Solid tracks `primaryIndex`). */
 const primarySlot = (): PlaybackSlot => {
   primaryIndex();

@@ -21,6 +21,8 @@ export interface PlaybackPool<S extends PoolSlot> {
   /** Moves the sound and the single-view role to slot `n`, which must exist. */
   setPrimary(n: number): void;
   onPrimary(fn: (n: number, prev: number) => void): () => void;
+  /** A slot was made, or `release` freed some. */
+  onSlots(fn: () => void): () => void;
   /** Stops every slot (leaving the player, `parkLive('stop')`, the sleep timer). */
   stopAll(): void;
   /** Stops and frees every slot but the primary, which keeps playing (leaving multiview). */
@@ -30,6 +32,8 @@ export interface PlaybackPool<S extends PoolSlot> {
 export function createPlaybackPool<S extends PoolSlot>(first: S, make: (n: number) => S, max = 4): PlaybackPool<S> {
   const made = new Map<number, S>([[0, first]]);
   const listeners = new Set<(n: number, prev: number) => void>();
+  const slotListeners = new Set<() => void>();
+  const changed = () => { for (const fn of [...slotListeners]) fn(); };
   let primary = 0;
   const inRange = (n: number) => {
     if (!Number.isInteger(n) || n < 0 || n >= max) throw new RangeError(`No playback slot ${n}`);
@@ -40,7 +44,10 @@ export function createPlaybackPool<S extends PoolSlot>(first: S, make: (n: numbe
     slot(n) {
       inRange(n);
       let s = made.get(n);
-      if (!s) made.set(n, (s = make(n)));
+      if (!s) {
+        made.set(n, (s = make(n)));
+        changed();
+      }
       return s;
     },
     slots: () => [made.get(primary)!, ...others().map(([, s]) => s)],
@@ -57,16 +64,22 @@ export function createPlaybackPool<S extends PoolSlot>(first: S, make: (n: numbe
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
+    onSlots(fn) {
+      slotListeners.add(fn);
+      return () => slotListeners.delete(fn);
+    },
     stopAll() {
       made.get(primary)!.stop();
       for (const [, s] of others()) s.stop();
     },
     release() {
-      for (const [n, s] of others()) {
+      const freed = others();
+      for (const [n, s] of freed) {
         s.stop();
         s.dispose?.();
         made.delete(n);
       }
+      if (freed.length) changed();
     },
   };
 }

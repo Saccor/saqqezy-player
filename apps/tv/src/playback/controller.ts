@@ -147,6 +147,8 @@ export function createPlaybackController(
   };
   /** The current channel was not opened (cooldown): the same channel must still open later. */
   let held = false;
+  /** Under a host cooldown, a stream that was playing gets one reconnect: `granted`, then `used`. */
+  let spare: 'none' | 'granted' | 'used' = 'none';
   /** Source of the stream opened by the last play (its first frame and a refusal at any time are reported). */
   let playKey: string | undefined;
   /** That stream's URL: reports name its host (the worker derives the key; never logged). */
@@ -164,6 +166,7 @@ export function createPlaybackController(
   let tuneGen = 0;
   const newTune = (ch: PlayableChannel | undefined) => {
     tuneGen++;
+    spare = 'none';
     tuneSources = ch?.sources && ch.sources.length > 1 ? ch.sources : undefined;
     tried = new Set(ch ? [ch.id] : []);
     failovers = 0;
@@ -372,9 +375,17 @@ export function createPlaybackController(
     holdForCooldown() {
       const kind = status()?.kind;
       if (pendingVod && (kind === 'ended' || kind === 'failed')) return;
-      if (current() !== undefined && !held && kind !== 'playing') hold();
+      // Spared: a stream that played when the cooldown began may reconnect once (spec 2026-10-20-multiview §5.4).
+      if (kind === 'playing' && spare === 'none') spare = 'granted';
+      if (current() === undefined || held || kind === 'playing') return;
+      if (kind === 'reconnecting' && spare === 'granted') {
+        spare = 'used';
+        return;
+      }
+      hold();
     },
     resumeHeld() {
+      spare = 'none'; // the cooldown ended: a later one spares the stream again
       // Hidden: nothing opens. `resumeFromBackground` opens the held title once the app is visible again.
       if (!held || inBackground) return;
       const v = pendingVod;

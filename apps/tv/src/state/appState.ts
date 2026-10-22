@@ -64,6 +64,11 @@ export function cooldownOf(key: string | undefined, seed?: SourceCooldown): Sour
   return worseCooldown(sourceCooldown(), host);
 }
 
+/** A playable's cooldown (a multiview window's stream; the single-view player uses `cooldown()`). */
+export function cooldownForStream(s: { cooldownKey?: string; cooldown?: SourceCooldown } | undefined): SourceCooldown {
+  return cooldownOf(s?.cooldownKey, s?.cooldown);
+}
+
 /**
  * The current stream changed: the cooldown copy and the hold follow its host. `seed` is the playable's cooldown (a
  * wait read from storage after a reload); it counts only until the worker announces that key.
