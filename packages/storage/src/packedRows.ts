@@ -18,6 +18,18 @@ function splitAt(s: string): number {
   return Math.max(s.lastIndexOf('/'), s.lastIndexOf(':')) + 1;
 }
 
+/** Stores each value as JSON text in a table of distinct values; used for objects and for primitives mixed with objects. */
+function objectColumn(values: unknown[], h: { holes?: number[] }): PackedColumn {
+  const table = new Map<string, number>();
+  const idx = values.map((v) => {
+    const json = JSON.stringify(v);
+    let i = table.get(json);
+    if (i === undefined) { i = table.size; table.set(json, i); }
+    return i;
+  });
+  return { k: 'obj', table: [...table.keys()], idx, ...h };
+}
+
 function packColumn(values: unknown[], holes: number[], n: number): PackedColumn {
   const h = holes.length > 0 ? { holes } : {};
   if (values.length > 0 && values.every(isPrimitive)) {
@@ -46,25 +58,7 @@ function packColumn(values: unknown[], holes: number[], n: number): PackedColumn
     }
     return { k: 'raw', values: values as Primitive[], ...h };
   }
-  if (values.every((v) => !isPrimitive(v))) {
-    const table = new Map<string, number>();
-    const idx = values.map((v) => {
-      const json = JSON.stringify(v);
-      let i = table.get(json);
-      if (i === undefined) { i = table.size; table.set(json, i); }
-      return i;
-    });
-    return { k: 'obj', table: [...table.keys()], idx, ...h };
-  }
-  // Primitives mixed with objects: keep each value as JSON text in an object table.
-  const table = new Map<string, number>();
-  const idx = values.map((v) => {
-    const json = JSON.stringify(v);
-    let i = table.get(json);
-    if (i === undefined) { i = table.size; table.set(json, i); }
-    return i;
-  });
-  return { k: 'obj', table: [...table.keys()], idx, ...h };
+  return objectColumn(values, h);
 }
 
 export function packRows(rows: readonly object[]): PackedRows {
@@ -87,6 +81,9 @@ export function packRows(rows: readonly object[]): PackedRows {
   return { v: 1, n: rows.length, keys, cols };
 }
 
+/**
+ * Equal object values come back as one shared object, so callers must not mutate them in place.
+ */
 export function unpackRows(p: PackedRows): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = Array.from({ length: p.n }, () => ({}));
   p.keys.forEach((key, c) => {
@@ -95,14 +92,19 @@ export function unpackRows(p: PackedRows): Record<string, unknown>[] {
     let h = 0;
     let j = 0;
     const parsed = col.k === 'obj' ? col.table.map((json) => JSON.parse(json) as unknown) : undefined;
+    // A plain assignment of '__proto__' would set the row's prototype; define it as an own property instead.
+    const set = (row: Record<string, unknown>, value: unknown): void => {
+      if (key === '__proto__') Object.defineProperty(row, key, { value, enumerable: true, writable: true, configurable: true });
+      else row[key] = value;
+    };
     for (let i = 0; i < p.n; i++) {
       if (h < holes.length && holes[h] === i) { h++; continue; }
       const row = out[i]!;
       switch (col.k) {
-        case 'const': row[key] = col.value; break;
-        case 'raw': row[key] = col.values[j]; break;
-        case 'prefix': row[key] = col.prefixes[col.idx[j]!]! + col.rest[j]!; break;
-        case 'obj': row[key] = parsed![col.idx[j]!]; break;
+        case 'const': set(row, col.value); break;
+        case 'raw': set(row, col.values[j]); break;
+        case 'prefix': set(row, col.prefixes[col.idx[j]!]! + col.rest[j]!); break;
+        case 'obj': set(row, parsed![col.idx[j]!]); break;
       }
       j++;
     }

@@ -70,4 +70,52 @@ describe('packRows / unpackRows', () => {
     const packed = JSON.stringify(packRows(rows)).length;
     expect(packed).toBeLessThan(plain * 0.5);
   });
+
+  test('holes inside a prefix column round-trip and keep the prefix kind', () => {
+    const rows = Array.from({ length: 20 }, (_, i) => (i % 4 === 1 ? { u: undefined, n: i } : { u: `http://a.example.test/${i % 2}/x${i}`, n: i }));
+    const packed = packRows(rows);
+    expect(packed.cols[packed.keys.indexOf('u')]!.k).toBe('prefix');
+    expect(packed.cols[packed.keys.indexOf('u')]!.holes?.length).toBeGreaterThan(0);
+    expect(roundTrip(rows)).toEqual(rows);
+  });
+
+  test('holes inside a raw column round-trip and keep the raw kind', () => {
+    const rows = Array.from({ length: 40 }, (_, i) => (i % 5 === 2 ? { u: undefined } : { u: `http://h${i}.example.test/${i}/x` }));
+    const packed = packRows(rows);
+    expect(packed.cols[0]!.k).toBe('raw');
+    expect(packed.cols[0]!.holes?.length).toBeGreaterThan(0);
+    expect(roundTrip(rows)).toEqual(rows);
+  });
+
+  test('exactly limit distinct prefixes stays prefix; limit + 1 becomes raw (n = 40, limit = 16)', () => {
+    const atLimit = Array.from({ length: 40 }, (_, i) => ({ u: `p${i % 16}/x${i}` }));
+    const overLimit = Array.from({ length: 40 }, (_, i) => ({ u: `p${i % 17}/x${i}` }));
+    expect(packRows(atLimit).cols[0]!.k).toBe('prefix');
+    expect(roundTrip(atLimit)).toEqual(atLimit);
+    expect(packRows(overLimit).cols[0]!.k).toBe('raw');
+    expect(roundTrip(overLimit)).toEqual(overLimit);
+  });
+
+  test('an empty-string value round-trips', () => {
+    const rows = [{ s: '' }, { s: 'a/b' }, { s: '' }, { s: 'c:d' }];
+    expect(roundTrip(rows)).toEqual(rows);
+    const onlyEmpty = [{ s: '' }, { s: '' }];
+    expect(roundTrip(onlyEmpty)).toEqual(onlyEmpty);
+  });
+
+  test('a column that is null in every row round-trips', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ id: i, n: null }));
+    const packed = packRows(rows);
+    expect(packed.cols[packed.keys.indexOf('n')]).toEqual({ k: 'const', value: null });
+    expect(roundTrip(rows)).toEqual(rows);
+  });
+
+  test('a row with an own __proto__ key holding an object round-trips as an own key', () => {
+    const rows = [JSON.parse('{"__proto__": {"x": 1}, "a": 1}') as Record<string, unknown>];
+    const back = roundTrip(rows)[0]!;
+    expect(Object.getPrototypeOf(back)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(back, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(back, '__proto__')?.value).toEqual({ x: 1 });
+    expect(back.a).toBe(1);
+  });
 });
