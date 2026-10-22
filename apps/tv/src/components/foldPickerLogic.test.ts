@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import {
-  CHOOSE_ROW_ID, FOLD_ROW_ID, TOP_LEVEL, foldPick, foldView, initialRow, levelRowId, levelUp, openLevel, type FoldEntry,
+  CHOOSE_ROW_ID, FOLD_ROW_ID, TOP_LEVEL, foldPick, foldView, initialRow, levelRowId, levelUp, effectiveLevel, openLevel, type FoldEntry,
 } from './foldPickerLogic.ts';
 
 const g = (id: string, count: number, fold?: string): FoldEntry => ({ id, name: id.replace(/^g:/, ''), count, ...(fold ? { fold } : {}) });
@@ -85,5 +85,19 @@ describe('navigation', () => {
     expect(foldPick({ kind: 'country', key: 'BE' }, row('g:BE | News'))).toEqual({ kind: 'open', id: 'g:BE | News' });
     expect(foldPick(TOP_LEVEL, { kind: 'heading', label: 'Other folders' })).toEqual({ kind: 'none' });
     expect(initialRow([{ kind: 'heading', label: 'x' }, row('a')])).toBe(1);
+  });
+});
+
+describe('effectiveLevel', () => {
+  it('keeps a level that still exists', () => {
+    expect(effectiveLevel(TOP_LEVEL, ENTRIES)).toEqual(TOP_LEVEL);
+    expect(effectiveLevel({ kind: 'country', key: 'BE' }, ENTRIES)).toEqual({ kind: 'country', key: 'BE' });
+    expect(effectiveLevel({ kind: 'countries' }, ENTRIES)).toEqual({ kind: 'countries' });
+  });
+  it('a country that vanished falls back to the country list, or to the top when nothing is folded', () => {
+    expect(effectiveLevel({ kind: 'country', key: 'NO' }, ENTRIES)).toEqual({ kind: 'countries' });
+    const flat = [g('fav', 3), g('g:Music', 5)];
+    expect(effectiveLevel({ kind: 'country', key: 'BE' }, flat)).toEqual(TOP_LEVEL);
+    expect(effectiveLevel({ kind: 'countries' }, flat)).toEqual(TOP_LEVEL);
   });
 });

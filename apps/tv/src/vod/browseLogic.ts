@@ -108,6 +108,12 @@ export function skeletonShown(status: VodHome['status'] | undefined, rowCount: n
   return status === 'loading' && rowCount === 0;
 }
 
+/** While the home says "loading", it is re-read this often, so a lost `vodRefreshed` event cannot strand the screen. */
+export const HOME_POLL_MS = 3_000;
+export function homePollNeeded(status: VodHome['status'] | undefined): boolean {
+  return status === 'loading';
+}
+
 export interface SkeletonRect { x: number; y: number; w: number; h: number }
 export interface SkeletonRow { label: SkeletonRect; posters: SkeletonRect[] }
 

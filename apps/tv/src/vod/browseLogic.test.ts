@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { VodHome, VodTile } from '@iptv/app-api';
 import {
-  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
+  ROW_VISIBLE_COLS, cellAt, cellCount, clampFocus, drawnCells, locateFocus, wheelKey, mergeRows, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, homePollNeeded, toRowModels, warmRows,
   type RowModel,
 } from './browseLogic.ts';
 
@@ -168,6 +168,8 @@ describe('browseLogic', () => {
   test('skeleton rows show only while the home is loading with no rows', () => {
     expect(skeletonShown('loading', 0)).toBe(true);
     expect(skeletonShown('loading', 2)).toBe(false);
+    expect(homePollNeeded('loading')).toBe(true);
+    for (const s of ['ready', 'error', undefined] as const) expect(homePollNeeded(s)).toBe(false);
     expect(skeletonShown(undefined, 0)).toBe(false);
     expect(skeletonShown('ready', 0)).toBe(false);
     expect(skeletonShown('empty', 0)).toBe(false);

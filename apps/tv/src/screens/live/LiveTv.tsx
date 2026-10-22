@@ -8,7 +8,7 @@ import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
 import { ListPicker } from '../../components/ListPicker.tsx';
 import {
-  TOP_LEVEL, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
+  TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
 } from '../../components/foldPickerLogic.ts';
 import { flagFor } from '../../assets/flags/index.ts';
 import { PointerBar } from '../../components/PointerBar.tsx';
@@ -409,11 +409,17 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const r = settings()?.regions;
     return r !== undefined && r.mode !== 'off' && r.codes.length > 0;
   };
-  const pickerView = createMemo(() => foldView(groups(), pickerLevel(), {
-    title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
-    label: (g) => `${g.name} · ${g.count}`, flagOf: flagFor,
-    onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
-  }));
+  /** The open level, one level up when a refresh left its country without folders (never an empty list). */
+  const effectiveLevel = (): FoldLevel => foldEffectiveLevel(pickerLevel(), groups());
+  // Built only while the picker is open: a library can have 1,000+ groups, and groups() changes on every refresh.
+  const pickerView = createMemo(() => {
+    if (!picking()) return undefined;
+    return foldView(groups(), effectiveLevel(), {
+      title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
+      label: (g) => `${g.name} · ${g.count}`, flagOf: flagFor,
+      onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
+    });
+  });
   const openPicker = () => {
     if (picking() || groups().length === 0 || router.topOverlay() !== undefined) return;
     // Where the open group is: inside its country when it is folded.
@@ -426,7 +432,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** Back on the picker: up one level (focus on the row that opened it), or closed from the top level. */
   function closePicker() {
     removePicker = undefined;
-    const level = pickerLevel();
+    const level = effectiveLevel();
     const up = levelUp(level);
     if (up) {
       setPickerFocusId(levelRowId(level));
@@ -448,7 +454,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   };
   /** OK: a level opens in place; a group opens and focuses the grid at the playing channel, else row 0. */
   const pick = (r: PickerRow) => {
-    const act = foldPick(pickerLevel(), r);
+    const act = foldPick(effectiveLevel(), r);
     if (act.kind === 'level') {
       setPickerFocusId(undefined);
       setPickerLevel(act.level);
@@ -938,10 +944,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title={pickerView().title} rows={pickerView().rows}
-          initial={pickerView().initial} resetKey={pickerView().key} onPick={pick} hint="Ok picks · Back closes" />
-      </Show>
+      <Show when={pickerView()}>{(view) => (
+        <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
+          initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes" />
+      )}</Show>
       <liveMenu.View />
     </View>
   );

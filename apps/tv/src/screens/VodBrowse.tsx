@@ -9,7 +9,7 @@ import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { flagFor } from '../assets/flags/index.ts';
-import { TOP_LEVEL, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
+import { TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { useRowColumn } from '../components/rowColumn.ts';
@@ -25,7 +25,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import {
-  cellAt, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
+  HOME_POLL_MS, cellAt, homePollNeeded, locateFocus, mergeRows, wheelKey, moveBrowse, rowSort, rowsToLoad, skeletonRows, skeletonShown, toRowModels, warmRows,
   type BrowseFocus, type FocusMemory, type RowModel,
 } from '../vod/browseLogic.ts';
 import { greenOpensGrid, type BrowseArea } from '../vod/browseNavLogic.ts';
@@ -348,14 +348,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   const [pickerLevel, setPickerLevel] = createSignal<FoldLevel>(TOP_LEVEL);
   const [pickerFocusId, setPickerFocusId] = createSignal<string | undefined>(undefined);
   let removePicker: (() => void) | undefined;
-  /** The open level, one level up when a refresh left its country without folders (never an empty list). */
-  const effectiveLevel = (): FoldLevel => {
-    const l = pickerLevel();
-    if (l.kind === 'top') return l;
-    const cs = categories();
-    if (l.kind === 'country' && cs.some((c) => c.fold === l.key)) return l;
-    return cs.some((c) => c.fold !== undefined) ? { kind: 'countries' } : TOP_LEVEL;
-  };
+  const effectiveLevel = (): FoldLevel => foldEffectiveLevel(pickerLevel(), categories());
   // Built only while the picker is open: a library can have 1,000+ categories.
   const pickerView = createMemo(() => {
     if (!picking()) return undefined;
@@ -482,6 +475,12 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
   // ---- view ----
 
   const status = () => home()?.status;
+  // A first load that never reports back (a lost `vodRefreshed`) must not strand the screen on "Loading…".
+  createEffect(() => {
+    if (!homePollNeeded(status())) return;
+    const timer = setInterval(() => { void load(); }, HOME_POLL_MS);
+    onCleanup(() => clearInterval(timer));
+  });
   const message = () => {
     const s = status();
     if (s === undefined || s === 'loading') return copy.loading;

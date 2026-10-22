@@ -43,6 +43,16 @@ export function openLevel(entries: readonly FoldEntry[], currentId: string | und
   return fold !== undefined ? { kind: 'country', key: fold } : TOP_LEVEL;
 }
 
+/**
+ * The level to show: the open one, or one level up when a refresh left it without folders (never an empty list):
+ * a vanished country → the country list, or the top level when nothing is folded any more.
+ */
+export function effectiveLevel(level: FoldLevel, entries: readonly FoldEntry[]): FoldLevel {
+  if (level.kind === 'top') return level;
+  if (level.kind === 'country' && entries.some((e) => e.fold === level.key)) return level;
+  return entries.some((e) => e.fold !== undefined) ? { kind: 'countries' } : TOP_LEVEL;
+}
+
 /** Back: a country's folders → the country list → the top level → closed (undefined). */
 export function levelUp(l: FoldLevel): FoldLevel | undefined {
   if (l.kind === 'country') return { kind: 'countries' };
