@@ -75,8 +75,9 @@ export function makeLarge(s: MvState, i: number): MvState {
   return { ...s, large: i, equal: false };
 }
 
+/** "Equal size": 4 windows in 2x2, 5-6 in the 3x2 grid (with fewer, nothing is marked Large for long). */
 export function equalSize(s: MvState): MvState {
-  return s.windows.length === 4 ? { ...s, equal: true } : s;
+  return s.windows.length >= 4 ? { ...s, equal: true } : s;
 }
 
 /** The rect of the focused window or of the empty slot in `l`. */
@@ -171,7 +172,7 @@ export function wake(s: MvState): { state: MvState; consumed: boolean } {
 export function menuItems(s: MvState, i: number, canAdd: { ok: true } | { ok: false; reason: string }): MenuItem[] {
   const items: MenuItem[] = [{ id: 'fullScreen', label: MULTIVIEW_COPY.fullScreen }];
   if (s.large !== i || s.equal) items.push({ id: 'makeLarge', label: MULTIVIEW_COPY.makeLarge });
-  if (s.windows.length === 4 && s.large !== undefined && !s.equal) items.push({ id: 'equalSize', label: MULTIVIEW_COPY.equalSize });
+  if (s.windows.length >= 4 && s.large !== undefined && !s.equal) items.push({ id: 'equalSize', label: MULTIVIEW_COPY.equalSize });
   const add: MenuItem = { id: 'addChannel', label: MULTIVIEW_COPY.addChannel };
   if (!canAdd.ok) add.disabled = canAdd.reason;
   items.push(add, { id: 'changeChannel', label: MULTIVIEW_COPY.changeChannel });

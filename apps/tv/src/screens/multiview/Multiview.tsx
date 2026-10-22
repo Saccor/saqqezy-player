@@ -17,7 +17,7 @@ import { volumeStep } from '../../video/volume.ts';
 import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
 import {
-  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, closeWindow, enterFullScreen, exitFullScreen, focusRested, idle,
+  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle,
   layoutInput, makeLarge, menuItems, moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MenuId, type MvState,
   type MvWindow,
 } from './mvLogic.ts';
@@ -268,6 +268,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     if (action === 'retry') retry(i);
     else if (action === 'fullScreen') update(enterFullScreen(s, i));
     else if (action === 'makeLarge') update(makeLarge(s, i));
+    else if (action === 'equalSize') update(equalSize(s));
     else if (action === 'keepSound' || action === 'soundFollows') update(togglePin(s, i));
     else if (action === 'closeWindow') {
       const w = s.windows[i];

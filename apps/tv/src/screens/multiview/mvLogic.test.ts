@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layout } from './layout.ts';
 import {
-  addWindow, click, closeWindow, enterFullScreen, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
+  addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
   moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
@@ -163,5 +163,32 @@ describe('soundToPlaying', () => {
     expect(soundToPlaying(s, [false, false])).toBe(s);
     const pinned = togglePin(two(), 1);
     expect(soundToPlaying(pinned, [true, false])).toBe(pinned);
+  });
+});
+
+describe('5-6 windows (P2)', () => {
+  const six = (): MvState => [1, 2, 3, 4, 5].reduce((s, n) => addWindow(s, w(n)), start(w(0)));
+
+  it('Equal size from 4 to 6 windows, not with 3', () => {
+    expect(equalSize(makeLarge(six(), 2)).equal).toBe(true);
+    const three = makeLarge(addWindow(two(), w(2)), 1);
+    expect(equalSize(three)).toBe(three);
+    expect(menuItems(makeLarge(six(), 2), 0, { ok: true }).map((i) => i.id)).toContain('equalSize');
+    expect(menuItems(six(), 0, { ok: true }).map((i) => i.id)).not.toContain('equalSize');
+  });
+
+  it('(f): from the Large window Right goes to the right column and Down to the small one under its left edge', () => {
+    const s = { ...makeLarge(six(), 0), focus: 0 as const };
+    const l = layout(layoutInput(s, 6));
+    expect(moveFocus(s, 'right', l).focus).toBe(1);
+    expect(moveFocus(s, 'down', l).focus).toBe(3);
+  });
+
+  it('(e): arrows walk the 3x2 grid', () => {
+    const s = { ...six(), focus: 0 as const };
+    const l = layout(layoutInput(s, 6));
+    expect(moveFocus(s, 'right', l).focus).toBe(1);
+    expect(moveFocus(s, 'down', l).focus).toBe(3);
+    expect(moveFocus({ ...s, focus: 4 }, 'up', l).focus).toBe(1);
   });
 });
