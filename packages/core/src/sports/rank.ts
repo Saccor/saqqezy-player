@@ -8,7 +8,7 @@ const M = 60_000;
 const H = 60 * M;
 export const MATCHES_ROW_CAP = 12;
 export const MATCHES_ALL_CAP = 100;
-/** The row and the window widening aim for at least this many matches. */
+/** The window widening aims for at least this many matches (it never pads the row). */
 export const MATCHES_MIN = 4;
 /** Upcoming window steps (hours): the first that holds MATCHES_MIN matches, else the last. */
 export const MATCH_WINDOWS_H = [6, 12, 24] as const;
@@ -18,14 +18,12 @@ export const FOLLOWED_AHEAD_MS = 36 * H;
 const ON_AIR_BACK_MS = 3 * H;
 /** Shorter slots need a live marker (highlights shows are often 45–50 min). */
 const MIN_LEN_MS = 60 * M;
-/** G8: a row match needs at least this share of the top breadth (multi-country guides). */
+/** G8: a row match needs at least this share of the top breadth (multi-country guides and guides with no country prefix). */
 const FOCUS_SHARE = 0.25;
-/** G8 when no channel name carries a country prefix: big playlists often keep the country in group titles only. */
-const FOCUS_SHARE_UNKNOWN = 0.1;
 
 /**
- * What the channel names say about countries: `one` prefix seen, `many`, or `unknown` (no prefix at all). Only `one`
- * turns the G8 size cut-off off; `unknown` relaxes it.
+ * What the channel names say about countries: `one` prefix seen, `many`, or `unknown` (no prefix at all). `one` turns
+ * the G8 size cut-off off; `unknown` uses the same 25 % share as `many` but accepts a single channel.
  */
 export type CountryScope = 'one' | 'many' | 'unknown';
 
@@ -61,7 +59,7 @@ export interface RankOptions {
   hidden: readonly string[];
   /** Folded category texts; empty: every category. */
   categories: readonly string[];
-  /** G8 cut-off: `one` → 1, `unknown` → max(1, ceil(0.1 × top)), `many` → max(2, ceil(0.25 × top)). */
+  /** G8 cut-off: `one` → 1, `unknown` → max(1, ceil(0.25 × top)), `many` → max(2, ceil(0.25 × top)). */
   countryScope: CountryScope;
 }
 
@@ -143,26 +141,15 @@ export function rankMatches<E extends MatchEvent>(events: readonly E[], o: RankO
   ms.sort((a, b) => b.score - a.score || a.event.start - b.event.start || (a.event.title < b.event.title ? -1 : a.event.title > b.event.title ? 1 : 0));
   os.sort((a, b) => Number(b.onAir) - Number(a.onAir) || a.event.start - b.event.start || (a.event.title < b.event.title ? -1 : 1));
 
-  // G8: the row keeps the broadly carried matches, plus followed, pinned and chosen-country ones; fill to MATCHES_MIN.
+  // G8: the row keeps only the broadly carried matches, plus followed, pinned and chosen-country ones. It is never
+  // padded: a short row is better than small matches (owner decision 2026-10-22); they stay in See all.
   let top = 0;
   for (const m of ms) if (m.event.breadth > top) top = m.event.breadth;
   const cut = o.countryScope === 'one' ? 1
-    : o.countryScope === 'unknown' ? Math.max(1, Math.ceil(FOCUS_SHARE_UNKNOWN * top))
+    : o.countryScope === 'unknown' ? Math.max(1, Math.ceil(FOCUS_SHARE * top))
     : Math.max(2, Math.ceil(FOCUS_SHARE * top));
-  const row: RankedMatch<E>[] = [];
-  const skipped: RankedMatch<E>[] = [];
-  for (const m of ms) {
-    const e = m.event;
-    const focus = e.breadth >= cut || e.followed || e.countryBreadth > 0 || (e.comp !== undefined && pinned.has(competitionKey(e.comp)));
-    if (focus) row.push(m);
-    else if (skipped.length < MATCHES_MIN) skipped.push(m);
-  }
-  if (row.length < MATCHES_MIN) {
-    const fill = new Set(skipped.slice(0, MATCHES_MIN - row.length));
-    const keep = new Set(row);
-    row.length = 0;
-    for (const m of ms) if (keep.has(m) || fill.has(m)) row.push(m);
-  }
+  const row = ms.filter(({ event: e }) => e.breadth >= cut || e.followed || e.countryBreadth > 0
+    || (e.comp !== undefined && pinned.has(competitionKey(e.comp))));
 
   const all = [...ms, ...os];
   return { row: row.slice(0, MATCHES_ROW_CAP), all: all.slice(0, MATCHES_ALL_CAP), total: all.length, windowHours };

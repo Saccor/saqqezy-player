@@ -105,7 +105,8 @@ describe('SportsController v2: Matches in your guide', () => {
     progs.push({ key: 'k24', title: 'Lakeshore v Pinecrest', cats: ['Football'], startMin: 30 });
     const index = new ChannelIndex(channels(25, 3));
     const r = await tiles(v2(progs), index);
-    expect(r.row.map((t) => t.title)).toEqual(['Northbridge FC v Eastport', 'Lakeshore v Pinecrest']);
+    expect(r.row.map((t) => t.title)).toEqual(['Northbridge FC v Eastport']);
+    expect(r.all.map((t) => t.title)).toContain('Lakeshore v Pinecrest');
     expect(r.row[0]!.channelCount).toBe(72);
     expect(r.row[0]!.onAir).toBe(true);
     const folded = new ChannelIndex(channels(25, 3), undefined, undefined, { fold: true });
@@ -223,6 +224,35 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(f.all.map((t) => t.title)).toEqual(['Lakeshore v Pinecrest']);
   });
 
+  test('competitions per category: the guide prefix names the competition; pinned first, hidden out', async () => {
+    const progs: P[] = [
+      { key: 'k0', title: 'Test Cup: Northbridge FC v Eastport', cats: ['Football'] },
+      { key: 'k1', title: 'Test Cup: Lakeshore v Pinecrest', cats: ['Football'], startMin: 30 },
+      { key: 'k2', title: 'Northern Cup: Harbour City v Kingsgate', cats: ['Football'], startMin: 60 },
+      { key: 'k3', title: 'Northern Cup: Westvale v Southmere', cats: ['Football'], startMin: 90 },
+      { key: 'k4', title: 'Ice Series: Rivermouth v Kingsbay', cats: ['Ice Hockey'], startMin: 20 },
+      { key: 'k5', title: 'Ice Series: Greenford v Oakridge', cats: ['Ice Hockey'], startMin: 40 },
+    ];
+    const r = await tiles(v2(progs), new ChannelIndex(channels(6)));
+    expect(r.sc.competitions(r.view, 'football', [], []).chips.map((c) => c.label).sort()).toEqual(['Northern Cup', 'Test Cup']);
+    expect(r.sc.competitions(r.view, 'ice hockey', [], []).chips.map((c) => c.label)).toEqual(['Ice Series']);
+    const pinned = r.sc.competitions(r.view, 'football', ['northern cup'], ['test cup']);
+    expect(pinned.chips).toEqual([{ id: 'northern cup', label: 'Northern Cup', pinned: true }]);
+  });
+
+  test('competition chips limited to the grid events: a competition only beyond the ranking window gets no chip', async () => {
+    const big = (n: number, title: string, startMin: number, from = 0): P[] => Array.from({ length: n }, (_, k) => ({ key: `k${from + k}`, title, cats: ['Football'], startMin }));
+    const progs: P[] = [
+      ...big(24, 'Test Cup: Northbridge FC v Eastport', 0), ...big(24, 'Test Cup: Harbour City v Westvale', 60),
+      ...big(24, 'Test Cup: Kingsgate v Rivermouth Rovers', 90), ...big(24, 'Test Cup: Southmere v Lakeshore', 120),
+      ...big(24, 'Late Cup: Oakridge v Greenford', 20 * 60), ...big(24, 'Late Cup: Pinecrest v Kingsbay', 20 * 60 + 30),
+    ];
+    const r = await tiles(v2(progs), new ChannelIndex(channels(24)), { categories: ['football'] });
+    expect(r.sc.competitions(r.view, 'football', [], []).chips.map((c) => c.label).sort()).toEqual(['Late Cup', 'Test Cup']);
+    const only = new Set(r.all.map((t) => t.key));
+    expect(r.sc.competitions(r.view, 'football', [], [], only).chips.map((c) => c.label)).toEqual(['Test Cup']);
+  });
+
   test('a small match on one key stays in See all; on a chosen-country or single-country guide it shows (fixture 12)', async () => {
     const big = (n: number, title: string, startMin: number): P[] => Array.from({ length: n }, (_, k) => ({ key: `k${k}`, title, cats: ['Football'], startMin }));
     const progs: P[] = [
@@ -235,7 +265,7 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(multi.all.map((t) => t.title)).toContain('Player One v Player Two');
     const single = await tiles(v2(progs), new ChannelIndex(channels(31, 1, () => 'SE: ')));
     expect(single.row.map((t) => t.title)).toContain('Player One v Player Two');
-    // No prefixes at all is unknown, not single-country: the cut-off is relaxed (10 %), not turned off.
+    // No prefixes at all is unknown, not single-country: the cut-off (25 %, at least 1) still applies.
     const unknown = await tiles(v2(progs), new ChannelIndex(channels(31)));
     expect(unknown.view.countryScope).toBe('unknown');
     expect(unknown.row.map((t) => t.title)).not.toContain('Player One v Player Two');

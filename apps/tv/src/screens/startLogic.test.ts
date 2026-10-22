@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
 import {
-  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, eventMeta, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, gridMove, locateStart, moveStart, rowKind, startRowSlots, toPosterRow,
+  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, START_POSTER, START_ROW_Y, focusLabel, labelWidth,
+  COMP_ALL, COMP_MORE, compChipId, compKeyOf, competitionChipActions, competitionMenuItems, competitionPatch, matchesSummary,
 } from './startLogic.ts';
 import { rowSlots } from '../components/rowSlots.ts';
+import { gridLayout } from '../vod/gridLogic.ts';
+import { LAYOUT } from '../shell/theme.ts';
 
 const vod = (n: number) => ({ type: 'vod', tile: { id: `v${n}`, kind: 'movie', title: `F${n}` } as VodTile }) as const;
 const chan = (n: number) => ({ type: 'channel', channel: { id: `c${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false } }) as const;
@@ -49,16 +52,6 @@ describe('startLogic', () => {
     const m = toPosterRow(rows[2]!);
     expect(m).toMatchObject({ id: 'newLibrary', total: 40, loaded: true });
     expect(m.items.map((t) => t.id)).toEqual(['v4']);
-  });
-  test('gridMove: 5 columns, clamps, top edge', () => {
-    expect(gridMove(12, 5, 0, 'up')).toBe('top');
-    expect(gridMove(12, 5, 0, 'right')).toBe(1);
-    expect(gridMove(12, 5, 4, 'right')).toBe(4);
-    expect(gridMove(12, 5, 3, 'down')).toBe(8);
-    expect(gridMove(12, 5, 8, 'down')).toBe(11);
-    expect(gridMove(12, 5, 11, 'down')).toBe(11);
-    expect(gridMove(12, 5, 7, 'up')).toBe(2);
-    expect(gridMove(12, 5, 5, 'left')).toBe(5);
   });
 });
 
@@ -110,11 +103,6 @@ describe('the match long-press menu (design note live-matches-ranking §3.7–3.
     expect(eventMenuPatch('hide', ev, { ...st, pinnedCompetitions: ['test cup'] })).toEqual({ hiddenCompetitions: ['test cup'], pinnedCompetitions: [] });
     expect(eventMenuPatch('fromStart', ev, st)).toBeUndefined();
   });
-  test('strip meta: when, channels, then the competition or sub-title', () => {
-    const now = 0;
-    expect(eventMeta({ ...ev, start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Test Cup');
-    expect(eventMeta({ ...ev, competition: undefined, subTitle: 'Round 3', start: -1, stop: 10 }, now)).toBe('Live · 2 channels · Round 3');
-  });
 });
 
 describe('See all: category chips (design note §3.7–3.8)', () => {
@@ -145,6 +133,51 @@ describe('See all: category chips (design note §3.7–3.8)', () => {
     expect(activeMatchChip(chips, [])).toBe('all');
   });
   test('neutral copy', () => {
-    expect(MATCHES_COPY).toEqual({ title: 'Matches in your guide', empty: 'No matches in your guide right now.' });
+    expect(MATCHES_COPY).toEqual({ title: 'Matches', empty: 'No matches in your guide right now.', allSports: 'All sports', more: 'More…' });
+  });
+});
+
+describe('Start dense layout (spec 2026-10-22 §1)', () => {
+  test('rows start just under the safe top; posters are the compact grid size', () => {
+    expect(START_ROW_Y).toBe(LAYOUT.safeY + 26);
+    const g = gridLayout('compact');
+    expect(START_POSTER).toEqual({ w: g.cellW, h: g.cellH });
+  });
+  test('the focused poster: title, year and rating, then its status; other cells say nothing', () => {
+    const tile = { id: 'm1', kind: 'movie', title: 'Synthetic Film 001', categoryId: 'c', year: 2001, rating: 5.7, watched: false, favourite: false, progress: 0.4 } as const;
+    expect(focusLabel({ type: 'vod', tile })).toBe('Synthetic Film 001 · 2001 · ★ 5.7 · 40% watched');
+    expect(focusLabel({ type: 'viewAll', target: 'sports', total: 3 })).toBe('');
+    expect(focusLabel(undefined)).toBe('');
+  });
+  test('labelWidth grows with the title', () => {
+    expect(labelWidth('Continue watching')).toBeGreaterThan(labelWidth('On now'));
+    expect(labelWidth('')).toBe(0);
+  });
+});
+
+describe('View all chips (spec 2026-10-22 §3.2–3.3)', () => {
+  const prefs = { followedTeams: [], pinnedCompetitions: ['test cup'], hiddenCompetitions: [] };
+  test('competition chips: All <sport>, the guide texts (★ when pinned), then More… when there are more', () => {
+    const a = competitionChipActions('Football', [{ id: 'test cup', label: 'Test Cup', pinned: true }, { id: 'northern cup', label: 'Northern Cup' }], true);
+    expect(a.map((c) => [c.id, c.label])).toEqual([
+      [COMP_ALL, 'All Football'], [compChipId('test cup'), '★ Test Cup'], [compChipId('northern cup'), 'Northern Cup'], [COMP_MORE, 'More…'],
+    ]);
+    expect(competitionChipActions('Football', [], false)).toEqual([]);
+  });
+  test('chip ids round-trip; All and More are not competitions (even one named "more")', () => {
+    expect(compKeyOf(compChipId('more'))).toBe('more');
+    expect(compKeyOf(COMP_MORE)).toBeUndefined();
+    expect(compKeyOf(COMP_ALL)).toBeUndefined();
+  });
+  test('competition menu: put first or not, hide, cancel; the patch matches the match menu', () => {
+    expect(competitionMenuItems('Test Cup', 'test cup', prefs).map((i) => i.label)).toEqual(["Don't put Test Cup first", 'Hide Test Cup', 'Cancel']);
+    expect(competitionMenuItems('Northern Cup', 'northern cup', prefs)[0]!.label).toBe('Put Northern Cup first');
+    expect(competitionPatch('pin', 'northern cup', prefs)).toEqual({ pinnedCompetitions: ['test cup', 'northern cup'] });
+    expect(competitionPatch('pin', 'test cup', prefs)).toEqual({ pinnedCompetitions: [] });
+    expect(competitionPatch('hide', 'test cup', prefs)).toEqual({ hiddenCompetitions: ['test cup'], pinnedCompetitions: [] });
+  });
+  test('summary', () => {
+    expect(matchesSummary('Football', 23)).toBe('Football · 23 matches');
+    expect(matchesSummary('All sports', 1)).toBe('All sports · 1 match');
   });
 });

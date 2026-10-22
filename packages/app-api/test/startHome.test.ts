@@ -31,7 +31,7 @@ describe('assembleStartHome: row order', () => {
       topMovies: { items: many(300, 6), total: 6 }, topSeries: { items: many(400, 6, 'series'), total: 6 },
     }, NOW);
     expect(h.rows.map((r) => [r.id, r.title])).toEqual([
-      ['sports', 'Matches in your guide'], ['continue', 'Continue watching'], ['live', 'On now on your channels'],
+      ['sports', 'Matches'], ['continue', 'Continue watching'], ['live', 'On now'],
       ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'],
       ['newLibrary', 'New in your library'], ['topMovies', 'Top rated movies'], ['topSeries', 'Top rated series'],
     ]);
@@ -58,15 +58,22 @@ describe('assembleStartHome: row order', () => {
 
   test('matches: the row is the focus set; View all counts every match in See all', () => {
     const h = assembleStartHome({ ...base, sports: [ev(1), ev(2), ev(3), ev(4)], sportsTotal: 9 }, NOW);
-    expect(h.rows[0]!.title).toBe('Matches in your guide');
+    expect(h.rows[0]!.title).toBe('Matches');
     expect(h.rows[0]!.cells).toHaveLength(5);
     expect(h.rows[0]!.cells[4]).toEqual({ type: 'viewAll', target: 'sports', total: 9 });
     expect(assembleStartHome({ ...base, sports: [ev(1)], sportsTotal: 1 }, NOW).rows[0]!.cells).toHaveLength(1);
   });
 
+  test('no big match but smaller ones in See all: the Matches row is only its View all cell, after the other rows', () => {
+    const h = assembleStartHome({ ...base, favourites: [chan(1)], sports: [], sportsTotal: 7 }, NOW);
+    const r = h.rows.find((x) => x.id === 'sports')!;
+    expect(r.cells).toEqual([{ type: 'viewAll', target: 'sports', total: 7 }]);
+    expect(h.rows[0]!.id).not.toBe('sports');
+  });
+
   test('a category filter on: View all always shows (the way back to the chips), the row stays at 0 matches, the title says so', () => {
     const few = assembleStartHome({ ...base, sports: [ev(1), ev(2)], sportsTotal: 2, sportsFiltered: true }, NOW);
-    expect(few.rows[0]!.title).toBe('Matches in your guide (filtered)');
+    expect(few.rows[0]!.title).toBe('Matches (filtered)');
     expect(few.rows[0]!.cells).toHaveLength(3);
     expect(few.rows[0]!.cells[2]).toEqual({ type: 'viewAll', target: 'sports', total: 2 });
     const none = assembleStartHome({ ...base, sports: [], sportsTotal: 0, sportsFiltered: true }, NOW);

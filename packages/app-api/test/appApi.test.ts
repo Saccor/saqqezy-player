@@ -2742,11 +2742,11 @@ describe('AppApi – sports in your guide', () => {
     expect(titles).toContain('Player One v Player Two');
     const home = await api.getStartHome();
     const row = home.rows.find((r) => r.id === 'sports')!;
-    expect(row.title).toBe('Matches in your guide');
+    expect(row.title).toBe('Matches');
     const rowTitles = row.cells.flatMap((c) => (c.type === 'event' ? [c.event.title] : []));
-    // The fake guide has no country prefixes (single-country): the size cut-off is relaxed, so the one-channel match
-    // is in the row, after the broader ones. Sport with no sides is never in the row.
-    expect(rowTitles.indexOf('Player One v Player Two')).toBeGreaterThan(rowTitles.findIndex((t) => t.includes('Northbridge')));
+    // The fake guide has no country prefixes (unknown scope): the 25 % cut-off applies and the row is never padded, so the
+    // one-channel match stays in See all only. Sport with no sides is never in the row.
+    expect(rowTitles).not.toContain('Player One v Player Two');
     expect(rowTitles).not.toContain('Lakeside Open, Round 3');
     expect(row.cells.at(-1)).toEqual({ type: 'viewAll', target: 'sports', total: all.length });
   });
@@ -2790,6 +2790,21 @@ describe('AppApi – sports in your guide', () => {
     expect((await api.getSportsEvents()).every((e) => e.title.includes('Marlow'))).toBe(true);
   });
 
+  test("getMatchCompetitions: one category's competitions, pinned first and marked, hidden ones left out", async () => {
+    const { api } = make();
+    await api.addSource({ kind: 'xtream', name: 'Fake', server: sportsServer.url, username: 'test', password: 'test' });
+    await api.idle();
+    await api.saveSettings({ pinnedCompetitions: ['northern cup'] });
+    const cats = (await api.getMatchFilters()).categories;
+    const per = await Promise.all(cats.map(async (c) => ({ c, r: await api.getMatchCompetitions(c.id) })));
+    const withCup = per.find((p) => p.r.chips.some((x) => x.id === 'northern cup'));
+    expect(withCup).toBeDefined();
+    expect(withCup!.r.chips[0]).toEqual({ id: 'northern cup', label: 'Northern Cup', pinned: true });
+    await api.saveSettings({ pinnedCompetitions: [], hiddenCompetitions: ['northern cup'] });
+    expect((await api.getMatchCompetitions(withCup!.c.id)).chips.map((x) => x.id)).not.toContain('northern cup');
+    expect(await api.getMatchCompetitions('no such category')).toEqual({ chips: [], more: [] });
+  });
+
   test('getStartHome: live now and sports rows; the cached call answers the last value; no stream URLs are kept', async () => {
     const st = new MemoryStorage();
     const { api } = make(st);
@@ -2813,7 +2828,7 @@ describe('AppApi – sports in your guide', () => {
     await api.markWatched(c!, 'all');
     await api.idle();
     const live = (await api.getStartHome()).rows.find((r) => r.id === 'live')!;
-    expect(live.title).toBe('On now on your channels');
+    expect(live.title).toBe('On now');
     expect(live.cells.map((x) => (x.type === 'channel' ? [x.channel.id, x.last ?? false] : []))).toEqual([
       [c, true], [a, false], [b, false],
     ]);

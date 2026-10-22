@@ -4,9 +4,9 @@
  * rank with `rankMatches`; v1 records keep the old rules until the next guide refresh.
  */
 import {
-  MATCHES_ALL_CAP, MATCHES_ROW_CAP, MATCH_FLAGS, SPORTS_INDEX_VERSION, categoryKey, competitionKey, groupEvents, isFollowed,
+  MATCHES_ALL_CAP, MATCHES_ROW_CAP, MATCH_FLAGS, SPORTS_INDEX_VERSION, categoryKey, competitionKey, competitionChips, groupEvents, isFollowed,
   isSportCategory, matchFilters, parseChannelName, rankMatches, reairKeys,
-  type ChannelIndex, type CountryScope, type GroupInput, type MatchEvent, type MatchFilters, type SportsCandidate, type SportsGroup, type SportsIndexRecord, type Storage,
+  type ChannelIndex, type CountryScope, type GroupInput, type MatchChip, type MatchEvent, type MatchFilters, type SportsCandidate, type SportsGroup, type SportsIndexRecord, type Storage,
 } from '@iptv/core';
 import type { SportsEventTile } from './types.ts';
 
@@ -123,6 +123,12 @@ export class SportsController {
   /** Competition and category chips from the user's guide (empty for a v1 record). */
   filters(view: SportsView): MatchFilters { return viewFilters(view); }
 
+  /** View all's competition chips for one guide category (spec 2026-10-22 §3.2). v1 records have none. */
+  competitions(view: SportsView, category: string, pinned: readonly string[], hidden: readonly string[], only?: ReadonlySet<string>): { chips: MatchChip[]; more: MatchChip[] } {
+    if (!view.v2) return { chips: [], more: [] };
+    return competitionChips(chipEvents(view, only), category, { pinned, hidden });
+  }
+
   private buildV1(rec: SportsIndexRecord, index: ChannelIndex, offsetHours: number, aliases: ReadonlyMap<string, string>, now: number) {
     const items: GroupInput<EventAiring>[] = [];
     for (const cand of rec.candidates) {
@@ -230,15 +236,21 @@ export class SportsController {
   }
 }
 
-function viewFilters(view: SportsView): MatchFilters {
-  if (!view.v2) return { competitions: [], categories: [] };
+/** The non-re-air events of a v2 view with what the chips need. */
+function chipEvents(view: SportsView, only?: ReadonlySet<string>): { comp?: string; breadth: number; cats: readonly string[] }[] {
   const list: { comp?: string; breadth: number; cats: readonly string[] }[] = [];
   for (const e of view.events) {
+    if (only && !only.has(e.key)) continue;
     const m = view.meta.get(e.key);
     if (!m || m.reair) continue;
     list.push(m.comp === undefined ? { breadth: m.breadth, cats: m.cats } : { comp: m.comp, breadth: m.breadth, cats: m.cats });
   }
-  return matchFilters(list, view.labels);
+  return list;
+}
+
+function viewFilters(view: SportsView): MatchFilters {
+  if (!view.v2) return { competitions: [], categories: [] };
+  return matchFilters(chipEvents(view), view.labels);
 }
 
 /**

@@ -6,17 +6,15 @@ import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
 import { createChoiceMenu } from '../components/choiceMenu.tsx';
-import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
-import { InfoStrip, STRIP_TEXT_H, STRIP_Y } from '../components/InfoStrip.tsx';
 import { COMPACT_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
-import { dwellSignal } from '../shell/dwell.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
+import { dwellSignal } from '../shell/dwell.ts';
 import { goRail } from '../shell/railNav.ts';
 import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -25,24 +23,20 @@ import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
-import { nowNextLine } from './homeLogic.ts';
-import { Backdrop } from '../vod/Backdrop.tsx';
-import { metaLine } from '../vod/posterLogic.ts';
-import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, eventMeta, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow,
+  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow,
+  START_POSTER, START_POSTER_VISIBLE, START_ROW_Y, START_WIDE_VISIBLE, focusLabel, labelWidth,
   type StartFocus, type StartMemory,
 } from './startLogic.ts';
 
 /**
- * Layout (1080p design space, spec §2.2): the info strip at the top, rows at x 160 from just under the strip's title
- * and meta (Start shows no plot): y 184. Match and channel rows use the compact tile, so four rows show at once.
+ * Layout (1080p design space, spec 2026-10-22 §1.1): no info strip; rows at x 160 from y 80. Match and channel rows use
+ * the 360×112 compact tile and posters are 144×216, so four full rows show at once.
  */
 const ROW_X = LAYOUT.contentX;
-const STRIP_ROW_GAP = 34;
-const ROW_Y = STRIP_Y + STRIP_TEXT_H + STRIP_ROW_GAP;
+const ROW_Y = START_ROW_Y;
 const LABEL_H = 42;
 const ROW_GAP = 28;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
@@ -51,11 +45,11 @@ const ROW_PEEK = LABEL_H + 20;
 const CLIP_Y = ROW_Y - 8;
 const REVALIDATE_MS = 30_000;
 
-const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? POSTER_H : COMPACT_H);
+const rowHeight = (r: StartRow) => LABEL_H + (rowKind(r) === 'poster' ? START_POSTER.h : COMPACT_H);
 /** Per source: focus by identity and the last column per row (kept across visits, like VodBrowse). */
 const memories = new Map<string, { focus: StartMemory; cols: Map<string, number> }>();
 
-/** Start: the rail, an info strip for the focused cell, and rows built from the user's own data (spec §2). */
+/** Start: the rail and rows built from the user's own data (spec 2026-10-19 §2, dense layout 2026-10-22). */
 export function StartScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { focus?: 'rail' };
   const startOnRail = params.focus === 'rail';
@@ -78,6 +72,14 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
+  /** The focused cell's label follows focus once it rests: holding a key does not rebuild a Text per step. */
+  const label = dwellSignal(() => `${focus().row}|${focusLabel(focusedCell())}`);
+  /** The dwelled label's text if it belongs to row `i` (a stale one from the previous row is not shown). */
+  const labelFor = (i: number): string => {
+    const v = label();
+    const k = v.indexOf('|');
+    return Number(v.slice(0, k)) === i ? v.slice(k + 1) : '';
+  };
   const remember = () => {
     const f = focus();
     const r = rows()[f.row];
@@ -187,7 +189,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
     if (key === 'left' && focus().col === 0) return focusArea('rail');
     const r = moveStart(rows(), focus(), key, memory.cols);
-    if ('edge' in r) return true; // Up from the top row: nothing above (the strip is not focusable)
+    if ('edge' in r) return true; // Up from the top row: nothing above it
     setFocus(r.focus);
     remember();
     return true;
@@ -221,26 +223,13 @@ export function StartScreen(props: { entry: ScreenEntry }) {
       onEvent('sourcesChanged', () => { memory.focus = { row: 0, col: 0 }; memory.cols.clear(); void load(); }),
     ];
     // Stale-while-revalidate: re-read the rows every 30 s while the page is visible (and once when it becomes visible
-    // again), so Live now and Sports move on with the guide; the strip's times follow `now`.
+    // again), so Live now and Sports move on with the guide; the tiles' times follow `now`.
     const stopTick = visibleInterval(() => { setNow(Date.now()); void load(); }, REVALIDATE_MS);
     onCleanup(() => { for (const off of offs) off(); stopTick(); });
     queueMicrotask(() => focusArea(startOnRail ? 'rail' : 'rows', false));
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
 
-  /** What the strip says about the focused cell. */
-  const stripOf = (): { title: string; meta: string; art?: string } => {
-    const c = focusedCell();
-    if (!c) return { title: '', meta: '' };
-    if (c.type === 'vod') {
-      const t = c.tile;
-      return { title: t.title, meta: joinMeta(metaLine({ year: t.year, rating: t.rating }), tileStatus(t)), art: t.poster };
-    }
-    if (c.type === 'channel') return { title: c.channel.now?.title ?? c.channel.name, meta: joinMeta(c.channel.name, nowNextLine(c.channel)) };
-    if (c.type === 'event') return { title: c.event.title, meta: eventMeta(c.event, now()) };
-    return { title: rows()[focus().row]?.title ?? '', meta: '' };
-  };
-  const strip = dwellSignal(stripOf);
   /**
    * The focused row on top and the rows after it below, down to a peek of the next one's title and tiles; in pointer
    * mode only rows that fit above the shell's bottom button row.
@@ -257,21 +246,19 @@ export function StartScreen(props: { entry: ScreenEntry }) {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}
       onYellow={() => { router.push('search'); return true; }} onBlue={() => { router.push('settings'); return true; }}>
-      <Backdrop url={strip().art} area="strip" />
       <Rail ref={(el) => { railNode = el; }} active="start" onSelect={goTab} onRight={() => focusArea('rows')}
         onFocusChanged={(f) => { if (f) setArea('rail'); }} />
       <Show when={home() !== undefined && rows().length === 0}>
-        <Text x={ROW_X} y={STRIP_Y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
+        <Text x={ROW_X} y={LAYOUT.safeY} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
           fontSize={TYPE.title} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
       <Show when={rows().length > 0}>
-        <InfoStrip title={strip().title} meta={strip().meta} />
         <View ref={(el) => { rowsNode = el; }} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
           onFocusChanged={(f: boolean) => { if (f) { setArea('rows'); preferredArea = 'rows'; } }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
           onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
           <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
-          {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped under the strip). */}
+          {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped above the focused row). */}
           <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
             <View ref={column.ref} width={LAYOUT.width} height={column.height()}>
               <For each={column.rows()}>{(i) => {
@@ -281,11 +268,19 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
+                    <Show when={lit() ? labelFor(i) : ''} keyed>
+                      {(t) => {
+                        const x = ROW_X + labelWidth(r().title) + 24;
+                        const w = LAYOUT.width - LAYOUT.safeX - x;
+                        return <Text x={x} y={2} width={w} maxWidth={w} contain="width" maxLines={1}
+                          fontSize={TYPE.meta} color={COLORS.muted}>{t}</Text>;
+                      }}
+                    </Show>
                     <Show when={rowKind(r()) === 'poster'} fallback={
-                      <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact
+                      <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact visible={START_WIDE_VISIBLE}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     }>
-                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} focusCol={focusCol()} lit={lit()}
+                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={toPosterRow(r())} w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     </Show>
                   </View>
