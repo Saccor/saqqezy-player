@@ -1,5 +1,5 @@
 /** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
-import type { SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
+import type { MatchFilterChip, SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
 import { HIDDEN_COMPETITIONS_MAX, PINNED_COMPETITIONS_MAX, competitionKey, type AppSettings } from '@iptv/core';
 import { CATCHUP_COPY, favToggleLabel } from '../copy.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
@@ -130,12 +130,7 @@ export function eventMenuPatch(choice: string, e: SportsEventTile, st: MatchPref
     return { followedTeams: on ? st.followedTeams.filter((f) => !sameTeam(f, side)) : [...st.followedTeams, side] };
   }
   if (!e.competition || (choice !== 'pin' && choice !== 'hide')) return undefined;
-  const key = competitionKey(e.competition);
-  const pinned = st.pinnedCompetitions.filter((k) => k !== key);
-  if (choice === 'pin') {
-    return { pinnedCompetitions: pinned.length === st.pinnedCompetitions.length ? [...pinned, key].slice(-PINNED_COMPETITIONS_MAX) : pinned };
-  }
-  return { hiddenCompetitions: [...st.hiddenCompetitions.filter((k) => k !== key), key].slice(-HIDDEN_COMPETITIONS_MAX), pinnedCompetitions: pinned };
+  return competitionPatch(choice, competitionKey(e.competition), st);
 }
 
 export function toPosterRow(r: StartRow): RowModel {
@@ -144,23 +139,14 @@ export function toPosterRow(r: StartRow): RowModel {
   return { id: r.id, title: r.title, total: all?.type === 'viewAll' ? all.total : items.length, items, loaded: true };
 }
 
-/** A grid of `count` cells in rows of `cols`: the index after a key, or 'top' above the first row. */
-export function gridMove(count: number, cols: number, index: number, key: 'up' | 'down' | 'left' | 'right'): number | 'top' {
-  const col = index % cols;
-  if (key === 'left') return col === 0 ? index : index - 1;
-  if (key === 'right') return col === cols - 1 || index === count - 1 ? index : index + 1;
-  if (key === 'up') return index < cols ? 'top' : index - cols;
-  const below = index + cols;
-  if (below < count) return below;
-  const lastRowStart = Math.floor((count - 1) / cols) * cols;
-  return index >= lastRowStart ? index : count - 1;
-}
-
 /** Start's rows use the shared row slots (`components/rowSlots.ts`); the old names stay for Start's imports. */
 export { rowSlots as startRowSlots, type RowFrame as StartRowFrame } from '../components/rowSlots.ts';
 
-/** Matches in your guide copy (design note §3.8): neutral, never sport or league words of our own. */
-export const MATCHES_COPY = { title: 'Matches in your guide', empty: 'No matches in your guide right now.' } as const;
+/** Matches copy (design note §3.8, spec 2026-10-22): neutral, never sport or league words of our own. */
+export const MATCHES_COPY = { title: 'Matches', empty: 'No matches in your guide right now.', allSports: 'All sports', more: 'More…' } as const;
+
+/** View all's summary after the title: the chosen sport or competition (guide text) and the count. */
+export const matchesSummary = (label: string, n: number) => `${label} · ${n === 1 ? '1 match' : `${n} matches`}`;
 
 const CHIP_MIN_W = 120;
 /** A long guide text is cut (one line) rather than pushing the other chips off the screen. */
@@ -171,14 +157,9 @@ const CHIP_GLYPH = 17;
 /** ActionBar's gap between buttons. */
 const CHIP_GAP = 16;
 
-/**
- * See all's category chips: All, then the user's own guide category texts. None when the guide has no categories.
- * Each chip is at most CHIP_MAX_W; when the bar would pass `maxTotal`, the widest chips shrink to a shared cap.
- */
-export function matchChipActions(categories: readonly { id: string; label: string }[], maxTotal = Infinity): { id: string; label: string; width: number }[] {
-  if (!categories.length) return [];
-  const chip = (id: string, label: string) => ({ id, label, width: Math.min(CHIP_MAX_W, Math.max(CHIP_MIN_W, CHIP_PAD + label.length * CHIP_GLYPH)) });
-  const out = [chip('all', 'All'), ...categories.map((c) => chip(c.id, c.label))];
+/** Chip widths: each fits its label (at most CHIP_MAX_W); when the bar would pass `maxTotal`, the widest share a cap. */
+function sizeChips(list: readonly { id: string; label: string }[], maxTotal: number): { id: string; label: string; width: number }[] {
+  const out = list.map((c) => ({ id: c.id, label: c.label, width: Math.min(CHIP_MAX_W, Math.max(CHIP_MIN_W, CHIP_PAD + c.label.length * CHIP_GLYPH)) }));
   let budget = maxTotal - CHIP_GAP * (out.length - 1);
   if (out.reduce((s, c) => s + c.width, 0) <= budget) return out;
   // Water-fill: the narrow chips keep their width, the rest share what is left.
@@ -191,6 +172,48 @@ export function matchChipActions(categories: readonly { id: string; label: strin
     left--;
   }
   return out;
+}
+
+/** See all's category chips: All, then the user's own guide category texts. None when the guide has no categories. */
+export function matchChipActions(categories: readonly { id: string; label: string }[], maxTotal = Infinity): { id: string; label: string; width: number }[] {
+  if (!categories.length) return [];
+  return sizeChips([{ id: 'all', label: 'All' }, ...categories], maxTotal);
+}
+
+export const COMP_ALL = 'all';
+export const COMP_MORE = 'more';
+const COMP_PREFIX = 'c:';
+/** A competition chip's id: prefixed, so a guide text such as "more" never collides with All or More…. */
+export const compChipId = (key: string) => `${COMP_PREFIX}${key}`;
+export const compKeyOf = (id: string): string | undefined => (id.startsWith(COMP_PREFIX) ? id.slice(COMP_PREFIX.length) : undefined);
+
+/** View all's second chip row: All <sport>, the sport's competitions (guide text, ★ when pinned), then More…. */
+export function competitionChipActions(sportLabel: string, chips: readonly MatchFilterChip[], hasMore: boolean, maxTotal = Infinity): { id: string; label: string; width: number }[] {
+  if (!chips.length) return [];
+  return sizeChips([
+    { id: COMP_ALL, label: `All ${sportLabel}` },
+    ...chips.map((c) => ({ id: compChipId(c.id), label: c.pinned ? `★ ${c.label}` : c.label })),
+    ...(hasMore ? [{ id: COMP_MORE, label: MATCHES_COPY.more }] : []),
+  ], maxTotal);
+}
+
+/** Long Ok / Menu on a competition chip: the match menu's competition choices. */
+export function competitionMenuItems(label: string, key: string, st: MatchPrefs): { id: 'pin' | 'hide' | 'cancel'; label: string }[] {
+  const pinned = st.pinnedCompetitions.includes(key);
+  return [
+    { id: 'pin', label: pinned ? `Don't put ${label} first` : `Put ${label} first` },
+    { id: 'hide', label: `Hide ${label}` },
+    { id: 'cancel', label: 'Cancel' },
+  ];
+}
+
+/** The settings change of putting a competition first (or not) or hiding it. New keys go last; the oldest drop at the cap. */
+export function competitionPatch(choice: 'pin' | 'hide', key: string, st: MatchPrefs): Partial<MatchPrefs> {
+  const pinned = st.pinnedCompetitions.filter((k) => k !== key);
+  if (choice === 'pin') {
+    return { pinnedCompetitions: pinned.length === st.pinnedCompetitions.length ? [...pinned, key].slice(-PINNED_COMPETITIONS_MAX) : pinned };
+  }
+  return { hiddenCompetitions: [...st.hiddenCompetitions.filter((k) => k !== key), key].slice(-HIDDEN_COMPETITIONS_MAX), pinnedCompetitions: pinned };
 }
 
 /** The chip in effect: the first stored category the guide still offers, else All (a stale one does not filter). */
