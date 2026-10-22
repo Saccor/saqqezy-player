@@ -21,7 +21,7 @@ import { createPlaybackPool, type PlaybackPool } from './pool.ts';
 import { createPrimaryFacade } from './primary.ts';
 import { createConnectionMemory } from './connectionMemory.ts';
 import { createDeviceWindows, type DeviceRefusal } from './deviceWindows.ts';
-import { createDisplacementDetector } from './displacement.ts';
+import { applyCutResponse, createDisplacementDetector } from './displacement.ts';
 import { classifyRefusal, createRefusalScope, type RefusalFacts, type RefusalScope } from './refusalScope.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { slotRole, type SlotRole } from './slotRole.ts';
@@ -355,9 +355,9 @@ export const otherSlots = (): PlaybackSlot[] => {
  * with the reason, the cut one gets its one normal reconnect, and the count is learned. Two windows that keep cutting
  * each other: the newer one stops. Only while multiview is open; never retried by itself.
  */
-// 20 s, not the spec's 8 s: an HLS player notices a cut only at its next playlist reload (up to one segment, often
-// 10 s) plus its own retries; the fake panel's kick mode measured 4 s and 10+ s.
-const displacement = createDisplacementDetector({ windowMs: 20_000 });
+// Its 30 s window counts from the other window's first picture: AVPlay shows a cut only once its buffer runs dry plus
+// its 8 s no-progress limit; an HLS player at its next playlist reload. The fake panel's kick mode measured 4 s and 10+ s.
+const displacement = createDisplacementDetector();
 /** Windows the source just cut: their refusal that follows is the cut, kept on the window. */
 const displacedSlots = new Set<number>();
 ledger.onEvent((e) => {
@@ -377,13 +377,16 @@ ledger.onEvent((e) => {
   }
   // Not inside the supervisor's own failure handling: one macrotask later. The newest window closes first; the window
   // the source cut then gets its one normal reconnect (a window stops on a refusal, so the app opens it once more).
-  setTimeout(() => {
-    pool.slots().find((s) => s.n === stopSlot)?.playback.stop();
-    if (v.k !== 'displaced') return;
-    const victim = pool.slots().find((s) => s.n === v.victim);
-    const cur = victim?.playback.current();
-    if (victim && cur) victim.playback.playChannel(cur, { countOpen: true });
-  }, 0);
+  // Left multiview meanwhile: nothing (the single view's stream is never stopped by a late verdict).
+  setTimeout(() => applyCutResponse(v, {
+    multiviewOpen,
+    stop: (n) => pool.slots().find((s) => s.n === n)?.playback.stop(),
+    reconnect: (n) => {
+      const victim = pool.slots().find((s) => s.n === n);
+      const cur = victim?.playback.current();
+      if (victim && cur) victim.playback.playChannel(cur, { countOpen: true });
+    },
+  }), 0);
 });
 
 /** The slot with sound, read reactively (Solid tracks `primaryIndex`). */

@@ -186,3 +186,23 @@ export function layoutInput(s: MvState, windowLimit: number): LayoutInput {
   if (s.large !== undefined) i.large = s.large;
   return i;
 }
+
+/** "Most windows playing at once" counts a window only after this much play without a break (G9 decision C). */
+export const STEADY_PLAY_MS = 10_000;
+
+/**
+ * When each slot's current run of play began: kept while it plays, set at `now` when it starts, dropped on any break
+ * (buffering, a failure, a stop) or when the slot is gone.
+ */
+export function playingSince(prev: ReadonlyMap<number, number>, slots: ReadonlyArray<{ n: number; playing: boolean }>, now: number): Map<number, number> {
+  const next = new Map<number, number>();
+  for (const s of slots) if (s.playing) next.set(s.n, prev.get(s.n) ?? now);
+  return next;
+}
+
+/** The windows that have played steadily for `STEADY_PLAY_MS` at `now`. */
+export function steadyPlaying(since: ReadonlyMap<number, number>, now: number): number {
+  let n = 0;
+  for (const at of since.values()) if (now - at >= STEADY_PLAY_MS) n++;
+  return n;
+}

@@ -1,11 +1,13 @@
 import type { LedgerEvent } from '@iptv/player';
 
 /**
- * Sources that cut the oldest stream instead of refusing the newest (spec 2026-10-20-multiview §5.5). Fed with the
- * connection ledger's events; pure. A window that played steadily (10 s or more) and drops within 8 s of another
- * window opening on the same source and host was displaced: the app then stops the newest window, so the two never
- * knock each other out in turn. Two windows that keep failing alternately (3 drops in 60 s) are a ping-pong: the one
- * that began last stops. A label (the window's slot) belongs to its latest stream: events of an older stream under the
+ * Sources that cut the oldest stream instead of refusing the newest (spec 2026-10-20-multiview §5.5, G9 decision C).
+ * Fed with the connection ledger's events; pure. A window that played steadily (10 s or more) and drops within 30 s of
+ * another window's first picture on the same source and host (or of its open, while it has none yet) was displaced:
+ * the app then stops the newest window, so the two never knock each other out in turn. 30 s from the first picture:
+ * AVPlay shows a cut only once its buffer runs dry plus its 8 s no-progress limit, and an HLS player only at its next
+ * playlist reload. Two windows that keep failing alternately (3 drops in 120 s) are a ping-pong: the one that began
+ * last stops. A label (the window's slot) belongs to its latest stream: events of an older stream under the
  * same label are ignored, since the windows they would name cannot be told apart.
  */
 export type DisplacementVerdict =
@@ -20,12 +22,13 @@ export interface DisplacementOptions {
   pingPongDrops?: number;
 }
 
-interface Begin { tile: number; at: number; concurrentBefore: number }
+/** `pictureAt`: the stream's first picture. */
+interface Begin { tile: number; session: number; at: number; concurrentBefore: number; pictureAt?: number }
 
 export function createDisplacementDetector(opts: DisplacementOptions = {}): { feed(e: LedgerEvent): DisplacementVerdict | undefined } {
   const steadyMs = opts.steadyMs ?? 10_000;
-  const windowMs = opts.windowMs ?? 8_000;
-  const pingPongMs = opts.pingPongMs ?? 60_000;
+  const windowMs = opts.windowMs ?? 30_000;
+  const pingPongMs = opts.pingPongMs ?? 120_000;
   const pingPongDrops = opts.pingPongDrops ?? 3;
   const begins = new Map<string, Begin[]>();
   const active = new Map<string, Set<number>>();
@@ -49,10 +52,15 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
         owner.set(e.tile, e.session);
         open.delete(e.tile);
         const b = list(begins, where);
-        b.push({ tile: e.tile, at: e.at, concurrentBefore: open.size });
+        b.push({ tile: e.tile, session: e.session, at: e.at, concurrentBefore: open.size });
         // Only the recent ones matter.
         while (b.length > 16) b.shift();
         open.add(e.tile);
+        return undefined;
+      }
+      if (e.k === 'playing') {
+        const b = begins.get(where)?.find((x) => x.tile === e.tile && x.session === e.session);
+        if (b) b.pictureAt ??= e.at;
         return undefined;
       }
       if (e.k !== 'dropped') return undefined;
@@ -60,10 +68,12 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
       if (owner.has(e.tile) && owner.get(e.tile) !== e.session) return undefined;
       open.delete(e.tile);
       if (e.playedMs >= steadyMs) {
+        // Measured from the other window's first picture, or from its open while it has none yet.
+        const from = (b: Begin) => (b.pictureAt !== undefined && b.pictureAt <= e.at ? b.pictureAt : b.at);
         const by = [...(begins.get(where) ?? [])].reverse()
-          .find((b) => b.tile !== e.tile && e.at - b.at >= 0 && e.at - b.at < windowMs);
+          .find((b) => b.tile !== e.tile && e.at - from(b) >= 0 && e.at - from(b) < windowMs);
         if (by) {
-          return { k: 'displaced', key: e.key, host: e.host, victim: e.tile, byTile: by.tile, afterMs: e.at - by.at, concurrentBefore: by.concurrentBefore };
+          return { k: 'displaced', key: e.key, host: e.host, victim: e.tile, byTile: by.tile, afterMs: e.at - from(by), concurrentBefore: by.concurrentBefore };
         }
       }
       const d = list(drops, where);
@@ -87,4 +97,21 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
       return undefined;
     },
   };
+}
+
+/** What the response needs from the app: whether multiview is open, and the windows' stop and one reconnect. */
+export interface CutResponseDeps {
+  multiviewOpen(): boolean;
+  stop(slot: number): void;
+  reconnect(slot: number): void;
+}
+
+/**
+ * The response to a verdict, run one macrotask after it: the newest window stops; a window the source cut then gets
+ * its one normal reconnect. Nothing once multiview has closed: a late verdict never stops the single view's stream.
+ */
+export function applyCutResponse(v: DisplacementVerdict, d: CutResponseDeps): void {
+  if (!d.multiviewOpen()) return;
+  d.stop(v.k === 'displaced' ? v.byTile : v.stop);
+  if (v.k === 'displaced') d.reconnect(v.victim);
 }

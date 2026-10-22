@@ -18,7 +18,8 @@ import { layout, type Rect, type TileGeometry } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
 import {
   CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle,
-  layoutInput, makeLarge, menuItems, moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MenuId, type MvState,
+  layoutInput, makeLarge, menuItems, moveFocus, playingSince, pointerFocus, soundToPlaying, start, steadyPlaying, togglePin, wake,
+  type MenuId, type MvState,
   type MvWindow,
 } from './mvLogic.ts';
 import { createMultiviewSession } from './session.ts';
@@ -288,9 +289,14 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     otherSlots();
     return pool.slots();
   };
-  // The most windows playing at once on this source (Diagnostics -> Connections).
+  // The most windows playing at once on this source (Diagnostics -> Connections): a window counts after 10 s of
+  // steady play, so one the source is about to cut (a cut can take over 10 s to show) is not counted.
+  let since = new Map<number, number>();
   createEffect(() => {
-    const playing = slotsNow().filter((s) => s.playback.status()?.kind === 'playing').length;
+    now(); // re-checked every second
+    const t = Date.now();
+    since = playingSince(since, slotsNow().map((s) => ({ n: s.n, playing: s.playback.status()?.kind === 'playing' })), t);
+    const playing = steadyPlaying(since, t);
     const source = initState()?.activeSourceId;
     if (source && playing > 0) connectionMemory.seen(source, playing);
   });

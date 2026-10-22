@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { layout } from './layout.ts';
 import {
   addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
-  moveFocus, pointerFocus, soundToPlaying, start, togglePin, wake, type MvState,
+  moveFocus, playingSince, pointerFocus, soundToPlaying, start, steadyPlaying, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
 const w = (slot: number) => ({ slot, channelId: `c${slot}` });
@@ -190,5 +190,24 @@ describe('5-6 windows (P2)', () => {
     expect(moveFocus(s, 'right', l).focus).toBe(1);
     expect(moveFocus(s, 'down', l).focus).toBe(3);
     expect(moveFocus({ ...s, focus: 4 }, 'up', l).focus).toBe(1);
+  });
+});
+
+describe('windows playing at once', () => {
+  it('a window counts only after 10 s of steady play: 9 s does not, 10 s does', () => {
+    const since = playingSince(new Map(), [{ n: 0, playing: true }, { n: 1, playing: true }], 0);
+    const later = playingSince(since, [{ n: 0, playing: true }, { n: 1, playing: true }], 9_000);
+    expect(steadyPlaying(later, 9_000)).toBe(0);
+    expect(steadyPlaying(later, 10_000)).toBe(2);
+  });
+
+  it('a break in play starts the count again; a stopped window no longer counts', () => {
+    let since = playingSince(new Map(), [{ n: 0, playing: true }, { n: 1, playing: true }], 0);
+    since = playingSince(since, [{ n: 0, playing: true }, { n: 1, playing: false }], 5_000);
+    since = playingSince(since, [{ n: 0, playing: true }, { n: 1, playing: true }], 6_000);
+    expect(steadyPlaying(since, 15_000)).toBe(1);
+    expect(steadyPlaying(since, 16_000)).toBe(2);
+    since = playingSince(since, [{ n: 0, playing: true }], 17_000);
+    expect(steadyPlaying(since, 17_000)).toBe(1);
   });
 });
