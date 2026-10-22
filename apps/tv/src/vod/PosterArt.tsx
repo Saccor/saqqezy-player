@@ -51,9 +51,12 @@ export function PosterArt(props: {
           zIndex={2} fontSize={TYPE.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
       </Show>
       <Show when={props.label === undefined}>
-        {/* Title card text: only on the card (no poster, or it failed), never on a skeleton. */}
-        <Text alpha={face() === 'card' ? 1 : 0} x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
+        {/* Title card text: only on the card (no poster, or it failed), never on a skeleton. Mounted only then: renderer
+            3.7 still lays out and rasterises a text node at alpha 0 (it checks only the parent's alpha). */}
+        <Show when={face() === 'card'}>
+        <Text x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
           maxLines={props.titleLines ?? 3} zIndex={2} fontSize={props.titleFont ?? TYPE.meta} color={COLORS.text}>{props.title}</Text>
+        </Show>
         <Show when={props.pending ? undefined : shown()} keyed>
           {(u) => {
             posterCache.touch(u);

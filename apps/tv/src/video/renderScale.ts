@@ -23,3 +23,21 @@ export function renderPixelRatios(
   const physical = isTvPlatform(platform) ? Math.min(dpr, 1 / logical) : dpr;
   return { logical, physical };
 }
+
+/** Renderer settings that differ on a TV (research: docs/research/tizen-nav-perf-2026-10-22.md). */
+export interface RendererTuning {
+  /** Off-screen nodes this close to the screen (px) load their textures before they scroll in. */
+  boundsMargin: number;
+  /** Most time (ms) per frame spent uploading textures; the rest wait for the next frame. */
+  textureProcessingTimeLimit: number;
+}
+
+/**
+ * TVs: renderer 3.7 falls back to 42 ms of texture work per frame (its docs say 10), which on a TV CPU and GPU shows as
+ * a hitch right after a key press that brings in new posters: 10 ms spreads the uploads over frames instead. A 200 px
+ * margin starts loading the next tiles (the row buffer) before they scroll in. Desktop and browser keep the renderer's
+ * defaults.
+ */
+export function rendererTuning(platform: string): Partial<RendererTuning> {
+  return isTvPlatform(platform) ? { boundsMargin: 200, textureProcessingTimeLimit: 10 } : {};
+}

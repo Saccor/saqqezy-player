@@ -4,6 +4,8 @@ import type { VodTile } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { stopMotion, tween } from '../shell/motion.ts';
 import { MOTION } from '../shell/theme.ts';
+import { platformId } from '../state/appState.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
 import { ROW_VISIBLE_COLS, cellAt, cellCount, drawnCells, type Cell, type RowModel } from '../vod/browseLogic.ts';
 import { POSTER_GAP, POSTER_H, POSTER_W, PosterTile } from './PosterTile.tsx';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -12,8 +14,12 @@ const PITCH = POSTER_W + POSTER_GAP;
 const tileOf = (c: Cell): VodTile | undefined => (c.kind === 'tile' ? c.tile : undefined);
 /** View all is a text tile; a loading cell is drawn as a skeleton (no tile, no label). */
 const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? 'View all' : undefined);
-/** Tiles kept rendered beyond each edge of the visible ones. */
-const BUFFER = 3;
+/**
+ * Tiles kept rendered beyond each edge of the visible ones. TVs keep 2: a down move mounts a whole row, and each tile
+ * is ~6 nodes, two rounded shaders and an image load; the renderer's 200 px bounds margin (video/renderScale.ts)
+ * preloads the next one before it scrolls in.
+ */
+const BUFFER = isTvPlatform(platformId) ? 2 : 3;
 
 /**
  * One horizontally virtualised poster row (not focusable: the screen owns the keys). The focused column stays in view,

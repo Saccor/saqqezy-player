@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderPixelRatios } from './renderScale.ts';
+import { renderPixelRatios, rendererTuning } from './renderScale.ts';
 
 const win = (innerWidth: number, innerHeight: number, devicePixelRatio: number) => ({ innerWidth, innerHeight, devicePixelRatio });
 /** Canvas buffer width the renderer allocates: appWidth × logical × physical. */
@@ -38,5 +38,17 @@ describe('renderPixelRatios', () => {
 
   test('a missing or zero pixel ratio counts as 1', () => {
     expect(renderPixelRatios('browser', win(1920, 1080, 0))).toEqual({ logical: 1, physical: 1 });
+  });
+});
+
+describe('rendererTuning', () => {
+  test('TVs spread texture uploads over frames and preload a 200 px margin', () => {
+    expect(rendererTuning('tizen')).toEqual({ boundsMargin: 200, textureProcessingTimeLimit: 10 });
+    expect(rendererTuning('webos')).toEqual({ boundsMargin: 200, textureProcessingTimeLimit: 10 });
+  });
+
+  test('desktop and browser keep the renderer defaults', () => {
+    expect(rendererTuning('browser')).toEqual({});
+    expect(rendererTuning('desktop')).toEqual({});
   });
 });

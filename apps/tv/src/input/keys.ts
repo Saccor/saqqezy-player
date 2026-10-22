@@ -2,6 +2,7 @@ import { detectPlatform, keyTableFor, mapKey, type KeyTable, type LogicalKey } f
 import type { KeyMap } from '@lightningtv/solid';
 import { noteNavKeyDown, noteNavKeyUp, noteOkPress } from '../shell/motion.ts';
 import { isNavKey } from '../shell/motionLogic.ts';
+import { createRepeatGate } from './repeatGate.ts';
 
 /** Only the error's name is logged: messages may carry URLs or other data. */
 function errName(err: unknown): string | undefined {
@@ -113,8 +114,11 @@ export function sendKey(key: UiKey): void {
 export function installKeys(
   target: Window = window,
   table: KeyTable = keyTableFor(detectPlatform(navigator.userAgent, target as unknown as { tizen?: unknown; webOS?: unknown; __IPTV_HOST__?: unknown })),
+  /** `repeatGapMs`: held navigation keys move focus at most once per this many ms (0: every repeat; see repeatGate.ts). */
+  opts: { repeatGapMs?: number } = {},
 ): () => void {
   const forwarded = new WeakSet<Event>();
+  const gate = opts.repeatGapMs ? createRepeatGate(opts.repeatGapMs) : undefined;
   /** Keys typed into a field whose keyup must not reach the remote mapping either. */
   const typed = new Set<string>();
   let okTimer: ReturnType<typeof setTimeout> | undefined;
@@ -189,6 +193,8 @@ export function installKeys(
       }, LONG_PRESS_MS);
       return;
     }
+    // Handling time, not `e.timeStamp`: repeats queued behind a slow step keep their spread-out timestamps.
+    if (gate && isNavKey(key) && !gate.down(key, performance.now())) return;
     press(key, e);
   };
 
@@ -213,7 +219,10 @@ export function installKeys(
       okLong = false;
       return;
     }
-    if (isNavKey(key)) noteNavKeyUp();
+    if (isNavKey(key)) {
+      gate?.up(key);
+      noteNavKeyUp();
+    }
     forward('keyup', key, e);
   };
 
@@ -223,6 +232,7 @@ export function installKeys(
     okTimer = undefined;
     okLong = false;
     noteOkPress(false);
+    gate?.up();
     noteNavKeyUp();
   };
 

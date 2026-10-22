@@ -9,11 +9,13 @@ import { api } from './api.ts';
 import { router } from './shell/router.ts';
 import { showToast } from './shell/Toast.tsx';
 import { installKeys, onUserGesture } from './input/keys.ts';
+import { TV_REPEAT_GAP_MS } from './input/repeatGate.ts';
+import { isTvPlatform } from './video/engineConfig.ts';
 import { installPointer } from './input/pointer.ts';
 import { installFormatReport } from './playback/formatReport.ts';
 import { playback, player, supervisor, videoLayer as layer } from './playback/playback.ts';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from './video/videoLayer.ts';
-import { renderPixelRatios } from './video/renderScale.ts';
+import { renderPixelRatios, rendererTuning } from './video/renderScale.ts';
 // Applies the saved volume to the player before anything plays (Home's preview too).
 import './video/volume.ts';
 import { platformId } from './state/appState.ts';
@@ -51,6 +53,8 @@ const { render, renderer } = createRenderer(
       targetThresholdLevel: 0.5,
       cleanupInterval: 5_000,
     },
+    // TVs: texture uploads spread over frames, and the next tiles preload before they scroll in.
+    ...rendererTuning(platformId),
   },
   appRoot,
 );
@@ -79,7 +83,8 @@ installFormatReport({
   inFlight: () => player.currentUrl(),
   report: (id, format) => { void api.notePlayed(id, format).catch(() => undefined); },
 });
-installKeys();
+// TVs: a held key's queued repeats are dropped, so focus stops when the key is released (input/repeatGate.ts).
+installKeys(window, undefined, { repeatGapMs: isTvPlatform(platformId) ? TV_REPEAT_GAP_MS : 0 });
 // Mouse and pointer remotes (desktop, the LG Magic Remote); a no-op on Tizen.
 installPointer({ canvas: (renderer as RendererMain).canvas, platform: platformId });
 render(() => <App />);

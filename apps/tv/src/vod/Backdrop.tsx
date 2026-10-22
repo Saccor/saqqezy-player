@@ -1,6 +1,9 @@
 import { View } from '@lightningtv/solid';
 import { posterCache } from '../components/posterCache.ts';
-import { BACKGROUND_RGB, LAYOUT } from '../shell/theme.ts';
+import { dwellSignal } from '../shell/dwell.ts';
+import { BACKGROUND_RGB, LAYOUT, MOTION } from '../shell/theme.ts';
+import { platformId } from '../state/appState.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
 import { CrossFadeArt } from './CrossFadeArt.tsx';
 import { scrimTexture } from './scrim.ts';
 
@@ -16,10 +19,13 @@ const AREAS = {
  */
 export function Backdrop(props: { url: string | undefined; area: keyof typeof AREAS }) {
   const a = () => AREAS[props.area];
+  // TVs: the strip art follows focus only once it has rested a while longer (MOTION.backdropDwellTv). Details keeps its
+  // art at once.
+  const url = props.area === 'strip' && isTvPlatform(platformId) ? dwellSignal(() => props.url, MOTION.backdropDwellTv) : () => props.url;
   return (
     <>
       <View zIndex={0}>
-        <CrossFadeArt x={a().x} y={0} width={a().w} height={a().h} url={props.url && posterCache.usable(props.url) ? props.url : undefined}
+        <CrossFadeArt x={a().x} y={0} width={a().w} height={a().h} url={url() && posterCache.usable(url()) ? url() : undefined}
           onFailed={(u) => posterCache.markFailed(u)} />
       </View>
       <View zIndex={1} x={a().x} y={0} width={a().w} height={a().h} src={scrimTexture('left', BACKGROUND_RGB)} />
