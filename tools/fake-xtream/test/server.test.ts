@@ -417,3 +417,49 @@ describe('deadLive: a live stream variant that never plays (failover testing)', 
     }
   });
 });
+
+describe('connection limit mode', () => {
+  const sidOf = (location: string | null) => /\/__mv\/(s\d+)\/live\.m3u8$/.exec(location ?? '')?.[1];
+
+  test('refuse: a live open past N answers 403 while the first session is read; reset frees it', async () => {
+    const s = await startFakeXtream({ port: 0, channels: 4, now: () => NOW, connections: { max: 1, mode: 'refuse' } });
+    try {
+      const first = await fetch(`${s.url}/live/test/test/1.ts`, { redirect: 'manual' });
+      expect(first.status).toBe(302);
+      const sid = sidOf(first.headers.get('location'));
+      expect(first.headers.get('location')).toBe(`${s.url}/__mv/${sid}/live.m3u8`);
+      const list = await fetch(`${s.url}/__mv/${sid}/live.m3u8`);
+      expect(list.status).toBe(200);
+      expect(list.headers.get('content-type')).toBe('application/vnd.apple.mpegurl');
+      expect(await list.text()).toContain(`/__mv/${sid}/`);
+      const seg = await fetch(`${s.url}/__mv/${sid}/5.ts`, { redirect: 'manual' });
+      expect(seg.status).toBe(302);
+      expect((await fetch(`${s.url}/live/test/test/2.ts`, { redirect: 'manual' })).status).toBe(403);
+      expect(await (await fetch(`${s.url}/__control/connections`)).json()).toMatchObject({ max: 1, mode: 'refuse', refused: 1, open: { test: 1 } });
+      await fetch(`${s.url}/__control/connections?reset=1`);
+      expect((await fetch(`${s.url}/live/test/test/2.ts`, { redirect: 'manual' })).status).toBe(302);
+      // Movies are not counted.
+      expect((await fetch(`${s.url}/movie/test/test/4.m3u8`, { redirect: 'manual' })).status).toBe(302);
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('kick: the open past N plays and the oldest session answers 403 from then on', async () => {
+    const s = await startFakeXtream({ port: 0, channels: 4, now: () => NOW, connections: { max: 1, mode: 'kick' } });
+    try {
+      const a = sidOf((await fetch(`${s.url}/live/test/test/1.m3u8`, { redirect: 'manual' })).headers.get('location'));
+      const b = await fetch(`${s.url}/live/test/test/2.m3u8`, { redirect: 'manual' });
+      expect(b.status).toBe(302);
+      expect((await fetch(`${s.url}/__mv/${a}/live.m3u8`)).status).toBe(403);
+      expect((await fetch(`${s.url}/__mv/${a}/1.ts`, { redirect: 'manual' })).status).toBe(403);
+      expect((await fetch(`${s.url}/__mv/${sidOf(b.headers.get('location'))}/live.m3u8`)).status).toBe(200);
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('off by default: no wrapper, and the control route says so', async () => {
+    expect(await (await fetch(`${server.url}/__control/connections`)).json()).toEqual({ off: true });
+  });
+});

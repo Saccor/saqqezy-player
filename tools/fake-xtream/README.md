@@ -12,6 +12,12 @@ public test stream or to a file generated on your machine from test patterns and
   `src/showcase.ts`).
 - Special usernames: `expired`, `slow`, `error500`, and the refusal set `refuse403`, `limit429`, `gone404`, `down500`.
   `GET /__control/refuse?on=1` makes every answer a 403 until `on=0`.
+- Connection limit (multiview testing): `FAKE_MAX_CONS=2` allows 2 live streams per user at once. Each live request
+  becomes a session that plays through a wrapper live playlist (`/__mv/<session>/live.m3u8`, segments from the same
+  licensed test stream), so the server sees which streams are still read; one nobody read for 20 s stops counting. Past
+  the limit the next live open answers 403, or with `FAKE_CONS_MODE=kick` it plays and the oldest session's next read
+  answers 403 (a panel that kicks the oldest). `GET /__control/connections` shows the open sessions per user and the
+  refused and kicked counts; `?reset=1` clears them.
 - The source works as Xtream (server `http://127.0.0.1:8899`) or as an M3U link (`/get.php?...&type=m3u_plus` with
   `/xmltv.php?...` as the guide).
 

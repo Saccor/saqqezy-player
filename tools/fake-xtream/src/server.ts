@@ -12,6 +12,7 @@ import { archiveFields, handleCatchup, serverInfo, simpleDataTable, xmltvHistory
 import { handleOpenSubtitles } from './openSubtitles.ts';
 import { movieTmdb, seriesTmdb, trendingFeed } from './trending.ts';
 import { SHOWCASE_MOVIES, SHOWCASE_SERIES, showcaseLogoSvg, showcasePosterSvg, showcaseProgramme } from './showcase.ts';
+import { createSessionTable, livePlaylist, segmentLocation, type ConnectionsOptions } from './connections.ts';
 
 export interface FakeXtreamOptions {
   port?: number;
@@ -50,6 +51,11 @@ export interface FakeXtreamOptions {
    * stream fails and the TV fails over to the next one. Default: every stream plays.
    */
   deadLive?: string;
+  /**
+   * A panel connection limit per user (`connections.ts`): each live stream is a session read through a wrapper
+   * playlist; past `max` open sessions the next open is refused (403) or the oldest is cut. Off by default.
+   */
+  connections?: ConnectionsOptions;
 }
 
 const DEFAULT_MEDIA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'media');
@@ -120,6 +126,7 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
   /** Refusal mode (`/__control/refuse?on=1`): every source request answers 403, as a refusing panel does. */
   let refusing = false;
   let refusedCount = 0;
+  const sessions = opts.connections ? createSessionTable(opts.connections, now) : undefined;
 
   const send = (res: ServerResponse, status: number, body: string, type = 'application/json') => {
     res.writeHead(status, { 'content-type': type });
@@ -145,6 +152,20 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
         refusedCount = 0;
       }
       return send(res, 200, JSON.stringify({ refusing, refused: refusedCount }));
+    }
+    if (url.pathname === '/__control/connections') {
+      if (sessions && url.searchParams.get('reset') === '1') sessions.reset();
+      return send(res, 200, JSON.stringify(sessions ? sessions.stats() : { off: true }));
+    }
+    const wrapped = /^\/__mv\/(s\d+)\/(live\.m3u8|(\d+)\.ts)$/.exec(url.pathname);
+    if (wrapped && sessions) {
+      if (!sessions.touch(wrapped[1]!)) return send(res, 403, '', 'text/plain');
+      if (wrapped[3] === undefined) {
+        res.writeHead(200, { 'content-type': MEDIA_TYPES.m3u8!, 'cache-control': 'no-store' });
+        return res.end(livePlaylist(wrapped[1]!, now()));
+      }
+      res.writeHead(302, { location: segmentLocation(Number(wrapped[3])) });
+      return res.end();
     }
     if (await handleOpenSubtitles(req, res, url, base)) return;
     // The synthetic trending feed (what services/trending publishes), English only: other languages 404.
@@ -176,6 +197,12 @@ export async function startFakeXtream(opts: FakeXtreamOptions = {}) {
       const deadLive = opts.deadLive;
       if (deadLive && stream[1] === 'live' && chs.find((c) => c.n === Number(stream[4]))?.name.endsWith(deadLive)) {
         return send(res, 404, '', 'text/plain');
+      }
+      if (sessions && stream[1] === 'live') {
+        const opened = sessions.open(effectiveUser);
+        if (!opened.ok) return send(res, 403, '', 'text/plain');
+        res.writeHead(302, { location: `${base}/__mv/${opened.sid}/live.m3u8` });
+        return res.end();
       }
       const movie = stream[1] === 'movie' ? Number(stream[4]) : undefined;
       const multitrack = movie === MULTITRACK_MOVIE && existsSync(join(mediaDir, 'multitrack', 'master.m3u8'));
