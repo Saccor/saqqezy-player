@@ -9,30 +9,33 @@ export type Remote<T> = {
     T[K] extends (...a: infer A) => infer R ? (...a: A) => Promise<Awaited<R>> : never;
 };
 
-export interface RpcError { name: string; message: string; status?: number }
+export interface RpcError { name: string; message: string; status?: number; code?: number | string }
 
 type CallMsg = { k: 'call'; id: number; m: string; a: unknown[] };
 type ResMsg = { k: 'res'; id: number; ok: true; v: unknown } | { k: 'res'; id: number; ok: false; e: RpcError };
 type EvtMsg = { k: 'evt'; t: string; p: unknown };
 
-/** Serialises any thrown value; only name, message and status cross the port. */
+/** Serialises any thrown value; only name, message, status and code cross the port. An empty message becomes the name. */
 export function toRpcError(err: unknown): RpcError {
   if (err && typeof err === 'object') {
-    const e = err as { name?: unknown; message?: unknown; status?: unknown };
+    const e = err as { name?: unknown; message?: unknown; status?: unknown; code?: unknown };
+    const name = typeof e.name === 'string' && e.name ? e.name : 'Error';
     const out: RpcError = {
-      name: typeof e.name === 'string' ? e.name : 'Error',
-      message: typeof e.message === 'string' ? e.message : 'Unknown error',
+      name,
+      message: typeof e.message !== 'string' ? 'Unknown error' : e.message || name,
     };
     if (typeof e.status === 'number') out.status = e.status;
+    if (typeof e.code === 'number' || (typeof e.code === 'string' && e.code)) out.code = e.code;
     return out;
   }
   return { name: 'Error', message: String(err) };
 }
 
-function fromRpcError(e: RpcError): Error & { status?: number } {
-  const err: Error & { status?: number } = new Error(e.message);
+function fromRpcError(e: RpcError): Error & { status?: number; code?: number | string } {
+  const err: Error & { status?: number; code?: number | string } = new Error(e.message);
   err.name = e.name;
   if (e.status !== undefined) err.status = e.status;
+  if (e.code !== undefined) err.code = e.code;
   return err;
 }
 

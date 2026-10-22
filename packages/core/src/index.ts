@@ -80,9 +80,10 @@ export { parseXmltvDate } from './xmltv/date.ts';
 export { parseXmltv, type ProgrammeExtra, type XmltvItem, type XmltvStats } from './xmltv/parse.ts';
 export { EpgMatcher, applyShift, epgKey, inWindow, nowNext } from './epg/window.ts';
 export {
-  SourceService,
+  SourceService, TV_EPG_BATCH,
   type EpgResult, type IngestResult, type NewSource, type Progress, type RefreshOptions, type SourceServiceDeps,
 } from './service/sourceService.ts';
+export { TIMER_YIELD_EVERY, createYield, type YieldDeps } from './service/yieldNow.ts';
 export * from './layout/index.ts';
 export {
   MAX_TITLE_AIRINGS, TitleIndexBuilder, isTitleIndexData, queryTitles,

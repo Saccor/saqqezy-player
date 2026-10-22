@@ -91,4 +91,7 @@ installFormatReport({
 installKeys(window, undefined, { repeatGapMs: isTvPlatform(platformId) ? TV_REPEAT_GAP_MS : 0 });
 // Mouse and pointer remotes (desktop, the LG Magic Remote); a no-op on Tizen.
 installPointer({ canvas: (renderer as RendererMain).canvas, platform: platformId });
+// Asks the browser to keep this app's data. persist() exists only on the page (not in a worker); the answer does not
+// matter, so errors are ignored. (estimate() is exposed to workers, so the worker reads the Storage line itself.)
+try { void navigator.storage?.persist?.()?.catch(() => undefined); } catch { /* not available */ }
 render(() => <App />);

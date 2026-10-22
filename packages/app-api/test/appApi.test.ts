@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
-  MAX_OPS_PER_BATCH, OpenSubtitlesClient, RefusalGuard, SourceService, SourceAuthError, SubtitleService, VodService, type Channel, type FetchFn, type LayoutOp, type Programme,
+  MAX_OPS_PER_BATCH, OpenSubtitlesClient, RefusalGuard, SourceService, SourceAuthError, SourceNetworkError, SourceRefusedError, SubtitleService, VodService, unreachableError, type Channel, type FetchFn, type LayoutOp, type Programme,
 } from '@iptv/core';
 import { MemoryStorage } from '@iptv/storage';
 import { startFakeXtream } from '@iptv/fake-xtream';
@@ -862,6 +862,400 @@ describe('AppApi', () => {
     expect(events.find((e) => e.type === 'refreshFailed'))
       .toMatchObject({ what: 'playlist', error: { message: 'disk unavailable' } });
     expect((await api.diagnostics()).lastErrors.some((e) => e.message === 'disk unavailable')).toBe(true);
+  });
+
+  test('a failed channel refresh still lets the guide step run, and both failures are recorded', async () => {
+    const { sourceId } = await seeded();
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    let epgCalls = 0;
+    class PlaylistDown extends SourceService {
+      override async refreshPlaylist(): Promise<never> { throw new SourceNetworkError('Could not reach the provider.', 500); }
+      override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+        epgCalls++;
+        return super.refreshEpg(id, p);
+      }
+    }
+    const { api, events } = make(storage, PlaylistDown);
+    await api.init();
+    await api.idle();
+    expect(epgCalls).toBe(1);
+    expect(events.find((e) => e.type === 'refreshFailed' && e.what === 'playlist')).toMatchObject({ sourceId });
+    expect(events.some((e) => e.type === 'refreshed' && e.what === 'epg')).toBe(true);
+  });
+
+  test('a channel step that left the source cooling skips the guide in that pass', async () => {
+    const { sourceId } = await seeded();
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    let epgCalls = 0;
+    class Refusing extends SourceService {
+      override async refreshPlaylist(id: string): Promise<never> {
+        await this.guard.report(id, 'refused');
+        throw new SourceRefusedError();
+      }
+      override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+        epgCalls++;
+        return super.refreshEpg(id, p);
+      }
+    }
+    const { api, events } = make(storage, Refusing);
+    await api.init();
+    await api.idle();
+    expect(events.find((e) => e.type === 'refreshFailed' && e.what === 'playlist')).toMatchObject({ sourceId });
+    expect(epgCalls).toBe(0);
+  });
+
+  /** A seeded source whose channel step fails with `err` and whose guide step is counted (and runs for real). */
+  const channelStepFails = async (err: () => Error) => {
+    const { sourceId } = await seeded();
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    const state = { epgCalls: 0 };
+    class Failing extends SourceService {
+      override async refreshPlaylist(): Promise<never> { throw err(); }
+      override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+        state.epgCalls++;
+        return super.refreshEpg(id, p);
+      }
+    }
+    const { api, events } = make(storage, Failing);
+    await api.init();
+    await api.idle();
+    return { state, events, offline: events.some((e) => e.type === 'offline' && e.value) };
+  };
+
+  test('a channel step whose request never reached the source skips the guide in that pass', async () => {
+    const r = await channelStepFails(unreachableError);
+    expect(r.offline).toBe(true);
+    expect(r.state.epgCalls).toBe(0);
+  });
+
+  test('a stalled live list still runs the guide, and is not offline', async () => {
+    const r = await channelStepFails(() => new SourceNetworkError('The provider stopped sending data.'));
+    expect(r.state.epgCalls).toBe(1);
+    expect(r.events.some((e) => e.type === 'refreshed' && e.what === 'epg')).toBe(true);
+    expect(r.offline).toBe(false);
+  });
+
+  test('a channel step that timed out still runs the guide', async () => {
+    const r = await channelStepFails(() => new SourceNetworkError('The provider did not respond in time.'));
+    expect(r.state.epgCalls).toBe(1);
+    expect(r.offline).toBe(false);
+  });
+
+  test('"no channels" runs the guide and does not mark the app offline', async () => {
+    const r = await channelStepFails(() => new SourceNetworkError('The playlist contains no channels.'));
+    expect(r.state.epgCalls).toBe(1);
+    expect(r.offline).toBe(false);
+  });
+
+  test('an M3U whose guide is on another host still runs the guide when the playlist host is unreachable', async () => {
+    // The playlist lives on lists.test (served by the fake server while up); the guide on the fake server's own host.
+    const listsUp = { value: true, xmltv: 0 };
+    const f: FetchFn = async (u, i) => {
+      const url = new URL(u);
+      if (url.host === 'lists.test') {
+        if (!listsUp.value) throw new TypeError('Failed to fetch');
+        return fetch(`${server.url}${url.pathname}${url.search}`, i);
+      }
+      if (url.pathname === '/xmltv.php') listsUp.xmltv++;
+      return fetch(u, i);
+    };
+    const { api, events } = make(storage, SourceService, f);
+    const { sourceId } = await api.addSource({
+      kind: 'm3u', name: 'Split', playlistUrl: 'http://lists.test/get.php?username=test&password=test&type=m3u_plus',
+      epgUrl: `${server.url}/xmltv.php?username=test&password=test`,
+    });
+    await api.idle();
+    listsUp.value = false;
+    listsUp.xmltv = 0;
+    await storage.setMeta(`playlistAt:${sourceId}`, 0);
+    await storage.setMeta(`epgAt:${sourceId}`, 0);
+    events.length = 0;
+    await api.init();
+    await api.idle();
+    expect(events.find((e) => e.type === 'refreshFailed' && e.what === 'playlist')).toMatchObject({ sourceId });
+    expect(events.some((e) => e.type === 'offline' && e.value)).toBe(true);
+    expect(listsUp.xmltv).toBe(1);
+    expect(events.some((e) => e.type === 'refreshed' && e.what === 'epg')).toBe(true);
+  });
+
+  describe('the guide import shares the worker', () => {
+    const indexOf = (a: AppApi) => (a as unknown as { index: object }).index;
+
+    describe('a failing or dropped late guide read', () => {
+      async function slowApi() {
+        const { seed } = await seeded();
+        await seed.refresh('epg');
+        await seed.idle();
+        const state = { g: gate(), fail: true };
+        class SlowGuide extends SourceService {
+          override async programmesFor(...args: Parameters<SourceService['programmesFor']>) {
+            await state.g.p;
+            if (state.fail) throw new Error('read failed');
+            return super.programmesFor(...args);
+          }
+        }
+        const events: AppEvent[] = [];
+        const service = new SlowGuide({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+        const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3', nowNextWaitMs: 20 });
+        live.push(api);
+        await api.init();
+        const from = NOW - 3_600_000;
+        const to = NOW + 3_600_000;
+        const updates = () => events.filter((e) => e.type === 'nowNextUpdated').length;
+        const slowFail = async () => {
+          state.g = gate();
+          await api.getEpgRows('all', 0, 3, from, to);
+          state.g.open();
+          await api.idle();
+        };
+        return { api, state, updates, slowFail, events };
+      }
+
+      test('two slow failures for the same page give one nowNextUpdated', async () => {
+        const { updates, slowFail } = await slowApi();
+        await slowFail();
+        expect(updates()).toBe(1);
+        await slowFail();
+        expect(updates()).toBe(1);
+      });
+
+      test('after invalidateNowNext a new failure emits again', async () => {
+        const { api, updates, slowFail } = await slowApi();
+        await slowFail();
+        expect(updates()).toBe(1);
+        (api as unknown as { invalidateNowNext(): void }).invalidateNowNext();
+        await slowFail();
+        expect(updates()).toBe(2);
+      });
+
+      test('an answer dropped after a source switch emits nothing', async () => {
+        const { api, state, updates } = await slowApi();
+        state.fail = false;
+        await api.getEpgRows('all', 0, 3, NOW - 3_600_000, NOW + 3_600_000);
+        (api as unknown as { activeId: string | null }).activeId = 'another-source';
+        state.g.open();
+        await api.idle();
+        expect(updates()).toBe(0);
+      });
+    });
+
+    test('getEpgRows answers lite rows when the guide read is slow; the late read comes as nowNextUpdated', async () => {
+      const { seed } = await seeded();
+      await seed.refresh('epg');
+      await seed.idle();
+      const g = gate();
+      const state = { held: true, reads: 0 };
+      class SlowGuide extends SourceService {
+        override async programmesFor(...args: Parameters<SourceService['programmesFor']>) {
+          state.reads++;
+          if (state.held) await g.p;
+          return super.programmesFor(...args);
+        }
+      }
+      const events: AppEvent[] = [];
+      const service = new SlowGuide({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+      const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3', nowNextWaitMs: 20 });
+      live.push(api);
+      await api.init();
+      const from = NOW - 3_600_000;
+      const to = NOW + 3_600_000;
+      const lite = await api.getEpgRows('all', 0, 3, from, to);
+      expect(lite.total).toBe(40);
+      expect(lite.rows.map((r) => r.channel.name)).toHaveLength(3);
+      expect(lite.rows.every((r) => r.programmes.length === 0)).toBe(true);
+      state.held = false;
+      g.open();
+      await api.idle();
+      const updated = events.filter((e): e is Extract<AppEvent, { type: 'nowNextUpdated' }> => e.type === 'nowNextUpdated');
+      expect(updated.flatMap((e) => e.channelIds)).toEqual(lite.rows.map((r) => r.channel.id));
+      // The re-read uses the late answer: no second guide read.
+      const reads = state.reads;
+      const full = await api.getEpgRows('all', 0, 3, from, to);
+      expect(state.reads).toBe(reads);
+      expect(full.rows[0]!.programmes[0]?.title).toMatch(/^Programme /);
+      // Once used, it is gone: the next call reads the guide again.
+      await api.getEpgRows('all', 0, 3, from, to);
+      expect(state.reads).toBe(reads + 1);
+    });
+
+    test('a late guide read that is dropped or fails still refreshes its rows, and keeps nothing', async () => {
+      const { seed } = await seeded();
+      await seed.refresh('epg');
+      await seed.idle();
+      const state = { g: gate(), reads: 0, fail: false };
+      class SlowGuide extends SourceService {
+        override async programmesFor(...args: Parameters<SourceService['programmesFor']>) {
+          state.reads++;
+          await state.g.p;
+          if (state.fail) throw new Error('read failed');
+          return super.programmesFor(...args);
+        }
+      }
+      const events: AppEvent[] = [];
+      const service = new SlowGuide({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+      const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3', nowNextWaitMs: 20 });
+      live.push(api);
+      await api.init();
+      const from = NOW - 3_600_000;
+      const to = NOW + 3_600_000;
+      const updatedIds = () => events
+        .filter((e): e is Extract<AppEvent, { type: 'nowNextUpdated' }> => e.type === 'nowNextUpdated')
+        .flatMap((e) => e.channelIds);
+      const late = () => (api as unknown as { epgLate: Map<string, unknown> }).epgLate;
+
+      // Dropped: the guide changed while the read ran (a new generation).
+      const lite = await api.getEpgRows('all', 0, 3, from, to);
+      const ids = lite.rows.map((r) => r.channel.id);
+      (api as unknown as { invalidateNowNext(): void }).invalidateNowNext();
+      state.g.open();
+      await api.idle();
+      expect(updatedIds()).toEqual(ids);
+      expect(late().size).toBe(0);
+
+      // Failed: the late read rejects.
+      events.length = 0;
+      state.g = gate();
+      state.fail = true;
+      expect((await api.getEpgRows('all', 0, 3, from, to)).rows.every((r) => r.programmes.length === 0)).toBe(true);
+      state.g.open();
+      await api.idle();
+      expect(updatedIds()).toEqual(ids);
+      expect(late().size).toBe(0);
+      // Nothing kept: the re-read reads the guide again.
+      state.fail = false;
+      const reads = state.reads;
+      await api.getEpgRows('all', 0, 3, from, to);
+      expect(state.reads).toBe(reads + 1);
+    });
+
+    test('a failed guide refresh keeps the channel index; an unchanged coverage keeps it too; a new one rebuilds it', async () => {
+      await seeded();
+      let fail = false;
+      let drop = false;
+      class Guide extends SourceService {
+        override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+          if (fail) throw new SourceNetworkError('The TV guide could not be read.', 502);
+          const r = await super.refreshEpg(id, p);
+          if (drop) await storage.setMeta(`epgCoverage:${id}`, []);
+          return r;
+        }
+      }
+      const { api, events } = make(storage, Guide);
+      await api.init();
+      await api.idle();
+      const first = indexOf(api);
+      fail = true;
+      await expect(api.refresh('epg')).rejects.toThrow('could not be read');
+      expect(indexOf(api)).toBe(first);
+      fail = false;
+      await api.refresh('epg');
+      expect(indexOf(api)).toBe(first);
+      expect(events.some((e) => e.type === 'refreshed' && e.what === 'epg')).toBe(true);
+      drop = true;
+      await api.refresh('epg');
+      expect(indexOf(api)).not.toBe(first);
+    });
+
+    test('a guide refresh of the active source reuses its channels in memory instead of reading them again', async () => {
+      await seeded();
+      const { api } = make();
+      await api.init();
+      await api.idle();
+      let reads = 0;
+      const get = storage.getChannels.bind(storage);
+      storage.getChannels = (id) => { reads++; return get(id); };
+      await api.refresh('epg');
+      expect(reads).toBe(0);
+      expect((await api.getChannelSlice('all', 0, 1)).rows[0]!.now?.title).toMatch(/^Programme /);
+    });
+
+    test('Diagnostics shows the guide import: idle, importing with a count, then idle or failed with the reason', async () => {
+      const { sourceId } = await seeded();
+      const g = gate();
+      let mode: 'hold' | 'fail' | 'pass' = 'hold';
+      class Held extends SourceService {
+        override async refreshEpg(id: string, p?: Parameters<SourceService['refreshEpg']>[1]) {
+          if (mode === 'fail') throw new SourceNetworkError('The TV guide could not be read.', 502);
+          if (mode === 'pass') return super.refreshEpg(id, p);
+          p?.({ phase: 'epg', count: 412_000 });
+          await g.p;
+          return { programmes: 412_000, skipped: 0 };
+        }
+      }
+      const { api } = make(storage, Held);
+      await api.init();
+      await api.idle();
+      const guide = async () => (await api.diagnostics()).sources.find((s) => s.id === sourceId)!.guideImport;
+      expect(await guide()).toEqual({ stage: 'idle', count: 0, startedAt: 0 });
+      const running = api.refresh('epg');
+      await settle();
+      expect(await guide()).toEqual({ stage: 'importing', count: 412_000, startedAt: NOW });
+      g.open();
+      await running;
+      expect(await guide()).toEqual({ stage: 'idle', count: 412_000, startedAt: NOW });
+      mode = 'fail';
+      await api.refresh('epg').catch(() => undefined);
+      expect(await guide()).toEqual({
+        stage: 'failed', count: 0, startedAt: NOW,
+        error: { name: 'SourceNetworkError', message: 'The TV guide could not be read.', status: 502 },
+      });
+      mode = 'pass';
+      await api.refresh('epg');
+      expect((await guide())?.stage).toBe('idle');
+      // A deleted source leaves no import state behind.
+      await api.deleteSource(sourceId);
+      expect((api as unknown as { guideImports: Map<string, unknown> }).guideImports.has(sourceId)).toBe(false);
+    });
+  });
+
+  test('a DOMException with an empty message is logged by name, with non-empty text', async () => {
+    class Quota extends SourceService {
+      override deleteSource(): never { throw new DOMException('', 'QuotaExceededError'); }
+    }
+    const { api } = make(storage, Quota);
+    const err = await api.deleteSource('x').catch((e: unknown) => e) as Error;
+    expect(err.name).toBe('QuotaExceededError');
+    const entry = (await api.diagnostics()).lastErrors.find((e) => e.where === 'deleteSource')!;
+    expect(entry.name).toBe('QuotaExceededError');
+    expect(entry.message).toBe('QuotaExceededError');
+  });
+
+  test('the log keeps code and status when the error has them', async () => {
+    class Coded extends SourceService {
+      override deleteSource(): never { throw Object.assign(new Error('nope'), { name: 'HttpError', status: 503, code: 22 }); }
+    }
+    const { api } = make(storage, Coded);
+    await api.deleteSource('x').catch(() => undefined);
+    expect((await api.diagnostics()).lastErrors.find((e) => e.where === 'deleteSource'))
+      .toMatchObject({ name: 'HttpError', message: 'nope', status: 503, code: 22 });
+  });
+
+  test('a name or string code that holds a link is scrubbed in the log too', async () => {
+    class Odd extends SourceService {
+      override deleteSource(): never { throw Object.assign(new Error('nope'), { name: 'Failed http://example.test/live/u1/p1/1.ts?x=1', code: 'ERR http://example.test/live/u1/p1/2.ts' }); }
+    }
+    const { api } = make(storage, Odd);
+    await api.deleteSource('x').catch(() => undefined);
+    const e = (await api.diagnostics()).lastErrors.find((l) => l.where === 'deleteSource')!;
+    expect(JSON.stringify(e)).not.toMatch(/u1|p1|x=1/);
+    expect(e.name).toContain('example.test');
+    expect(String(e.code)).toContain('example.test');
+  });
+
+  test('diagnostics reports the storage estimate when the device has one', async () => {
+    const withEstimate = (storageEstimate?: () => Promise<{ usage?: number; quota?: number }>) => {
+      const service = new SourceService({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW });
+      const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW, appVersion: '1.2.3', ...(storageEstimate ? { storageEstimate } : {}) });
+      live.push(api);
+      return api;
+    };
+    expect((await withEstimate().diagnostics()).storage).toBeUndefined();
+    expect((await withEstimate(async () => ({ usage: 5, quota: 10 })).diagnostics()).storage).toEqual({ used: 5, quota: 10 });
+    expect((await withEstimate(async () => ({})).diagnostics()).storage).toBeUndefined();
+    expect((await withEstimate(async () => { throw new Error('no'); }).diagnostics()).storage).toBeUndefined();
   });
 
   test('non-Error throws are rethrown as scrubbed Errors', async () => {

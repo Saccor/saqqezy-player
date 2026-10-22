@@ -8,6 +8,7 @@ import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { Channel, FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
 import { MAX_PROGRAMME_MS } from '../src/storage.ts';
+import { createYield } from '../src/service/yieldNow.ts';
 
 const detectFlags = vi.hoisted(() => ({ throwOnScore: false }));
 vi.mock('../src/sports/detect.ts', async (importOriginal) => {
@@ -57,8 +58,11 @@ describe('SourceService – m3u', () => {
     await expect(service.addSource(m3uInput)).rejects.toBeInstanceOf(SourceAuthError);
     routes['/p.m3u'] = () => new Response('#EXTM3U\n');
     await expect(service.addSource(m3uInput)).rejects.toThrow('no channels');
+    // Only a request that never got through is "unreachable" (the app's offline state and guide skip).
+    await expect(service.addSource(m3uInput)).rejects.toMatchObject({ unreachable: false });
     delete routes['/p.m3u'];
     await expect(service.addSource(m3uInput)).rejects.toThrow('Could not reach the provider.');
+    await expect(service.addSource(m3uInput)).rejects.toMatchObject({ name: 'SourceNetworkError', unreachable: true });
     expect(await service.listSources()).toEqual([]);
     expect(await service.getActiveSourceId()).toBeUndefined();
   });
@@ -244,6 +248,87 @@ describe('SourceService – m3u', () => {
     expect(nn.get(ch1.id)?.now?.title).toBe('Evening Bulletin');
   });
 
+  describe('the guide import shares the worker', () => {
+    /** `count` one-minute programmes on ch1.test from NOW: all in the stored window. */
+    const longGuide = (count: number) => {
+      const t = (ms: number) => `${new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
+      const rows: string[] = [];
+      for (let i = 0; i < count; i++) {
+        rows.push(`<programme start="${t(NOW + i * 60_000)}" stop="${t(NOW + (i + 1) * 60_000)}" channel="ch1.test"><title>Show ${i % 50}</title></programme>`);
+      }
+      return `<?xml version="1.0"?><tv><channel id="ch1.test"><display-name>Channel 001</display-name></channel>${rows.join('')}</tv>`;
+    };
+
+    test('the write batch size is an option (1,000 on the TV); the default stays 5,000', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(2500));
+      const writes = (svc: SourceService) => {
+        let n = 0;
+        const add = storage.addProgrammes.bind(storage);
+        storage.addProgrammes = (key, rows) => { n++; return add(key, rows); };
+        return { svc, writes: () => n };
+      };
+      const tv = writes(new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'tv', epgBatch: 1000 }));
+      const { source } = await tv.svc.addSource(m3uInput);
+      expect((await tv.svc.refreshEpg(source.id)).programmes).toBe(2500);
+      expect(tv.writes()).toBe(3);
+      const before = tv.writes();
+      await service.refreshEpg(source.id);
+      expect(tv.writes() - before).toBe(1);
+    });
+
+    test('the channels the caller already holds are used instead of reading them again', async () => {
+      const { source } = await service.addSource(m3uInput);
+      const held = await storage.getChannels(source.id);
+      let reads = 0;
+      const get = storage.getChannels.bind(storage);
+      storage.getChannels = (id) => { reads++; return get(id); };
+      expect((await service.refreshEpg(source.id, undefined, { channels: () => held })).programmes).toBe(2);
+      expect(reads).toBe(0);
+      // Nothing held (not loaded yet): read from storage as before.
+      expect((await service.refreshEpg(source.id, undefined, { channels: () => undefined })).programmes).toBe(2);
+      expect(reads).toBe(1);
+    });
+
+    test('with a clock that moves 3 ms per programme, the import yields at least every 3 programmes', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(900));
+      let t = 0;
+      let yields = 0;
+      const svc = new SourceService({
+        shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'y',
+        clock: () => { const v = t; t += 3; return v; },
+        yieldNow: () => { yields++; return Promise.resolve(); },
+      });
+      const { source } = await svc.addSource(m3uInput);
+      expect(yields).toBe(0); // the channel list does not use it
+      expect((await svc.refreshEpg(source.id)).programmes).toBe(900);
+      expect(yields).toBeGreaterThanOrEqual(300);
+      // The guide is still whole: every programme stored, and the title index built.
+      expect(await svc.titleIndexFor(source.id)).toBeDefined();
+    });
+
+    test('with message-channel pauses, a timer set when the import starts fires before it ends', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(900));
+      // Messages arrive as microtasks here, so only the every-8th timer pause can let the timer run.
+      const channel = class {
+        port1 = { onmessage: null as ((ev: unknown) => void) | null, postMessage() {} };
+        port2 = { onmessage: null, postMessage: () => { queueMicrotask(() => this.port1.onmessage?.(null)); } };
+      };
+      let t = 0;
+      const svc = new SourceService({
+        shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'y',
+        clock: () => { const v = t; t += 3; return v; },
+        yieldNow: createYield({ setImmediate: undefined, MessageChannel: channel }),
+      });
+      const { source } = await svc.addSource(m3uInput);
+      const state = { done: false, firedDuring: undefined as boolean | undefined };
+      setTimeout(() => { state.firedDuring = !state.done; }, 0);
+      expect((await svc.refreshEpg(source.id)).programmes).toBe(900);
+      state.done = true;
+      await new Promise((r) => setTimeout(r, 0));
+      expect(state.firedDuring).toBe(true);
+    });
+  });
+
   test('refreshEpg records the longest stored programme with the generation; reads look back only that far', async () => {
     const { source } = await service.addSource(m3uInput);
     await service.refreshEpg(source.id);
@@ -383,7 +468,7 @@ describe('SourceService – robustness', () => {
 });
 
 describe('SourceService – timeouts', () => {
-  test('playlist and guide downloads get 90 s to first byte; API calls 15 s', async () => {
+  test('playlist, guide and live-list downloads get 90 s to first byte; other API calls 15 s', async () => {
     const seen: [string, number | undefined][] = [];
     const recording: FetchFn = async (url, init) => {
       seen.push([new URL(url).pathname, init?.timeoutMs]);
@@ -398,7 +483,7 @@ describe('SourceService – timeouts', () => {
     routes['api:get_live_categories'] = () => json([]);
     routes['api:get_live_streams'] = () => json([{ stream_id: 1, name: 'Channel 1' }]);
     await svc.addSource({ kind: 'xtream', name: 'X', server: 'http://example.test', username: 'u', password: 'p' });
-    expect(seen.map(([, ms]) => ms)).toEqual([15_000, 15_000, 15_000]);
+    expect(seen.map(([, ms]) => ms)).toEqual([15_000, 15_000, 90_000]); // sign-in, categories, then the streamed live list
   });
 
   test('a stalled playlist body fails with a neutral error and releases the source lock', async () => {

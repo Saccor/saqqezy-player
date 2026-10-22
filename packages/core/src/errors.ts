@@ -6,10 +6,22 @@ export class SourceAuthError extends Error {
 }
 
 export class SourceNetworkError extends Error {
-  constructor(message: string, readonly status?: number) {
+  /**
+   * `unreachable`: the request itself failed (no connection, DNS, offline), never a stall, a timeout or an odd answer.
+   * Only this means "offline": the app then skips the guide download of that source and shows the offline state.
+   */
+  constructor(message: string, readonly status?: number, readonly unreachable = false) {
     super(message);
     this.name = 'SourceNetworkError';
   }
+}
+
+/** The neutral error of a request that never reached the source (`SourceNetworkError.unreachable`). */
+export const unreachableError = (): SourceNetworkError => new SourceNetworkError('Could not reach the provider.', undefined, true);
+
+/** Whether `err` is a request that never reached the source (also true for a copy that kept the flag). */
+export function isUnreachable(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { unreachable?: unknown }).unreachable === true;
 }
 
 export function redactUrl(raw: string): string {
@@ -54,5 +66,35 @@ export class SourceRefusedError extends Error {
   constructor(readonly reason: SourceBlockReason = 'refused') {
     super(reason === 'unreachable' ? SOURCE_UNREACHABLE_MESSAGE : SOURCE_REFUSING_MESSAGE);
     this.name = 'SourceRefused';
+  }
+}
+
+/** What the app says when a downloaded list cannot be saved because the device is full (neutral: no provider). */
+export const storageFullMessage = (what: 'movie' | 'series'): string => `Not enough storage on this TV to save the ${what} list`;
+/** What the app says when saving failed for another reason (a closing or refusing database). */
+export const storageFailedMessage = (what: 'movie' | 'series'): string => `Could not save the ${what} list on this TV`;
+
+/** Whether a write failed because the device is full: a `QuotaExceededError`, a DOMException with code 22, or the form `idbStorage` produces. */
+export function isQuotaError(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause === null) return false;
+  const c = cause as { name?: unknown; code?: unknown; message?: unknown };
+  return c.name === 'QuotaExceededError' || c.code === 22 || c.message === 'IndexedDB QuotaExceededError';
+}
+
+/** The name of an error (for the log), or '' when it has none. */
+export const causeName = (cause: unknown): string =>
+  typeof cause === 'object' && cause !== null && typeof (cause as { name?: unknown }).name === 'string' ? (cause as { name: string }).name : '';
+
+/**
+ * Thrown when saving something that was fetched fine failed on the device (a full or refusing database). The name and
+ * message reach the error log; `cause` keeps the original error and `quota` says whether it was a full device.
+ * `value` is what could not be saved, so a caller can keep using it for the session.
+ */
+export class StorageWriteError<V = unknown> extends Error {
+  readonly quota: boolean;
+  constructor(readonly store: string, override readonly cause: unknown, message = `Could not save ${store}`, readonly value?: V) {
+    super(message);
+    this.quota = isQuotaError(cause);
+    this.name = 'StorageWriteError';
   }
 }
