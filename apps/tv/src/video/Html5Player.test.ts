@@ -1148,3 +1148,31 @@ describe('Html5Player – source headers (dev proxy route)', () => {
     expect((created.mpegts.at(-1)!.src as { url: string }).url).toMatch(/^\/__proxy\/hls\/1\.ts\?u=.*&ua=SyntheticAgent%2F1\.0$/);
   });
 });
+
+describe('Html5Player – multiview window', () => {
+  test('setMuted mutes the element, and the autoplay unmute never undoes it', () => {
+    const { video, player } = makePlayer();
+    video.muted = false;
+    player.setMuted(true);
+    expect(video.muted).toBe(true);
+    player.unmuteIfAutoMuted();
+    expect(video.muted).toBe(true);
+    player.setMuted(false);
+    expect(video.muted).toBe(false);
+  });
+
+  test('engine overrides lie over the live preset config; cleared, the plain config returns; VOD ignores them', async () => {
+    const { player } = makePlayer();
+    player.setEngineOverrides({ hls: { capLevelToPlayerSize: true, maxBufferSize: 20_000_000 }, mpegts: { stashInitialSize: 131072 } });
+    await player.open('http://example.test/a.m3u8');
+    expect(created.hls.at(-1)!.config).toMatchObject({ capLevelToPlayerSize: true, maxBufferSize: 20_000_000 });
+    await player.open('http://example.test/a.ts');
+    expect(created.mpegts.at(-1)!.config).toMatchObject({ stashInitialSize: 131072 });
+    await player.open('http://example.test/movie/2.m3u8', 2, { live: false });
+    expect(created.hls.at(-1)!.config).not.toMatchObject({ maxBufferSize: 20_000_000 });
+    player.setEngineOverrides(undefined);
+    await player.open('http://example.test/b.m3u8');
+    expect(created.hls.at(-1)!.config).not.toMatchObject({ capLevelToPlayerSize: true });
+    player.destroy();
+  });
+});

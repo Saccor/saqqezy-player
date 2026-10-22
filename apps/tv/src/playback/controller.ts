@@ -10,8 +10,9 @@ export interface PlaybackController {
    * Plays `ch` through the supervisor (which stops the old stream before opening the next). Returns false when
    * `ch` is already the current channel and has not failed: the stream keeps running, so moving from the
    * preview to fullscreen never reconnects; only `current`'s info (name, now/next) is refreshed from `ch`.
+   * `countOpen`: a multiview window's open (or Retry), which waits for room under the source's open rate and counts.
    */
-  playChannel(ch: PlayableChannel): boolean;
+  playChannel(ch: PlayableChannel, opts?: { countOpen?: boolean }): boolean;
   /**
    * The source just entered its refusal cooldown: a stream that is not playing (loading, reconnecting, or refused) is
    * stopped, so no retry reaches the source, while one that plays keeps playing. The channel stays current and is
@@ -147,6 +148,8 @@ export function createPlaybackController(
   };
   /** The current channel was not opened (cooldown): the same channel must still open later. */
   let held = false;
+  /** Under a host cooldown, a stream that was playing gets one reconnect: `granted`, then `used`. */
+  let spare: 'none' | 'granted' | 'used' = 'none';
   /** Source of the stream opened by the last play (its first frame and a refusal at any time are reported). */
   let playKey: string | undefined;
   /** That stream's URL: reports name its host (the worker derives the key; never logged). */
@@ -164,6 +167,7 @@ export function createPlaybackController(
   let tuneGen = 0;
   const newTune = (ch: PlayableChannel | undefined) => {
     tuneGen++;
+    spare = 'none';
     tuneSources = ch?.sources && ch.sources.length > 1 ? ch.sources : undefined;
     tried = new Set(ch ? [ch.id] : []);
     failovers = 0;
@@ -247,7 +251,7 @@ export function createPlaybackController(
   };
   const startPlay = (
     url: string, alt: string | undefined,
-    opts: { channel?: string; vod?: boolean; startMs?: number; vodAlternate?: boolean; automatic?: boolean }, headers?: StreamHeaders,
+    opts: { channel?: string; vod?: boolean; startMs?: number; vodAlternate?: boolean; automatic?: boolean; countOpen?: boolean }, headers?: StreamHeaders,
   ) => {
     held = false;
     const key = sourceKey();
@@ -297,7 +301,7 @@ export function createPlaybackController(
   };
 
   return {
-    playChannel(ch) {
+    playChannel(ch, playOpts) {
       const cur = current();
       if (cur?.id === ch.id && !held && !waitingNetwork && status()?.kind !== 'failed') {
         // Same stream: keep it running, but take the fresh info (a rename, now/next). The urls stay those of
@@ -321,7 +325,8 @@ export function createPlaybackController(
         gate?.current?.(ch);
         return false;
       }
-      startPlay(ch.url, ch.alternateUrl, { channel: ch.name }, ch.headers);
+      // A multiview window's open counts against the source's open rate (spec 2026-10-20-multiview §5.3).
+      startPlay(ch.url, ch.alternateUrl, playOpts?.countOpen ? { channel: ch.name, countOpen: true } : { channel: ch.name }, ch.headers);
       gate?.current?.(ch);
       return true;
     },
@@ -372,9 +377,17 @@ export function createPlaybackController(
     holdForCooldown() {
       const kind = status()?.kind;
       if (pendingVod && (kind === 'ended' || kind === 'failed')) return;
-      if (current() !== undefined && !held && kind !== 'playing') hold();
+      // Spared: a stream that played when the cooldown began may reconnect once (spec 2026-10-20-multiview §5.4).
+      if (kind === 'playing' && spare === 'none') spare = 'granted';
+      if (current() === undefined || held || kind === 'playing') return;
+      if (kind === 'reconnecting' && spare === 'granted') {
+        spare = 'used';
+        return;
+      }
+      hold();
     },
     resumeHeld() {
+      spare = 'none'; // the cooldown ended: a later one spares the stream again
       // Hidden: nothing opens. `resumeFromBackground` opens the held title once the app is visible again.
       if (!held || inBackground) return;
       const v = pendingVod;

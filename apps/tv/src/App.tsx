@@ -5,9 +5,10 @@ import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
-import { playback } from './playback/playback.ts';
+import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
+import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
@@ -35,7 +36,7 @@ import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
 import { screenEnter, setMotionLevel } from './shell/motion.ts';
 import { onBackOnline } from './state/backOnline.ts';
-import { bootstrap, cooldown, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { bootstrap, cooldown, cooldownForStream, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
@@ -125,6 +126,19 @@ export function App() {
   createEffect(() => {
     if (cooldown().state !== 'clear' && playback.status()) playback.holdForCooldown();
   });
+  // Multiview windows without sound: the same hold and resume, each by its own stream's host.
+  createEffect(() => {
+    for (const s of otherSlots()) {
+      const coolingState = () => cooldownForStream(s.playback.current()).state;
+      createEffect(on(coolingState, (state, prev) => {
+        if (state !== 'clear') s.playback.holdForCooldown();
+        else if (prev !== undefined && prev !== 'clear') s.playback.resumeHeld();
+      }));
+      createEffect(() => {
+        if (coolingState() !== 'clear' && s.playback.status()) s.playback.holdForCooldown();
+      });
+    }
+  });
 
   onMount(() => {
     onCleanup(wireEvents(onEvent, showToast, {
@@ -154,6 +168,7 @@ export function App() {
             : entry.screen === 'settings' ? <SettingsScreen />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />
+            : entry.screen === 'multiview' ? <MultiviewScreen entry={entry} />
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />

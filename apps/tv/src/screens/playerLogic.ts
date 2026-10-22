@@ -130,3 +130,8 @@ export const WHEEL_ZAP_MIN_MS = 300;
 export function wheelZapAllowed(lastZapAt: number | undefined, now: number): boolean {
   return lastZapAt === undefined || now - lastZapAt >= WHEEL_ZAP_MIN_MS;
 }
+
+/** Options lists Multiview where this many windows fit (min of the device and Max windows) is 2 or more. */
+export function multiviewOffered(windowLimit: number): boolean {
+  return windowLimit >= 2;
+}

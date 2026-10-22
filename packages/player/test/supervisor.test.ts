@@ -2259,3 +2259,89 @@ describe('PlaybackSupervisor: tile options', () => {
     expect(journal.every((e) => !('tile' in e))).toBe(true);
   });
 });
+
+describe('PlaybackSupervisor: roles', () => {
+  it('onRefusal as a getter is read at each refusal', () => {
+    let role: 'retry' | 'stop' = 'stop';
+    const { player, sup, statuses } = setup({ onRefusal: () => role });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('error', { code: 'AUTH' });
+    expect(statuses.at(-1)).toMatchObject({ kind: 'failed', reason: 'refused' });
+    role = 'retry';
+    vi.advanceTimersByTime(1000);
+    sup.play(A, undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(1000);
+    player.emit('error', { code: 'AUTH' });
+    vi.advanceTimersByTime(1000);
+    expect(player.opened).toEqual([A, A, A]); // the second play retried once at once
+  });
+
+  it('tile as a getter tags journal events with the current value', () => {
+    let tile: number | undefined = 1;
+    const journal: JournalEvent[] = [];
+    const { sup } = setup({ journal: { add: (e: JournalEvent) => { journal.push(e); } }, tile: () => tile });
+    sup.play(A, undefined, { sourceKey: 's' });
+    tile = undefined;
+    sup.stop();
+    expect(journal[0]!.tile).toBe(1);
+    expect('tile' in journal.at(-1)!).toBe(false);
+  });
+});
+
+describe('PlaybackSupervisor: ledger drops', () => {
+  it('a stream that fails reports the drop to the ledger with its code; a stop does not', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const kinds: string[] = [];
+    ledger.onEvent((e) => { kinds.push(e.k === 'dropped' ? `dropped:${e.code}` : e.k); });
+    const { player, sup } = setup({ ledger, tile: 1 });
+    sup.play(A, undefined, { sourceKey: 's' });
+    player.emit('playing');
+    player.emit('error', { code: 'EOS' });
+    vi.advanceTimersByTime(1000);
+    sup.stop();
+    expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin']);
+  });
+});
+
+describe('PlaybackSupervisor: open events of windows', () => {
+  it("a window's open says how many other sessions of its host were open; single view's opens are unchanged", () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const journal: JournalEvent[] = [];
+    const sink = { add: (e: JournalEvent) => { journal.push(e); } };
+    const main = setup({ ledger, journal: sink });
+    main.sup.play(A, undefined, { sourceKey: 's' });
+    const win = setup({ ledger, journal: sink, tile: 1 });
+    win.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(2000);
+    const opens = journal.filter((e) => e.k === 'open');
+    expect(opens[0]).toEqual({ k: 'open', t: expect.any(Number), attempt: expect.any(Number), urlIndex: 0 });
+    expect(opens[1]).toMatchObject({ k: 'open', tile: 1, concurrent: 1 });
+    expect(JSON.stringify(journal)).not.toContain('example.test'); // numbers only: no URL or host
+  });
+});
+
+describe('PlaybackSupervisor: a refusal after playing counts the streams open now', () => {
+  it('a stream that played alone and is refused once another opened says 1 other was open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger, tile: 0, onRefusal: 'stop' });
+    const b = setup({ ledger, tile: 1, onRefusal: 'stop' });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    a.player.emit('playing');
+    vi.advanceTimersByTime(20_000);
+    b.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    b.player.emit('playing');
+    a.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(a.statuses.at(-1)).toEqual({ kind: 'failed', reason: 'refused', httpStatus: 403, urlIndex: 0, concurrent: 1 });
+  });
+
+  it('a refusal before the first frame keeps the count from its open', () => {
+    const ledger = new ConnectionLedger({ now: () => Date.now() });
+    const a = setup({ ledger, tile: 0, onRefusal: 'stop' });
+    const b = setup({ ledger, tile: 1, onRefusal: 'stop' });
+    a.sup.play(A, undefined, { sourceKey: 's' });
+    b.sup.play('http://a.example.test/2', undefined, { sourceKey: 's' });
+    vi.advanceTimersByTime(2000);
+    a.player.emit('error', { code: 'AUTH', httpStatus: 403 });
+    expect(a.statuses.at(-1)).not.toHaveProperty('concurrent');
+  });
+});

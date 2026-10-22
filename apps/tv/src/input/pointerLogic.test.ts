@@ -309,6 +309,11 @@ describe('rowTextEnd', () => {
     // The pill is 64 px wide, 8 px in from the row's right edge.
     expect(rowTextEnd(712, true)).toBe(712 - 8 - 64 - 8);
   });
+
+  it('a tag at the row end (multiview "On screen") takes its width plus 16 px', () => {
+    expect(rowTextEnd(712, false, 120)).toBe(692 - 120 - 16);
+    expect(rowTextEnd(712, true, 120)).toBe(712 - 8 - 64 - 8 - 120 - 16);
+  });
 });
 
 describe('pickTarget', () => {

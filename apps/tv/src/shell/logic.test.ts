@@ -140,8 +140,8 @@ describe('showWordmark', () => {
     }
   });
 
-  it('is off on the redesigned screens and the player', () => {
-    for (const r of ['home', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'player'] as const) expect(showWordmark(r, false, false)).toBe(false);
+  it('is off on the redesigned screens, the player and multiview', () => {
+    for (const r of ['home', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'player', 'multiview'] as const) expect(showWordmark(r, false, false)).toBe(false);
   });
 
   it('screens with the rail draw the clock in the rail', () => {
@@ -197,9 +197,10 @@ describe('screenOverlayOpen', () => {
 });
 
 describe('fullscreenVideoRoute', () => {
-  it('is the Player and VodPlay only', () => {
+  it('is the Player, VodPlay and multiview only', () => {
     expect(fullscreenVideoRoute('player')).toBe(true);
     expect(fullscreenVideoRoute('vodPlay')).toBe(true);
+    expect(fullscreenVideoRoute('multiview')).toBe(true);
     for (const r of ['home', 'start', 'vod', 'search', undefined] as const) expect(fullscreenVideoRoute(r)).toBe(false);
   });
 });
@@ -229,6 +230,7 @@ describe('deferWordmark', () => {
 
 describe('shell Back button (pointer mode)', () => {
   it('shows on every screen except Home (Back there is the exit question) and the Player (it has its own)', () => {
+    expect(shellBackShown('multiview')).toBe(false); // its own Back and pointer bar
     expect(shellBackShown('addSource')).toBe(true);
     expect(shellBackShown('search')).toBe(true);
     expect(shellBackShown('settings')).toBe(true);

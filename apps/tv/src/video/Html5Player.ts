@@ -14,6 +14,12 @@ import { fpsFromSamples, noRateIsFinal, type FrameSample } from './frameRate.ts'
 import { cueTextOf, nativeHlsPreferred } from './trackSupport.ts';
 import type { VideoLayer } from './videoLayer.ts';
 
+/** Engine settings a multiview window lays over the live preset's (`tileProfile`). */
+export interface EngineOverrides {
+  hls?: Record<string, unknown>;
+  mpegts?: Record<string, unknown>;
+}
+
 type Engine =
   | { kind: 'native' }
   | { kind: 'hls'; hls: Hls }
@@ -179,6 +185,7 @@ export class Html5Player implements Player {
   private readonly isTv: boolean;
   private readonly autoMute: AutoMute;
   private profile: LiveProfile = { preset: 'balanced', targetS: 3, allowRate: false };
+  private overrides: EngineOverrides | undefined;
   /** Frame rates measured from presented frames, per opened URL (oldest first); null: no clear rate. */
   private readonly measuredFps = new Map<string, number | null>();
   /** The frame-rate measurement in progress. */
@@ -223,6 +230,23 @@ export class Html5Player implements Player {
   /** The app's volume, 0..1 (the user's mute arrives as 0, so it never touches the autoplay mute). */
   setVolume(level: number): void {
     this.video.volume = Math.max(0, Math.min(1, level));
+  }
+
+  /**
+   * Multiview: mutes this window while another has the sound. The app's mute replaces an autoplay mute, so the first
+   * gesture's `unmuteIfAutoMuted` never gives a muted window its sound back.
+   */
+  setMuted(muted: boolean): void {
+    this.autoMute.release();
+    this.video.muted = muted;
+  }
+
+  /**
+   * Multiview: engine settings laid over the live preset's from the next live open (a window's size profile,
+   * `tileProfile`). VOD opens ignore them; undefined clears them.
+   */
+  setEngineOverrides(o: EngineOverrides | undefined): void {
+    this.overrides = o ? { ...o } : undefined;
   }
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
@@ -327,7 +351,7 @@ export class Html5Player implements Player {
       s.engine = { kind: 'native' };
       v.src = src;
     } else if (kind === 'hls') {
-      const hls = new Hls(s.live ? hlsConfig(this.profile.preset, this.isTv) : this.vodHlsConfig(s));
+      const hls = new Hls(s.live ? { ...hlsConfig(this.profile.preset, this.isTv), ...this.overrides?.hls } : this.vodHlsConfig(s));
       // VOD: the selected subtitle track loads its cues into a hidden text track; the app draws them (onSubtitle).
       if (!s.live) hls.subtitleDisplay = false;
       s.engine = { kind: 'hls', hls };
@@ -363,7 +387,9 @@ export class Html5Player implements Player {
       hls.loadSource(src);
       hls.attachMedia(v);
     } else {
-      const config = mpegtsConfig(this.profile.preset, this.isTv);
+      const config = s.live
+        ? { ...mpegtsConfig(this.profile.preset, this.isTv), ...this.overrides?.mpegts }
+        : mpegtsConfig(this.profile.preset, this.isTv);
       // A file: no live sync or latency chasing, and lazy loading so a long film is not pulled into memory at once.
       const vod = { isLive: false, liveSync: false, liveBufferLatencyChasing: false, lazyLoad: true };
       const player = mpegts.createPlayer({ type: 'mpegts', isLive: s.live, url: src }, s.live ? config : { ...config, ...vod });

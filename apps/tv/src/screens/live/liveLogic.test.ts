@@ -103,6 +103,11 @@ describe('liveMenuItems', () => {
   test('no programme items when neither applies', () => {
     expect(liveMenuItems({ channel, fromStart: false, goToDay: false })[0]!.action).toBe('toggleFavourite');
   });
+  test('Add to multiview comes after the programme items where this device can play 2 or more', () => {
+    const items = liveMenuItems({ channel, fromStart: true, goToDay: false, multiview: true });
+    expect(items.slice(0, 2)).toEqual([{ action: 'fromStart', label: 'From the start' }, { action: 'addToMultiview', label: 'Add to multiview' }]);
+    expect(liveMenuItems({ channel, fromStart: false, goToDay: false }).map((i) => i.action)).not.toContain('addToMultiview');
+  });
   test('a combined channel offers Choose source', () => {
     expect(liveMenuItems({ channel: { ...channel, sources: 4 }, fromStart: false, goToDay: false }).map((i) => i.action))
       .toContain('chooseSource');

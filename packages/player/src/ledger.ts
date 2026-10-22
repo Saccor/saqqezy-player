@@ -1,19 +1,36 @@
 /**
- * Stream sessions per source and host, shared by every supervisor (multiview tiles). It never refuses a session: it
- * says how many were open when one began, so a refusal can be scoped to its tile, and keeps the peak for diagnostics.
- * A session counts from `begin` until `closed()`, or until `closingGraceMs` after `closing()` (a hung teardown).
- * Holds source ids and hosts in memory only; never URLs.
+ * Stream sessions per source and host, shared by every supervisor (multiview windows). It never refuses a session: it
+ * says how many were open when one began, so a refusal can be scoped to its window, keeps the peak for diagnostics,
+ * and reports begins, first frames and drops so a source that cuts the oldest stream can be noticed.
+ * A session counts from `begin` until `closed()`, or until `closingGraceMs` after `closing()` or `dropped()` (a hung
+ * teardown). Holds source ids and hosts in memory only; never URLs.
  */
 export interface LedgerSession {
   /** The stream showed its first frame. */
   playing(): void;
+  /** The stream ended by itself or failed (`code`: the error code, e.g. EOS, NETWORK, AUTH); it is closing. */
+  dropped(code: string): void;
   /** The attempt ended; the engine is tearing its connection down. */
   closing(): void;
   /** The engine's connection is gone. */
   closed(): void;
 }
 
-interface Entry { key: string; host: string; tile: number; closingAt?: number; closed: boolean }
+export type LedgerEvent =
+  | { k: 'begin'; key: string; host: string; tile: number; at: number }
+  | { k: 'playing'; key: string; host: string; tile: number; at: number }
+  /** `playedMs`: how long the stream had played before it dropped (0 when it never showed a frame). */
+  | { k: 'dropped'; key: string; host: string; tile: number; at: number; code: string; playedMs: number };
+
+export interface LedgerRow {
+  tile: number;
+  host: string;
+  since: number;
+  playingSince?: number;
+  closing: boolean;
+}
+
+interface Entry { key: string; host: string; tile: number; since: number; playingSince?: number; closingAt?: number; closed: boolean }
 
 /** The stream URL's host and port; '' when it does not parse. */
 export function hostOf(url: string): string {
@@ -31,6 +48,7 @@ export class ConnectionLedger {
   private readonly graceMs: number;
   private entries: Entry[] = [];
   private readonly peak = new Map<string, number>();
+  private readonly listeners = new Set<(e: LedgerEvent) => void>();
 
   constructor(opts: { now?: () => number; closingGraceMs?: number } = {}) {
     this.now = opts.now ?? Date.now;
@@ -40,14 +58,25 @@ export class ConnectionLedger {
   begin(key: string, url: string, tile: number): { session: LedgerSession; concurrent: number } {
     const host = hostOf(url);
     const concurrent = this.concurrent(key, host);
-    const e: Entry = { key, host, tile, closed: false };
+    const e: Entry = { key, host, tile, since: this.now(), closed: false };
     this.entries.push(e);
     this.peak.set(key, Math.max(this.peak.get(key) ?? 0, this.concurrent(key)));
+    this.emit({ k: 'begin', key, host, tile, at: e.since });
+    const closing = () => { e.closingAt ??= this.now(); };
     return {
       concurrent,
       session: {
-        playing: () => {},
-        closing: () => { e.closingAt ??= this.now(); },
+        playing: () => {
+          if (e.playingSince !== undefined) return;
+          e.playingSince = this.now();
+          this.emit({ k: 'playing', key, host, tile, at: e.playingSince });
+        },
+        dropped: (code) => {
+          const at = this.now();
+          closing();
+          this.emit({ k: 'dropped', key, host, tile, at, code, playedMs: e.playingSince === undefined ? 0 : at - e.playingSince });
+        },
+        closing,
         closed: () => {
           e.closed = true;
           this.prune();
@@ -64,6 +93,31 @@ export class ConnectionLedger {
 
   maxSeen(key: string): number {
     return this.peak.get(key) ?? 0;
+  }
+
+  /** Diagnostics: the counted sessions of `key`, oldest first. Numbers and hosts only. */
+  snapshot(key: string): LedgerRow[] {
+    this.prune();
+    return this.entries.filter((e) => e.key === key).map((e) => {
+      const row: LedgerRow = { tile: e.tile, host: e.host, since: e.since, closing: e.closingAt !== undefined };
+      if (e.playingSince !== undefined) row.playingSince = e.playingSince;
+      return row;
+    });
+  }
+
+  onEvent(fn: (e: LedgerEvent) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private emit(e: LedgerEvent): void {
+    for (const fn of [...this.listeners]) {
+      try {
+        fn(e);
+      } catch {
+        // diagnostics only
+      }
+    }
   }
 
   private prune(): void {

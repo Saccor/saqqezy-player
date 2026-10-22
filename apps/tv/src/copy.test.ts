@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATCHUP_COPY, FAV_COPY, favChangedToast, favToggleLabel } from './copy.ts';
+import { CATCHUP_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
   it('is lowercase "favourites" everywhere, and the failure toast is one sentence', () => {
@@ -37,5 +37,29 @@ describe('catch-up copy', () => {
     expect(CATCHUP_COPY.daysLeft(0)).toBe('Catch-up · Last day');
     expect(CATCHUP_COPY.tooOld(3)).toBe('Not available: older than 3 days');
     expect(CATCHUP_COPY.notAvailable).toBe('Not available. Your source did not return this programme.');
+  });
+});
+
+describe('multiview copy', () => {
+  const BANNED = /\b(free|premium|vip|cancel|subscription|provider|seller|reseller|sports? league|ppv)\b/i;
+
+  it('is neutral, and calls a tile a window', () => {
+    const all: string[] = [];
+    for (const v of Object.values(MULTIVIEW_COPY)) if (typeof v === 'string') all.push(v);
+    for (const n of [1, 2, 4]) {
+      all.push(MULTIVIEW_COPY.infoReported(n), MULTIVIEW_COPY.kicked(n), MULTIVIEW_COPY.learned(n), MULTIVIEW_COPY.device(n), MULTIVIEW_COPY.setting(n));
+    }
+    for (const s of all) expect(s, s).not.toMatch(BANNED);
+    expect(MULTIVIEW_COPY.closeWindow).toBe('Close window');
+    expect(MULTIVIEW_COPY.addChannel).toBe('Add channel');
+  });
+
+  it('counts read naturally', () => {
+    expect(MULTIVIEW_COPY.infoReported(1)).toBe('Your source reports 1 connection. Each window uses one.');
+    expect(MULTIVIEW_COPY.infoReported(3)).toBe('Your source reports 3 connections. Each window uses one.');
+    expect(MULTIVIEW_COPY.kicked(1)).toBe('Your source seems to allow 1 stream at once.');
+    expect(MULTIVIEW_COPY.kicked(2)).toBe('Your source seems to allow 2 streams at once.');
+    expect(MULTIVIEW_COPY.device(2)).toBe('This device can play 2 at once.');
+    expect(MULTIVIEW_COPY.setting(2)).toBe('Max windows is set to 2 in Settings.');
   });
 });

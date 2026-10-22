@@ -21,6 +21,8 @@ const TRACK = COLORS.track;
 const DOTS_W = ROW_OPTIONS_W;
 const DOTS_H = ROW_OPTIONS_H;
 const DOTS_PAD = ROW_OPTIONS_PAD;
+/** The row-end tag's width (multiview: "On screen"). */
+const TAG_W = 140;
 
 function Logo(props: { x: number; y: number; url: string | undefined; number: number; focused: boolean }) {
   // The tile outlives the row it was mounted for (rows are re-used while scrolling and refetched on the tick), so a
@@ -53,6 +55,8 @@ function ChannelRowView(props: {
   hover?: boolean;
   /** The `⋯` pill shows on this row: the text and progress bar end before it. */
   optionsShown?: boolean;
+  /** A short tag at the row end (multiview's "On screen"). */
+  tag?: string | undefined;
 }) {
   const r = () => props.row;
   const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : COLORS.transparent);
@@ -60,7 +64,7 @@ function ChannelRowView(props: {
   const textSub = () => (props.lit ? COLORS.onFocusMuted : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
   const numSize = () => (String(r()?.number ?? '').length >= 5 ? TYPE.meta : TYPE.body);
-  const textW = () => rowTextEnd(props.width, props.optionsShown === true) - textX;
+  const textW = () => rowTextEnd(props.width, props.optionsShown === true, props.tag ? TAG_W : 0) - textX;
   const nowLine = () => {
     const n = r()?.now;
     if (!n) return r() ? 'No guide information' : '';
@@ -81,6 +85,10 @@ function ChannelRowView(props: {
       </Text>
       <Text x={textX} y={42} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={TYPE.meta} color={textSub()}>{nowLine()}</Text>
+      <Show when={props.tag}>{(t) => (
+        <Text x={textX + textW() + 16} y={(ROW_H - 6 - TYPE.meta) / 2 - 2} width={TAG_W} maxWidth={TAG_W} contain="width"
+          maxLines={1} textAlign="right" fontSize={TYPE.meta} color={textSub()}>{t()}</Text>
+      )}</Show>
       <Show when={r()?.now}>
         <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
@@ -122,6 +130,8 @@ export function ChannelList(props: {
   onWheelStep?: (delta: 1 | -1) => void;
   /** False: the pointer passes over the list (a keyboard is open above it). Default true. */
   pointerEnabled?: boolean;
+  /** A tag at the end of row `index` (multiview: "On screen" for a channel already in a window). */
+  tag?: (index: number) => string | undefined;
 }) {
   const [focused, setFocused] = createSignal(false);
   const [hoverRow, setHoverRow] = createSignal<number | undefined>(undefined);
@@ -184,7 +194,7 @@ export function ChannelList(props: {
       <For each={indices()}>{(i) => (
         <ChannelRowView y={(i - props.top) * ROW_H} width={props.width} row={props.row(i)}
           lit={i === props.focus && focused()} isFocus={i === props.focus} now={props.now}
-          playingId={props.playingId} hover={hovered(i)} optionsShown={dotsRow() === i} />
+          playingId={props.playingId} hover={hovered(i)} optionsShown={dotsRow() === i} tag={props.tag?.(i)} />
       )}</For>
       <Show when={dotsRow() !== undefined}>
         <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (ROW_H - 6 - DOTS_H) / 2}

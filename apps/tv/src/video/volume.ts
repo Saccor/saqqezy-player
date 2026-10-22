@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 import { platformId } from '../state/appState.ts';
-import { player } from '../playback/playback.ts';
+import { player, pool } from '../playback/playback.ts';
 import { isTvPlatform } from './engineConfig.ts';
 import {
   effectiveVolume, levelAt, parseVolume, serializeVolume, stepVolume, toggleMute, type VolumeState,
@@ -54,6 +54,8 @@ function apply(next: VolumeState): void {
 }
 
 if (volumeSupported) player.setVolume?.(effectiveVolume(initial));
+// The sound moved to another multiview window: that player gets the app's volume (`player` follows the sound).
+if (volumeSupported) pool.onPrimary(() => { player.setVolume?.(effectiveVolume(state())); });
 
 export function volumeStep(dir: 1 | -1): void {
   if (volumeSupported) apply(stepVolume(state(), dir));

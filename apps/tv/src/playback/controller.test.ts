@@ -72,6 +72,13 @@ describe('playback controller', () => {
     expect(pb.current()?.id).toBe('vod:catchup:c:1');
   });
 
+  it("countOpen: a multiview window's open counts against the open rate", () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    pb.playChannel(ch('1'), { countOpen: true });
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('1').url, ch('1').alternateUrl, { sourceKey: 'src-1', channel: 'Channel', countOpen: true });
+  });
+
   it('passes the active source id as the live-delay key', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
@@ -376,7 +383,9 @@ describe('playback controller', () => {
       expect(f.supervisor.play).toHaveBeenCalledTimes(1);
     });
 
-    it('holdForCooldown stops a stream that is still loading or reconnecting, not one that plays', () => {
+    // Spec 2026-10-20-multiview §5.4 (sparedPlaying): a stream that plays when the cooldown starts gets one reconnect;
+    // the second is held. Before, the first reconnect was held already.
+    it('holdForCooldown spares a playing stream one reconnect, then stops it; never one that plays', () => {
       const blocked = { on: false };
       const { f, pb } = guarded(blocked);
       pb.playChannel(ch('1'));
@@ -386,11 +395,44 @@ describe('playback controller', () => {
       expect(f.supervisor.stop).not.toHaveBeenCalled();
       f.emit({ kind: 'reconnecting', attempt: 1 } as SupervisorStatus);
       pb.holdForCooldown();
+      expect(f.supervisor.stop).not.toHaveBeenCalled(); // the spared reconnect
+      f.emit({ kind: 'playing' });
+      pb.holdForCooldown();
+      f.emit({ kind: 'reconnecting', attempt: 1 } as SupervisorStatus);
+      pb.holdForCooldown();
       expect(f.supervisor.stop).toHaveBeenCalledTimes(1);
       expect(pb.current()?.id).toBe('1');
       expect(pb.status()).toBeUndefined();
       blocked.on = false;
       expect(pb.playChannel(ch('1'))).toBe(true);
+    });
+
+    it('a stream still loading when the cooldown starts is held at once', () => {
+      const blocked = { on: false };
+      const { f, pb } = guarded(blocked);
+      pb.playChannel(ch('1'));
+      blocked.on = true;
+      pb.holdForCooldown();
+      expect(f.supervisor.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('the spare comes back once the cooldown has ended, and for a new channel', () => {
+      const blocked = { on: false };
+      const { f, pb } = guarded(blocked);
+      pb.playChannel(ch('1'));
+      f.emit({ kind: 'playing' });
+      blocked.on = true;
+      pb.holdForCooldown();
+      f.emit({ kind: 'reconnecting', attempt: 1 } as SupervisorStatus);
+      pb.holdForCooldown(); // spare used
+      f.emit({ kind: 'playing' });
+      blocked.on = false;
+      pb.resumeHeld(); // the cooldown ended (nothing was held)
+      blocked.on = true;
+      pb.holdForCooldown();
+      f.emit({ kind: 'reconnecting', attempt: 1 } as SupervisorStatus);
+      pb.holdForCooldown();
+      expect(f.supervisor.stop).not.toHaveBeenCalled();
     });
 
     it('a stream the source refused is held, so the end of the cooldown reopens it', () => {

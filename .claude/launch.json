@@ -37,6 +37,24 @@
       "port": 5173
     },
     {
+      "name": "tv-dev-cons1",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FAKE_MAX_CONS=1&& pnpm dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "tv-dev-cons1-kick",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FAKE_MAX_CONS=1&& set FAKE_CONS_MODE=kick&& pnpm dev"
+      ],
+      "port": 5173
+    },
+    {
       "name": "companion-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

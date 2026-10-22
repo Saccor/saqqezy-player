@@ -13,7 +13,9 @@ import { pointerMode } from '../../input/pointer.ts';
 import { cooling } from '../../playback/cooldown.ts';
 import { createDebounce } from '../../playback/debounce.ts';
 import { devResume } from '../../playback/devResume.ts';
-import { playback, previewHold } from '../../playback/playback.ts';
+import { playback, pool, previewHold } from '../../playback/playback.ts';
+import { multiviewOffered } from '../playerLogic.ts';
+import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { dwellSignal } from '../../shell/dwell.ts';
 import { focusRailCollapsed, Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
@@ -22,7 +24,7 @@ import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
-import { companionStatus, initState, markStartup } from '../../state/appState.ts';
+import { companionStatus, initState, markStartup, settings } from '../../state/appState.ts';
 import { externalLayoutChange } from '../../state/events.ts';
 import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
@@ -492,6 +494,17 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     playSource: (rowId, sourceId) => {
       memory.channelId = rowId;
       void preview.playSource(rowId, sourceId, groupId());
+    },
+    // The playing channel (or this one) opens full screen as window 1; multiview then adds this row as window 2.
+    multiview: {
+      offered: () => multiviewOffered(windowLimit(deviceCeiling(pool.max), settings()?.maxWindows ?? 'auto')),
+      add: (rowId) => {
+        const base = playback.currentRowId() ?? rowId;
+        // Right after the Player is pushed (this screen is gone by then): multiview opens over it.
+        preview.openFullscreen(base, groupId() ?? GROUP_ALL, () => {
+          queueMicrotask(() => router.push('multiview', rowId === base ? {} : { channelId: rowId }));
+        });
+      },
     },
   });
 

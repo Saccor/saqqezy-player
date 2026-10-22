@@ -10,7 +10,8 @@ export type ReconnectCause = ErrorCode | ReconnectReason | 'startTimeout' | 'dri
 export type JournalEvent = { tile?: number } & (
   | { k: 'page'; t: number; what: 'load' | 'hidden' | 'visible' | 'resume_restore' | 'resume_reopen'; nav?: 'navigate' | 'reload' | 'back_forward' | 'prerender' }
   | { k: 'play'; t: number; channel?: string; preset: LivePreset; urls: number }
-  | { k: 'open'; t: number; attempt: number; urlIndex: number }
+  /** `concurrent` (multiview windows only): other sessions of the stream's host open when this one began. */
+  | { k: 'open'; t: number; attempt: number; urlIndex: number; concurrent?: number }
   | { k: 'playing'; t: number; attempt: number; firstFrameMs?: number; engine?: EngineName }
   | { k: 'stall'; t: number; phase: 'start'; bufferAheadS?: number }
   | { k: 'stall'; t: number; phase: 'end'; durationMs: number }
@@ -32,7 +33,18 @@ export type JournalEvent = { tile?: number } & (
   | { k: 'app'; t: number; what: 'error' | 'rejection' | 'workerError' | 'workerCrash' | 'workerRestart' | 'workerGaveUp'; name?: string }
   | { k: 'audio'; t: number; action: 'switch' | 'none'; from?: string; to?: string; because?: 'codec' | 'language' }
   | { k: 'engineSwitch'; t: number; from: EngineName; to: EngineName; reason: string }
-  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' });
+  | { k: 'beta'; t: number; what: 'manifestOk' | 'manifestBad' | 'manifestMissing' | 'ended' }
+  /**
+   * Multiview: a window's stream was refused. `scope`: kept on the window, or the host paused (429/503, the only
+   * stream, or refused again and again); `reported`: the source's reported connection count, when known.
+   */
+  | { k: 'tileRefused'; t: number; httpStatus?: number; concurrent: number; scope: 'tile' | 'host'; reported?: number }
+  /** Multiview: the source cut this window's stream `afterMs` after window `byTile` opened. */
+  | { k: 'displaced'; t: number; byTile: number; afterMs: number }
+  /** Multiview: two windows kept cutting each other; this one was stopped. */
+  | { k: 'pingPong'; t: number }
+  /** Multiview: the 4th refused window on a host within 10 min; the host cooldown took over. */
+  | { k: 'escalated'; t: number });
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 /** A journal event before its time stamp is added. */
@@ -50,7 +62,7 @@ export interface JournalOptions {
 
 const KINDS = new Set<string>([
   'page', 'play', 'open', 'playing', 'stall', 'ladder', 'error', 'reconnect', 'alternate', 'drift', 'failed', 'giveUpRetry', 'stop', 'note', 'rateWait',
-  'catchupMissing', 'app', 'audio', 'engineSwitch', 'beta',
+  'catchupMissing', 'app', 'audio', 'engineSwitch', 'beta', 'tileRefused', 'displaced', 'pingPong', 'escalated',
 ]);
 const DETAIL_RE = /^[A-Za-z_]{1,40}$/;
 const TOKEN_RE = /^[A-Za-z0-9_.]{1,40}$/;

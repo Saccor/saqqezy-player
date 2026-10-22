@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_SETTINGS, FOLLOWED_TEAMS_MAX, HIDDEN_COMPETITIONS_MAX, MATCH_CATEGORIES_MAX, PINNED_COMPETITIONS_MAX, REGIONS_MAX, SUBTITLE_LANGUAGES, sanitizeSettings,
 } from '../src/settings.ts';
+import { SYNCED_SETTINGS } from '../src/sync/payload.ts';
 
 describe('sanitizeSettings', () => {
   test('non-objects give defaults', () => {
@@ -14,8 +15,14 @@ describe('sanitizeSettings', () => {
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: true,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
       regions: { codes: [], mode: 'off' }, combineCategories: false,
-      pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [],
+      pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
     });
+  });
+
+  test('maxWindows keeps Auto, 2, 3 and 4, and falls back to Auto; it never syncs', () => {
+    for (const v of ['auto', 2, 3, 4] as const) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe(v);
+    for (const v of [1, 5, '2', null, undefined]) expect(sanitizeSettings({ maxWindows: v }).maxWindows).toBe('auto');
+    expect(SYNCED_SETTINGS.has('maxWindows')).toBe(false);
   });
 
   test('openOn keeps known values and falls back to lastChannel', () => {

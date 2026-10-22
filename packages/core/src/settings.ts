@@ -5,6 +5,9 @@ export type OpenOn = 'lastChannel' | 'start';
 export type PosterSize = 'standard' | 'compact';
 /** How much the TV UI moves (motion research 2026-10-20 §5): all motion, fades only, or none. */
 export type MotionSetting = 'full' | 'reduced' | 'off';
+/** Multiview: the most windows at once. Auto is what this device can play. On-device only (not synced). */
+export type MaxWindows = 'auto' | 2 | 3 | 4;
+const MAX_WINDOWS_CHOICES: readonly MaxWindows[] = ['auto', 2, 3, 4];
 const MOTION_CHOICES: readonly MotionSetting[] = ['full', 'reduced', 'off'];
 /** Your countries: off (no effect), put first, or show only these (report 2026-10-20 §2.2). */
 export type RegionMode = 'off' | 'first' | 'only';
@@ -67,6 +70,8 @@ export interface AppSettings {
   matchCategories: string[];
   /** Motion level. Unset: follow the system's reduced-motion preference. On-device only (not synced). */
   motion?: MotionSetting;
+  /** Multiview: the most windows at once (spec 2026-10-20-multiview §5.2). On-device only (not synced). */
+  maxWindows: MaxWindows;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -90,6 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pinnedCompetitions: [],
   hiddenCompetitions: [],
   matchCategories: [],
+  maxWindows: 'auto',
 };
 
 /** Most entries in `preferredLanguages`. */
@@ -181,6 +187,7 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     hiddenCompetitions: foldedList(src.hiddenCompetitions, HIDDEN_COMPETITIONS_MAX),
     matchCategories: foldedList(src.matchCategories, MATCH_CATEGORIES_MAX),
     ...(MOTION_CHOICES.includes(src.motion as MotionSetting) ? { motion: src.motion as MotionSetting } : {}),
+    maxWindows: MAX_WINDOWS_CHOICES.includes(src.maxWindows as MaxWindows) ? (src.maxWindows as MaxWindows) : DEFAULT_SETTINGS.maxWindows,
   };
 }
 

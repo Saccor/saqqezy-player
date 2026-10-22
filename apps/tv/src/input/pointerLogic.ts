@@ -21,8 +21,10 @@ export const ROW_OPTIONS_PAD = 8;
 const ROW_OPTIONS_GAP = 8;
 
 /** Where a channel row's name, now line and progress bar end (row-local x): 20 px in, or 8 px before the `⋯` pill. */
-export function rowTextEnd(width: number, optionsShown: boolean): number {
-  return optionsShown ? width - ROW_OPTIONS_PAD - ROW_OPTIONS_W - ROW_OPTIONS_GAP : width - 20;
+export function rowTextEnd(width: number, optionsShown: boolean, tagW = 0): number {
+  const end = optionsShown ? width - ROW_OPTIONS_PAD - ROW_OPTIONS_W - ROW_OPTIONS_GAP : width - 20;
+  // A tag at the row end (multiview's "On screen") keeps 16 px from the text.
+  return tagW > 0 ? end - tagW - 16 : end;
 }
 
 // ---- pointer mode ----

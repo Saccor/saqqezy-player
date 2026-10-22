@@ -1,7 +1,7 @@
 /** Live TV (UI revamp phase 2): the merged channel guide's pure layout, keys, OK and menu rules. */
 import { keyTableFor, mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
-import { CATCHUP_COPY } from '../../copy.ts';
+import { CATCHUP_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { LAYOUT, TYPE } from '../../shell/theme.ts';
 import { guideOkAction } from '../../vod/catchupLogic.ts';
 import { dayLabel } from '../guideLogic.ts';
@@ -143,16 +143,19 @@ export function sameInfo(a: InfoSource | undefined, b: InfoSource | undefined): 
   return sameProg(ca.now, cb.now);
 }
 
-export type LiveMenuAction = ChannelMenuAction | 'fromStart' | 'goToDay';
+export type LiveMenuAction = ChannelMenuAction | 'fromStart' | 'goToDay' | 'addToMultiview';
 
 /** One menu for Menu / long Ok: the programme's items first, then the channel's (spec phase 2 decisions). */
 export function liveMenuItems(o: {
   channel: { inListId?: string; isHidden: boolean; isFavourite: boolean; lists: readonly ListLite[]; sources?: number };
   fromStart: boolean; goToDay: boolean;
+  /** This device can play 2 or more channels at once: "Add to multiview" (spec 2026-10-20-multiview §2.1). */
+  multiview?: boolean;
 }): { action: LiveMenuAction; label: string }[] {
   return [
     ...(o.fromStart ? [{ action: 'fromStart' as const, label: CATCHUP_COPY.fromStart }] : []),
     ...(o.goToDay ? [{ action: 'goToDay' as const, label: CATCHUP_COPY.goToDay }] : []),
+    ...(o.multiview ? [{ action: 'addToMultiview' as const, label: MULTIVIEW_COPY.addToMultiview }] : []),
     ...buildChannelMenu(o.channel),
   ];
 }
