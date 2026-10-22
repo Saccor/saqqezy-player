@@ -63,12 +63,22 @@ export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: Cata
 }
 
 export async function readCatalog(db: IDBDatabase, sourceId: string, kind: CatalogKind, codec: ChunkCodec): Promise<{ rows: Record<string, unknown>[]; extra: unknown } | undefined> {
-  const head = (await req(db.transaction('catalogs').objectStore('catalogs').get([sourceId, kind]))) as Head | undefined;
+  // The head and its chunks come from ONE transaction, so a concurrent write cannot swap generations in between. The
+  // chunk read is issued from the head request's callback, with no await in between, so the transaction stays active.
+  const { head, recs } = await new Promise<{ head: Head | undefined; recs: ChunkRecord[] }>((resolve, reject) => {
+    const tx = db.transaction(['catalogs', 'chunks'], 'readonly');
+    const headReq = tx.objectStore('catalogs').get([sourceId, kind]);
+    headReq.onsuccess = () => {
+      const h = headReq.result as Head | undefined;
+      if (!h || h.chunks === 0) { resolve({ head: h, recs: [] }); return; }
+      const chunkReq = tx.objectStore('chunks').getAll(IDBKeyRange.bound([sourceId, kind, h.gen, 0], [sourceId, kind, h.gen, h.chunks - 1]));
+      chunkReq.onsuccess = () => resolve({ head: h, recs: chunkReq.result as ChunkRecord[] });
+    };
+    tx.onerror = () => reject(tx.error ?? new DOMException('Catalogue read failed.', 'UnknownError'));
+    tx.onabort = () => reject(tx.error ?? new DOMException('Catalogue read aborted.', 'AbortError'));
+  });
   if (!head) return undefined;
-  const recs = head.chunks === 0
-    ? []
-    : ((await req(db.transaction('chunks').objectStore('chunks').getAll(IDBKeyRange.bound([sourceId, kind, head.gen, 0], [sourceId, kind, head.gen, head.chunks - 1])))) as ChunkRecord[]);
-  // A head whose chunks are not all there (an interrupted cleanup) reads as missing: the caller fetches again.
+  // Only a truly incomplete store (chunks missing from disk) reads as missing: the caller fetches again.
   if (recs.length !== head.chunks) return undefined;
   const rows: Record<string, unknown>[] = [];
   for (const rec of recs) {
@@ -78,7 +88,7 @@ export async function readCatalog(db: IDBDatabase, sourceId: string, kind: Catal
   return { rows, extra };
 }
 
-export async function deleteCatalogs(tx: IDBTransaction, sourceId: string): Promise<void> {
+export function deleteCatalogs(tx: IDBTransaction, sourceId: string): void {
   tx.objectStore('catalogs').delete(IDBKeyRange.bound([sourceId], [sourceId, []]));
   tx.objectStore('chunks').delete(IDBKeyRange.bound([sourceId], [sourceId, []]));
 }

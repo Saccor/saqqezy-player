@@ -161,7 +161,7 @@ export class IdbStorage implements Storage {
     tx.objectStore('vod').delete(sourceRange);
     tx.objectStore('vodUser').delete(sourceRange);
     tx.objectStore('syncMeta').delete(sourceRange);
-    void deleteCatalogs(tx, id);
+    deleteCatalogs(tx, id);
     this.deleteProgrammesIn(tx, id);
     await done(tx);
   }

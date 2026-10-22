@@ -76,6 +76,45 @@ describe('chunked catalogues', () => {
     expect(await rawCount(factory, 'chunks')).toBe(2);
   });
 
+  test('a write whose transaction aborts asynchronously (quota) rejects and leaves the old catalogue and no new chunks', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory, 'iptv', 2000, { chunkRows: 100 });
+    await s.replaceVod('s1', 'movie', movies(150));
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      const r = put.call(this, value, key);
+      if (this.name === 'chunks' && (value as { gen?: number; n?: number }).gen === 2 && (value as { n?: number }).n === 1) this.transaction.abort();
+      return r;
+    });
+    const err = await s.replaceVod('s1', 'movie', movies(300)).then(() => undefined, (e: unknown) => e);
+    vi.restoreAllMocks();
+    expect(err).toBeDefined();
+    expect(['QuotaExceededError', 'AbortError']).toContain((err as { name: string }).name);
+    expect((await s.getVod('s1', 'movie'))!.items).toHaveLength(150);
+    expect(await rawCount(factory, 'chunks')).toBe(2);
+  });
+
+  test('a read that overlaps a replace of the same key never sees an empty list', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory, 'iptv', 2000, { chunkRows: 100 });
+    const old = Array.from({ length: 250 }, (_, i) => chan(i + 1));
+    const next = Array.from({ length: 120 }, (_, i) => chan(i + 1000));
+    await s.replaceChannels('s1', old);
+    const get = IDBObjectStore.prototype.get;
+    let armed = true;
+    let replace: Promise<void> | undefined;
+    vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, key: IDBValidKey | IDBKeyRange) {
+      const r = get.call(this, key);
+      if (armed && this.name === 'catalogs') { armed = false; replace = s.replaceChannels('s1', next); }
+      return r;
+    });
+    const read = await s.getChannels('s1');
+    vi.restoreAllMocks();
+    await replace;
+    expect([250, 120]).toContain(read.length);
+    expect(read).toEqual(read.length === 250 ? old : next);
+  });
+
   test('an empty catalogue is stored and read back', async () => {
     const s = new IdbStorage(new IDBFactory());
     await s.replaceChannels('s1', []);
