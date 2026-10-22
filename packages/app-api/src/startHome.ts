@@ -2,7 +2,7 @@
 import type { ChannelRow, SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
 
 export const START_TITLES: Record<StartRowId, string> = {
-  continue: 'Continue watching', live: 'On now on your channels', sports: 'Matches in your guide',
+  continue: 'Continue watching', live: 'On now', sports: 'Matches',
   trendingMovies: 'Trending movies', trendingSeries: 'Trending series',
   newLibrary: 'New in your library',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',

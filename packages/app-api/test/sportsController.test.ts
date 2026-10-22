@@ -224,6 +224,22 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(f.all.map((t) => t.title)).toEqual(['Lakeshore v Pinecrest']);
   });
 
+  test('competitions per category: the guide prefix names the competition; pinned first, hidden out', async () => {
+    const progs: P[] = [
+      { key: 'k0', title: 'Test Cup: Northbridge FC v Eastport', cats: ['Football'] },
+      { key: 'k1', title: 'Test Cup: Lakeshore v Pinecrest', cats: ['Football'], startMin: 30 },
+      { key: 'k2', title: 'Northern Cup: Harbour City v Kingsgate', cats: ['Football'], startMin: 60 },
+      { key: 'k3', title: 'Northern Cup: Westvale v Southmere', cats: ['Football'], startMin: 90 },
+      { key: 'k4', title: 'Ice Series: Rivermouth v Kingsbay', cats: ['Ice Hockey'], startMin: 20 },
+      { key: 'k5', title: 'Ice Series: Greenford v Oakridge', cats: ['Ice Hockey'], startMin: 40 },
+    ];
+    const r = await tiles(v2(progs), new ChannelIndex(channels(6)));
+    expect(r.sc.competitions(r.view, 'football', [], []).chips.map((c) => c.label).sort()).toEqual(['Northern Cup', 'Test Cup']);
+    expect(r.sc.competitions(r.view, 'ice hockey', [], []).chips.map((c) => c.label)).toEqual(['Ice Series']);
+    const pinned = r.sc.competitions(r.view, 'football', ['northern cup'], ['test cup']);
+    expect(pinned.chips).toEqual([{ id: 'northern cup', label: 'Northern Cup', pinned: true }]);
+  });
+
   test('a small match on one key stays in See all; on a chosen-country or single-country guide it shows (fixture 12)', async () => {
     const big = (n: number, title: string, startMin: number): P[] => Array.from({ length: n }, (_, k) => ({ key: `k${k}`, title, cats: ['Football'], startMin }));
     const progs: P[] = [

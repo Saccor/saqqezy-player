@@ -393,9 +393,11 @@ export interface SportsEventTile {
   /** On air now (started at most 3 h ago); v2 guide records. */
   onAir?: boolean;
 }
-/** Matches in your guide: chips from the user's own guide; `id` is the folded text a setting stores. */
-export interface MatchFilterChip { id: string; label: string }
+/** Matches in your guide: chips from the user's own guide; `id` is the folded text a setting stores. `pinned`: put first. */
+export interface MatchFilterChip { id: string; label: string; pinned?: true }
 export interface MatchFilterChips { competitions: MatchFilterChip[]; categories: MatchFilterChip[] }
+/** View all's second chip row: one category's competitions (the first 8), the rest behind More…. */
+export interface MatchCompetitionChips { chips: MatchFilterChip[]; more: MatchFilterChip[] }
 
 export type StartRowId =
   | 'continue' | 'live' | 'sports' | 'trendingMovies' | 'trendingSeries' | 'newLibrary' | 'topMovies' | 'topSeries';

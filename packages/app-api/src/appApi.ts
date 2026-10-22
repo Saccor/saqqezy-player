@@ -26,7 +26,7 @@ import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips,
+  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
@@ -625,6 +625,14 @@ export class AppApi {
   /** The chips of Matches in your guide: competitions and categories as the user's guide writes them. */
   getMatchFilters(): Promise<MatchFilterChips> {
     return this.run('getMatchFilters', async () => this.sports.filters(await this.sportsView()));
+  }
+
+  /** View all's second chip row: the competitions of one guide category, pinned first, hidden ones left out. */
+  getMatchCompetitions(category: string): Promise<MatchCompetitionChips> {
+    return this.run('getMatchCompetitions', async () => {
+      const st = await this.currentSettings();
+      return this.sports.competitions(await this.sportsView(), category, st.pinnedCompetitions, st.hiddenCompetitions);
+    });
   }
 
   getEventChannels(key: string): Promise<ChannelRow[]> {
@@ -2601,7 +2609,7 @@ export const APP_API_METHODS = [
   'init', 'listSources', 'getSource', 'addSource', 'updateSource', 'deleteSource', 'setActiveSource', 'refresh',
   'retrySource', 'reportStreamRefused', 'reportStreamAnswered', 'networkOnline',
   'getGroups', 'getChannelSlice', 'indexOf', 'getPlayable', 'neighbour', 'byNumber', 'getEpgRows', 'search',
-  'getSportsEvents', 'getMatchFilters', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
+  'getSportsEvents', 'getMatchFilters', 'getMatchCompetitions', 'getEventChannels', 'getStartHome', 'getStartHomeCached', 'getCatchupPlayable', 'refineArchive', 'catchupDays', 'setCatchupOffset',
   'getLayout', 'getActiveLayout', 'applyLayoutOps', 'listLists', 'channelLists', 'hiddenGroups', 'providerGroups', 'getCompanionState', 'guideStatus',
   'getRegions', 'setRegions', 'setGroupVisibility', 'setGroupRegion', 'getVodRegions', 'applyVodLayoutOps',
   'toggleFavourite', 'toggleHidden', 'hiddenChannels', 'markWatched', 'liveSources', 'pickLiveSource', 'reportSourceFailed',
