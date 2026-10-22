@@ -2393,7 +2393,7 @@ describe('PlaybackSupervisor: roles', () => {
 });
 
 describe('PlaybackSupervisor: ledger drops', () => {
-  it('a stream that fails reports the drop to the ledger with its code; a stop does not', () => {
+  it('a stream that fails reports the drop to the ledger with its code; a stop reports a close, not a drop', () => {
     const ledger = new ConnectionLedger({ now: () => Date.now() });
     const kinds: string[] = [];
     ledger.onEvent((e) => { kinds.push(e.k === 'dropped' ? `dropped:${e.code}` : e.k); });
@@ -2403,7 +2403,7 @@ describe('PlaybackSupervisor: ledger drops', () => {
     player.emit('error', { code: 'EOS' });
     vi.advanceTimersByTime(1000);
     sup.stop();
-    expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin']);
+    expect(kinds).toEqual(['begin', 'playing', 'dropped:EOS', 'begin', 'closed']);
   });
 });
 

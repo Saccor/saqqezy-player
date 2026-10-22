@@ -1,13 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { LedgerEvent } from '@iptv/player';
 import { applyCutResponse, createDisplacementDetector, type DisplacementVerdict } from './displacement.ts';
 
 const host = 'a.example.test';
-// `session` defaults to the label: one stream per label unless a test says otherwise.
-const begin = (tile: number, at: number, session = tile): LedgerEvent => ({ k: 'begin', key: 's', host, tile, at, session });
-const playing = (tile: number, at: number, session = tile): LedgerEvent => ({ k: 'playing', key: 's', host, tile, at, session });
-const dropped = (tile: number, at: number, playedMs: number, code = 'EOS', session = tile): LedgerEvent =>
+// As the ledger does: every `begin` is a fresh session, and a label's other events default to its latest one.
+let serial = 0;
+const latest = new Map<number, number>();
+beforeEach(() => latest.clear());
+const sessionOf = (tile: number) => latest.get(tile) ?? tile;
+const begin = (tile: number, at: number, session = ++serial + 1000): LedgerEvent => {
+  latest.set(tile, session);
+  return { k: 'begin', key: 's', host, tile, at, session };
+};
+const playing = (tile: number, at: number, session = sessionOf(tile)): LedgerEvent => ({ k: 'playing', key: 's', host, tile, at, session });
+const dropped = (tile: number, at: number, playedMs: number, code = 'EOS', session = sessionOf(tile)): LedgerEvent =>
   ({ k: 'dropped', key: 's', host, tile, at, code, playedMs, session });
+const closed = (tile: number, at: number, session = sessionOf(tile)): LedgerEvent => ({ k: 'closed', key: 's', host, tile, at, session });
 
 describe('createDisplacementDetector', () => {
   it('a window that played steadily and drops within 8 s of another opening was displaced', () => {
@@ -101,9 +109,9 @@ describe('createDisplacementDetector', () => {
     expect(begins).toBeLessThanOrEqual(4);
   });
 
-  it('ignores a stream that reuses a label: a label belongs to its latest stream', () => {
-    // Two streams under label 0 (a slot labelled the same as another): the older one's events cannot be told apart
-    // from the newer one's, so they are left out; the newer one is detected as usual.
+  it('ignores a stale drop from an earlier stream under the label: a label belongs to its latest stream', () => {
+    // A zap or reconnect under label 0 began a new stream; a late drop of the earlier one is not the window's own, so
+    // it is left out; the newer one is detected as usual.
     const d = createDisplacementDetector();
     d.feed(begin(0, 0, 10));
     d.feed(playing(0, 1000, 10));
@@ -121,6 +129,68 @@ describe('createDisplacementDetector', () => {
     e.feed(playing(0, 2000, 11));
     e.feed(begin(1, 20_000, 12));
     expect(e.feed(dropped(0, 23_000, 21_000, 'EOS', 11))).toMatchObject({ k: 'displaced', victim: 0, byTile: 1 });
+  });
+
+  it('ignores a late first picture from an earlier stream under the label', () => {
+    // Window 1 zapped to a stream that never shows a picture; its earlier stream's late `playing` is not the window's.
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0, 20));
+    d.feed(playing(0, 1000, 20));
+    d.feed(begin(1, 10_000, 21));
+    d.feed(begin(1, 11_000, 22));
+    d.feed(playing(1, 30_000, 21));
+    expect(d.feed(dropped(0, 50_000, 49_000, 'EOS', 20))).toBeUndefined();
+  });
+
+  it('a stopped window no longer counts as open: leaving multiview does not inflate the next count', () => {
+    // Multiview with windows 0, 1 and 2; leaving stops 1 and 2 (no drop, a normal close). Back in multiview, window 1
+    // opens next to window 0 alone, and the source cuts window 0: one other stream was open, not two.
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0));
+    d.feed(playing(0, 1000));
+    d.feed(begin(1, 60_000));
+    d.feed(begin(2, 61_000));
+    d.feed(closed(1, 90_000));
+    d.feed(closed(2, 90_000));
+    d.feed(begin(1, 200_000));
+    d.feed(playing(1, 201_000));
+    expect(d.feed(dropped(0, 215_000, 214_000))).toMatchObject({ k: 'displaced', victim: 0, byTile: 1, concurrentBefore: 1 });
+  });
+
+  it('a close of an earlier stream under the label leaves the label open', () => {
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0, 30));
+    d.feed(playing(0, 1000, 30));
+    d.feed(begin(1, 10_000, 31));
+    d.feed(begin(1, 11_000, 32)); // a zap: the earlier stream closes after the new one began
+    d.feed(closed(1, 11_500, 31));
+    d.feed(begin(2, 20_000, 33));
+    d.feed(playing(2, 21_000, 33));
+    expect(d.feed(dropped(0, 30_000, 29_000, 'EOS', 30))).toMatchObject({ k: 'displaced', byTile: 2, concurrentBefore: 2 });
+  });
+
+  it('scenario: two windows that reconnect after each drop (a new stream every time) are caught taking turns', () => {
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0));
+    d.feed(begin(1, 1000));
+    expect(d.feed(dropped(0, 5000, 0))).toBeUndefined();
+    d.feed(begin(0, 6000));
+    expect(d.feed(dropped(1, 30_000, 0))).toBeUndefined();
+    d.feed(begin(1, 31_000));
+    expect(d.feed(dropped(0, 60_000, 0))).toEqual({ k: 'pingPong', key: 's', host, stop: 1 });
+  });
+
+  it('scenario: a zap inside one window, then the source cuts the other window', () => {
+    const d = createDisplacementDetector();
+    d.feed(begin(0, 0));
+    d.feed(playing(0, 1000));
+    d.feed(begin(1, 20_000));
+    d.feed(playing(1, 21_000));
+    // Window 1 zaps: its stream closes and a new one begins under the same label.
+    d.feed(closed(1, 30_000));
+    d.feed(begin(1, 30_100));
+    d.feed(playing(1, 31_000));
+    expect(d.feed(dropped(0, 45_000, 44_000))).toEqual({ k: 'displaced', key: 's', host, victim: 0, byTile: 1, afterMs: 14_000, concurrentBefore: 1 });
   });
 });
 

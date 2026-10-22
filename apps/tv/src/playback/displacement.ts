@@ -8,7 +8,8 @@ import type { LedgerEvent } from '@iptv/player';
  * AVPlay shows a cut only once its buffer runs dry plus its 8 s no-progress limit, and an HLS player only at its next
  * playlist reload. Two windows that keep failing alternately (3 drops in 120 s) are a ping-pong: the one that began
  * last stops. A label (the window's slot) belongs to its latest stream: events of an older stream under the
- * same label are ignored, since the windows they would name cannot be told apart.
+ * same label are ignored, since the windows they would name cannot be told apart. A label stopped without a drop
+ * (`closed`) is no longer open.
  */
 export type DisplacementVerdict =
   | { k: 'displaced'; key: string; host: string; victim: number; byTile: number; afterMs: number; concurrentBefore: number }
@@ -58,20 +59,24 @@ export function createDisplacementDetector(opts: DisplacementOptions = {}): { fe
         open.add(e.tile);
         return undefined;
       }
+      // A later stream reused this label: this event is not the window's.
+      if (owner.has(e.tile) && owner.get(e.tile) !== e.session) return undefined;
       if (e.k === 'playing') {
         const b = begins.get(where)?.find((x) => x.tile === e.tile && x.session === e.session);
         if (b) b.pictureAt ??= e.at;
         return undefined;
       }
-      if (e.k !== 'dropped') return undefined;
-      // A later stream reused this label: this drop is not the window's.
-      if (owner.has(e.tile) && owner.get(e.tile) !== e.session) return undefined;
+      // Stopped without a drop: no longer open, so it does not count in a later window's `concurrentBefore`.
+      if (e.k === 'closed') {
+        open.delete(e.tile);
+        return undefined;
+      }
       open.delete(e.tile);
       if (e.playedMs >= steadyMs) {
         // Measured from the other window's first picture, or from its open while it has none yet.
         const from = (b: Begin) => (b.pictureAt !== undefined && b.pictureAt <= e.at ? b.pictureAt : b.at);
         const by = [...(begins.get(where) ?? [])].reverse()
-          .find((b) => b.tile !== e.tile && e.at - from(b) >= 0 && e.at - from(b) < windowMs);
+          .find((b) => b.tile !== e.tile && owner.get(b.tile) === b.session && e.at - from(b) >= 0 && e.at - from(b) < windowMs);
         if (by) {
           return { k: 'displaced', key: e.key, host: e.host, victim: e.tile, byTile: by.tile, afterMs: e.at - from(by), concurrentBefore: by.concurrentBefore };
         }

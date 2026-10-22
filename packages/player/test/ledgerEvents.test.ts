@@ -45,6 +45,23 @@ describe('ConnectionLedger: events and snapshot', () => {
     expect(events.map((e) => [e.k, e.tile, e.session])).toEqual([['begin', 0, 1], ['begin', 0, 2], ['dropped', 0, 1], ['playing', 0, 2]]);
   });
 
+  it('a normal stop reports `closed` once; a stream that dropped reports no `closed`', () => {
+    let t = 0;
+    const l = new ConnectionLedger({ now: () => t });
+    const events: LedgerEvent[] = [];
+    l.onEvent((e) => events.push(e));
+    const a = l.begin('s', A, 0).session;
+    const b = l.begin('s', A, 1).session;
+    t = 500;
+    a.closing();
+    a.closing();
+    a.closed();
+    b.dropped('EOS');
+    b.closing();
+    expect(events.map((e) => [e.k, e.tile, e.session])).toEqual([['begin', 0, 1], ['begin', 1, 2], ['closed', 0, 1], ['dropped', 1, 2]]);
+    expect(events[2]).toEqual({ k: 'closed', key: 's', host: 'a.example.test', tile: 0, at: 500, session: 1 });
+  });
+
   it('snapshot lists the counted sessions of a source', () => {
     let t = 0;
     const l = new ConnectionLedger({ now: () => t });
