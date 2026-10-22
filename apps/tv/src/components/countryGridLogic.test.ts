@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CountryChoice } from '@iptv/app-api';
 import { REGIONS_MAX } from '@iptv/core';
 import {
-  CHIP, CHIP_BOXES, cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridColumns, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
+  CHIP, CHIP_BOXES, DEVICE_CHIP_BOXES, cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridColumns, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
   rowTops, scrollFor, togglePick, type GridRow,
 } from './countryGridLogic.ts';
 
@@ -108,26 +108,33 @@ describe('picks', () => {
 });
 
 describe('chip layout', () => {
-  const boxes = Object.entries(CHIP_BOXES);
   const hit = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-  it('no part overlaps another', () => {
-    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
-      expect(hit(boxes[i]![1], boxes[j]![1]), `${boxes[i]![0]} vs ${boxes[j]![0]}`).toBe(false);
-    }
-  });
-  it('a normal chip (count line at full width, no badge) overlaps nothing; the flag is centred and clear of the pick pill', () => {
-    const wide = { ...CHIP_BOXES.count, w: CHIP_BOXES.name.w };
-    for (const name of ['flag', 'pill', 'name'] as const) expect(hit(wide, CHIP_BOXES[name]), `count vs ${name}`).toBe(false);
+  const variants = { normal: CHIP_BOXES, device: DEVICE_CHIP_BOXES } as const;
+  for (const [label, set] of Object.entries(variants)) {
+    const boxes = Object.entries(set);
+    it(`${label}: no part overlaps another`, () => {
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        expect(hit(boxes[i]![1], boxes[j]![1]), `${boxes[i]![0]} vs ${boxes[j]![0]}`).toBe(false);
+      }
+    });
+    it(`${label}: every part stays inside the chip, clear of the 4 px picked border`, () => {
+      for (const [name, b] of boxes) {
+        expect(b.x, name).toBeGreaterThanOrEqual(4);
+        expect(b.y, name).toBeGreaterThanOrEqual(4);
+        expect(b.x + b.w, name).toBeLessThanOrEqual(CHIP.w - 4);
+        expect(b.y + b.h, name).toBeLessThanOrEqual(CHIP.h - 4);
+      }
+    });
+    it(`${label}: the count line is the full chip width`, () => {
+      expect(set.count.w).toBe(CHIP.w - 2 * 12);
+      expect(set.name.w).toBe(set.count.w);
+    });
+  }
+  it('a normal chip centres the flag left of the pick pill; this TV puts the flag left and the badge under the pill', () => {
     expect(CHIP_BOXES.flag.x + CHIP_BOXES.flag.w / 2).toBe(CHIP.w / 2);
     expect(CHIP_BOXES.pill.x).toBeGreaterThan(CHIP_BOXES.flag.x + CHIP_BOXES.flag.w);
-  });
-  it('every part stays inside the chip, clear of the 4 px picked border', () => {
-    for (const [name, b] of boxes) {
-      expect(b.x, name).toBeGreaterThanOrEqual(4);
-      expect(b.y, name).toBeGreaterThanOrEqual(4);
-      expect(b.x + b.w, name).toBeLessThanOrEqual(CHIP.w - 4);
-      expect(b.y + b.h, name).toBeLessThanOrEqual(CHIP.h - 4);
-    }
+    expect(DEVICE_CHIP_BOXES.device.x).toBeGreaterThanOrEqual(DEVICE_CHIP_BOXES.flag.x + DEVICE_CHIP_BOXES.flag.w);
+    expect(DEVICE_CHIP_BOXES.device.y).toBeGreaterThanOrEqual(DEVICE_CHIP_BOXES.pill.y + DEVICE_CHIP_BOXES.pill.h);
   });
 });

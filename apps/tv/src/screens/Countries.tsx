@@ -12,7 +12,7 @@ import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { settings } from '../state/appState.ts';
 import { languageName } from '../vod/tracks.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
-import { SKIP_PATCH, firstRunFocus, firstRunLanguages, languageLine, preselect } from './countriesLogic.ts';
+import { SKIP_PATCH, belowGridTarget, firstRunFocus, firstRunLanguages, languageLine, preselect, shouldPreselect } from './countriesLogic.ts';
 import { createCountriesModel } from './countriesModel.ts';
 import { saveSetting } from './settings/shared.ts';
 
@@ -57,6 +57,8 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
   const finish = () => {
     if (leaving) return;
     leaving = true;
+    // First run is over: a later one in this app session preselects again.
+    preselected = false;
     router.replace('home');
   };
   const done = () => {
@@ -79,7 +81,7 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
   };
   const aboveButtons = () => { (showLanguages() ? changeNode : gridNode)?.setFocus(); return true; };
   /** Down from the grid always lands on Done; Change stays reachable with Up from Done or Skip. */
-  const belowGrid = () => { doneNode?.setFocus(); return true; };
+  const belowGrid = () => { (belowGridTarget() === 'done' ? doneNode : gridNode)?.setFocus(); return true; };
 
   onMount(() => {
     void (async () => {
@@ -89,7 +91,7 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
       // The worker did not answer within 2 s: never hold up the first run.
       if (!loaded) { finish(); return; }
       // Once per first run: coming back from "Change" must not re-pick a country the person cleared.
-      const pre = preselected ? undefined : preselect(loaded);
+      const pre = shouldPreselect(preselected) ? preselect(loaded) : undefined;
       preselected = true;
       if (pre) {
         model.apply({ codes: pre, mode: 'first' });

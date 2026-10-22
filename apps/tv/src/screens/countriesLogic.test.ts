@@ -4,7 +4,7 @@ import { countryLanguages } from '@iptv/core';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
 import {
-  OTHER_FOLDERS, RESET_PATCH, SKIP_PATCH, applyPatch, createCountrySaver, firstRunFocus, firstRunLanguages, firstRunTarget, hasGrid,
+  OTHER_FOLDERS, RESET_PATCH, SKIP_PATCH, applyPatch, createCountrySaver, belowGridTarget, firstRunFocus, firstRunLanguages, shouldPreselect, firstRunTarget, hasGrid,
   languageLine, loadApplies, loadChoices, notices, otherFoldersLabel, otherFoldersOf, otherFoldersPatch, pickPatch, preselect,
 } from './countriesLogic.ts';
 
@@ -177,5 +177,13 @@ describe('first run', () => {
     const name = (c: string) => ({ sv: 'Swedish' } as Record<string, string>)[c];
     expect(languageLine(['sv', 'en'], name)).toBe('Audio and subtitles: Swedish first');
     expect(languageLine([], name)).toBeUndefined();
+  });
+});
+
+describe('first run preselect and focus helpers', () => {
+  it('preselects only until it has run once; Down from the grid is always Done', () => {
+    expect(shouldPreselect(false)).toBe(true);
+    expect(shouldPreselect(true)).toBe(false);
+    expect(belowGridTarget()).toBe('done');
   });
 });

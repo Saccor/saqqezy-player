@@ -209,9 +209,10 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     restoreFocus(before);
   };
 
-  const load = async () => {
+  /** `withCats` false re-reads only the home (the stuck-loading poll). */
+  const load = async (withCats = true) => {
     const g = ++gen;
-    void loadCats(g);
+    if (withCats) void loadCats(g);
     const before = { status: status(), hasRows: rows().length > 0, hasHeader: hasHeader() };
     let h: VodHome | undefined;
     try {
@@ -476,9 +477,16 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
   const status = () => home()?.status;
   // A first load that never reports back (a lost `vodRefreshed`) must not strand the screen on "Loading…".
+  // Driven by a memo so a home update that keeps the status does not restart the interval; one request at a time.
+  const homeStatus = createMemo(() => home()?.status);
   createEffect(() => {
-    if (!homePollNeeded(status())) return;
-    const timer = setInterval(() => { void load(); }, HOME_POLL_MS);
+    if (!homePollNeeded(homeStatus())) return;
+    let inFlight = false;
+    const timer = setInterval(() => {
+      if (inFlight) return;
+      inFlight = true;
+      void load(false).finally(() => { inFlight = false; });
+    }, HOME_POLL_MS);
     onCleanup(() => clearInterval(timer));
   });
   const message = () => {

@@ -13,17 +13,26 @@ export const AZ_TOGGLE_AFTER = 24;
 /** One chip at 1080p (spec: at least 240 × 140), and the gap between chips. */
 export const CHIP = { w: 260, h: 164, gap: 24 } as const;
 export interface Box { x: number; y: number; w: number; h: number }
+export type ChipPart = 'flag' | 'pill' | 'device' | 'name' | 'count';
 /**
  * Where each part sits inside a chip. None overlap and all stay inside the chip with a margin for the picked border:
- * the flag centred at the top, the pick pill top right (right of the flag), the name across the middle, then the count
- * with the "This TV" badge at the right end of the same line.
+ * the flag centred at the top, the pick pill top right (right of the flag), then the name and the count across the full
+ * width. This TV's chip has no "This TV" badge here (see `DEVICE_CHIP_BOXES`).
  */
-export const CHIP_BOXES: Record<'flag' | 'pill' | 'device' | 'name' | 'count', Box> = {
+export const CHIP_BOXES: Record<Exclude<ChipPart, 'device'>, Box> = {
   flag: { x: 82, y: 12, w: 96, h: 72 },
   pill: { x: CHIP.w - 72, y: 8, w: 64, h: 36 },
-  device: { x: CHIP.w - 112, y: 124, w: 100, h: 34 },
   name: { x: 12, y: 86, w: CHIP.w - 24, h: 38 },
-  count: { x: 12, y: 124, w: CHIP.w - 24 - 112, h: 34 },
+  count: { x: 12, y: 124, w: CHIP.w - 24, h: 34 },
+};
+/**
+ * This TV's chip: the flag moves to the left and the "This TV" badge sits on its right under the pick pill, so the name
+ * and the count keep the full chip width.
+ */
+export const DEVICE_CHIP_BOXES: Record<ChipPart, Box> = {
+  ...CHIP_BOXES,
+  flag: { x: 16, y: 12, w: 96, h: 72 },
+  device: { x: 152, y: 48, w: 100, h: 36 },
 };
 
 /** Each row's height in the grid's scroll space (a chip row: the chip plus 20 px). */

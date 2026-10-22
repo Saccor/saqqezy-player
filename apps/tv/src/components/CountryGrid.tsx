@@ -7,7 +7,7 @@ import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
 import { COLORS, FOCUS, LAYOUT, MOTION, STRONG, TYPE } from '../shell/theme.ts';
 import { FocusRing } from './FocusRing.tsx';
 import {
-  CHIP, CHIP_BOXES, ROW_PITCH, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
+  CHIP, ROW_PITCH, DEVICE_CHIP_BOXES, CHIP_BOXES, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
   rowTops, scrollFor, type ChipArt, type GridEdge, type GridFocus, type GridSort,
 } from './countryGridLogic.ts';
 
@@ -30,7 +30,6 @@ export interface CountryGridProps {
 
 const NAME_SIZE = 32;
 const COUNT_SIZE = 28;
-const BOX = CHIP_BOXES;
 
 function Chip(p: {
   choice: CountryChoice; x: number; y: number; lit: boolean; hover: boolean; number: number | undefined; device: boolean;
@@ -39,8 +38,8 @@ function Chip(p: {
   let node: ElementNode | undefined;
   useFocusScale(() => node, () => p.lit);
   const picked = () => p.number !== undefined;
-  /** The count line is shared with the "This TV" badge only on this TV's chip; otherwise it is centred across the chip. */
-  const countW = () => (p.device ? BOX.count.w : BOX.name.w);
+  /** This TV's chip moves the flag left and puts the "This TV" badge beside it; name and count stay full width. */
+  const box = () => (p.device ? DEVICE_CHIP_BOXES : CHIP_BOXES);
   return (
     <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
       <FocusRing w={CHIP.w} h={CHIP.h} radius={LAYOUT.radius} lit={p.lit} hover={p.hover} />
@@ -48,26 +47,26 @@ function Chip(p: {
         color={picked() ? COLORS.surfaceRaised : COLORS.surface}
         border={picked() ? { width: 4, color: COLORS.accent } : { width: 0, color: COLORS.transparent }}>
         <Show when={'src' in p.art ? p.art.src : undefined} fallback={
-          <View x={BOX.flag.x} y={BOX.flag.y} width={BOX.flag.w} height={BOX.flag.h} borderRadius={LAYOUT.radius} color={COLORS.badge}>
-            <Text y={(BOX.flag.h - TYPE.body) / 2 - 4} width={BOX.flag.w} maxWidth={BOX.flag.w} contain="width" textAlign="center"
+          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={LAYOUT.radius} color={COLORS.badge}>
+            <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
               fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
           </View>
-        }>{(src) => <View x={BOX.flag.x} y={BOX.flag.y} width={BOX.flag.w} height={BOX.flag.h} src={src()} />}</Show>
-        <Text x={BOX.name.x} y={BOX.name.y} width={BOX.name.w} height={BOX.name.h} maxWidth={BOX.name.w} contain="width" maxLines={1}
+        }>{(src) => <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} src={src()} />}</Show>
+        <Text x={box().name.x} y={box().name.y} width={box().name.w} height={box().name.h} maxWidth={box().name.w} contain="width" maxLines={1}
           textAlign="center" fontSize={NAME_SIZE} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
-        <Text x={BOX.count.x} y={BOX.count.y} width={countW()} height={BOX.count.h} maxWidth={countW()} contain="width"
+        <Text x={box().count.x} y={box().count.y} width={box().count.w} height={box().count.h} maxWidth={box().count.w} contain="width"
           maxLines={1} textAlign="center" fontSize={COUNT_SIZE} color={COLORS.textSecondary}>
           {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
         </Text>
-        <Show when={p.device}>
-          <View x={BOX.device.x} y={BOX.device.y} width={BOX.device.w} height={BOX.device.h} borderRadius={BOX.device.h / 2} color={COLORS.badge}>
-            <Text y={(BOX.device.h - TYPE.meta) / 2 - 3} width={BOX.device.w} maxWidth={BOX.device.w} contain="width" textAlign="center"
+        <Show when={p.device ? DEVICE_CHIP_BOXES.device : undefined}>{(d) => (
+          <View x={d().x} y={d().y} width={d().w} height={d().h} borderRadius={d().h / 2} color={COLORS.badge}>
+            <Text y={(d().h - TYPE.meta) / 2 - 3} width={d().w} maxWidth={d().w} contain="width" textAlign="center"
               fontSize={TYPE.meta} color={COLORS.text}>{COUNTRIES_COPY.thisTv}</Text>
           </View>
-        </Show>
+        )}</Show>
         <Show when={p.number}>{(n) => (
-          <View x={BOX.pill.x} y={BOX.pill.y} width={BOX.pill.w} height={BOX.pill.h} borderRadius={BOX.pill.h / 2} color={COLORS.accent}>
-            <Text y={(BOX.pill.h - TYPE.meta) / 2 - 3} width={BOX.pill.w} maxWidth={BOX.pill.w} contain="width" textAlign="center"
+          <View x={box().pill.x} y={box().pill.y} width={box().pill.w} height={box().pill.h} borderRadius={box().pill.h / 2} color={COLORS.accent}>
+            <Text y={(box().pill.h - TYPE.meta) / 2 - 3} width={box().pill.w} maxWidth={box().pill.w} contain="width" textAlign="center"
               fontSize={TYPE.meta} {...STRONG} color={COLORS.onFocus}>{`✓ ${n()}`}</Text>
           </View>
         )}</Show>
