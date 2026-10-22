@@ -49,7 +49,7 @@ async function setup() {
     settings: async () => settings, locale: () => 'en-US',
   });
   c.reset(id);
-  return { c, id, events };
+  return { c, id, events, vod };
 }
 const catIds = async (c: VodController) => (await c.categories('movie')).map((x) => x.id).filter((x) => !x.startsWith('vod:') && x !== VOD_ALL);
 
@@ -117,6 +117,25 @@ describe('VodController categories: your countries', () => {
     expect(c.residentKind()).toBeUndefined();
     expect(c.regionSummaries()).toEqual([{ kind: 'movie', keys: [['SE'], ['lang:en']] }]);
     c.reset('another-source');
+    expect(c.regionSummaries()).toEqual([]);
+  });
+
+  test("a reset between the config and a stored read leaves the old source's keys out of the summaries", async () => {
+    const { c, vod } = await setup();
+    const real = vod.storedCatalog.bind(vod);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let first = true;
+    vod.storedCatalog = (async (...a: Parameters<typeof real>) => {
+      if (first) { first = false; await gate; }
+      return real(...a);
+    }) as typeof real;
+    const stale = c.categories('movie');
+    await new Promise((r) => setTimeout(r, 20));
+    c.reset('another-source');
+    await c.categories('movie');
+    release();
+    await stale;
     expect(c.regionSummaries()).toEqual([]);
   });
 

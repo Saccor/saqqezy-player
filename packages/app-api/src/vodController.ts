@@ -808,8 +808,9 @@ export class VodController {
     // Drop the other kind before loading, so two catalogues are never resident together.
     this.resident = undefined;
     const epoch = this.epoch;
+    const sourceEpoch = this.sourceEpoch;
     const p = this.config().then(() => this.vod.storedCatalog(id, kind)).then((stored) => {
-      const catalog = stored && this.shape(stored);
+      const catalog = stored && this.shape(stored, sourceEpoch);
       if (catalog && this.epoch === epoch && this.loading?.p === p) this.resident = { kind, catalog };
       // A finished fetch may have installed a fresher list meanwhile: callers get that, not this older read.
       return this.epoch === epoch && this.resident?.kind === kind ? this.resident.catalog : catalog;
@@ -999,9 +1000,10 @@ export class VodController {
 
   /**
    * The catalogue as the settings show it: combined into titles or one card per item, provider categories (or merged
-   * across languages when asked), seen through the user's category layout and the region rule.
+   * across languages when asked), seen through the user's category layout and the region rule. `readEpoch`: the
+   * `sourceEpoch` the catalogue was read under; after a reset it belongs to the old source and leaves `summaries` alone.
    */
-  private shape(catalog: VodCatalog): VodCatalog {
+  private shape(catalog: VodCatalog, readEpoch = this.sourceEpoch): VodCatalog {
     const cfg = this.cfg;
     if (!cfg || cfg.sourceEpoch !== this.sourceEpoch) return catalog;
     // Merging categories is part of combining (it needs the title groups); with one card per item it does nothing.
@@ -1013,6 +1015,7 @@ export class VodController {
     };
     const plainLayout = cfg.layouts[catalog.kind];
     const view = vodCategoryView(shaped.categories(), plainLayout, regions);
+    if (readEpoch !== this.sourceEpoch) return shaped.withView(view);
     if (regions) {
       const userHidden = new Set(plainLayout.hiddenCategories);
       const keys: (readonly string[])[] = [];
