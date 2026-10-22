@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATCHUP_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
+import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
   it('is lowercase "favourites" everywhere, and the failure toast is one sentence', () => {
@@ -66,5 +66,41 @@ describe('multiview copy', () => {
     expect(MULTIVIEW_COPY.kicked(2)).toBe('Your source seems to allow 2 streams at once.');
     expect(MULTIVIEW_COPY.device(2)).toBe('This device can play 2 at once.');
     expect(MULTIVIEW_COPY.setting(2)).toBe('Max windows is set to 2 in Settings.');
+  });
+});
+
+describe('Your countries copy', () => {
+  const BANNED = /\b(free|premium|vip|cancel|subscription|provider|seller|reseller|sports? league|ppv)\b/i;
+  const all = (): string[] => {
+    const out: string[] = [];
+    for (const v of Object.values(COUNTRIES_COPY)) if (typeof v === 'string') out.push(v);
+    out.push(COUNTRIES_COPY.otherCountries(40), COUNTRIES_COPY.countries(41), COUNTRIES_COPY.showing(2), COUNTRIES_COPY.firstSub(41),
+      COUNTRIES_COPY.languageLine('Swedish'), COUNTRIES_COPY.folders(24));
+    return out;
+  };
+
+  it('is neutral', () => {
+    for (const s of all()) expect(s, s).not.toMatch(BANNED);
+  });
+
+  it('matches the spec word for word', () => {
+    expect(COUNTRIES_COPY.page).toBe('Your countries');
+    expect(COUNTRIES_COPY.help).toBe('Pick the countries you watch. Their folders go to the top, right under Favourites. Nothing is removed.');
+    expect(COUNTRIES_COPY.cap).toBe('You can pick up to 10 countries.');
+    expect(COUNTRIES_COPY.stale).toBe('None of your countries are in this playlist right now. Showing all folders.');
+    expect(COUNTRIES_COPY.combineOff).toBe('Movie and series categories now stay per country.');
+    expect(COUNTRIES_COPY.combineOn).toBe('Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.');
+    expect(COUNTRIES_COPY.none).toBe("Your playlist doesn't sort its folders by country.");
+    expect(COUNTRIES_COPY.loadError).toBe("Couldn't load your countries · Try again");
+    expect(COUNTRIES_COPY.otherCountries(40)).toBe('Other countries (40)');
+    expect(COUNTRIES_COPY.countries(41)).toBe('Countries (41)');
+    expect(COUNTRIES_COPY.showing(2)).toBe('Showing 2 countries · Change');
+    expect(COUNTRIES_COPY.showing(1)).toBe('Showing 1 country · Change');
+    expect(COUNTRIES_COPY.firstSub(41)).toBe('We found folders for 41 countries in your playlist. Pick one or more.');
+    expect(COUNTRIES_COPY.firstFoot).toBe('You can change this later in Settings › Your countries.');
+    expect(COUNTRIES_COPY.languageLine('Swedish')).toBe('Audio and subtitles: Swedish first');
+    expect(COUNTRIES_COPY.folders(1)).toBe('1 folder');
+    expect(COUNTRIES_COPY.folders(31)).toBe('31 folders');
+    expect(COUNTRIES_COPY.choose).toBe('Choose your countries…');
   });
 });
