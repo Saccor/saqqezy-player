@@ -14,6 +14,8 @@ export interface TizenLike {
 /** The part of the `webapis` global this app uses. */
 export interface WebapisLike {
   avplay?: AvplayLike & { getVersion?(): string };
+  /** Extra AVPlay instances (up to 4); multiview windows use them. */
+  avplaystore?: { getPlayer(): AvplayLike };
   productinfo?: { isUdPanelSupported?(): boolean; is8KPanelSupported?(): boolean };
   avinfo?: { isHdrTvSupport?(): boolean };
   appcommon?: {
@@ -76,6 +78,30 @@ export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
   return g.webapis?.avplay;
 }
 
+/** An AVPlay that plays nothing: every open throws `NotSupportedError`, which the window shows as its failure. */
+function unavailableAvplay(): AvplayLike {
+  const none = () => {};
+  return {
+    open: () => { throw Object.assign(new Error('No AVPlay instance'), { name: 'NotSupportedError' }); },
+    close: none, prepareAsync: none, play: none, stop: none, setListener: none, setDisplayRect: none, setDisplayMethod: none,
+    getCurrentTime: () => 0, getTotalTrackInfo: () => [], setSelectTrack: none, getCurrentStreamInfo: () => [],
+  };
+}
+
+/**
+ * A new AVPlay instance for a multiview window (`webapis.avplaystore.getPlayer()`). The store throws past 4 instances
+ * or when memory is short: that window then gets a player whose opens fail. Never throws.
+ */
+export function getAvplayStorePlayer(g: TizenGlobals = globals()): AvplayLike {
+  try {
+    const p = g.webapis?.avplaystore?.getPlayer();
+    if (p) return p;
+  } catch {
+    // QUOTA_EXCEEDED_ERR or no store
+  }
+  return unavailableAvplay();
+}
+
 /**
  * What the panel can show, read once and synchronously: UHD, 8K, HDR TV and the AVPlay version. Every call is
  * feature-detected and tried on its own; a boolean is true only when the call returned `true`, so a missing API,
@@ -126,10 +152,13 @@ export function setScreenSaver(state: 'on' | 'off', g: TizenGlobals = globals())
 /**
  * Prepares `#video-layer` for AVPlay: AVPlay draws on a video plane *beneath* the whole page, so the page must be
  * transparent where video shows (the Lightning canvas already is) and the document needs one
- * `<object type="application/avplayer">`. Html, body and the layer lose their opaque backgrounds; screens draw
+ * `<object type="application/avplayer">` (one for every player). Html, body and the layer lose their opaque backgrounds; screens draw
  * their own.
  */
 export function mountAvplayObject(root: HTMLElement, doc: Document = document): HTMLElement {
+  // Slot 0 is made again after multiview freed it: every AVPlay player shares the one object.
+  const existing = root.querySelector<HTMLElement>('object[type="application/avplayer"]');
+  if (existing) return existing;
   const obj = doc.createElement('object');
   obj.setAttribute('type', 'application/avplayer');
   Object.assign(obj.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%' });

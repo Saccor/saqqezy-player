@@ -4,8 +4,12 @@ import {
 } from '@iptv/player';
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
-import { AVPLAY_DISPLAY_SPACE, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver } from '../platform/tizen.ts';
-import { AvplayPlayer } from '../video/AvplayPlayer.ts';
+import {
+  AVPLAY_DISPLAY_SPACE, getAvplay, getAvplayStorePlayer, mountAvplayObject, readPanelCaps, setScreenSaver,
+} from '../platform/tizen.ts';
+import { createSharedSaver } from '../platform/screenSaverGuard.ts';
+import { createVideoResources, tizenWindowCeiling, type TizenMultiviewGlobals } from '../platform/tizenMultiview.ts';
+import { AvplayPlayer, type AvplayLike } from '../video/AvplayPlayer.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
 import { Html5Player, type EngineOverrides } from '../video/Html5Player.ts';
 import { createSlotRoot, createVideoLayer } from '../video/videoLayer.ts';
@@ -30,7 +34,8 @@ import { onBackOnline } from '../state/backOnline.ts';
  * The app's playback: a pool of stacks (video layer, player, `PlaybackSupervisor`, controller). Outside multiview one
  * stack plays: the Home preview and the fullscreen Player share it, so going fullscreen is just a rect change.
  * On Tizen (with `webapis.avplay` available) the player is `AvplayPlayer` on Samsung's video plane; everywhere
- * else it is `Html5Player` on a `<video>`.
+ * else it is `Html5Player` on a `<video>`. Tizen 7.0+ gets two windows: slot 0 on `webapis.avplay`, the other on an
+ * `avplaystore` instance, sharing the MAIN and SUB scalers (spec 2026-10-22-tizen-multiview).
  */
 const videoRoot = document.getElementById('video-layer');
 if (!videoRoot) throw new Error('index.html is missing #video-layer');
@@ -42,7 +47,7 @@ export interface AppPlayer extends Player {
   unmuteIfAutoMuted?(): void;
   /** HTML5 only: the app's volume, 0..1. */
   setVolume?(level: number): void;
-  /** HTML5 only (multiview): mutes this window while another has the sound. */
+  /** Multiview: mutes this window while another has the sound (HTML5, and AVPlay through its audio stream). */
   setMuted?(muted: boolean): void;
   /** HTML5 only (multiview): a window's engine profile from its next live open; undefined clears it. */
   setEngineOverrides?(o: EngineOverrides | undefined): void;
@@ -50,22 +55,33 @@ export interface AppPlayer extends Player {
 
 const isTv = isTvPlatform(platformId);
 const avplay = platformId === 'tizen' ? getAvplay() : undefined;
+/** Tizen: 2 when the TV has two scalers and per-player audio, else 1 (no multiview). */
+const tizenWindows = avplay ? tizenWindowCeiling(globalThis as TizenMultiviewGlobals, navigator.userAgent).windows : 1;
+/** The scalers every AVPlay player claims from (Tizen multiview only; single-view TVs set nothing new). */
+const videoResources = tizenWindows > 1 ? createVideoResources() : undefined;
+/** One screensaver for every AVPlay player: off while any of them shows a picture full screen. */
+const sharedSaver = createSharedSaver((s) => { setScreenSaver(s); });
+const panelCaps = avplay ? readPanelCaps() : undefined;
+// The app is going away: hand the screensaver back to the TV.
+if (avplay) window.addEventListener('pagehide', () => { setScreenSaver('on'); });
+
+function createAvplayPlayer(av: AvplayLike): AvplayPlayer {
+  // `journal` and `multiviewOpen` are read when used, after this module has finished loading.
+  const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
+  return new AvplayPlayer(av, {
+    displaySpace: AVPLAY_DISPLAY_SPACE,
+    note,
+    screenSaver: sharedSaver.member(),
+    ...(panelCaps ? { panel: panelCaps } : {}),
+    ...(videoResources ? { resources: videoResources, coversScreen: () => multiviewOpen() } : {}),
+  });
+}
 
 function createStack(root: HTMLElement): { player: AppPlayer; layer: { relayout(): void; destroy?(): void } } {
   if (avplay) {
     mountAvplayObject(root);
     // AVPlay works in design space, so a window resize needs no relayout.
-    // `journal` is read at open time, after this module has finished loading.
-    const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
-    const player = new AvplayPlayer(avplay, {
-      displaySpace: AVPLAY_DISPLAY_SPACE,
-      note,
-      screenSaver: (s) => { setScreenSaver(s); },
-      panel: readPanelCaps(),
-    });
-    // The app is going away: hand the screensaver back to the TV.
-    window.addEventListener('pagehide', () => { setScreenSaver('on'); });
-    return { player, layer: { relayout: () => {} } };
+    return { player: createAvplayPlayer(avplay), layer: { relayout: () => {} } };
   }
   const layer = createVideoLayer(root);
   // Native HLS only on TVs. Desktop Chrome reports native HLS too, but its built-in player cannot decode HEVC in
@@ -238,8 +254,12 @@ function createMainSlot(): PlaybackSlot {
   });
 }
 
-/** A multiview window's slot (desktop only): its own `<video>` root right after `#video-layer`. */
+/** A multiview window's slot: on Tizen an `avplaystore` instance on the shared plane, else its own `<video>`. */
 function createWindowSlot(n: number): PlaybackSlot {
+  if (avplay) {
+    const windowPlayer = createAvplayPlayer(getAvplayStorePlayer());
+    return buildSlot(n, windowPlayer, { relayout: () => {} }, 'AVPlay', () => { windowPlayer.destroy(); });
+  }
   const root = createSlotRoot(videoRoot!, n);
   const layer = createVideoLayer(root);
   const windowPlayer = new Html5Player(layer, { preferNativeHls: isTv, isTv });
@@ -251,12 +271,12 @@ function createWindowSlot(n: number): PlaybackSlot {
 }
 
 /**
- * Every playback slot. TVs keep one video until the P4 spike, so only desktop may have windows. The first slot 0 is
+ * Every playback slot. Desktop may have 6 windows, Tizen 7.0+ 2 (two scalers); other TVs keep one video. The first slot 0 is
  * never disposed while it is primary; it is built with `dispose` so multiview can free it when another window keeps
  * the sound.
  */
 export const pool: PlaybackPool<PlaybackSlot> = createPlaybackPool<PlaybackSlot>(
-  createMainSlot(), (n) => (n === 0 ? createMainSlot() : createWindowSlot(n)), isTv || avplay ? 1 : 6,
+  createMainSlot(), (n) => (n === 0 ? createMainSlot() : createWindowSlot(n)), avplay ? tizenWindows : isTv ? 1 : 6,
 );
 pool.onPrimary((n, prev) => {
   setPrimaryIndex(n);
