@@ -31,14 +31,14 @@ import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache } from '../epgCache.ts';
 import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
-  guideWindow, isOnAir, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
+  guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
 import { resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
 import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
 import {
-  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, locateFocus,
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen, locateFocus,
   sameInfo, type LiveKey, type LivePlace,
 } from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
@@ -153,6 +153,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   // from what plays. Only a plain return counts (no VOD return, Player hint or requested channel); every mount clears it.
   const fromCatchup = memory.fromCatchup === true && !fromVod && focusHint === undefined && target.channelId === undefined;
   memory.fromCatchup = undefined;
+  const hasTarget = target.channelId !== undefined && typeof params.at === 'number';
   delete params.focusChannelId;
   delete params.fromVod;
   delete params.channelId;
@@ -172,7 +173,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const [row, setRow] = createSignal(0);
   const [viewStart, setViewStart] = createSignal(startView);
   const [anchor, setAnchor] = createSignal(startAnchor);
-  const [place, setPlace] = createSignal<LivePlace>('grid');
+  const [place, setPlace] = createSignal<LivePlace>(livePlaceOnOpen({ hasTarget, fromCatchup }));
   const [picking, setPicking] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [ready, setReady] = createSignal(false);
@@ -305,11 +306,18 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     const r = liveKey('rail', 'right', ctx());
     return r === 'move' || r === 'exit' ? 'grid' : r;
   };
+  /** Where focus lands on open: `contentPlace`, but a return to a programme (Search target, catch-up) lands on the timeline. */
+  const openPlace = (): LivePlace => {
+    const p = contentPlace();
+    return p === 'channels' && (hasTarget || fromCatchup) ? 'grid' : p;
+  };
   /** Routes a key through `liveKey`: `move` runs the place's own handler; `exit` lets Back bubble to the shell. */
   const go = (key: LiveKey, move: () => boolean = () => true): boolean => {
     const r = liveKey(place(), key, ctx());
     if (r === 'move') return move();
     if (r === 'exit') return false;
+    // The timeline is entered at now and left to the channels with the view back at now (spec 2026-10-22, A).
+    if ((place() === 'grid' && r === 'channels') || (place() === 'channels' && r === 'grid')) resetToNow();
     return focusPlace(r);
   };
 
@@ -329,6 +337,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     });
   };
   const view = () => ({ viewStart: viewStart(), anchor: anchor() });
+  const resetToNow = () => applyStep({ kind: 'move', index: 0, ...nowView(Date.now(), win()) });
 
   // ---- groups ----
 
@@ -591,7 +600,8 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     onUp: () => go('up', () => setFocusRow(moveFocus(row(), -1, total()))),
     onDown: () => go('down', () => setFocusRow(moveFocus(row(), 1, total()))),
     onLeft: () => go('left', () => {
-      const s = stepLeft(rowBlocks(), focusIndex(), view(), win());
+      const s = leftFromGrid(rowBlocks(), focusIndex(), view(), win(), Date.now());
+      if (s.kind === 'channels') { resetToNow(); return focusPlace('channels'); }
       if (s.kind === 'edge') setPlace('channels');
       else applyStep(s);
       return true;
@@ -689,7 +699,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   /**
    * After a refresh or a source change: no live channels: the rail; the open group became empty: the dropdown; the
-   * group the empty state parked focus above (`hadChannels` false) got channels: the grid. Never under a layer.
+   * group the empty state parked focus above (`hadChannels` false) got channels: the channel column. Never under a layer.
    */
   const settleFocus = (hadChannels: boolean) => {
     if (!alive || !ready() || router.topOverlay() !== undefined || layerOpen()) return;
@@ -698,7 +708,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       return;
     }
     if (onGrid() && groupCount() === 0) focusPlace(contentPlace(), true);
-    else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('grid');
+    else if (!hadChannels && place() === 'groups' && groupCount() > 0) focusPlace('channels');
   };
 
   onMount(() => {
@@ -815,7 +825,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         if (alive && attempt === 0) {
           setReady(true);
           // The grid when it has channels, else the dropdown (an empty group), else the rail (no live channels).
-          if (router.topOverlay() === undefined) focusPlace(contentPlace(), true);
+          if (router.topOverlay() === undefined) focusPlace(openPlace(), true);
         } else if (alive && !groupsFailed()) {
           settleFocus(false);
         }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
-  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs,
+  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs, livePlaceOnOpen,
 } from './liveLogic.ts';
 import { TYPE } from '../../shell/theme.ts';
 
@@ -23,15 +23,15 @@ describe('liveLogic layout', () => {
 describe('liveKey', () => {
   const ctx = { row: 3, total: 50, hasGroups: true };
   test('rail', () => {
-    expect(liveKey('rail', 'right', ctx)).toBe('grid');
+    expect(liveKey('rail', 'right', ctx)).toBe('channels');
     expect(liveKey('rail', 'right', { ...ctx, total: 0 })).toBe('groups');
     expect(liveKey('rail', 'back', ctx)).toBe('exit');
   });
   test('group dropdown', () => {
-    expect(liveKey('groups', 'down', ctx)).toBe('grid');
+    expect(liveKey('groups', 'down', ctx)).toBe('channels');
     expect(liveKey('groups', 'left', ctx)).toBe('rail');
     expect(liveKey('groups', 'up', ctx)).toBe('groups');
-    expect(liveKey('groups', 'back', ctx)).toBe('grid');
+    expect(liveKey('groups', 'back', ctx)).toBe('channels');
     expect(liveKey('groups', 'back', { ...ctx, total: 0 })).toBe('rail');
   });
   test('channel column', () => {
@@ -46,7 +46,7 @@ describe('liveKey', () => {
     expect(liveKey('grid', 'up', { ...ctx, row: 0 })).toBe('groups');
     expect(liveKey('grid', 'up', ctx)).toBe('move');
     expect(liveKey('grid', 'left', ctx)).toBe('move');
-    expect(liveKey('grid', 'back', ctx)).toBe('rail');
+    expect(liveKey('grid', 'back', ctx)).toBe('channels');
   });
   test('empty list with focus in the grid: focus goes to the groups or the rail', () => {
     for (const place of ['grid', 'channels'] as const) {
@@ -61,6 +61,9 @@ describe('liveKey', () => {
       expect(liveKey(place, 'back', withGroups)).toBe('rail');
       expect(liveKey(place, 'back', noGroups)).toBe('rail');
     }
+  });
+  test('Up on row 0 reaches the dropdown from the grid and the channel column', () => {
+    for (const place of ['grid', 'channels'] as const) expect(liveKey(place, 'up', { ...ctx, row: 0 })).toBe('groups');
   });
   test('no groups: Up from the top row stays', () => {
     expect(liveKey('grid', 'up', { row: 0, total: 5, hasGroups: false })).toBe('move');
@@ -296,5 +299,14 @@ describe('infoTimeLine', () => {
   test('the track and the longest time-left label still fit in the info block', () => {
     const y = infoTimeLine(at(19, 23), at(20, 1), now);
     expect(y.trackX + INFO_TRACK.w + INFO_TRACK.gap + textW('1 h 59 min left')).toBeLessThanOrEqual(INFO_W);
+  });
+});
+
+describe('livePlaceOnOpen', () => {
+  test('channels first; a target or a return from catch-up opens on the grid', () => {
+    expect(livePlaceOnOpen({ hasTarget: false, fromCatchup: false })).toBe('channels');
+    expect(livePlaceOnOpen({ hasTarget: true, fromCatchup: false })).toBe('grid');
+    expect(livePlaceOnOpen({ hasTarget: false, fromCatchup: true })).toBe('grid');
+    expect(livePlaceOnOpen({ hasTarget: true, fromCatchup: true })).toBe('grid');
   });
 });
