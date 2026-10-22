@@ -16,6 +16,7 @@
     "dev:stable": "node scripts/dev.mjs --stable",
     "build:tv": "pnpm --filter @iptv/tv build",
     "build:tizen": "node tools/tizen/build-wgt.mjs",
+    "flags:build": "node --import tsx tools/flags/build-flags.mjs",
     "brand:export": "node tools/brand/export.mjs",
     "companion:dev": "pnpm --filter @iptv/companion dev",
     "build:companion": "pnpm --filter @iptv/companion build",
@@ -29,7 +30,9 @@
     "site:deploy": "pnpm dlx wrangler pages deploy apps/site/public --project-name saqqezy-player --branch main --commit-dirty=true"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/node": "^22.10.0",
+    "flag-icons": "7.2.3",
     "tsx": "4.23.15",
     "typescript": "~5.6.3",
     "vitest": "~5.0.5",
