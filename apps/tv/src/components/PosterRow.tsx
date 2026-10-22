@@ -8,7 +8,6 @@ import { ROW_VISIBLE_COLS, cellAt, cellCount, drawnCells, type Cell, type RowMod
 import { POSTER_GAP, POSTER_H, POSTER_W, PosterTile } from './PosterTile.tsx';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
 
-const PITCH = POSTER_W + POSTER_GAP;
 const tileOf = (c: Cell): VodTile | undefined => (c.kind === 'tile' ? c.tile : undefined);
 /** View all is a text tile; a loading cell is drawn as a skeleton (no tile, no label). */
 const labelOf = (c: Cell): string | undefined => (c.kind === 'viewAll' ? 'View all' : undefined);
@@ -30,12 +29,17 @@ export function PosterRow(props: {
   onCellOptions?: (col: number) => void;
   /** A wheel step over the row (this target wins over the screen's, so the screen's handler is passed down). */
   onWheel?: (dy: number, dx: number) => boolean;
+  /** Tile size (default the standard poster); Start uses a smaller one. */
+  w?: number; h?: number;
 }) {
   const [hover, setHover] = createSignal<number | undefined>(undefined);
   let node: ElementNode | undefined;
   /** The tiles sit at fixed x's on one strip; scrolling moves only the strip (one animation, not N tile writes). */
   let strip: ElementNode | undefined;
   let lastScroll = 0;
+  const w = () => props.w ?? POSTER_W;
+  const h = () => props.h ?? POSTER_H;
+  const pitch = () => w() + POSTER_GAP;
   const cells = () => cellCount(props.row);
   const visible = () => props.visible ?? ROW_VISIBLE_COLS;
   const scroll = createMemo(() => {
@@ -49,15 +53,15 @@ export function PosterRow(props: {
   });
   // The strip glides to the scroll (180 ms; linear for the key gap while a key is held). A jump of more than a window
   // (a new row, Home/End) snaps. The pointer keeps using `scroll()`, the target, not the animated x.
-  createEffect(on(scroll, (s, prev) => {
+  createEffect(on([scroll, pitch] as const, ([s, p], prev) => {
     if (!strip) return;
-    const x = -s * PITCH;
-    if (prev === undefined || Math.abs(s - prev) > visible()) { stopMotion(strip); strip.x = x; return; }
+    const x = -s * p;
+    if (prev === undefined || prev[1] !== p || Math.abs(s - prev[0]) > visible()) { stopMotion(strip); strip.x = x; return; }
     tween(strip, { x }, MOTION.rowScroll);
   }));
   const colAt = (px: number) => {
-    const c = scroll() + Math.floor(px / PITCH);
-    return px % PITCH < POSTER_W && c < cells() ? c : undefined;
+    const c = scroll() + Math.floor(px / pitch());
+    return px % pitch() < w() && c < cells() ? c : undefined;
   };
   usePointerTarget({
     node: () => node,
@@ -68,12 +72,12 @@ export function PosterRow(props: {
     onWheel: (dy, dx) => props.onWheel?.(dy, dx) ?? false,
   });
   return (
-    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={POSTER_H}>
-      <View ref={(el) => { strip = el; }} width={Math.max(1, cells()) * PITCH} height={POSTER_H}>
+    <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={h()}>
+      <View ref={(el) => { strip = el; }} width={Math.max(1, cells()) * pitch()} height={h()}>
         <For each={cols()}>{(c) => {
           const cell = () => cellAt(props.row, c);
           return (
-            <PosterTile x={c * PITCH} y={0} w={POSTER_W} h={POSTER_H}
+            <PosterTile x={c * pitch()} y={0} w={w()} h={h()}
               tile={tileOf(cell())} label={labelOf(cell())}
               lit={props.lit && props.focusCol === c} hover={pointerMode() && hover() === c} />
           );
