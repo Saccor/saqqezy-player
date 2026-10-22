@@ -11,6 +11,22 @@ function build(rows: [title: string, key: string, startH: number, stopH: number]
   return { b, data: b.build() };
 }
 
+describe('TitleIndexBuilder.buildSteps', () => {
+  test('pauses at least every 256 titles and gives the same index as build()', () => {
+    const rows: [string, string, number, number][] = [];
+    for (let i = 0; i < 1000; i++) rows.push([`Title ${i}`, `k${i % 7}`, 101 + (i % 5), 102 + (i % 5)]);
+    const { data } = build(rows);
+    const b = new TitleIndexBuilder();
+    for (const [t, k, s, e] of rows) b.add(t, k, s * H, e * H);
+    const steps = b.buildSteps();
+    let pauses = 0;
+    let r = steps.next();
+    while (!r.done) { pauses++; r = steps.next(); }
+    expect(pauses).toBeGreaterThanOrEqual(Math.floor(1000 / 256));
+    expect(r.value).toEqual(data);
+  });
+});
+
 describe('TitleIndexBuilder + queryTitles', () => {
   test('dedupes titles by searchKey and keeps the first spelling', () => {
     const { data } = build([['Night News', 'a', 101, 102], ['night-news', 'b', 103, 104]]);

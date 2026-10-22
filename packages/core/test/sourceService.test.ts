@@ -244,6 +244,52 @@ describe('SourceService – m3u', () => {
     expect(nn.get(ch1.id)?.now?.title).toBe('Evening Bulletin');
   });
 
+  describe('the guide import shares the worker', () => {
+    /** `count` one-minute programmes on ch1.test from NOW: all in the stored window. */
+    const longGuide = (count: number) => {
+      const t = (ms: number) => `${new Date(ms).toISOString().replace(/[-:T]/g, '').slice(0, 14)} +0000`;
+      const rows: string[] = [];
+      for (let i = 0; i < count; i++) {
+        rows.push(`<programme start="${t(NOW + i * 60_000)}" stop="${t(NOW + (i + 1) * 60_000)}" channel="ch1.test"><title>Show ${i % 50}</title></programme>`);
+      }
+      return `<?xml version="1.0"?><tv><channel id="ch1.test"><display-name>Channel 001</display-name></channel>${rows.join('')}</tv>`;
+    };
+
+    test('the write batch size is an option (1,000 on the TV); the default stays 5,000', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(2500));
+      const writes = (svc: SourceService) => {
+        let n = 0;
+        const add = storage.addProgrammes.bind(storage);
+        storage.addProgrammes = (key, rows) => { n++; return add(key, rows); };
+        return { svc, writes: () => n };
+      };
+      const tv = writes(new SourceService({ shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'tv', epgBatch: 1000 }));
+      const { source } = await tv.svc.addSource(m3uInput);
+      expect((await tv.svc.refreshEpg(source.id)).programmes).toBe(2500);
+      expect(tv.writes()).toBe(3);
+      const before = tv.writes();
+      await service.refreshEpg(source.id);
+      expect(tv.writes() - before).toBe(1);
+    });
+
+    test('with a clock that moves 3 ms per programme, the import yields at least every 3 programmes', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(900));
+      let t = 0;
+      let yields = 0;
+      const svc = new SourceService({
+        shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'y',
+        clock: () => { const v = t; t += 3; return v; },
+        yieldNow: () => { yields++; return Promise.resolve(); },
+      });
+      const { source } = await svc.addSource(m3uInput);
+      expect(yields).toBe(0); // the channel list does not use it
+      expect((await svc.refreshEpg(source.id)).programmes).toBe(900);
+      expect(yields).toBeGreaterThanOrEqual(300);
+      // The guide is still whole: every programme stored, and the title index built.
+      expect(await svc.titleIndexFor(source.id)).toBeDefined();
+    });
+  });
+
   test('refreshEpg records the longest stored programme with the generation; reads look back only that far', async () => {
     const { source } = await service.addSource(m3uInput);
     await service.refreshEpg(source.id);

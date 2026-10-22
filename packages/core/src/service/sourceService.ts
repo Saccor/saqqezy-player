@@ -65,10 +65,21 @@ export interface SourceServiceDeps {
   guard?: RefusalGuard;
   /** Sync clock stamped by layout writes (default: one built on `storage`); pass the same one to `VodService`. */
   syncClock?: SyncClock;
+  /** Programmes per guide write (default `EPG_BATCH`). TVs pass `TV_EPG_BATCH`: shorter writes, shorter waits for reads. */
+  epgBatch?: number;
+  /** Lets other worker requests run (default: a `setTimeout(0)`); the guide import awaits it every `YIELD_EVERY_MS`. */
+  yieldNow?: () => Promise<void>;
+  /** Monotonic ms for those slices (default `performance.now`); not the wall clock `now`. */
+  clock?: () => number;
 }
 
 const PROGRESS_EVERY = 2000;
 const EPG_BATCH = 5000;
+/** Guide write batch on TVs: a 5,000-row IndexedDB write holds every read behind it for too long there. */
+export const TV_EPG_BATCH = 1000;
+/** The guide import (parse loop and title index build) gives the thread back after this much work. */
+const YIELD_EVERY_MS = 8;
+const defaultYield = () => new Promise<void>((resolve) => { setTimeout(resolve, 0); });
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
@@ -125,6 +136,9 @@ export class SourceService {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly bodyIdleMs: number;
+  private readonly epgBatch: number;
+  private readonly yieldNow: () => Promise<void>;
+  private readonly clock: () => number;
   /** Every request to a source goes through it: nothing is sent while the source is in its refusal cooldown. */
   readonly guard: RefusalGuard;
   /** The device's sync clock: layout writes stamp it here; share it with `VodService`. */
@@ -144,6 +158,9 @@ export class SourceService {
     this.shortEpgGapMs = deps.shortEpgGapMs ?? SHORT_EPG_GAP_MS;
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
+    this.epgBatch = Math.max(1, deps.epgBatch ?? EPG_BATCH);
+    this.yieldNow = deps.yieldNow ?? defaultYield;
+    this.clock = deps.clock ?? (() => performance.now());
     this.guard = deps.guard ?? new RefusalGuard({ storage: this.storage, now: this.now });
     this.syncClock = deps.syncClock ?? new SyncClock({ storage: this.storage, now: this.now });
   }
@@ -520,6 +537,14 @@ export class SourceService {
     const sports = new SportsIndexBuilder(now);
     let sportsOk = true;
     let storageFailure: { error: unknown } | undefined;
+    // One worker thread serves the UI too: give it back every YIELD_EVERY_MS of import work.
+    let sliceStart = this.clock();
+    const share = async () => {
+      const t = this.clock();
+      if (t - sliceStart < YIELD_EVERY_MS) return;
+      await this.yieldNow();
+      sliceStart = t;
+    };
     const store = async (rows: Programme[]) => {
       try {
         await this.storage.addProgrammes(newKey, rows);
@@ -530,6 +555,7 @@ export class SourceService {
     };
     try {
       for await (const item of parseXmltv(streamFailures(responseText(res, url, { idleMs: this.bodyIdleMs })), stats)) {
+        await share();
         if (item.type === 'channel') {
           matcher.addXmltvChannel(item.id, item.names);
           continue;
@@ -551,7 +577,7 @@ export class SourceService {
           }
         }
         coverage.add(key);
-        if (batch.length >= EPG_BATCH) {
+        if (batch.length >= this.epgBatch) {
           await store(batch);
           stored += batch.length;
           batch = [];
@@ -583,7 +609,13 @@ export class SourceService {
     // which titleIndexFor treats as missing. Search is optional: a failed build or write (quota, value size,
     // allocation) never aborts the import; the record then reads as missing and search rebuilds it later.
     try {
-      await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: titles.build(), truncated: titles.truncated } satisfies TitleIndexRecord);
+      const steps = titles.buildSteps();
+      let step = steps.next();
+      while (!step.done) {
+        await share();
+        step = steps.next();
+      }
+      await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: step.value, truncated: titles.truncated } satisfies TitleIndexRecord);
     } catch {
       try {
         await this.storage.setMeta(titleIndexKey(id), null);
