@@ -81,10 +81,27 @@ export function getAvplay(g: TizenGlobals = globals()): AvplayLike | undefined {
 /** An AVPlay that plays nothing: every open throws `NotSupportedError`, which the window shows as its failure. */
 function unavailableAvplay(): AvplayLike {
   const none = () => {};
-  return {
+  const stub: AvplayLike = {
     open: () => { throw Object.assign(new Error('No AVPlay instance'), { name: 'NotSupportedError' }); },
     close: none, prepareAsync: none, play: none, stop: none, setListener: none, setDisplayRect: none, setDisplayMethod: none,
     getCurrentTime: () => 0, getTotalTrackInfo: () => [], setSelectTrack: none, getCurrentStreamInfo: () => [],
+  };
+  stubs.add(stub);
+  return stub;
+}
+
+const stubs = new WeakSet<AvplayLike>();
+
+/**
+ * `avplaystore` instances for multiview windows, reused: the store makes at most 4 and has no call to give one back,
+ * so a window's instance goes back here when its slot is freed and the next window takes it.
+ */
+export function createAvplayStorePool(g: TizenGlobals = globals()): { take(): AvplayLike; give(p: AvplayLike): void } {
+  const spare: AvplayLike[] = [];
+  return {
+    take: () => spare.pop() ?? getAvplayStorePlayer(g),
+    // A stub is not kept: the next window asks the store again (memory may be free by then).
+    give: (p) => { if (!stubs.has(p)) spare.push(p); },
   };
 }
 

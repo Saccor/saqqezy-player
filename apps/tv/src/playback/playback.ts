@@ -5,7 +5,7 @@ import {
 import { api } from '../api.ts';
 import { cooldownOf, initState, platformId, setStreamCooldown, setSupervisorStatus, settings } from '../state/appState.ts';
 import {
-  AVPLAY_DISPLAY_SPACE, getAvplay, getAvplayStorePlayer, mountAvplayObject, readPanelCaps, setScreenSaver,
+  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, getAvplay, mountAvplayObject, readPanelCaps, setScreenSaver,
 } from '../platform/tizen.ts';
 import { createSharedSaver } from '../platform/screenSaverGuard.ts';
 import { createVideoResources, tizenWindowCeiling, type TizenMultiviewGlobals } from '../platform/tizenMultiview.ts';
@@ -62,6 +62,8 @@ const videoResources = tizenWindows > 1 ? createVideoResources() : undefined;
 /** One screensaver for every AVPlay player: off while any of them shows a picture full screen. */
 const sharedSaver = createSharedSaver((s) => { setScreenSaver(s); });
 const panelCaps = avplay ? readPanelCaps() : undefined;
+/** The windows' AVPlay instances, reused across multiview sessions (the store makes 4 at most). */
+const storePlayers = createAvplayStorePool();
 // The app is going away: hand the screensaver back to the TV.
 if (avplay) window.addEventListener('pagehide', () => { setScreenSaver('on'); });
 
@@ -257,8 +259,12 @@ function createMainSlot(): PlaybackSlot {
 /** A multiview window's slot: on Tizen an `avplaystore` instance on the shared plane, else its own `<video>`. */
 function createWindowSlot(n: number): PlaybackSlot {
   if (avplay) {
-    const windowPlayer = createAvplayPlayer(getAvplayStorePlayer());
-    return buildSlot(n, windowPlayer, { relayout: () => {} }, 'AVPlay', () => { windowPlayer.destroy(); });
+    const av = storePlayers.take();
+    const windowPlayer = createAvplayPlayer(av);
+    return buildSlot(n, windowPlayer, { relayout: () => {} }, 'AVPlay', () => {
+      windowPlayer.destroy();
+      storePlayers.give(av);
+    });
   }
   const root = createSlotRoot(videoRoot!, n);
   const layer = createVideoLayer(root);

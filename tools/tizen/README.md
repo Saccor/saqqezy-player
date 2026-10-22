@@ -55,7 +55,8 @@ Spec `docs/superpowers/specs/2026-10-22-tizen-multiview-design.md`. **Not yet ve
   `webapis.avplay.enableAudioStream`/`disableAudioStream` exist and the platform version is 7.0+ (`tizen.systeminfo`, else
   the user agent); else 1 and Options hides Multiview. `createVideoResources` shares the MAIN and SUB scalers.
 - Slot 0 stays on `webapis.avplay`; the second window is an `AvplayPlayer` on `avplaystore.getPlayer()` (one shared
-  `<object type="application/avplayer">`). An open that gets SUB sets `IN_APP_MULTIVIEW = VIDEO_VIEW_RESOURCE_SUB` before
+  `<object type="application/avplayer">`). Store instances are reused across sessions (`createAvplayStorePool`): the store
+  makes 4 at most and cannot take one back. An open that gets SUB sets `IN_APP_MULTIVIEW = VIDEO_VIEW_RESOURCE_SUB` before
   `prepareAsync` and caps `ADAPTIVE_INFO` at 1920x1080. Sound moves with `disableAudioStream`/`enableAudioStream`.
 - A window hidden behind Full screen is drawn 1x1 at 0,0. One shared screensaver guard: off while any window plays in
   multiview or full screen.

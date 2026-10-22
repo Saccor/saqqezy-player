@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { TIZEN_KEYS_TO_REGISTER } from '@iptv/platform';
 import {
-  AVPLAY_DISPLAY_SPACE, exit, getAvplayStorePlayer, mountAvplayObject, readPanelCaps, registerKeys, setScreenSaver, type TizenLike,
+  AVPLAY_DISPLAY_SPACE, createAvplayStorePool, exit, getAvplayStorePlayer, mountAvplayObject, readPanelCaps, registerKeys, setScreenSaver, type TizenLike,
 } from './tizen.ts';
 
 function fakeTizen(opts: { batch?: boolean; batchThrows?: boolean } = {}) {
@@ -157,5 +157,30 @@ describe('getAvplayStorePlayer', () => {
       expect(() => { av.stop(); av.close(); av.setDisplayRect(0, 0, 1, 1); }).not.toThrow();
       expect(av.getTotalTrackInfo()).toEqual([]);
     }
+  });
+});
+
+describe('createAvplayStorePool', () => {
+  test('a freed instance is reused: the store (4 at most, no release call) is asked only for new ones', () => {
+    let made = 0;
+    const g = { webapis: { avplaystore: { getPlayer: () => ({ id: ++made }) as never } } };
+    const pool = createAvplayStorePool(g);
+    const a = pool.take();
+    pool.give(a);
+    expect(pool.take()).toBe(a);
+    const b = pool.take();
+    expect(b).not.toBe(a);
+    expect(made).toBe(2);
+  });
+
+  test('a stub that never played is not kept, so a later take asks the store again', () => {
+    let ok = false;
+    const inst = { id: 1 };
+    const g = { webapis: { avplaystore: { getPlayer: () => { if (!ok) throw new Error('quota'); return inst as never; } } } };
+    const pool = createAvplayStorePool(g);
+    const stub = pool.take();
+    pool.give(stub);
+    ok = true;
+    expect(pool.take()).toBe(inst);
   });
 });
