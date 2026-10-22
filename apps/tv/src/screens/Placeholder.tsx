@@ -16,7 +16,7 @@ const TITLES: Record<ScreenId, string> = {
   seriesDetail: 'Series',
   vodPlay: 'Player',
   start: 'Start',
-  startSports: 'Matches in your guide',
+  startSports: 'Matches',
   multiview: 'Multiview',
 };
 

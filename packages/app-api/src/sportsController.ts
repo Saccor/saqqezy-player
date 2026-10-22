@@ -124,9 +124,9 @@ export class SportsController {
   filters(view: SportsView): MatchFilters { return viewFilters(view); }
 
   /** View all's competition chips for one guide category (spec 2026-10-22 §3.2). v1 records have none. */
-  competitions(view: SportsView, category: string, pinned: readonly string[], hidden: readonly string[]): { chips: MatchChip[]; more: MatchChip[] } {
+  competitions(view: SportsView, category: string, pinned: readonly string[], hidden: readonly string[], only?: ReadonlySet<string>): { chips: MatchChip[]; more: MatchChip[] } {
     if (!view.v2) return { chips: [], more: [] };
-    return competitionChips(chipEvents(view), category, { pinned, hidden });
+    return competitionChips(chipEvents(view, only), category, { pinned, hidden });
   }
 
   private buildV1(rec: SportsIndexRecord, index: ChannelIndex, offsetHours: number, aliases: ReadonlyMap<string, string>, now: number) {
@@ -237,9 +237,10 @@ export class SportsController {
 }
 
 /** The non-re-air events of a v2 view with what the chips need. */
-function chipEvents(view: SportsView): { comp?: string; breadth: number; cats: readonly string[] }[] {
+function chipEvents(view: SportsView, only?: ReadonlySet<string>): { comp?: string; breadth: number; cats: readonly string[] }[] {
   const list: { comp?: string; breadth: number; cats: readonly string[] }[] = [];
   for (const e of view.events) {
+    if (only && !only.has(e.key)) continue;
     const m = view.meta.get(e.key);
     if (!m || m.reair) continue;
     list.push(m.comp === undefined ? { breadth: m.breadth, cats: m.cats } : { comp: m.comp, breadth: m.breadth, cats: m.cats });

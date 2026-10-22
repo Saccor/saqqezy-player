@@ -64,3 +64,10 @@ describe('layout, movement and scroll', () => {
     expect(scrollToShow(44, 136, 44, 300, 600)).toBe(0);
   });
 });
+
+describe('empty grid', () => {
+  test('Up leaves to the chip rows; other keys stay on 0', () => {
+    expect(sectionMove([], 4, 0, 'up')).toBe('top');
+    for (const k of ['down', 'left', 'right'] as const) expect(sectionMove([], 4, 0, k)).toBe(0);
+  });
+});

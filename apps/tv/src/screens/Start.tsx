@@ -14,6 +14,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
+import { dwellSignal } from '../shell/dwell.ts';
 import { goRail } from '../shell/railNav.ts';
 import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -71,6 +72,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const rows = () => home()?.rows ?? [];
   const focusedCell = (): StartCell | undefined => rows()[focus().row]?.cells[focus().col];
+  /** The focused cell's label follows focus once it rests: holding a key does not rebuild a Text per step. */
+  const label = dwellSignal(() => focusLabel(focusedCell()));
   const remember = () => {
     const f = focus();
     const r = rows()[f.row];
@@ -259,7 +262,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                    <Show when={lit() ? focusLabel(focusedCell()) : ''} keyed>
+                    <Show when={lit() ? label() : ''} keyed>
                       {(t) => {
                         const x = ROW_X + labelWidth(r().title) + 24;
                         const w = LAYOUT.width - LAYOUT.safeX - x;

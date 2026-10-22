@@ -69,7 +69,7 @@ function visualRows(sections: readonly MatchSection[], cols: number): { from: nu
 export function sectionMove(sections: readonly MatchSection[], cols: number, index: number, key: 'up' | 'down' | 'left' | 'right'): number | 'top' {
   const rows = visualRows(sections, cols);
   const r = rows.findIndex((x) => index >= x.from && index < x.to);
-  if (r < 0) return 0;
+  if (r < 0) return key === 'up' ? 'top' : 0; // an empty grid: Up leaves to the chip rows
   const row = rows[r]!;
   const col = index - row.from;
   if (key === 'left') return col === 0 ? index : index - 1;

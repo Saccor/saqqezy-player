@@ -631,7 +631,10 @@ export class AppApi {
   getMatchCompetitions(category: string): Promise<MatchCompetitionChips> {
     return this.run('getMatchCompetitions', async () => {
       const st = await this.currentSettings();
-      return this.sports.competitions(await this.sportsView(), category, st.pinnedCompetitions, st.hiddenCompetitions);
+      const view = await this.sportsView();
+      // Only the matches the grid shows (ranked window, gated, capped) count: a chip never opens an empty grid.
+      const shown = matchTiles(view, this.now(), { ...this.matchSettings(st), categories: [category] }, this.sports.aliases()).all;
+      return this.sports.competitions(view, category, st.pinnedCompetitions, st.hiddenCompetitions, new Set(shown.map((t) => t.key)));
     });
   }
 
@@ -1909,12 +1912,16 @@ export class AppApi {
   private async matchTiles(): Promise<MatchTiles> {
     const view = await this.sportsView();
     const st = await this.currentSettings();
+    return matchTiles(view, this.now(), this.matchSettings(st), this.sports.aliases());
+  }
+
+  private matchSettings(st: Awaited<ReturnType<AppApi['currentSettings']>>): MatchSettings {
     const s: MatchSettings = {
       followed: st.followedTeams, pinned: st.pinnedCompetitions, hidden: st.hiddenCompetitions, categories: st.matchCategories,
     };
     // G8: a small match still shows in the row when it airs on a channel of a chosen country (Your countries on).
     if (st.regions.mode !== 'off' && st.regions.codes.length) s.countries = st.regions.codes;
-    return matchTiles(view, this.now(), s, this.sports.aliases());
+    return s;
   }
 
   private async sportsView() {

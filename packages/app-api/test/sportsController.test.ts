@@ -240,6 +240,19 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(pinned.chips).toEqual([{ id: 'northern cup', label: 'Northern Cup', pinned: true }]);
   });
 
+  test('competition chips limited to the grid events: a competition only beyond the ranking window gets no chip', async () => {
+    const big = (n: number, title: string, startMin: number, from = 0): P[] => Array.from({ length: n }, (_, k) => ({ key: `k${from + k}`, title, cats: ['Football'], startMin }));
+    const progs: P[] = [
+      ...big(24, 'Test Cup: Northbridge FC v Eastport', 0), ...big(24, 'Test Cup: Harbour City v Westvale', 60),
+      ...big(24, 'Test Cup: Kingsgate v Rivermouth Rovers', 90), ...big(24, 'Test Cup: Southmere v Lakeshore', 120),
+      ...big(24, 'Late Cup: Oakridge v Greenford', 20 * 60), ...big(24, 'Late Cup: Pinecrest v Kingsbay', 20 * 60 + 30),
+    ];
+    const r = await tiles(v2(progs), new ChannelIndex(channels(24)), { categories: ['football'] });
+    expect(r.sc.competitions(r.view, 'football', [], []).chips.map((c) => c.label).sort()).toEqual(['Late Cup', 'Test Cup']);
+    const only = new Set(r.all.map((t) => t.key));
+    expect(r.sc.competitions(r.view, 'football', [], [], only).chips.map((c) => c.label)).toEqual(['Test Cup']);
+  });
+
   test('a small match on one key stays in See all; on a chosen-country or single-country guide it shows (fixture 12)', async () => {
     const big = (n: number, title: string, startMin: number): P[] => Array.from({ length: n }, (_, k) => ({ key: `k${k}`, title, cats: ['Football'], startMin }));
     const progs: P[] = [

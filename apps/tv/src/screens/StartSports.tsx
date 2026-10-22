@@ -84,6 +84,11 @@ export function StartSportsScreen() {
     const p = layout().places[i];
     if (p) setScroll((s) => scrollToShow(p.y, MATCH_GRID_H, FRAME.labelH, s, viewH()));
   };
+  /** Never leave focus on an empty grid: the competition row if shown, else the sport row. */
+  const rescue = () => {
+    if (grid().order.length) return;
+    queueMicrotask(() => { if (alive) (compActions().length ? compsNode : sportActions().length ? sportsNode : undefined)?.setFocus(); });
+  };
   let gen = 0;
   const load = async () => {
     const g = ++gen;
@@ -100,6 +105,7 @@ export function StartSportsScreen() {
       setLoaded(true);
     });
     focusTile(Math.min(index(), Math.max(0, grid().order.length - 1)));
+    rescue();
     if (sport === 'all') return;
     // The competitions arrive after the grid is on screen: never block the UI on them.
     const cs = await api.getMatchCompetitions(sport).catch(() => NO_COMPS);
@@ -109,6 +115,9 @@ export function StartSportsScreen() {
       const k = comp();
       if (k !== undefined && ![...cs.chips, ...cs.more].some((c) => c.id === k)) setComp(undefined);
     });
+    // gridTop and viewH follow the competition row: scroll must match them.
+    focusTile(Math.min(index(), Math.max(0, grid().order.length - 1)));
+    rescue();
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => gridNode?.setFocus()) });
   const menu = createChoiceMenu('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
@@ -130,6 +139,7 @@ export function StartSportsScreen() {
     await saveSetting({ matchCategories: id === 'all' ? [] : [id] });
     if (!alive) return;
     setComp(undefined);
+    setComps(NO_COMPS);
     resetGrid();
     await load();
   };
@@ -156,6 +166,8 @@ export function StartSportsScreen() {
     if (!alive) return;
     if (choice === 'hide' && comp() === chip.id) { setComp(undefined); resetGrid(); }
     await load();
+    // The competition row may be gone now (no chips left): focus must not stay on a removed bar.
+    if (alive && compActions().length === 0) queueMicrotask(() => (grid().order.length ? gridNode : sportsNode)?.setFocus());
   };
   /** Back from a chip row returns to the grid; Back from the grid leaves. */
   const back = () => {
@@ -171,6 +183,7 @@ export function StartSportsScreen() {
     const off = onEvent('refreshed', () => void load());
     const stopTick = visibleInterval(() => setNow(Date.now()), 60_000);
     onCleanup(() => { off(); stopTick(); });
+    // The chip rows do not exist yet; load() moves focus off the grid when it comes back empty (rescue).
     queueMicrotask(() => gridNode?.setFocus());
   });
   onCleanup(() => { alive = false; actions.close(); menu.close(); });
@@ -185,12 +198,12 @@ export function StartSportsScreen() {
       <Show when={sportActions().length > 0}>
         <ActionBar ref={(el) => { sportsNode = el; }} x={LAYOUT.safeX} y={SPORTS_Y} actions={sportActions()} initial={activeSport()} current={activeSport()}
           onAction={(id) => void pickSport(id)} onFocusChanged={setSportsFocused}
-          onDown={() => { (compActions().length ? compsNode : gridNode)?.setFocus(); return true; }} />
+          onDown={() => { (compActions().length ? compsNode : grid().order.length ? gridNode : undefined)?.setFocus(); return true; }} />
       </Show>
       <Show when={compActions().length > 0}>
         <ActionBar ref={(el) => { compsNode = el; }} x={LAYOUT.safeX} y={COMPS_Y} actions={compActions()} initial={compId()} current={compId()}
           onAction={(id) => void pickComp(id)} onOptions={(id) => void compOptions(id)} onFocusChanged={setCompsFocused}
-          onUp={() => { sportsNode?.setFocus(); return true; }} onDown={() => { gridNode?.setFocus(); return true; }} />
+          onUp={() => { sportsNode?.setFocus(); return true; }} onDown={() => { if (grid().order.length) gridNode?.setFocus(); return true; }} />
       </Show>
       <Show when={loaded() && shown().length === 0}>
         <Text x={LAYOUT.safeX} y={gridTop() + 20} fontSize={TYPE.body} color={COLORS.muted}>{MATCHES_COPY.empty}</Text>
