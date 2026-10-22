@@ -68,11 +68,17 @@ const storePlayers = createAvplayStorePool();
 // The app is going away: hand the screensaver back to the TV.
 if (avplay) window.addEventListener('pagehide', () => { setScreenSaver('on'); });
 
+/** After the frame that shows the key press: rAF, then a macrotask (the frame is painted by then). */
+const afterFrame = (fn: () => void): void => {
+  requestAnimationFrame(() => { setTimeout(fn, 0); });
+};
+
 function createAvplayPlayer(av: AvplayLike, n: number): AvplayPlayer {
   // `journal`, `multiviewOpen` and `refuseDevice` are read when used, after this module has finished loading.
   const note = (what: 'refererDropped') => journal.add({ k: 'note', t: Date.now(), what });
   return new AvplayPlayer(av, {
     displaySpace: AVPLAY_DISPLAY_SPACE,
+    afterFrame,
     note,
     screenSaver: sharedSaver.member(),
     ...(panelCaps ? { panel: panelCaps } : {}),

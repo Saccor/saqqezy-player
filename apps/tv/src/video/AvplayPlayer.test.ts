@@ -1445,3 +1445,77 @@ describe('AvplayPlayer: the TV refuses a second picture', () => {
     expect(refused).toEqual(['audioStream']);
   });
 });
+
+describe('AvplayPlayer: teardown after the next frame', () => {
+  function deferred() {
+    const av = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const p = new AvplayPlayer(av, { afterFrame: (fn) => { frames.push(fn); } });
+    return { av, p, frames, runFrame: () => frames.splice(0).forEach((f) => f()) };
+  }
+
+  test('stop() leaves AVPlay running until the frame, and closed() resolves after close()', async () => {
+    const { av, p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    av.calls.length = 0;
+    p.stop();
+    expect(av.calls).toEqual([]);
+    expect(p.currentUrl()).toBeUndefined();
+    let closed = false;
+    void p.closed().then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    runFrame();
+    await Promise.resolve();
+    expect(av.calls).toEqual(['stop', 'close']);
+    expect(closed).toBe(true);
+  });
+
+  test('open() with a teardown pending runs it first', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    await p.open(URL_B, 2);
+    expect(av.calls.slice(0, 3)).toEqual(['stop', 'close', 'open']);
+  });
+
+  test('an open on another player flushes this one, releasing its scaler first', async () => {
+    const resources = createVideoResources();
+    const avA = new FakeAvplay();
+    const avB = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const afterFrame = (fn: () => void) => { frames.push(fn); };
+    const a = new AvplayPlayer(avA, { afterFrame, resources, coversScreen: () => true });
+    const b = new AvplayPlayer(avB, { afterFrame, resources, coversScreen: () => true });
+    await a.open(URL_A, 1); // MAIN
+    const c = new AvplayPlayer(new FakeAvplay(), { afterFrame, resources, coversScreen: () => true });
+    await c.open(URL_A, 3); // SUB
+    c.stop(); // SUB release pending
+    await b.open(URL_B, 2);
+    expect(avB.props).toContainEqual(['IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB']);
+    expect(avB.calls).toContain('prepareAsync');
+    a.stop();
+    b.stop();
+    frames.splice(0).forEach((f) => f());
+  });
+
+  test('destroy() runs a pending teardown at once', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    p.destroy();
+    expect(av.calls).toEqual(['stop', 'close']);
+  });
+
+  test('a second stop() before the frame tears down once', async () => {
+    const { av, p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    p.stop();
+    av.calls.length = 0;
+    runFrame();
+    expect(av.calls).toEqual(['stop', 'close']);
+  });
+});

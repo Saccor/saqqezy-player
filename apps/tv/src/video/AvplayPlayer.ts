@@ -215,6 +215,16 @@ const SEEK_END_MARGIN_MS = 1_000;
 const HOLD_MAX_MS = 30_000;
 
 /**
+ * Native teardowns waiting for the next frame, across every AvplayPlayer (multiview has two). An `open()` anywhere runs
+ * them first, so a scaler or the account's single connection is free before the next stream opens, exactly as when
+ * teardown was synchronous.
+ */
+const pendingTeardowns = new Set<() => void>();
+function flushTeardowns(): void {
+  for (const run of [...pendingTeardowns]) run();
+}
+
+/**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
  * page (an `<object type="application/avplayer">` must be in the document), positioned with `setDisplayRect`.
  * Every AVPlay call is guarded: a throw becomes an `error` state, never an exception. URLs are never logged
@@ -226,6 +236,8 @@ export class AvplayPlayer implements Player {
   /** Clears the cue on screen once its duration has passed. */
   private cueTimer: ReturnType<typeof setTimeout> | undefined;
   private session: Session | undefined;
+  /** This player's native teardown waiting for the next frame, and its `closed()` promise. */
+  private teardown: { run: () => void; done: Promise<void> } | undefined;
   private rect: Rect = FULL;
   private aspect: AspectMode = 'auto';
   private lastPosition = 0;
@@ -247,6 +259,7 @@ export class AvplayPlayer implements Player {
   private readonly resources: VideoResources | undefined;
   private readonly coversScreen: (() => boolean) | undefined;
   private readonly deviceRefused: ((why: 'subScaler' | 'audioStream') => void) | undefined;
+  private readonly afterFrame: ((fn: () => void) => void) | undefined;
   /** undefined: never muted, so the audio stream is never touched (single view). */
   private muted: boolean | undefined;
 
@@ -262,11 +275,17 @@ export class AvplayPlayer implements Player {
       coversScreen?: () => boolean;
       /** The TV itself refused the SUB scaler or the per-player audio call (not a stream's failure). */
       deviceRefused?: (why: 'subScaler' | 'audioStream') => void;
+      /**
+       * Runs `fn` after the next frame. AVPlay's stop()/close() are synchronous and take 140-190 ms on a G9: run inside
+       * a key handler they hold the screen. Absent (tests), teardown stays synchronous.
+       */
+      afterFrame?: (fn: () => void) => void;
     } = {},
   ) {
     this.resources = opts.resources;
     this.coversScreen = opts.coversScreen;
     this.deviceRefused = opts.deviceRefused;
+    this.afterFrame = opts.afterFrame;
     this.note = opts.note;
     this.panel = opts.panel;
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
@@ -297,6 +316,8 @@ export class AvplayPlayer implements Player {
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
     this.stop();
+    // AVPlay must be closed (here and on any other player: scalers, the account's connection) before it opens again.
+    flushTeardowns();
     const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
@@ -416,12 +437,40 @@ export class AvplayPlayer implements Player {
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
-    if (s.resource) this.resources?.release(s.resource);
     this.video = false;
-    // Separate guards: a failing stop() (e.g. already idle) must not skip close().
-    try { this.avplay.stop(); } catch { /* ignore */ }
-    try { this.avplay.close(); } catch { /* ignore */ }
+    const resource = s.resource;
+    this.scheduleTeardown(() => {
+      // Separate guards: a failing stop() (e.g. already idle) must not skip close().
+      try { this.avplay.stop(); } catch { /* ignore */ }
+      try { this.avplay.close(); } catch { /* ignore */ }
+      // The scaler is free only once AVPlay has let go of it.
+      if (resource) this.resources?.release(resource);
+    });
     this.updateSaver();
+  }
+
+  /** Runs `native` now (no `afterFrame`) or after the next frame; `closed()` waits for it. */
+  private scheduleTeardown(native: () => void): void {
+    this.teardown?.run();
+    if (!this.afterFrame) {
+      native();
+      return;
+    }
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => { resolve = r; });
+    const t = {
+      done,
+      run: () => {
+        if (this.teardown !== t) return;
+        this.teardown = undefined;
+        pendingTeardowns.delete(t.run);
+        native();
+        resolve();
+      },
+    };
+    this.teardown = t;
+    pendingTeardowns.add(t.run);
+    this.afterFrame(t.run);
   }
 
   /** VOD only: live sessions are closed and reopened by the controller instead. */
@@ -472,9 +521,9 @@ export class AvplayPlayer implements Player {
     return true;
   }
 
-  /** `stop()` closes AVPlay synchronously: the previous stream is closed once `close()` has returned. */
+  /** Resolves once AVPlay's stop()/close() have run (after the next frame in the app; at once in tests). */
   closed(): Promise<void> {
-    return Promise.resolve();
+    return this.teardown?.done ?? Promise.resolve();
   }
 
   setRect(rect: Rect | 'fullscreen'): void {
@@ -782,6 +831,7 @@ export class AvplayPlayer implements Player {
   destroy(): void {
     this.releaseLastFrame();
     this.stop();
+    this.teardown?.run();
     this.listeners.clear();
     this.subtitleListeners.clear();
   }
