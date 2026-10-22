@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { layout } from './layout.ts';
 import {
   addWindow, click, closeWindow, enterFullScreen, equalSize, exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems,
-  FREEING_MS, atSourceLimit, createWatchInstead, sourceLimit, windowsToStop, moveFocus, pickerHint, playingSince, pointerFocus, retryAction, soundToPlaying, start,
+  FREEING_MS, FREEING_RETRY_MS, atSourceLimit, createWatchInstead, sourceLimit, windowsToStop, moveFocus, pickerHint, playingSince, pointerFocus, retryAction, soundToPlaying, start,
   steadyPlaying, togglePin, wake, type MvState,
 } from './mvLogic.ts';
 
@@ -246,22 +246,23 @@ describe('Retry on a window the source cut (G9 decision C)', () => {
 });
 
 describe('the picker info line (warns, never blocks)', () => {
-  it('reported 1 with 1 open: the reported count', () => {
-    expect(pickerHint({ reported: 1, open: 1 })).toBe('infoReported');
+  it('the reported count always shows when the source reports one (spec §4)', () => {
+    expect(pickerHint({ reported: 1, open: 1 })).toEqual(['infoReported']);
+    expect(pickerHint({ reported: 4, open: 1 })).toEqual(['infoReported']);
+    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toEqual(['infoReported']);
   });
   it('nothing known about the source: each window uses one connection', () => {
-    expect(pickerHint({ open: 1 })).toBe('infoUnknown');
+    expect(pickerHint({ open: 1 })).toEqual(['infoUnknown']);
   });
-  it('a learned refusal at window 2 when adding window 2 (it wins over the reported count)', () => {
-    expect(pickerHint({ learnedRefusalAt: 2, open: 1 })).toBe('learned');
-    expect(pickerHint({ reported: 4, learnedRefusalAt: 2, open: 1 })).toBe('learned');
+  it('a learned refusal at window 2 when adding window 2: shown in addition to the reported count', () => {
+    expect(pickerHint({ learnedRefusalAt: 2, open: 1 })).toEqual(['learned']);
+    expect(pickerHint({ reported: 4, learnedRefusalAt: 2, open: 1 })).toEqual(['infoReported', 'learned']);
   });
-  it('nothing to say when the next window fits what the source reports and nothing was refused there', () => {
-    expect(pickerHint({ reported: 4, open: 1 })).toBeUndefined();
-    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toBeUndefined();
+  it('nothing to say: no count reported and the learned refusal is beyond the next window', () => {
+    expect(pickerHint({ learnedRefusalAt: 3, open: 1 })).toEqual([]);
   });
-  it('while a connection is being freed, it says so', () => {
-    expect(pickerHint({ reported: 1, open: 1, freeing: true })).toBe('freeing');
+  it('while a connection is being freed, it says so first', () => {
+    expect(pickerHint({ reported: 1, open: 1, freeing: true })).toEqual(['freeing', 'infoReported']);
   });
 });
 
@@ -304,5 +305,81 @@ describe('Watch this one instead: the cancellable 5 s wait', () => {
     vi.advanceTimersByTime(FREEING_MS);
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Watch this one instead: a refused reopen gets exactly one more try after 10 s', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const opened = (watch: ReturnType<typeof createWatchInstead>, slot: number) => {
+    vi.advanceTimersByTime(FREEING_MS);
+    expect(watch.observe(slot, 'starting')).toBe('none');
+  };
+
+  it('the first refusal shows Freeing again and opens once more after 10 s; the second gives up for good', () => {
+    const changes: Array<number | undefined> = [];
+    const watch = createWatchInstead((slot) => { changes.push(slot); });
+    const open = vi.fn();
+    watch.start(1, open);
+    opened(watch, 1);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(watch.observe(1, 'refused')).toBe('again');
+    expect(watch.pending()).toBe(1);
+    vi.advanceTimersByTime(FREEING_RETRY_MS - 1);
+    expect(open).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(watch.pending()).toBeUndefined();
+    expect(watch.observe(1, 'starting')).toBe('none');
+    expect(watch.observe(1, 'refused')).toBe('gaveUp');
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(watch.observe(1, 'refused')).toBe('none');
+    expect(changes).toEqual([1, undefined, 1, undefined]);
+  });
+
+  it('the old failure still showing before the reopen starts is not a refusal of the reopen', () => {
+    const watch = createWatchInstead(() => undefined);
+    watch.start(1, vi.fn());
+    vi.advanceTimersByTime(FREEING_MS);
+    expect(watch.observe(1, 'refused')).toBe('none');
+    expect(watch.observe(1, 'starting')).toBe('none');
+    expect(watch.observe(1, 'played')).toBe('played');
+    expect(watch.observe(1, 'refused')).toBe('none');
+  });
+
+  it('a reopen that fails otherwise ends the watch: no more tries', () => {
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn();
+    watch.start(1, open);
+    opened(watch, 1);
+    expect(watch.observe(1, 'failed')).toBe('failed');
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelled during the 10 s wait (left multiview, or acted on another window): nothing opens later', () => {
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn();
+    watch.start(1, open);
+    opened(watch, 1);
+    expect(watch.observe(1, 'refused')).toBe('again');
+    vi.advanceTimersByTime(4_000);
+    watch.cancel();
+    expect(watch.pending()).toBeUndefined();
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelled while the reopen is starting: its refusal gives up (no second try), and it is still reported', () => {
+    const watch = createWatchInstead(() => undefined);
+    const open = vi.fn();
+    watch.start(1, open);
+    opened(watch, 1);
+    watch.cancel();
+    expect(watch.observe(1, 'refused')).toBe('gaveUp');
+    vi.advanceTimersByTime(60_000);
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });

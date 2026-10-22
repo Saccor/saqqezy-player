@@ -1,5 +1,7 @@
+import type { SourceCooldown } from '@iptv/app-api';
 import type { FailReason } from '@iptv/player';
 import { MULTIVIEW_COPY } from '../copy.ts';
+import { COOLDOWN_TEXT, UNREACHABLE_TEXT, tryingAgainIn } from '../state/cooldownLogic.ts';
 import { failureText, type FailureFacts } from './failureText.ts';
 
 /**
@@ -20,6 +22,11 @@ export interface TileFailureFacts {
   escalated?: boolean;
   /** The TV itself refused a second picture (spec 2026-10-22-tizen-multiview): not the stream, not the source. */
   deviceLimit?: boolean;
+  /**
+   * The window's stream host (or the source) is cooling down: nothing opens until it ends, so the window says so and
+   * offers Retry now (one probe), as the single-view player does. Never a black window.
+   */
+  cooldown?: SourceCooldown;
   /** When it failed, and now (ms). */
   at: number;
   now: number;
@@ -29,9 +36,18 @@ export interface TileFailureView {
   text: string;
   retry: { enabled: boolean; inMs: number };
   close: true;
+  /** Held by a cooldown: Retry is "Retry now" (one probe of the source), not a reopen. */
+  retryNow?: true;
+  /** Held by a cooldown: when it tries again by itself ("Trying again in N min"). */
+  hint?: string;
 }
 
 export function tileFailure(f: TileFailureFacts): TileFailureView {
+  // The single-view player's cooldown words; its "OK: Retry now" becomes the window's own action line.
+  if (!f.deviceLimit && f.cooldown?.state === 'waiting') {
+    const text = f.cooldown.reason === 'unreachable' ? UNREACHABLE_TEXT : COOLDOWN_TEXT;
+    return { text, retry: { enabled: true, inMs: 0 }, close: true, retryNow: true, hint: tryingAgainIn(f.cooldown, f.now) };
+  }
   const inMs = Math.max(0, f.at + RETRY_REST_MS - f.now);
   let text: string;
   if (f.deviceLimit) text = MULTIVIEW_COPY.deviceLimit;

@@ -213,6 +213,13 @@ export const windowNotes = windowNoteStore.notes;
 const noteWindow = (n: number, note: WindowNote) => windowNoteStore.note(n, note);
 /** A window opens again (Retry, another channel): its note goes. */
 export const clearWindowNote = (n: number): void => windowNoteStore.clear(n);
+/**
+ * "Watch this one instead" reopens window `n` (G9 task 2.5): its refusal is that window's, never the source's. It
+ * starts no host cooldown and records no escalation, as a cut window's refusal does (the same mark).
+ */
+export const keepRefusalOnWindow = (n: number): void => windowNoteStore.markDisplaced(n);
+/** That reopen played or failed otherwise: a later refusal of window `n` is judged as usual. */
+export const dropRefusalMark = (n: number): void => { windowNoteStore.takeDisplaced(n); };
 
 /** A window's refusal: kept on it, or the host's (journaled either way; escalation is noted on the window). */
 function scopeWindowRefusal(n: number, hostKey: string, facts: RefusalFacts): RefusalScope {
@@ -267,7 +274,8 @@ function buildSlot(n: number, slotPlayer: AppPlayer, layer: { relayout(): void }
       ...cooldownGate,
       current: (s) => { if (primary()) setStreamCooldown(s?.cooldownKey, s?.cooldown); },
       // Kept on the window: the source refused window k (k = the streams open + this one).
-      tileRefused: (key, _url, facts) => { connectionMemory.learn(key, (facts.concurrent ?? 0) + 1); },
+      // With no other stream open (a reopen after "Watch this one instead"), it says nothing about a window count.
+      tileRefused: (key, _url, facts) => { if ((facts.concurrent ?? 0) > 0) connectionMemory.learn(key, facts.concurrent! + 1); },
     },
     (what) => journal.add({ k: 'page', t: Date.now(), what }),
     // A combined channel: its next stream takes over when one fails (never after a refusal; at most two per tune).

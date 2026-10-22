@@ -66,6 +66,7 @@ export const MULTIVIEW_COPY = {
   soundFollows: 'Sound follows focus',
   closeWindow: 'Close window',
   retry: 'Retry',
+  retryNow: 'Retry now',
   watchInstead: 'Watch this one instead',
   stoppedForOther: 'Stopped so another window can play.',
   starting: 'Starting…',

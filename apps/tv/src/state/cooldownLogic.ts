@@ -11,9 +11,13 @@ export const UNREACHABLE_TEXT = "Your source isn't answering. The app is waiting
  */
 export function cooldownCopy(c: SourceCooldown, now: number, pointer: boolean): { text: string; hint: string } | undefined {
   if (c.state === 'clear') return undefined;
-  const min = Math.max(1, Math.ceil((c.until - now) / 60_000));
   const text = c.reason === 'unreachable' ? UNREACHABLE_TEXT : COOLDOWN_TEXT;
-  return { text, hint: `Trying again in ${min} min · ${pointer ? 'Click to retry now' : 'OK: Retry now'}` };
+  return { text, hint: `${tryingAgainIn(c, now)} · ${pointer ? 'Click to retry now' : 'OK: Retry now'}` };
+}
+
+/** "Trying again in N min" (at least 1) for a cooldown that waits. */
+export function tryingAgainIn(c: { until: number }, now: number): string {
+  return `Trying again in ${Math.max(1, Math.ceil((c.until - now) / 60_000))} min`;
 }
 
 /**
