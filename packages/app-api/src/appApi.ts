@@ -2,7 +2,7 @@ import {
   ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
-  compareAirings, epgKey, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
@@ -332,6 +332,7 @@ export class AppApi {
       this.companionStale();
       this.shortCache.dropSource(id);
       this.formats.delete(id);
+      this.guideImports.delete(id);
       this.titleRebuilds.delete(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
@@ -1635,7 +1636,10 @@ export class AppApi {
     const clean = message === raw.message && rpc.name === raw.name && rpc.code === raw.code;
     const out = err instanceof Error && clean
       ? err
-      : Object.assign(new Error(message), { name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}), ...(rpc.code !== undefined ? { code: rpc.code } : {}) });
+      : Object.assign(new Error(message), {
+        name: rpc.name, ...(rpc.status !== undefined ? { status: rpc.status } : {}), ...(rpc.code !== undefined ? { code: rpc.code } : {}),
+        ...(isUnreachable(err) ? { unreachable: true } : {}),
+      });
     if (this.recorded.has(out)) return out;
     this.recorded.add(out);
     this.note(where, message, rpc);
@@ -1805,10 +1809,7 @@ export class AppApi {
       if (this.activeId !== id) return;
       const coverage = await this.service.loadEpgCoverage(id);
       if (sameCoverage(this.coverage, coverage)) {
-        this.titles = undefined;
-        this.titlesEpoch++;
-        this.dropSports();
-        this.sportsMapping++;
+        this.dropGuideDerived();
       } else {
         this.setIndex(this.channels, this.index.layout(), coverage);
       }
@@ -1826,6 +1827,11 @@ export class AppApi {
     this.index = new ChannelIndex(channels, layout, coverage, regions ? { fold, regions } : { fold });
     this.favSet = undefined;
     this.companionStale();
+    this.dropGuideDerived();
+  }
+
+  /** Forgets what was built from the guide and the index: the title index and the sports mapping. */
+  private dropGuideDerived(): void {
     this.titles = undefined;
     this.titlesEpoch++;
     this.dropSports();
@@ -2140,7 +2146,8 @@ export class AppApi {
   private failed(what: 'playlist' | 'epg', sourceId: string, where: string, err: unknown): never {
     const out = this.record(where, err);
     const error = toRpcError(out);
-    if (noAnswer(error)) {
+    // Only a request that never reached the source means offline: a stall, a timeout or an odd answer does not.
+    if (isUnreachable(err)) {
       this.setOffline(true);
       this.offlineFails.add(`${sourceId}\u0000${what}`);
     }
@@ -2206,7 +2213,6 @@ export class AppApi {
     }
     this.guideImports.set(id, { ...state, stage: 'idle' });
     await this.reloadCoverage(id);
-    this.dropSports();
     this.setOffline(false);
     this.emit({ type: 'refreshed', what: 'epg', sourceId: id });
   }
@@ -2269,8 +2275,10 @@ export class AppApi {
       }
     }
     // The failed step may have started a cooldown (a refusing source): then the guide waits like everything else.
-    // So does a step that got no answer at all (offline): the guide's much larger download would fail the same way.
-    if (failure !== undefined && (noAnswer(toRpcError(failure)) || (await this.service.guard.status(id)).state !== 'clear')) {
+    // So does a step whose request never reached the source (offline), when the guide comes from that same host: its
+    // much larger download would fail the same way. A stall, a timeout or an odd answer still lets the guide run.
+    if (failure !== undefined && ((isUnreachable(failure) && await this.guideSharesHost(id))
+      || (await this.service.guard.status(id)).state !== 'clear')) {
       throw failure;
     }
     let epg = false;
@@ -2287,6 +2295,12 @@ export class AppApi {
       }
     }
     if (failure !== undefined) throw failure;
+  }
+
+  /** `guideOnPlaylistHost` for source `id`; a source that is gone counts as the same host (nothing to download). */
+  private async guideSharesHost(id: string): Promise<boolean> {
+    const source = (await this.service.listSources()).find((s) => s.id === id);
+    return source === undefined || guideOnPlaylistHost(source);
   }
 
   /**
@@ -2405,16 +2419,18 @@ export class AppApi {
     if (first !== LATE) return first;
     this.epgPending.add(key);
     const job = read.then((got) => {
+      // An answer from before a guide or source change is dropped; the rows still hear about it and read again.
       if (gen !== this.generation || this.activeId !== id) return;
       this.epgLate.set(key, got);
       for (const old of this.epgLate.keys()) {
         if (this.epgLate.size <= EPG_LATE_MAX) break;
         this.epgLate.delete(old);
       }
-      this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
     }).catch((err: unknown) => this.note('epgRows', err instanceof Error ? err.name : 'Error')).finally(() => {
       this.epgPending.delete(key);
       this.shortJobs.delete(job);
+      // Always, also after a dropped or failed read: lite rows must never wait for the next 15-minute guide tick.
+      this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
     });
     this.shortJobs.add(job);
     return new Map();
@@ -2686,8 +2702,19 @@ export class AppApi {
   }
 }
 
-/** A network error with no HTTP status: nothing answered (offline, or the source is unreachable). */
-const noAnswer = (e: RpcError): boolean => e.name === 'SourceNetworkError' && e.status === undefined;
+/**
+ * Whether the guide of `source` is downloaded from the host its channel list comes from: an Xtream source always; an
+ * M3U source when its guide link has the playlist's host (a guide elsewhere may still answer while the playlist host
+ * is down). A link that does not parse counts as the same host: its download would fail anyway.
+ */
+function guideOnPlaylistHost(source: SourceConfig): boolean {
+  if (source.kind === 'xtream' || !source.epgUrl) return true;
+  try {
+    return new URL(source.epgUrl).host === new URL(source.playlistUrl).host;
+  } catch {
+    return true;
+  }
+}
 
 /** Whether two guide coverages hold the same channels (undefined: no guide configured, not "covers nothing"). */
 function sameCoverage(a: Set<string> | undefined, b: Set<string> | undefined): boolean {

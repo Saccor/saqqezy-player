@@ -1,7 +1,7 @@
 import { EPG_BACK_MS } from '../constants.ts';
 import { EpgMatcher, epgKey, inWindow, nowNext } from '../epg/window.ts';
 import { epgLongestKey, lookBackFor, type EpgLongestRecord } from '../epg/lookBack.ts';
-import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError, unreachableError } from '../errors.ts';
 import { sanitizeSettings, type AppSettings } from '../settings.ts';
 import { ChannelIndex } from '../index/channelIndex.ts';
 import { isUserFlags, layoutFromFlags } from '../layout/migrate.ts';
@@ -34,6 +34,7 @@ import { SyncClock } from '../sync/clock.ts';
 import { SYNC_KIND, clockKey } from '../sync/keys.ts';
 import { SYNCED_SETTINGS } from '../sync/payload.ts';
 import { SETTINGS_SCOPE } from '../sync/snapshot.ts';
+import { createYield } from './yieldNow.ts';
 import {
   REFRESH_WHATS, clearRefreshFailure, countsAsRefreshFailure, recordRefreshFailure, refreshBackedOff, refreshFailKey,
   type RefreshWhat,
@@ -71,7 +72,10 @@ export interface SourceServiceDeps {
   syncClock?: SyncClock;
   /** Programmes per guide write (default `EPG_BATCH`). TVs pass `TV_EPG_BATCH`: shorter writes, shorter waits for reads. */
   epgBatch?: number;
-  /** Lets other worker requests run (default: a `setTimeout(0)`); the guide import awaits it every `YIELD_EVERY_MS`. */
+  /**
+   * Lets other worker requests run (default `createYield()`: a message-channel turn, a `setTimeout(0)` every 8th);
+   * the guide import awaits it every `YIELD_EVERY_MS`.
+   */
   yieldNow?: () => Promise<void>;
   /** Monotonic ms for those slices (default `performance.now`); not the wall clock `now`. */
   clock?: () => number;
@@ -83,7 +87,6 @@ const EPG_BATCH = 5000;
 export const TV_EPG_BATCH = 1000;
 /** The guide import (parse loop and title index build) gives the thread back after this much work. */
 const YIELD_EVERY_MS = 8;
-const defaultYield = () => new Promise<void>((resolve) => { setTimeout(resolve, 0); });
 interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boolean }
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
@@ -163,7 +166,7 @@ export class SourceService {
     this.newId = deps.newId ?? defaultId;
     this.bodyIdleMs = deps.bodyIdleMs ?? BODY_IDLE_MS;
     this.epgBatch = Math.max(1, deps.epgBatch ?? EPG_BATCH);
-    this.yieldNow = deps.yieldNow ?? defaultYield;
+    this.yieldNow = deps.yieldNow ?? createYield();
     this.clock = deps.clock ?? (() => performance.now());
     this.guard = deps.guard ?? new RefusalGuard({ storage: this.storage, now: this.now });
     this.syncClock = deps.syncClock ?? new SyncClock({ storage: this.storage, now: this.now });
@@ -542,9 +545,10 @@ export class SourceService {
     let sportsOk = true;
     let storageFailure: { error: unknown } | undefined;
     // One worker thread serves the UI too: give it back every YIELD_EVERY_MS of import work.
+    // `due` is synchronous: it runs for every parsed item (650k for a large guide), and only a pause is awaited.
     let sliceStart = this.clock();
-    const share = async () => {
-      if (this.clock() - sliceStart < YIELD_EVERY_MS) return;
+    const due = () => this.clock() - sliceStart >= YIELD_EVERY_MS;
+    const pause = async () => {
       await this.yieldNow();
       // From the end of the pause: a slow timer (Windows rounds to its tick) must not make every item pause.
       sliceStart = this.clock();
@@ -559,7 +563,7 @@ export class SourceService {
     };
     try {
       for await (const item of parseXmltv(streamFailures(responseText(res, url, { idleMs: this.bodyIdleMs })), stats)) {
-        await share();
+        if (due()) await pause();
         if (item.type === 'channel') {
           matcher.addXmltvChannel(item.id, item.names);
           continue;
@@ -616,7 +620,7 @@ export class SourceService {
       const steps = titles.buildSteps();
       let step = steps.next();
       while (!step.done) {
-        await share();
+        if (due()) await pause();
         step = steps.next();
       }
       await this.storage.setMeta(titleIndexKey(id), { gen: newGen, data: step.value, truncated: titles.truncated } satisfies TitleIndexRecord);
@@ -628,7 +632,7 @@ export class SourceService {
       }
     }
     // The closing writes are separate pauses too (each clones its value; in memory nothing else would break them up).
-    await share();
+    if (due()) await pause();
     // Sports is optional too: a failed build or write never aborts the import (the record then reads as missing).
     try {
       await this.storage.setMeta(sportsIndexKey(id), sportsOk ? sports.record(newGen, now) : null);
@@ -639,7 +643,7 @@ export class SourceService {
         // Best effort: an older record has another gen, so it still reads as missing.
       }
     }
-    await share();
+    if (due()) await pause();
     await this.storage.setMeta(epgLongestKey(id), { gen: newGen, ms: longest } satisfies EpgLongestRecord);
     await this.storage.setMeta(`epgGen:${id}`, newGen);
     await this.storage.setMeta(`epgCoverage:${id}`, [...coverage]);
@@ -836,7 +840,7 @@ export class SourceService {
     } catch (err) {
       // A header timeout or the refusal cooldown keeps its own message; anything else means the provider could not be reached.
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
-      throw new SourceNetworkError('Could not reach the provider.');
+      throw unreachableError();
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);

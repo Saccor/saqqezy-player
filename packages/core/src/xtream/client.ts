@@ -1,4 +1,4 @@
-import { SourceAuthError, SourceNetworkError, SourceRefusedError } from '../errors.ts';
+import { SourceAuthError, SourceNetworkError, SourceRefusedError, unreachableError } from '../errors.ts';
 import { responseText } from '../net/textStream.ts';
 import { jsonArrayBatches } from '../net/jsonArrayStream.ts';
 import { API_TIMEOUT_MS, BODY_IDLE_MS, DOWNLOAD_TIMEOUT_MS } from '../net/timeout.ts';
@@ -111,7 +111,7 @@ export class XtreamClient {
       });
     } catch (err) {
       if (err instanceof SourceNetworkError || err instanceof SourceRefusedError) throw err;
-      throw new SourceNetworkError('Could not reach the provider.');
+      throw unreachableError();
     }
     if (res.status === 401 || res.status === 403) throw new SourceAuthError();
     if (!res.ok) throw new SourceNetworkError(`The provider returned an error (HTTP ${res.status}).`, res.status);

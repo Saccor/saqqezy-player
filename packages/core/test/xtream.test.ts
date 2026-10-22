@@ -58,8 +58,9 @@ describe('XtreamClient', () => {
   test('network, http and json errors become SourceNetworkError', async () => {
     const down: FetchFn = async () => { throw new TypeError('fetch failed'); };
     await expect(new XtreamClient(cfg, down).authenticate()).rejects.toThrow('Could not reach the provider.');
+    await expect(new XtreamClient(cfg, down).authenticate()).rejects.toMatchObject({ unreachable: true });
     const e500 = new XtreamClient(cfg, fakeFetch({ auth: () => json({}, 500) }));
-    await expect(e500.authenticate()).rejects.toMatchObject({ name: 'SourceNetworkError', status: 500 });
+    await expect(e500.authenticate()).rejects.toMatchObject({ name: 'SourceNetworkError', status: 500, unreachable: false });
     const bad = new XtreamClient(cfg, fakeFetch({ auth: () => new Response('<html>') }));
     await expect(bad.authenticate()).rejects.toBeInstanceOf(SourceNetworkError);
   });

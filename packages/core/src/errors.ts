@@ -6,10 +6,22 @@ export class SourceAuthError extends Error {
 }
 
 export class SourceNetworkError extends Error {
-  constructor(message: string, readonly status?: number) {
+  /**
+   * `unreachable`: the request itself failed (no connection, DNS, offline), never a stall, a timeout or an odd answer.
+   * Only this means "offline": the app then skips the guide download of that source and shows the offline state.
+   */
+  constructor(message: string, readonly status?: number, readonly unreachable = false) {
     super(message);
     this.name = 'SourceNetworkError';
   }
+}
+
+/** The neutral error of a request that never reached the source (`SourceNetworkError.unreachable`). */
+export const unreachableError = (): SourceNetworkError => new SourceNetworkError('Could not reach the provider.', undefined, true);
+
+/** Whether `err` is a request that never reached the source (also true for a copy that kept the flag). */
+export function isUnreachable(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { unreachable?: unknown }).unreachable === true;
 }
 
 export function redactUrl(raw: string): string {

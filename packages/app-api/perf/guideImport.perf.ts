@@ -8,8 +8,8 @@ import { AppApi } from '../src/appApi.ts';
  * Spec 2026-10-22-g9-stability §E: the guide import shares the worker with the UI. A 54k-channel source (the size of
  * the owner's TV) re-imports its guide while a probe asks the API for a channel page every 50 ms; every answer must
  * come quickly. 54k channels x 12 programmes (648k programmes, ~110 MB of XMLTV; 324k are in the stored window)
- * runs in well under 30 s here, so the full channel count is used. The import yields with its default `setTimeout(0)`
- * (about 15 ms on Windows, so it runs slower here than on a TV).
+ * runs in well under 30 s here, so the full channel count is used. The import yields with its default pause:
+ * `setImmediate` in Node (a TV worker uses a message channel; see `createYield`).
  */
 const CHANNELS = 54_000;
 const PER_CHANNEL = 12;
@@ -64,7 +64,7 @@ async function probeDuring(work: () => Promise<unknown>, read: () => Promise<unk
   return waits;
 }
 
-test('a 54k-channel guide import leaves the API answering: p95 under 15 ms, longest wait under 50 ms', async () => {
+test('a 54k-channel guide import leaves the API answering: p95 under 15 ms, longest wait under 50 ms (first: 150 ms)', async () => {
   const storage = new MemoryStorage();
   // The TV's write batch (the worker passes it on Tizen and webOS): a 5,000-row write clones for ~12 ms by itself.
   const service = new SourceService({ storage, fetch: fetchFn, now: () => NOW, epgBatch: TV_EPG_BATCH });
@@ -88,6 +88,12 @@ test('a 54k-channel guide import leaves the API answering: p95 under 15 ms, long
       `max ${Math.max(...waits).toFixed(1)} ms, n ${waits.length})`,
   );
   expect(stored).toBeGreaterThan(300_000);
+  expect(first.length).toBeGreaterThan(10);
+  expect(pct(first, 0.95)).toBeLessThan(15);
+  // The first import's longest wait is a step that is not sliced: the channel index rebuild for the new coverage (once
+  // per new coverage), plus the title-index record's clone in MemoryStorage and a major GC. Measured 2026-10-22 on PC
+  // after the fix round: 32-53 ms in most runs, up to 105 ms now and then. The bound is honest, not the 50 ms target.
+  expect(Math.max(...first)).toBeLessThan(150);
   expect(waits.length).toBeGreaterThan(10);
   expect(pct(waits, 0.95)).toBeLessThan(15);
   expect(Math.max(...waits)).toBeLessThan(50);

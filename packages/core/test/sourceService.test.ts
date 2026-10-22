@@ -8,6 +8,7 @@ import { applyOps, emptyLayout } from '../src/layout/index.ts';
 import type { Channel, FetchFn } from '../src/types.ts';
 import { queryTitles } from '../src/search/titleIndex.ts';
 import { MAX_PROGRAMME_MS } from '../src/storage.ts';
+import { createYield } from '../src/service/yieldNow.ts';
 
 const detectFlags = vi.hoisted(() => ({ throwOnScore: false }));
 vi.mock('../src/sports/detect.ts', async (importOriginal) => {
@@ -57,8 +58,11 @@ describe('SourceService – m3u', () => {
     await expect(service.addSource(m3uInput)).rejects.toBeInstanceOf(SourceAuthError);
     routes['/p.m3u'] = () => new Response('#EXTM3U\n');
     await expect(service.addSource(m3uInput)).rejects.toThrow('no channels');
+    // Only a request that never got through is "unreachable" (the app's offline state and guide skip).
+    await expect(service.addSource(m3uInput)).rejects.toMatchObject({ unreachable: false });
     delete routes['/p.m3u'];
     await expect(service.addSource(m3uInput)).rejects.toThrow('Could not reach the provider.');
+    await expect(service.addSource(m3uInput)).rejects.toMatchObject({ name: 'SourceNetworkError', unreachable: true });
     expect(await service.listSources()).toEqual([]);
     expect(await service.getActiveSourceId()).toBeUndefined();
   });
@@ -300,6 +304,28 @@ describe('SourceService – m3u', () => {
       expect(yields).toBeGreaterThanOrEqual(300);
       // The guide is still whole: every programme stored, and the title index built.
       expect(await svc.titleIndexFor(source.id)).toBeDefined();
+    });
+
+    test('with message-channel pauses, a timer set when the import starts fires before it ends', async () => {
+      routes['/epg.xml'] = () => new Response(longGuide(900));
+      // Messages arrive as microtasks here, so only the every-8th timer pause can let the timer run.
+      const channel = class {
+        port1 = { onmessage: null as ((ev: unknown) => void) | null, postMessage() {} };
+        port2 = { onmessage: null, postMessage: () => { queueMicrotask(() => this.port1.onmessage?.(null)); } };
+      };
+      let t = 0;
+      const svc = new SourceService({
+        shortEpgGapMs: 0, storage, fetch: fetchFn, now: () => NOW, newId: () => 'y',
+        clock: () => { const v = t; t += 3; return v; },
+        yieldNow: createYield({ setImmediate: undefined, MessageChannel: channel }),
+      });
+      const { source } = await svc.addSource(m3uInput);
+      const state = { done: false, firedDuring: undefined as boolean | undefined };
+      setTimeout(() => { state.firedDuring = !state.done; }, 0);
+      expect((await svc.refreshEpg(source.id)).programmes).toBe(900);
+      state.done = true;
+      await new Promise((r) => setTimeout(r, 0));
+      expect(state.firedDuring).toBe(true);
     });
   });
 
