@@ -211,14 +211,17 @@ describe('sessionLevel', () => {
 
 describe('screenUnderlay', () => {
   const ALL: readonly ScreenId[] = ['addSource', 'home', 'player', 'search', 'settings', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'vodPlay', 'start', 'startSports', 'multiview'];
-  test('is off for the video screens only', () => {
-    for (const s of ['player', 'vodPlay', 'home'] as const) expect(screenUnderlay(s)).toBe(false);
-    for (const s of ALL.filter((x) => x !== 'player' && x !== 'vodPlay' && x !== 'home')) expect(screenUnderlay(s)).toBe(true);
+  const VIDEO = ['player', 'vodPlay', 'home', 'multiview'] as const;
+  test('is off for the video screens only (multiview draws its windows as holes over the plane)', () => {
+    for (const s of VIDEO) expect(screenUnderlay(s)).toBe(false);
+    for (const s of ALL.filter((x) => !(VIDEO as readonly ScreenId[]).includes(x))) expect(screenUnderlay(s)).toBe(true);
   });
   test('covers every screen that can fade in, so the video plane never shows through the fade', () => {
     for (const s of ALL) {
       for (const change of ['push', 'replace'] as const) {
+        // Video screens neither fade in nor get an underlay, so one condition implies the other.
         if (screenEnters(change, s)) expect(screenUnderlay(s)).toBe(true);
+        if (!screenUnderlay(s)) expect(screenEnters(change, s)).toBe(false);
       }
     }
   });

@@ -280,6 +280,9 @@ describe('coverVideo', () => {
     expect(coverVideo({ kind: 'loading' }, false)).toBe(true);
     expect(coverVideo({ kind: 'reconnecting', attempt: 1 }, false)).toBe(true);
   });
+  it('stays covered when the first open fails (nothing played)', () => {
+    expect(coverVideo({ kind: 'failed', reason: 'gone', httpStatus: 404 }, false)).toBe(true);
+  });
   it('uncovers on playing, and stays uncovered after the first play (a later buffer keeps the picture)', () => {
     expect(coverVideo({ kind: 'playing' }, false)).toBe(false);
     expect(coverVideo({ kind: 'loading' }, true)).toBe(false);
