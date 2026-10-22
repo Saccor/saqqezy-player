@@ -113,7 +113,7 @@ export class IdbStorage implements Storage {
       await this.makeRoom(enc.bytes);
       const db = await this.db();
       try {
-        await writeCatalog(db, sourceId, kind, enc, legacy, { requireLegacy: opts.onlyIfLegacy === true });
+        await writeCatalog(db, sourceId, kind, enc, legacy, { requireSource: opts.onlyIfLegacy === true });
       } catch (err) {
         // The legacy single record of this key is what leaves no room (47 MB of movies on the G9): the list being
         // written is the same data or newer, so drop it and try once more.
@@ -121,7 +121,7 @@ export class IdbStorage implements Storage {
         const tx = db.transaction(legacy.store, 'readwrite');
         tx.objectStore(legacy.store).delete(legacy.key);
         await done(tx);
-        await writeCatalog(db, sourceId, kind, enc, legacy);
+        await writeCatalog(db, sourceId, kind, enc, legacy, { requireSource: opts.onlyIfLegacy === true });
       }
     });
   }

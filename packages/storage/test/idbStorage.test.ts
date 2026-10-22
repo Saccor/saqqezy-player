@@ -192,6 +192,7 @@ async function makeV3(factory: IDBFactory): Promise<void> {
       db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
       db.createObjectStore('syncMeta', { keyPath: ['scope', 'key'] });
       const tx = open.transaction!;
+      tx.objectStore('sources').put({ id: 's1', kind: 'm3u', name: 'One', playlistUrl: 'http://example.test/a.m3u' });
       tx.objectStore('channels').put({ sourceId: 's1', channels: [{ id: 's1:1', sourceId: 's1', name: 'Channel 1', url: 'http://example.test/1.ts', group: 'G', number: 1 }] });
       tx.objectStore('vod').put({ sourceId: 's1', kind: 'movie', list: { items: [{ id: 's1:m1', kind: 'movie', title: 'Synthetic Film', categoryId: '1' }], categories: [] } });
       tx.objectStore('meta').put({ count: 2, at: 1, storage: true }, 'refreshFail:s1:vod:series');
@@ -386,6 +387,57 @@ describe('IdbStorage resilience', () => {
     expect(await s.getVod('s1', 'movie')).toBeUndefined();
   });
 
+  test('a migration whose source record is gone deletes the orphan legacy record and writes nothing', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    await rawPut(factory, 'sources', (st) => { st.delete('s1'); });
+    const s = new IdbStorage(factory);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+  });
+
+  test('a migration retried after a quota failure writes nothing when the source is deleted before its head write', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await s.listSources(); // upgrades to v4 before the raw connection opens
+    const conn = await new Promise<IDBDatabase>((resolve, reject) => { const o = factory.open('iptv'); o.onsuccess = () => resolve(o.result); o.onerror = () => reject(o.error); });
+    const put = IDBObjectStore.prototype.put;
+    let chunkPuts = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') {
+        chunkPuts++;
+        if (chunkPuts === 1) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        // The retry's legacy delete is done; the source goes before the head write (its transaction is created later, so it queues behind this one).
+        if (chunkPuts === 2) conn.transaction('sources', 'readwrite').objectStore('sources').delete('s1');
+      }
+      return put.call(this, value, key);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+      expect(chunkPuts).toBe(2);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+      conn.close();
+    }
+    expect(await rawAll(factory, 'sources')).toHaveLength(0);
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+  });
+
   test('an undecodable chunk reads as missing, the head is dropped, and nothing rejects', async () => {
     const factory = new IDBFactory();
     const s = new IdbStorage(factory);
@@ -402,6 +454,7 @@ describe('IdbStorage resilience', () => {
       warn.mockRestore();
     }
     expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect((await rawAll(factory, 'chunks')).filter((c: any) => c.sourceId === 's1' && c.kind === 'movie')).toHaveLength(0);
     await s.replaceVod('s1', 'movie', film);
     expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Film');
   });

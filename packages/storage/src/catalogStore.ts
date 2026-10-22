@@ -39,10 +39,10 @@ async function deleteRange(db: IDBDatabase, range: IDBKeyRange): Promise<void> {
   await done(tx);
 }
 
-/** A migration found its legacy record gone (the source was deleted, or a refresh replaced it): nothing was written. */
+/** A migration found its source gone (deleted while it encoded): nothing was written and the orphan legacy record was deleted. */
 export const MIGRATION_SUPERSEDED = 'MigrationSuperseded';
 
-export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: CatalogKind, enc: EncodedCatalog, legacy: LegacyRef, opts: { requireLegacy?: boolean } = {}): Promise<void> {
+export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: CatalogKind, enc: EncodedCatalog, legacy: LegacyRef, opts: { requireSource?: boolean } = {}): Promise<void> {
   const prev = (await req(db.transaction('catalogs').objectStore('catalogs').get([sourceId, kind]))) as Head | undefined;
   const gen = (prev?.gen ?? 0) + 1;
   // A crashed earlier attempt may have left chunks at this generation.
@@ -55,22 +55,23 @@ export async function writeCatalog(db: IDBDatabase, sourceId: string, kind: Cata
       await done(tx);
     }
     const head: Head = { sourceId, kind, gen, chunks: enc.chunks.length, count: enc.count, ...(enc.extra ? { extra: enc.extra } : {}) };
-    const tx = db.transaction(['catalogs', legacy.store], 'readwrite');
+    const tx = db.transaction(opts.requireSource ? ['catalogs', legacy.store, 'sources'] : ['catalogs', legacy.store], 'readwrite');
     const commit = () => {
       tx.objectStore('catalogs').put(head);
       tx.objectStore(legacy.store).delete(legacy.key);
     };
-    if (opts.requireLegacy) {
-      // A migration encodes for seconds: the source may have been deleted meanwhile. Only commit while the legacy record is there.
-      const check = tx.objectStore(legacy.store).count(legacy.key);
+    if (opts.requireSource) {
+      // A migration encodes for seconds: the source may have been deleted meanwhile. Only write the head while it exists;
+      // otherwise the legacy record is an orphan, deleted here (this transaction commits), and the new chunks are rolled back.
+      const check = tx.objectStore('sources').get(sourceId);
       check.onsuccess = () => {
-        if (check.result > 0) commit();
-        else { superseded = true; tx.abort(); }
+        if (check.result !== undefined) commit();
+        else { superseded = true; tx.objectStore(legacy.store).delete(legacy.key); }
       };
     } else {
       commit();
     }
-    await done(tx).catch((err: unknown) => { if (!superseded) throw err; });
+    await done(tx);
     if (superseded) throw Object.assign(new Error('Catalogue migration superseded'), { name: MIGRATION_SUPERSEDED });
   } catch (err) {
     await deleteRange(db, genRange(sourceId, kind, gen)).catch(() => undefined);
@@ -112,12 +113,13 @@ export async function readCatalog(db: IDBDatabase, sourceId: string, kind: Catal
   }
 }
 
-/** Deletes the head of one generation (not a newer one a refresh committed meanwhile). */
+/** Deletes the head of one generation and that generation's chunks (the head only if a refresh has not committed a newer one meanwhile). */
 async function dropHead(db: IDBDatabase, sourceId: string, kind: CatalogKind, gen: number): Promise<void> {
-  const tx = db.transaction('catalogs', 'readwrite');
+  const tx = db.transaction(['catalogs', 'chunks'], 'readwrite');
   const store = tx.objectStore('catalogs');
   const cur = store.get([sourceId, kind]);
   cur.onsuccess = () => { if ((cur.result as Head | undefined)?.gen === gen) store.delete([sourceId, kind]); };
+  tx.objectStore('chunks').delete(genRange(sourceId, kind, gen));
   await done(tx);
 }
 
