@@ -3,6 +3,7 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { deviceRefusal, deviceWindowMax, journal, playback, supervisor, testMultiviewAgain } from '../../playback/playback.ts';
+import { thumbStats, thumbStatsLine } from '../../images/thumbClient.ts';
 import { deviceWindowsLine } from '../../playback/deviceWindows.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
 import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
@@ -57,6 +58,8 @@ export function DiagnosticsPage(props: PageProps) {
       all.splice(2, 0, ['Player', playback.playerKind()], ['Multiview', deviceWindowsLine(deviceWindowMax(), deviceRefusal())]);
       const live = playback.current() ? liveLines(supervisor.liveInfo()) : [];
       all.splice(4, 0, ...live, ['Playback', journalSummary(journal.entries(), Date.now())]);
+      const images = thumbStats();
+      if (images) all.splice(5 + live.length, 0, ['Images', thumbStatsLine(images)]);
       setLines(all);
     }, (err: unknown) => {
       console.warn('Diagnostics failed', err instanceof Error ? err.name : 'Error');
