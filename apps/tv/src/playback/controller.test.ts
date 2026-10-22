@@ -72,6 +72,13 @@ describe('playback controller', () => {
     expect(pb.current()?.id).toBe('vod:catchup:c:1');
   });
 
+  it("countOpen: a multiview window's open counts against the open rate", () => {
+    const f = fakes();
+    const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
+    pb.playChannel(ch('1'), { countOpen: true });
+    expect(f.supervisor.play).toHaveBeenLastCalledWith(ch('1').url, ch('1').alternateUrl, { sourceKey: 'src-1', channel: 'Channel', countOpen: true });
+  });
+
   it('passes the active source id as the live-delay key', () => {
     const f = fakes();
     const pb = createPlaybackController(f.player, f.supervisor, undefined, 'HTML5', () => 'src-1');
