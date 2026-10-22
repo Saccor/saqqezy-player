@@ -57,6 +57,8 @@ export interface LiveMenuDeps {
   goToDay: (at: number) => void;
   /** "Choose source…": `sourceId` plays now for row `rowId`, and first from now on. */
   playSource: (rowId: string, sourceId: string) => void;
+  /** "Add to multiview" where this device can play 2 or more channels at once. */
+  multiview?: { offered: () => boolean; add: (rowId: string) => void };
 }
 
 export function createLiveMenu(d: LiveMenuDeps) {
@@ -109,7 +111,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     channel: {
       inListId: s.inListId, isHidden: false, isFavourite: s.isFavourite, lists: listsFromGroups(), sources: s.row.sourceCount,
     },
-    fromStart: s.fromStart !== undefined, goToDay: s.goToDay,
+    fromStart: s.fromStart !== undefined, goToDay: s.goToDay, multiview: d.multiview?.offered() === true,
   });
 
   /**
@@ -217,6 +219,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     if (action === 'fromStart') { m.fromStart?.(); return; }
     if (action === 'goToDay') { await chooseDay(); return; }
     if (action === 'chooseSource') { await chooseSource(r); return; }
+    if (action === 'addToMultiview') { d.multiview?.add(r.id); return; }
     let ok = false;
     if (action === 'toggleFavourite') {
       const isFav = m.isFavourite;
