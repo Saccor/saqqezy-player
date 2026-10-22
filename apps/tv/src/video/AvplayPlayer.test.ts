@@ -1572,3 +1572,34 @@ describe('AvplayPlayer: teardown after the next frame', () => {
     expect(av.calls).toEqual(['stop', 'close']);
   });
 });
+
+describe('AvplayPlayer: position from play-time events', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  test('a fresh oncurrentplaytime value is used without a sync call; a stale one polls', async () => {
+    vi.useFakeTimers();
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    av.listener!.oncurrentplaytime?.(4000);
+    av.calls.length = 0;
+    expect(p.position()).toBe(4000);
+    expect(av.calls).not.toContain('getCurrentTime');
+    vi.advanceTimersByTime(600);
+    av.time = 4600;
+    expect(p.position()).toBe(4600);
+    expect(av.calls).toContain('getCurrentTime');
+  });
+
+  test('a seek makes the cached value stale', async () => {
+    vi.useFakeTimers();
+    const { av, p } = setup();
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    av.durationMs = 60_000;
+    av.listener!.oncurrentplaytime?.(4000);
+    p.seek(30_000);
+    av.time = 30_000;
+    expect(p.position()).toBe(30_000);
+  });
+});

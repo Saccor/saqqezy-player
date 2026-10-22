@@ -209,6 +209,8 @@ const START_SEEK_TIMEOUT_MS = 3_000;
 const RESTORE_TIMEOUT_MS = 5_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
+/** `oncurrentplaytime` younger than this is used as the position; older, `getCurrentTime()` is polled (a sync call). */
+const POSITION_FRESH_MS = 500;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_MS = 1_000;
 /** A held frame never outlives this (as in Html5Player), so the screensaver cannot stay off over a failure screen. */
@@ -245,6 +247,7 @@ export class AvplayPlayer implements Player {
   private rect: Rect = FULL;
   private aspect: AspectMode = 'auto';
   private lastPosition = 0;
+  private lastPositionAt = 0;
   private readonly space: Size;
   private readonly note: ((what: 'refererDropped') => void) | undefined;
   private refererNoted = false;
@@ -327,6 +330,7 @@ export class AvplayPlayer implements Player {
     this.session = s;
     this.userPaused = false;
     this.lastPosition = 0;
+    this.lastPositionAt = 0;
     this.windowCache = undefined;
     this.emit(s, 'loading');
     const av = this.avplay;
@@ -356,6 +360,7 @@ export class AvplayPlayer implements Player {
         oncurrentplaytime: (ms) => {
           if (s.dead || typeof ms !== 'number') return;
           this.lastPosition = ms;
+          this.lastPositionAt = Date.now();
           clearTimeout(s.restoreWatchdog);
         },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
@@ -398,6 +403,7 @@ export class AvplayPlayer implements Player {
             };
             try {
               s.seekWatchdog = setTimeout(go, START_SEEK_TIMEOUT_MS);
+              this.lastPositionAt = 0;
               av.seekTo(to, go, go);
               return;
             } catch {
@@ -501,6 +507,7 @@ export class AvplayPlayer implements Player {
     if (!sp || !s || !this.avplay.restore) return false;
     try {
       this.avplay.restore(sp.url, sp.positionMs, false);
+      this.lastPositionAt = 0;
     } catch {
       return false;
     }
@@ -638,11 +645,12 @@ export class AvplayPlayer implements Player {
   }
 
   /**
-   * ms. Polls `getCurrentTime()` (last good value if it throws); `oncurrentplaytime` also updates the fallback
-   * value, but is not relied on.
+   * ms. The `oncurrentplaytime` value while it is fresh (see `POSITION_FRESH_MS`) and the session has started;
+   * otherwise `getCurrentTime()` is polled (last good value if it throws).
    */
   position(): number {
     if (!this.session) return this.lastPosition;
+    if (this.session.started && Date.now() - this.lastPositionAt < POSITION_FRESH_MS) return this.lastPosition;
     try {
       const t = this.avplay.getCurrentTime();
       if (typeof t === 'number' && Number.isFinite(t)) this.lastPosition = t;
@@ -678,6 +686,7 @@ export class AvplayPlayer implements Player {
     const to = Math.max(w.start, w.end - targetS * 1000);
     if (to <= this.position() + 250) return true;
     try {
+      this.lastPositionAt = 0;
       this.avplay.seekTo(to, () => {}, () => {});
       return true;
     } catch {
@@ -736,6 +745,7 @@ export class AvplayPlayer implements Player {
     const to = this.clampSeek(ms);
     if (to === undefined) return false;
     try {
+      this.lastPositionAt = 0;
       this.avplay.seekTo(to, () => {}, () => {});
       this.clearCue();
       return true;
