@@ -984,6 +984,64 @@ describe('AppApi', () => {
   describe('the guide import shares the worker', () => {
     const indexOf = (a: AppApi) => (a as unknown as { index: object }).index;
 
+    describe('a failing or dropped late guide read', () => {
+      async function slowApi() {
+        const { seed } = await seeded();
+        await seed.refresh('epg');
+        await seed.idle();
+        const state = { g: gate(), fail: true };
+        class SlowGuide extends SourceService {
+          override async programmesFor(...args: Parameters<SourceService['programmesFor']>) {
+            await state.g.p;
+            if (state.fail) throw new Error('read failed');
+            return super.programmesFor(...args);
+          }
+        }
+        const events: AppEvent[] = [];
+        const service = new SlowGuide({ storage, fetch: (u, i) => fetch(u, i), now: () => NOW, shortEpgGapMs: 0 });
+        const api = new AppApi({ service, storage, emit: (e) => events.push(e), now: () => NOW, appVersion: '1.2.3', nowNextWaitMs: 20 });
+        live.push(api);
+        await api.init();
+        const from = NOW - 3_600_000;
+        const to = NOW + 3_600_000;
+        const updates = () => events.filter((e) => e.type === 'nowNextUpdated').length;
+        const slowFail = async () => {
+          state.g = gate();
+          await api.getEpgRows('all', 0, 3, from, to);
+          state.g.open();
+          await api.idle();
+        };
+        return { api, state, updates, slowFail, events };
+      }
+
+      test('two slow failures for the same page give one nowNextUpdated', async () => {
+        const { updates, slowFail } = await slowApi();
+        await slowFail();
+        expect(updates()).toBe(1);
+        await slowFail();
+        expect(updates()).toBe(1);
+      });
+
+      test('after invalidateNowNext a new failure emits again', async () => {
+        const { api, updates, slowFail } = await slowApi();
+        await slowFail();
+        expect(updates()).toBe(1);
+        (api as unknown as { invalidateNowNext(): void }).invalidateNowNext();
+        await slowFail();
+        expect(updates()).toBe(2);
+      });
+
+      test('an answer dropped after a source switch emits nothing', async () => {
+        const { api, state, updates } = await slowApi();
+        state.fail = false;
+        await api.getEpgRows('all', 0, 3, NOW - 3_600_000, NOW + 3_600_000);
+        (api as unknown as { activeId: string | null }).activeId = 'another-source';
+        state.g.open();
+        await api.idle();
+        expect(updates()).toBe(0);
+      });
+    });
+
     test('getEpgRows answers lite rows when the guide read is slow; the late read comes as nowNextUpdated', async () => {
       const { seed } = await seeded();
       await seed.refresh('epg');

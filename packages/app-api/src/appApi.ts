@@ -165,6 +165,8 @@ export class AppApi {
   /** Guide reads of `getEpgRows` that outlasted the wait: running (`epgPending`) and answered (`epgLate`), by rows. */
   private readonly epgPending = new Set<string>();
   private readonly epgLate = new Map<string, Map<string, Programme[]>>();
+  /** Page keys whose late read failed this generation: they ask the grid to re-read once, not on every failure. */
+  private readonly epgFailed = new Set<string>();
   /** Each source's guide import, for Diagnostics (this session only). */
   private readonly guideImports = new Map<string, GuideImportState>();
   /** Channels whose stored now/next read outlasted `nowNextWaitMs` and still runs (not read twice). */
@@ -1967,6 +1969,7 @@ export class AppApi {
     this.generation++;
     this.nnCache = new Map();
     this.epgLate.clear();
+    this.epgFailed.clear();
   }
 
   private async matchTiles(): Promise<MatchTiles> {
@@ -2418,19 +2421,27 @@ export class AppApi {
     const first = await this.withinWait(read);
     if (first !== LATE) return first;
     this.epgPending.add(key);
+    let emit = true;
     const job = read.then((got) => {
-      // An answer from before a guide or source change is dropped; the rows still hear about it and read again.
-      if (gen !== this.generation || this.activeId !== id) return;
+      // An answer from a source that is no longer active is dropped without a word: nobody reads its rows now.
+      if (this.activeId !== id) { emit = false; return; }
+      // An answer from before a guide change is dropped; the rows still hear about it and read again.
+      if (gen !== this.generation) return;
       this.epgLate.set(key, got);
       for (const old of this.epgLate.keys()) {
         if (this.epgLate.size <= EPG_LATE_MAX) break;
         this.epgLate.delete(old);
       }
-    }).catch((err: unknown) => this.note('epgRows', err instanceof Error ? err.name : 'Error')).finally(() => {
+    }).catch((err: unknown) => {
+      this.note('epgRows', err instanceof Error ? err.name : 'Error');
+      // A failing read asks for one re-read per page and generation; if reads always fail, the grid must not loop.
+      if (this.epgFailed.has(key)) emit = false;
+      else this.epgFailed.add(key);
+    }).finally(() => {
       this.epgPending.delete(key);
       this.shortJobs.delete(job);
-      // Always, also after a dropped or failed read: lite rows must never wait for the next 15-minute guide tick.
-      this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
+      // Also after a dropped or first failed read: lite rows must never wait for the next 15-minute guide tick.
+      if (emit) this.emit({ type: 'nowNextUpdated', channelIds: channels.map((c) => c.id) });
     });
     this.shortJobs.add(job);
     return new Map();
