@@ -59,7 +59,7 @@ function Chip(p: {
           fontSize={COUNT_SIZE} color={COLORS.textSecondary}>{COUNTRIES_COPY.folders(choiceFolders(p.choice))}</Text>
         <Show when={p.device}>
           <View x={8} y={8} width={100} height={BADGE_H} borderRadius={BADGE_H / 2} color={COLORS.badge}>
-            <Text y={(BADGE_H - 20) / 2 - 3} width={100} maxWidth={100} contain="width" textAlign="center" fontSize={20}
+            <Text y={(BADGE_H - TYPE.meta) / 2 - 3} width={100} maxWidth={100} contain="width" textAlign="center" fontSize={TYPE.meta}
               color={COLORS.text}>{COUNTRIES_COPY.thisTv}</Text>
           </View>
         </Show>
