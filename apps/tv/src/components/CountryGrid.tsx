@@ -7,7 +7,7 @@ import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
 import { COLORS, FOCUS, LAYOUT, MOTION, STRONG, TYPE } from '../shell/theme.ts';
 import { FocusRing } from './FocusRing.tsx';
 import {
-  CHIP, ROW_PITCH, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
+  CHIP, CHIP_BOXES, ROW_PITCH, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
   rowTops, scrollFor, type ChipArt, type GridEdge, type GridFocus, type GridSort,
 } from './countryGridLogic.ts';
 
@@ -28,44 +28,44 @@ export interface CountryGridProps {
   initialKey?: string;
 }
 
-const FLAG_W = 96;
-const FLAG_H = 72;
 const NAME_SIZE = 32;
 const COUNT_SIZE = 28;
-const BADGE_H = 36;
+const BOX = CHIP_BOXES;
 
 function Chip(p: {
   choice: CountryChoice; x: number; y: number; lit: boolean; hover: boolean; number: number | undefined; device: boolean;
-  label: string; art: ChipArt; ref: (el: ElementNode | undefined) => void;
+  art: ChipArt; ref: (el: ElementNode | undefined) => void;
 }) {
   let node: ElementNode | undefined;
   useFocusScale(() => node, () => p.lit);
   const picked = () => p.number !== undefined;
   return (
-    <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h} announce={p.label}>
+    <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
       <FocusRing w={CHIP.w} h={CHIP.h} radius={LAYOUT.radius} lit={p.lit} hover={p.hover} />
       <View width={CHIP.w} height={CHIP.h} zIndex={1} borderRadius={LAYOUT.radius}
         color={picked() ? COLORS.surfaceRaised : COLORS.surface}
-        {...(picked() ? { border: { width: 4, color: COLORS.accent } } : {})}>
+        border={picked() ? { width: 4, color: COLORS.accent } : { width: 0, color: COLORS.transparent }}>
         <Show when={'src' in p.art ? p.art.src : undefined} fallback={
-          <View x={(CHIP.w - FLAG_W) / 2} y={12} width={FLAG_W} height={FLAG_H} borderRadius={LAYOUT.radius} color={COLORS.badge}>
-            <Text y={(FLAG_H - TYPE.body) / 2 - 4} width={FLAG_W} maxWidth={FLAG_W} contain="width" textAlign="center"
+          <View x={BOX.flag.x} y={BOX.flag.y} width={BOX.flag.w} height={BOX.flag.h} borderRadius={LAYOUT.radius} color={COLORS.badge}>
+            <Text y={(BOX.flag.h - TYPE.body) / 2 - 4} width={BOX.flag.w} maxWidth={BOX.flag.w} contain="width" textAlign="center"
               fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
           </View>
-        }>{(src) => <View x={(CHIP.w - FLAG_W) / 2} y={12} width={FLAG_W} height={FLAG_H} src={src()} />}</Show>
-        <Text x={12} y={92} width={CHIP.w - 24} maxWidth={CHIP.w - 24} contain="width" maxLines={1} textAlign="center"
-          fontSize={NAME_SIZE} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
-        <Text x={12} y={130} width={CHIP.w - 24} maxWidth={CHIP.w - 24} contain="width" maxLines={1} textAlign="center"
-          fontSize={COUNT_SIZE} color={COLORS.textSecondary}>{COUNTRIES_COPY.folders(choiceFolders(p.choice))}</Text>
+        }>{(src) => <View x={BOX.flag.x} y={BOX.flag.y} width={BOX.flag.w} height={BOX.flag.h} src={src()} />}</Show>
+        <Text x={BOX.name.x} y={BOX.name.y} width={BOX.name.w} height={BOX.name.h} maxWidth={BOX.name.w} contain="width" maxLines={1}
+          textAlign="center" fontSize={NAME_SIZE} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
+        <Text x={BOX.count.x} y={BOX.count.y} width={BOX.count.w} height={BOX.count.h} maxWidth={BOX.count.w} contain="width"
+          maxLines={1} textAlign="center" fontSize={COUNT_SIZE} color={COLORS.textSecondary}>
+          {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
+        </Text>
         <Show when={p.device}>
-          <View x={8} y={8} width={100} height={BADGE_H} borderRadius={BADGE_H / 2} color={COLORS.badge}>
-            <Text y={(BADGE_H - TYPE.meta) / 2 - 3} width={100} maxWidth={100} contain="width" textAlign="center" fontSize={TYPE.meta}
-              color={COLORS.text}>{COUNTRIES_COPY.thisTv}</Text>
+          <View x={BOX.device.x} y={BOX.device.y} width={BOX.device.w} height={BOX.device.h} borderRadius={BOX.device.h / 2} color={COLORS.badge}>
+            <Text y={(BOX.device.h - TYPE.meta) / 2 - 3} width={BOX.device.w} maxWidth={BOX.device.w} contain="width" textAlign="center"
+              fontSize={TYPE.meta} color={COLORS.text}>{COUNTRIES_COPY.thisTv}</Text>
           </View>
         </Show>
         <Show when={p.number}>{(n) => (
-          <View x={CHIP.w - 72} y={8} width={64} height={BADGE_H} borderRadius={BADGE_H / 2} color={COLORS.accent}>
-            <Text y={(BADGE_H - TYPE.meta) / 2 - 3} width={64} maxWidth={64} contain="width" textAlign="center"
+          <View x={BOX.pill.x} y={BOX.pill.y} width={BOX.pill.w} height={BOX.pill.h} borderRadius={BOX.pill.h / 2} color={COLORS.accent}>
+            <Text y={(BOX.pill.h - TYPE.meta) / 2 - 3} width={BOX.pill.w} maxWidth={BOX.pill.w} contain="width" textAlign="center"
               fontSize={TYPE.meta} {...STRONG} color={COLORS.onFocus}>{`✓ ${n()}`}</Text>
           </View>
         )}</Show>
@@ -110,7 +110,15 @@ export function CountryGrid(props: CountryGridProps) {
   const pulse = (key: string) => {
     const n = chipNodes.get(key);
     if (!n || motionLevel() !== 'full') return;
-    tween(n, { scale: FOCUS.press }, MOTION.pressIn, () => tween(n, { scale: FOCUS.scale }, MOTION.pressOut));
+    // Settle on the chip's current state: still focused keeps the focus scale, otherwise it is back to 1.
+    const settle = () => (focused() && keyAt(rows(), focus()) === key ? FOCUS.scale : 1);
+    tween(n, { scale: FOCUS.press }, MOTION.pressIn, () => tween(n, { scale: settle() }, MOTION.pressOut));
+  };
+  /** The focused chip's label sits on the grid node, the one node in the focus path, so the announcer reads it. */
+  const focusLabel = () => {
+    const key = keyAt(rows(), focus());
+    const ch = key === undefined ? undefined : byKey().get(key);
+    return ch ? chipLabel(ch, props.codes, order().indexOf(key!), order().length) : undefined;
   };
   const activate = (f: GridFocus) => {
     const row = rows()[f.row];
@@ -143,7 +151,7 @@ export function CountryGrid(props: CountryGridProps) {
   });
 
   return (
-    <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping
+    <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x} y={props.y} width={props.width} height={props.height} clipping announce={focusLabel()}
       onFocusChanged={setFocused} onUp={() => go('up')} onDown={() => go('down')} onLeft={() => go('left')}
       onRight={() => go('right')} onEnter={() => { activate(focus()); return true; }}>
       <For each={onScreen()}>{(i) => {
@@ -174,7 +182,6 @@ export function CountryGrid(props: CountryGridProps) {
                   <Show when={byKey().get(key)}>{(ch) => (
                     <Chip choice={ch()} x={col() * (CHIP.w + CHIP.gap)} y={y()} lit={lit()} hover={hovered()}
                       number={pickNumber(props.codes, key)} device={key === props.deviceCountry}
-                      label={chipLabel(ch(), props.codes, order().indexOf(key), order().length)}
                       art={chipArt(key, props.flagOf)}
                       ref={(el) => { if (el) chipNodes.set(key, el); else chipNodes.delete(key); }} />
                   )}</Show>

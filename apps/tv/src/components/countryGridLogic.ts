@@ -12,6 +12,19 @@ export type GridSort = 'most' | 'az';
 export const AZ_TOGGLE_AFTER = 24;
 /** One chip at 1080p (spec: at least 240 × 140), and the gap between chips. */
 export const CHIP = { w: 260, h: 164, gap: 24 } as const;
+export interface Box { x: number; y: number; w: number; h: number }
+/**
+ * Where each part sits inside a chip. None overlap and all stay inside the chip with a margin for the picked border:
+ * the flag on the left, the pick pill top right with "This TV" under it, then the name and the count across the bottom.
+ */
+export const CHIP_BOXES: Record<'flag' | 'pill' | 'device' | 'name' | 'count', Box> = {
+  flag: { x: 16, y: 10, w: 96, h: 72 },
+  pill: { x: CHIP.w - 72, y: 8, w: 64, h: 36 },
+  device: { x: CHIP.w - 108, y: 48, w: 100, h: 36 },
+  name: { x: 12, y: 86, w: CHIP.w - 24, h: 38 },
+  count: { x: 12, y: 124, w: CHIP.w - 24, h: 34 },
+};
+
 /** Each row's height in the grid's scroll space (a chip row: the chip plus 20 px). */
 export const ROW_PITCH = { sort: 64, heading: 56, chips: CHIP.h + 20 } as const;
 export const gridWidth = (columns: number): number => columns * CHIP.w + (columns - 1) * CHIP.gap;

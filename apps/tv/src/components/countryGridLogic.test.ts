@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CountryChoice } from '@iptv/app-api';
 import { REGIONS_MAX } from '@iptv/core';
 import {
-  cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridColumns, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
+  CHIP, CHIP_BOXES, cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridColumns, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
   rowTops, scrollFor, togglePick, type GridRow,
 } from './countryGridLogic.ts';
 
@@ -104,5 +104,24 @@ describe('picks', () => {
     expect(resultLine({ ...on, counts: { live: 1 } })).toBe('Live TV: 1 folder first');
     expect(resultLine({ ...on, regions: { codes: ['SE'], mode: 'off' }, counts: { live: 0 } })).toBe('');
     expect(resultLine({ ...on, stale: true, counts: { live: 0 } })).toBe('');
+  });
+});
+
+describe('chip layout', () => {
+  const boxes = Object.entries(CHIP_BOXES);
+  const hit = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  it('no part overlaps another', () => {
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      expect(hit(boxes[i]![1], boxes[j]![1]), `${boxes[i]![0]} vs ${boxes[j]![0]}`).toBe(false);
+    }
+  });
+  it('every part stays inside the chip, clear of the 4 px picked border', () => {
+    for (const [name, b] of boxes) {
+      expect(b.x, name).toBeGreaterThanOrEqual(4);
+      expect(b.y, name).toBeGreaterThanOrEqual(4);
+      expect(b.x + b.w, name).toBeLessThanOrEqual(CHIP.w - 4);
+      expect(b.y + b.h, name).toBeLessThanOrEqual(CHIP.h - 4);
+    }
   });
 });
