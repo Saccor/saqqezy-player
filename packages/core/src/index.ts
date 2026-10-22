@@ -108,7 +108,7 @@ export { groupEvents, reairKeys, type GroupInput, type SportsGroup } from './spo
 export {
   MATCHES_ALL_CAP, MATCHES_ROW_CAP, competitionKey, matchScore, rankMatches, type CountryScope, type MatchEvent, type RankOptions, type RankedMatch, type RankedMatches,
 } from './sports/rank.ts';
-export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, categoryKey, matchFilters, type MatchChip, type MatchFilters } from './sports/competitions.ts';
+export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, COMPETITION_CHIPS_PER_SPORT, categoryKey, competitionChips, matchFilters, type MatchChip, type MatchFilters } from './sports/competitions.ts';
 export { isFollowed } from './sports/follow.ts';
 export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_INDEX_VERSION, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
 export * from './sync/index.ts';
