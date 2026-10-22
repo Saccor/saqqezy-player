@@ -33,3 +33,8 @@ export function createRequestTokens() {
     invalidate: () => { seq++; },
   };
 }
+
+/** The count to show for `query`: only an answer that belongs to that same query counts (else the row shows just the query). */
+export function answerCount(query: string, answer: { query: string; count: number } | undefined): number | undefined {
+  return answer !== undefined && answer.query === query.trim() ? answer.count : undefined;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { backDecision, createRequestTokens, focusAfterSearch, searchRowLabel } from './pickerSearchLogic.ts';
+import { answerCount, backDecision, createRequestTokens, focusAfterSearch, searchRowLabel } from './pickerSearchLogic.ts';
 
 describe('searchRowLabel', () => {
   test('empty query invites a search', () => {
@@ -46,5 +46,14 @@ describe('createRequestTokens', () => {
     const a = t.next();
     t.invalidate();
     expect(t.isLatest(a)).toBe(false);
+  });
+});
+
+describe('answerCount', () => {
+  test('counts only for the query the answer belongs to', () => {
+    expect(answerCount('news', { query: 'news', count: 12 })).toBe(12);
+    expect(answerCount(' news ', { query: 'news', count: 12 })).toBe(12);
+    expect(answerCount('newsx', { query: 'news', count: 12 })).toBeUndefined();
+    expect(answerCount('news', undefined)).toBeUndefined();
   });
 });
