@@ -259,7 +259,7 @@ export const FREEING_MS = 5000;
  * The reopen was refused all the same (a panel can free a connection late; the fake panel keeps an HLS session for
  * 20 s): one more try this much later, and never another by itself.
  */
-export const FREEING_RETRY_MS = 10_000;
+export const FREEING_RETRY_MS = 20_000;
 
 /** What a reopening window's stream did, as the screen reads its status. */
 export type ReopenStatus = 'starting' | 'played' | 'refused' | 'failed' | 'other';

@@ -235,7 +235,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
   /**
    * Stops just enough of the other windows, gives this one the sound, waits 5 s for the source, then opens it. Its
-   * refusal stays on the window (no source cooldown); refused once, it tries once more 10 s later, then never again.
+   * refusal stays on the window (no source cooldown); refused once, it tries once more 20 s later, then never again.
    */
   const watchInstead = (i: number) => {
     const s = state();

@@ -308,7 +308,7 @@ describe('Watch this one instead: the cancellable 5 s wait', () => {
   });
 });
 
-describe('Watch this one instead: a refused reopen gets exactly one more try after 10 s', () => {
+describe('Watch this one instead: a refused reopen gets exactly one more try after 20 s', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
@@ -317,7 +317,7 @@ describe('Watch this one instead: a refused reopen gets exactly one more try aft
     expect(watch.observe(slot, 'starting')).toBe('none');
   };
 
-  it('the first refusal shows Freeing again and opens once more after 10 s; the second gives up for good', () => {
+  it('the first refusal shows Freeing again and opens once more after 20 s; the second gives up for good', () => {
     const changes: Array<number | undefined> = [];
     const watch = createWatchInstead((slot) => { changes.push(slot); });
     const open = vi.fn();
@@ -359,7 +359,7 @@ describe('Watch this one instead: a refused reopen gets exactly one more try aft
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  it('cancelled during the 10 s wait (left multiview, or acted on another window): nothing opens later', () => {
+  it('cancelled during the 20 s wait (left multiview, or acted on another window): nothing opens later', () => {
     const watch = createWatchInstead(() => undefined);
     const open = vi.fn();
     watch.start(1, open);
