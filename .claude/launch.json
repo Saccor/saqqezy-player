@@ -75,6 +75,14 @@
         "--strictPort"
       ],
       "port": 5180
+    },
+    {
+      "name": "tv-dev-stable",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:stable"
+      ],
+      "port": 5173
     }
   ]
 }
