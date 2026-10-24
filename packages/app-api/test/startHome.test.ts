@@ -66,7 +66,7 @@ describe('assembleStartHome: row order', () => {
   });
 
   test('no big match but smaller ones in See all: the On now row is only its View all cell, after the other rows', () => {
-    const h = assembleStartHome({ ...base, sports: [], sportsTotal: 7, newMovies: { items: many(100, 3), total: 3 } }, NOW);
+    const h = assembleStartHome({ ...base, sports: [], sportsTotal: 7, continueMovies: [{ tile: vod(1), at: NOW }] }, NOW);
     const r = h.rows.find((x) => x.id === 'sports')!;
     expect(r.cells).toEqual([{ type: 'viewAll', target: 'sports', total: 7 }]);
     expect(h.rows.map((x) => x.id)).toEqual(['continue', 'sports']);
