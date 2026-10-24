@@ -23,15 +23,31 @@ const EPG = `<?xml version="1.0" encoding="UTF-8"?><tv>${[1, 2, 3, 4].map((n) =>
   // Later: DE at +3 h, DK one minute after it.
   + prog(1, 'Eastport v Westvale', 3) + prog(4, 'Eastport v Westvale', 3 + 1 / 60)
   + '</tv>';
+// Second playlist: the four guide channels plus 15 prefix-matching "Northbridge Fan" channels (14 DE, the SE one last).
+// The fan channels' tvg-ids are not in the guide, so only the four original channels have programmes.
+const fan = (n: number) => {
+  const code = n === 15 ? 'SE' : 'DE';
+  return [`#EXTINF:-1 tvg-id="f${n}.test" tvg-chno="${n + 10}" group-title="${code} | Sport",Northbridge Fan ${String(n).padStart(2, '0')}`, `http://a.example.test/live/f${n}.ts`];
+};
+const PLAYLIST_MANY = [
+  '#EXTM3U',
+  ...entry('DE', 1), ...entry('US', 2), ...entry('SE', 3), ...entry('DK', 4),
+  ...Array.from({ length: 15 }, (_, i) => fan(i + 1)).flat(),
+  '',
+].join('\n');
+// A programme whose title also matches "northbridge fan", so the channel section is cut to its with-programmes cap.
+const EPG_MANY = EPG.replace('</tv>', `${prog(2, 'Northbridge Fan Show', 3)}</tv>`);
+let playlistText = PLAYLIST;
+let epgText = EPG;
 const fetchFn: FetchFn = async (u) =>
-  u === 'http://example.test/p.m3u' ? new Response(PLAYLIST)
-    : u === 'http://example.test/epg.xml' ? new Response(EPG, { headers: { 'content-type': 'application/xml' } })
+  u === 'http://example.test/p.m3u' ? new Response(playlistText)
+    : u === 'http://example.test/epg.xml' ? new Response(epgText,{ headers: { 'content-type': 'application/xml' } })
       : new Response('', { status: 404 });
 
 const live: AppApi[] = [];
 afterEach(async () => { await Promise.all(live.splice(0).map((a) => a.idle())); });
 let storage: MemoryStorage;
-beforeEach(() => { storage = new MemoryStorage(); });
+beforeEach(() => { storage = new MemoryStorage(); playlistText = PLAYLIST; epgText = EPG; });
 
 async function setup() {
   const service = new SourceService({ storage, fetch: fetchFn, now: () => NOW });
@@ -53,7 +69,7 @@ async function setRegions(api: AppApi, regions: Parameters<AppApi['setRegions']>
   await api.search('x', 1);
   await api.idle();
 }
-const groupsOf =(rows: { group: string }[]) => rows.map((r) => r.group.slice(0, 2));
+const groupsOf = (rows: { group: string }[]) => rows.map((r) => r.group.slice(0, 2));
 
 describe('Search – your countries first', () => {
   test('off: today\'s order (playlist order within a title)', async () => {
@@ -82,5 +98,21 @@ describe('Search – your countries first', () => {
     expect(await api.toggleFavourite(us.channel.id)).toBe(true);
     const r = await api.search('northbridge', 50);
     expect(groupsOf(r.onNow.map((h) => h.channel))).toEqual(['US', 'DK', 'DE', 'SE']);
+  });
+
+  test('a chosen-country channel late in the playlist survives the channel cap', async () => {
+    playlistText = PLAYLIST_MANY;
+    epgText = EPG_MANY;
+    const api = await setup();
+    const off = await api.search('northbridge fan', 50);
+    expect(off.channels).toHaveLength(10); // the cap when programmes also match
+    expect(off.channels.some((c) => c.group.startsWith('SE'))).toBe(false); // number 15 is cut in playlist order
+    await setRegions(api, { mode: 'first', codes: ['SE'] });
+    const on = await api.search('northbridge fan', 50);
+    expect(on.channels).toHaveLength(10);
+    expect(on.channels[0]!.group.slice(0, 2)).toBe('SE');
+    // Limit below the prefix-match count: the chosen country still leads.
+    const small = await api.search('northbridge fan', 5);
+    expect(small.channels[0]!.group.slice(0, 2)).toBe('SE');
   });
 });
