@@ -18,6 +18,8 @@ export function categoryKey(s: string): string {
 
 export function normSide(s: string): string {
   const t = foldText(s)
+    // A written date the guide glued on ("24/10/26", "24.10.2026", "2026-10-24") is not part of the name.
+    .replace(/(?<![\p{L}\p{N}])\d{1,4}[./-]\d{1,2}[./-]\d{2,4}(?![\p{L}\p{N}])/gu, ' ')
     .replace(/&/g, ' and ')
     .replace(/\bst\.\s*/g, 'saint ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ');

@@ -14,6 +14,9 @@ describe('sports match', () => {
     // A date glued to a side by the guide (6 or 8 digits) is not part of the name; short numbers are.
     expect(normSide('EASTPORT 241026')).toBe('eastport');
     expect(normSide('Eastport 20261024')).toBe('eastport');
+    expect(normSide('EASTPORT 24/10/26')).toBe('eastport');
+    expect(normSide('Eastport 24.10.2026')).toBe('eastport');
+    expect(normSide('Eastport 2026-10-24')).toBe('eastport');
     expect(normSide('Westvale 1860')).toBe('westvale 1860');
     expect(normSide('Northbridge U21')).toBe('northbridge u21');
     expect(normSide('1. FC Pinecrest')).toBe('pinecrest');

@@ -178,10 +178,10 @@ describe('reairKeys (gate G3, design note §3.5)', () => {
     expect(events).toHaveLength(2);
     expect([...reairKeys(events)]).toEqual([events[1]!.key]);
   });
-  test('a replay next morning with a date glued to a side ("EASTPORT 241026") is a re-air', () => {
+  test('a replay next morning with a date glued to a side ("EASTPORT 24/10/26") is a re-air', () => {
     const { events } = groupEvents([
       ...Array.from({ length: 4 }, (_, i) => item('Northbridge FC - Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 0, 130)),
-      ...Array.from({ length: 2 }, (_, i) => item('NORTHBRIDGE - EASTPORT 241026', 'NORTHBRIDGE', 'EASTPORT 241026', `m${i}`, 900, 120)),
+      ...Array.from({ length: 2 }, (_, i) => item('NORTHBRIDGE - EASTPORT 24/10/26', 'NORTHBRIDGE', 'EASTPORT 24/10/26', `m${i}`, 900, 120)),
     ], new Map(), id);
     expect(events).toHaveLength(2);
     expect([...reairKeys(events)]).toEqual([events[1]!.key]);
