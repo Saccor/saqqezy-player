@@ -98,6 +98,13 @@ describe('Search – your countries first', () => {
     expect(await api.toggleFavourite(us.channel.id)).toBe(true);
     const r = await api.search('northbridge', 50);
     expect(groupsOf(r.onNow.map((h) => h.channel))).toEqual(['US', 'DK', 'DE', 'SE']);
+    // Channels section: the favourite leads too. Without it, DE (playlist order) would lead; favourite the SE one.
+    const seFan = r.channels.find((c) => c.group.startsWith('SE'))!;
+    expect(groupsOf(r.channels)[0]).toBe('DE');
+    expect(await api.toggleFavourite(seFan.id)).toBe(true);
+    const r2 = await api.search('northbridge', 50);
+    expect(groupsOf(r2.channels)[0]).toBe('SE');
+    expect(groupsOf(r2.onNow.map((h) => h.channel))).toEqual(['US', 'DK', 'DE', 'SE']);
   });
 
   test('a chosen-country channel late in the playlist survives the channel cap', async () => {
@@ -127,5 +134,14 @@ describe('match picker – your countries after airing now', () => {
     const de = (await api.getEventChannels(nb.key)).find((r) => r.group.startsWith('DE'))!;
     await api.toggleFavourite(de.id);
     expect(groupsOf(await api.getEventChannels(nb.key))).toEqual(['DE', 'SE', 'DK', 'US']);
+  });
+
+  test('airing now beats a chosen country: DK airs it half an hour later, so it comes last', async () => {
+    // DK's airing starts in the future while DE, US and SE air it now.
+    epgText = EPG.replace(prog(4, 'Northbridge FC v Eastport', -0.5), prog(4, 'Northbridge FC v Eastport', 0.5));
+    const api = await setup();
+    await setRegions(api, { mode: 'first', codes: ['DK'] });
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    expect(groupsOf(await api.getEventChannels(nb.key))).toEqual(['DE', 'US', 'SE', 'DK']);
   });
 });
