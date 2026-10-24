@@ -1,4 +1,4 @@
-import type { ChannelRow, SearchResult, VodTile } from '@iptv/app-api';
+import type { ChannelRow, FolderHit, SearchResult, VodTile } from '@iptv/app-api';
 import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 import {
   channelToPlay,
@@ -6,6 +6,9 @@ import {
   createSearchMemory,
   createSearcher,
   focusedCell,
+  FOLDERS_ROW_LABEL,
+  folderCount,
+  folderRoute,
   GUIDE_PENDING_NOTE,
   laterRoute,
   moveSearch,
@@ -14,6 +17,7 @@ import {
   programmeContext,
   rerunsSearch,
   resultsMessage,
+  SEARCH_ROW_ORDER,
   searchRows,
   searchingNote,
   settleFocus,
@@ -35,6 +39,8 @@ const result = (over: Partial<SearchResult> = {}): SearchResult => ({
 const tile = (kind: 'movie' | 'series', n: number, extra: Partial<VodTile> = {}): VodTile => ({
   id: `s:${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false, ...extra,
 });
+
+const folder = (n: number, kind: FolderHit['kind'] = 'live', count = 3): FolderHit => ({ kind, id: kind === 'live' ? `g:Folder ${n}` : `cat${n}`, name: `Folder ${n}`, count });
 
 describe('createSearcher', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -125,8 +131,16 @@ describe('searchRows', () => {
     expect(r.vod).toEqual([]);
   });
 
+  test('folders become folder cells in their own row, in result order', () => {
+    const r = searchRows(result({ folders: [folder(1), folder(2, 'movie')] }));
+    expect(r.folders).toEqual([{ type: 'folder', hit: folder(1) }, { type: 'folder', hit: folder(2, 'movie') }]);
+    expect(NO_ROWS.folders).toEqual([]);
+    expect(SEARCH_ROW_ORDER).toEqual(['vod', 'folders', 'live']);
+    expect(FOLDERS_ROW_LABEL).toBe('Folders');
+  });
+
   test('carries the pending flags', () => {
-    expect(searchRows(result({ guidePending: true }))).toEqual({ vod: [], live: [], guidePending: true, vodPending: false });
+    expect(searchRows(result({ guidePending: true }))).toEqual({ vod: [], folders: [], live: [], guidePending: true, vodPending: false });
     expect(searchRows(result({ vodPending: true })).vodPending).toBe(true);
     expect(searchRows(result())).toEqual(NO_ROWS);
   });
@@ -165,6 +179,19 @@ describe('programmeContext', () => {
 });
 
 describe('moveSearch', () => {
+  test('Up and Down walk vod, folders, live; an empty folders row is skipped; the keyboard goes to the first non-empty row', () => {
+    const three = searchRows(result({ movies: [tile('movie', 1)], folders: [folder(1), folder(2)], channels: [row(1)] }));
+    expect(moveSearch({ area: 'vod', col: 0 }, 'down', three)).toEqual({ area: 'folders', col: 0 });
+    expect(moveSearch({ area: 'folders', col: 1 }, 'down', three)).toEqual({ area: 'live', col: 0 });
+    expect(moveSearch({ area: 'live', col: 0 }, 'up', three)).toEqual({ area: 'folders', col: 0 });
+    expect(moveSearch({ area: 'folders', col: 1 }, 'up', three)).toEqual({ area: 'vod', col: 0 });
+    const noFolders = searchRows(result({ movies: [tile('movie', 1)], channels: [row(1)] }));
+    expect(moveSearch({ area: 'vod', col: 0 }, 'down', noFolders)).toEqual({ area: 'live', col: 0 });
+    const onlyFolders = searchRows(result({ folders: [folder(1)] }));
+    expect(moveSearch({ area: 'keyboard', col: 0 }, 'right', onlyFolders)).toEqual({ area: 'folders', col: 0 });
+    expect(focusedCell(three, { area: 'folders', col: 1 })).toEqual({ type: 'folder', hit: folder(2) });
+  });
+
   const both = searchRows(result({ movies: [tile('movie', 1), tile('movie', 2), tile('movie', 3)], channels: [row(1), row(2)] }));
   const liveOnly = searchRows(result({ channels: [row(1), row(2)] }));
   const vodOnly = searchRows(result({ movies: [tile('movie', 1)] }));
@@ -202,6 +229,12 @@ describe('moveSearch', () => {
 });
 
 describe('clampSearchFocus', () => {
+  test('an emptied folders row gives way to the live row, then the vod row, then the keyboard', () => {
+    expect(clampSearchFocus({ area: 'folders', col: 2 }, searchRows(result({ channels: [row(1)] })))).toEqual({ area: 'live', col: 0 });
+    expect(clampSearchFocus({ area: 'folders', col: 2 }, searchRows(result({ movies: [tile('movie', 1)] })))).toEqual({ area: 'vod', col: 0 });
+    expect(clampSearchFocus({ area: 'folders', col: 2 }, NO_ROWS)).toEqual({ area: 'keyboard', col: 0 });
+  });
+
   const liveOnly = searchRows(result({ channels: [row(1), row(2)] }));
   test('a focus on a row that emptied moves to the other row, or to the keyboard', () => {
     expect(clampSearchFocus({ area: 'vod', col: 3 }, liveOnly)).toEqual({ area: 'live', col: 1 });
@@ -256,7 +289,7 @@ describe('rerunsSearch', () => {
 describe('resultsMessage', () => {
   const st = (p: Partial<SearchState<SearchRows>>): SearchState<SearchRows> => ({ query: 'xyz', results: NO_ROWS, busy: false, failed: false, ...p });
   it('covers each state', () => {
-    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels, programmes, movies and series');
+    expect(resultsMessage(st({ query: '' }))).toBe('Type to search channels, folders, programmes, movies and series');
     expect(resultsMessage(st({ busy: true }))).toBe('Searching…');
     expect(resultsMessage(st({}))).toBe('Nothing matches "xyz"');
     expect(resultsMessage(st({ results: searchRows(result({ channels: [row(1)] })) }))).toBeUndefined();
@@ -297,6 +330,23 @@ describe('what Ok does', () => {
     expect(vodRoute({ type: 'vod', tile: s })).toEqual({ screen: 'seriesDetail', params: { id: s.id, tile: s } });
     expect(vodRoute({ type: 'channel', channel: row(1) })).toBeUndefined();
     expect(vodRoute(undefined)).toBeUndefined();
+  });
+
+  test('a folder opens Live TV at that folder, or the grid at that category; other cells do not', () => {
+    expect(folderRoute({ type: 'folder', hit: folder(1) })).toEqual({ screen: 'home', params: { groupId: 'g:Folder 1' } });
+    expect(folderRoute({ type: 'folder', hit: folder(2, 'series') })).toEqual({ screen: 'vodGrid', params: { kind: 'series', categoryId: 'cat2' } });
+    expect(folderRoute({ type: 'channel', channel: row(1) })).toBeUndefined();
+    expect(channelToPlay({ type: 'folder', hit: folder(1) })).toBeUndefined();
+    expect(vodRoute({ type: 'folder', hit: folder(1) })).toBeUndefined();
+  });
+
+  test('folderCount: singular and plural per kind', () => {
+    expect(folderCount(folder(1, 'live', 1))).toBe('1 channel');
+    expect(folderCount(folder(1, 'live', 214))).toBe('214 channels');
+    expect(folderCount(folder(1, 'movie', 1))).toBe('1 movie');
+    expect(folderCount(folder(1, 'movie', 38))).toBe('38 movies');
+    expect(folderCount(folder(1, 'series', 1))).toBe('1 series');
+    expect(folderCount(folder(1, 'series', 12))).toBe('12 series');
   });
 
   test('a coming-up programme returns to Live TV at that channel and time; other cells do not', () => {
