@@ -120,7 +120,7 @@ describe('assembleStartHome: Continue watching', () => {
   });
 });
 
-describe('assembleStartHome: no channel row (spec 2026-10-24 ง1.1)', () => {
+describe('assembleStartHome: no channel row (spec 2026-10-24 ยง1.1)', () => {
   test('never emits a live row, even when a cached page has one', () => {
     const cached: StartHome = { at: NOW - 1, rows: [{ id: 'live', title: 'On now', cells: [{ type: 'channel', channel: chan(1) }] }] };
     const h = assembleStartHome({ ...base, sports: [ev(1)] }, NOW, cached);

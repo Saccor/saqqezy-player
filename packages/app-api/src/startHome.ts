@@ -1,7 +1,7 @@
 /** The Start page rows (spec §2–3; catalogue-personalisation-sync report §5.1–5.2). Pure. */
 import type { SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
 
-// 'live' (channels on Start) is no longer emitted (spec 2026-10-24 �1.1); the id stays so cached pages type-check.
+// 'live' (channels on Start) is no longer emitted (spec 2026-10-24 §1.1); the id stays so cached pages type-check.
 export const START_TITLES: Record<StartRowId, string> = {
   continue: 'Continue watching', live: 'On now', sports: 'On now',
   trendingMovies: 'Trending movies', trendingSeries: 'Trending series',

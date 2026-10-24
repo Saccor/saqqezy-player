@@ -3380,6 +3380,15 @@ describe('AppApi – sports in your guide', () => {
     const third = await api.getStartHome();
     expect(third.rows).toEqual(first.rows);
     expect(st.startWrites).toBe(1);
+    // Hiding an airing channel changes the matches row: the page is rewritten once.
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    const evRows = await api.getEventChannels(nb.key);
+    await api.toggleHidden(evRows[0]!.id);
+    const fourth = await api.getStartHome();
+    expect(fourth.rows).not.toEqual(first.rows);
+    expect(st.startWrites).toBe(2);
+    await api.getStartHome();
+    expect(st.startWrites).toBe(2);
   });
 
   test('deleteSource clears the stored Start page and the cached answer', async () => {
