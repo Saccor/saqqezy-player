@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FULL_LAYOUT, FULL_ROWS, MAX_LENGTH, applyKey, findKey, keyLabel, moveCursor, textEntryKey,
+  FULL_LAYOUT, FULL_ROWS, TEXT_LAYOUT, TEXT_ROWS, MAX_LENGTH, applyKey, findKey, keyLabel, moveCursor, textEntryKey,
   visibleTail, keyAt, type KeyDef, type KeyRows,
 } from './keyboardLogic.ts';
 
@@ -146,8 +146,16 @@ describe('layouts', () => {
     expect(unitsWide(FULL_ROWS)).toBe(10);
   });
 
+  it('the text layout drops only the address shortcuts and starts on q', () => {
+    expect(TEXT_ROWS).toEqual(FULL_ROWS.slice(1));
+    expect(TEXT_ROWS.flat().some((c) => c.def.kind === 'text')).toBe(false);
+    expect(TEXT_LAYOUT.height).toBe(FULL_LAYOUT.height - FULL_LAYOUT.rowStep);
+    const s = TEXT_LAYOUT.start;
+    expect(keyLabel(TEXT_ROWS[s.row]![s.col]!.def, false)).toBe('q');
+  });
+
   it('every key lies inside its panel, clear of the margins and the footer', () => {
-    for (const L of [FULL_LAYOUT]) {
+    for (const L of [FULL_LAYOUT, TEXT_LAYOUT]) {
       const bottomLimit = L.height - 56;
       L.rows.forEach((row, r) => {
         for (const cell of row) {

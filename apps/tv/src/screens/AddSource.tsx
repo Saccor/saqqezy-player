@@ -6,6 +6,7 @@ import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
+import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
@@ -23,25 +24,26 @@ type Kind = 'xtream' | 'm3u';
 type Step = 'type' | Kind;
 type Progress = Extract<AppEvent, { type: 'progress' }>;
 
-interface FieldDef { key: string; label: string; placeholder?: string; secret?: boolean }
+/** `url`: a web address, so the keyboard shows the `http://`, `.com`… shortcuts. */
+interface FieldDef { key: string; label: string; placeholder?: string; secret?: boolean; url?: boolean }
 
 const FIELDS: Record<Kind, FieldDef[]> = {
   xtream: [
     { key: 'name', label: 'Name (optional)', placeholder: 'My TV' },
-    { key: 'server', label: 'Server' },
+    { key: 'server', label: 'Server', url: true },
     { key: 'username', label: 'Username' },
     { key: 'password', label: 'Password', secret: true },
   ],
   m3u: [
     { key: 'name', label: 'Name (optional)', placeholder: 'My TV' },
-    { key: 'playlistUrl', label: 'Playlist URL' },
-    { key: 'epgUrl', label: 'TV guide URL (optional)' },
+    { key: 'playlistUrl', label: 'Playlist URL', url: true },
+    { key: 'epgUrl', label: 'TV guide URL (optional)', url: true },
   ],
 };
 /** Settings → source → Advanced: free text, no presets; empty means the platform's own default. */
 const ADVANCED_FIELDS: FieldDef[] = [
   { key: 'userAgent', label: 'User-Agent', placeholder: 'Default' },
-  { key: 'referrer', label: 'Referer', placeholder: 'Default' },
+  { key: 'referrer', label: 'Referer', placeholder: 'Default', url: true },
 ];
 const SUBMIT_LABEL: Record<Kind, string> = { xtream: 'Log in', m3u: 'Add' };
 const FORM_TITLE: Record<Kind, string> = { xtream: 'Xtream login', m3u: 'M3U link' };
@@ -404,6 +406,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         <Show when={editingField()}>{(f) => (
           <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={KEYBOARD_Y}
             label={f().label} value={values()[f().key] ?? ''} secret={f().secret} revealed={revealed()}
+            layout={f().url ? FULL_LAYOUT : undefined}
             onChange={(v) => setValue(f().key, v)} onDone={doneKeyboard}
             onToggleReveal={f().secret ? () => setRevealed((r) => !r) : undefined} />
         )}</Show>
