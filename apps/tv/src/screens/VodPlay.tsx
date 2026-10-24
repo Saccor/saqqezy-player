@@ -4,7 +4,8 @@ import type { CatchupPlayable, VodPlayable, VodTracks } from '@iptv/app-api';
 import { cueAt, type LoadedSubtitle, type SubtitleInput } from '@iptv/core';
 import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
-import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../components/Keyboard.tsx';
+import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx';
+import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { MediaBadges } from '../components/MediaBadges.tsx';
@@ -1589,8 +1590,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={linkText() !== undefined}>
         <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>
-          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
-            label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
+          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_URL_H) / 2}
+            layout={FULL_LAYOUT} label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
             onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}
             hint={subBusy() ? 'Loading subtitles…' : 'Done loads the link · Back cancels'} error={linkError()} />
         </View>

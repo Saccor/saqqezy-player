@@ -26,8 +26,8 @@ export const SHORTCUTS = ['http://', 'https://', '.com', ':8080', '/'] as const;
 export type KeyRows = readonly (readonly KeyCell[])[];
 
 /**
- * Full layout (URLs, names, User-Agent strings): shortcuts, digits, QWERTY letters, URL symbols, more symbols, then
- * Shift/Space/⌫/Done.
+ * Full layout for web addresses (server, playlist and guide URLs, subtitle links): shortcuts, digits, QWERTY letters,
+ * URL symbols, more symbols, then Shift/Space/⌫/Done.
  */
 export const FULL_ROWS: KeyRows = [
   SHORTCUTS.map((text, i) => ({ def: { kind: 'text', text }, x: i * 2, w: 2 })),
@@ -44,6 +44,9 @@ export const FULL_ROWS: KeyRows = [
     { def: { kind: 'done' }, x: 8, w: 2 },
   ],
 ];
+
+/** Plain text layout (search, names, User-Agent strings): the full layout without the address shortcuts. */
+export const TEXT_ROWS: KeyRows = FULL_ROWS.slice(1);
 
 /** A layout's keys plus how `Keyboard.tsx` draws them (design px). */
 export interface KeyboardLayout {
@@ -67,6 +70,11 @@ export const FULL_LAYOUT: KeyboardLayout = {
   rows: FULL_ROWS, start: { row: 2, col: 0 }, width: 792, height: 820,
   // Eight rows in the same panel: 62 px keys every 72 px (still large remote targets, 10 px apart).
   pad: 36, keysY: 176, unit: 72, keyGap: 8, keyH: 62, rowStep: 72,
+};
+
+/** Same keys and spacing as the full layout, one row shorter. */
+export const TEXT_LAYOUT: KeyboardLayout = {
+  ...FULL_LAYOUT, rows: TEXT_ROWS, start: { row: 1, col: 0 }, height: FULL_LAYOUT.height - FULL_LAYOUT.rowStep,
 };
 
 const isLetter = (ch: string) => ch.toLowerCase() !== ch.toUpperCase();
