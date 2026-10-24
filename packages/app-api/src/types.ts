@@ -102,12 +102,16 @@ export interface InitState {
 export interface ProgrammeHit { channel: ChannelRow; title: string; start: number; stop: number }
 /** A title airing later: its next airing, plus how many more upcoming airings exist across channels. */
 export interface TitleHit { title: string; channel: ChannelRow; start: number; stop: number; more: number }
+/** A folder matching a search: a channel folder (the user's list or a provider group) or a movie or series category. */
+export interface FolderHit { kind: 'live' | 'movie' | 'series'; id: string; name: string; count: number }
 export interface SearchResult {
   channels: ChannelRow[];
   onNow: ProgrammeHit[];
   later: TitleHit[];
   /** The guide's title index is being built or loaded: programme sections are empty for now. */
   guidePending: boolean;
+  /** Folders whose name matches: channel folders first, then movie and series categories; at most 20. */
+  folders: FolderHit[];
   /** Matching movies and series of the active source (from catalogues stored on the device), at most 20 each. */
   movies: VodTile[];
   series: VodTile[];

@@ -13,7 +13,7 @@ const vod = (n: number, kind: 'movie' | 'series' = 'movie'): VodTile =>
   ({ id: `${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false } as VodTile);
 const ev = (n: number): SportsEventTile => ({ key: `p:${n}`, title: `Team${n} v Other${n}`, start: 0, stop: 1, channelCount: 2, followed: false });
 const many = (from: number, n: number, kind: 'movie' | 'series' = 'movie') => Array.from({ length: n }, (_, i) => vod(from + i, kind));
-const base = { favourites: [] as ChannelRow[], recents: [] as ChannelRow[], sports: [] as SportsEventTile[] };
+const base = { sports: [] as SportsEventTile[] };
 const ids = (cells: StartCell[]) => cells.map((c) => (c.type === 'vod' ? c.tile.id : c.type === 'channel' ? c.channel.id : c.type));
 const ranks = (cells: StartCell[]) => cells.map((c) => (c.type === 'vod' ? c.rank : undefined));
 const trend = (strong: boolean[], kind: 'movie' | 'series' = 'movie', from = 500): StartTrendTile[] =>
@@ -21,9 +21,9 @@ const trend = (strong: boolean[], kind: 'movie' | 'series' = 'movie', from = 500
 const fresh = new Date(NOW - DAY).toISOString();
 
 describe('assembleStartHome: row order', () => {
-  test('matches first (when it has any), then continue, on now, Top movies, Top series, new in your library, top rated; empty rows never drawn', () => {
+  test('on now (matches) first (when it has any), then continue, Top movies, Top series, new in your library, top rated; empty rows never drawn', () => {
     const h = assembleStartHome({
-      ...base, favourites: [chan(1)], sports: [ev(1)],
+      ...base, sports: [ev(1)],
       continueMovies: [{ tile: vod(1), at: NOW }],
       trendingMovies: { items: trend(Array(4).fill(false)), at: fresh },
       trendingSeries: { items: trend(Array(4).fill(false), 'series'), at: fresh },
@@ -31,7 +31,7 @@ describe('assembleStartHome: row order', () => {
       topMovies: { items: many(300, 6), total: 6 }, topSeries: { items: many(400, 6, 'series'), total: 6 },
     }, NOW);
     expect(h.rows.map((r) => [r.id, r.title])).toEqual([
-      ['sports', 'Matches'], ['continue', 'Continue watching'], ['live', 'On now'],
+      ['sports', 'On now'], ['continue', 'Continue watching'],
       ['trendingMovies', 'Trending movies'], ['trendingSeries', 'Trending series'],
       ['newLibrary', 'New in your library'], ['topMovies', 'Top rated movies'], ['topSeries', 'Top rated series'],
     ]);
@@ -40,10 +40,11 @@ describe('assembleStartHome: row order', () => {
 
   test('a filtered matches row with no match (only View all) keeps its place after the trending rows', () => {
     const h = assembleStartHome({
-      ...base, favourites: [chan(1)], sports: [], sportsTotal: 0, sportsFiltered: true,
+      ...base, sports: [], sportsTotal: 0, sportsFiltered: true,
       continueMovies: [{ tile: vod(1), at: NOW }], newMovies: { items: many(100, 3), total: 3 },
     }, NOW);
-    expect(h.rows.map((r) => r.id)).toEqual(['continue', 'live', 'sports', 'newLibrary']);
+    expect(h.rows.map((r) => r.id)).toEqual(['continue', 'sports', 'newLibrary']);
+    expect(h.rows[1]!.title).toBe('On now (filtered)');
   });
 
   test('nothing at all: no rows', () => {
@@ -58,22 +59,22 @@ describe('assembleStartHome: row order', () => {
 
   test('matches: the row is the focus set; View all counts every match in See all', () => {
     const h = assembleStartHome({ ...base, sports: [ev(1), ev(2), ev(3), ev(4)], sportsTotal: 9 }, NOW);
-    expect(h.rows[0]!.title).toBe('Matches');
+    expect(h.rows[0]!.title).toBe('On now');
     expect(h.rows[0]!.cells).toHaveLength(5);
     expect(h.rows[0]!.cells[4]).toEqual({ type: 'viewAll', target: 'sports', total: 9 });
     expect(assembleStartHome({ ...base, sports: [ev(1)], sportsTotal: 1 }, NOW).rows[0]!.cells).toHaveLength(1);
   });
 
-  test('no big match but smaller ones in See all: the Matches row is only its View all cell, after the other rows', () => {
-    const h = assembleStartHome({ ...base, favourites: [chan(1)], sports: [], sportsTotal: 7 }, NOW);
+  test('no big match but smaller ones in See all: the On now row is only its View all cell, after the other rows', () => {
+    const h = assembleStartHome({ ...base, sports: [], sportsTotal: 7, continueMovies: [{ tile: vod(1), at: NOW }] }, NOW);
     const r = h.rows.find((x) => x.id === 'sports')!;
     expect(r.cells).toEqual([{ type: 'viewAll', target: 'sports', total: 7 }]);
-    expect(h.rows[0]!.id).not.toBe('sports');
+    expect(h.rows.map((x) => x.id)).toEqual(['continue', 'sports']);
   });
 
   test('a category filter on: View all always shows (the way back to the chips), the row stays at 0 matches, the title says so', () => {
     const few = assembleStartHome({ ...base, sports: [ev(1), ev(2)], sportsTotal: 2, sportsFiltered: true }, NOW);
-    expect(few.rows[0]!.title).toBe('Matches (filtered)');
+    expect(few.rows[0]!.title).toBe('On now (filtered)');
     expect(few.rows[0]!.cells).toHaveLength(3);
     expect(few.rows[0]!.cells[2]).toEqual({ type: 'viewAll', target: 'sports', total: 2 });
     const none = assembleStartHome({ ...base, sports: [], sportsTotal: 0, sportsFiltered: true }, NOW);
@@ -119,26 +120,12 @@ describe('assembleStartHome: Continue watching', () => {
   });
 });
 
-describe('assembleStartHome: On now on your channels', () => {
-  test('the last channel, then favourites, then recents to fill; one tile per channel; capped', () => {
-    const h = assembleStartHome({
-      ...base, lastChannel: chan(2),
-      favourites: [chan(1, { favourite: true }), chan(2, { favourite: true })],
-      recents: [chan(3), chan(1), chan(4)],
-    }, NOW);
-    const cells = h.rows[0]!.cells;
-    expect(ids(cells)).toEqual(['c2', 'c1', 'c3', 'c4']);
-    expect(cells[0]).toEqual({ type: 'channel', channel: chan(2), last: true });
-
-    const full = assembleStartHome({ ...base, recents: Array.from({ length: 40 }, (_, i) => chan(10 + i)) }, NOW);
-    expect(full.rows[0]!.cells).toHaveLength(START_CAPS.live);
-  });
-
-  test('the programme on now keeps its start and stop (the progress bar)', () => {
-    const now = { title: 'Synthetic Show', start: NOW - 600_000, stop: NOW + 1_200_000 };
-    const h = assembleStartHome({ ...base, favourites: [chan(1, { now })] }, NOW);
-    const c = h.rows[0]!.cells[0]!;
-    expect(c.type === 'channel' && c.channel.now).toEqual(now);
+describe('assembleStartHome: no channel row (spec 2026-10-24 §1.1)', () => {
+  test('never emits a live row, even when a cached page has one', () => {
+    const cached: StartHome = { at: NOW - 1, rows: [{ id: 'live', title: 'On now', cells: [{ type: 'channel', channel: chan(1) }] }] };
+    const h = assembleStartHome({ ...base, sports: [ev(1)] }, NOW, cached);
+    expect(h.rows.map((r) => r.id)).toEqual(['sports']);
+    expect(h.rows[0]!.cells).toEqual([{ type: 'event', event: ev(1) }]);
   });
 });
 

@@ -1,10 +1,10 @@
 /** What a wide or compact tile says, and its size (Start, Search). Pure: no Solid, no Lightning. */
 import type { StartCell } from '@iptv/app-api';
-import { programmeContext, type ProgrammeCell } from '../screens/searchLogic.ts';
+import { folderCount, programmeContext, type FolderCell, type ProgrammeCell } from '../screens/searchLogic.ts';
 import { channelsLabel, channelsShort, eventWhen } from '../screens/startLogic.ts';
 
-/** A Start cell, or a programme from Search's results. */
-export type WideCell = StartCell | ProgrammeCell;
+/** A Start cell, a programme from Search's results, or a folder from Search's Folders row. */
+export type WideCell = StartCell | ProgrammeCell | FolderCell;
 
 export const WIDE_W = 314;
 export const WIDE_H = 176;
@@ -40,6 +40,9 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
   } else if (c.type === 'programme') {
     context = programmeContext(c, now);
     main = c.hit.title;
+  } else if (c.type === 'folder') {
+    context = folderCount(c.hit);
+    main = c.hit.name;
   } else if (c.type === 'viewAll') {
     main = 'View all';
   }

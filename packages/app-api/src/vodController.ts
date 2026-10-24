@@ -427,6 +427,25 @@ export class VodController {
     return out;
   }
 
+  /**
+   * Categories of the resident catalogue of `kind` whose name contains `query` (`searchKey` on both), prefix matches
+   * first, catalogue order otherwise. Never the synthetic rows (Continue, Favourites, Recently added, All). `[]` when
+   * that kind is not resident: Search is best effort here and never loads a catalogue (spec 2026-10-24 §3.1).
+   */
+  searchCategories(kind: VodKind, query: string): VodCategoryView[] {
+    const q = searchKey(query);
+    const r = this.resident;
+    if (!q || !this.sourceId || !r || r.kind !== kind) return [];
+    const prefix: VodCategoryView[] = [];
+    const contains: VodCategoryView[] = [];
+    for (const c of r.catalog.categories()) {
+      const k = searchKey(c.name);
+      if (k.startsWith(q)) prefix.push({ id: c.id, name: c.name, count: c.count });
+      else if (k.includes(q)) contains.push({ id: c.id, name: c.name, count: c.count });
+    }
+    return [...prefix, ...contains];
+  }
+
   async slice(kind: VodKind, categoryId: string, sort: VodSort, offset: number, count: number): Promise<{ total: number; rows: VodTile[] }> {
     const catalog = this.sourceId ? await this.catalog(kind) : undefined;
     if (!catalog) return { total: 0, rows: [] };

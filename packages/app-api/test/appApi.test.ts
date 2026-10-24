@@ -396,7 +396,7 @@ describe('AppApi', () => {
     expect(r.onNow).toEqual([]);
     expect(r.later).toEqual([]);
     expect(r.guidePending).toBe(false);
-    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, movies: [], series: [], vodPending: false });
+    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false });
     // Without movies and series support: no VOD sections, never pending.
     expect(r.movies).toEqual([]);
     expect(r.series).toEqual([]);
@@ -2147,6 +2147,22 @@ describe('AppApi VOD', () => {
     expect((await api.getVodPlayable(first.id))?.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
   });
 
+  test('search folders: the resident catalogue\'s categories, prefix first; none for a kind that is not resident', async () => {
+    const { api } = makeVod();
+    await api.addSource(xt());
+    await api.refreshVod('movie');
+    // getVodCategories also returns virtual shelves (continue, favourites, recent, all, and `vod:`-prefixed ids);
+    // only the provider's own categories may be folder hits, so those are excluded from the expectation.
+    const real = (await api.getVodCategories('movie')).filter((c) => !['continue','favourites', 'recent', 'all'].includes(c.id) && !c.id.startsWith('vod:'));
+    const first = real[0]!;
+    const q = first.name.slice(0, 3).toLowerCase();
+    const hits = (await api.search(q, 50)).folders.filter((f) => f.kind === 'movie');
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.every((h) => h.name.toLowerCase().includes(q))).toBe(true);
+    expect(hits.some((h) => ['continue', 'favourites', 'recent', 'all'].includes(h.id) || h.id.startsWith('vod:'))).toBe(false);
+    expect((await api.search(q, 50)).folders.filter((f) => f.kind === 'series')).toEqual([]);
+  });
+
   test('switching source resets VOD state', async () => {
     const { api, vod } = makeVod();
     const { sourceId: a } = await api.addSource(xt());
@@ -3178,7 +3194,7 @@ describe('AppApi – sports in your guide', () => {
     expect(titles).toContain('Player One v Player Two');
     const home = await api.getStartHome();
     const row = home.rows.find((r) => r.id === 'sports')!;
-    expect(row.title).toBe('Matches');
+    expect(row.title).toBe('On now');
     const rowTitles = row.cells.flatMap((c) => (c.type === 'event' ? [c.event.title] : []));
     // The fake guide has no country prefixes (unknown scope): the 25 % cut-off applies and the row is never padded, so the
     // one-channel match stays in See all only. Sport with no sides is never in the row.
@@ -3254,20 +3270,15 @@ describe('AppApi – sports in your guide', () => {
     expect(stored).not.toMatch(/"url"/);
   });
 
-  test('getStartHome: On now is the last channel, then favourites, then recents, one tile per channel', async () => {
+  test('getStartHome: no channel row on Start, whatever the favourites and recents are', async () => {
     const { api } = make();
     await api.addSource(xt());
-    const [a, b, c] = (await api.getChannelSlice('all', 0, 3)).rows.map((r) => r.id);
+    const [a, b] = (await api.getChannelSlice('all', 0, 2)).rows.map((r) => r.id);
     await api.toggleFavourite(a!);
     await api.markWatched(b!, 'all');
-    await api.markWatched(a!, 'all');
-    await api.markWatched(c!, 'all');
     await api.idle();
-    const live = (await api.getStartHome()).rows.find((r) => r.id === 'live')!;
-    expect(live.title).toBe('On now');
-    expect(live.cells.map((x) => (x.type === 'channel' ? [x.channel.id, x.last ?? false] : []))).toEqual([
-      [c, true], [a, false], [b, false],
-    ]);
+    const home = await api.getStartHome();
+    expect(home.rows.find((r) => r.id === 'live')).toBeUndefined();
   });
 
   test('getStartHome: Top rated rows from the loaded catalogues, kept once the other kind is resident', async () => {
@@ -3379,11 +3390,20 @@ describe('AppApi – sports in your guide', () => {
     expect(second.rows).toEqual(first.rows);
     expect(st.startWrites).toBe(1); // same rows: no readwrite transaction
     expect(await api.getStartHomeCached()).toEqual(second);
-    // A favourite changes the live row: written again.
+    // A favourite no longer shows on Start: same rows, still no write.
     const ch = (await api.getChannelSlice('all', 0, 1)).rows[0]!;
     await api.toggleFavourite(ch.id);
     const third = await api.getStartHome();
-    expect(third.rows).not.toEqual(first.rows);
+    expect(third.rows).toEqual(first.rows);
+    expect(st.startWrites).toBe(1);
+    // Hiding an airing channel changes the matches row: the page is rewritten once.
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    const evRows = await api.getEventChannels(nb.key);
+    await api.toggleHidden(evRows[0]!.id);
+    const fourth = await api.getStartHome();
+    expect(fourth.rows).not.toEqual(first.rows);
+    expect(st.startWrites).toBe(2);
+    await api.getStartHome();
     expect(st.startWrites).toBe(2);
   });
 

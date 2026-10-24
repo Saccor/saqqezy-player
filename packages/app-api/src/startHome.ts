@@ -1,15 +1,16 @@
 /** The Start page rows (spec §2–3; catalogue-personalisation-sync report §5.1–5.2). Pure. */
-import type { ChannelRow, SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
+import type { SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
 
+// 'live' (channels on Start) is no longer emitted (spec 2026-10-24 §1.1); the id stays so cached pages type-check.
 export const START_TITLES: Record<StartRowId, string> = {
-  continue: 'Continue watching', live: 'On now', sports: 'Matches',
+  continue: 'Continue watching', live: 'On now', sports: 'On now',
   trendingMovies: 'Trending movies', trendingSeries: 'Trending series',
   newLibrary: 'New in your library',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',
 };
-/** The matches row while a category filter is on (neutral copy; the chips themselves are the guide's own text). */
+/** The On now row while a category filter is on (neutral copy; the chips themselves are the guide's own text). */
 export const START_SPORTS_FILTERED_TITLE = `${START_TITLES.sports} (filtered)`;
-export const START_CAPS = { continue: 12, live: 30, sports: 12, trending: 20, new: 20, top: 20 } as const;
+export const START_CAPS = { continue: 12, sports: 12, trending: 20, new: 20, top: 20 } as const;
 /** A Top rated row shows only when the library has at least this many rated titles of that kind. */
 export const START_TOP_MIN = 6;
 /** An unnumbered trending row shows only when at least this many trending titles are in the library. */
@@ -31,10 +32,6 @@ export interface StartTrendPart { items: StartTrendTile[]; at?: string }
 interface CountedPart { items: VodTile[]; total: number }
 
 export interface StartParts {
-  lastChannel?: ChannelRow;
-  /** Favourite channels, then recently watched ones: On now fills from them in that order. */
-  favourites: ChannelRow[];
-  recents: ChannelRow[];
   /** Undefined while unknown (that kind's catalogue never resident), so the cached row stays when both are. */
   continueMovies?: StartTimedTile[];
   continueSeries?: StartTimedTile[];
@@ -68,12 +65,11 @@ export function assembleStartHome(p: StartParts, at: number, cached?: StartHome)
   const sportsTotal = Math.max(p.sportsTotal ?? 0, p.sports.length);
   if (sportsTotal > sports.length || p.sportsFiltered) sports.push({ type: 'viewAll', target: 'sports', total: sportsTotal });
   const sportsRow = row('sports', sports, p.sportsFiltered ? START_SPORTS_FILTERED_TITLE : undefined);
-  // Matches on top while there are any (owner feedback 2026-10-20); a filtered row with only View all keeps its place.
+  // On now (matches) on top while there are any; a filtered row with only View all keeps its place.
   const matchesFirst = p.sports.length > 0;
   if (matchesFirst) rows.push(sportsRow);
 
   rows.push(continueRow(p, at, fromCache('continue')));
-  rows.push(row('live', onNowCells(p)));
 
   const trendMovies = p.trendingMovies === undefined ? fromCache('trendingMovies') : trendRow('trendingMovies', p.trendingMovies, at);
   const trendSeries = p.trendingSeries === undefined ? fromCache('trendingSeries') : trendRow('trendingSeries', p.trendingSeries, at);
@@ -105,22 +101,6 @@ function continueRow(p: StartParts, at: number, cached: StartRow | undefined): S
   // Stable: equal times keep movies before series, each kind in its own order.
   all.sort((a, b) => b.at - a.at);
   return row('continue', all.slice(0, START_CAPS.continue).map((e) => vodCell(e.tile)));
-}
-
-/** The last channel, then favourites, then recents; one tile per channel. */
-function onNowCells(p: StartParts): StartCell[] {
-  const cells: StartCell[] = [];
-  const seen = new Set<string>();
-  if (p.lastChannel) { cells.push({ type: 'channel', channel: p.lastChannel, last: true }); seen.add(p.lastChannel.id); }
-  for (const list of [p.favourites, p.recents]) {
-    for (const c of list) {
-      if (cells.length >= START_CAPS.live) return cells;
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      cells.push({ type: 'channel', channel: c });
-    }
-  }
-  return cells;
 }
 
 /**

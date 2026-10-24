@@ -14,6 +14,8 @@ export const MATCHES_MIN = 4;
 export const MATCH_WINDOWS_H = [6, 12, 24] as const;
 /** Followed sides are looked up this far ahead (the raw index window). */
 export const FOLLOWED_AHEAD_MS = 36 * H;
+/** The Start row (On now): on air, or kick-off within this long; never widened (spec 2026-10-24 §1.2). */
+export const ON_NOW_AHEAD_MS = 2 * H;
 /** On air counts only for events that started at most this long ago. */
 const ON_AIR_BACK_MS = 3 * H;
 /** Shorter slots need a live marker (highlights shows are often 45–50 min). */
@@ -65,7 +67,7 @@ export interface RankOptions {
 
 export interface RankedMatch<E> { event: E; score: number; onAir: boolean; match: boolean }
 export interface RankedMatches<E> {
-  /** The Start row: the focus set, capped at MATCHES_ROW_CAP. */
+  /** The Start row (On now): the focus set on air, then kick-offs within ON_NOW_AHEAD_MS; capped at MATCHES_ROW_CAP. */
   row: RankedMatch<E>[];
   /** See all: every passing match, then non-match sport, capped at MATCHES_ALL_CAP. */
   all: RankedMatch<E>[];
@@ -148,8 +150,16 @@ export function rankMatches<E extends MatchEvent>(events: readonly E[], o: RankO
   const cut = o.countryScope === 'one' ? 1
     : o.countryScope === 'unknown' ? Math.max(1, Math.ceil(FOCUS_SHARE * top))
     : Math.max(2, Math.ceil(FOCUS_SHARE * top));
-  const row = ms.filter(({ event: e }) => e.breadth >= cut || e.followed || e.countryBreadth > 0
+  const focus = ms.filter(({ event: e }) => e.breadth >= cut || e.followed || e.countryBreadth > 0
     || (e.comp !== undefined && pinned.has(competitionKey(e.comp))));
+
+  // On now (spec 2026-10-24 §1.2): on air first in score order, then kick-offs within ON_NOW_AHEAD_MS by start.
+  // No widening and no followed exception: the row is what plays now; the rest stays in See all.
+  const rowEnd = now + ON_NOW_AHEAD_MS;
+  const live = focus.filter((m) => m.onAir);
+  const next = focus.filter((m) => !m.onAir && m.event.start <= rowEnd)
+    .sort((a, b) => a.event.start - b.event.start || b.score - a.score || (a.event.title < b.event.title ? -1 : a.event.title > b.event.title ? 1 : 0));
+  const row = [...live, ...next];
 
   const all = [...ms, ...os];
   return { row: row.slice(0, MATCHES_ROW_CAP), all: all.slice(0, MATCHES_ALL_CAP), total: all.length, windowHours };

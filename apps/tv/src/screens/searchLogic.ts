@@ -1,4 +1,4 @@
-import type { AppEvent, ChannelRow, ProgrammeHit, SearchResult, TitleHit, VodTile } from '@iptv/app-api';
+import type { AppEvent, ChannelRow, FolderHit, ProgrammeHit, SearchResult, TitleHit, VodTile } from '@iptv/app-api';
 import { formatClock } from '../shell/logic.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 import { dayLabel } from './guideLogic.ts';
@@ -77,6 +77,7 @@ export function createSearcher<R>(
 export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
 export const VOD_PENDING_NOTE = 'Movies and series are being prepared';
 export const VOD_ROW_LABEL = 'Movies & series';
+export const FOLDERS_ROW_LABEL = 'Folders';
 export const LIVE_ROW_LABEL = 'Live & guide';
 
 /** Events after which Search re-runs the open query: a search index became ready, or a guide import finished. */
@@ -90,24 +91,29 @@ export type ProgrammeCell =
   | { type: 'programme'; when: 'later'; hit: TitleHit };
 /** A cell of the "Live & guide" row (drawn as a wide card). */
 export type LiveCell = { type: 'channel'; channel: ChannelRow } | ProgrammeCell;
+/** A folder (a channel folder or a movie/series category) in the Folders row. */
+export type FolderCell = { type: 'folder'; hit: FolderHit };
 /** Any focusable result. */
-export type SearchCell = { type: 'vod'; tile: VodTile } | LiveCell;
+export type SearchCell = { type: 'vod'; tile: VodTile } | LiveCell | FolderCell;
 
-/** The two result rows, plus what is still being prepared. */
+/** The three result rows, plus what is still being prepared. */
 export interface SearchRows {
   /** Movies, then series. */
   vod: VodTile[];
+  /** Channel folders, then movie and series categories. */
+  folders: FolderCell[];
   /** Channels, then programmes on now, then coming up. */
   live: LiveCell[];
   guidePending: boolean;
   vodPending: boolean;
 }
 
-export const NO_ROWS: SearchRows = { vod: [], live: [], guidePending: false, vodPending: false };
+export const NO_ROWS: SearchRows = { vod: [], folders: [], live: [], guidePending: false, vodPending: false };
 
 export function searchRows(r: SearchResult): SearchRows {
   return {
     vod: [...r.movies, ...r.series],
+    folders: r.folders.map((hit): FolderCell => ({ type: 'folder', hit })),
     live: [
       ...r.channels.map((channel): LiveCell => ({ type: 'channel', channel })),
       ...r.onNow.map((hit): LiveCell => ({ type: 'programme', when: 'onNow', hit })),
@@ -123,7 +129,7 @@ export function pendingNotes(r: SearchRows): string[] {
   return [...(r.guidePending ? [GUIDE_PENDING_NOTE] : []), ...(r.vodPending ? [VOD_PENDING_NOTE] : [])];
 }
 
-const hasResults = (r: SearchRows) => r.vod.length > 0 || r.live.length > 0;
+const hasResults = (r: SearchRows) => r.vod.length > 0 || r.folders.length > 0 || r.live.length > 0;
 
 /** The VOD row as a poster row (loaded, every title in it: no View all). */
 export function vodRowModel(r: SearchRows): RowModel {
@@ -138,45 +144,56 @@ export function programmeContext(c: ProgrammeCell, now: number): string {
   return `${dayLabel(c.hit.start, now)} ${formatClock(new Date(c.hit.start))} · ${ch}${more}`;
 }
 
-export type SearchArea = 'keyboard' | 'vod' | 'live';
+export type SearchArea = 'keyboard' | 'vod' | 'folders' | 'live';
+/** Result rows, top to bottom. */
+export const SEARCH_ROW_ORDER = ['vod', 'folders', 'live'] as const;
+export type SearchRowArea = (typeof SEARCH_ROW_ORDER)[number];
 /** Where the focus is; `col` counts only in a row. */
 export interface SearchFocus { area: SearchArea; col: number }
 
 const KEYBOARD: SearchFocus = { area: 'keyboard', col: 0 };
-const rowLength = (r: SearchRows, area: SearchArea) => (area === 'vod' ? r.vod.length : area === 'live' ? r.live.length : 0);
+const rowLength = (r: SearchRows, area: SearchArea) =>
+  (area === 'vod' ? r.vod.length : area === 'folders' ? r.folders.length : area === 'live' ? r.live.length : 0);
+/** The first non-empty row at or after index `from` of the row order, going in `dir` (1: down, -1: up); undefined when none. */
+const nearestRow = (r: SearchRows, from: number, dir: 1 | -1): SearchRowArea | undefined => {
+  for (let i = from; i >= 0 && i < SEARCH_ROW_ORDER.length; i += dir) if (rowLength(r, SEARCH_ROW_ORDER[i]!) > 0) return SEARCH_ROW_ORDER[i];
+  return undefined;
+};
 
 export function focusedCell(r: SearchRows, f: SearchFocus): SearchCell | undefined {
   if (f.area === 'vod') { const tile = r.vod[f.col]; return tile ? { type: 'vod', tile } : undefined; }
+  if (f.area === 'folders') return r.folders[f.col];
   if (f.area === 'live') return r.live[f.col];
   return undefined;
 }
 
-/** The focus moved onto rows that may have changed: an emptied row gives way to the other row, then the keyboard. */
+/** The focus moved onto rows that may have changed: an emptied row gives way to the next row down, then up, then the keyboard. */
 export function clampSearchFocus(f: SearchFocus, r: SearchRows): SearchFocus {
   if (f.area === 'keyboard') return KEYBOARD;
-  const other = f.area === 'vod' ? 'live' : 'vod';
-  const area = rowLength(r, f.area) > 0 ? f.area : rowLength(r, other) > 0 ? other : undefined;
+  const i = SEARCH_ROW_ORDER.indexOf(f.area);
+  const area = rowLength(r, f.area) > 0 ? f.area : nearestRow(r, i + 1, 1) ?? nearestRow(r, i - 1, -1);
   if (!area) return KEYBOARD;
   return { area, col: Math.max(0, Math.min(f.col, rowLength(r, area) - 1)) };
 }
 
 /**
  * One D-pad step. In a row: Left/Right move along it (Left at column 0 returns to the keyboard), Up/Down go to the
- * other row when it has results. From the keyboard's edges (the keyboard moves its own cursor): Right goes to the first
+ * nearest other row with results. From the keyboard's edges (the keyboard moves its own cursor): Right goes to the first
  * row with results, Left to the rail.
  */
 export function moveSearch(f: SearchFocus, key: 'up' | 'down' | 'left' | 'right', r: SearchRows): SearchFocus | 'keyboard' | 'rail' {
   if (f.area === 'keyboard') {
     if (key === 'left') return 'rail';
     if (key !== 'right') return 'keyboard';
-    if (r.vod.length > 0) return { area: 'vod', col: 0 };
-    return r.live.length > 0 ? { area: 'live', col: 0 } : 'keyboard';
+    const first = nearestRow(r, 0, 1);
+    return first ? { area: first, col: 0 } : 'keyboard';
   }
   const len = rowLength(r, f.area);
   if (key === 'left') return f.col <= 0 ? 'keyboard' : { area: f.area, col: Math.min(f.col - 1, len - 1) };
   if (key === 'right') return { area: f.area, col: Math.max(0, Math.min(f.col + 1, len - 1)) };
-  const target = key === 'up' ? 'vod' : 'live';
-  if (target === f.area || rowLength(r, target) === 0) return f;
+  const i = SEARCH_ROW_ORDER.indexOf(f.area);
+  const target = key === 'up' ? nearestRow(r, i - 1, -1) : nearestRow(r, i + 1, 1);
+  if (!target) return f;
   return { area: target, col: Math.min(f.col, rowLength(r, target) - 1) };
 }
 
@@ -221,6 +238,24 @@ export function laterRoute(c: SearchCell | undefined): { screen: 'home'; params:
   return { screen: 'home', params: { channelId: c.hit.channel.id, at: c.hit.start } };
 }
 
+/** Where Ok on a folder goes: Live TV at that folder (the root `home`), or the grid of that kind at that category. */
+export function folderRoute(c: SearchCell | undefined):
+  | { screen: 'home'; params: { groupId: string } }
+  | { screen: 'vodGrid'; params: { kind: 'movie' | 'series'; categoryId: string } }
+  | undefined {
+  if (c?.type !== 'folder') return undefined;
+  if (c.hit.kind === 'live') return { screen: 'home', params: { groupId: c.hit.id } };
+  return { screen: 'vodGrid', params: { kind: c.hit.kind, categoryId: c.hit.id } };
+}
+
+/** A folder tile's muted count line. */
+export function folderCount(hit: FolderHit): string {
+  const n = hit.count;
+  if (hit.kind === 'live') return n === 1 ? '1 channel' : `${n} channels`;
+  if (hit.kind === 'movie') return n === 1 ? '1 movie' : `${n} movies`;
+  return `${n} series`;
+}
+
 /** The channel Ok plays: a channel's own, or an on-now programme's. */
 export function channelToPlay(c: SearchCell | undefined): ChannelRow | undefined {
   if (c?.type === 'channel') return c.channel;
@@ -230,7 +265,7 @@ export function channelToPlay(c: SearchCell | undefined): ChannelRow | undefined
 
 /** Text for the results area when it has no rows (undefined when there are results). */
 export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
-  if (s.query === '') return 'Type to search channels, programmes, movies and series';
+  if (s.query === '') return 'Type to search channels, folders, programmes, movies and series';
   if (hasResults(s.results)) return undefined;
   if (s.busy) return 'Searching…';
   if (s.failed) return "Couldn't search right now.";

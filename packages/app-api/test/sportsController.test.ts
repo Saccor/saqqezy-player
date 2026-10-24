@@ -167,7 +167,7 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(r.all[0]!.channelCount).toBe(12);
   });
 
-  test('pinned and hidden competitions; competition chips from the guide (fixture 17)', async () => {
+  test('pinned and hidden competitions; competition chips from the guide (fixture 17; pinned order is See all, the row is by start)', async () => {
     const progs: P[] = [
       ...Array.from({ length: 8 }, (_, k) => ({ key: `k${k}`, title: 'Northbridge FC v Eastport', cats: ['Football'] })),
       { key: 'k8', title: 'Lakeshore v Pinecrest', cats: ['Football'], sub: 'Test Cup: Round 3', startMin: 60 },
@@ -177,7 +177,7 @@ describe('SportsController v2: Matches in your guide', () => {
     const base = await tiles(v2(progs), index);
     expect(base.all[0]!.title).toBe('Northbridge FC v Eastport');
     const pinned = await tiles(v2(progs), index, { pinned: ['test cup'] });
-    expect(pinned.row.map((t) => t.title).slice(0, 2)).toEqual(['Lakeshore v Pinecrest', 'Harbour City v Kingsgate']);
+    expect(pinned.all.map((t) => t.title).slice(0, 2)).toEqual(['Lakeshore v Pinecrest', 'Harbour City v Kingsgate']);
     const hidden = await tiles(v2(progs), index, { hidden: ['test cup'] });
     expect(hidden.all.map((t) => t.title)).toEqual(['Northbridge FC v Eastport']);
     expect(base.sc.filters(base.view).competitions).toEqual([{ id: 'test cup', label: 'Test Cup' }]);

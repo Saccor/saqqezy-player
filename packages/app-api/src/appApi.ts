@@ -1,5 +1,5 @@
 import {
-  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
+  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_ALL, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
@@ -8,7 +8,7 @@ import {
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   alignSubtitle, englishLanguageName, rankSubtitles, type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
   BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
-  type BackupEnvelope, type RestoreSummary,
+  type BackupEnvelope, type RestoreSummary, searchKey,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
@@ -20,13 +20,13 @@ import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
 import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
-import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
+import { assembleStartHome, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, GuideImportState, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
+  FolderHit, ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
@@ -54,6 +54,10 @@ const NOW_NEXT_MARGIN_MS = 6 * HOUR;
 /** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
 const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
+/** Channel matches asked of the index before the country sort, so a chosen-country channel is never cut first. */
+const SEARCH_CHANNEL_SCAN = 200;
+/** Most folders (lists, provider groups, VOD categories together) one search returns. */
+const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
 export const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
@@ -663,10 +667,16 @@ export class AppApi {
       const chans = [...at.keys()].map((id) => this.index.get(id)).filter((c): c is Channel => c !== undefined);
       const rows = await this.toRows(chans);
       const now = this.now();
-      return rows.sort((x, y) => compareAirings(
-        { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
-        { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
-      ));
+      const favs = this.favourites();
+      const airingNow = (id: string) => (at.get(id)?.start ?? Infinity) <= now;
+      // Favourite, airing now, then your countries (spec 2026-10-24 §2.3), then today's tail (backup, quality, number).
+      return rows.sort((x, y) => Number(y.favourite) - Number(x.favourite)
+        || Number(airingNow(y.id)) - Number(airingNow(x.id))
+        || this.countryKey(favs, x.id) - this.countryKey(favs, y.id)
+        || compareAirings(
+          { favourite: false, airingNow: false, name: x.name, number: x.number },
+          { favourite: false, airingNow: false, name: y.name, number: y.number },
+        ));
     });
   }
 
@@ -687,27 +697,15 @@ export class AppApi {
       const safe = async <T>(f: () => Promise<T>, fallback: T): Promise<T> => {
         try { return await f(); } catch (err) { this.record('getStartHome', err); return fallback; }
       };
-      const lastId = await this.storage.getMeta<string>(`lastChannel:${id}`).catch(() => undefined);
-      const last = lastId ? this.index.get(lastId) : undefined;
-      // On now fills from favourites, then recents; only the rows that can show are built (at most the cap in all).
-      const favs = this.index.slice(GROUP_FAV, 0, START_CAPS.live);
-      const taken = new Set(favs.map((c) => c.id));
-      if (last) taken.add(last.id);
-      const recents = this.index.slice(GROUP_RECENT, 0, START_CAPS.live)
-        .filter((c) => !taken.has(c.id)).slice(0, Math.max(0, START_CAPS.live - taken.size));
       // The stored trending copies (a meta read; never waits on the network) before the VOD rows match against them.
       await safe(() => this.trending?.prime() ?? Promise.resolve(), undefined);
-      const [lastRows, favourites, recentRows, sports, movie, series] = await Promise.all([
-        safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
-        safe(() => this.toRows(favs), [] as ChannelRow[]),
-        safe(() => this.toRows(recents), [] as ChannelRow[]),
+      const [sports, movie, series] = await Promise.all([
         safe(() => this.matchTiles(), { row: [], all: [], total: 0, filtered: false } as MatchTiles),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
-      const parts: StartParts = { favourites, recents: recentRows, sports: sports.row, sportsTotal: sports.total };
+      const parts: StartParts = { sports: sports.row, sportsTotal: sports.total };
       if (sports.filtered) parts.sportsFiltered = true;
-      if (lastRows[0]) parts.lastChannel = lastRows[0];
       // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
       if (movie || series) {
         parts.continueMovies = movie?.continue ?? [];
@@ -741,8 +739,44 @@ export class AppApi {
   search(query: string, limit: number): Promise<SearchResult> {
     return this.run('search', async () => {
       const [result, vod] = await Promise.all([this.channelSearch(query, limit), this.vodSearch(query, limit)]);
-      return { ...result, movies: vod.movies, series: vod.series, vodPending: vod.pending };
+      return { ...result, folders: this.folderHits(query), movies: vod.movies, series: vod.series, vodPending: vod.pending };
     });
+  }
+
+  /**
+   * Folders whose name contains `query` (spec 2026-10-24 §3.1): the user's lists (layout order), then provider groups
+   * (your countries in pick order, then the index's order), prefix matches before contains in each; then movie and
+   * series categories of the resident catalogues. Never Recently watched, All channels or hidden groups. At most
+   * SEARCH_FOLDERS; `[]` for a blank query. A failure never fails the search.
+   */
+  private folderHits(query: string): FolderHit[] {
+    const q = searchKey(query);
+    if (!q || this.activeId === undefined) return [];
+    try {
+      const prefix: FolderHit[] = [];
+      const contains: FolderHit[] = [];
+      const groups = this.index.groups().filter((g) => g.id !== GROUP_ALL && g.id !== GROUP_RECENT);
+      const lists = groups.filter((g) => !g.id.startsWith('g:'));
+      const provider = groups.filter((g) => g.id.startsWith('g:'))
+        .map((g, i) => ({ g, i, k: this.index.regionRankOf(g.id) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.g);
+      for (const g of [...lists, ...provider]) {
+        if (g.count === 0) continue; // an empty folder leads nowhere
+        const k = searchKey(g.name);
+        const hit: FolderHit = { kind: 'live', id: g.id, name: g.name, count: g.count };
+        if (k.startsWith(q)) prefix.push(hit);
+        else if (k.includes(q)) contains.push(hit);
+      }
+      const out = [...prefix, ...contains];
+      if (this.vodc) {
+        for (const kind of ['movie', 'series'] as const) {
+          for (const c of this.vodc.searchCategories(kind, query)) out.push({ kind, id: c.id, name: c.name, count: c.count });
+        }
+      }
+      return out.slice(0, SEARCH_FOLDERS);
+    } catch (err) {
+      this.record('searchFolders', err);
+      return [];
+    }
   }
 
   /** Channels of the active source matching `query` (multiview's picker). No guide or VOD work; `[]` for a blank query. */
@@ -765,10 +799,17 @@ export class AppApi {
     }
   }
 
-  private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'movies' | 'series' | 'vodPending'>> {
+  private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'folders' | 'movies' | 'series' | 'vodPending'>> {
     return (async () => {
       const id = this.activeId;
-      const found = this.index.search(query, limit);
+      const favs = this.favourites();
+      const key = (c: Channel) => this.countryKey(favs, c.id);
+      // Prefix matches stay before contains matches; inside each, favourites, then your countries in pick order (stable).
+      const scanned = this.index.search(query, Math.max(limit, SEARCH_CHANNEL_SCAN));
+      const q = searchKey(query);
+      const isPrefix = (c: Channel) => searchKey(c.name).startsWith(q);
+      const stable = (list: Channel[]) => list.map((c, i) => ({ c, i, k: key(c) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.c);
+      const found = [...stable(scanned.filter(isPrefix)), ...stable(scanned.filter((c) => !isPrefix(c)))].slice(0, limit);
       const epoch = this.titlesEpoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
@@ -2088,13 +2129,15 @@ export class AppApi {
     const t = this.now();
     const shiftOf = (c: Channel) => (settings.epgOffsetHours + (c.epgShift ?? 0)) * HOUR;
     const maxShift = maxShiftMs(this.shifts, settings.epgOffsetHours);
+    const favs = this.favourites();
     const onNow: { c: Channel; title: string; start: number; stop: number }[] = [];
     const later: { c: Channel; title: string; start: number; stop: number; more: number }[] = [];
     for (const m of queryTitles(data, query, t - maxShift, SEARCH_TITLES)) {
       let next: { c: Channel; start: number; stop: number } | undefined;
+      let nextKey = Number.POSITIVE_INFINITY;
       let upcoming = 0;
       const titleNow: { c: Channel; title: string; start: number; stop: number }[] = [];
-      // Airings tied on start come in index (epgKey) order; ties go to the lower channel number.
+      // Airings tied on start come in index (epgKey) order; favourites, then your countries, then start, then the lower channel number.
       for (const a of m.airings) {
         for (const c of this.index.channelsForEpgKey(a.epgKey)) {
           const s = shiftOf(c);
@@ -2104,11 +2147,12 @@ export class AppApi {
           if (start <= t) titleNow.push({ c, title: m.display, start, stop });
           else {
             upcoming++;
-            if (!next || start < next.start || (start === next.start && c.number < next.c.number)) next = { c, start, stop };
+            const k = this.countryKey(favs, c.id);
+            if (!next || k < nextKey || (k === nextKey && (start < next.start || (start === next.start && c.number < next.c.number)))) { next = { c, start, stop }; nextKey = k; }
           }
         }
       }
-      titleNow.sort((x, y) => x.start - y.start || x.c.number - y.c.number);
+      titleNow.sort((x, y) => this.countryKey(favs, x.c.id) - this.countryKey(favs, y.c.id) || x.start - y.start || x.c.number - y.c.number);
       for (const h of titleNow) onNow.push(h);
       if (next) later.push({ ...next, title: m.display, more: upcoming - 1 });
     }
@@ -2118,6 +2162,12 @@ export class AppApi {
   private favourites(): Set<string> {
     const fav = this.index.layout().lists.find((l) => l.id === FAV_LIST_ID);
     return (this.favSet ??= new Set(fav?.channelIds ?? []));
+  }
+
+  /** Sort key for Search and the match picker: favourites first (-1), then your countries in pick order, then the rest. */
+  private countryKey(favs: ReadonlySet<string>, id: string): number {
+    if (favs.has(id) || this.index.memberIds(id).some((m) => favs.has(m))) return -1;
+    return this.index.countryRankOf(id);
   }
 
   private setOffline(value: boolean): void {

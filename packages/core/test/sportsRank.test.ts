@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  MATCHES_ALL_CAP, MATCHES_ROW_CAP, competitionKey, matchScore, rankMatches, type MatchEvent, type RankOptions,
+  MATCHES_ALL_CAP, MATCHES_ROW_CAP, ON_NOW_AHEAD_MS, competitionKey, matchScore, rankMatches, type MatchEvent, type RankOptions,
 } from '../src/sports/rank.ts';
 
 const M = 60_000;
@@ -122,7 +122,7 @@ describe('rankMatches gates (design note §3.5)', () => {
   });
 
   test('G8 with no country prefixes seen: 25 % of the top breadth, at least 1', () => {
-    const top = ev({ title: 'Top', breadth: 24 });
+    const top = ev({ title: 'Top', breadth: 24, inMin: 40 });
     const mid = [6, 5].map((b, i) => ev({ title: `Mid ${i}`, breadth: b, inMin: 50 + i }));
     const small = Array.from({ length: 8 }, (_, i) => ev({ title: `Small ${i}`, breadth: 1, inMin: 60 + i }));
     const r = rankMatches([top, ...mid, ...small], opts({ countryScope: 'unknown' }));
@@ -132,11 +132,51 @@ describe('rankMatches gates (design note §3.5)', () => {
   });
 
   test('caps: the row shows 12, See all 100', () => {
-    const many = Array.from({ length: 130 }, (_, i) => ev({ inMin: 10 + (i % 300), breadth: 8 }));
+    const many = Array.from({ length: 130 }, (_, i) => ev({ inMin: 10 + (i % 100), breadth: 8 }));
     const r = rankMatches(many, opts());
     expect(r.row).toHaveLength(MATCHES_ROW_CAP);
     expect(r.all).toHaveLength(MATCHES_ALL_CAP);
     expect(r.total).toBe(130);
+    expect(ON_NOW_AHEAD_MS).toBe(2 * H);
+  });
+
+  test('row (spec 2026-10-24 §1.2): on air first in score order, then kick-offs within 2 h by start; later ones only in See all', () => {
+    const liveSmall = ev({ title: 'Live small', inMin: -20, breadth: 4 });
+    const liveBig = ev({ title: 'Live big', inMin: -40, breadth: 16 });
+    const soon = ev({ title: 'In 90', inMin: 90, breadth: 16 });
+    const sooner = ev({ title: 'In 30', inMin: 30, breadth: 8 });
+    const bigLater = ev({ title: 'Big in 3 h', inMin: 180, breadth: 16 });
+    const r = rankMatches([bigLater, soon, liveSmall, sooner, liveBig], opts());
+    expect(titles(r.row)).toEqual(['Live big', 'Live small', 'In 30', 'In 90']);
+    expect(titles(r.all)).toContain('Big in 3 h');
+    expect(r.total).toBe(5);
+  });
+
+  test('row: exactly 2 h counts, 2 h 1 min does not; the row may be empty while See all is not', () => {
+    const edge = ev({ title: 'Edge', inMin: 120, breadth: 8 });
+    const over = ev({ title: 'Over', inMin: 121, breadth: 8 });
+    const r = rankMatches([edge, over], opts());
+    expect(titles(r.row)).toEqual(['Edge']);
+    expect(titles(r.all)).toEqual(['Edge', 'Over']);
+    expect(rankMatches([over], opts()).row).toEqual([]);
+    expect(rankMatches([over], opts()).all).toHaveLength(1);
+  });
+
+  test('row: a followed side 5 h ahead is in See all, not the row; a followed side on air leads the row', () => {
+    const followedLater = ev({ title: 'Followed later', inMin: 300, followed: true, breadth: 1 });
+    const followedLive = ev({ title: 'Followed live', inMin: -10, followed: true, breadth: 1 });
+    const plainLive = ev({ title: 'Plain live', inMin: -10, breadth: 16 });
+    const r = rankMatches([plainLive, followedLater, followedLive], opts());
+    expect(titles(r.row)).toEqual(['Followed live', 'Plain live']);
+    expect(titles(r.all)).toContain('Followed later');
+  });
+
+  test('row: G8 still applies inside the window (a small kick-off stays in See all while the top match is broad)', () => {
+    const top = ev({ title: 'Top', breadth: 16, inMin: 30 });
+    const small = ev({ title: 'Small', breadth: 1, inMin: 40 });
+    const r = rankMatches([top, small], opts());
+    expect(titles(r.row)).toEqual(['Top']);
+    expect(titles(r.all)).toEqual(['Top', 'Small']);
   });
 });
 
@@ -149,8 +189,8 @@ describe('matchScore and order (design note §3.6)', () => {
     const lakeshore = ev({ title: 'Lakeshore v Pinecrest', inMin: at(20, 0), breadth: 1, countryBreadth: 1 });
     const darts = ev({ title: 'Player One v Player Two', inMin: -5, breadth: 1, liveMark: true });
     const r = rankMatches([darts, lakeshore, kingsgate, northbridge, westvale], opts());
-    expect(titles(r.row)).toEqual(['Westvale v Eastport', 'Northbridge FC v Southmere', 'Kingsgate v Rivermouth Rovers', 'Lakeshore v Pinecrest']);
-    expect(titles(r.all).at(-1)).toBe('Player One v Player Two');
+    expect(titles(r.row)).toEqual(['Northbridge FC v Southmere', 'Lakeshore v Pinecrest', 'Kingsgate v Rivermouth Rovers', 'Westvale v Eastport']);
+    expect(titles(r.all)).toEqual(['Westvale v Eastport', 'Northbridge FC v Southmere', 'Kingsgate v Rivermouth Rovers', 'Lakeshore v Pinecrest', 'Player One v Player Two']);
   });
 
   test('breadth is a log scale, capped at 5; sooner first within a band', () => {
@@ -165,7 +205,7 @@ describe('matchScore and order (design note §3.6)', () => {
   test('a pinned competition lifts a narrower match above a broader one; hiding removes it (fixture 17)', () => {
     const lakeshore = ev({ title: 'Lakeshore v Pinecrest', comp: 'Test Cup', breadth: 1, inMin: 200 });
     const broad = ev({ title: 'Northbridge FC v Eastport', breadth: 24, inMin: 30 });
-    expect(titles(rankMatches([broad, lakeshore], opts({ pinned: [competitionKey('Test Cup')] })).row)[0]).toBe('Lakeshore v Pinecrest');
+    expect(titles(rankMatches([broad, lakeshore], opts({ pinned: [competitionKey('Test Cup')] })).all)[0]).toBe('Lakeshore v Pinecrest');
     expect(titles(rankMatches([broad, lakeshore], opts({ hidden: [competitionKey('Test Cup')] })).all)).toEqual(['Northbridge FC v Eastport']);
   });
 
