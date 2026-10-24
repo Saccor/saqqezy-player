@@ -160,6 +160,22 @@ describe('reairKeys (gate G3, design note §3.5)', () => {
     ], new Map(), id).events;
     expect([...reairKeys(shortLive)]).toEqual([shortLive[1]!.key]);
   });
+  test('a later airing that spells one side longer ("Eastport" / "Eastport Rovers") is still a re-air', () => {
+    const { events } = groupEvents([
+      ...Array.from({ length: 4 }, (_, i) => item('Northbridge FC - Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 0, 130)),
+      ...Array.from({ length: 2 }, (_, i) => item('Northbridge vs Eastport Rovers', 'Northbridge', 'Eastport Rovers', `late${i}`, 190, 150)),
+    ], new Map(), id);
+    expect(events).toHaveLength(2);
+    expect([...reairKeys(events)]).toEqual([events[1]!.key]);
+  });
+  test('across hours both sides must not be merely similar: another match with two look-alike sides is no re-air', () => {
+    const { events } = groupEvents([
+      ...Array.from({ length: 4 }, (_, i) => item('Lakeshore Town v Pinecrest', 'Lakeshore Town', 'Pinecrest', `k${i}`, 0, 115)),
+      ...Array.from({ length: 2 }, (_, i) => item('Lakeshore City v Pinecrest Athletic', 'Lakeshore City', 'Pinecrest Athletic', `l${i}`, 240, 115)),
+    ], new Map(), id);
+    expect(events).toHaveLength(2);
+    expect(reairKeys(events).size).toBe(0);
+  });
   test('known gap: a re-air whose first airing fell out of the window is not caught by the pair rule (fixture 10)', () => {
     const { events } = groupEvents([item('Northbridge FC v Eastport', 'Northbridge FC', 'Eastport', 'late', 330, 115)], new Map(), id);
     expect(reairKeys(events).size).toBe(0);

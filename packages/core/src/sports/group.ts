@@ -148,16 +148,44 @@ const REAIR_MIN_LEN_MS = 60 * 60_000;
  */
 export function reairKeys<A>(events: readonly SportsGroup<A>[]): Set<string> {
   const out = new Set<string>();
-  const earlier = new Map<string, { stop: number; n: number }[]>();
+  /** Earlier events that count, by the first letters of each side (as `groupEvents` buckets them). */
+  const earlier = new Map<string, { ns: [string, string]; stop: number; n: number }[]>();
   for (const e of events) {
-    if (!e.key.startsWith('p:')) continue;
-    const pair = e.key.slice(0, e.key.lastIndexOf('@'));
-    const prev = earlier.get(pair);
+    const ns = pairOf(e.key);
+    if (!ns) continue;
     const n = e.airings.length;
-    if (prev && !e.live && prev.some((p) => p.stop <= e.start && p.n >= n)) out.add(e.key);
+    if (!e.live) {
+      const seen = new Set<{ ns: [string, string]; stop: number; n: number }>();
+      search: for (const b of bucketsOf(ns)) {
+        for (const p of earlier.get(b) ?? []) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          if (p.stop <= e.start && p.n >= n && samePairAcrossHours(p.ns, ns)) { out.add(e.key); break search; }
+        }
+      }
+    }
     if (e.live || e.stop - e.start >= REAIR_MIN_LEN_MS) {
-      if (prev) prev.push({ stop: e.stop, n }); else earlier.set(pair, [{ stop: e.stop, n }]);
+      const rec = { ns, stop: e.stop, n };
+      for (const b of new Set(bucketsOf(ns))) (earlier.get(b) ?? earlier.set(b, []).get(b)!).push(rec);
     }
   }
   return out;
+}
+
+/** The normalised sides in a pair event's key (`p:a|b@first`); undefined for a title-only event. */
+function pairOf(key: string): [string, string] | undefined {
+  if (!key.startsWith('p:')) return undefined;
+  const body = key.slice(2, key.lastIndexOf('@'));
+  const bar = body.indexOf('|');
+  return bar < 0 ? undefined : [body.slice(0, bar), body.slice(bar + 1)];
+}
+
+/**
+ * The same match hours apart, spelled the same or with one side longer or shorter ("Eastport" / "Eastport Rovers"):
+ * one side exact and the other at least a fuzzy match. Two merely similar sides are another match (grouping allows
+ * that only for airings close in time).
+ */
+function samePairAcrossHours(a: [string, string], b: [string, string]): boolean {
+  const m = pairMatch(a, b);
+  return m !== undefined && m.kind !== 'loose';
 }
