@@ -8,7 +8,7 @@ import {
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   alignSubtitle, englishLanguageName, rankSubtitles, type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
   BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
-  type BackupEnvelope, type RestoreSummary,
+  type BackupEnvelope, type RestoreSummary, searchKey,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
@@ -54,6 +54,8 @@ const NOW_NEXT_MARGIN_MS = 6 * HOUR;
 /** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
 const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
+/** Channel matches asked of the index before the country sort, so a chosen-country channel is never cut first. */
+const SEARCH_CHANNEL_SCAN = 200;
 /** Most movies, and most series, one search returns. */
 export const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
@@ -756,7 +758,14 @@ export class AppApi {
   private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'movies' | 'series' | 'vodPending'>> {
     return (async () => {
       const id = this.activeId;
-      const found = this.index.search(query, limit);
+      const favs = this.favourites();
+      const key = (c: Channel) => this.countryKey(favs, c.id);
+      // Prefix matches stay before contains matches; inside each, favourites, then your countries in pick order (stable).
+      const scanned = this.index.search(query, Math.max(limit, SEARCH_CHANNEL_SCAN));
+      const q = searchKey(query);
+      const isPrefix = (c: Channel) => searchKey(c.name).startsWith(q);
+      const stable = (list: Channel[]) => list.map((c, i) => ({ c, i, k: key(c) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.c);
+      const found = [...stable(scanned.filter(isPrefix)), ...stable(scanned.filter((c) => !isPrefix(c)))].slice(0, limit);
       const epoch = this.titlesEpoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
@@ -2076,13 +2085,15 @@ export class AppApi {
     const t = this.now();
     const shiftOf = (c: Channel) => (settings.epgOffsetHours + (c.epgShift ?? 0)) * HOUR;
     const maxShift = maxShiftMs(this.shifts, settings.epgOffsetHours);
+    const favs = this.favourites();
     const onNow: { c: Channel; title: string; start: number; stop: number }[] = [];
     const later: { c: Channel; title: string; start: number; stop: number; more: number }[] = [];
     for (const m of queryTitles(data, query, t - maxShift, SEARCH_TITLES)) {
       let next: { c: Channel; start: number; stop: number } | undefined;
+      let nextKey = Number.POSITIVE_INFINITY;
       let upcoming = 0;
       const titleNow: { c: Channel; title: string; start: number; stop: number }[] = [];
-      // Airings tied on start come in index (epgKey) order; ties go to the lower channel number.
+      // Airings tied on start come in index (epgKey) order; favourites, then your countries, then start, then the lower channel number.
       for (const a of m.airings) {
         for (const c of this.index.channelsForEpgKey(a.epgKey)) {
           const s = shiftOf(c);
@@ -2092,11 +2103,12 @@ export class AppApi {
           if (start <= t) titleNow.push({ c, title: m.display, start, stop });
           else {
             upcoming++;
-            if (!next || start < next.start || (start === next.start && c.number < next.c.number)) next = { c, start, stop };
+            const k = this.countryKey(favs, c.id);
+            if (!next || k < nextKey || (k === nextKey && (start < next.start || (start === next.start && c.number < next.c.number)))) { next = { c, start, stop }; nextKey = k; }
           }
         }
       }
-      titleNow.sort((x, y) => x.start - y.start || x.c.number - y.c.number);
+      titleNow.sort((x, y) => this.countryKey(favs, x.c.id) - this.countryKey(favs, y.c.id) || x.start - y.start || x.c.number - y.c.number);
       for (const h of titleNow) onNow.push(h);
       if (next) later.push({ ...next, title: m.display, more: upcoming - 1 });
     }
@@ -2106,6 +2118,12 @@ export class AppApi {
   private favourites(): Set<string> {
     const fav = this.index.layout().lists.find((l) => l.id === FAV_LIST_ID);
     return (this.favSet ??= new Set(fav?.channelIds ?? []));
+  }
+
+  /** Sort key for Search and the match picker: favourites first (-1), then your countries in pick order, then the rest. */
+  private countryKey(favs: ReadonlySet<string>, id: string): number {
+    if (favs.has(id) || this.index.memberIds(id).some((m) => favs.has(m))) return -1;
+    return this.index.countryRankOf(id);
   }
 
   private setOffline(value: boolean): void {
