@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The TV's flag folder (imported by apps/tv/src/assets/flags/index.ts). */
 export const FLAG_DIR = resolve(ROOT, 'apps/tv/src/assets/flags');
+/** Flags drawn for this project (4x3 SVGs) where flag-icons has none; read before flag-icons. */
+export const EXTRA_DIR = resolve(ROOT, 'tools/flags/extra');
 /** Copied into every build by Vite (public/). */
 export const LICENSE_OUT = resolve(ROOT, 'apps/tv/public/licenses/flag-icons.txt');
 export const FLAG_W = 96;
