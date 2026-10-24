@@ -665,10 +665,16 @@ export class AppApi {
       const chans = [...at.keys()].map((id) => this.index.get(id)).filter((c): c is Channel => c !== undefined);
       const rows = await this.toRows(chans);
       const now = this.now();
-      return rows.sort((x, y) => compareAirings(
-        { favourite: x.favourite, airingNow: (at.get(x.id)?.start ?? Infinity) <= now, name: x.name, number: x.number },
-        { favourite: y.favourite, airingNow: (at.get(y.id)?.start ?? Infinity) <= now, name: y.name, number: y.number },
-      ));
+      const favs = this.favourites();
+      const airingNow = (id: string) => (at.get(id)?.start ?? Infinity) <= now;
+      // Favourite, airing now, then your countries (spec 2026-10-24 §2.3), then today's tail (backup, quality, number).
+      return rows.sort((x, y) => Number(y.favourite) - Number(x.favourite)
+        || Number(airingNow(y.id)) - Number(airingNow(x.id))
+        || this.countryKey(favs, x.id) - this.countryKey(favs, y.id)
+        || compareAirings(
+          { favourite: false, airingNow: false, name: x.name, number: x.number },
+          { favourite: false, airingNow: false, name: y.name, number: y.number },
+        ));
     });
   }
 

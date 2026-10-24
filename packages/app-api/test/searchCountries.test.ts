@@ -116,3 +116,16 @@ describe('Search – your countries first', () => {
     expect(small.channels[0]!.group.slice(0, 2)).toBe('SE');
   });
 });
+
+describe('match picker – your countries after airing now', () => {
+  test('getEventChannels: favourite, then airing now, then your countries in pick order, then number', async () => {
+    const api = await setup();
+    const nb = (await api.getSportsEvents()).find((e) => e.title.includes('Northbridge'))!;
+    expect(groupsOf(await api.getEventChannels(nb.key))).toEqual(['DE', 'US', 'SE', 'DK']);
+    await setRegions(api, { mode: 'first', codes: ['SE', 'DK'] });
+    expect(groupsOf(await api.getEventChannels(nb.key))).toEqual(['SE', 'DK', 'DE', 'US']);
+    const de = (await api.getEventChannels(nb.key)).find((r) => r.group.startsWith('DE'))!;
+    await api.toggleFavourite(de.id);
+    expect(groupsOf(await api.getEventChannels(nb.key))).toEqual(['DE', 'SE', 'DK', 'US']);
+  });
+});
