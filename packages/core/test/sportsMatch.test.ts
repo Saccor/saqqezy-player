@@ -15,6 +15,8 @@ describe('sports match', () => {
     expect(normSide('EASTPORT 241026')).toBe('eastport');
     expect(normSide('Eastport 20261024')).toBe('eastport');
     expect(normSide('EASTPORT 24/10/26')).toBe('eastport');
+    // Seen in a real guide: the slashes kept a JSON escape.
+    expect(normSide('EASTPORT 24\\/10\\/26')).toBe('eastport');
     expect(normSide('Eastport 24.10.2026')).toBe('eastport');
     expect(normSide('Eastport 2026-10-24')).toBe('eastport');
     expect(normSide('Westvale 1860')).toBe('westvale 1860');
