@@ -52,4 +52,23 @@ describe('SportsIndexBuilder', () => {
     b.add(prog('LIVE: Evening News - Weekend Edition'), undefined, 'other.test');
     expect(b.record(1, NOW).sportyKeys).toEqual(['sporty.test']);
   });
+
+  test('sport-named channels: a two-sided title with no category counts, hyphen included, and the channel is sporty', () => {
+    const b = new SportsIndexBuilder(NOW, undefined, new Set(['sport.test']));
+    b.add(prog('Northbridge FC - Eastport'), undefined, 'sport.test');
+    b.add(prog('Northbridge FC - Eastport'), undefined, 'news.test');
+    const rec = b.record(1, NOW);
+    expect(rec.candidates.map((c) => [c.epgKey, c.title])).toEqual([['sport.test', 'Northbridge FC - Eastport']]);
+    expect(rec.candidates[0]!.sides).toEqual(['Northbridge FC', 'Eastport']);
+    expect(rec.candidates[0]!.flags! & MATCH_FLAGS.weakSep).toBe(MATCH_FLAGS.weakSep);
+    expect(rec.sportyKeys).toEqual(['sport.test']);
+  });
+
+  test('sport-named channels never lift a title with no sides, a replay or a short untagged slot', () => {
+    const b = new SportsIndexBuilder(NOW, undefined, new Set(['sport.test']));
+    b.add(prog('Synthetic League'), undefined, 'sport.test');
+    b.add(prog('Northbridge FC - Eastport (R)'), undefined, 'sport.test');
+    b.add(prog('Lakeshore - Pinecrest', NOW, 0.5), undefined, 'sport.test');
+    expect(b.build()).toEqual([]);
+  });
 });

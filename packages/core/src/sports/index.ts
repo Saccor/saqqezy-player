@@ -2,7 +2,7 @@
 import type { Programme } from '../types.ts';
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
 import { copyString } from '../search/titleIndex.ts';
-import { EVENT_THRESHOLD, mayBeEvent, scoreProgramme } from './detect.ts';
+import { EVENT_THRESHOLD, hasMatchSeparator, mayBeEvent, scoreProgramme } from './detect.ts';
 import { categoryKey, foldText, normSide } from './match.ts';
 
 const H = 3600_000;
@@ -48,9 +48,15 @@ export class SportsIndexBuilder {
   private readonly catIds = new Map<string, number>();
   private readonly catTexts: string[] = [];
   private readonly sporty = new Map<string, number>();
+  /** Sport-named guide channels that aired a two-sided title: sporty by name, whatever their programme count. */
+  private readonly namedSporty = new Set<string>();
   truncated = false;
 
-  constructor(private readonly now: number, private readonly max = SPORTS_MAX_CANDIDATES) {}
+  /**
+   * @param sportChannels guide keys of channels whose own name or folder says sport (`isSportChannelName`). For guides
+   *   that tag no sport category: a two-sided title there scores as if it carried one (gate G2 then sees a sporty channel).
+   */
+  constructor(private readonly now: number, private readonly max = SPORTS_MAX_CANDIDATES, private readonly sportChannels?: ReadonlySet<string>) {}
 
   private catId(text: string): number | undefined {
     const t = text.trim();
@@ -68,14 +74,19 @@ export class SportsIndexBuilder {
 
   add(p: Programme, extra: ProgrammeExtra | undefined, epgKey: string): void {
     if (p.stop <= this.now - BACK_MS || p.start >= this.now + AHEAD_MS) return;
-    if (!mayBeEvent(p.title, extra)) return;
+    const named = this.sportChannels?.has(epgKey) === true;
+    if (!mayBeEvent(p.title, extra)
+      && !(named && (hasMatchSeparator(p.title) || (extra?.subTitle !== undefined && hasMatchSeparator(extra.subTitle))))) return;
     const d = scoreProgramme(p, extra);
+    // A sport-named channel stands in for a missing sport category: the same +2, so replays and short slots still fail.
+    const namedMatch = named && !d.sportCat && d.sides !== undefined;
     if (d.sportCat || (d.strong && d.live)) {
       const n = this.sporty.get(epgKey);
       // Map keys compare by value: the first (copied) key stays.
       this.sporty.set(n === undefined ? copyString(epgKey) : epgKey, (n ?? 0) + 1);
     }
-    if (d.score < EVENT_THRESHOLD) return;
+    if ((namedMatch ? d.score + 2 : d.score) < EVENT_THRESHOLD) return;
+    if (namedMatch && !this.namedSporty.has(epgKey)) this.namedSporty.add(copyString(epgKey));
     if (this.out.length >= this.max) { this.truncated = true; return; }
     // Flat copies: parser strings are slices of large input chunks (see copyString).
     const title = copyString(d.cleanTitle);
@@ -109,6 +120,7 @@ export class SportsIndexBuilder {
   record(gen: number, built: number): SportsIndexRecord {
     const sportyKeys: string[] = [];
     for (const [k, n] of this.sporty) if (n >= SPORTY_MIN) sportyKeys.push(k);
+    for (const k of this.namedSporty) if ((this.sporty.get(k) ?? 0) < SPORTY_MIN) sportyKeys.push(k);
     return { gen, built, candidates: this.out, truncated: this.truncated, v: SPORTS_INDEX_VERSION, categories: this.catTexts, sportyKeys };
   }
 }

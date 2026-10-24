@@ -15,6 +15,7 @@ import { withCleanCatchupOffset } from '../catchup/zone.ts';
 import { splitM3uVod } from '../m3u/vodSplit.ts';
 import { TitleIndexBuilder, isTitleIndexData, type TitleIndexData } from '../search/titleIndex.ts';
 import { SportsIndexBuilder, isSportsIndexRecord, type SportsIndexRecord } from '../sports/index.ts';
+import { isSportChannelName } from '../sports/words.ts';
 import { sourceHeadersOf, withCleanHttpSettings } from '../net/headers.ts';
 import { REFUSAL_STATUSES, RefusalGuard } from '../net/refusalGuard.ts';
 import { responseText } from '../net/textStream.ts';
@@ -555,7 +556,7 @@ export class SourceService {
     let longest = 0;
     const coverage = new Set<string>();
     const titles = new TitleIndexBuilder();
-    const sports = new SportsIndexBuilder(now);
+    const sports = new SportsIndexBuilder(now, undefined, sportChannelKeys(channels));
     let sportsOk = true;
     let storageFailure: { error: unknown } | undefined;
     // One worker thread serves the UI too: give it back every YIELD_EVERY_MS of import work.
@@ -1029,6 +1030,21 @@ export function catchupBackLimits(channels: Channel[]): Map<string, number> {
     const key = epgKey(c);
     const ms = Math.min(c.cu.days * 86_400_000, CATCHUP_GUIDE_DAYS * 86_400_000, budgetMs);
     if (ms > (out.get(key) ?? 0)) out.set(key, ms);
+  }
+  return out;
+}
+
+/**
+ * Guide keys of the channels whose own name or folder says sport (`isSportChannelName`): the sport signal for guides
+ * that tag no sport category. Each folder name is checked once (54k channels share about a thousand folders).
+ */
+export function sportChannelKeys(channels: readonly Channel[]): Set<string> {
+  const out = new Set<string>();
+  const byGroup = new Map<string, boolean>();
+  for (const c of channels) {
+    let sporty = byGroup.get(c.group);
+    if (sporty === undefined) byGroup.set(c.group, (sporty = isSportChannelName(c.group)));
+    if (sporty || isSportChannelName(c.name)) out.add(epgKey(c));
   }
   return out;
 }

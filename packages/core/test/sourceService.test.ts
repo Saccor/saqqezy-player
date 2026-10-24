@@ -1581,6 +1581,23 @@ describe('SourceService – sports index', () => {
     expect(rec.candidates.map((c) => [c.epgKey, c.title])).toEqual([['ch1.test', 'Northbridge FC v Eastport']]);
   });
 
+  test('a guide with no sport categories: two-sided titles on channels whose folder or own name says sport are candidates', async () => {
+    routes['/p.m3u'] = () => new Response([
+      '#EXTM3U',
+      '#EXTINF:-1 tvg-id="s1.test" group-title="XX| SPORT",Synthetic One', 'http://example.test/s1.ts',
+      '#EXTINF:-1 tvg-id="s2.test" group-title="XX| Mixed",Synthetic Football 2', 'http://example.test/s2.ts',
+      '#EXTINF:-1 tvg-id="n1.test" group-title="XX| News",Synthetic News', 'http://example.test/n1.ts',
+      '',
+    ].join('\n'));
+    const match = (ch: string) => `<programme start="20261013170000 +0000" stop="20261013190000 +0000" channel="${ch}"><title>Northbridge FC - Eastport</title></programme>`;
+    routes['/epg.xml'] = () => new Response(`<tv>${['s1.test', 's2.test', 'n1.test'].map(match).join('')}</tv>`);
+    const { source } = await service.addSource(m3uInput);
+    await service.refreshEpg(source.id);
+    const rec = (await service.sportsIndexFor(source.id))!;
+    expect(rec.candidates.map((c) => c.epgKey).sort()).toEqual(['s1.test', 's2.test']);
+    expect([...(rec.sportyKeys ?? [])].sort()).toEqual(['s1.test', 's2.test']);
+  });
+
   test('a throwing sports scorer never fails the guide import and leaves no sports record', async () => {
     routes['/epg.xml'] = () => new Response(sportsXml('20261013170000 +0000', '20261013190000 +0000'));
     const { source } = await service.addSource(m3uInput);

@@ -18,6 +18,11 @@ const NEGATIVE = /\b(?:highlights|replay|classic|review|magazine|preview|rerun|r
 /** Strong separators say "A plays B"; weak ones (`-`, `x`, `@`) split many other titles too. */
 const STRONG_SEP = /\s+(?:v|vs\.?|gegen|mot)\s+/i;
 const WEAK_SEP = /\s+(?:-|–|—|x|@)\s+/i;
+
+/** Cheap pre-check: the text has a match separator, so `parseMatch` may find two sides. No allocations. */
+export function hasMatchSeparator(text: string): boolean {
+  return STRONG_SEP.test(text) || WEAK_SEP.test(text);
+}
 /** A competition prefix ends at its last `: ` or ` | ` (or a dash, before a strong separator). */
 const PREFIX_STRONG = /:\s|\s\|\s|\s[-–—]\s/g;
 const PREFIX_WEAK = /:\s|\s\|\s/g;

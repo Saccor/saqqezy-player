@@ -4,6 +4,7 @@
  * start-page spec approved (§5.2). Never competition, club, broadcaster or league names. All entries are folded
  * (lowercase, no accents; see `foldText`).
  */
+import { foldText } from './match.ts';
 
 /** Bits of `SportsCandidate.flags`. */
 export const MATCH_FLAGS = {
@@ -136,4 +137,24 @@ export function descFlags(folded: string): number {
 /** Folded piece that is a stage ("round 12", "group a", "final") or carries a number: not a competition name. */
 export function isStage(folded: string): boolean {
   return /\d/.test(folded) || STAGE_RE.test(folded.trim());
+}
+
+/** Folded whole words that make a channel or folder name a sport channel's. Generic words only, in a few languages. */
+const SPORT_NAME_WORDS: ReadonlySet<string> = new Set([
+  'sport', 'sports', 'foot', 'football', 'soccer', 'fotboll', 'fodbold', 'fotball', 'fussball', 'fußball', 'voetbal',
+  'futbol', 'futebol', 'calcio', 'deporte', 'deportes', 'esporte', 'esportes', 'desporto', 'league', 'liga', 'ligue',
+]);
+/** Everyday words that merely end in "sport". */
+const NOT_SPORT_WORDS: ReadonlySet<string> = new Set(['passport', 'passports', 'transport', 'transports']);
+
+/**
+ * A channel's own name or its folder name says it shows sport: a generic sport word, or a word that starts or ends
+ * with "sport" ("supersport", "sportv"). Guides that tag no sport category use this as the sport signal instead.
+ */
+export function isSportChannelName(name: string): boolean {
+  for (const w of foldText(name).split(/[^\p{L}\p{N}]+/u)) {
+    if (!w || NOT_SPORT_WORDS.has(w)) continue;
+    if (SPORT_NAME_WORDS.has(w) || w.startsWith('sport') || w.endsWith('sport') || w.endsWith('sports')) return true;
+  }
+  return false;
 }
