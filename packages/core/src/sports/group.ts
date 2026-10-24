@@ -139,6 +139,11 @@ export function groupEvents<A>(
 
 /** An earlier cluster counts for G3 only if it would pass G5 itself: a short untagged preview slot is no match. */
 const REAIR_MIN_LEN_MS = 60 * 60_000;
+/**
+ * A later cluster of the same pair that starts this long after the earlier one's first airing is a re-air even when
+ * one long airing (a channel's evening block) stretches the earlier cluster's end past it.
+ */
+const REAIR_AFTER_START_MS = 150 * 60_000;
 
 /**
  * Re-airs by pairing (gate G3): a match whose pair already had an earlier event that ended before this one started,
@@ -149,23 +154,25 @@ const REAIR_MIN_LEN_MS = 60 * 60_000;
 export function reairKeys<A>(events: readonly SportsGroup<A>[]): Set<string> {
   const out = new Set<string>();
   /** Earlier events that count, by the first letters of each side (as `groupEvents` buckets them). */
-  const earlier = new Map<string, { ns: [string, string]; stop: number; n: number }[]>();
+  type Earlier = { ns: [string, string]; first: number; stop: number; n: number };
+  const earlier = new Map<string, Earlier[]>();
   for (const e of events) {
     const ns = pairOf(e.key);
     if (!ns) continue;
     const n = e.airings.length;
     if (!e.live) {
-      const seen = new Set<{ ns: [string, string]; stop: number; n: number }>();
+      const seen = new Set<Earlier>();
       search: for (const b of bucketsOf(ns)) {
         for (const p of earlier.get(b) ?? []) {
           if (seen.has(p)) continue;
           seen.add(p);
-          if (p.stop <= e.start && p.n >= n && samePairAcrossHours(p.ns, ns)) { out.add(e.key); break search; }
+          const after = p.stop <= e.start || e.start - p.first >= REAIR_AFTER_START_MS;
+          if (after && p.n >= n && samePairAcrossHours(p.ns, ns)) { out.add(e.key); break search; }
         }
       }
     }
     if (e.live || e.stop - e.start >= REAIR_MIN_LEN_MS) {
-      const rec = { ns, stop: e.stop, n };
+      const rec: Earlier = { ns, first: Number(e.key.slice(e.key.lastIndexOf('@') + 1)), stop: e.stop, n };
       for (const b of new Set(bucketsOf(ns))) (earlier.get(b) ?? earlier.set(b, []).get(b)!).push(rec);
     }
   }

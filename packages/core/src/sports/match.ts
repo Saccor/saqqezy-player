@@ -21,7 +21,8 @@ export function normSide(s: string): string {
     .replace(/&/g, ' and ')
     .replace(/\bst\.\s*/g, 'saint ')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ');
-  return t.split(/\s+/).filter((w) => w && !DROP.has(w)).map((w) => (w === 'utd' ? 'united' : w)).join(' ');
+  // A 6- or 8-digit token is a date the guide glued on ("Eastport 241026"), never part of a name.
+  return t.split(/\s+/).filter((w) => w && !DROP.has(w) && !/^\d{6}(?:\d{2})?$/.test(w)).map((w) => (w === 'utd' ? 'united' : w)).join(' ');
 }
 
 export function jaroWinkler(a: string, b: string): number {

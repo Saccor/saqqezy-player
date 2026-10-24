@@ -11,6 +11,11 @@ describe('sports match', () => {
     expect(normSide('Westvale Utd')).toBe('westvale united');
     expect(normSide('St. Kingsgate')).toBe('saint kingsgate');
     expect(normSide('Lake & Shore')).toBe('lake and shore');
+    // A date glued to a side by the guide (6 or 8 digits) is not part of the name; short numbers are.
+    expect(normSide('EASTPORT 241026')).toBe('eastport');
+    expect(normSide('Eastport 20261024')).toBe('eastport');
+    expect(normSide('Westvale 1860')).toBe('westvale 1860');
+    expect(normSide('Northbridge U21')).toBe('northbridge u21');
     expect(normSide('1. FC Pinecrest')).toBe('pinecrest');
     expect(normSide('Rivermouth-Rovers')).toBe('rivermouth rovers');
   });

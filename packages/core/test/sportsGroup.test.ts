@@ -168,6 +168,24 @@ describe('reairKeys (gate G3, design note §3.5)', () => {
     expect(events).toHaveLength(2);
     expect([...reairKeys(events)]).toEqual([events[1]!.key]);
   });
+  test('one long airing stretching the live event past the later start still lets the later airing count as a re-air', () => {
+    // Live 18:20 on four channels, one of them in a long 4 h 40 min block; the same match again 3 h 10 min later.
+    const { events } = groupEvents([
+      ...Array.from({ length: 3 }, (_, i) => item('Northbridge FC - Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 0, 130)),
+      item('Northbridge FC - Eastport', 'Northbridge FC', 'Eastport', 'block', 0, 280),
+      ...Array.from({ length: 2 }, (_, i) => item('Northbridge vs Eastport Rovers', 'Northbridge', 'Eastport Rovers', `late${i}`, 190, 270)),
+    ], new Map(), id);
+    expect(events).toHaveLength(2);
+    expect([...reairKeys(events)]).toEqual([events[1]!.key]);
+  });
+  test('a replay next morning with a date glued to a side ("EASTPORT 241026") is a re-air', () => {
+    const { events } = groupEvents([
+      ...Array.from({ length: 4 }, (_, i) => item('Northbridge FC - Eastport', 'Northbridge FC', 'Eastport', `k${i}`, 0, 130)),
+      ...Array.from({ length: 2 }, (_, i) => item('NORTHBRIDGE - EASTPORT 241026', 'NORTHBRIDGE', 'EASTPORT 241026', `m${i}`, 900, 120)),
+    ], new Map(), id);
+    expect(events).toHaveLength(2);
+    expect([...reairKeys(events)]).toEqual([events[1]!.key]);
+  });
   test('across hours both sides must not be merely similar: another match with two look-alike sides is no re-air', () => {
     const { events } = groupEvents([
       ...Array.from({ length: 4 }, (_, i) => item('Lakeshore Town v Pinecrest', 'Lakeshore Town', 'Pinecrest', `k${i}`, 0, 115)),
