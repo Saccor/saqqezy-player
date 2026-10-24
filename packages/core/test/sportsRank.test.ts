@@ -178,6 +178,22 @@ describe('rankMatches gates (design note §3.5)', () => {
     expect(titles(r.row)).toEqual(['Top']);
     expect(titles(r.all)).toEqual(['Top', 'Small']);
   });
+
+  test('row: the G8 cut-off is measured among on-air and next-2 h matches, so a big match tomorrow never hides a small live one', () => {
+    const liveSmall = ev({ title: 'Live small', inMin: -20, breadth: 3 });
+    const bigTomorrow = ev({ title: 'Big tomorrow', inMin: 20 * 60, breadth: 16 });
+    const r = rankMatches([liveSmall, bigTomorrow], opts());
+    expect(titles(r.row)).toEqual(['Live small']);
+    expect(titles(r.all).sort()).toEqual(['Big tomorrow', 'Live small']);
+  });
+
+  test('row: an on-air match that fails G8 among its contemporaries stays in See all', () => {
+    const liveBig = ev({ title: 'Live big', inMin: -20, breadth: 16 });
+    const liveSmall = ev({ title: 'Live small', inMin: -10, breadth: 1 });
+    const r = rankMatches([liveSmall, liveBig], opts());
+    expect(titles(r.row)).toEqual(['Live big']);
+    expect(titles(r.all)).toContain('Live small');
+  });
 });
 
 describe('matchScore and order (design note §3.6)', () => {

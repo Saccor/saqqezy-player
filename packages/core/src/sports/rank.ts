@@ -145,8 +145,10 @@ export function rankMatches<E extends MatchEvent>(events: readonly E[], o: RankO
 
   // G8: the row keeps only the broadly carried matches, plus followed, pinned and chosen-country ones. It is never
   // padded: a short row is better than small matches (owner decision 2026-10-22); they stay in See all.
+  // The cut-off is measured only among the row's own candidates (on air, or kicking off within ON_NOW_AHEAD_MS), so a
+  // far-off big match in the widened See-all window never hides a smaller live match.
   let top = 0;
-  for (const m of ms) if (m.event.breadth > top) top = m.event.breadth;
+  for (const m of ms) if ((m.onAir || m.event.start <= now + ON_NOW_AHEAD_MS) && m.event.breadth > top) top = m.event.breadth;
   const cut = o.countryScope === 'one' ? 1
     : o.countryScope === 'unknown' ? Math.max(1, Math.ceil(FOCUS_SHARE * top))
     : Math.max(2, Math.ceil(FOCUS_SHARE * top));
