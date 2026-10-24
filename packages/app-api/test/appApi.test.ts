@@ -396,7 +396,7 @@ describe('AppApi', () => {
     expect(r.onNow).toEqual([]);
     expect(r.later).toEqual([]);
     expect(r.guidePending).toBe(false);
-    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, movies: [], series: [], vodPending: false });
+    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false });
     // Without movies and series support: no VOD sections, never pending.
     expect(r.movies).toEqual([]);
     expect(r.series).toEqual([]);
@@ -2145,6 +2145,20 @@ describe('AppApi VOD', () => {
     expect(p.cooldownKey).toBe(`${sourceId}@${new URL(server.url).host}`);
     await api.reportStreamRefused(sourceId, p.url);
     expect((await api.getVodPlayable(first.id))?.cooldown).toEqual({ state: 'waiting', until: NOW + 120_000, reason: 'refused' });
+  });
+
+  test('search folders: the resident catalogue\'s categories, prefix first; none for a kind that is not resident', async () => {
+    const { api } = makeVod();
+    await api.addSource(xt());
+    await api.refreshVod('movie');
+    const real = (await api.getVodCategories('movie')).filter((c) => !['continue', 'favourites', 'recent', 'all'].includes(c.id) && !c.id.startsWith('vod:'));
+    const first = real[0]!;
+    const q = first.name.slice(0, 3).toLowerCase();
+    const hits = (await api.search(q, 50)).folders.filter((f) => f.kind === 'movie');
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.every((h) => h.name.toLowerCase().includes(q))).toBe(true);
+    expect(hits.some((h) => ['continue', 'favourites', 'recent', 'all'].includes(h.id) || h.id.startsWith('vod:'))).toBe(false);
+    expect((await api.search(q, 50)).folders.filter((f) => f.kind === 'series')).toEqual([]);
   });
 
   test('switching source resets VOD state', async () => {

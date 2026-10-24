@@ -30,7 +30,7 @@ const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 const row = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
 const result = (over: Partial<SearchResult> = {}): SearchResult => ({
-  channels: [], onNow: [], later: [], guidePending: false, movies: [], series: [], vodPending: false, ...over,
+  channels: [], onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false, ...over,
 });
 const tile = (kind: 'movie' | 'series', n: number, extra: Partial<VodTile> = {}): VodTile => ({
   id: `s:${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false, ...extra,

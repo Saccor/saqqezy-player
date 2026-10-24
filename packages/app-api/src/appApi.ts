@@ -1,5 +1,5 @@
 import {
-  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
+  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_ALL, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
@@ -26,7 +26,7 @@ import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
   CatchupNotAvailable, CatchupPlayable,
   AppEvent, ChannelRow, GuideImportState, CompanionChannel, CompanionControl, CompanionStartResult, CompanionStatus, CompanionState, DiagnosticsInfo, InitState, LayoutOpsResult, LayoutOrigin,
-  ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
+  FolderHit, ListSummary, MovieView, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SeriesView, SourceSummary, SportsEventTile, StartHome, TitleHit, MatchFilterChips, MatchCompetitionChips,
   OnlineSubtitleLanguage, SubtitleVersion, VodCategoryView, VodHome, VodPlayable, VodTile, VodTracks,
   GroupVisibility, RegionCount, RegionsOverview,
 } from './types.ts';
@@ -56,6 +56,7 @@ const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
 /** Channel matches asked of the index before the country sort, so a chosen-country channel is never cut first. */
 const SEARCH_CHANNEL_SCAN = 200;
+const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
 export const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
@@ -737,8 +738,43 @@ export class AppApi {
   search(query: string, limit: number): Promise<SearchResult> {
     return this.run('search', async () => {
       const [result, vod] = await Promise.all([this.channelSearch(query, limit), this.vodSearch(query, limit)]);
-      return { ...result, movies: vod.movies, series: vod.series, vodPending: vod.pending };
+      return { ...result, folders: this.folderHits(query), movies: vod.movies, series: vod.series, vodPending: vod.pending };
     });
+  }
+
+  /**
+   * Folders whose name contains `query` (spec 2026-10-24 §3.1): the user's lists (layout order), then provider groups
+   * (your countries in pick order, then the index's order), prefix matches before contains in each; then movie and
+   * series categories of the resident catalogues. Never Recently watched, All channels or hidden groups. At most
+   * SEARCH_FOLDERS; `[]` for a blank query. A failure never fails the search.
+   */
+  private folderHits(query: string): FolderHit[] {
+    const q = searchKey(query);
+    if (!q || this.activeId === undefined) return [];
+    try {
+      const prefix: FolderHit[] = [];
+      const contains: FolderHit[] = [];
+      const groups = this.index.groups().filter((g) => g.id !== GROUP_ALL && g.id !== GROUP_RECENT);
+      const lists = groups.filter((g) => !g.id.startsWith('g:'));
+      const provider = groups.filter((g) => g.id.startsWith('g:'))
+        .map((g, i) => ({ g, i, k: this.index.regionRankOf(g.id) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.g);
+      for (const g of [...lists, ...provider]) {
+        const k = searchKey(g.name);
+        const hit: FolderHit = { kind: 'live', id: g.id, name: g.name, count: g.count };
+        if (k.startsWith(q)) prefix.push(hit);
+        else if (k.includes(q)) contains.push(hit);
+      }
+      const out = [...prefix, ...contains];
+      if (this.vodc) {
+        for (const kind of ['movie', 'series'] as const) {
+          for (const c of this.vodc.searchCategories(kind, query)) out.push({ kind, id: c.id, name: c.name, count: c.count });
+        }
+      }
+      return out.slice(0, SEARCH_FOLDERS);
+    } catch (err) {
+      this.record('searchFolders', err);
+      return [];
+    }
   }
 
   /** Channels of the active source matching `query` (multiview's picker). No guide or VOD work; `[]` for a blank query. */
@@ -761,7 +797,7 @@ export class AppApi {
     }
   }
 
-  private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'movies' | 'series' | 'vodPending'>> {
+  private channelSearch(query: string, limit: number): Promise<Omit<SearchResult, 'folders' | 'movies' | 'series' | 'vodPending'>> {
     return (async () => {
       const id = this.activeId;
       const favs = this.favourites();
