@@ -190,7 +190,7 @@ describe('matchScore and order (design note §3.6)', () => {
     const darts = ev({ title: 'Player One v Player Two', inMin: -5, breadth: 1, liveMark: true });
     const r = rankMatches([darts, lakeshore, kingsgate, northbridge, westvale], opts());
     expect(titles(r.row)).toEqual(['Northbridge FC v Southmere', 'Lakeshore v Pinecrest', 'Kingsgate v Rivermouth Rovers', 'Westvale v Eastport']);
-    expect(titles(r.all).at(-1)).toBe('Player One v Player Two');
+    expect(titles(r.all)).toEqual(['Westvale v Eastport', 'Northbridge FC v Southmere', 'Kingsgate v Rivermouth Rovers', 'Lakeshore v Pinecrest', 'Player One v Player Two']);
   });
 
   test('breadth is a log scale, capped at 5; sooner first within a band', () => {
