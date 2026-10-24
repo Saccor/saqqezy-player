@@ -21,9 +21,10 @@ import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
-  LIVE_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, VOD_ROW_LABEL, channelToPlay, clampSearchFocus, createSearchMemory, createSearcher, focusedCell,
+  FOLDERS_ROW_LABEL, LIVE_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, SEARCH_ROW_ORDER, VOD_ROW_LABEL, channelToPlay, clampSearchFocus,
+  createSearchMemory, createSearcher, focusedCell, folderRoute,
   laterRoute, moveSearch, pendingNotes, rerunsSearch, resultsMessage, searchRows, searchingNote, settleFocus, vodRoute, vodRowModel,
-  type SearchFocus, type SearchRows, type SearchState,
+  type SearchFocus, type SearchRowArea, type SearchRows, type SearchState,
 } from './searchLogic.ts';
 
 const GROUP_ALL = 'all';
@@ -41,16 +42,17 @@ const VOD_VISIBLE = 4;
 const LIVE_VISIBLE = 2;
 const KEYBOARD: SearchFocus = { area: 'keyboard', col: 0 };
 
-type RowArea = 'vod' | 'live';
+type RowArea = SearchRowArea;
 const rowHeight = (a: RowArea) => LABEL_H + (a === 'vod' ? POSTER_H : WIDE_H);
 
 /** Kept across visits (each push/pop re-creates the screen), so Back from the Player returns to the same results. */
 const memory = createSearchMemory();
 
 /**
- * Search: the rail, an inline on-screen keyboard, and the results right of it in two rows: "Movies & series"
- * (posters) and "Live & guide" (wide cards for channels and programmes). Ok plays the channel, opens the title's detail
- * screen, or opens Live TV at a coming-up programme.
+ * Search: the rail, an inline on-screen keyboard, and the results right of it in three rows: "Movies & series"
+ * (posters), "Folders" (wide cards for channel folders and movie or series categories) and "Live & guide" (wide cards
+ * for channels and programmes). Ok plays the channel, opens the title's detail screen, opens Live TV at a coming-up
+ * programme or at a channel folder, or opens a category's grid.
  */
 export function SearchScreen(props: { entry: ScreenEntry }) {
   // One-shot seed (a letter typed on Live TV): the field starts with it and the search runs once (onMount). Consumed,
@@ -81,6 +83,7 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
   const rows = () => state().results;
   const vodRow = createMemo(() => vodRowModel(rows()));
   const liveRow = createMemo(() => ({ cells: rows().live }));
+  const foldersRow = createMemo(() => ({ cells: rows().folders }));
 
   /** Puts the focus on `f` and moves key focus there (the keyboard or the rows). */
   const place = (f: SearchFocus) => {
@@ -133,7 +136,8 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
     const f = focus();
     if (f.area === 'keyboard') return true;
     memory.userNavigated();
-    return place(clampSearchFocus({ area: f.area, col: f.col + dir * (f.area === 'vod' ? VOD_VISIBLE : LIVE_VISIBLE) }, rows()));
+    const per = f.area === 'vod' ? VOD_VISIBLE : LIVE_VISIBLE; // folders use the wide card, like live
+    return place(clampSearchFocus({ area: f.area, col: f.col + dir * per }, rows()));
   };
   const onWheel = (dy: number, dx: number) => {
     const key = wheelKey(dy, dx);
@@ -166,6 +170,19 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       // opens at that channel and time.
       memory.leaveBack();
       if (!router.backTo(later.screen, later.params)) router.reset(later.screen, later.params);
+      return true;
+    }
+    const folder = folderRoute(cell);
+    if (folder) {
+      // A channel folder: back to the root Live TV at that folder (Search leaves the stack, as on Back). A category: the
+      // grid of that kind, with Search kept underneath so Back returns to the results.
+      if (folder.screen === 'home') {
+        memory.leaveBack();
+        if (!router.backTo('home', folder.params)) router.reset('home', folder.params);
+      } else {
+        memory.leaveTo(focus());
+        router.push('vodGrid', folder.params);
+      }
       return true;
     }
     const ch = channelToPlay(cell);
@@ -225,7 +242,7 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
    * on each keystroke (posters flash, low-end TVs churn nodes). Each row's y is computed reactively instead.
    */
   const drawn = createMemo<RowArea[]>(
-    () => (['vod', 'live'] as const).filter((a) => (a === 'vod' ? rows().vod : rows().live).length > 0),
+    () => SEARCH_ROW_ORDER.filter((a) => (a === 'vod' ? rows().vod : a === 'folders' ? rows().folders : rows().live).length > 0),
     [],
     { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) },
   );
@@ -276,18 +293,19 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
           const lit = () => rowsFocused() && focus().area === area;
           return (
             <View y={rowY(area)}>
-              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : LIVE_ROW_LABEL}</Text>
+              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : area === 'folders' ? FOLDERS_ROW_LABEL : LIVE_ROW_LABEL}</Text>
               {/* While the next query runs over these rows: a subtle note on the first row's label line. */}
               <Show when={i() === 0 && searching()}>
                 <Text x={0} y={(TYPE.body - TYPE.meta) / 2} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={1} textAlign="right"
                   fontSize={TYPE.meta} color={COLORS.muted}>{searching()!}</Text>
               </Show>
               <Show when={area === 'vod'} fallback={
-                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={liveRow()} now={now()} visible={LIVE_VISIBLE} channelNumbers
-                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell('live', c)} onWheel={onWheel} />
+                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={area === 'folders' ? foldersRow() : liveRow()} now={now()} visible={LIVE_VISIBLE}
+                  channelNumbers={area === 'live'}
+                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               }>
                 <PosterRow x={0} y={LABEL_H} width={RESULTS_W} row={vodRow()} visible={VOD_VISIBLE}
-                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell('vod', c)} onWheel={onWheel} />
+                  focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               </Show>
             </View>
           );

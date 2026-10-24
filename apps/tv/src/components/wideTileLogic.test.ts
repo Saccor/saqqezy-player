@@ -10,6 +10,11 @@ const ev = (start: number, stop: number, channelCount = 2): SportsEventTile =>
 const onNow = (title: string) => ({ title, start: NOW - 1, stop: NOW + 1 }) as ChannelRow['now'];
 
 describe('wideLines', () => {
+  test('a folder: the count line above the folder name (spec 2026-10-24 §3.2)', () => {
+    const l = wideLines({ type: 'folder', hit: { kind: 'live', id: 'g:SE | Sport', name: 'SE | Sport', count: 214 } }, 0);
+    expect(l).toEqual({ context: '214 channels', main: 'SE | Sport', live: false });
+    expect(wideLines({ type: 'folder', hit: { kind: 'series', id: 'c1', name: 'Synthetic Drama', count: 1 } }, 0).context).toBe('1 series');
+  });
   test('a live match: "Live · N channels" marked live, the guide title as the main line', () => {
     expect(wideLines({ type: 'event', event: ev(NOW - 60_000, NOW + 3600_000) }, NOW))
       .toEqual({ context: 'Live · 2 channels', main: 'Team A v Team B', live: true });
