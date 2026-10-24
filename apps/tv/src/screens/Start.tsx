@@ -97,8 +97,10 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     return true;
   };
 
-  const apply = (h: StartHome | undefined) => {
-    if (!h) return;
+  const apply = (input: StartHome | undefined) => {
+    if (!input) return;
+    // A page cached by an older build may still carry the channel row (spec 2026-10-24 §1.1): never draw it.
+    const h = input.rows.some((r) => r.id === 'live') ? { ...input, rows: input.rows.filter((r) => r.id !== 'live') } : input;
     const hadRows = rows().length > 0;
     batch(() => {
       setHome(h);

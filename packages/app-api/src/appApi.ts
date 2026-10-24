@@ -1,5 +1,5 @@
 import {
-  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
+  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_FAV, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
   compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
@@ -20,7 +20,7 @@ import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
 import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
-import { assembleStartHome, START_CAPS, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
+import { assembleStartHome, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
 import type {
@@ -687,27 +687,15 @@ export class AppApi {
       const safe = async <T>(f: () => Promise<T>, fallback: T): Promise<T> => {
         try { return await f(); } catch (err) { this.record('getStartHome', err); return fallback; }
       };
-      const lastId = await this.storage.getMeta<string>(`lastChannel:${id}`).catch(() => undefined);
-      const last = lastId ? this.index.get(lastId) : undefined;
-      // On now fills from favourites, then recents; only the rows that can show are built (at most the cap in all).
-      const favs = this.index.slice(GROUP_FAV, 0, START_CAPS.live);
-      const taken = new Set(favs.map((c) => c.id));
-      if (last) taken.add(last.id);
-      const recents = this.index.slice(GROUP_RECENT, 0, START_CAPS.live)
-        .filter((c) => !taken.has(c.id)).slice(0, Math.max(0, START_CAPS.live - taken.size));
       // The stored trending copies (a meta read; never waits on the network) before the VOD rows match against them.
       await safe(() => this.trending?.prime() ?? Promise.resolve(), undefined);
-      const [lastRows, favourites, recentRows, sports, movie, series] = await Promise.all([
-        safe(() => (last ? this.toRows([last]) : Promise.resolve([])), [] as ChannelRow[]),
-        safe(() => this.toRows(favs), [] as ChannelRow[]),
-        safe(() => this.toRows(recents), [] as ChannelRow[]),
+      const [sports, movie, series] = await Promise.all([
         safe(() => this.matchTiles(), { row: [], all: [], total: 0, filtered: false } as MatchTiles),
         safe(() => this.vodc?.startRows('movie') ?? Promise.resolve(undefined), undefined),
         safe(() => this.vodc?.startRows('series') ?? Promise.resolve(undefined), undefined),
       ]);
-      const parts: StartParts = { favourites, recents: recentRows, sports: sports.row, sportsTotal: sports.total };
+      const parts: StartParts = { sports: sports.row, sportsTotal: sports.total };
       if (sports.filtered) parts.sportsFiltered = true;
-      if (lastRows[0]) parts.lastChannel = lastRows[0];
       // Continue merges both kinds by last play: a kind still unknown counts as empty once the other is known.
       if (movie || series) {
         parts.continueMovies = movie?.continue ?? [];
