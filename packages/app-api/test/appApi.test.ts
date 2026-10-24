@@ -2151,7 +2151,9 @@ describe('AppApi VOD', () => {
     const { api } = makeVod();
     await api.addSource(xt());
     await api.refreshVod('movie');
-    const real = (await api.getVodCategories('movie')).filter((c) => !['continue', 'favourites', 'recent', 'all'].includes(c.id) && !c.id.startsWith('vod:'));
+    // getVodCategories also returns virtual shelves (continue, favourites, recent, all, and `vod:`-prefixed ids);
+    // only the provider's own categories may be folder hits, so those are excluded from the expectation.
+    const real = (await api.getVodCategories('movie')).filter((c) => !['continue','favourites', 'recent', 'all'].includes(c.id) && !c.id.startsWith('vod:'));
     const first = real[0]!;
     const q = first.name.slice(0, 3).toLowerCase();
     const hits = (await api.search(q, 50)).folders.filter((f) => f.kind === 'movie');

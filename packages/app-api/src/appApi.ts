@@ -56,6 +56,7 @@ const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
 const SEARCH_ON_NOW = 20;
 /** Channel matches asked of the index before the country sort, so a chosen-country channel is never cut first. */
 const SEARCH_CHANNEL_SCAN = 200;
+/** Most folders (lists, provider groups, VOD categories together) one search returns. */
 const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
 export const SEARCH_VOD_MAX = 20;
@@ -759,6 +760,7 @@ export class AppApi {
       const provider = groups.filter((g) => g.id.startsWith('g:'))
         .map((g, i) => ({ g, i, k: this.index.regionRankOf(g.id) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.g);
       for (const g of [...lists, ...provider]) {
+        if (g.count === 0) continue; // an empty folder leads nowhere
         const k = searchKey(g.name);
         const hit: FolderHit = { kind: 'live', id: g.id, name: g.name, count: g.count };
         if (k.startsWith(q)) prefix.push(hit);

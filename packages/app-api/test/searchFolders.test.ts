@@ -16,15 +16,15 @@ const PLAYLIST = [
   ...entry('Motorsport Mix', 'Synthetic Six', 6),
   '',
 ].join('\n');
-const fetchFn: FetchFn = async (u) => (u === 'http://example.test/p.m3u' ? new Response(PLAYLIST) : new Response('', { status: 404 }));
+const fetchFor = (playlist: string): FetchFn => async (u) => (u === 'http://example.test/p.m3u' ? new Response(playlist) : new Response('', { status: 404 }));
 
 const live: AppApi[] = [];
 afterEach(async () => { await Promise.all(live.splice(0).map((a) => a.idle())); });
 let storage: MemoryStorage;
 beforeEach(() => { storage = new MemoryStorage(); });
 
-async function setup() {
-  const service = new SourceService({ storage, fetch: fetchFn, now: () => NOW });
+async function setup(playlist = PLAYLIST) {
+  const service = new SourceService({ storage, fetch: fetchFor(playlist), now: () => NOW });
   const api = new AppApi({ service, storage, emit: () => undefined, now: () => NOW });
   live.push(api);
   await api.addSource({ kind: 'm3u', name: 'Synthetic', playlistUrl: 'http://example.test/p.m3u' });
@@ -60,6 +60,28 @@ describe('Search – folders', () => {
     // Favourites is the user's first list: its name matches "fav".
     const fav = await api.search('favour', 50);
     expect(fav.folders[0]).toMatchObject({ kind: 'live', name: 'Favourites', count: 1 });
+  });
+
+  test('a user list comes before a provider folder that matches the same query', async () => {
+    const api = await setup();
+    const one = (await api.searchChannels('synthetic one', 1))[0]!.id;
+    await api.applyLayoutOps([{ op: 'createList', id: 'picks', name: 'Sport Picks' }, { op: 'addToList', listId: 'picks', channelIds: [one] }]);
+    const r = await api.search('sport', 50);
+    expect(r.folders[0]).toMatchObject({ kind: 'live', name: 'Sport Picks', count: 1 });
+    expect(names(r)).toEqual(['Sport Picks', 'DE | Sport', 'SE | Sport', 'DK | Sport Extra', 'Motorsport Mix']);
+  });
+
+  test('an empty user list is not a folder hit', async () => {
+    const api = await setup();
+    await api.applyLayoutOps([{ op: 'createList', id: 'empty', name: 'Sport Empty' }]);
+    expect(names(await api.search('sport', 50))).not.toContain('Sport Empty');
+    expect(names(await api.search('empty', 50))).toEqual([]);
+  });
+
+  test('at most 20 folders', async () => {
+    const many = ['#EXTM3U', ...Array.from({ length: 25 }, (_, i) => entry(`DE | Sport ${String(i + 1).padStart(2, '0')}`, `Synthetic ${i + 1}`, i + 1)).flat(), ''].join('\n');
+    const api = await setup(many);
+    expect((await api.search('sport', 50)).folders).toHaveLength(20);
   });
 
   test('a hidden folder is not listed', async () => {
