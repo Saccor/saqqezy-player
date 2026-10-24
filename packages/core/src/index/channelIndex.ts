@@ -517,6 +517,34 @@ export class ChannelIndex {
     return this.rd.state;
   }
 
+  /**
+   * Your countries in pick order: 0 for a group of the first chosen country, 1 for the second, …; Infinity for every
+   * other group, and for every group while the rule is off (spec 2026-10-24 §2.1).
+   */
+  regionRankOf(groupId: string): number {
+    if (this.rd.state.mode === 'off' || !this.regionView) return Number.POSITIVE_INFINITY;
+    const keys = this.rd.keysOf.get(groupId);
+    if (!keys || keys.length === 0) return Number.POSITIVE_INFINITY;
+    let best = Number.POSITIVE_INFINITY;
+    for (const k of keys) {
+      const i = this.regionView.codes.indexOf(k);
+      if (i !== -1 && i < best) best = i;
+    }
+    return best;
+  }
+
+  /** `regionRankOf` of a channel's group; a folded row takes the best rank among its members. */
+  countryRankOf(channelId: string): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (const id of this.memberIds(channelId)) {
+      const m = this.base.byId.get(id);
+      if (!m) continue;
+      const r = this.regionRankOf(groupIdOf(m));
+      if (r < best) best = r;
+    }
+    return best;
+  }
+
   /** Hidden provider groups that exist in this playlist, with their non-hidden channel counts (for Settings). */
   hiddenGroupInfos(): GroupInfo[] {
     const out: GroupInfo[] = [];

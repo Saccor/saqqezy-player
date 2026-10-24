@@ -113,4 +113,33 @@ describe('ChannelIndex regions', () => {
     expect(groupIds(next)).not.toContain('g:DK | Docs');
     expect(next.withLayout(emptyLayout()).regionState().requested).toBe('only');
   });
+
+  test('regionRankOf: pick order of the chosen countries; others, unknown and rule-off groups are Infinity (spec 2026-10-24 §2.1)', () => {
+    const idx = new ChannelIndex(channels, undefined, undefined, { regions: view('first', ['FI', 'SE']) });
+    expect(idx.regionRankOf('g:FI | Film')).toBe(0);
+    expect(idx.regionRankOf('g:SE | News')).toBe(1);
+    expect(idx.regionRankOf('g:SE | Kids')).toBe(1);
+    expect(idx.regionRankOf('g:DK | News')).toBe(Number.POSITIVE_INFINITY);
+    expect(idx.regionRankOf('g:Mixed Bag')).toBe(Number.POSITIVE_INFINITY);
+    expect(idx.regionRankOf('g:nope')).toBe(Number.POSITIVE_INFINITY);
+    const off = new ChannelIndex(channels, undefined, undefined, { regions: view('off', ['SE']) });
+    expect(off.regionRankOf('g:SE | News')).toBe(Number.POSITIVE_INFINITY);
+    // Chosen but nothing matches: stale, so off.
+    const stale = new ChannelIndex(channels, undefined, undefined, { regions: view('first', ['NO']) });
+    expect(stale.regionState().stale).toBe(true);
+    expect(stale.regionRankOf('g:SE | News')).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  test('countryRankOf: a channel takes its group rank; a folded row takes the best of its members', () => {
+    const idx = new ChannelIndex(channels, undefined, undefined, { regions: view('first', ['SE', 'DK']) });
+    expect(idx.countryRankOf('s:3')).toBe(0); // SE | News
+    expect(idx.countryRankOf('s:1')).toBe(1); // DK | News
+    expect(idx.countryRankOf('s:6')).toBe(Number.POSITIVE_INFINITY); // FI
+    expect(idx.countryRankOf('s:nope')).toBe(Number.POSITIVE_INFINITY);
+    // Fold mode: s:1 (DK) and s:3 (SE) share epgId 'one' and a name, so they fold into one row.
+    const folded = new ChannelIndex(channels, undefined, undefined, { fold: true, regions: view('first', ['DK', 'SE']) });
+    const rowId = folded.rowOf('s:3')!;
+    expect(folded.rowOf('s:1')).toBe(rowId);
+    expect(folded.countryRankOf(rowId)).toBe(0); // DK is picked first and is a member
+  });
 });
