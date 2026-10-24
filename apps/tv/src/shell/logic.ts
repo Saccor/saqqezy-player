@@ -81,7 +81,7 @@ export function showWordmark(route: ScreenId | undefined, rectIsFullscreen: bool
 }
 
 /** Screens without the brand wordmark: the redesigned ones (spec §1.4) and the player and multiview. */
-const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'player', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'multiview']);
+const NO_WORDMARK: ReadonlySet<ScreenId> = new Set(['home', 'countries', 'player', 'start', 'vod', 'vodGrid', 'search', 'settings', 'movieDetail', 'seriesDetail', 'multiview']);
 
 /** Screens with the left rail; the rail draws the clock there, so the shell's top-right clock is off. */
 export function railRoute(route: ScreenId | undefined): boolean {
@@ -155,10 +155,12 @@ export const SCREEN_ROW_X = LAYOUT.safeX + SHELL_BACK_W + LAYOUT.gap / 2;
 
 /**
  * Every screen except Home (Back there is the exit question), the Player (its overlay has its own Back), VodPlay
- * (its action bar starts with Back in pointer mode; the pill would cover Pause) and multiview (its own Back).
+ * (its action bar starts with Back in pointer mode; the pill would cover Pause), multiview (its own Back) and the
+ * first-run countries step (its own Skip).
  */
 export function shellBackShown(route: ScreenId | undefined): boolean {
-  return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay' && route !== 'multiview';
+  return route !== undefined && route !== 'home' && route !== 'player' && route !== 'vodPlay' && route !== 'multiview'
+    && route !== 'countries';
 }
 
 /** Debug HUD: the longest gap between consecutive animation-frame times (ms), i.e. the worst frame in the window. */

@@ -19,6 +19,15 @@
       "port": 5173
     },
     {
+      "name": "tv-dev-countries",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set FAKE_COUNTRIES=1&& pnpm dev"
+      ],
+      "port": 5173
+    },
+    {
       "name": "tv-dev-stress",
       "runtimeExecutable": "cmd",
       "runtimeArgs": [

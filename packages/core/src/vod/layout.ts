@@ -1,4 +1,5 @@
 import { MAX_ID_LEN, MAX_IDS, MAX_OPS_PER_BATCH } from '../layout/types.ts';
+import { codeIndexOf, foldActive, pickRank, splitFold } from '../index/countryFold.ts';
 import type { RegionState } from '../index/channelIndex.ts';
 import type { RegionMode } from '../settings.ts';
 import { SYNC_KIND, clockKey, pairKey } from '../sync/keys.ts';
@@ -171,6 +172,8 @@ export interface VodRegionView {
   detected: Readonly<Record<string, GroupRegion>>;
   codes: readonly string[];
   mode: RegionMode;
+  /** Fold other countries' categories under "Other countries" (the `foldCountries` setting). Absent: no fold. */
+  fold?: boolean;
 }
 
 /** What a catalogue shows: visible category ids in order, the effective hidden set, and the rule's state. */
@@ -184,12 +187,17 @@ export interface VodCategoryView {
   /** Categories of a chosen country (empty while the rule is off). */
   chosen: ReadonlySet<string>;
   state: RegionState;
+  /** The first `yours` ids of `order` are the user's: moved by hand (`categoryOrder`), then chosen countries' by pick order. */
+  yours: number;
+  /** Categories folded under another country, by the region key they fold under (they follow `yours` in country order). */
+  foldOf: ReadonlyMap<string, string>;
 }
 
 /**
  * The region rule over categories: user hidden > user shown > rule (`only` hides other countries' categories; ones
- * with no sure detection stay). Order: the user's `categoryOrder`, then (rule on) chosen countries' categories, then
- * the rest, provider order. No category matching the chosen codes: the rule is off and `state.stale` is set.
+ * with no sure detection stay). Order: the user's `categoryOrder`, then (rule on) chosen countries' categories by pick
+ * order, then, while the fold is active, other countries' categories in country order (`foldOf`), then the rest, in
+ * provider order. No category matching the chosen codes: the rule is off and `state.stale` is set.
  */
 export function vodCategoryView(categories: readonly VodCategory[], layout: VodLayout, regions?: VodRegionView): VodCategoryView {
   const requested = regions?.mode ?? 'off';
@@ -218,7 +226,31 @@ export function vodCategoryView(categories: readonly VodCategory[], layout: VodL
   const seen = new Set<string>();
   const take = (id: string) => { if (known.has(id) && !seen.has(id)) { seen.add(id); if (!hidden.has(id)) order.push(id); } };
   for (const id of layout.categoryOrder) take(id);
-  if (on) for (const c of categories) if (chosen.has(c.id)) take(c.id);
-  for (const c of categories) take(c.id);
-  return { order, hidden, regionHidden, keysOf, chosen, state };
+  if (on) {
+    const index = codeIndexOf(regions!.codes);
+    const picked = categories
+      .filter((c) => chosen.has(c.id) && !seen.has(c.id))
+      .map((c, i) => ({ id: c.id, rank: pickRank(keysOf.get(c.id) ?? [], index), i }))
+      .sort((a, b) => (a.rank < b.rank ? -1 : a.rank > b.rank ? 1 : a.i - b.i));
+    for (const p of picked) take(p.id);
+  }
+  const yours = order.length;
+  const tail: string[] = [];
+  for (const c of categories) {
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    if (!hidden.has(c.id)) tail.push(c.id);
+  }
+  const distinct = new Set<string>();
+  for (const id of order) for (const k of keysOf.get(id) ?? []) distinct.add(k);
+  for (const id of tail) for (const k of keysOf.get(id) ?? []) distinct.add(k);
+  const foldOf = new Map<string, string>();
+  if (foldActive(regions?.fold === true, state.mode, distinct.size)) {
+    const split = splitFold(tail, (id) => keysOf.get(id) ?? []);
+    for (const { item, key } of split.country) { order.push(item); foldOf.set(item, key); }
+    for (const id of split.rest) order.push(id);
+  } else {
+    for (const id of tail) order.push(id);
+  }
+  return { order, hidden, regionHidden, keysOf, chosen, state, yours, foldOf };
 }

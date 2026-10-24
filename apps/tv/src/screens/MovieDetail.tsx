@@ -218,6 +218,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       if (alive) await load(false);
       return;
     }
+    if (row.kind === 'heading') return;
     // Remembered first, so Play and the card pick this version from now on.
     await api.pickVodVersion(t.id, row.id).catch((err: unknown) => console.warn('Pick failed', errName(err)));
     if (!alive) return;

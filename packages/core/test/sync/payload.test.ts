@@ -80,9 +80,16 @@ describe('sync payload', () => {
     expect(decodePayload(p).map((r) => r.ref.sid).sort()).toEqual(['x2', 'x3']);
   });
 
+  test('foldCountries travels as a boolean only', () => {
+    const ok = encodePayload([rec('st', 'foldCountries', false, { sfp: '' })], T);
+    expect(decodePayload(ok).map((r) => [r.ref.sid, r.v])).toEqual([['foldCountries', false]]);
+    const bad = encodePayload([rec('st', 'foldCountries', 'no' as unknown as SyncValue, { sfp: '' })], T);
+    expect(decodePayload(bad)).toEqual([]);
+  });
+
   test('only the §6.3 settings sync; device-tuned and local ones never do', () => {
     expect([...SYNCED_SETTINGS].sort()).toEqual([
-      'audioLanguage', 'combineCategories', 'combineDuplicates', 'followedTeams', 'hiddenCompetitions', 'pinnedCompetitions', 'preferredLanguages', 'regions', 'subtitleLanguage',
+      'audioLanguage', 'combineCategories', 'combineDuplicates', 'foldCountries', 'followedTeams', 'hiddenCompetitions', 'pinnedCompetitions', 'preferredLanguages', 'regions', 'subtitleLanguage',
     ]);
     const local = ['epgOffsetHours', 'preferredFormat', 'liveDelay', 'showClock', 'sleepTimerMinutes', 'openOn', 'posterSize', 'volume', 'recent'];
     const p = encodePayload(local.map((k) => rec('st', k, 1 as unknown as SyncValue, { sfp: '' })), T);

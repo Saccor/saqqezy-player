@@ -210,7 +210,7 @@ describe('sessionLevel', () => {
 });
 
 describe('screenUnderlay', () => {
-  const ALL: readonly ScreenId[] = ['addSource', 'home', 'player', 'search', 'settings', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'vodPlay', 'start', 'startSports', 'multiview'];
+  const ALL: readonly ScreenId[] = ['addSource', 'countries', 'home', 'player', 'search', 'settings', 'vod', 'vodGrid', 'movieDetail', 'seriesDetail', 'vodPlay', 'start', 'startSports', 'multiview'];
   const VIDEO = ['player', 'vodPlay', 'home', 'multiview'] as const;
   test('is off for the video screens only (multiview draws its windows as holes over the plane)', () => {
     for (const s of VIDEO) expect(screenUnderlay(s)).toBe(false);

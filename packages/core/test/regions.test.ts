@@ -176,3 +176,22 @@ describe('detectRegions: performance', () => {
     expect(best).toBeLessThan(30);
   });
 });
+
+describe('Kurdistan', () => {
+  const g = (id: string) => ({ id: `g:${id}`, name: id });
+
+  test('a country key with a label, Kurdish by default, and its code spellings', () => {
+    expect(normalizeCountry('KU')).toBe('KU');
+    expect(normalizeCountry('KUR')).toBe('KU');
+    expect(normalizeCountry('KRD')).toBe('KU');
+    expect(countryLabel('KU')).toBe('Kurdistan');
+    expect(countryLanguages('KU')).toEqual(['ku']);
+  });
+
+  test('leading codes and names find it', () => {
+    const r = detectRegions([g('KU | Synthetic News'), g('KURDISH Synthetic Music'), g('Synthetic Kurdistan Docs'), g('SE | Synthetic Talk')]);
+    expect(r['g:KU | Synthetic News']).toMatchObject({ countries: ['KU'], langs: ['ku'], via: 'code' });
+    expect(r['g:KURDISH Synthetic Music']).toMatchObject({ countries: ['KU'], via: 'name' });
+    expect(r['g:Synthetic Kurdistan Docs']).toMatchObject({ countries: ['KU'], via: 'name' });
+  });
+});

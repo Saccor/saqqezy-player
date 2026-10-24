@@ -17,5 +17,5 @@ export type {
   AppEvent, ChannelRow, CompanionControl, CompanionEndReason, CompanionStartResult, CompanionStatus, CompanionChannel, CompanionState, DiagnosticsInfo, GuideImportState, InitState, LayoutOpsResult, LayoutOrigin,
   FolderHit, ListSummary, LiveSourceView, PlayableChannel, ProgrammeHit, ProgrammeLite, SearchResult, SourceCooldown, SourceSummary, SportsEventTile, MatchCompetitionChips, MatchFilterChip, MatchFilterChips, StartCell, StartHome, StartRow, StartRowId, TitleHit,
   EpisodeView, LanguageHints, MovieView, OnlineSubtitleLanguage, SubtitleVersion, SeasonView, SeriesPrimary, SeriesView, VersionView, VodCategoryView, VodHome, VodPlayable, VodRow, VodTile, VodTracks,
-  GroupVisibility, RegionCount, RegionsOverview,
+  GroupVisibility, RegionCount, RegionsOverview, CountriesPatch, CountryChoice, CountryChoices,
 } from './types.ts';

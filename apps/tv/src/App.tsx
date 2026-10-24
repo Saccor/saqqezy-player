@@ -7,6 +7,7 @@ import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
+import { CountriesScreen } from './screens/Countries.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
 import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
@@ -28,6 +29,7 @@ import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
+import { deviceCountry } from './platform/deviceCountry.ts';
 import { exitApp } from './shell/platformExit.ts';
 import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
@@ -150,6 +152,10 @@ export function App() {
       api.networkOnline().catch((err: unknown) => console.warn('Back-online retry failed', err instanceof Error ? err.name : 'Error'));
     }));
     void bootstrap(api, router);
+    // Your countries: this TV's country goes first in the grid. Asynchronous on Tizen, so it never delays the boot.
+    void deviceCountry().then((code) => api.setDeviceCountry(code)).catch((err: unknown) => {
+      console.warn('Device country failed', err instanceof Error ? err.name : 'Error');
+    });
   });
   onCleanup(() => playback.stop());
 
@@ -167,10 +173,11 @@ export function App() {
         }>
           {(entry) => (entry.screen === 'addSource'
             ? <AddSourceScreen entry={entry} />
+            : entry.screen === 'countries' ? <CountriesScreen entry={entry} />
             : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen entry={entry} />
-            : entry.screen === 'settings' ? <SettingsScreen />
+            : entry.screen === 'settings' ? <SettingsScreen entry={entry} />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />
             : entry.screen === 'multiview' ? <MultiviewScreen entry={entry} />

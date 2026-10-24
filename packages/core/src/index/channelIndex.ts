@@ -5,6 +5,7 @@ import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.
 import { foldChannels, type ChannelFolds } from '../live/fold.ts';
 import { searchKey } from '../text/searchKey.ts';
 import type { GroupRegion } from '../text/regions.ts';
+import { foldActive, splitFold } from './countryFold.ts';
 import { regionRule, sureRegionKeys, type RegionRule, type RegionState } from './regionRule.ts';
 
 export type { RegionState } from './regionRule.ts';
@@ -37,6 +38,8 @@ export interface ChannelRegionView {
   detected: Readonly<Record<string, GroupRegion>>;
   codes: readonly string[];
   mode: RegionMode;
+  /** Fold other countries' groups under "Other countries" (the `foldCountries` setting). Absent: no fold. */
+  fold?: boolean;
 }
 
 
@@ -468,7 +471,8 @@ export class ChannelIndex {
 
   /**
    * Provider group ids: `groupOrder` ids that exist first, then the rest in provider order. With your countries on,
-   * the rest is a stable partition: chosen countries' groups first, then the others (the user's order always wins).
+   * the rest is a stable partition: chosen countries' groups first, by pick order (`rankOf`) then provider order, then
+   * the others (the user's order always wins).
    */
   private orderedProviderGroups(): string[] {
     const out: string[] = [];
@@ -477,7 +481,12 @@ export class ChannelIndex {
       if (this.base.members.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
     }
     const chosen = this.rd.state.mode === 'off' ? undefined : this.rd.chosen;
-    if (chosen) for (const gid of this.base.providerOrder) if (chosen.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
+    if (chosen) {
+      const picked = this.base.providerOrder.filter((gid) => chosen.has(gid) && !seen.has(gid));
+      // Array sort is stable: provider order stays inside a rank. Ranks may be Infinity, so compare, never subtract.
+      picked.sort((x, y) => { const rx = this.rd.rankOf(x); const ry = this.rd.rankOf(y); return rx < ry ? -1 : rx > ry ? 1 : 0; });
+      for (const gid of picked) { out.push(gid); seen.add(gid); }
+    }
     for (const gid of this.base.providerOrder) if (!seen.has(gid)) out.push(gid);
     return out;
   }
@@ -493,22 +502,43 @@ export class ChannelIndex {
 
   // ---------- queries ----------
 
+  /**
+   * Lists, then your groups (moved by hand, then chosen countries' in pick order), Recently watched, All channels,
+   * then, while the fold is active, other countries' groups in country order (each with `fold`), then the rest
+   * (spec 2026-10-22-your-countries-flags). One pass over the groups. Empty groups (all hidden) are left out and
+   * count nowhere.
+   */
   groups(): GroupInfo[] {
     const out: GroupInfo[] = [];
     for (const l of this.lay.lists) {
       const id = listGroupId(l.id);
       out.push({ id, name: l.name, count: this.visible(id).length });
     }
-    const recentCount = this.visible(GROUP_RECENT).length;
-    if (recentCount > 0) out.push({ id: GROUP_RECENT, name: 'Recently watched', count: recentCount });
-    out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
+    const handMoved = new Set(this.lay.groupOrder);
+    const yours: GroupInfo[] = [];
+    const tail: GroupInfo[] = [];
+    const keys = new Set<string>();
     for (const gid of this.orderedProviderGroups()) {
       const count = this.visible(gid).length;
       if (count === 0) continue;
       const info: GroupInfo = { id: gid, name: this.groupName(gid), count };
       if (this.isOther(gid)) info.other = true;
-      out.push(info);
+      for (const k of this.rd.keysOf.get(gid) ?? NO_KEYS) keys.add(k);
+      // `chosen` is empty while the rule is off or stale.
+      if (handMoved.has(gid) || this.rd.chosen.has(gid)) yours.push(info);
+      else tail.push(info);
     }
+    for (const g of yours) out.push(g);
+    const recentCount = this.visible(GROUP_RECENT).length;
+    if (recentCount > 0) out.push({ id: GROUP_RECENT, name: 'Recently watched', count: recentCount });
+    out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
+    if (!foldActive(this.regionView?.fold === true, this.rd.state.mode, keys.size)) {
+      for (const g of tail) out.push(g);
+      return out;
+    }
+    const split = splitFold(tail, (g) => this.rd.keysOf.get(g.id) ?? NO_KEYS);
+    for (const { item, key } of split.country) out.push({ ...item, fold: key });
+    for (const g of split.rest) out.push(g);
     return out;
   }
 

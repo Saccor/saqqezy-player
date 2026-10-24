@@ -4,11 +4,15 @@ import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SORT_LABELS } from './gridLogic.ts';
 import { grouped } from './kindCopy.ts';
 
-/** The library's categories from its All entry on (the ones before it are rows on browse already), non-empty only. */
+/**
+ * The library's categories for the "All categories" picker: everything but the browse rows (Continue watching,
+ * Favourites, Recently added: `vod:` ids, rows on browse already), non-empty only, in the worker's order (yours, All,
+ * other countries' folded categories, the rest). Empty without a non-empty All.
+ */
 export function catalogueCategories(cats: readonly VodCategoryView[]): VodCategoryView[] {
-  const at = cats.findIndex((c) => c.id === VOD_ALL);
-  if (at < 0 || cats[at]!.count <= 0) return [];
-  return cats.slice(at).filter((c) => c.count > 0);
+  const all = cats.find((c) => c.id === VOD_ALL);
+  if (!all || all.count <= 0) return [];
+  return cats.filter((c) => !c.id.startsWith('vod:') && c.count > 0);
 }
 
 /** Picker rows; the count shows here only (spec §1.4), the current category is checked. */

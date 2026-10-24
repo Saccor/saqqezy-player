@@ -61,6 +61,11 @@ export interface AppSettings {
    */
   combineCategories: boolean;
   /**
+   * Your countries: other countries' folders fold into one "Other countries" row (spec 2026-10-22-your-countries-flags).
+   * On by default; it takes effect once two or more countries are detected, with or without picks. Person-level, synced.
+   */
+  foldCountries: boolean;
+  /**
    * Matches in your guide: competitions (folded guide text, `competitionKey`) whose matches come first, and ones that
    * are hidden. On the device, and in the end-to-end encrypted sync only.
    */
@@ -92,6 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   combineChannels: false,
   regions: { codes: [], mode: 'off' },
   combineCategories: false,
+  foldCountries: true,
   pinnedCompetitions: [],
   hiddenCompetitions: [],
   matchCategories: [],
@@ -183,6 +189,7 @@ export function sanitizeSettings(partial: unknown): AppSettings {
     combineChannels: typeof src.combineChannels === 'boolean' ? src.combineChannels : DEFAULT_SETTINGS.combineChannels,
     regions: sanitizeRegions(src.regions),
     combineCategories: typeof src.combineCategories === 'boolean' ? src.combineCategories : DEFAULT_SETTINGS.combineCategories,
+    foldCountries: typeof src.foldCountries === 'boolean' ? src.foldCountries : DEFAULT_SETTINGS.foldCountries,
     pinnedCompetitions: foldedList(src.pinnedCompetitions, PINNED_COMPETITIONS_MAX),
     hiddenCompetitions: foldedList(src.hiddenCompetitions, HIDDEN_COMPETITIONS_MAX),
     matchCategories: foldedList(src.matchCategories, MATCH_CATEGORIES_MAX),

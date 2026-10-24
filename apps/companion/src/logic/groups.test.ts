@@ -32,6 +32,12 @@ describe('providerGroups', () => {
       { id: 'g:Alpha', name: 'First', providerName: 'Alpha', count: 3, hidden: true, regionHidden: false, shown: false },
     ]);
   });
+
+  it('with your countries on, the chosen groups come in pick order', () => {
+    const m = new GroupModel([ch('s1', 'One', 'SE | A', 1), ch('d1', 'Two', 'DK | B', 2), ch('o1', 'Three', 'Other', 3)]);
+    const regions = { mode: 'first' as const, codes: ['DK', 'SE'], keys: { 'g:SE | A': ['SE'], 'g:DK | B': ['DK'] } };
+    expect(providerGroups(m, emptyLayout(), regions).map((g) => g.id)).toEqual(['g:DK | B', 'g:SE | A', 'g:Other']);
+  });
 });
 
 describe('groupChannels (the TV order)', () => {

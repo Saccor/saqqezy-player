@@ -84,3 +84,44 @@ export const MULTIVIEW_COPY = {
   device: (n: number): string => `This device can play ${n} at once.`,
   setting: (n: number): string => `Max windows is set to ${n} in Settings.`,
 } as const;
+
+/**
+ * Your countries (spec 2026-10-22-your-countries-flags, Copy table), word for word. Neutral (CLAUDE.md rule 3): no
+ * channel, provider or broadcaster names, nothing about free content, no counts of channels or countries in store copy.
+ */
+export const COUNTRIES_COPY = {
+  page: 'Your countries',
+  help: 'Pick the countries you watch. Their folders go to the top, right under Favourites. Nothing is removed.',
+  thisTv: 'This TV',
+  sortMost: 'Most folders first',
+  sortAz: 'A–Z',
+  languages: 'Languages',
+  otherFolders: "Other countries' folders",
+  fold: 'In one folder',
+  below: 'Below yours',
+  hidden: 'Hidden',
+  reset: 'Show all folders as before',
+  otherCountriesTitle: 'Other countries',
+  countriesTitle: 'Countries',
+  otherCountries: (n: number): string => `Other countries (${n})`,
+  countries: (n: number): string => `Countries (${n})`,
+  choose: 'Choose your countries…',
+  otherHeading: 'Other folders',
+  showing: (n: number): string => `Showing ${n} ${n === 1 ? 'country' : 'countries'} · Change`,
+  cap: 'You can pick up to 10 countries.',
+  stale: 'None of your countries are in this playlist right now. Showing all folders.',
+  combineOff: 'Movie and series categories now stay per country.',
+  combineOn: 'Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.',
+  none: "Your playlist doesn't sort its folders by country.",
+  loadError: "Couldn't load your countries · Try again",
+  saveError: "Couldn't save the setting.",
+  firstTitle: 'Which countries do you watch?',
+  firstSub: (n: number): string => `We found folders for ${n} countries in your playlist. Pick one or more.`,
+  firstFoot: 'You can change this later in Settings › Your countries.',
+  step: 'Last step',
+  done: 'Done',
+  skip: 'Skip',
+  change: 'Change',
+  languageLine: (name: string): string => `Audio and subtitles: ${name} first`,
+  folders: (n: number): string => `${n} ${n === 1 ? 'folder' : 'folders'}`,
+} as const;

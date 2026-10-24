@@ -62,6 +62,11 @@ export class VodCatalog {
     return new VodCatalog(this.kind, this.list, this.groups, this.ids, view);
   }
 
+  /** The category view this catalogue is seen through (roles and fold keys for the category list), if any. */
+  get categoryView(): VodCategoryView | undefined {
+    return this.view;
+  }
+
   private visible(i: number): boolean {
     return this.visibleRows === undefined || this.visibleRows[i] === 1;
   }

@@ -19,7 +19,6 @@ import { saveSetting, type PageProps } from './shared.ts';
  * can play more than one channel at once.
  */
 export function PlaybackPage(props: PageProps) {
-  const [sel, setSel] = createSignal(0);
   const format = () => settings()?.preferredFormat ?? 'ts';
   const liveDelay = () => settings()?.liveDelay ?? 'balanced';
   const sleep = (): number => settings()?.sleepTimerMinutes ?? 0;
@@ -53,6 +52,9 @@ export function PlaybackPage(props: PageProps) {
       help: 'Which version of a title Play starts' },
     ...multiviewItems(),
   ];
+
+  // A deep link ("Change" in first run) selects its row.
+  const [sel, setSel] = createSignal(Math.max(0, items().findIndex((it) => it.id === props.focusItem)));
   const change = (id: string, dir: 1 | -1) => {
     if (id === 'format') {
       void saveSetting({ preferredFormat: cycleOption(FORMAT_OPTIONS, format(), dir) });

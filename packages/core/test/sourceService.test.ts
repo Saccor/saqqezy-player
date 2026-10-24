@@ -951,13 +951,32 @@ describe('SourceService – settings, cache clearing, EPG commit', () => {
       epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 12, sleepTimerMinutes: 0, showClock: true,
       liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: true,
       combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false,
-      regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
+      regions: { codes: [], mode: 'off' }, combineCategories: false, foldCountries: true, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto',
     });
     const saved = await service.saveSettings({ epgOffsetHours: 99, preferredFormat: 'm3u8' });
     expect(saved).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', autoRefreshHours: 12 });
     expect(await storage.getMeta('settings')).toEqual(saved);
     const again = await service.saveSettings({ showClock: false });
     expect(again).toMatchObject({ epgOffsetHours: 12, preferredFormat: 'm3u8', showClock: false });
+  });
+
+  test('concurrent saveSettings calls with different fields both persist, and a failed save does not break the chain', async () => {
+    const [a, b] = await Promise.all([
+      service.saveSettings({ regions: { codes: ['SE'], mode: 'first' } }),
+      service.saveSettings({ preferredLanguages: ['sv'] }),
+    ]);
+    expect(a.regions.codes).toEqual(['SE']);
+    expect(b.regions.codes).toEqual(['SE']);
+    const stored = await service.getSettings();
+    expect(stored.regions.codes).toEqual(['SE']);
+    expect(stored.preferredLanguages).toEqual(['sv']);
+    const real = storage.setMeta.bind(storage);
+    let fail = true;
+    storage.setMeta = async (k: string, v: unknown) => { if (fail) { fail = false; throw new Error('disk'); } return real(k, v); };
+    const bad = service.saveSettings({ showClock: false });
+    const good = service.saveSettings({ epgOffsetHours: 3 });
+    await expect(bad).rejects.toThrow('disk');
+    expect((await good).epgOffsetHours).toBe(3);
   });
 
   test('saving a synced setting that changed stamps its clock; device settings and unchanged values do not', async () => {

@@ -36,7 +36,7 @@ export const DELTA_MAX_BYTES = 64 * 1024;
 /** The settings that sync (§6.3). Device-tuned ones (`epgOffsetHours`, `preferredFormat`, `liveDelay`, …) never do. */
 export const SYNCED_SETTINGS: ReadonlySet<string> = new Set([
   'subtitleLanguage', 'audioLanguage', 'preferredLanguages', 'combineDuplicates', 'combineCategories', 'followedTeams', 'regions',
-  'pinnedCompetitions', 'hiddenCompetitions',
+  'pinnedCompetitions', 'hiddenCompetitions', 'foldCountries',
 ]);
 
 // ---------- value rules ----------
@@ -119,6 +119,7 @@ function regions(x: unknown): RegionsValue | undefined {
 function setting(name: string, x: unknown): SyncValue | undefined {
   if (!SYNCED_SETTINGS.has(name)) return undefined;
   if (name === 'regions') return regions(x);
+  if (name === 'foldCountries') return typeof x === 'boolean' ? x : undefined;
   if (typeof x === 'boolean') return x;
   if (text(x, TAG_MAX)) return x;
   return arrayOf(x, (e) => text(e, TAG_MAX), SETTING_LIST_MAX);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import { DEFAULT_SETTINGS } from '@iptv/core';
 import {
-  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
+  AUTO_REFRESH_OPTIONS, FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, maxWindowsLabel, SETTINGS_PAGES, settingsOpenAt, autoRefreshLabel, cycleOption, diagnosticsLines, formatLabel, liveDelayLabel, screenLines, uaVersions,
   formatTime, liveLines, offsetLabel, onOff, rollbackTarget, sleepDefaultLabel, stepOffset, stripUrls,
   addTeamError, displayItems, openOnLabel, storageLine,
 } from './settingsLogic.ts';
@@ -11,10 +11,20 @@ import {
 } from './settingsLogic.ts';
 
 describe('SETTINGS_PAGES', () => {
-  it('lists the nine pages in menu order', () => {
+  it('lists the ten pages in menu order, Your countries first', () => {
     expect(SETTINGS_PAGES.map((p) => p.title)).toEqual([
-      'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
+      'Your countries', 'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
     ]);
+  });
+});
+
+describe('settingsOpenAt', () => {
+  it('a deep link opens its page directly (with its row); otherwise the remembered page', () => {
+    expect(settingsOpenAt({ page: 'countries' }, 4)).toEqual({ page: 0, direct: true });
+    expect(settingsOpenAt({ page: 'playback', focusItem: 'preferredLanguage' }, 0)).toEqual({ page: 4, direct: true, focusItem: 'preferredLanguage' });
+    expect(settingsOpenAt({}, 3)).toEqual({ page: 3, direct: false });
+    expect(settingsOpenAt({ page: 'nope', focusItem: 'x' }, 99)).toEqual({ page: 9, direct: false });
+    expect(settingsOpenAt(undefined, 2)).toEqual({ page: 2, direct: false });
   });
 });
 
@@ -111,7 +121,7 @@ describe('diagnosticsLines', () => {
       { at: 1, where: 'refresh', message: 'HTTP 403 for http://example.test:8899/player_api.php?username=test&password=test' },
       { at: 2, where: 'getPlayable', message: 'Login failed for test:test@example.test' },
     ],
-    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' },
+    settings: { epgOffsetHours: 1.5, preferredFormat: 'm3u8', autoRefreshHours: 6, sleepTimerMinutes: 30, showClock: false, liveDelay: 'low', subtitleLanguage: 'sv', audioLanguage: 'auto', subtitleExactMatch: true, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, foldCountries: true, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' },
   };
 
   it('shows the guide import in place of "Guide updated": importing with a count and time, or failed with the reason', () => {
@@ -224,7 +234,7 @@ describe('screenLines', () => {
   });
   it('is included in diagnosticsLines right after the platform and never leaks the full user agent', () => {
     const info: DiagnosticsInfo = { appVersion: '1', sources: [], lastErrors: [],
-      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' } };
+      settings: { epgOffsetHours: 0, preferredFormat: 'ts', autoRefreshHours: 0, sleepTimerMinutes: 0, showClock: true, liveDelay: 'balanced', subtitleLanguage: 'off', audioLanguage: 'auto', subtitleExactMatch: false, combineDuplicates: true, preferredLanguages: [], openOn: 'lastChannel', followedTeams: [], posterSize: 'standard', combineChannels: false, regions: { codes: [], mode: 'off' }, combineCategories: false, foldCountries: true, pinnedCompetitions: [], hiddenCompetitions: [], matchCategories: [], maxWindows: 'auto' } };
     const lines = diagnosticsLines(info, { platform: 'browser', device: { ...dev, userAgent: 'SECRET-AGENT Chrome/94.0.1' } });
     expect(lines.slice(0, 4).map(([k]) => k)).toEqual(['App version', 'Platform', 'Viewport', 'Screen']);
     expect(lines.flat().join('\n')).not.toContain('SECRET-AGENT');

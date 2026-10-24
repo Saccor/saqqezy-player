@@ -7,6 +7,10 @@ import { DropdownHeader } from '../../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
 import { ListPicker } from '../../components/ListPicker.tsx';
+import {
+  TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
+} from '../../components/foldPickerLogic.ts';
+import { flagFor } from '../../assets/flags/index.ts';
 import { PointerBar } from '../../components/PointerBar.tsx';
 import { moveFocus, pageFocus, renderRange, scrollTopFor } from '../../components/virtualWindow.ts';
 import { pointerMode } from '../../input/pointer.ts';
@@ -398,34 +402,80 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     return gs;
   };
 
-  const pickerRows = (): PickerRow[] => groups().map((g) => ({
-    kind: 'list', id: g.id, label: `${g.name} · ${g.count}`, checked: g.id === groupId(),
-  }));
+  // ---- group picker: other countries fold into one row (spec 2026-10-22-your-countries-flags) ----
+  const [pickerLevel, setPickerLevel] = createSignal<FoldLevel>(TOP_LEVEL);
+  const [pickerFocusId, setPickerFocusId] = createSignal<string | undefined>(undefined);
+  const regionsOn = () => {
+    const r = settings()?.regions;
+    return r !== undefined && r.mode !== 'off' && r.codes.length > 0;
+  };
+  /** The open level, one level up when a refresh left its country without folders (never an empty list). */
+  const effectiveLevel = (): FoldLevel => foldEffectiveLevel(pickerLevel(), groups());
+  // Built only while the picker is open: a library can have 1,000+ groups, and groups() changes on every refresh.
+  const pickerView = createMemo(() => {
+    if (!picking()) return undefined;
+    return foldView(groups(), effectiveLevel(), {
+      title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
+      label: (g) => `${g.name} · ${g.count}`, flagOf: flagFor,
+      onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
+    });
+  });
   const openPicker = () => {
     if (picking() || groups().length === 0 || router.topOverlay() !== undefined) return;
+    // Where the open group is: inside its country when it is folded.
+    setPickerLevel(openLevel(groups(), groupId()));
+    setPickerFocusId(undefined);
     setPicking(true);
     removePicker = router.pushOverlay(PICKER_ID, closePicker);
     queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
   };
-  /** Back on the picker: focus returns to the dropdown. */
+  /** Back on the picker: up one level (focus on the row that opened it), or closed from the top level. */
   function closePicker() {
     removePicker = undefined;
+    const level = effectiveLevel();
+    const up = levelUp(level);
+    if (up) {
+      setPickerFocusId(levelRowId(level));
+      setPickerLevel(up);
+      removePicker = router.pushOverlay(PICKER_ID, closePicker);
+      return;
+    }
     setPicking(false);
     queueMicrotask(() => { if (alive) focusPlace('groups'); });
   }
-  const dismissPicker = () => { if (picking()) { removePicker?.(); closePicker(); } };
-  /** A pick opens the group and focuses the grid at the playing channel, else row 0. */
+  /** Closes the picker at any level (a source change, cleanup). */
+  const dismissPicker = () => {
+    if (!picking()) return;
+    removePicker?.();
+    removePicker = undefined;
+    setPickerLevel(TOP_LEVEL);
+    setPicking(false);
+    queueMicrotask(() => { if (alive) focusPlace('groups'); });
+  };
+  /** OK: a level opens in place; a group opens and focuses the grid at the playing channel, else row 0. */
   const pick = (r: PickerRow) => {
+    const act = foldPick(effectiveLevel(), r);
+    if (act.kind === 'level') {
+      setPickerFocusId(undefined);
+      setPickerLevel(act.level);
+      return;
+    }
+    if (act.kind === 'none') return;
     removePicker?.();
     removePicker = undefined;
     setPicking(false);
-    if (r.kind === 'list' && r.id !== groupId()) {
+    setPickerLevel(TOP_LEVEL);
+    if (act.kind === 'choose') {
+      router.push('settings', { page: 'countries' });
+      return;
+    }
+    if (act.id !== groupId()) {
       rememberGroup = true;
-      openGroup(r.id, 0);
+      openGroup(act.id, 0);
       const seq = groupSeq;
       const playingId = playback.currentRowId();
       if (playingId !== undefined) {
-        void api.indexOf(r.id, playingId).catch(() => -1).then((i) => {
+        void api.indexOf(act.id, playingId).catch(() => -1).then((i) => {
           if (alive && seq === groupSeq && i >= 0) setFocusRow(i);
         });
       }
@@ -894,10 +944,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Groups" rows={pickerRows()} onPick={pick}
-          hint="Ok picks · Back closes" />
-      </Show>
+      <Show when={pickerView()}>{(view) => (
+        <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
+          initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes" />
+      )}</Show>
       <liveMenu.View />
     </View>
   );

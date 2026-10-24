@@ -7,9 +7,10 @@ import type { SettingItem } from '../components/SettingsList.tsx';
 import { audioLanguageLabel, subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
 
 export type SettingsPageId =
-  | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
+  | 'countries' | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
 
 export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = [
+  { id: 'countries', title: 'Your countries' },
   { id: 'sources', title: 'Sources' },
   { id: 'phone', title: 'Manage on phone or computer' },
   { id: 'guide', title: 'TV guide' },
@@ -20,6 +21,16 @@ export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = 
   { id: 'diagnostics', title: 'Diagnostics' },
   { id: 'about', title: 'About' },
 ];
+
+/**
+ * Where Settings opens. A deep link (`router.push('settings', { page, focusItem })`: "Choose your countries…", first
+ * run's "Change") opens that page focused, and Back from it leaves Settings; otherwise the page remembered last.
+ */
+export function settingsOpenAt(params: Record<string, unknown> | undefined, remembered: number): { page: number; direct: boolean; focusItem?: string } {
+  const i = SETTINGS_PAGES.findIndex((p) => p.id === params?.page);
+  if (i < 0) return { page: Math.max(0, Math.min(remembered, SETTINGS_PAGES.length - 1)), direct: false };
+  return typeof params?.focusItem === 'string' ? { page: i, direct: true, focusItem: params.focusItem } : { page: i, direct: true };
+}
 
 export const OFFSET_LIMIT = 12;
 export const OFFSET_STEP = 0.5;

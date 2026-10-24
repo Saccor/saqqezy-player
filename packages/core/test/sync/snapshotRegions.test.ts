@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { applyOps } from '../../src/layout/ops.ts';
 import { emptyLayout } from '../../src/layout/types.ts';
-import { DEFAULT_SETTINGS } from '../../src/settings.ts';
+import { DEFAULT_SETTINGS, sanitizeSettings } from '../../src/settings.ts';
 import { encodeHlc } from '../../src/sync/hlc.ts';
 import { mergeRecords } from '../../src/sync/merge.ts';
 import { decodePayload, encodePayload } from '../../src/sync/payload.ts';
@@ -90,5 +90,20 @@ describe('backup snapshot: Your countries state', () => {
     // Merging against the same local value changes nothing.
     const local = registerMap(exportSettings(settings, new Map([['st:regions', st(T)]]), { unstamped: 'skip' }));
     expect(mergeRecords(local, decoded.filter((r) => r.ref.sid === 'regions'), T).apply).toEqual([]);
+  });
+
+  test('foldCountries is exported when stamped, restored, and an older payload without it keeps the default', () => {
+    const rs = exportSettings({ ...DEFAULT_SETTINGS, foldCountries: false }, new Map([['st:foldCountries', st(T)]]), { unstamped: 'skip' });
+    expect(rs.map((r) => [r.ref.sid, r.v])).toEqual([['foldCountries', false]]);
+    const decoded = decodePayload(JSON.parse(JSON.stringify(encodePayload(rs, T))));
+    expect(planSettingsRestore(mergeRecords(new Map(), decoded, T).apply).patch).toEqual({ foldCountries: false });
+    // A payload from a build before the setting existed: no record, so the restore patch leaves it alone.
+    const old = exportSettings({ ...DEFAULT_SETTINGS, regions: { mode: 'first', codes: ['SE'] } }, new Map([['st:regions', st(T)]]), { unstamped: 'skip' });
+    const oldDecoded = decodePayload(JSON.parse(JSON.stringify(encodePayload(old, T))));
+    const patch = planSettingsRestore(mergeRecords(new Map(), oldDecoded, T).apply).patch;
+    expect('foldCountries' in patch).toBe(false);
+    expect(sanitizeSettings(patch).foldCountries).toBe(true);
+    // Settings stored by an older build (no key) read back with the default.
+    expect(sanitizeSettings({ regions: { mode: 'first', codes: ['SE'] } }).foldCountries).toBe(true);
   });
 });

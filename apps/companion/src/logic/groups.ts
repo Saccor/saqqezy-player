@@ -77,7 +77,12 @@ export function providerGroups(model: GroupModel, layout: Layout, regions?: Comp
   for (const gid of layout.groupOrder) {
     if (model.members.has(gid) && !seen.has(gid)) { order.push(gid); seen.add(gid); }
   }
-  if (rule.state.mode !== 'off') for (const gid of model.providerOrder) if (rule.chosen.has(gid) && !seen.has(gid)) { order.push(gid); seen.add(gid); }
+  if (rule.state.mode !== 'off') {
+    // The TV's pick order (`rankOf`), provider order inside a rank.
+    const picked = model.providerOrder.filter((gid) => rule.chosen.has(gid) && !seen.has(gid));
+    picked.sort((x, y) => { const rx = rule.rankOf(x); const ry = rule.rankOf(y); return rx < ry ? -1 : rx > ry ? 1 : 0; });
+    for (const gid of picked) { order.push(gid); seen.add(gid); }
+  }
   for (const gid of model.providerOrder) if (!seen.has(gid)) order.push(gid);
   const hidden = new Set(layout.hiddenGroups);
   const shown = new Set(layout.shownGroups ?? []);

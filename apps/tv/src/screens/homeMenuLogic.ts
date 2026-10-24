@@ -51,9 +51,21 @@ export function listIdOfGroup(groupId: string | undefined): string | undefined {
   return undefined;
 }
 
+/** A picker row's flag (a texture URL) or text badge ("EN"), drawn left of its label. */
+export interface PickerIcon { src?: string; badge?: string }
+
 export type PickerRow =
-  | { kind: 'list'; id: string; label: string; checked: boolean; /** Shown in the footer while the row is selected. */ help?: string }
-  | { kind: 'new'; label: string };
+  | {
+    kind: 'list'; id: string; label: string; checked: boolean;
+    /** Shown in the footer while the row is selected. */
+    help?: string;
+    icon?: PickerIcon;
+    /** Opens another level ("›"). */
+    more?: boolean;
+  }
+  | { kind: 'new'; label: string }
+  /** A section title ("Other folders"): drawn muted, never selected. */
+  | { kind: 'heading'; label: string };
 
 /** Picker rows: every list (checked when it holds the channel), then "New list…" while under the limit. */
 export function pickerRows(lists: readonly ListLite[], member: ReadonlySet<string>): PickerRow[] {

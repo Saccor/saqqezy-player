@@ -37,8 +37,10 @@ describe('Search – folders', () => {
   test('provider folders whose name contains the query; never All channels or Recently watched', async () => {
     const api = await setup();
     const r = await api.search('sport', 50);
-    expect(names(r)).toEqual(['DE | Sport', 'SE | Sport', 'DK | Sport Extra', 'Motorsport Mix']);
-    expect(r.folders[0]).toEqual({ kind: 'live', id: 'g:DE | Sport', name: 'DE | Sport', count: 2 });
+    // Folders follow Live TV's order: with no country picked, other countries fold (Your countries Q3) and list
+    // most folders first, ties by name (SE has two folders; Denmark before Germany); folders with no country last.
+    expect(names(r)).toEqual(['SE | Sport', 'DK | Sport Extra', 'DE | Sport', 'Motorsport Mix']);
+    expect(r.folders[2]).toEqual({ kind: 'live', id: 'g:DE | Sport', name: 'DE | Sport', count: 2 });
     expect(names(await api.search('all ch', 50))).toEqual([]);
     expect(names(await api.search('recent', 50))).toEqual([]);
     expect((await api.search('', 50)).folders).toEqual([]);
@@ -68,7 +70,7 @@ describe('Search – folders', () => {
     await api.applyLayoutOps([{ op: 'createList', id: 'picks', name: 'Sport Picks' }, { op: 'addToList', listId: 'picks', channelIds: [one] }]);
     const r = await api.search('sport', 50);
     expect(r.folders[0]).toMatchObject({ kind: 'live', name: 'Sport Picks', count: 1 });
-    expect(names(r)).toEqual(['Sport Picks', 'DE | Sport', 'SE | Sport', 'DK | Sport Extra', 'Motorsport Mix']);
+    expect(names(r)).toEqual(['Sport Picks', 'SE | Sport', 'DK | Sport Extra', 'DE | Sport', 'Motorsport Mix']);
   });
 
   test('an empty user list is not a folder hit', async () => {

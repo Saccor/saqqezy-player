@@ -23,6 +23,18 @@ describe('regionRule (shared by the TV index and the phone companion)', () => {
     expect(stale.state.stale).toBe(true);
   });
 
+  test('rankOf: the index in codes of a group\'s best chosen key; Infinity when not chosen or the rule is off', () => {
+    const k: Record<string, string[]> = { ...keys, 'g:Mixed': ['DK', 'SE'] };
+    const r = regionRule(ids, emptyLayout(), { keys: k, codes: ['SE', 'DK'], mode: 'first' });
+    expect(r.rankOf('g:SE A')).toBe(0);
+    expect(r.rankOf('g:DK B')).toBe(1);
+    expect(r.rankOf('g:Mixed')).toBe(0);
+    expect(r.rankOf('g:Nope')).toBe(Infinity);
+    expect(regionRule(ids, emptyLayout(), { keys: k, codes: ['SE'], mode: 'off' }).rankOf('g:SE A')).toBe(Infinity);
+    expect(regionRule(ids, emptyLayout(), { keys: k, codes: ['PL'], mode: 'first' }).rankOf('g:SE A')).toBe(Infinity);
+    expect(regionRule(ids, emptyLayout(), undefined).rankOf('g:SE A')).toBe(Infinity);
+  });
+
   test('sureRegionKeys keeps sure detections only, as region keys', () => {
     expect(sureRegionKeys({
       a: { countries: ['SE'], langs: ['sv'], conf: 0.95, via: 'code' },

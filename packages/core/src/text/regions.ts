@@ -10,13 +10,13 @@ import { LANG_CODES, peelPrefix, prepare } from './nameTags.ts';
  */
 
 /** Bump whenever a rule or table changes: cached results of another version are rebuilt (after first paint). */
-export const REGION_DETECTOR_VERSION = 2;
+export const REGION_DETECTOR_VERSION = 3;
 /** Results below this are "Not sure": shown in the picker, never used to hide or reorder a group. */
 export const REGION_SURE = 0.6;
 
 export type RegionVia = 'user' | 'tvg' | 'flag' | 'code' | 'name' | 'region' | 'members' | 'trailing';
 
-/** One group's region. `countries`: ISO 3166-1 alpha-2 (GB, not UK). `langs`: ISO 639-1, most likely first. */
+/** One group's region. `countries`: ISO 3166-1 alpha-2 (GB, not UK; KU for Kurdistan). `langs`: ISO 639-1, most likely first. */
 export interface GroupRegion {
   countries: string[];
   langs: string[];
@@ -91,6 +91,8 @@ const COUNTRIES: [string, string, string[], string[]][] = [
   ['TR', 'Turkey', ['tr'], ['Turkiye', 'Turkish']],
   ['IL', 'Israel', ['he'], ['Israeli']],
   ['IR', 'Iran', ['fa'], ['Persian']],
+  // No ISO code: KU is unassigned in ISO 3166-1 and is what playlists write for Kurdish groups.
+  ['KU', 'Kurdistan', ['ku'], ['Kurdish', 'Kurdi', 'Kurd', 'Kurdistani']],
   ['AF', 'Afghanistan', ['fa'], ['Afghan']],
   ['SA', 'Saudi Arabia', ['ar'], ['Saudi Arabia', 'Saudi']],
   ['AE', 'United Arab Emirates', ['ar'], ['Emirates']],
@@ -144,7 +146,7 @@ const ALIASES: Record<string, string> = {
   AUT: 'AT', SUI: 'CH', CHE: 'CH', FRA: 'FR', BEL: 'BE', NLD: 'NL', HOL: 'NL', ESP: 'ES', POR: 'PT', PRT: 'PT',
   ITA: 'IT', GRE: 'GR', GRC: 'GR', POL: 'PL', CZE: 'CZ', HUN: 'HU', ROU: 'RO', ROM: 'RO', BUL: 'BG', BGR: 'BG',
   SRB: 'RS', CRO: 'HR', HRV: 'HR', ALB: 'AL', UKR: 'UA', RUS: 'RU', TUR: 'TR', ISR: 'IL', IRN: 'IR', IND: 'IN',
-  PAK: 'PK', CHN: 'CN', JPN: 'JP', KOR: 'KR', THA: 'TH', MEX: 'MX', ARG: 'AR', BRA: 'BR', CAN: 'CA', AUS: 'AU',
+  PAK: 'PK', KUR: 'KU', KRD: 'KU', CHN: 'CN', JPN: 'JP', KOR: 'KR', THA: 'TH', MEX: 'MX', ARG: 'AR', BRA: 'BR', CAN: 'CA', AUS: 'AU',
 };
 
 /** English labels of language-only keys (`lang:xx`). */
@@ -152,7 +154,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English', es: 'Spanish', ar: 'Arabic', fr: 'French', pt: 'Portuguese', de: 'German', sv: 'Swedish',
   da: 'Danish', no: 'Norwegian', fi: 'Finnish', it: 'Italian', nl: 'Dutch', pl: 'Polish', tr: 'Turkish', el: 'Greek',
   he: 'Hebrew', hi: 'Hindi', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', ru: 'Russian', uk: 'Ukrainian',
-  fa: 'Persian', cs: 'Czech', hu: 'Hungarian', ro: 'Romanian', th: 'Thai', vi: 'Vietnamese', id: 'Indonesian',
+  fa: 'Persian', ku: 'Kurdish', cs: 'Czech', hu: 'Hungarian', ro: 'Romanian', th: 'Thai', vi: 'Vietnamese', id: 'Indonesian',
 };
 
 /** Whole names of a language spoken in many countries: a language-only group, not a country. */

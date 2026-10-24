@@ -109,6 +109,13 @@ export function* xmltv(
 
 export const MOVIE_GROUPS = ['Drama', 'Comedy', 'Documentary', 'Family'] as const;
 export const SERIES_GROUPS = ['Drama', 'Comedy', 'Kids'] as const;
+/**
+ * Country-prefixed synthetic folders (`FAKE_COUNTRIES=1`): six countries, a language-only group (`EN |`) and unprefixed
+ * folders, so the Your countries grid and the fold have something to show. Channels spread over the live list in turn.
+ */
+export const COUNTRY_LIVE_GROUPS = ['SE | News', 'SE | Kids', 'BE | News', 'BE | Music', 'DE | News', 'FR | Kids', 'EN | Music', 'News'] as const;
+export const COUNTRY_MOVIE_GROUPS = ['SE | Drama', 'DK | Comedy', 'BE | Documentary', 'Family'] as const;
+export const COUNTRY_SERIES_GROUPS = ['SE | Drama', 'DK | Comedy', 'Kids'] as const;
 /** VOD fakes use the m3u8 extension so the dev player picks hls.js for the HLS test stream. */
 export const VOD_EXT = 'm3u8';
 
