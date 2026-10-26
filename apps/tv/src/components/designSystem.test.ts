@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -73,5 +73,33 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     there('components/InfoBlock.tsx');
     there('components/KeyValuePanel.tsx');
     for (const f of ['components/InfoStrip.tsx', 'screens/live/LiveInfo.tsx', 'components/InfoBanner.tsx', 'components/StreamInfoPanel.tsx']) gone(f);
+  });
+  it('phase 1 acceptance: the eight components exist and every replaced one is gone', () => {
+    for (const f of ['Sheet', 'Dialog', 'Notice', 'Badge', 'Tile', 'Row', 'InfoBlock', 'KeyValuePanel']) there(`components/${f}.tsx`);
+    for (const f of [
+      'components/ListPicker.tsx', 'components/ContextMenu.tsx', 'components/OptionsMenu.tsx', 'components/choiceMenu.tsx',
+      'shell/ConfirmDialog.tsx', 'components/StatusPill.tsx', 'components/CooldownNotice.tsx', 'components/NumberEntry.tsx',
+      'components/MediaBadges.tsx', 'components/PosterTile.tsx', 'components/WideTile.tsx', 'components/EpisodeRow.tsx',
+      'components/PosterRow.tsx', 'components/WideRow.tsx', 'components/InfoStrip.tsx', 'components/InfoBanner.tsx',
+      'components/StreamInfoPanel.tsx', 'screens/live/LiveInfo.tsx',
+    ]) gone(f);
+    lacks('App.tsx', /function OfflineBadge/);
+    lacks('screens/live/LiveTv.tsx', /function PhoneBadge/);
+    lacks('screens/AddSource.tsx', /function TypeTile/);
+    lacks('components/CountryGrid.tsx', /function Chip\(/);
+  });
+  it('one focus style per kind: no screen draws its own ring or hover colour', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const n of readdirSync(dir)) {
+        const p = join(dir, n);
+        if (statSync(p).isDirectory()) { walk(p); continue; }
+        if (!/\.tsx$/.test(n)) continue;
+        const t = readFileSync(p, 'utf8');
+        if (/COLORS\.(hover|selected)/.test(t) || (/border=\{\{ width: FOCUS\.ring/.test(t) && !p.endsWith('FocusRing.tsx'))) offenders.push(p);
+      }
+    };
+    walk(SRC);
+    expect(offenders).toEqual([]);
   });
 });

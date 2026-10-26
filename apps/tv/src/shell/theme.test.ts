@@ -38,3 +38,15 @@ describe('theme tokens 2.0 (spec 2026-10-26 §1.1)', () => {
     expect(contrast(COLORS.accent, COLORS.trackBuffered)).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe('phase 1 acceptance: the token set', () => {
+  it('about 14 colours (spec §1.1), trackBuffered (review decision) and transparent', () => {
+    expect(Object.keys(COLORS).sort()).toEqual([
+      'accent', 'background', 'error', 'focus', 'muted', 'onFocus', 'onFocusMuted', 'panel', 'scrim', 'subtle', 'surface', 'surfaceRaised',
+      'text', 'textSecondary', 'track', 'trackBuffered', 'transparent',
+    ]);
+  });
+  it('drawn text sizes are a subset of {24, 28, 40, 64, 72}', () => {
+    expect(new Set(Object.values(TYPE))).toEqual(new Set([24, 28, 40, 64, 72]));
+  });
+});
