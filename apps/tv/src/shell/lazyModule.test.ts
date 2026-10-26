@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn } from './lazyModule.ts';
+import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, tryAgain } from './lazyModule.ts';
 
 const Comp = () => null;
 
@@ -51,5 +51,24 @@ describe('route table', () => {
   it('a screen opened on the first frame is never lazy, including Add source (the first-run screen)', () => {
     expect(FIRST_FRAME_SCREENS).toEqual(expect.arrayContaining(['home', 'player', 'start', 'addSource']));
     for (const id of FIRST_FRAME_SCREENS) expect(isLazyScreen(id)).toBe(false);
+  });
+});
+
+describe('Try again after a failed screen load', () => {
+  it('reloads the app (a browser caches a failed import, so only a reload fetches the code again)', () => {
+    const reload = vi.fn();
+    tryAgain(reload);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('by default reloads the page (startup returns to the last channel)', () => {
+    const reload = vi.fn();
+    vi.stubGlobal('location', { reload });
+    try {
+      tryAgain();
+      expect(reload).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -32,6 +32,19 @@ export async function preloadInTurn(mods: ReadonlyArray<{ load(): Promise<unknow
   }
 }
 
+/** Reloads the app. Startup returns to the last channel, so this is a cheap way back to a working state. */
+export function reloadApp(): void {
+  location.reload();
+}
+
+/**
+ * Try again on "Couldn't open this screen". Browsers cache a failed `import()` per URL (calling it again rejects
+ * without a request), so only a reload fetches the screen's code again. `reload` is injectable for tests.
+ */
+export function tryAgain(reload: () => void = reloadApp): void {
+  reload();
+}
+
 /**
  * Rare screens, loaded on first use (spec 2026-10-26 §0.3), in idle-preload order. Settings carries its pages and the
  * pairing page (with the QR library). Order: most likely first.

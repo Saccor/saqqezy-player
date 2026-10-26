@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { checkMainChunk, forbiddenSources, mainChunkPath } from '../chunkCheck.mjs';
+import { checkMainChunk, checkStartup, forbiddenSources, isMainModule, mainChunkPath, staticImports, startupChunks } from '../chunkCheck.mjs';
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -56,5 +57,73 @@ describe('checkMainChunk', () => {
     const d = dist([]);
     rmSync(join(d, 'assets', 'index-abc.js.map'));
     expect(() => checkMainChunk(d)).toThrow('--sourcemap');
+  });
+});
+
+/** A build with several chunks: name -> [code, sources]. 'index-abc.js' is the entry. */
+function multi(chunks: Record<string, [string, string[]]>): string {
+  const d = dist([]);
+  for (const [name, [code, sources]] of Object.entries(chunks)) {
+    writeFileSync(join(d, 'assets', name), code);
+    writeFileSync(join(d, 'assets', `${name}.map`), JSON.stringify({ version: 3, sources }));
+  }
+  return d;
+}
+
+describe('staticImports', () => {
+  it('reads minified static imports and re-exports, never dynamic imports', () => {
+    const code = 'import{a as b}from"./shared-1.js";import"./side-2.js";export{c}from"./re-3.js";const s=()=>import("./Settings-4.js");';
+    expect(staticImports(code)).toEqual(['./shared-1.js', './side-2.js', './re-3.js']);
+  });
+});
+
+describe('checkStartup', () => {
+  const entry = 'import{x}from"./Toast-t.js";const s=()=>import("./Settings-s.js");';
+
+  it('covers the entry and every chunk it imports statically, transitively, but not lazy chunks', () => {
+    const d = multi({
+      'index-abc.js': [entry, ['../../src/main.tsx']],
+      'Toast-t.js': ['import"./deep-d.js";', ['../../src/shell/Toast.tsx']],
+      'deep-d.js': ['export const y=1;', ['../../src/shell/theme.ts']],
+      'Settings-s.js': ['import{x}from"./Toast-t.js";', ['../../src/screens/Settings.tsx']],
+    });
+    expect(startupChunks(d).map((p) => relative(d, p).split(sep).join('/'))).toEqual(['assets/index-abc.js', 'assets/Toast-t.js', 'assets/deep-d.js']);
+    const r = checkStartup(d);
+    expect(r.forbidden).toEqual([]);
+    expect(r.chunk).toBe('index-abc.js');
+    expect(r.bytes).toBe(entry.length);
+    expect(r.totalBytes).toBe(entry.length + 'import"./deep-d.js";'.length + 'export const y=1;'.length);
+  });
+
+  it('catches a lazy-only module in a static child chunk', () => {
+    const d = multi({
+      'index-abc.js': [entry, ['../../src/main.tsx']],
+      'Toast-t.js': ['import"./deep-d.js";', ['../../src/shell/Toast.tsx']],
+      'deep-d.js': ['export const y=1;', ['../../src/components/QrCode.tsx']],
+    });
+    expect(checkStartup(d).forbidden).toEqual([{ chunk: 'deep-d.js', source: '../../src/components/QrCode.tsx' }]);
+  });
+
+  it('fails clearly when a startup chunk has no source map or is missing', () => {
+    const d = multi({ 'index-abc.js': [entry, []], 'Toast-t.js': ['', []] });
+    rmSync(join(d, 'assets', 'Toast-t.js.map'));
+    expect(() => checkStartup(d)).toThrow('--sourcemap');
+    rmSync(join(d, 'assets', 'Toast-t.js'));
+    expect(() => checkStartup(d)).toThrow('Toast-t.js');
+  });
+});
+
+describe('isMainModule', () => {
+  it('matches the script through realpath, ignoring drive-letter case on Windows', () => {
+    const d = dist([]);
+    const file = join(d, 'assets', 'index-abc.js');
+    const url = pathToFileURL(realpathSync(file)).href;
+    expect(isMainModule(file, url)).toBe(true);
+    if (process.platform === 'win32') {
+      const flipped = file.replace(/^[a-z]/i, (c) => (c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase()));
+      expect(isMainModule(flipped, url)).toBe(true);
+    }
+    expect(isMainModule(join(d, 'index.html'), url)).toBe(false);
+    expect(isMainModule(undefined, url)).toBe(false);
   });
 });
