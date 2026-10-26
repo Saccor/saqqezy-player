@@ -2,7 +2,7 @@ import type { ElementNode } from '@lightningtv/solid';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings } from '@iptv/core';
 import { api } from '../../api.ts';
-import type { OptionItem } from '../../components/OptionsMenu.tsx';
+import type { OptionItem } from '../../components/sheetLogic.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { patchSettings, settings } from '../../state/appState.ts';
 import { rollbackTarget } from '../settingsLogic.ts';

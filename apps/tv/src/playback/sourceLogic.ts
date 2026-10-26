@@ -1,5 +1,5 @@
 import type { LiveSourceView, PlayableChannel } from '@iptv/app-api';
-import type { OptionItem } from '../components/OptionsMenu.tsx';
+import type { OptionItem } from '../components/sheetLogic.ts';
 
 /**
  * Combined live channels on the TV (spec 2026-10-20-live-sources-tv): the Choose source list, the guide cell's badge

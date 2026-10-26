@@ -6,7 +6,8 @@ import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, PLAYER_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
-import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
 import { useNotice } from '../components/Notice.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
@@ -339,6 +340,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       ...(sources.length > 1 ? [{ id: 'source', label: SOURCE_COPY.source, value: `${sources.length}` }] : []),
     ];
   });
+  const menuRows = createMemo(() => menuItems().map(fromOptionItem));
 
   const choose = (id: string) => {
     if (id === 'multiview') {
@@ -592,8 +594,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={menuPage()} keyed>{(page) => (
-        <OptionsMenu ref={(el) => { menuNode = el; }} title={page === 'audio' ? 'Audio track' : page === 'source' ? SOURCE_COPY.choose : 'Options'}
-          items={menuItems()} onChoose={choose} />
+        <Sheet ref={(el) => { menuNode = el; }} title={page === 'audio' ? PLAYER_COPY.audioTrack : page === 'source' ? SOURCE_COPY.choose : PLAYER_COPY.options}
+          rows={menuRows()} onSelect={(r) => choose(r.id)} scrim={false} swallow="player" zIndex={40} />
       )}</Show>
 
       <Show when={sleep().kind === 'asking' ? sleep() : undefined}>{(s) => (

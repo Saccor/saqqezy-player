@@ -9,7 +9,7 @@ import { createSignal } from 'solid-js';
 import type { ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api } from '../../api.ts';
-import { createChoiceMenu } from '../../components/choiceMenu.tsx';
+import { createSheetChoice } from '../../components/Sheet.tsx';
 import { Sheet } from '../../components/Sheet.tsx';
 import { fromMenuItem } from '../../components/sheetLogic.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
@@ -74,8 +74,8 @@ export function createLiveMenu(d: LiveMenuDeps) {
   let removePicker: (() => void) | undefined;
   let removeKeyboard: (() => void) | undefined;
 
-  const days = createChoiceMenu(DAYS_ID, () => { if (d.alive()) d.refocus(); });
-  const sources = createChoiceMenu(SOURCES_ID, () => { if (d.alive()) d.refocus(); });
+  const days = createSheetChoice(DAYS_ID, () => { if (d.alive()) d.refocus(); });
+  const sources = createSheetChoice(SOURCES_ID, () => { if (d.alive()) d.refocus(); });
 
   /** Focuses the topmost open layer (a layer just opened has its node only after this tick), else the screen. */
   const focusTop = () => queueMicrotask(() => {

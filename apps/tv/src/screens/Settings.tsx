@@ -1,7 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { Match, Switch, createSignal, onCleanup, onMount } from 'solid-js';
+import { Match, Switch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { Dialog } from '../components/Dialog.tsx';
-import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
 import { COMMON_COPY } from '../copy.ts';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
@@ -267,9 +268,13 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       </Switch>
       </PointerFocusContext.Provider>
 
-      <Show when={chooser()}>{(c) => (
-        <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
-      )}</Show>
+      <Show when={chooser()}>{(c) => {
+        const rows = createMemo(() => c().items.map(fromOptionItem));
+        return (
+          <Sheet ref={(el) => { chooserNode = el; }} title={c().title} rows={rows()} initial={c().initial}
+            onSelect={(r) => c().answer(r.id)} scrim={false} swallow="player" zIndex={40} />
+        );
+      }}</Show>
       <Show when={dialog()}>{(d) => (
         <Dialog title={d().message} line={d().opts?.line} yes={d().yes} no={d().opts?.single ? null : COMMON_COPY.cancel}
           detail={d().opts?.detail} onYes={() => d().answer(true)} onNo={() => d().answer(false)} />

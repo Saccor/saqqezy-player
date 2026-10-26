@@ -5,7 +5,7 @@ import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, ty
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
-import { createChoiceMenu } from '../components/choiceMenu.tsx';
+import { createSheetChoice } from '../components/Sheet.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { COMPACT_H } from '../components/WideTile.tsx';
 import { WideRow } from '../components/WideRow.tsx';
@@ -124,7 +124,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const refocusRows = () => queueMicrotask(() => { if (alive) focusArea('rows', false); });
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: refocusRows });
-  const menu = createChoiceMenu('startMenu', refocusRows);
+  const menu = createSheetChoice('startMenu', refocusRows);
 
   const openCell = () => {
     const c = focusedCell();

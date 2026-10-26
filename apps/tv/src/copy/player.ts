@@ -4,4 +4,6 @@ export const PLAYER_COPY = {
   stoppingIn: (s: number): string => `Stopping in ${s} s`,
   stop: 'Stop',
   keepWatching: 'Keep watching',
+  audioTrack: 'Audio track',
+  options: 'Options',
 } as const;

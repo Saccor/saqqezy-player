@@ -4,7 +4,7 @@ import type { MatchCompetitionChips, MatchFilterChip, SportsEventTile } from '@i
 import { api, onEvent } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { BUTTON_H } from '../components/Button.tsx';
-import { createChoiceMenu } from '../components/choiceMenu.tsx';
+import { createSheetChoice } from '../components/Sheet.tsx';
 import { COMPACT_W, MATCH_GRID_H, WIDE_GAP, WideTile } from '../components/WideTile.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
@@ -120,7 +120,7 @@ export function StartSportsScreen() {
     rescue();
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => gridNode?.setFocus()) });
-  const menu = createChoiceMenu('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
+  const menu = createSheetChoice('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
     if (screenOverlayOpen()) return true;

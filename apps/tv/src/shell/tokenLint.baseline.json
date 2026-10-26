@@ -53,9 +53,6 @@
   "components/ListPicker.tsx": {
     "space": 6
   },
-  "components/OptionsMenu.tsx": {
-    "space": 4
-  },
   "components/PointerBar.tsx": {
     "space": 1
   },
@@ -137,7 +134,7 @@
   "screens/Player.tsx": {
     "lineHeight": 1,
     "space": 1,
-    "string": 11
+    "string": 10
   },
   "screens/Search.tsx": {
     "space": 1,
