@@ -64,4 +64,9 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     there('components/Row.tsx');
     for (const f of ['PosterTile', 'WideTile', 'PosterRow', 'WideRow']) gone(`components/${f}.tsx`);
   });
+  it('Tile replaces EpisodeCard, CountryGrid Chip and AddSource TypeTile', () => {
+    gone('components/EpisodeRow.tsx');
+    lacks('components/CountryGrid.tsx', /function Chip\(/);
+    lacks('screens/AddSource.tsx', /function TypeTile\(/);
+  });
 });

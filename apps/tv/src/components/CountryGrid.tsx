@@ -3,10 +3,10 @@ import { Match, Switch, createMemo, createSignal } from 'solid-js';
 import type { CountryChoice } from '@iptv/app-api';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
-import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
+import { motionLevel, tween } from '../shell/motion.ts';
 import { COLORS, FOCUS, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { Badge } from './Badge.tsx';
-import { FocusRing } from './FocusRing.tsx';
+import { Tile } from './Tile.tsx';
 import {
   CHIP, ROW_PITCH, DEVICE_CHIP_BOXES, CHIP_BOXES, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
   rowTops, scrollFor, type ChipArt, type GridEdge, type GridFocus, type GridSort,
@@ -29,42 +29,31 @@ export interface CountryGridProps {
   initialKey?: string;
 }
 
-const NAME_SIZE = 32;
-const COUNT_SIZE = 28;
-
-function Chip(p: {
-  choice: CountryChoice; x: number; y: number; lit: boolean; hover: boolean; number: number | undefined; device: boolean;
-  art: ChipArt; ref: (el: ElementNode | undefined) => void;
-}) {
-  let node: ElementNode | undefined;
-  useFocusScale(() => node, () => p.lit);
+/** One chip's content on the Tile: flag or its placeholder, name, count, the "This TV" and "✓ n" badges. */
+function ChipContent(p: { choice: CountryChoice; number: number | undefined; device: boolean; art: ChipArt }) {
   /** This TV's chip moves the flag left and puts the "This TV" badge beside it; name and count stay full width. */
   const box = () => (p.device ? DEVICE_CHIP_BOXES : CHIP_BOXES);
   return (
-    <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
-      <FocusRing w={CHIP.w} h={CHIP.h} radius={RADIUS.card} lit={p.lit} hover={p.hover} />
-      <View width={CHIP.w} height={CHIP.h} zIndex={1} borderRadius={RADIUS.card}
-        color={COLORS.surface}>
-        <Show when={'src' in p.art ? p.art.src : undefined} fallback={
-          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
-            <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
-              fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
-          </View>
-        }>{(src) => <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} src={src()} />}</Show>
-        <Text x={box().name.x} y={box().name.y} width={box().name.w} height={box().name.h} maxWidth={box().name.w} contain="width" maxLines={1}
-          textAlign="center" fontSize={NAME_SIZE} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
-        <Text x={box().count.x} y={box().count.y} width={box().count.w} height={box().count.h} maxWidth={box().count.w} contain="width"
-          maxLines={1} textAlign="center" fontSize={COUNT_SIZE} color={COLORS.textSecondary}>
-          {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
-        </Text>
-        <Show when={p.device ? DEVICE_CHIP_BOXES.device : undefined}>{(d) => (
-          <Badge x={d().x} y={d().y} text={COUNTRIES_COPY.thisTv} />
-        )}</Show>
-        <Show when={p.number}>{(n) => (
-          <Badge x={box().pill.x} y={box().pill.y} tone="selected" text={COUNTRIES_COPY.selectedCount(n())} />
-        )}</Show>
-      </View>
-    </View>
+    <>
+      <Show when={'src' in p.art ? p.art.src : undefined} fallback={
+        <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
+          <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
+            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
+        </View>
+      }>{(src) => <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} src={src()} />}</Show>
+      <Text x={box().name.x} y={box().name.y} width={box().name.w} height={box().name.h} maxWidth={box().name.w} contain="width" maxLines={1}
+        textAlign="center" fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{p.choice.label}</Text>
+      <Text x={box().count.x} y={box().count.y} width={box().count.w} height={box().count.h} maxWidth={box().count.w} contain="width"
+        maxLines={1} textAlign="center" fontSize={TYPE.meta} color={COLORS.textSecondary}>
+        {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
+      </Text>
+      <Show when={p.device ? DEVICE_CHIP_BOXES.device : undefined}>{(d) => (
+        <Badge x={d().x} y={d().y} text={COUNTRIES_COPY.thisTv} />
+      )}</Show>
+      <Show when={p.number}>{(n) => (
+        <Badge x={box().pill.x} y={box().pill.y} tone="selected" text={COUNTRIES_COPY.selectedCount(n())} />
+      )}</Show>
+    </>
   );
 }
 
@@ -174,10 +163,10 @@ export function CountryGrid(props: CountryGridProps) {
                 const hovered = () => pointerMode() && hover()?.row === i && hover()?.col === col();
                 return (
                   <Show when={byKey().get(key)}>{(ch) => (
-                    <Chip choice={ch()} x={col() * (CHIP.w + CHIP.gap)} y={y()} lit={lit()} hover={hovered()}
-                      number={pickNumber(props.codes, key)} device={key === props.deviceCountry}
-                      art={chipArt(key, props.flagOf)}
-                      ref={(el) => { if (el) chipNodes.set(key, el); else chipNodes.delete(key); }} />
+                    <Tile variant="chip" x={col() * (CHIP.w + CHIP.gap)} y={y()} lit={lit()} hover={hovered()}
+                      ref={(el) => { if (el) chipNodes.set(key, el); else chipNodes.delete(key); }}>
+                      <ChipContent choice={ch()} number={pickNumber(props.codes, key)} device={key === props.deviceCountry} art={chipArt(key, props.flagOf)} />
+                    </Tile>
                   )}</Show>
                 );
               }}</For>

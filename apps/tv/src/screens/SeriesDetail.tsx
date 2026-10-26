@@ -6,7 +6,8 @@ import { VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
-import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
+import { Row } from '../components/Row.tsx';
+import { EP_ROW_H } from '../components/tileLogic.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
@@ -362,9 +363,9 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
             onFocusChanged={(f: boolean) => { if (f) setArea('episodes'); }}
             onUp={() => moveEpisodes('up')} onDown={() => moveEpisodes('down')} onLeft={() => moveEpisodes('left')} onRight={() => moveEpisodes('right')}
             onEnter={() => { playEpisode(epCol()); return true; }} onMenu={() => openMenu(epCol())} onLongOk={() => openMenu(epCol())}>
-            <EpisodeRow x={HERO_X} y={0} width={ROW_W} episodes={view() ? episodes() : undefined}
+            <Row x={HERO_X} y={0} width={ROW_W} content={{ variant: 'episode', episodes: view() ? episodes() : undefined }}
               focusCol={view() ? epCol() : undefined} lit={area() === 'episodes'}
-              onCardClick={(c) => clickCard(c, false)} onCardOptions={(c) => clickCard(c, true)} />
+              onCellClick={(c) => clickCard(c, false)} onCellOptions={(c) => clickCard(c, true)} />
           </View>
         </Show>
       </View>

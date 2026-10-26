@@ -37,7 +37,9 @@ export function Tile(props: TileProps) {
   let art: ElementNode | undefined;
   useFocusScale(() => art, () => props.lit);
   const wideImage = (c: WideCell) => (c.type === 'channel' ? c.channel.logo : c.type === 'event' ? c.event.icon : c.type === 'programme' ? c.hit.channel.logo : undefined);
-  const ring = () => <FocusRing w={s().w} h={s().h} radius={RADIUS.card} lit={props.lit} hover={props.hover} />;
+  /** An episode that has not loaded yet is a skeleton: it draws no ring (it still scales, like the old card). */
+  const ringed = () => props.variant !== 'episode' || (props as EpisodeTileProps).ep !== undefined;
+  const ring = () => <FocusRing w={s().w} h={s().h} radius={RADIUS.card} lit={props.lit && ringed()} hover={props.hover && ringed()} />;
   const body = () => (
     <>
       {ring()}

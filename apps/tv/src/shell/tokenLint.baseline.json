@@ -13,7 +13,6 @@
     "string": 1
   },
   "components/CountryGrid.tsx": {
-    "fontSize": 2,
     "radius": 1,
     "space": 3
   },
@@ -23,10 +22,6 @@
   "components/EpgGrid.tsx": {
     "radius": 4,
     "space": 5
-  },
-  "components/EpisodeRow.tsx": {
-    "radius": 2,
-    "space": 4
   },
   "components/EventChannels.tsx": {
     "space": 4
@@ -100,7 +95,7 @@
     "string": 7
   },
   "screens/AddSource.tsx": {
-    "space": 16,
+    "space": 10,
     "string": 34
   },
   "screens/Countries.tsx": {

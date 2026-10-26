@@ -5,17 +5,17 @@ import type { AppEvent } from '@iptv/app-api';
 import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { firstRunTarget, loadChoices } from './countriesLogic.ts';
-import { Badge } from '../components/Badge.tsx';
+import { Badge, BADGE_H } from '../components/Badge.tsx';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
+import { Tile } from '../components/Tile.tsx';
 import { FIELD_H, TextField } from '../components/TextField.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { controlFill, controlSubText, controlText, isLit } from '../shell/focusStyle.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
@@ -66,7 +66,20 @@ const REVEAL_W = 240;
 /** The reveal button's inset from the field's right edge. */
 const REVEAL_INSET = 14;
 
-function TypeTile(props: {
+/** A login-type card's text: title, body, optional badge. */
+function TypeCard(props: { title: string; body: string; badge?: string }) {
+  return (
+    <>
+      <Text x={SPACE.xl} y={SPACE.xl} fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{props.title}</Text>
+      <Text x={SPACE.xl} y={SPACE.xl + LINE.title + SPACE.m} width={TILE_W - SPACE.xl * 2} maxWidth={TILE_W - SPACE.xl * 2} contain="width"
+        fontSize={TYPE.body} color={COLORS.muted}>{props.body}</Text>
+      <Show when={props.badge}>{(b) => <Badge x={SPACE.xl} y={TILE_H - SPACE.xl - BADGE_H} text={b()} />}</Show>
+    </>
+  );
+}
+
+/** A focusable login-type card: the wrapper owns the keys and the pointer, the Tile draws the focus style. */
+function TypeOption(props: {
   ref: (el: ElementNode) => void; x: number; title: string; body: string; badge?: string;
   onPress: () => void; onLeft?: () => boolean; onRight?: () => boolean;
 }) {
@@ -74,17 +87,14 @@ function TypeTile(props: {
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
-  const lit = () => isLit(focused(), hovered(), pointerMode());
   return (
-    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={RADIUS.card}
-      color={controlFill(lit(), COLORS.surface)}
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H}
       onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? false}>
-      <Text x={40} y={56} fontSize={TYPE.title} {...STRONG} color={controlText(lit())}>{props.title}</Text>
-      <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={TYPE.body}
-        color={controlSubText(lit())}>{props.body}</Text>
-      {props.badge ? <Badge x={40} y={196} text={props.badge} lit={lit()} /> : null}
+      <Tile variant="chip" x={0} y={0} w={TILE_W} h={TILE_H} lit={focused()} hover={pointerMode() && hovered()}>
+        <TypeCard title={props.title} body={props.body} badge={props.badge} />
+      </Tile>
     </View>
   );
 }
@@ -362,9 +372,9 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           {'Use the login details from your own provider.'}
         </Text>
         <View x={X} y={340} width={tileW2} height={TILE_H}>
-          <TypeTile ref={(el) => { tiles[0] = el; }} x={0} title="Xtream login" body="Server, username and password"
+          <TypeOption ref={(el) => { tiles[0] = el; }} x={0} title="Xtream login" body="Server, username and password"
             badge="Most common" onPress={() => openStep('xtream')} onRight={() => focusTile(1)} />
-          <TypeTile ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title="M3U link"
+          <TypeOption ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title="M3U link"
             body="Playlist URL + optional TV guide (EPG) URL" onPress={() => openStep('m3u')} onLeft={() => focusTile(0)} />
         </View>
         <Text x={X} y={700} fontSize={TYPE.body} color={COLORS.muted}>
