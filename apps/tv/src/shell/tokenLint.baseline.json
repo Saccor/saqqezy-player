@@ -1,1 +1,397 @@
-{}
+{
+  "App.tsx": {
+    "radius": 1,
+    "border": 1,
+    "space": 2,
+    "string": 2
+  },
+  "components/ActionBar.tsx": {
+    "radius": 1,
+    "space": 1
+  },
+  "components/Button.tsx": {
+    "radius": 1,
+    "alpha": 1,
+    "space": 1
+  },
+  "components/ChannelList.tsx": {
+    "radius": 2,
+    "space": 14,
+    "string": 1
+  },
+  "components/ContextMenu.tsx": {
+    "space": 3
+  },
+  "components/CountryGrid.tsx": {
+    "fontSize": 2,
+    "radius": 1,
+    "space": 5
+  },
+  "components/DropdownHeader.tsx": {
+    "space": 1
+  },
+  "components/EpgGrid.tsx": {
+    "radius": 4,
+    "space": 5
+  },
+  "components/EpisodeRow.tsx": {
+    "radius": 2,
+    "space": 4
+  },
+  "components/EventChannels.tsx": {
+    "space": 4
+  },
+  "components/FocusRing.tsx": {
+    "radius": 1,
+    "space": 2
+  },
+  "components/InfoBanner.tsx": {
+    "radius": 2,
+    "space": 4,
+    "string": 1
+  },
+  "components/InfoStrip.tsx": {
+    "lineHeight": 1
+  },
+  "components/Keyboard.tsx": {
+    "radius": 1,
+    "border": 1,
+    "space": 6,
+    "string": 2
+  },
+  "components/ListPicker.tsx": {
+    "radius": 1,
+    "space": 7
+  },
+  "components/MediaBadges.tsx": {
+    "radius": 1,
+    "space": 1
+  },
+  "components/NumberEntry.tsx": {
+    "border": 1,
+    "space": 2
+  },
+  "components/OptionsMenu.tsx": {
+    "space": 4
+  },
+  "components/PointerBar.tsx": {
+    "space": 1
+  },
+  "components/PosterRow.tsx": {
+    "string": 1
+  },
+  "components/SettingsList.tsx": {
+    "space": 8
+  },
+  "components/StatusPill.tsx": {
+    "radius": 2,
+    "space": 4
+  },
+  "components/StreamInfoPanel.tsx": {
+    "space": 2,
+    "string": 1
+  },
+  "components/TextField.tsx": {
+    "space": 4
+  },
+  "components/Timeline.tsx": {
+    "radius": 2,
+    "space": 6
+  },
+  "components/VolumeOsd.tsx": {
+    "radius": 3,
+    "space": 1
+  },
+  "components/WideTile.tsx": {
+    "space": 4
+  },
+  "components/countryGridLogic.ts": {
+    "string": 3
+  },
+  "components/dropdownLogic.ts": {
+    "space": 2
+  },
+  "components/foldPickerLogic.ts": {
+    "string": 1
+  },
+  "components/listPickerLogic.ts": {
+    "string": 1
+  },
+  "components/wideTileLogic.ts": {
+    "string": 2
+  },
+  "net/trendingConfig.ts": {
+    "string": 2
+  },
+  "playback/devResume.ts": {
+    "string": 1
+  },
+  "playback/deviceWindows.ts": {
+    "string": 2
+  },
+  "playback/failureText.ts": {
+    "string": 17
+  },
+  "playback/mediaBadges.ts": {
+    "space": 2,
+    "string": 2
+  },
+  "playback/sourceLogic.ts": {
+    "string": 1
+  },
+  "playback/streamInfo.ts": {
+    "string": 7
+  },
+  "screens/AddSource.tsx": {
+    "border": 1,
+    "space": 16,
+    "string": 34
+  },
+  "screens/Countries.tsx": {
+    "space": 1
+  },
+  "screens/MovieDetail.tsx": {
+    "radius": 2,
+    "lineHeight": 1,
+    "space": 3,
+    "string": 10
+  },
+  "screens/Placeholder.tsx": {
+    "space": 5,
+    "string": 3
+  },
+  "screens/Player.tsx": {
+    "lineHeight": 1,
+    "space": 3,
+    "string": 14
+  },
+  "screens/Search.tsx": {
+    "space": 1,
+    "string": 3
+  },
+  "screens/SeriesDetail.tsx": {
+    "lineHeight": 1,
+    "string": 10
+  },
+  "screens/Settings.tsx": {
+    "space": 4,
+    "string": 1
+  },
+  "screens/Start.tsx": {
+    "space": 2
+  },
+  "screens/StartSports.tsx": {
+    "space": 3
+  },
+  "screens/VodBrowse.tsx": {
+    "space": 1,
+    "string": 3
+  },
+  "screens/VodGrid.tsx": {
+    "space": 2,
+    "string": 3
+  },
+  "screens/VodPlay.tsx": {
+    "fontSize": 2,
+    "radius": 1,
+    "lineHeight": 2,
+    "space": 7,
+    "string": 33
+  },
+  "screens/addSourceLogic.ts": {
+    "string": 20
+  },
+  "screens/guideLogic.ts": {
+    "string": 2
+  },
+  "screens/homeLogic.ts": {
+    "string": 4
+  },
+  "screens/homeMenuLogic.ts": {
+    "string": 12
+  },
+  "screens/journalLogic.ts": {
+    "string": 33
+  },
+  "screens/live/LiveInfo.tsx": {
+    "radius": 2,
+    "lineHeight": 1,
+    "space": 1
+  },
+  "screens/live/LiveTv.tsx": {
+    "radius": 1,
+    "border": 1,
+    "space": 2,
+    "string": 2
+  },
+  "screens/live/LiveVideo.tsx": {
+    "lineHeight": 1
+  },
+  "screens/live/liveLogic.ts": {
+    "string": 7
+  },
+  "screens/live/liveMenu.tsx": {
+    "string": 13
+  },
+  "screens/matchesGridLogic.ts": {
+    "string": 2
+  },
+  "screens/multiview/Multiview.tsx": {
+    "radius": 6,
+    "border": 2,
+    "alpha": 1,
+    "space": 11,
+    "string": 1
+  },
+  "screens/multiview/MultiviewPicker.tsx": {
+    "radius": 1,
+    "space": 6
+  },
+  "screens/pairingLogic.ts": {
+    "string": 17
+  },
+  "screens/playerLogic.ts": {
+    "string": 4
+  },
+  "screens/searchLogic.ts": {
+    "string": 8
+  },
+  "screens/settings/AboutPage.tsx": {
+    "lineHeight": 2,
+    "space": 9,
+    "string": 5
+  },
+  "screens/settings/ChannelsPage.tsx": {
+    "space": 1,
+    "string": 30
+  },
+  "screens/settings/ConnectionsView.tsx": {
+    "string": 6
+  },
+  "screens/settings/CountriesPage.tsx": {
+    "space": 1
+  },
+  "screens/settings/DiagnosticsPage.tsx": {
+    "space": 1,
+    "string": 8
+  },
+  "screens/settings/DisplayPage.tsx": {
+    "string": 3
+  },
+  "screens/settings/GuidePage.tsx": {
+    "string": 7
+  },
+  "screens/settings/ManageOnPhonePage.tsx": {
+    "radius": 1,
+    "lineHeight": 2,
+    "space": 11,
+    "string": 11
+  },
+  "screens/settings/PlaybackLogView.tsx": {
+    "string": 8
+  },
+  "screens/settings/PlaybackPage.tsx": {
+    "string": 18
+  },
+  "screens/settings/SourcesPage.tsx": {
+    "string": 21
+  },
+  "screens/settings/StoragePage.tsx": {
+    "string": 12
+  },
+  "screens/settings/backupLogic.ts": {
+    "string": 26
+  },
+  "screens/settings/connectionsLogic.ts": {
+    "string": 5
+  },
+  "screens/settings/shared.ts": {
+    "string": 1
+  },
+  "screens/settingsLogic.ts": {
+    "string": 62
+  },
+  "screens/startActions.tsx": {
+    "string": 2
+  },
+  "screens/startLogic.ts": {
+    "string": 18
+  },
+  "shell/ConfirmDialog.tsx": {
+    "lineHeight": 1,
+    "space": 4
+  },
+  "shell/InitError.tsx": {
+    "space": 3,
+    "string": 3
+  },
+  "shell/Rail.tsx": {
+    "radius": 4,
+    "space": 5
+  },
+  "shell/Toast.tsx": {
+    "radius": 1
+  },
+  "shell/logic.ts": {
+    "space": 1
+  },
+  "shell/railLogic.ts": {
+    "string": 1
+  },
+  "state/cooldownLogic.ts": {
+    "string": 4
+  },
+  "state/events.ts": {
+    "string": 3
+  },
+  "vod/PosterArt.tsx": {
+    "radius": 1,
+    "space": 6
+  },
+  "vod/browseLogic.ts": {
+    "space": 1
+  },
+  "vod/catchupLogic.ts": {
+    "string": 1
+  },
+  "vod/categoryPicker.ts": {
+    "string": 2
+  },
+  "vod/favToggle.ts": {
+    "string": 1
+  },
+  "vod/gridLogic.ts": {
+    "space": 1,
+    "string": 3
+  },
+  "vod/kindCopy.ts": {
+    "string": 11
+  },
+  "vod/launch.ts": {
+    "string": 1
+  },
+  "vod/posterMenuLogic.ts": {
+    "string": 8
+  },
+  "vod/seriesDetailLogic.ts": {
+    "string": 4
+  },
+  "vod/subtitleLogic.ts": {
+    "string": 14
+  },
+  "vod/tabLogic.ts": {
+    "string": 1
+  },
+  "vod/tracks.ts": {
+    "string": 4
+  },
+  "vod/versionsLogic.ts": {
+    "string": 3
+  },
+  "vod/vodPlayerLogic.ts": {
+    "string": 3
+  },
+  "worker.ts": {
+    "string": 1
+  }
+}
