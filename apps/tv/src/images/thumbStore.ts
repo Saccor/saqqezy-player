@@ -29,12 +29,18 @@ function done(tx: IDBTransaction): Promise<void> {
   });
 }
 
+/**
+ * Default byte cap for the thumbnail copies. A TV's whole IndexedDB quota can be ~80 MB (Tizen G9), which catalogues,
+ * channels and the guide need first; plan 0b replaces this with the per-device image budget (spec 2026-10-26 §0.5.1).
+ */
+export const THUMB_STORE_MAX_BYTES = 15e6;
+
 export class ThumbStore {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
   constructor(
     private readonly factory: IDBFactory | undefined = globalThis.indexedDB,
-    private readonly maxBytes = 40e6,
+    private readonly maxBytes = THUMB_STORE_MAX_BYTES,
     private readonly now: () => number = Date.now,
     private readonly dbName = 'iptv-thumbs',
   ) {}
