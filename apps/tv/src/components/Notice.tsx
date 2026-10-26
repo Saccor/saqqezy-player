@@ -5,7 +5,7 @@ import { usePointerTarget } from '../input/pointer.ts';
 import { riseIn } from '../shell/motion.ts';
 import { COLORS, MOTION, RADIUS, STRONG, TYPE, centerText } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
-import { NOTICE_PAD, NOTICE_SPINNER, SPINNER_DOT, noticeStack, spinnerDots, type NoticeSpec, type PlacedNotice } from './noticeLogic.ts';
+import { NOTICE_PAD, NOTICE_SPINNER, SPINNER_DOT, noticeIds, noticeStack, sameIds, spinnerDots, type NoticeSpec, type PlacedNotice } from './noticeLogic.ts';
 import { textWidth } from './textWidth.ts';
 
 export interface NoticeEntry extends NoticeSpec { onAction?: () => void }
@@ -64,12 +64,22 @@ export function NoticePill(props: { placed: PlacedNotice; onAction?: () => void 
   );
 }
 
-/** The app-level host (App.tsx): every notice registered with `useNotice`, plus `extra` (the toast queue's current one). */
+/**
+ * The app-level host (App.tsx): every notice registered with `useNotice`, plus `extra` (the toast queue's current one).
+ * Pills are keyed by notice id, so one that stays keeps its node (no rise-in replay, the spinner keeps turning) and only
+ * its position and text update; the id list changes only when a notice comes or goes.
+ */
 export function NoticeLayer(props: { extra?: () => NoticeEntry | undefined }) {
   const placed = createMemo(() => {
     const t = props.extra?.();
-    const list = t ? [...entries(), t] : [...entries()];
-    return noticeStack(list, textWidth).map((p) => ({ p, onAction: (p.spec as NoticeEntry).onAction }));
+    return noticeStack(t ? [...entries(), t] : [...entries()], textWidth);
   });
-  return <For each={placed()}>{(x) => <NoticePill placed={x.p} onAction={x.onAction} />}</For>;
+  const ids = createMemo(() => noticeIds(placed()), [], { equals: sameIds });
+  return (
+    <For each={ids()}>{(id) => {
+      // Keeps the last placement while the pill is being removed, so it never reads a missing one.
+      const p = createMemo<PlacedNotice>((prev) => placed().find((x) => x.spec.id === id) ?? prev!);
+      return <NoticePill placed={p()} onAction={(p().spec as NoticeEntry).onAction} />;
+    }}</For>
+  );
 }

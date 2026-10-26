@@ -55,6 +55,11 @@ export function noticeStack(list: readonly NoticeSpec[], measure: (text: string,
   return out;
 }
 
+export const noticeIds = (placed: readonly PlacedNotice[]): string[] => placed.map((p) => p.spec.id);
+
+/** Memo equality for id lists: a new array with the same ids in the same order changes nothing for the view. */
+export const sameIds = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((id, i) => id === b[i]);
+
 /** Only info hides by itself; wait stays while its condition is true; error stays until acted on or Back. */
 export const noticeAutoHides = (kind: NoticeKind): boolean => kind === 'info';
 

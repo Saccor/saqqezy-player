@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
 import {
   NOTICE_GAP, NOTICE_H, NOTICE_MAX_SHOWN, NOTICE_MAX_W, NOTICE_MIN_W, NOTICE_NUMERAL_H, NOTICE_PAD, NOTICE_SPINNER, NOTICE_TOP,
-  autoHideDelay, noticeAutoHides, noticeOrder, noticeStack, spinnerDots, type NoticeSpec,
+  autoHideDelay, noticeAutoHides, noticeIds, noticeOrder, noticeStack, sameIds, spinnerDots, type NoticeSpec,
 } from './noticeLogic.ts';
 
 /** 10 px a character, whatever the size: easy numbers. */
@@ -77,3 +77,16 @@ describe('spinner', () => {
     }
   });
 });
+
+describe('noticeIds / sameIds (pills are keyed by id so a staying pill keeps its node)', () => {
+  const stack = (ids: string[]) => noticeStack(ids.map((id) => n(id, 'info')), measure);
+  it('lists the placed ids in stack order', () => {
+    expect(noticeIds(stack(['a', 'b']))).toEqual(['a', 'b']);
+  });
+  it('sameIds is true for equal lists even when the arrays are new, false when an id comes, goes or moves', () => {
+    expect(sameIds(['a', 'b'], ['a', 'b'])).toBe(true);
+    expect(sameIds(['a'], ['a', 'b'])).toBe(false);
+    expect(sameIds(['a', 'b'], ['b', 'a'])).toBe(false);
+  });
+});
+

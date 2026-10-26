@@ -4,9 +4,7 @@ import { autoHideDelay } from '../components/noticeLogic.ts';
 import { onLogicalKey } from '../input/keys.ts';
 import { TOAST_OVERLAY_ID, screenOverlayOpen, toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
 import { router } from './router.ts';
-import { MOTION } from './theme.ts';
 
-export const TOAST_MS = MOTION.autoHide;
 /** Default precedence. Only background guide-refresh failures use a lower one (0), so they never interrupt. */
 export const TOAST_PRIORITY_NORMAL = 1;
 
@@ -32,8 +30,8 @@ function clear(): void {
 /** Waits until the auto-hide window (MOTION.autoHide, paused by key presses and open sheets) has run out. */
 function arm(): void {
   stopTimer();
-  const wait = autoHideDelay({ shownAt, lastKeyAt, now: Date.now(), held: screenOverlayOpen(router.overlays()) });
-  timer = setTimeout(() => (autoHideDelay({ shownAt, lastKeyAt, now: Date.now(), held: screenOverlayOpen(router.overlays()) }) > 0 ? arm() : expire()), wait);
+  const left = () => autoHideDelay({ shownAt, lastKeyAt, now: Date.now(), held: screenOverlayOpen(router.overlays()) });
+  timer = setTimeout(() => (left() > 0 ? arm() : expire()), left());
 }
 
 /** (Re)starts the window and the Back layer for the toast now visible. */
