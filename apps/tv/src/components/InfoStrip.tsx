@@ -31,7 +31,7 @@ export function InfoStrip(props: { x?: number; y?: number; width?: number; title
   }, { defer: true }));
   return (
     <View ref={(el) => { node = el; }} x={props.x ?? STRIP_X} y={props.y ?? STRIP_Y} width={w()} height={STRIP_H} zIndex={2}>
-      <Text width={w()} maxWidth={w()} contain="width" maxLines={1} fontSize={TYPE.display} {...STRONG} color={COLORS.text}>{props.title}</Text>
+      <Text width={w()} maxWidth={w()} contain="width" maxLines={1} fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{props.title}</Text>
       <Show when={props.meta}>
         <Text y={META_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.meta ?? ''}</Text>
       </Show>

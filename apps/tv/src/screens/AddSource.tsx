@@ -13,7 +13,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
@@ -74,7 +74,7 @@ function TypeTile(props: {
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
   const ring = () => (hovered() && pointerMode() && !focused() ? COLORS.muted : COLORS.transparent);
   return (
-    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={LAYOUT.radius}
+    <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={RADIUS.card}
       color={focused() ? COLORS.focus : COLORS.surface} border={{ width: 2, color: ring() }}
       onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
@@ -355,7 +355,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Show when={ready() && step() === 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.display} color={COLORS.text}>{'Add your TV source'}</Text>
+        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.title} color={COLORS.text}>{'Add your TV source'}</Text>
         <Text x={X} y={LAYOUT.safeY + 140} fontSize={TYPE.body} color={COLORS.muted}>
           {'Use the login details from your own provider.'}
         </Text>

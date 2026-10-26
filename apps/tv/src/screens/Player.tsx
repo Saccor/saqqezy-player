@@ -27,7 +27,7 @@ import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast, useToastFloor } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
@@ -42,7 +42,7 @@ import {
 import { deviceCeiling, windowLimit } from './multiview/windows.ts';
 
 const GROUP_ALL = 'all';
-const BANNER_MS = 4000;
+const BANNER_MS = MOTION.autoHide;
 const ZAP_DELAY_MS = 300;
 const NUMBER_IDLE_MS = 1500;
 const FLASH_MS = 2000;
@@ -564,7 +564,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
           : (
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
-              color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={4}>
+              color={COLORS.panel} borderRadius={RADIUS.card} zIndex={4}>
               <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
                 maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{s.text}</Text>

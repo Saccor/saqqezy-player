@@ -4,7 +4,7 @@ import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '.
 import { panelRowHit } from '../input/pointerLogic.ts';
 import { riseIn } from '../shell/motion.ts';
 import { clampIndex } from './optionsMenuLogic.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 
 export interface OptionItem { id: string; label: string; value?: string }
 
@@ -80,7 +80,7 @@ export function OptionsMenu(props: {
   });
   return (
     <View ref={(el) => { panel = el; props.ref(el); riseIn(el); }} x={X} y={Y} width={W} height={height()}
-      color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={40}
+      color={COLORS.panel} borderRadius={RADIUS.card} zIndex={40}
       onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => true} onRight={() => true}
       onChannelUp={() => true} onChannelDown={() => true} onMenu={() => true} onLongOk={() => true} onInfo={() => true}
       onRed={() => true} {...digitHandlers}
@@ -93,7 +93,7 @@ export function OptionsMenu(props: {
         const labelW = () => (it.value ? LABEL_W_WITH_VALUE : W - PAD * 2 - 48);
         return (
           <View x={PAD} y={PAD + HEAD + v() * (ITEM_H + ITEM_GAP)} width={W - PAD * 2} height={ITEM_H}
-            borderRadius={LAYOUT.radius}
+            borderRadius={RADIUS.card}
             color={sel() === i() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surface}>
             <Text x={24} y={(ITEM_H - TYPE.body) / 2 - 4} width={labelW()} maxWidth={labelW()} contain="width"
               maxLines={1} fontSize={TYPE.body} color={sel() === i() ? COLORS.onFocus : COLORS.text}>{it.label}</Text>

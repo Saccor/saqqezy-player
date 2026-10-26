@@ -19,7 +19,7 @@ import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -574,7 +574,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
             <For each={SKELETONS}>{(r) => (
               <View>
                 <View x={r.label.x} y={r.label.y} width={r.label.w} height={r.label.h} borderRadius={r.label.h / 2} color={COLORS.surface} />
-                <For each={r.posters}>{(p) => <View x={p.x} y={p.y} width={p.w} height={p.h} borderRadius={LAYOUT.radius} color={COLORS.surface} />}</For>
+                <For each={r.posters}>{(p) => <View x={p.x} y={p.y} width={p.w} height={p.h} borderRadius={RADIUS.card} color={COLORS.surface} />}</For>
               </View>
             )}</For>
           </Show>

@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { captureTextInput } from '../input/keys.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 import { fieldDisplay } from './TextField.tsx';
 import {
   FULL_LAYOUT, TEXT_LAYOUT, applyKey, keyAt, keyLabel, moveCursor, textEntryKey, type Cursor, type Direction, type KeyDef, type KeyboardLayout,
@@ -117,7 +117,7 @@ export function Keyboard(props: {
 
   return (
     <View ref={(el) => { root = el; props.ref?.(el); }} x={props.x} y={props.y} width={L().width} height={L().height} zIndex={30}
-      color={COLORS.surface} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.muted }}
+      color={COLORS.surface} borderRadius={RADIUS.card} border={{ width: 2, color: COLORS.muted }}
       onUp={() => moveOrEdge('up', props.onEdgeUp)} onDown={() => move('down')} onLeft={() => moveOrEdge('left', props.onEdgeLeft)}
       onRight={() => moveOrEdge('right', props.onEdgeRight)}
       onEnter={() => {
@@ -129,7 +129,7 @@ export function Keyboard(props: {
       onYellow={() => { props.onToggleReveal?.(); return true; }}
       {...digitHandlers}>
       <Text x={L().pad} y={28} fontSize={TYPE.meta} color={COLORS.muted}>{props.label}</Text>
-      <View x={L().pad} y={64} width={L().width - L().pad * 2} height={80} color={COLORS.background} borderRadius={LAYOUT.radius}>
+      <View x={L().pad} y={64} width={L().width - L().pad * 2} height={80} color={COLORS.background} borderRadius={RADIUS.card}>
         <Text x={20} y={22} width={L().width - L().pad * 2 - 40} maxWidth={L().width - L().pad * 2 - 40} contain="width" maxLines={1}
           fontSize={TYPE.body} color={COLORS.text}>{shown()}</Text>
       </View>

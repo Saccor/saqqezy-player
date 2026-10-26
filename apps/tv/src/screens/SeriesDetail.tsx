@@ -339,7 +339,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       onCaptureKey={(e: KeyboardEvent) => { if (!e.repeat) userPressed = true; return false; }}>
       <Backdrop url={backdrop()} area="detail" />
       <View zIndex={2}>
-        <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.detailTitle} {...STRONG}
+        <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.hero} {...STRONG}
           color={COLORS.text}>{tile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{meta()}</Text>
         <Text x={HERO_X} y={PLOT_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}

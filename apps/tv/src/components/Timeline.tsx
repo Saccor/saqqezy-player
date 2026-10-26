@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { jumpLabel, type Scrub } from '../vod/seekLogic.ts';
 import { bubbleX, fractionAt } from '../vod/timelineLogic.ts';
 import { clock } from '../vod/vodPlayerLogic.ts';
@@ -73,14 +73,14 @@ export function Timeline(props: {
       <View y={barY()} width={props.width} height={barH()} borderRadius={barH() / 2} color={COLORS.track} />
       <Show when={props.bufferedEndMs !== undefined && props.durMs !== undefined}>
         <View y={barY()} width={Math.max(barH(), xAt(props.bufferedEndMs))} height={barH()} borderRadius={barH() / 2}
-          color={COLORS.buffered} />
+          color={COLORS.trackBuffered} />
       </Show>
       <View y={barY()} width={Math.max(barH(), xAt(props.posMs))} height={barH()} borderRadius={barH() / 2} color={COLORS.accent} />
       {/* A pending scrub: the stretch between the playhead and the target (ahead: light blue; back: whitened over the played part). */}
       <Show when={props.scrub}>{(s) => (
         <View x={Math.min(xAt(props.posMs), xAt(s().targetMs))} y={barY()}
           width={Math.abs(xAt(s().targetMs) - xAt(props.posMs))} height={barH()}
-          color={s().targetMs >= props.posMs ? COLORS.scrubAhead : COLORS.scrubBack} />
+          color={s().targetMs >= props.posMs ? COLORS.accent : COLORS.track} />
       )}</Show>
       <Show when={focused() && !props.scrub && props.durMs !== undefined}>
         <View x={xAt(props.posMs) - KNOB / 2} y={(TIMELINE_H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
@@ -94,7 +94,7 @@ export function Timeline(props: {
           <View>
             <View x={mx() - MARKER_W / 2} y={(TIMELINE_H - MARKER_H) / 2} width={MARKER_W} height={MARKER_H}
               borderRadius={MARKER_W / 2} color={COLORS.text} />
-            <View x={bx()} y={-BUBBLE_H - 4} width={BUBBLE_W} height={BUBBLE_H} borderRadius={LAYOUT.radius} color={COLORS.panel}>
+            <View x={bx()} y={-BUBBLE_H - 4} width={BUBBLE_W} height={BUBBLE_H} borderRadius={RADIUS.card} color={COLORS.panel}>
               <Text y={8} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{clock(s().targetMs)}</Text>
               <Text y={50} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
@@ -108,7 +108,7 @@ export function Timeline(props: {
         <View>
           <View x={(hoverX() ?? 0) - 1} y={barY() - 4} width={2} height={barH() + 8} color={COLORS.text} />
           <View x={bubbleX(hoverX() ?? 0, HOVER_W, 0, props.width)} y={-HOVER_H + 4} width={HOVER_W} height={HOVER_H}
-            borderRadius={LAYOUT.radius} color={COLORS.panel}>
+            borderRadius={RADIUS.card} color={COLORS.panel}>
             <Text y={(HOVER_H - TYPE.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
               maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
               {clock(fractionAt(hoverX() ?? 0, props.width) * (props.durMs ?? 0))}

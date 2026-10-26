@@ -11,7 +11,7 @@ import {
 } from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../../shell/theme.ts';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
 import { cooldownForStream, initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
@@ -572,7 +572,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
             border={{ width: 4, color: COLORS.focus }} />
         </Show>
         <Show when={fail()}>{(f) => (
-          <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={LAYOUT.radius}>
+          <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={RADIUS.card}>
             <Text x={pad()} y={r().h / 2 - 60} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
               textAlign="center" fontSize={large() ? TYPE.body : TYPE.meta} color={COLORS.text}>{f().text}</Text>
             <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
@@ -602,7 +602,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
           </View>
         </Show>
         <Show when={chrome() && !fail()}>
-          <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.osd}>
+          <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.panel}>
             <Text x={pad()} y={scrimH() - (large() ? 72 : 52)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
               maxLines={1} fontSize={large() ? TYPE.body : TYPE.meta} {...STRONG} color={COLORS.text}>{nameOf(t().tile)}</Text>
           </View>
@@ -626,8 +626,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       )}</For>
       <For each={tiles()}>{(t) => <Chrome t={t} />}</For>
       <Show when={geometry()?.empty && full() === undefined && chrome() ? geometry()!.empty : undefined}>{(e) => (
-        <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-          <Text y={e().rect.h / 2 - 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.display} color={COLORS.subtle}>+</Text>
+        <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={RADIUS.card}>
+          <Text y={e().rect.h / 2 - 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.title} color={COLORS.subtle}>+</Text>
           <Show when={state()?.focus === 'empty'}>
             <Text y={e().rect.h / 2 + 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{MULTIVIEW_COPY.addChannel}</Text>
           </Show>

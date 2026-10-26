@@ -25,7 +25,7 @@ import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { staticCaps } from '@iptv/player';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { platformId, settings } from '../state/appState.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -97,7 +97,7 @@ const NEXT_W = 280;
 const VOLUME_W = 300;
 const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
-const SUB_OUTLINE_COLOR = COLORS.subtitleOutline;
+const SUB_OUTLINE_COLOR = COLORS.panel;
 /** Subtitle text size on the video (a user-facing size, not a UI type-scale step). */
 const SUB_FONT = 40;
 const CARD_W = 1000;
@@ -1518,7 +1518,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
           <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
           <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
-            fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.text}>{title}</Text>
+            fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{title}</Text>
           <Show when={label}>
             <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
               maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
@@ -1557,7 +1557,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
       <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
         <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
-          color={COLORS.surface} borderRadius={LAYOUT.radius}>
+          color={COLORS.surface} borderRadius={RADIUS.card}>
           {/* The text area above the buttons: y 24 to 148. */}
           <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
             contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}

@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerFocus, usePointerTarget, type Point } from '../input/pointer.ts';
 import { rowHit } from '../input/pointerLogic.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { firstSelectable, renderRange, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
 export interface SettingItem {
@@ -135,7 +135,7 @@ export function SettingsList(props: {
         const dim = () => it()?.disabled === true;
         return (
           <View x={0} y={(i - top()) * SETTING_ROW_H} width={props.width} height={DRAWN_H}
-            borderRadius={LAYOUT.radius}
+            borderRadius={RADIUS.card}
             color={active() ? COLORS.focus : isSel() ? COLORS.surface : hovered() ? COLORS.hover : COLORS.transparent}>
             <Text x={28} y={heading() ? DRAWN_H - TYPE.meta - 10 : it()?.help ? LABEL_Y : valueY}
               width={labelW()} maxWidth={labelW()} contain="width" maxLines={1}

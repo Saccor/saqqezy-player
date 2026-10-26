@@ -2,7 +2,7 @@ import { For, Text, View } from '@lightningtv/solid';
 import { Row } from '@lightningtv/solid/primitives';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { router, type ScreenEntry, type ScreenId } from '../shell/router.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 
 const TITLES: Record<ScreenId, string> = {
   addSource: 'Add source',
@@ -42,7 +42,7 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={screen === 'player' ? COLORS.transparent : COLORS.background}>
       <View x={LAYOUT.safeX} y={160} width={panelW} height={460} color={COLORS.surface}
-        borderRadius={LAYOUT.radius * 2} forwardFocus={0}>
+        borderRadius={RADIUS.card} forwardFocus={0}>
         {isHome
           ? (
             <Row x={48} y={300} width={rowW} height={BUTTON_H} gap={LAYOUT.gap} scroll="none" autofocus>
@@ -50,7 +50,7 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
             </Row>
           )
           : <View x={48} y={300} width={2} height={2} autofocus />}
-        <Text x={48} y={48} fontSize={TYPE.display} color={COLORS.text}>{TITLES[screen]}</Text>
+        <Text x={48} y={48} fontSize={TYPE.title} color={COLORS.text}>{TITLES[screen]}</Text>
         <Text x={48} y={124} fontSize={TYPE.body} color={COLORS.muted}>
           {`This is the ${TITLES[screen]} screen (placeholder).`}
         </Text>

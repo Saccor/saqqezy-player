@@ -5,7 +5,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
@@ -30,7 +30,7 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   return (
     <View x={props.x} y={props.y} width={LOGO_W} height={LOGO_H} borderRadius={8}
-      color={props.focused ? COLORS.onFocusTrack : COLORS.surface}>
+      color={props.focused ? COLORS.focus : COLORS.surface}>
       <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed fallback={
         <Text y={(LOGO_H - TYPE.meta) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
           fontSize={TYPE.meta} color={props.focused ? COLORS.onFocusMuted : COLORS.muted}>{`${props.number}`}</Text>
@@ -71,7 +71,7 @@ function ChannelRowView(props: {
     return `${formatRange(n.start, n.stop)} · ${n.title}`;
   };
   return (
-    <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={LAYOUT.radius}>
+    <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={RADIUS.card}>
       {/* Five digits and more (lists of 10,000+ channels) at a smaller size: at body size they are wider than the column. */}
       <Text x={12} y={(ROW_H - 6 - numSize()) / 2 - 3} width={NUM_W - 16} maxWidth={NUM_W - 16} contain="width" maxLines={1}
         textAlign="right" fontSize={numSize()} color={textSub()}>{`${r()?.number ?? ''}`}</Text>
@@ -90,7 +90,7 @@ function ChannelRowView(props: {
           maxLines={1} textAlign="right" fontSize={TYPE.meta} color={textSub()}>{t()}</Text>
       )}</Show>
       <Show when={r()?.now}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusTrack : TRACK}>
+        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusMuted : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
             color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>

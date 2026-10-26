@@ -1,12 +1,13 @@
 import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
 import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
+import { MOTION } from '../shell/theme.ts';
 import { oneSpace } from './tracks.ts';
 
 /** Track helpers (keys, labels, rows): moved to `tracks.ts`; re-exported so existing imports keep working. */
 export { LANGUAGE_NAMES, SUBTITLES_OFF, findTrack, oneSpace, trackKey, trackRows } from './tracks.ts';
 
-export const OVERLAY_HIDE_MS = 4000;
+export const OVERLAY_HIDE_MS = MOTION.autoHide;
 export const NEXT_COUNTDOWN_S = 10;
 export const PROGRESS_SAVE_MS = 10_000;
 

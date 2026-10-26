@@ -243,7 +243,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       <Backdrop url={backdrop()} area="detail" />
       <View zIndex={2}>
 
-      <Text x={INFO_X} y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.detailTitle} {...STRONG}
+      <Text x={INFO_X} y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.hero} {...STRONG}
         color={COLORS.text}>{tile()?.title ?? ''}</Text>
       <Text x={INFO_X} y={META_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
         {joinMeta(metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }), tile()?.quality)}

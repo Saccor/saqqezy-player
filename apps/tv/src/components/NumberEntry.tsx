@@ -1,5 +1,5 @@
 import { Text, View } from '@lightningtv/solid';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 
 const H = 110;
 /** Below the shell clock in the top-right corner. */
@@ -13,9 +13,9 @@ export function NumberEntry(props: { text: string; message?: string | undefined 
   const width = () => (props.message ? 600 : 240);
   return (
     <View x={LAYOUT.width - LAYOUT.safeX - width()} y={Y} width={width()} height={H}
-      color={COLORS.panel} borderRadius={LAYOUT.radius * 2} border={{ width: 2, color: COLORS.subtle }} zIndex={30}>
-      <Text y={props.message ? (H - TYPE.body) / 2 - 4 : (H - TYPE.numberEntry) / 2 - 4} width={width()} maxWidth={width()}
-        contain="width" maxLines={1} textAlign="center" fontSize={props.message ? TYPE.body : TYPE.numberEntry} {...STRONG}
+      color={COLORS.panel} borderRadius={RADIUS.card} border={{ width: 2, color: COLORS.subtle }} zIndex={30}>
+      <Text y={props.message ? (H - TYPE.body) / 2 - 4 : (H - TYPE.numeral) / 2 - 4} width={width()} maxWidth={width()}
+        contain="width" maxLines={1} textAlign="center" fontSize={props.message ? TYPE.body : TYPE.numeral} {...STRONG}
         color={COLORS.text}>{props.message ?? props.text}</Text>
     </View>
   );

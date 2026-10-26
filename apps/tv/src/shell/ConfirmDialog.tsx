@@ -3,7 +3,7 @@ import { Row } from '@lightningtv/solid/primitives';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { scrimIn } from './motion.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from './theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from './theme.ts';
 
 const WIDTH = 720;
 const HEIGHT = 300;
@@ -32,7 +32,7 @@ export function ConfirmDialog(props: {
       {/* The panel rises inside `lift`; the scrim only fades (scrimIn). */}
       <View ref={(el) => { lift = el; }}>
         <View ref={(el) => { box = el; }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - HEIGHT) / 2} width={WIDTH} height={HEIGHT}
-          color={COLORS.surface} borderRadius={LAYOUT.radius * 2}>
+          color={COLORS.surface} borderRadius={RADIUS.card}>
           {/* At most three lines, ending above the buttons (a long list name used to wrap into them). */}
           <Text x={24} y={props.detail ? 28 : 40} width={WIDTH - 48} maxWidth={WIDTH - 48} contain="width"
             maxLines={props.detail ? 2 : 3} lineHeight={32} textAlign="center"

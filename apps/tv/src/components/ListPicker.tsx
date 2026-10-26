@@ -4,7 +4,7 @@ import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '.
 import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerIcon, PickerRow } from '../screens/homeMenuLogic.ts';
 import { scrimIn } from '../shell/motion.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { pickerFooter, pickerSelectable } from './listPickerLogic.ts';
 import { firstSelectable, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
@@ -127,7 +127,7 @@ export function ListPicker(props: {
       {/* The panel rises inside `lift`; the scrim only fades (scrimIn). */}
       <View ref={(el) => { lift = el; }}>
         <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
-          width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+          width={WIDTH} height={height()} color={COLORS.surface} borderRadius={RADIUS.card}
           onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
           onMenu={() => true} onLongOk={() => true}
           onEnter={() => { const r = props.rows[current()]; if (r && selectable(current())) props.onPick(r); return true; }}>
@@ -146,7 +146,7 @@ export function ListPicker(props: {
                 <Text x={PAD + 24} y={y() + ITEM_H - TYPE.meta - 14} width={WIDTH - PAD * 2 - 48} maxWidth={WIDTH - PAD * 2 - 48}
                   contain="width" maxLines={1} fontSize={TYPE.meta} {...STRONG} color={COLORS.muted}>{v.row.label}</Text>
               }>
-                <View x={PAD} y={y()} width={WIDTH - PAD * 2} height={ITEM_H} borderRadius={LAYOUT.radius}
+                <View x={PAD} y={y()} width={WIDTH - PAD * 2} height={ITEM_H} borderRadius={RADIUS.card}
                   color={focused() ? COLORS.focus : hovered() ? COLORS.hover : COLORS.background}>
                   <Show when={list()?.icon}>{(icon) => <RowIcon icon={icon()} fg={fg()} />}</Show>
                   <Text x={textX()} y={(ITEM_H - TYPE.body) / 2 - 4} width={textW()} maxWidth={textW()} contain="width" maxLines={1}

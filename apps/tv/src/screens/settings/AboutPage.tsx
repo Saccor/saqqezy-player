@@ -28,7 +28,7 @@ export function AboutPage(props: PageProps) {
   const w = props.width - 56;
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
-      <Text x={28} y={8} fontSize={TYPE.display} color={COLORS.text}>{APP_NAME}</Text>
+      <Text x={28} y={8} fontSize={TYPE.title} color={COLORS.text}>{APP_NAME}</Text>
       <Text x={28} y={80} fontSize={TYPE.body} color={COLORS.muted}>{version() ? `Version ${version()}` : ''}</Text>
       <Text x={28} y={150} width={w} maxWidth={w} contain="width" lineHeight={40} fontSize={TYPE.body}
         color={COLORS.text}>{LEGAL_TEXT}</Text>

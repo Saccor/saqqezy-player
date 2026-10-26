@@ -4,7 +4,7 @@ import type { SupervisorStatus } from '@iptv/player';
 import { onLogicalKey, onUnmappedKey } from '../input/keys.ts';
 import { platformId, startupMs, supervisorStatus } from '../state/appState.ts';
 import { createTapSequence, slowestFrameMs } from './logic.ts';
-import { COLORS, LAYOUT, TYPE } from './theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from './theme.ts';
 
 const WIDTH = 460;
 const LINE = 34;
@@ -93,7 +93,7 @@ export function DebugOverlay() {
   return (
     <Show when={visible()}>
       <View x={LAYOUT.safeX} y={LAYOUT.height - LAYOUT.safeY - HEIGHT} width={WIDTH} height={HEIGHT} color={COLORS.panel}
-        borderRadius={LAYOUT.radius} zIndex={100}>
+        borderRadius={RADIUS.card} zIndex={100}>
         <Text x={16} y={12} fontSize={TYPE.meta} color={COLORS.accent}>Debug</Text>
         <Index each={lines()}>
           {(l, i) => <Text x={16} y={12 + LINE * (i + 1)} fontSize={TYPE.meta} color={COLORS.text}>{l()}</Text>}

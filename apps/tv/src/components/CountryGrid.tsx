@@ -4,7 +4,7 @@ import type { CountryChoice } from '@iptv/app-api';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
-import { COLORS, FOCUS, LAYOUT, MOTION, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, FOCUS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { FocusRing } from './FocusRing.tsx';
 import {
   CHIP, ROW_PITCH, DEVICE_CHIP_BOXES, CHIP_BOXES, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
@@ -42,12 +42,12 @@ function Chip(p: {
   const box = () => (p.device ? DEVICE_CHIP_BOXES : CHIP_BOXES);
   return (
     <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
-      <FocusRing w={CHIP.w} h={CHIP.h} radius={LAYOUT.radius} lit={p.lit} hover={p.hover} />
-      <View width={CHIP.w} height={CHIP.h} zIndex={1} borderRadius={LAYOUT.radius}
+      <FocusRing w={CHIP.w} h={CHIP.h} radius={RADIUS.card} lit={p.lit} hover={p.hover} />
+      <View width={CHIP.w} height={CHIP.h} zIndex={1} borderRadius={RADIUS.card}
         color={picked() ? COLORS.surfaceRaised : COLORS.surface}
         border={picked() ? { width: 4, color: COLORS.accent } : { width: 0, color: COLORS.transparent }}>
         <Show when={'src' in p.art ? p.art.src : undefined} fallback={
-          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={LAYOUT.radius} color={COLORS.badge}>
+          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.badge}>
             <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
               fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
           </View>

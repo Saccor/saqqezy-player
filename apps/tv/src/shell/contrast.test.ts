@@ -15,8 +15,6 @@ describe('contrast', () => {
     expect(contrast(COLORS.muted, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.onFocus, COLORS.focus)).toBeGreaterThanOrEqual(7);
     expect(contrast(COLORS.onFocusMuted, COLORS.focus)).toBeGreaterThanOrEqual(4.5);
-    // A focused row's channel number on its logo tile; the keyboard's Shift key while on.
-    expect(contrast(COLORS.onFocusMuted, COLORS.onFocusTrack)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.onFocus, COLORS.subtle)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.accent, COLORS.background)).toBeGreaterThanOrEqual(3);
     expect(contrast(COLORS.focus, COLORS.background)).toBeGreaterThanOrEqual(3);

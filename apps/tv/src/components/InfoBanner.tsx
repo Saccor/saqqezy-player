@@ -5,7 +5,7 @@ import { imageSrc } from '../images/imageSrc.ts';
 import { monogram } from '../screens/guideLogic.ts';
 import { bannerNextLine, NO_GUIDE_INFO, progressOf } from '../screens/homeLogic.ts';
 import { formatClock } from '../shell/logic.ts';
-import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { scrimTexture } from '../vod/scrim.ts';
 import { logoCache } from './logoCache.ts';
@@ -40,7 +40,7 @@ function BannerLogo(props: { url: string | undefined; name: string }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   const key = () => logoKey(props.url, failedUrl(), (u) => logoCache.usable(u));
   return (
-    <View y={TOP} width={LOGO} height={LOGO} borderRadius={LAYOUT.radius} color={COLORS.surfaceRaised}>
+    <View y={TOP} width={LOGO} height={LOGO} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
       {/* No logo in the user's own data: a tile with two initials. */}
       <Show when={key() === undefined}>
         <Text y={(LOGO - TYPE.title) / 2 - 2} width={LOGO} maxWidth={LOGO} contain="width" textAlign="center" maxLines={1}
@@ -50,7 +50,7 @@ function BannerLogo(props: { url: string | undefined; name: string }) {
         {(url) => {
           logoCache.touch(url);
           return (
-            <View width={LOGO} height={LOGO} borderRadius={LAYOUT.radius} src={imageSrc(url, LOGO, LOGO)}
+            <View width={LOGO} height={LOGO} borderRadius={RADIUS.card} src={imageSrc(url, LOGO, LOGO)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
@@ -114,7 +114,7 @@ export function InfoBanner(props: {
 
       <Show when={c().now} keyed fallback={
         <Text x={TEXT_X} y={TITLE_Y} width={plainTitleW()} maxWidth={plainTitleW()} contain="width" maxLines={1}
-          fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.textSecondary}>{NO_GUIDE_INFO}</Text>
+          fontSize={TYPE.title} {...STRONG} color={COLORS.textSecondary}>{NO_GUIDE_INFO}</Text>
       }>{(n) => (
         <>
           {/* Catch-up channel: the programme on now can play from its start (Options → From the start). */}
@@ -123,7 +123,7 @@ export function InfoBanner(props: {
               color={COLORS.muted} />
           </Show>
           <Text x={titleX()} y={TITLE_Y} width={titleW()} maxWidth={titleW()} contain="width" maxLines={1}
-            fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.text}>{n.title}</Text>
+            fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{n.title}</Text>
           <Text x={TEXT_X} y={PROGRESS_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={TYPE.meta} color={COLORS.muted}>{formatClock(new Date(n.start))}</Text>
           <View x={trackX} y={PROGRESS_Y + (TYPE.meta * 1.2 - TRACK_H) / 2} width={trackW} height={TRACK_H}

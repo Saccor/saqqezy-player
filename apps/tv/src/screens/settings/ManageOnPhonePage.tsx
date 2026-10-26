@@ -5,7 +5,7 @@ import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
 import { rowHit } from '../../input/pointerLogic.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
   countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy, toggleButtonLabel,
@@ -208,19 +208,19 @@ export function ManageOnPhonePage(props: PageProps) {
         <QrCode x={PANEL_X} size={QR_SIZE} text={shown()?.qrUrl ?? ''} />
       </Show>
       <Show when={panel() === 'code'}>
-        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
+        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={RADIUS.card}>
           <Text y={90} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
             color={COLORS.muted}>{'On your phone or computer, open'}</Text>
           <Text y={136} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body} {...STRONG}
             color={COLORS.text}>{companionHost()}</Text>
           <Text y={210} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
             color={COLORS.muted}>{'and type this code:'}</Text>
-          <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.detailTitle} {...STRONG}
+          <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.hero} {...STRONG}
             color={COLORS.text}>{shown()?.code ?? ''}</Text>
         </View>
       </Show>
       <Show when={panel() === 'message'}>
-        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
+        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={RADIUS.card}>
           <Text x={32} y={40} width={PANEL_W - 64} maxWidth={PANEL_W - 64} contain="width" lineHeight={40}
             fontSize={TYPE.body} color={COLORS.muted}>{message()}</Text>
         </View>

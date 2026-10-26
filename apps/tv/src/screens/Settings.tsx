@@ -9,7 +9,7 @@ import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
@@ -78,7 +78,7 @@ function Menu(props: {
         const isSel = () => i() === props.selected;
         const hovered = () => pointerMode() && hover() === i();
         return (
-          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_DRAWN} borderRadius={LAYOUT.radius}
+          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_DRAWN} borderRadius={RADIUS.card}
             color={isSel() ? (focused() ? COLORS.focus : COLORS.surfaceRaised) : hovered() ? COLORS.hover : COLORS.transparent}>
             <Text x={24} y={(MENU_ROW_DRAWN - TYPE.body) / 2 - 3} fontSize={TYPE.body}
               color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
@@ -280,7 +280,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
         return (
           <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
             <View ref={(el) => { busyNode = el; }} x={(LAYOUT.width - BUSY_W) / 2} y={(LAYOUT.height - BUSY_H) / 2}
-              width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+              width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={RADIUS.card}
               onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
               onBack={() => true}>
               <Text y={(BUSY_H - TYPE.body) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"

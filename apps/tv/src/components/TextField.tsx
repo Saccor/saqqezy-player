@@ -2,7 +2,7 @@ import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { maskSecret } from '../screens/addSourceLogic.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 import { visibleTail } from './keyboardLogic.ts';
 
 export const FIELD_H = 100;
@@ -62,7 +62,7 @@ export function TextField(props: {
 
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={FIELD_H}
-      borderRadius={LAYOUT.radius} color={fill()}
+      borderRadius={RADIUS.card} color={fill()}
       onFocusChanged={setFocused}
       onEnter={() => { props.onEnter(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}

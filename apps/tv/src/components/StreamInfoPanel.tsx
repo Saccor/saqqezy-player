@@ -1,5 +1,5 @@
 import { For, Text, View } from '@lightningtv/solid';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 
 /**
  * Sized to stay clear of the Player's other top and centre boxes: with 7 lines it is 96–696 × 54–400, left of the
@@ -18,7 +18,7 @@ export function StreamInfoPanel(props: { lines: [string, string][] }) {
   const height = () => PAD * 2 + 52 + props.lines.length * LINE_H;
   return (
     <View x={LAYOUT.safeX} y={LAYOUT.safeY} width={W} height={height()} color={COLORS.panel}
-      borderRadius={LAYOUT.radius * 2} zIndex={20}>
+      borderRadius={RADIUS.card} zIndex={20}>
       <Text x={PAD} y={PAD} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'Stream info'}</Text>
       <For each={props.lines}>{(line, i) => (
         <View x={PAD} y={PAD + 52 + i() * LINE_H} width={W - PAD * 2} height={LINE_H}>

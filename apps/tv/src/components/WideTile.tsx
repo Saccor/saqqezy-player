@@ -3,7 +3,7 @@ import type { ProgrammeHit } from '@iptv/app-api';
 import { imageSrc } from '../images/imageSrc.ts';
 import { FocusRing } from './FocusRing.tsx';
 import { useFocusScale } from '../shell/motion.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { progressOf } from '../screens/homeLogic.ts';
 import { COMPACT_H, COMPACT_W, MATCH_GRID_H, WIDE_H, WIDE_W, wideLines, type WideCell } from './wideTileLogic.ts';
 
@@ -49,8 +49,8 @@ export function WideTile(props: {
   useFocusScale(() => node, () => props.lit);
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={tw()} height={th()} zIndex={props.lit ? 2 : 1}>
-      <FocusRing w={tw()} h={th()} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
-      <View width={tw()} height={th()} zIndex={1} color={COLORS.surface} borderRadius={LAYOUT.radius} />
+      <FocusRing w={tw()} h={th()} radius={RADIUS.card} lit={props.lit} hover={props.hover} />
+      <View width={tw()} height={th()} zIndex={1} color={COLORS.surface} borderRadius={RADIUS.card} />
       <Show when={props.compact} fallback={<FullBody image={image()} context={lines().context} main={lines().main} onAir={onAir()} now={props.now} />}>
         <CompactBody image={image()} context={lines().context} main={lines().main} sides={lines().sides} detail={props.detail} live={lines().live} h={th()} />
       </Show>

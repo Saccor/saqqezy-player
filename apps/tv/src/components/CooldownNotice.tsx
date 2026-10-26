@@ -1,6 +1,6 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 import { stackedMessage } from './messageFit.ts';
 
 /**
@@ -21,7 +21,7 @@ export function CooldownNotice(props: {
   const s = () => stackedMessage(props.text, { width: w(), fontSize: size(), maxLines: 3 }, props.height, TYPE.meta);
   return (
     <View ref={(el) => { node = el; }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={props.height}
-      color={COLORS.surface} borderRadius={LAYOUT.radius} zIndex={props.zIndex ?? 4}>
+      color={COLORS.surface} borderRadius={RADIUS.card} zIndex={props.zIndex ?? 4}>
       <Text x={pad} y={s().textY} width={w()} maxWidth={w()} contain="width" maxLines={s().lines} lineHeight={s().lineH}
         textAlign="center" fontSize={size()} color={COLORS.text}>{props.text}</Text>
       <Text x={pad} y={s().hintY} width={w()} maxWidth={w()} contain="width" maxLines={1}

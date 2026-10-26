@@ -5,7 +5,7 @@ import { router } from './router.ts';
 import { riseIn } from './motion.ts';
 import { COLORS, LAYOUT, MOTION, TYPE } from './theme.ts';
 
-export const TOAST_MS = 4000;
+export const TOAST_MS = MOTION.autoHide;
 /** Default precedence. Only background guide-refresh failures use a lower one (0), so they never interrupt. */
 export const TOAST_PRIORITY_NORMAL = 1;
 

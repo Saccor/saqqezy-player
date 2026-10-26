@@ -4,7 +4,7 @@ import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { fadeInLoaded, motionNow } from '../shell/motion.ts';
-import { COLORS, LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
@@ -43,8 +43,8 @@ export function PosterArt(props: {
   const face = () => posterFace({ pending: props.pending === true, image: shown(), loaded: shown() !== undefined && loadedUrl() === shown(), failed: false });
   return (
     <View width={props.w} height={props.h}>
-      <FocusRing w={props.w} h={props.h} radius={LAYOUT.radius} lit={props.lit} hover={props.hover} />
-      <View width={props.w} height={props.h} zIndex={1} borderRadius={LAYOUT.radius}
+      <FocusRing w={props.w} h={props.h} radius={RADIUS.card} lit={props.lit} hover={props.hover} />
+      <View width={props.w} height={props.h} zIndex={1} borderRadius={RADIUS.card}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>
         <Text x={12} y={props.h / 2 - TYPE.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
@@ -70,13 +70,13 @@ export function PosterArt(props: {
             };
             return (
               <View ref={(el) => { img = el; }} alpha={MOTION.startAlpha} width={props.w} height={props.h} zIndex={3}
-                borderRadius={LAYOUT.radius} src={imageSrc(u, props.w, props.h)}
+                borderRadius={RADIUS.card} src={imageSrc(u, props.w, props.h)}
                 onEvent={{ loaded: onLoaded, failed: () => { posterCache.markFailed(u); setFailedUrl(u); } }} />
             );
           }}
         </Show>
         <Show when={props.progress !== undefined}>
-          <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={COLORS.imageTrack}>
+          <View y={props.h - BAR_H} width={props.w} height={BAR_H} zIndex={4} color={COLORS.track}>
             <View width={barWidth(props.progress, props.w)} height={BAR_H} color={COLORS.accent} />
           </View>
         </Show>

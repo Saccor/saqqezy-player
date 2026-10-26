@@ -4,7 +4,7 @@ import { MESSAGE_BOXES, messageTop } from '../../components/messageFit.ts';
 import { pointerMode, usePointerTarget } from '../../input/pointer.ts';
 import { PAUSED_NOTE } from '../../playback/devResume.ts';
 import { playback } from '../../playback/playback.ts';
-import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, TYPE } from '../../shell/theme.ts';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
 import { cooldown } from '../../state/appState.ts';
 import { cooldownCopy, freshNow } from '../../state/cooldownLogic.ts';
@@ -42,7 +42,7 @@ export function LiveVideo(props: { now: number; pausedNote: boolean; onRetry: ()
         <CooldownNotice x={R.x} y={R.y} width={R.w} height={R.h} text={c().text} hint={c().hint} onRetry={props.onRetry} />
       )}</Show>
       <Show when={notice() ? undefined : message()}>{(m) => (
-        <View x={R.x} y={R.y} width={R.w} height={R.h} borderRadius={LAYOUT.radius}
+        <View x={R.x} y={R.y} width={R.w} height={R.h} borderRadius={RADIUS.card}
           color={failed() || !playing() ? COLORS.surface : COLORS.panel}>
           <Text x={PAD} y={messageTop(m(), BOX, R.h)} width={R.w - PAD * 2} maxWidth={R.w - PAD * 2} contain="width"
             maxLines={BOX.maxLines} lineHeight={BOX.lineH} textAlign="center" fontSize={TYPE.body}

@@ -12,7 +12,7 @@ export function InitError(props: { onRetry: () => void }) {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}>
       <Text x={0} y={380} width={LAYOUT.width} maxWidth={LAYOUT.width} contain="width" textAlign="center"
-        fontSize={TYPE.display} color={COLORS.text}>{"Couldn't load your saved data"}</Text>
+        fontSize={TYPE.title} color={COLORS.text}>{"Couldn't load your saved data"}</Text>
       <Text x={0} y={470} width={LAYOUT.width} maxWidth={LAYOUT.width} contain="width" textAlign="center"
         fontSize={TYPE.body} color={COLORS.muted}>{'Your sources are still saved on this device. Try again.'}</Text>
       <Button ref={(el) => { retry = el; }} x={(LAYOUT.width - BTN_W) / 2} y={580} width={BTN_W} label="Retry"
