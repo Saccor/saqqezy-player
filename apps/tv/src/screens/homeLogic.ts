@@ -1,5 +1,6 @@
 /** Pure helpers shared by Live TV, Start, Search and the Player's banner (unit-tested). */
 import type { SupervisorStatus } from '@iptv/player';
+import { LIVE_COPY } from '../copy.ts';
 import { failureText } from '../playback/failureText.ts';
 import { formatClock } from '../shell/logic.ts';
 
@@ -74,14 +75,14 @@ export function formatRange(start: number, stop: number): string {
 }
 
 /** The banner's and Start's text when a channel has no programme on now. */
-export const NO_GUIDE_INFO = 'No guide information';
+export const NO_GUIDE_INFO = LIVE_COPY.noGuideInfo;
 /** `Now · <title>`: the programme on now (its time range and progress are drawn separately). */
-export const nowLine = (p: { title: string }): string => `Now · ${p.title}`;
+export const nowLine = (p: { title: string }): string => LIVE_COPY.nowNext.now(p.title);
 /** `Next · 20:00–21:30 · <title>`: the programme after it, with its time range. */
-export const nextLine = (p: { title: string; start: number; stop: number }): string => `Next · ${formatRange(p.start, p.stop)} · ${p.title}`;
+export const nextLine = (p: { title: string; start: number; stop: number }): string => LIVE_COPY.nowNext.next(formatRange(p.start, p.stop), p.title);
 /** The live banner's next line: `Next · 21:00 <title>` (start time only), or '' when nothing is known. */
 export function bannerNextLine(next: { start: number; title: string } | undefined): string {
-  return next ? `Next · ${formatClock(new Date(next.start))} ${next.title}` : '';
+  return next ? LIVE_COPY.nowNext.nextAt(formatClock(new Date(next.start)), next.title) : '';
 }
 /** One line for both: the Player's info banner and Start's hero say the same thing about a channel. */
 export function nowNextLine(c: { now?: { title: string }; next?: { title: string; start: number; stop: number } }): string {

@@ -1,11 +1,12 @@
 /** View all matches: sections, the grid's places, key movement and scroll (spec 2026-10-22 §3). Pure: no Solid, no Lightning. */
 import type { SportsEventTile } from '@iptv/app-api';
 import { competitionKey } from '@iptv/core';
+import { LIVE_COPY } from '../copy.ts';
 
 export type MatchSectionId = 'live' | 'today' | 'tomorrow';
 /** `from`/`to`: the section's index range in `order`. */
 export interface MatchSection { id: MatchSectionId; label: string; from: number; to: number }
-export const SECTION_LABELS: Record<MatchSectionId, string> = { live: 'Live now', today: 'Later today', tomorrow: 'Tomorrow' };
+export const SECTION_LABELS: Record<MatchSectionId, string> = LIVE_COPY.matches.sections;
 const SECTION_ORDER: readonly MatchSectionId[] = ['live', 'today', 'tomorrow'];
 
 export function sectionOf(e: Pick<SportsEventTile, 'start' | 'stop'>, now: number): MatchSectionId {

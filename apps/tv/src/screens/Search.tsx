@@ -3,6 +3,7 @@ import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
+import { LIVE_COPY } from '../copy.ts';
 import { Row } from '../components/Row.tsx';
 import { WIDE_H } from '../components/wideTileLogic.ts';
 import { devResume } from '../playback/devResume.ts';
@@ -274,9 +275,9 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       forwardFocus={() => place(clampSearchFocus(focus(), rows()))} onBack={onBack}>
       <Rail ref={(el) => { railNode = el; }} active="search" onSelect={onRailSelect}
         onRight={() => place(clampSearchFocus(focus(), rows()))} onFocusChanged={(f) => setOnRail(f)} />
-      <Text x={KB_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Search'}</Text>
+      <Text x={KB_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{LIVE_COPY.search.title}</Text>
 
-      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel, programme or title" hint="Right: results · Back returns" value={query()}
+      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={LIVE_COPY.search.keyboardLabel} value={query()}
         onChange={onChange} onDone={() => { step(KEYBOARD, 'right'); }}
         onEdgeRight={() => { step(KEYBOARD, 'right'); }} onEdgeLeft={() => { step(KEYBOARD, 'left'); }} />
 

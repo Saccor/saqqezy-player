@@ -51,7 +51,7 @@ export function tileFailure(f: TileFailureFacts): TileFailureView {
   const inMs = Math.max(0, f.at + RETRY_REST_MS - f.now);
   let text: string;
   if (f.deviceLimit) text = MULTIVIEW_COPY.deviceLimit;
-  else if (f.kicked !== undefined) text = MULTIVIEW_COPY.kicked(f.kicked);
+  else if (f.kicked !== undefined) text = MULTIVIEW_COPY.limit;
   else if (f.escalated) text = MULTIVIEW_COPY.escalated;
   else {
     const facts: FailureFacts = { reason: f.reason };

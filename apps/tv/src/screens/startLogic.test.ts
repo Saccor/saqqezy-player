@@ -133,7 +133,8 @@ describe('See all: category chips (design note §3.7–3.8)', () => {
     expect(activeMatchChip(chips, [])).toBe('all');
   });
   test('neutral copy', () => {
-    expect(MATCHES_COPY).toEqual({ title: 'Matches', empty: 'No matches in your guide right now.', allSports: 'All sports', more: 'More…' });
+    expect({ title: MATCHES_COPY.title, empty: MATCHES_COPY.empty, allSports: MATCHES_COPY.allSports, more: MATCHES_COPY.more })
+      .toEqual({ title: 'Matches', empty: 'No matches in your guide right now.', allSports: 'All sports', more: 'More…' });
   });
 });
 

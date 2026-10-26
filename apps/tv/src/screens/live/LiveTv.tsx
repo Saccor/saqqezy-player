@@ -25,7 +25,7 @@ import { dwellSignal } from '../../shell/dwell.ts';
 import { focusRailCollapsed, Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
 import { useNotice } from '../../components/Notice.tsx';
-import { SHELL_COPY } from '../../copy.ts';
+import { LIVE_COPY, SHELL_COPY } from '../../copy.ts';
 import { goRail } from '../../shell/railNav.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
@@ -409,7 +409,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const pickerView = createMemo(() => {
     if (!picking()) return undefined;
     return foldView(groups(), effectiveLevel(), {
-      title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
+      title: LIVE_COPY.state.groups, picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
       label: (g) => `${g.name} · ${g.count}`, flagOf: flagFor,
       onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
     });

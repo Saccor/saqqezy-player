@@ -3,8 +3,10 @@
  * itself when it comes from a remote source, so hot reloads never reconnect to a real source. The local fake source
  * still resumes. Production builds (TVs) always resume.
  */
+import { PLAYER_COPY } from '../copy.ts';
+
 export const LOCAL_FAKE_HOST = '127.0.0.1:8899';
-export const PAUSED_NOTE = 'Paused after reload: press OK to play';
+export const PAUSED_NOTE = PLAYER_COPY.pausedAfterReload;
 
 export interface DevResumeGate {
   /** May Home resume the channel at `url` by itself? The first call after the page load decides. */

@@ -1,5 +1,6 @@
 import type { LiveSourceView, PlayableChannel } from '@iptv/app-api';
 import type { OptionItem } from '../components/sheetLogic.ts';
+import { PLAYER_COPY } from '../copy.ts';
 
 /**
  * Combined live channels on the TV (spec 2026-10-20-live-sources-tv): the Choose source list, the guide cell's badge
@@ -15,9 +16,9 @@ const hasWord = (text: string, word: string): boolean => text.toUpperCase().spli
 export function sourceLabel(s: LiveSourceView, i: number, playingId: string | undefined): string {
   const parts = [s.label];
   if (s.quality && !hasWord(s.label, s.quality)) parts.push(s.quality);
-  if (i === 0) parts.push('Auto');
-  if (s.id === playingId) parts.push('Playing');
-  else if (s.bad) parts.push("Didn't play");
+  if (i === 0) parts.push(PLAYER_COPY.source.auto);
+  if (s.id === playingId) parts.push(PLAYER_COPY.source.playing);
+  else if (s.bad) parts.push(PLAYER_COPY.source.didntPlay);
   return parts.join(' · ');
 }
 

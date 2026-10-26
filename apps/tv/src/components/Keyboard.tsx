@@ -1,5 +1,6 @@
 import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
+import { SHELL_COPY } from '../copy.ts';
 import { captureTextInput } from '../input/keys.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
@@ -111,9 +112,7 @@ export function Keyboard(props: {
   );
 
   const shown = () => fieldDisplay(props.value, { secret: props.secret, revealed: props.revealed, editing: true, max: 36 });
-  const hint = () => props.hint ?? (props.secret
-    ? `Back closes and keeps the text · Yellow: ${props.revealed ? 'hide' : 'show'} password`
-    : 'Back closes and keeps the text');
+  const hint = () => props.hint ?? (props.secret ? (props.revealed ? SHELL_COPY.revealHide : SHELL_COPY.revealShow) : '');
 
   return (
     <View ref={(el) => { root = el; props.ref?.(el); }} x={props.x} y={props.y} width={L().width} height={L().height} zIndex={30}

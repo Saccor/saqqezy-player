@@ -1,5 +1,6 @@
 /** What a wide or compact tile says, and its size (Start, Search). Pure: no Solid, no Lightning. */
 import type { StartCell } from '@iptv/app-api';
+import { LIVE_COPY } from '../copy.ts';
 import { folderCount, programmeContext, type FolderCell, type ProgrammeCell } from '../screens/searchLogic.ts';
 import { channelsLabel, channelsShort, eventWhen } from '../screens/startLogic.ts';
 
@@ -31,7 +32,7 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
   let sides: [string, string] | undefined;
   if (c.type === 'channel') {
     context = channelNumbers ? `${c.channel.number} · ${c.channel.name}` : c.channel.name;
-    main = c.channel.now?.title ?? 'No guide information';
+    main = c.channel.now?.title ?? LIVE_COPY.noGuideInfo;
   } else if (c.type === 'event') {
     live = c.event.start <= now && now < c.event.stop;
     context = `${eventWhen(c.event, now)} · ${(short ? channelsShort : channelsLabel)(c.event.channelCount)}`;
@@ -44,7 +45,7 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
     context = folderCount(c.hit);
     main = c.hit.name;
   } else if (c.type === 'viewAll') {
-    main = 'View all';
+    main = LIVE_COPY.tile.viewAll;
   }
   const out: { context: string; main: string; live: boolean; sides?: [string, string] } = { context: context === main ? '' : context, main, live };
   if (sides) out.sides = sides;

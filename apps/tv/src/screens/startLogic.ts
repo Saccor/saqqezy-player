@@ -1,7 +1,7 @@
 /** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
 import type { MatchFilterChip, SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
 import { HIDDEN_COMPETITIONS_MAX, PINNED_COMPETITIONS_MAX, competitionKey, type AppSettings } from '@iptv/core';
-import { CATCHUP_COPY, favToggleLabel } from '../copy.ts';
+import { CATCHUP_COPY, COMMON_COPY, favToggleLabel, LIVE_COPY } from '../copy.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
@@ -50,13 +50,13 @@ export function locateStart(rows: StartRow[], mem: StartMemory): StartFocus {
 }
 
 export function eventWhen(e: Pick<SportsEventTile, 'start' | 'stop'>, now: number): string {
-  if (e.start <= now && now < e.stop) return 'Live';
-  if (e.start > now && e.start - now < 3600_000) return `In ${Math.max(1, Math.round((e.start - now) / 60_000))} min`;
+  if (e.start <= now && now < e.stop) return LIVE_COPY.start.live;
+  if (e.start > now && e.start - now < 3600_000) return LIVE_COPY.start.inMinutes(Math.max(1, Math.round((e.start - now) / 60_000)));
   const d = new Date(e.start);
   const today = new Date(now);
   const sameDay = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
   // A past start on another day (still running tiles are 'Live' above; a stale one) shows just the time.
-  return sameDay || e.start <= now ? formatClock(d) : `Tomorrow ${formatClock(d)}`;
+  return sameDay || e.start <= now ? formatClock(d) : LIVE_COPY.start.tomorrowAt(formatClock(d));
 }
 
 /**
@@ -76,9 +76,9 @@ export const channelsShort = (n: number) => `${n} ch`;
  * menu rather than at once, so a long press never flips a favourite by surprise. Cancel is last, like Home's.
  */
 export function channelMenuItems(favourite: boolean): { id: 'fav' | 'cancel'; label: string }[] {
-  return [{ id: 'fav', label: favToggleLabel(favourite) }, { id: 'cancel', label: 'Cancel' }];
+  return [{ id: 'fav', label: favToggleLabel(favourite) }, { id: 'cancel', label: COMMON_COPY.cancel }];
 }
-export const emptyStartText = () => 'Your start page fills up as you watch.';
+export const emptyStartText = () => LIVE_COPY.start.empty;
 
 /** Start's dense layout (spec 2026-10-22 §1.1): no info strip, rows from just under the safe top. */
 export const START_ROW_Y = LAYOUT.safeY + 26;
@@ -111,14 +111,14 @@ export function eventMenuItems(e: SportsEventTile, st: MatchPrefs, archived: boo
   const items: { id: string; label: string }[] = [];
   if (archived) items.push({ id: 'fromStart', label: CATCHUP_COPY.fromStart });
   for (const side of e.sides ?? []) {
-    items.push({ id: `follow:${side}`, label: `${st.followedTeams.some((f) => sameTeam(f, side)) ? 'Unfollow' : 'Follow'} ${side}` });
+    items.push({ id: `follow:${side}`, label: st.followedTeams.some((f) => sameTeam(f, side)) ? LIVE_COPY.start.unfollow(side) : LIVE_COPY.start.follow(side) });
   }
   if (e.competition) {
     const pinned = st.pinnedCompetitions.includes(competitionKey(e.competition));
-    items.push({ id: 'pin', label: pinned ? `Don't put ${e.competition} first` : `Put ${e.competition} first` });
-    items.push({ id: 'hide', label: `Hide ${e.competition}` });
+    items.push({ id: 'pin', label: pinned ? LIVE_COPY.start.dontPutFirst(e.competition) : LIVE_COPY.start.putFirst(e.competition) });
+    items.push({ id: 'hide', label: LIVE_COPY.start.hide(e.competition) });
   }
-  items.push({ id: 'cancel', label: 'Cancel' });
+  items.push({ id: 'cancel', label: COMMON_COPY.cancel });
   return items;
 }
 
@@ -143,7 +143,7 @@ export function toPosterRow(r: StartRow): RowModel {
 export { rowSlots as startRowSlots, type RowFrame as StartRowFrame } from '../components/rowSlots.ts';
 
 /** Matches copy (design note §3.8, spec 2026-10-22): neutral, never sport or league words of our own. */
-export const MATCHES_COPY = { title: 'Matches', empty: 'No matches in your guide right now.', allSports: 'All sports', more: 'More…' } as const;
+export const MATCHES_COPY = LIVE_COPY.matches;
 
 /** View all's summary after the title: the chosen sport or competition (guide text) and the count. */
 export const matchesSummary = (label: string, n: number) => `${label} · ${n === 1 ? '1 match' : `${n} matches`}`;
@@ -177,7 +177,7 @@ function sizeChips(list: readonly { id: string; label: string }[], maxTotal: num
 /** See all's category chips: All, then the user's own guide category texts. None when the guide has no categories. */
 export function matchChipActions(categories: readonly { id: string; label: string }[], maxTotal = Infinity): { id: string; label: string; width: number }[] {
   if (!categories.length) return [];
-  return sizeChips([{ id: 'all', label: 'All' }, ...categories], maxTotal);
+  return sizeChips([{ id: 'all', label: LIVE_COPY.start.all }, ...categories], maxTotal);
 }
 
 export const COMP_ALL = 'all';
@@ -191,7 +191,7 @@ export const compKeyOf = (id: string): string | undefined => (id.startsWith(COMP
 export function competitionChipActions(sportLabel: string, chips: readonly MatchFilterChip[], hasMore: boolean, maxTotal = Infinity): { id: string; label: string; width: number }[] {
   if (!chips.length) return [];
   return sizeChips([
-    { id: COMP_ALL, label: `All ${sportLabel}` },
+    { id: COMP_ALL, label: LIVE_COPY.start.allOf(sportLabel) },
     ...chips.map((c) => ({ id: compChipId(c.id), label: c.pinned ? `★ ${c.label}` : c.label })),
     ...(hasMore ? [{ id: COMP_MORE, label: MATCHES_COPY.more }] : []),
   ], maxTotal);
@@ -201,9 +201,9 @@ export function competitionChipActions(sportLabel: string, chips: readonly Match
 export function competitionMenuItems(label: string, key: string, st: MatchPrefs): { id: 'pin' | 'hide' | 'cancel'; label: string }[] {
   const pinned = st.pinnedCompetitions.includes(key);
   return [
-    { id: 'pin', label: pinned ? `Don't put ${label} first` : `Put ${label} first` },
-    { id: 'hide', label: `Hide ${label}` },
-    { id: 'cancel', label: 'Cancel' },
+    { id: 'pin', label: pinned ? LIVE_COPY.start.dontPutFirst(label) : LIVE_COPY.start.putFirst(label) },
+    { id: 'hide', label: LIVE_COPY.start.hide(label) },
+    { id: 'cancel', label: COMMON_COPY.cancel },
   ];
 }
 

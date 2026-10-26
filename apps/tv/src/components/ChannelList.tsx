@@ -1,6 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
+import { LIVE_COPY } from '../copy.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
@@ -68,7 +69,7 @@ function ChannelRowView(props: {
   const textW = () => rowTextEnd(props.width, props.optionsShown === true, props.tag ? TAG_W : 0) - textX;
   const nowLine = () => {
     const n = r()?.now;
-    if (!n) return r() ? 'No guide information' : '';
+    if (!n) return r() ? LIVE_COPY.noGuideInfo : '';
     return `${formatRange(n.start, n.stop)} · ${n.title}`;
   };
   return (

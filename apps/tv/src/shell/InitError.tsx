@@ -1,6 +1,7 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { onMount } from 'solid-js';
 import { Button } from '../components/Button.tsx';
+import { COMMON_COPY, SHELL_COPY } from '../copy.ts';
 import { COLORS, LAYOUT, TYPE } from './theme.ts';
 
 const BTN_W = 240;
@@ -12,10 +13,10 @@ export function InitError(props: { onRetry: () => void }) {
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background}>
       <Text x={0} y={380} width={LAYOUT.width} maxWidth={LAYOUT.width} contain="width" textAlign="center"
-        fontSize={TYPE.title} color={COLORS.text}>{"Couldn't load your saved data"}</Text>
+        fontSize={TYPE.title} color={COLORS.text}>{SHELL_COPY.initError.title}</Text>
       <Text x={0} y={470} width={LAYOUT.width} maxWidth={LAYOUT.width} contain="width" textAlign="center"
-        fontSize={TYPE.body} color={COLORS.muted}>{'Your sources are still saved on this device. Try again.'}</Text>
-      <Button ref={(el) => { retry = el; }} x={(LAYOUT.width - BTN_W) / 2} y={580} width={BTN_W} label="Retry"
+        fontSize={TYPE.body} color={COLORS.muted}>{SHELL_COPY.initError.body}</Text>
+      <Button ref={(el) => { retry = el; }} x={(LAYOUT.width - BTN_W) / 2} y={580} width={BTN_W} label={COMMON_COPY.tryAgain}
         onPress={props.onRetry} />
     </View>
   );

@@ -20,7 +20,7 @@ const FADE_H = 460;
 const TOP = SPACE.m;
 const TEXT_X = LOGO_TILE + LAYOUT.gap;
 const TEXT_W = BANNER_W - TEXT_X;
-/** The right column: the clock, then the live pill and its hint. */
+/** The right column: the clock, then the live pill. */
 const RIGHT_W = 220;
 /** The media badges' room, right-aligned on the channel line. */
 const BADGES_W = Math.round(TEXT_W / 2);
@@ -32,7 +32,7 @@ const TITLE_Y = TOP + LINE.meta + SPACE.s;
  * and its hint at the right, and what is playing as badges. Purely visual; the Player decides when it is shown.
  */
 export function PlayerBanner(props: {
-  channel: ChannelRow; now: number; showClock: boolean; live?: { text: string; hint?: string };
+  channel: ChannelRow; now: number; showClock: boolean; live?: { text: string };
   /** Moves the banner up by this many px (the Player's pointer row is showing below it). */
   lift?: number;
   /** What is playing (`mediaBadges`), at the right of the channel line. */
@@ -69,10 +69,6 @@ export function PlayerBanner(props: {
         <View x={BANNER_W - RIGHT_W} y={TITLE_Y + SPACE.s} width={RIGHT_W} height={LINE.title + LINE.meta}>
           <Text width={RIGHT_W} maxWidth={RIGHT_W} contain="width" textAlign="right" maxLines={1}
             fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{l.text}</Text>
-          <Show when={l.hint}>
-            <Text y={LINE.meta} width={RIGHT_W} maxWidth={RIGHT_W} contain="width" textAlign="right" maxLines={1}
-              fontSize={TYPE.meta} color={COLORS.muted}>{l.hint}</Text>
-          </Show>
         </View>
       )}</Show>
       {/* What is playing ("1080p · 50 fps · H.264 · Stereo AAC"): right-aligned on the channel line, left of the clock. */}

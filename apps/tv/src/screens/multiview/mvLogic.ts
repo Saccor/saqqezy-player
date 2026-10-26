@@ -242,17 +242,13 @@ export function retryAction(f: { cut: boolean; otherPlaying: boolean; atLimit: b
 
 /**
  * The picker's info lines, as `MULTIVIEW_COPY` keys in order (owner decision 12.2: it warns, never blocks). `open` is
- * the windows open besides the one being picked. A connection being freed comes first. The reported count always shows
- * when the source reports one (spec §4; 0 reports nothing); a learned refusal always shows too. With nothing known,
- * that each window uses one connection, so the line is never empty.
+ * the windows open besides the one being picked. A connection being freed comes first, then the one limit line (each
+ * window uses one connection), so the line is never empty.
  */
-export function pickerHint(f: { reported?: number; learnedRefusalAt?: number; open: number; freeing?: boolean }): Array<keyof typeof MULTIVIEW_COPY> {
-  const lines: Array<keyof typeof MULTIVIEW_COPY> = [];
-  const reported = f.reported !== undefined && f.reported > 0;
+export function pickerHint(f: { open: number; freeing?: boolean }): Array<'freeing' | 'limit'> {
+  const lines: Array<'freeing' | 'limit'> = [];
   if (f.freeing) lines.push('freeing');
-  if (reported) lines.push('infoReported');
-  if (f.learnedRefusalAt !== undefined) lines.push('learned');
-  if (!reported && f.learnedRefusalAt === undefined) lines.push('infoUnknown');
+  lines.push('limit');
   return lines;
 }
 

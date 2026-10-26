@@ -1,4 +1,5 @@
 import type { AppEvent, ChannelRow, FolderHit, ProgrammeHit, SearchResult, TitleHit, VodTile } from '@iptv/app-api';
+import { LIVE_COPY } from '../copy.ts';
 import { formatClock } from '../shell/logic.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 import { dayLabel } from './guideLogic.ts';
@@ -74,11 +75,11 @@ export function createSearcher<R>(
   };
 }
 
-export const GUIDE_PENDING_NOTE = 'Guide results are being prepared';
-export const VOD_PENDING_NOTE = 'Movies and series are being prepared';
-export const VOD_ROW_LABEL = 'Movies & series';
-export const FOLDERS_ROW_LABEL = 'Folders';
-export const LIVE_ROW_LABEL = 'Live & guide';
+export const GUIDE_PENDING_NOTE = LIVE_COPY.search.guidePending;
+export const VOD_PENDING_NOTE = LIVE_COPY.search.vodPending;
+export const VOD_ROW_LABEL = LIVE_COPY.search.vodRow;
+export const FOLDERS_ROW_LABEL = LIVE_COPY.search.foldersRow;
+export const LIVE_ROW_LABEL = LIVE_COPY.search.liveRow;
 
 /** Events after which Search re-runs the open query: a search index became ready, or a guide import finished. */
 export function rerunsSearch(e: AppEvent): boolean {
@@ -265,13 +266,13 @@ export function channelToPlay(c: SearchCell | undefined): ChannelRow | undefined
 
 /** Text for the results area when it has no rows (undefined when there are results). */
 export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
-  if (s.query === '') return 'Type to search channels, folders, programmes, movies and series';
+  if (s.query === '') return LIVE_COPY.search.typeToSearch;
   if (hasResults(s.results)) return undefined;
-  if (s.busy) return 'Searching…';
-  if (s.failed) return "Couldn't search right now.";
+  if (s.busy) return LIVE_COPY.search.searching;
+  if (s.failed) return LIVE_COPY.search.failed;
   const note = pendingNotes(s.results)[0];
-  if (note) return `Nothing matches "${s.query}" · ${note}`;
-  return `Nothing matches "${s.query}"`;
+  if (note) return LIVE_COPY.search.nothingNote(s.query, note);
+  return LIVE_COPY.search.nothing(s.query);
 }
 
 /** A subtle note beside the first row while the next query runs over the shown rows (with no rows the message says it). */

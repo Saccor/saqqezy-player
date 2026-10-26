@@ -24,7 +24,6 @@ const SUB_Y = TITLE_Y + 64;
 const GRID_Y = SUB_Y + 56;
 const LANG_Y = 840;
 const BUTTONS_Y = 912;
-const FOOT_Y = 992;
 const GRID_H = LANG_Y - GRID_Y - 16;
 const BUTTON_W = 240;
 /** The languages "Preferred language" knows (Settings › Playback). */
@@ -135,7 +134,6 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
         <Button ref={(el) => { skipNode = el; }} x={BUTTON_W + LAYOUT.gap} width={BUTTON_W} label={COUNTRIES_COPY.skip}
           onPress={skip} onUp={aboveButtons} />
       </View>
-      <Text x={X} y={FOOT_Y} fontSize={TYPE.meta} color={COLORS.muted}>{COUNTRIES_COPY.firstFoot}</Text>
     </View>
   );
 }

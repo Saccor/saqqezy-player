@@ -237,7 +237,7 @@ describe('empty states', () => {
     expect(liveEmptyText({ waiting: true, progressCount: 120, allCount: 0, groupId: 'all' })).toBe('Loading channels… 120');
   });
   test('a source without live channels', () => {
-    expect(NO_LIVE_TEXT).toBe('This source has no live channels. Movies and series are in the menu on the left.');
+    expect(NO_LIVE_TEXT).toBe('This source has no live channels. Movies and series are in the menu.');
     expect(liveEmptyText({ waiting: false, allCount: 0, groupId: undefined })).toBe(NO_LIVE_TEXT);
     expect(liveEmptyText({ waiting: false, allCount: 0, groupId: 'news' })).toBe(NO_LIVE_TEXT);
     expect(hasNoLive({ waiting: false, allCount: 0 })).toBe(true);
@@ -247,7 +247,7 @@ describe('empty states', () => {
   test('the first read of the groups failed: not "no live channels", but a retry note', () => {
     expect(hasNoLive({ waiting: false, allCount: 0, failed: true })).toBe(false);
     expect(liveEmptyText({ waiting: false, failed: true, allCount: 0, groupId: undefined })).toBe(GROUPS_FAILED_TEXT);
-    expect(GROUPS_FAILED_TEXT).toBe('Could not read the channels. Trying again…');
+    expect(GROUPS_FAILED_TEXT).toBe("Couldn't read the channels. Trying again…");
     // Loading wins: the channels are on their way.
     expect(liveEmptyText({ waiting: true, failed: true, allCount: 0, groupId: undefined })).toBe('Loading channels…');
   });

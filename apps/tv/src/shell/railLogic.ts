@@ -1,4 +1,5 @@
 /** The left rail (UI revamp spec §1.3). Pure: no Solid, no Lightning. */
+import { LIVE_COPY } from '../copy.ts';
 import type { IconKind } from '../vod/icons.ts';
 import { tabNavigation, tabOfKind, type TabId, type TabNav, type VodKind } from '../vod/tabLogic.ts';
 import { LAYOUT } from './theme.ts';
@@ -6,9 +7,7 @@ import { LAYOUT } from './theme.ts';
 export type RailId = TabId | 'search' | 'settings';
 
 export const RAIL_ITEMS: readonly RailId[] = ['start', 'live', 'movies', 'series', 'search', 'settings'];
-export const RAIL_LABELS: Record<RailId, string> = {
-  start: 'Start', live: 'Live TV', movies: 'Movies', series: 'Series', search: 'Search', settings: 'Settings',
-};
+export const RAIL_LABELS: Record<RailId, string> = LIVE_COPY.rail;
 /** Expanded width (an overlay: content never reflows). */
 export const RAIL_OPEN_W = 320;
 export const RAIL_ICON = 34;

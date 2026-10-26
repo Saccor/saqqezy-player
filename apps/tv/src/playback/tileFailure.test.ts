@@ -15,7 +15,7 @@ describe('tileFailure', () => {
   });
 
   it('a source that cut the oldest stream, or refused again and again, says so', () => {
-    expect(tileFailure({ reason: 'refused', kicked: 2, at, now: at }).text).toBe('Your source seems to allow 2 streams at once.');
+    expect(tileFailure({ reason: 'refused', kicked: 2, at, now: at }).text).toBe(MULTIVIEW_COPY.limit);
     expect(tileFailure({ reason: 'refused', httpStatus: 403, escalated: true, at, now: at }).text)
       .toBe(MULTIVIEW_COPY.escalated);
   });

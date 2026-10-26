@@ -9,8 +9,7 @@
   },
   "components/ChannelList.tsx": {
     "radius": 2,
-    "space": 14,
-    "string": 1
+    "space": 14
   },
   "components/CountryGrid.tsx": {
     "radius": 1,
@@ -29,8 +28,7 @@
   "components/Keyboard.tsx": {
     "radius": 1,
     "border": 1,
-    "space": 6,
-    "string": 2
+    "space": 6
   },
   "components/PointerBar.tsx": {
     "space": 1
@@ -49,38 +47,14 @@
     "radius": 3,
     "space": 1
   },
-  "components/countryGridLogic.ts": {
-    "string": 3
-  },
   "components/dropdownLogic.ts": {
     "space": 2
-  },
-  "components/foldPickerLogic.ts": {
-    "string": 1
   },
   "components/tile/WideBody.tsx": {
     "space": 4
   },
-  "components/wideTileLogic.ts": {
-    "string": 2
-  },
   "net/trendingConfig.ts": {
     "string": 2
-  },
-  "playback/devResume.ts": {
-    "string": 1
-  },
-  "playback/deviceWindows.ts": {
-    "string": 2
-  },
-  "playback/mediaBadges.ts": {
-    "string": 2
-  },
-  "playback/sourceLogic.ts": {
-    "string": 1
-  },
-  "playback/streamInfo.ts": {
-    "string": 7
   },
   "screens/AddSource.tsx": {
     "space": 10,
@@ -101,12 +75,10 @@
   },
   "screens/Player.tsx": {
     "lineHeight": 1,
-    "space": 1,
-    "string": 10
+    "space": 1
   },
   "screens/Search.tsx": {
-    "space": 1,
-    "string": 3
+    "space": 1
   },
   "screens/SeriesDetail.tsx": {
     "lineHeight": 1,
@@ -140,39 +112,19 @@
   "screens/addSourceLogic.ts": {
     "string": 20
   },
-  "screens/guideLogic.ts": {
-    "string": 2
-  },
-  "screens/homeLogic.ts": {
-    "string": 4
-  },
-  "screens/homeMenuLogic.ts": {
-    "string": 12
-  },
   "screens/journalLogic.ts": {
     "string": 33
   },
   "screens/live/LiveTv.tsx": {
-    "space": 1,
-    "string": 1
+    "space": 1
   },
   "screens/live/LiveVideo.tsx": {
     "lineHeight": 1
   },
-  "screens/live/liveLogic.ts": {
-    "string": 6
-  },
-  "screens/live/liveMenu.tsx": {
-    "string": 12
-  },
-  "screens/matchesGridLogic.ts": {
-    "string": 2
-  },
   "screens/multiview/Multiview.tsx": {
     "radius": 4,
     "alpha": 1,
-    "space": 11,
-    "string": 1
+    "space": 11
   },
   "screens/multiview/MultiviewPicker.tsx": {
     "radius": 1,
@@ -180,12 +132,6 @@
   },
   "screens/pairingLogic.ts": {
     "string": 17
-  },
-  "screens/playerLogic.ts": {
-    "string": 4
-  },
-  "screens/searchLogic.ts": {
-    "string": 8
   },
   "screens/settings/AboutPage.tsx": {
     "lineHeight": 2,
@@ -241,25 +187,12 @@
   "screens/settingsLogic.ts": {
     "string": 62
   },
-  "screens/startActions.tsx": {
-    "string": 2
-  },
-  "screens/startLogic.ts": {
-    "string": 18
-  },
   "shell/InitError.tsx": {
-    "space": 3,
-    "string": 3
+    "space": 3
   },
   "shell/Rail.tsx": {
     "radius": 4,
     "space": 5
-  },
-  "shell/railLogic.ts": {
-    "string": 1
-  },
-  "state/events.ts": {
-    "string": 3
   },
   "vod/PosterArt.tsx": {
     "radius": 1,

@@ -6,7 +6,7 @@
  * asserts they are equal to core's.
  */
 
-import { favToggleLabel, SOURCE_COPY } from '../copy.ts';
+import { COMMON_COPY, favToggleLabel, LIVE_COPY } from '../copy.ts';
 
 export const NAME_MAX = 60;
 export const MAX_LISTS = 50;
@@ -33,14 +33,14 @@ export function buildChannelMenu(o: {
 }): MenuItem[] {
   const items: MenuItem[] = [
     { action: 'toggleFavourite', label: favToggleLabel(o.isFavourite) },
-    { action: 'addToList', label: 'Add to list…' },
+    { action: 'addToList', label: LIVE_COPY.menu.addToList },
   ];
-  if (o.sources !== undefined && o.sources > 1) items.push({ action: 'chooseSource', label: `${SOURCE_COPY.choose}…` });
+  if (o.sources !== undefined && o.sources > 1) items.push({ action: 'chooseSource', label: LIVE_COPY.menu.chooseSource });
   const list = o.inListId === undefined || o.inListId === FAV_LIST_ID ? undefined
     : o.lists.find((l) => l.id === o.inListId);
-  if (list) items.push({ action: 'removeFromList', label: oneSpace(`Remove from "${list.name}"`) });
-  items.push(o.isHidden ? { action: 'unhide', label: 'Show channel' } : { action: 'hide', label: 'Hide channel' });
-  items.push({ action: 'rename', label: 'Rename…' }, { action: 'cancel', label: 'Cancel' });
+  if (list) items.push({ action: 'removeFromList', label: oneSpace(LIVE_COPY.menu.removeFromList(list.name)) });
+  items.push(o.isHidden ? { action: 'unhide', label: LIVE_COPY.menu.showChannel } : { action: 'hide', label: LIVE_COPY.menu.hideChannel });
+  items.push({ action: 'rename', label: LIVE_COPY.menu.rename }, { action: 'cancel', label: COMMON_COPY.cancel });
   return items;
 }
 
@@ -70,7 +70,7 @@ export type PickerRow =
 /** Picker rows: every list (checked when it holds the channel), then "New list…" while under the limit. */
 export function pickerRows(lists: readonly ListLite[], member: ReadonlySet<string>): PickerRow[] {
   const rows: PickerRow[] = lists.map((l) => ({ kind: 'list', id: l.id, label: oneSpace(l.name), checked: member.has(l.id) }));
-  if (lists.length < MAX_LISTS) rows.push({ kind: 'new', label: 'New list…' });
+  if (lists.length < MAX_LISTS) rows.push({ kind: 'new', label: LIVE_COPY.menu.newList });
   return rows;
 }
 
@@ -86,12 +86,12 @@ export function newListId(taken: ReadonlySet<string>, rand: () => number = Math.
 
 export type NameResult<T> = { ok: true; name: T } | { ok: false; message: string };
 
-const tooLong = (): { ok: false; message: string } => ({ ok: false, message: `Use at most ${NAME_MAX} characters.` });
+const tooLong = (): { ok: false; message: string } => ({ ok: false, message: LIVE_COPY.lists.tooLong(NAME_MAX) });
 
 /** A list name: trimmed, 1..NAME_MAX characters. */
 export function validateListName(raw: string): NameResult<string> {
   const t = raw.trim();
-  if (t.length === 0) return { ok: false, message: 'Enter a name for the list.' };
+  if (t.length === 0) return { ok: false, message: LIVE_COPY.lists.enterName };
   if (t.length > NAME_MAX) return tooLong();
   return { ok: true, name: t };
 }
@@ -139,5 +139,5 @@ export function focusAfterRefresh(found: number, oldIndex: number, total: number
 
 /** Text for an empty group: user lists say how to fill them. */
 export function emptyGroupText(groupId: string | undefined): string {
-  return listIdOfGroup(groupId) !== undefined ? 'Empty – add channels from the channel menu' : 'No channels here yet.';
+  return listIdOfGroup(groupId) !== undefined ? LIVE_COPY.lists.emptyList : LIVE_COPY.lists.noChannels;
 }

@@ -2,7 +2,7 @@
 import { keyTableFor, mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
 import type { ChannelRow } from '@iptv/app-api';
-import { CATCHUP_COPY, LIVE_MENU_COPY, MULTIVIEW_COPY } from '../../copy.ts';
+import { CATCHUP_COPY, LIVE_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { LAYOUT } from '../../shell/theme.ts';
 import { guideOkAction } from '../../vod/catchupLogic.ts';
 import { dayLabel, type Block } from '../guideLogic.ts';
@@ -171,8 +171,8 @@ export function liveMenuItems(o: {
   multiview?: boolean;
 }): { action: LiveMenuAction; label: string }[] {
   return [
-    ...(o.watch ? [{ action: 'watch' as const, label: LIVE_MENU_COPY.watch }] : []),
-    ...(o.preview ? [{ action: 'preview' as const, label: LIVE_MENU_COPY.preview }] : []),
+    ...(o.watch ? [{ action: 'watch' as const, label: LIVE_COPY.menu.watch }] : []),
+    ...(o.preview ? [{ action: 'preview' as const, label: LIVE_COPY.menu.preview }] : []),
     ...(o.fromStart ? [{ action: 'fromStart' as const, label: CATCHUP_COPY.fromStart }] : []),
     ...(o.goToDay ? [{ action: 'goToDay' as const, label: CATCHUP_COPY.goToDay }] : []),
     ...(o.multiview ? [{ action: 'addToMultiview' as const, label: MULTIVIEW_COPY.addToMultiview }] : []),
@@ -195,10 +195,10 @@ export function liveTypedChar(e: { key: string; ctrlKey: boolean; metaKey: boole
   return digit || mapKey(BROWSER_KEYS, { key: ch, keyCode: 0 }) === undefined ? ch : undefined;
 }
 
-export const NO_LIVE_TEXT = 'This source has no live channels. Movies and series are in the menu on the left.';
+export const NO_LIVE_TEXT = LIVE_COPY.state.noLive;
 
 /** The first read of the groups failed (the worker, not the source): Live TV reads them again (`groupsRetryMs`). */
-export const GROUPS_FAILED_TEXT = 'Could not read the channels. Trying again…';
+export const GROUPS_FAILED_TEXT = LIVE_COPY.state.groupsFailed;
 
 /** The delay before read `attempt` + 1 of the groups after a failure: 2 s, doubling, at most a minute. */
 export function groupsRetryMs(attempt: number): number {
@@ -220,7 +220,7 @@ export function hasNoLive(o: { waiting: boolean; allCount: number; failed?: bool
 export function liveEmptyText(o: {
   waiting: boolean; failed?: boolean; progressCount?: number; allCount: number; groupId: string | undefined;
 }): string {
-  if (o.waiting) return o.progressCount !== undefined ? `Loading channels… ${o.progressCount}` : 'Loading channels…';
+  if (o.waiting) return o.progressCount !== undefined ? LIVE_COPY.state.loadingChannelsCount(o.progressCount) : LIVE_COPY.state.loadingChannels;
   if (o.failed === true) return GROUPS_FAILED_TEXT;
   return hasNoLive(o) ? NO_LIVE_TEXT : emptyGroupText(o.groupId);
 }
@@ -235,4 +235,4 @@ export function sameCell(
 }
 
 /** The pointer bar's buttons (Live TV's bottom row in pointer mode). */
-export const LIVE_POINTER_LABELS = { earlier: '‹ Earlier', later: 'Later ›', search: '⌕ Search', settings: '⚙ Settings' } as const;
+export const LIVE_POINTER_LABELS = LIVE_COPY.pointer;

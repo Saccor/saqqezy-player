@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as COPY from './copy.ts';
 import { COPY_EXCEPTIONS, collectCopy, copyViolations } from './copy/rules.ts';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { scanTokens } from './shell/tokenLint.ts';
 import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
@@ -48,9 +51,6 @@ describe('multiview copy', () => {
   it('is neutral, and calls a tile a window', () => {
     const all: string[] = [];
     for (const v of Object.values(MULTIVIEW_COPY)) if (typeof v === 'string') all.push(v);
-    for (const n of [1, 2, 4]) {
-      all.push(MULTIVIEW_COPY.infoReported(n), MULTIVIEW_COPY.kicked(n), MULTIVIEW_COPY.learned(n), MULTIVIEW_COPY.device(n), MULTIVIEW_COPY.setting(n));
-    }
     for (const s of all) expect(s, s).not.toMatch(BANNED);
     expect(MULTIVIEW_COPY.closeWindow).toBe('Close window');
     expect(MULTIVIEW_COPY.addChannel).toBe('Add channel');
@@ -61,13 +61,9 @@ describe('multiview copy', () => {
     expect(MULTIVIEW_COPY.stoppedForOther).toBe('Stopped so another window can play.');
   });
 
-  it('counts read naturally', () => {
-    expect(MULTIVIEW_COPY.infoReported(1)).toBe('Your source reports 1 connection. Each window uses one.');
-    expect(MULTIVIEW_COPY.infoReported(3)).toBe('Your source reports 3 connections. Each window uses one.');
-    expect(MULTIVIEW_COPY.kicked(1)).toBe('Your source seems to allow 1 stream at once.');
-    expect(MULTIVIEW_COPY.kicked(2)).toBe('Your source seems to allow 2 streams at once.');
-    expect(MULTIVIEW_COPY.device(2)).toBe('This device can play 2 at once.');
-    expect(MULTIVIEW_COPY.setting(2)).toBe('Max windows is set to 2 in Settings.');
+  it('the six connection-limit explanations are one text', () => {
+    expect(MULTIVIEW_COPY.limit).toBe('Each window uses one connection from your source.');
+    expect(Object.keys(MULTIVIEW_COPY).filter((k) => /^(infoUnknown|infoReported|kicked|learned|device|setting)$/.test(k))).toEqual([]);
   });
 });
 
@@ -98,7 +94,7 @@ describe('Your countries copy', () => {
     expect(COUNTRIES_COPY.showing(2)).toBe('Showing 2 countries · Change');
     expect(COUNTRIES_COPY.showing(1)).toBe('Showing 1 country · Change');
     expect(COUNTRIES_COPY.firstSub(41)).toBe('Folders for 41 countries found. Pick one or more.');
-    expect(COUNTRIES_COPY.firstFoot).toBe('You can change this later in Settings › Your countries.');
+    expect('firstFoot' in COUNTRIES_COPY).toBe(false);
     expect(COUNTRIES_COPY.languageLine('Swedish')).toBe('Audio and subtitles: Swedish first');
     expect(COUNTRIES_COPY.folders(1)).toBe('1 folder');
     expect(COUNTRIES_COPY.folders(31)).toBe('31 folders');
@@ -114,5 +110,28 @@ describe('every string in copy.ts follows the copy rules', () => {
   it('every named exception still points at a string (no stale exceptions)', () => {
     const paths = new Set(Object.entries(COPY).flatMap(([name, value]) => collectCopy(value, name)).map((e) => e.path));
     for (const p of Object.keys(COPY_EXCEPTIONS)) expect(paths.has(p), p).toBe(true);
+  });
+});
+
+const SRC = dirname(fileURLToPath(import.meta.url));
+const stringFree = (files: readonly string[]) => {
+  const counts = scanTokens(SRC);
+  return files.filter((f) => (counts[f]?.string ?? 0) > 0).map((f) => `${f}: ${counts[f]!.string}`);
+};
+
+const LIVE_FILES = [
+  'screens/live/liveMenu.tsx', 'screens/live/liveLogic.ts', 'screens/live/LiveTv.tsx', 'screens/homeMenuLogic.ts', 'screens/homeLogic.ts',
+  'screens/guideLogic.ts', 'screens/Player.tsx', 'screens/playerLogic.ts', 'screens/startLogic.ts', 'screens/startActions.tsx',
+  'screens/matchesGridLogic.ts', 'screens/Search.tsx', 'screens/searchLogic.ts', 'screens/multiview/Multiview.tsx',
+  'screens/multiview/MultiviewPicker.tsx', 'screens/multiview/mvLogic.ts', 'components/countryGridLogic.ts', 'components/foldPickerLogic.ts',
+  'components/wideTileLogic.ts', 'components/ChannelList.tsx', 'components/Keyboard.tsx', 'components/TextField.tsx', 'state/events.ts',
+  'state/cooldownLogic.ts', 'playback/failureText.ts', 'playback/streamInfo.ts', 'playback/mediaBadges.ts', 'playback/sourceLogic.ts',
+  'playback/deviceWindows.ts', 'playback/devResume.ts', 'playback/tileFailure.ts', 'shell/railLogic.ts', 'shell/InitError.tsx', 'App.tsx',
+  'screens/playerBanner.tsx',
+] as const;
+
+describe('copy lives in copy.ts (spec 2026-10-26 §1.4)', () => {
+  it('Live TV, guide, player, multiview and shell files have no inline UI strings', () => {
+    expect(stringFree(LIVE_FILES)).toEqual([]);
   });
 });

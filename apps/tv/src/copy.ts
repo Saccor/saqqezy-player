@@ -18,9 +18,6 @@ export const favToggleLabel = (isFavourite: boolean): string => (isFavourite ? F
 /** The toast after a change: what is now true. */
 export const favChangedToast = (isFavourite: boolean): string => (isFavourite ? FAV_COPY.added : FAV_COPY.removed);
 
-/** Live TV's channel menu, opened by OK: its play items above the programme and channel items. */
-export const LIVE_MENU_COPY = { watch: 'Watch', preview: 'Preview' } as const;
-
 /**
  * Catch-up strings (spec 2026-10-20-catch-up §5): neutral wording only (CLAUDE.md rule 3), no source or provider
  * names, nothing that suggests free content.
@@ -73,14 +70,9 @@ export const MULTIVIEW_COPY = {
   onScreen: 'On screen',
   searchChannels: 'Search channels',
   noChannelsMatch: 'No channels match',
-  infoUnknown: 'Each window uses one connection from your source.',
+  limit: 'Each window uses one connection from your source.',
   deviceLimit: 'This TV can show one channel at a time.',
   escalated: 'The source refused extra windows. Try again in a few minutes.',
-  infoReported: (n: number): string => `Your source reports ${n} ${n === 1 ? 'connection' : 'connections'}. Each window uses one.`,
-  kicked: (k: number): string => `Your source seems to allow ${k} ${k === 1 ? 'stream' : 'streams'} at once.`,
-  learned: (k: number): string => `Last time your source refused window ${k}.`,
-  device: (n: number): string => `This device can play ${n} at once.`,
-  setting: (n: number): string => `Max windows is set to ${n} in Settings.`,
 } as const;
 
 /**
@@ -114,7 +106,6 @@ export const COUNTRIES_COPY = {
   saveError: "Couldn't save the setting.",
   firstTitle: 'Which countries do you watch?',
   firstSub: (n: number): string => `Folders for ${n} countries found. Pick one or more.`,
-  firstFoot: 'You can change this later in Settings › Your countries.',
   step: 'Last step',
   done: 'Done',
   skip: 'Skip',
@@ -122,6 +113,10 @@ export const COUNTRIES_COPY = {
   languageLine: (name: string): string => `Audio and subtitles: ${name} first`,
   folders: (n: number): string => `${n} ${n === 1 ? 'folder' : 'folders'}`,
   selectedCount: (n: number): string => `✓ ${n}`,
+  folderRow: (label: string, folders: string): string => `${label} · ${folders}`,
+  resultLive: (folders: string): string => `Live TV: ${folders} first`,
+  resultMovies: (n: number): string => `Movies: ${n}`,
+  resultSeries: (n: number): string => `Series: ${n}`,
 } as const;
 export { COMMON_COPY } from './copy/common.ts';
 export { COOLDOWN_COPY, FAILURE_COPY } from './copy/failure.ts';

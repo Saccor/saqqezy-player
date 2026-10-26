@@ -6,7 +6,7 @@ import { EventChannels } from '../components/EventChannels.tsx';
 import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { CATCHUP_COPY } from '../copy.ts';
+import { CATCHUP_COPY, LIVE_COPY } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
 import { channelsLabel, eventWhen } from './startLogic.ts';
 
@@ -70,7 +70,7 @@ export function createStartActions(deps: { alive: () => boolean; reload: () => v
   const openEventInner = async (tile: SportsEventTile) => {
     const rows = await api.getEventChannels(tile.key).catch(() => [] as ChannelRow[]);
     if (!deps.alive()) return;
-    if (rows.length === 0) { showToast('This event is no longer in your guide'); deps.reload(); return; }
+    if (rows.length === 0) { showToast(LIVE_COPY.start.eventGone); deps.reload(); return; }
     if (rows.length === 1) { tune(rows[0]!.id); return; }
     setEvent({ tile, rows, now: Date.now() });
     removeLayer?.();
@@ -91,8 +91,7 @@ export function createStartActions(deps: { alive: () => boolean; reload: () => v
           // Menu on a row with an archive: that channel's programme from its start.
           const row = e.rows.find((r) => r.id === id);
           if (!e.fromStart && row && canFromStart(row, Date.now())) { close(); fromStart(row); }
-        }}
-        hint={!e.fromStart && e.rows.some((r) => canFromStart(r, e.now)) ? `Menu: ${CATCHUP_COPY.fromStart}` : undefined} />
+        }} />
     )}</Show>
   );
   return { tune, openEvent, fromStart, fromStartRows, close, View: EventView };

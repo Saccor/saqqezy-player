@@ -4,7 +4,7 @@ import { GROUP_ALL } from '@iptv/core';
 import { api } from '../../api.ts';
 import { Sheet } from '../../components/Sheet.tsx';
 import { fromMenuItem, type MenuItem } from '../../components/sheetLogic.ts';
-import { MULTIVIEW_COPY } from '../../copy.ts';
+import { COMMON_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import {
   clearWindowNote, connectionMemory, deviceWindowMax, dropRefusalMark, keepRefusalOnWindow, otherSlots, playback, pool, setInMultiview,
@@ -146,7 +146,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const s = state();
     const r = canAddWindow({ deviceMax: deviceCeiling(deviceWindowMax()), userMax: settings()?.maxWindows ?? 'auto', open: s?.windows.length ?? 0 });
     if (r.ok) return { ok: true as const };
-    return { ok: false as const, reason: r.reason === 'setting' ? MULTIVIEW_COPY.setting(r.limit) : MULTIVIEW_COPY.device(r.limit) };
+    return { ok: false as const, reason: MULTIVIEW_COPY.limit };
   };
 
   const leave = (keep?: MvWindow) => {
@@ -359,7 +359,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       out.push({ action: 'retry', label: MULTIVIEW_COPY.retry });
     }
     for (const it of menuItems(s, i, canAdd())) out.push({ action: it.id, label: it.disabled ? `${it.label}: ${it.disabled}` : it.label });
-    out.push({ action: 'cancel', label: 'Cancel' });
+    out.push({ action: 'cancel', label: COMMON_COPY.cancel });
     return out;
   });
 
@@ -543,14 +543,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const p = picker();
     const s = state();
     if (!p || !s) return undefined;
-    const l = limits();
     const open = p.mode === 'add' ? s.windows.length : s.windows.length - 1;
-    const lines = pickerHint({ ...l, open, freeing: freeingSlot() !== undefined }).map((key) => {
-      if (key === 'infoReported') return MULTIVIEW_COPY.infoReported(l.reported ?? 0);
-      if (key === 'learned') return MULTIVIEW_COPY.learned(l.learnedRefusalAt ?? 0);
-      const text = MULTIVIEW_COPY[key];
-      return typeof text === 'string' ? text : '';
-    });
+    const lines = pickerHint({ open, freeing: freeingSlot() !== undefined }).map((key) => MULTIVIEW_COPY[key]);
     return lines.length > 0 ? lines.join(' ') : undefined;
   };
 
@@ -579,10 +573,10 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
             <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
               textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
               {f().retryNow
-                ? [f().hint, MULTIVIEW_COPY.retry].filter(Boolean).join(' · ')
+                ? [f().hint, MULTIVIEW_COPY.retry, MULTIVIEW_COPY.closeWindow].filter(Boolean).join(' · ')
                 : f().retry.enabled
-                ? `OK: ${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
-                : `OK: ${MULTIVIEW_COPY.closeWindow}`}
+                ? `${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
+                : MULTIVIEW_COPY.closeWindow}
             </Text>
           </View>
         )}</Show>

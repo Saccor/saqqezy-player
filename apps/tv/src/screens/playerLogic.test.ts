@@ -108,7 +108,7 @@ describe('livePill', () => {
     expect(livePill({ kind: 'playing' }, undefined)).toEqual({ text: 'LIVE' });
   });
   it('−N s with a Go live hint when more than 3 s past the target', () => {
-    expect(livePill({ kind: 'playing' }, info(21.6))).toEqual({ text: '−22 s', hint: 'OK: Go live' });
+    expect(livePill({ kind: 'playing' }, info(21.6))).toEqual({ text: '−22 s', behind: true });
   });
 });
 
@@ -116,7 +116,7 @@ describe('livePill: final fixes', () => {
   it('1h: no pill at all on a non-live stream', () => {
     const vod = { behindLiveS: 635, source: 'edge' as const, targetS: 6, stalls: 0, reconnects: 0, isLive: false };
     expect(livePill({ kind: 'playing' }, vod)).toBeUndefined();
-    expect(livePill({ kind: 'playing' }, { ...vod, isLive: true })).toEqual({ text: '−635 s', hint: 'OK: Go live' });
+    expect(livePill({ kind: 'playing' }, { ...vod, isLive: true })).toEqual({ text: '−635 s', behind: true });
   });
   it('2: the pill steers by the edge distance, not the stream clock', () => {
     const info = { behindLiveS: 7, source: 'edge' as const, streamClockBehindS: 40, targetS: 6, stalls: 0, reconnects: 0 };

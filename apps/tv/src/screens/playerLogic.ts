@@ -1,5 +1,6 @@
 import type { AspectMode, LiveInfo, SupervisorStatus } from '@iptv/player';
 import { POINTER_BAR_H } from '../input/pointerLogic.ts';
+import { COMMON_COPY, PLAYER_COPY } from '../copy.ts';
 import { failureText } from '../playback/failureText.ts';
 import type { ScreenId } from '../shell/router.ts';
 import { LAYOUT } from '../shell/theme.ts';
@@ -12,7 +13,7 @@ export function playerStatusText(
   s: SupervisorStatus | undefined, maxConnections?: number,
 ): { kind: 'toast' | 'centre'; text: string } | undefined {
   if (!s) return undefined;
-  if (s.kind === 'reconnecting') return { kind: 'toast', text: 'Reconnecting…' };
+  if (s.kind === 'reconnecting') return { kind: 'toast', text: COMMON_COPY.reconnecting };
   if (s.kind === 'failed') {
     return { kind: 'centre', text: failureText({ reason: s.reason, httpStatus: s.httpStatus, maxConnections }) };
   }
@@ -23,18 +24,18 @@ export function playerStatusText(
 const PILL_BEHIND_MARGIN_S = 3;
 
 /**
- * The banner's live pill: "LIVE", or "−N s" with an "OK: Go live" hint when the stream is behind its target.
+ * The banner's live pill: "LIVE", or "−N s" (`behind`: OK jumps to live) when the stream is behind its target.
  * The delay is the distance to the live edge, the value the controller steers by (never the stream clock).
  * Raw TS only knows its buffer, so it always shows "LIVE" (never a delay it cannot measure). A non-live stream
  * (file/VOD) shows no pill.
  */
-export function livePill(status: SupervisorStatus | undefined, info: LiveInfo | undefined): { text: string; hint?: string } | undefined {
+export function livePill(status: SupervisorStatus | undefined, info: LiveInfo | undefined): { text: string; behind?: true } | undefined {
   if (status?.kind !== 'playing' || info?.isLive === false) return undefined;
   if (info && info.source !== 'buffer' && info.behindLiveS !== undefined
     && info.behindLiveS > info.targetS + PILL_BEHIND_MARGIN_S) {
-    return { text: `−${Math.round(info.behindLiveS)} s`, hint: 'OK: Go live' };
+    return { text: PLAYER_COPY.behindLive(Math.round(info.behindLiveS)), behind: true };
   }
-  return { text: 'LIVE' };
+  return { text: PLAYER_COPY.live };
 }
 
 export const ASPECT_MODES: readonly AspectMode[] = ['auto', '16:9', '4:3', 'zoom', 'stretch'];

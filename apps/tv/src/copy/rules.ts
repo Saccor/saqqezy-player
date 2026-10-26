@@ -26,7 +26,10 @@ const RULES: readonly { id: Exclude<CopyRuleId, 'length'>; re: RegExp }[] = [
  * why. Starts empty; Tasks 16–18 add exactly the entries they list, when the string they name exists (the copy test
  * fails on an exception that points at nothing).
  */
-export const COPY_EXCEPTIONS: Readonly<Record<string, readonly CopyRuleId[]>> = {};
+export const COPY_EXCEPTIONS: Readonly<Record<string, readonly CopyRuleId[]>> = {
+  'SHELL_COPY.revealShow': ['keyHint'], // Yellow reveals a password until phase 2 (Task 16)
+  'SHELL_COPY.revealHide': ['keyHint'], // (Task 16)
+};
 
 export function copyViolations(entries: readonly CopyEntry[], exceptions: Readonly<Record<string, readonly CopyRuleId[]>>): CopyViolation[] {
   const out: CopyViolation[] = [];

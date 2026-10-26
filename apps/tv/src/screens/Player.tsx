@@ -195,12 +195,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     idleMs: NUMBER_IDLE_MS,
     maxDigits: 4,
     onChange: (t) => { setDigits(t); if (t) setFlash(undefined); },
-    onSubmit: (n) => void jumpTo(() => api.byNumber(n), `No channel ${n}`),
+    onSubmit: (n) => void jumpTo(() => api.byNumber(n), PLAYER_COPY.noChannel(n)),
   });
 
   const previous = () => {
     const prev = channelHistory.previous();
-    if (prev) void jumpTo(() => api.getPlayable(prev), 'Previous channel not available');
+    if (prev) void jumpTo(() => api.getPlayable(prev), PLAYER_COPY.previousUnavailable);
     return true;
   };
 
@@ -307,12 +307,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const page = menuPage();
     if (page === 'audio') {
       const tracks = player.audioTracks();
-      if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this stream' }];
-      if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
+      if (tracks.length === 0) return [{ id: 'back', label: PLAYER_COPY.noAudioList }];
+      if (tracks.length === 1) return [{ id: 'back', label: PLAYER_COPY.oneAudio }];
       const labels = trackLabels(tracks, 'audio', liveLangs());
       return [
-        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
-        { id: 'back', label: 'Back' },
+        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? PLAYER_COPY.selected : '' })),
+        { id: 'back', label: COMMON_COPY.back },
       ];
     }
     const cur = playback.current();
@@ -320,16 +320,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     if (page === 'source') {
       return [
         ...sourceOptions(sources, cur?.id).map((o) => ({ id: `src:${o.id}`, label: o.label })),
-        { id: 'back', label: 'Back' },
+        { id: 'back', label: COMMON_COPY.back },
       ];
     }
     const tracks = player.audioTracks();
     const activeAt = tracks.findIndex((t) => t.active);
     return [
-      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks, 'audio', liveLangs())[activeAt] ?? 'Default' : 'Default' },
-      { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
-      { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
-      { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
+      { id: 'audio', label: PLAYER_COPY.audioTrack, value: activeAt >= 0 ? trackLabels(tracks, 'audio', liveLangs())[activeAt] ?? PLAYER_COPY.default : PLAYER_COPY.default },
+      { id: 'aspect', label: PLAYER_COPY.aspectRatio, value: aspectLabel(aspect()) },
+      { id: 'sleep', label: PLAYER_COPY.sleepTimer, value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
+      { id: 'info', label: PLAYER_COPY.streamInfo, value: infoOn() ? PLAYER_COPY.on : PLAYER_COPY.off },
       // Several channels at once, where this device can play them (spec 2026-10-20-multiview §2.1).
       ...(multiviewOffered(windowLimit(deviceCeiling(deviceWindowMax()), settings()?.maxWindows ?? 'auto'))
         ? [{ id: 'multiview', label: MULTIVIEW_COPY.entry }] : []),
@@ -424,7 +424,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     }
     // Behind live with the banner up: OK jumps to live (the pill says so) and keeps the banner.
     if (bannerOn()) setPillTick((v) => v + 1); // act on a fresh pill, not one up to 1 s old
-    if (bannerOn() && pill()?.hint) {
+    if (bannerOn() && pill()?.behind) {
       supervisor.goLive();
       showBanner();
       return true;

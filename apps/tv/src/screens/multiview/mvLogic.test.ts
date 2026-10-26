@@ -247,27 +247,12 @@ describe('Retry on a window the source cut (G9 decision C)', () => {
 });
 
 describe('the picker info line (warns, never blocks)', () => {
-  it('the reported count always shows when the source reports one (spec §4)', () => {
-    expect(pickerHint({ reported: 1, open: 1 })).toEqual(['infoReported']);
-    expect(pickerHint({ reported: 4, open: 1 })).toEqual(['infoReported']);
-    expect(pickerHint({ reported: 4, learnedRefusalAt: 3, open: 1 })).toEqual(['infoReported', 'learned']);
-  });
-  it('nothing known about the source: each window uses one connection', () => {
-    expect(pickerHint({ open: 1 })).toEqual(['infoUnknown']);
-  });
-  it('a learned refusal at window 2 when adding window 2: shown in addition to the reported count', () => {
-    expect(pickerHint({ learnedRefusalAt: 2, open: 1 })).toEqual(['learned']);
-    expect(pickerHint({ reported: 4, learnedRefusalAt: 2, open: 1 })).toEqual(['infoReported', 'learned']);
-  });
-  it('a learned refusal always shows, even beyond the next window: the line is never empty', () => {
-    expect(pickerHint({ learnedRefusalAt: 3, open: 1 })).toEqual(['learned']);
-  });
-  it('a source reporting 0 connections reports nothing (0 is unknown)', () => {
-    expect(pickerHint({ reported: 0, open: 1 })).toEqual(['infoUnknown']);
-    expect(pickerHint({ reported: 0, learnedRefusalAt: 2, open: 1 })).toEqual(['learned']);
+  it('always says each window uses one connection, so the line is never empty', () => {
+    expect(pickerHint({ open: 1 })).toEqual(['limit']);
+    expect(pickerHint({ open: 3 })).toEqual(['limit']);
   });
   it('while a connection is being freed, it says so first', () => {
-    expect(pickerHint({ reported: 1, open: 1, freeing: true })).toEqual(['freeing', 'infoReported']);
+    expect(pickerHint({ open: 1, freeing: true })).toEqual(['freeing', 'limit']);
   });
 });
 
