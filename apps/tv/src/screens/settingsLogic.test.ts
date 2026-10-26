@@ -148,7 +148,7 @@ describe('diagnosticsLines', () => {
     expect(text).toContain('App version: 1.2.3');
     expect(text).toContain('Platform: browser');
     expect(text.some((l) => l.includes('Test') && l.includes('120 channels') && l.includes('2 skipped'))).toBe(true);
-    expect(text).toContain('Guide offset: +1.5 h');
+    expect(text).toContain('Guide time offset: +1.5 h');
     expect(text).toContain('Stream format: HLS (m3u8)');
     expect(text).toContain('Live delay: Low');
     expect(text).toContain('Auto-refresh: 6 h');
@@ -275,7 +275,7 @@ describe('hideNoEpgRow', () => {
   it('is a toggle once the guide is there', () => {
     expect(hideNoEpgRow(known, false)).toEqual({ disabled: false, value: 'Off', help: HIDE_NO_EPG_HELP });
     expect(hideNoEpgRow(known, true).value).toBe('On');
-    expect(HIDE_NO_EPG_HELP).toBe('Channels with no programme information are hidden everywhere except your lists.');
+    expect(HIDE_NO_EPG_HELP).toBe('Channels with no programme information are hidden, except in lists.');
   });
 });
 

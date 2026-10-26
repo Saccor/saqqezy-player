@@ -4,6 +4,7 @@ import type { AppEvent } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
+import { ONBOARDING_COPY, SHELL_COPY } from '../copy.ts';
 import { firstRunTarget, loadChoices } from './countriesLogic.ts';
 import { Badge, BADGE_H } from '../components/Badge.tsx';
 import { Button, BUTTON_H } from '../components/Button.tsx';
@@ -23,6 +24,7 @@ import {
   progressText, revealLabel, toUpdatedSource, validateM3u, validateXtream, withHttpSettings, type HttpForm, type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
+const O = ONBOARDING_COPY;
 type Kind = 'xtream' | 'm3u';
 type Step = 'type' | Kind;
 type Progress = Extract<AppEvent, { type: 'progress' }>;
@@ -32,24 +34,24 @@ interface FieldDef { key: string; label: string; placeholder?: string; secret?: 
 
 const FIELDS: Record<Kind, FieldDef[]> = {
   xtream: [
-    { key: 'name', label: 'Name (optional)', placeholder: 'My TV' },
-    { key: 'server', label: 'Server', url: true },
-    { key: 'username', label: 'Username' },
-    { key: 'password', label: 'Password', secret: true },
+    { key: 'name', label: O.fields.name, placeholder: O.fields.namePlaceholder },
+    { key: 'server', label: O.fields.server, url: true },
+    { key: 'username', label: O.fields.username },
+    { key: 'password', label: O.fields.password, secret: true },
   ],
   m3u: [
-    { key: 'name', label: 'Name (optional)', placeholder: 'My TV' },
-    { key: 'playlistUrl', label: 'Playlist URL', url: true },
-    { key: 'epgUrl', label: 'TV guide URL (optional)', url: true },
+    { key: 'name', label: O.fields.name, placeholder: O.fields.namePlaceholder },
+    { key: 'playlistUrl', label: O.fields.m3uLink, url: true },
+    { key: 'epgUrl', label: O.fields.guideLink, url: true },
   ],
 };
 /** Settings → source → Advanced: free text, no presets; empty means the platform's own default. */
 const ADVANCED_FIELDS: FieldDef[] = [
-  { key: 'userAgent', label: 'User-Agent', placeholder: 'Default' },
-  { key: 'referrer', label: 'Referer', placeholder: 'Default', url: true },
+  { key: 'userAgent', label: O.fields.userAgent, placeholder: O.fields.default },
+  { key: 'referrer', label: O.fields.referer, placeholder: O.fields.default, url: true },
 ];
-const SUBMIT_LABEL: Record<Kind, string> = { xtream: 'Log in', m3u: 'Add' };
-const FORM_TITLE: Record<Kind, string> = { xtream: 'Xtream login', m3u: 'M3U link' };
+const SUBMIT_LABEL: Record<Kind, string> = { xtream: O.logIn, m3u: O.add };
+const FORM_TITLE: Record<Kind, string> = { xtream: O.xtreamTitle, m3u: O.m3uTitle };
 
 const KEYBOARD_ID = 'keyboard';
 const X = LAYOUT.safeX;
@@ -240,7 +242,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         if (editId === activeId) playback.stop();
         // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.
         if (alive) router.back();
-        showToast('Source saved');
+        showToast(O.saved);
         return;
       }
       const added = await api.addSource(v.input);
@@ -267,7 +269,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       else {
         // Pop first: a toast is a Back layer, so `back()` after it would only close the toast.
         router.back();
-        showToast('Source added. Set it as active to watch it.');
+        showToast(O.added);
       }
     } catch (err) {
       offProgress();
@@ -293,7 +295,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       offProgress();
       if (stored.id === activeId) playback.stop(); // the next open uses the new headers
       if (alive) router.back();
-      showToast('Source saved');
+      showToast(O.saved);
     } catch (err) {
       offProgress();
       if (!alive) return;
@@ -326,7 +328,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       if (!alive) return;
       if (!src) {
         router.back();
-        showToast("This source doesn't exist any more.");
+        showToast(O.missing);
         return;
       }
       stored = src;
@@ -340,7 +342,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
       console.warn('Load source failed', err instanceof Error ? err.name : 'Error');
       if (!alive) return;
       router.back();
-      showToast("Couldn't load this source.");
+      showToast(O.loadFailed);
     }
   };
 
@@ -367,25 +369,25 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Show when={ready() && step() === 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.title} color={COLORS.text}>{'Add your TV source'}</Text>
+        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.title} color={COLORS.text}>{O.title}</Text>
         <Text x={X} y={LAYOUT.safeY + 140} fontSize={TYPE.body} color={COLORS.muted}>
-          {'Use the login details from your own provider.'}
+          {O.intro}
         </Text>
         <View x={X} y={340} width={tileW2} height={TILE_H}>
-          <TypeOption ref={(el) => { tiles[0] = el; }} x={0} title="Xtream login" body="Server, username and password"
-            badge="Most common" onPress={() => openStep('xtream')} onRight={() => focusTile(1)} />
-          <TypeOption ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title="M3U link"
-            body="Playlist URL + optional TV guide (EPG) URL" onPress={() => openStep('m3u')} onLeft={() => focusTile(0)} />
+          <TypeOption ref={(el) => { tiles[0] = el; }} x={0} title={O.xtreamTitle} body={O.xtreamBody}
+            badge={O.mostCommon} onPress={() => openStep('xtream')} onRight={() => focusTile(1)} />
+          <TypeOption ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title={O.m3uTitle}
+            body={O.m3uBody} onPress={() => openStep('m3u')} onLeft={() => focusTile(0)} />
         </View>
         <Text x={X} y={700} fontSize={TYPE.body} color={COLORS.muted}>
-          {'This app contains no channels. You can only add sources you have the right to use.'}
+          {O.legal}
         </Text>
       </Show>
 
       <Show when={ready() && step() !== 'type'}>
         {/* Ends before the wordmark zone: "Advanced · <long source name>" ran under the wordmark. */}
         <Text x={X} y={LAYOUT.safeY + 40} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={TYPE.title} color={COLORS.text}>
-          {advanced ? `Advanced · ${stored?.name ?? ''}` : editId !== undefined ? `Edit source · ${FORM_TITLE[kind()]}` : FORM_TITLE[kind()]}
+          {advanced ? O.advancedTitle(stored?.name ?? '') : editId !== undefined ? O.editTitle(FORM_TITLE[kind()]) : FORM_TITLE[kind()]}
         </Text>
         <Show when={advanced}>
           <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + 16 + BUTTON_H + 32} width={FORM_W} maxWidth={FORM_W} contain="width"
@@ -397,7 +399,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
           <TextField ref={(el) => { items[i()] = el; }} x={X} y={FORM_Y + i() * FIELD_STEP} width={FORM_W}
             label={f.label} placeholder={f.placeholder} value={values()[f.key] ?? ''} secret={f.secret}
             revealed={f.secret ? revealed() : undefined} editing={editing() === f.key}
-            hint={f.secret && !pointerMode() ? `Yellow: ${revealed() ? 'hide' : 'show'}` : undefined}
+            hint={f.secret && !pointerMode() ? (revealed() ? SHELL_COPY.revealHide : SHELL_COPY.revealShow) : undefined}
             endInset={f.secret && pointerMode() ? REVEAL_W + REVEAL_INSET : undefined}
             dimmed={advanced && headerFieldDimmed(headerSupportHere, f.key as keyof HttpForm)}
             note={advanced && headerFieldDimmed(headerSupportHere, f.key as keyof HttpForm) ? HEADER_UNUSED_NOTE : undefined}
@@ -406,7 +408,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
         )}</For>
         <Button ref={(el) => { items[fields().length] = el; }} x={X} y={FORM_Y + fields().length * FIELD_STEP + 16}
-          width={260} label={editId !== undefined ? 'Save' : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
+          width={260} label={editId !== undefined ? O.save : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
           onUp={() => focusItem(fields().length - 1)} onDown={() => true} />
         {/* Pointer mode: the Yellow key's action as a button inside the password field's right end. */}
         <Show when={pointerMode() && fields().some((f) => f.secret === true)}>
@@ -416,12 +418,6 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
         <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - TYPE.body) / 2 - 4}
           width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
           fontSize={TYPE.body} color={busy() ? COLORS.text : COLORS.error}>{statusText()}</Text>
-        {/* Pointer mode: the shell's Back button stands on this line instead. */}
-        <Show when={!pointerMode()}>
-          <Text x={X} y={LAYOUT.height - LAYOUT.safeY - 40} fontSize={TYPE.meta} color={COLORS.muted}>
-            {editId !== undefined ? 'Ok edits a field · Back cancels' : 'Ok edits a field · Back returns to the login type'}
-          </Text>
-        </Show>
         <Show when={editingField()}>{(f) => (
           <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={KEYBOARD_Y}
             label={f().label} value={values()[f().key] ?? ''} secret={f().secret} revealed={revealed()}

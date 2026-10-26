@@ -125,3 +125,5 @@ export { PLAYER_COPY } from './copy/player.ts';
 export { VOD_COPY } from './copy/vod.ts';
 export { TRENDING_COPY } from './copy/trending.ts';
 export { LIVE_COPY } from './copy/live.ts';
+export { SETTINGS_COPY } from './copy/settings.ts';
+export { ONBOARDING_COPY } from './copy/onboarding.ts';

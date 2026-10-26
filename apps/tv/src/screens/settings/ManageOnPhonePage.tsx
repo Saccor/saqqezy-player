@@ -3,6 +3,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import { api } from '../../api.ts';
 import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
 import { rowHit } from '../../input/pointerLogic.ts';
 import { controlFill, controlText, isLit } from '../../shell/focusStyle.ts';
@@ -14,6 +15,7 @@ import {
 } from '../pairingLogic.ts';
 import type { PageProps } from './shared.ts';
 
+const PH = SETTINGS_COPY.phone;
 const COMPANION_ORIGIN = (import.meta.env.VITE_COMPANION_ORIGIN as string | undefined) || 'http://localhost:5174';
 const PANEL_X = 28;
 const QR_SIZE = 420;
@@ -181,17 +183,17 @@ export function ManageOnPhonePage(props: PageProps) {
     return sh.mode === 'qr' && sh.qrUrl ? 'qr' : sh.code ? 'code' : 'message';
   };
   const message = () => {
-    if (failed()) return "Couldn't create a code. Check the connection and try again.";
-    if (starting()) return 'Getting a code…';
+    if (failed()) return PH.codeFailed;
+    if (starting()) return PH.getting;
     if (state() === 'connected' || state() === 'reconnecting') {
-      return 'You can now manage sources, lists and groups from your phone or computer. Changes show up here right away.';
+      return PH.connected;
     }
-    if (state() === 'waiting') return 'Getting a code…';
-    return 'Show a new code to connect your phone or computer.';
+    if (state() === 'waiting') return PH.getting;
+    return PH.showNew;
   };
   const statusLine = () => {
-    if (failed()) return "Couldn't create a code.";
-    if (starting()) return 'Getting a code…';
+    if (failed()) return PH.failedShort;
+    if (starting()) return PH.getting;
     return statusCopy(status(), mode());
   };
   const countdown = () => {
@@ -200,7 +202,7 @@ export function ManageOnPhonePage(props: PageProps) {
   };
   const yellowHint = () => {
     if (state() === 'connected' || state() === 'reconnecting') return '';
-    return mode() === 'qr' ? 'Yellow: use a code instead' : 'Yellow: show the QR code instead';
+    return mode() === 'qr' ? PH.useCode : PH.useQr;
   };
 
   return (
@@ -211,11 +213,11 @@ export function ManageOnPhonePage(props: PageProps) {
       <Show when={panel() === 'code'}>
         <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={RADIUS.card}>
           <Text y={90} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
-            color={COLORS.muted}>{'On your phone or computer, open'}</Text>
+            color={COLORS.muted}>{PH.openOn}</Text>
           <Text y={136} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body} {...STRONG}
             color={COLORS.text}>{companionHost()}</Text>
           <Text y={210} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
-            color={COLORS.muted}>{'and type this code:'}</Text>
+            color={COLORS.muted}>{PH.typeThisCode}</Text>
           <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.hero} {...STRONG}
             color={COLORS.text}>{shown()?.code ?? ''}</Text>
         </View>
@@ -231,7 +233,7 @@ export function ManageOnPhonePage(props: PageProps) {
         maxLines={2} lineHeight={42} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{statusLine()}</Text>
       <Text x={COL_X} y={96} fontSize={TYPE.body} color={COLORS.muted}>{countdown()}</Text>
       <Text x={COL_X} y={148} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
-        fontSize={TYPE.meta} color={COLORS.muted}>{'The connection is end-to-end encrypted.'}</Text>
+        fontSize={TYPE.meta} color={COLORS.muted}>{PH.encrypted}</Text>
 
       <View ref={(el) => { actionsNode = el; props.register(el); }} x={COL_X} y={ACTIONS_Y} width={ACTION_W}
         height={actions().length * (BUTTON_H + ACTION_GAP)} onFocusChanged={setFocused}

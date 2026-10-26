@@ -1,14 +1,15 @@
 import { Text, View } from '@lightningtv/solid';
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { aboutAttribution } from '../../net/trendingConfig.ts';
 import { COLORS, TYPE } from '../../shell/theme.ts';
 import type { PageProps } from './shared.ts';
 
-export const APP_NAME = 'Saqqezy Player';
-export const LEGAL_TEXT = 'This app is a media player. It does not provide any channels, streams or content. '
-  + 'You are responsible for making sure you have the right to use the sources you add.';
-export const CONTACT_TEXT = 'Copyright contact: see the website listed in the store.';
+const A = SETTINGS_COPY.about;
+export const APP_NAME = A.app;
+export const LEGAL_TEXT = `${A.legal} ${A.responsibility}`;
+export const CONTACT_TEXT = A.contact;
 /** Data-source credits for Start's trending rows (Wikimedia and Wikidata; TMDB only in builds that use its key). */
 const ATTRIBUTION = aboutAttribution({
   VITE_TRENDING_URL: import.meta.env.VITE_TRENDING_URL as string | undefined,
@@ -29,7 +30,7 @@ export function AboutPage(props: PageProps) {
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
       <Text x={28} y={8} fontSize={TYPE.title} color={COLORS.text}>{APP_NAME}</Text>
-      <Text x={28} y={80} fontSize={TYPE.body} color={COLORS.muted}>{version() ? `Version ${version()}` : ''}</Text>
+      <Text x={28} y={80} fontSize={TYPE.body} color={COLORS.muted}>{version() ? A.version(version()) : ''}</Text>
       <Text x={28} y={150} width={w} maxWidth={w} contain="width" lineHeight={40} fontSize={TYPE.body}
         color={COLORS.text}>{LEGAL_TEXT}</Text>
       <Text x={28} y={270} width={w} maxWidth={w} contain="width" fontSize={TYPE.body}

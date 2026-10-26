@@ -130,6 +130,15 @@ const LIVE_FILES = [
   'screens/playerBanner.tsx',
 ] as const;
 
+const SETTINGS_FILES = [
+  'screens/settingsLogic.ts', 'screens/AddSource.tsx', 'screens/journalLogic.ts', 'screens/settings/ChannelsPage.tsx',
+  'screens/settings/backupLogic.ts', 'screens/settings/SourcesPage.tsx', 'screens/addSourceLogic.ts', 'screens/settings/PlaybackPage.tsx',
+  'screens/pairingLogic.ts', 'screens/settings/StoragePage.tsx', 'screens/settings/ManageOnPhonePage.tsx', 'screens/settings/DiagnosticsPage.tsx',
+  'screens/settings/PlaybackLogView.tsx', 'screens/settings/GuidePage.tsx', 'screens/settings/ConnectionsView.tsx', 'screens/settings/AboutPage.tsx',
+  'screens/settings/connectionsLogic.ts', 'screens/settings/DisplayPage.tsx', 'screens/settings/shared.ts', 'screens/Settings.tsx',
+  'screens/Placeholder.tsx', 'screens/Countries.tsx', 'screens/countriesModel.ts',
+] as const;
+
 describe('copy lives in copy.ts (spec 2026-10-26 §1.4)', () => {
   it('Live TV, guide, player, multiview and shell files have no inline UI strings', () => {
     expect(stringFree(LIVE_FILES)).toEqual([]);
@@ -141,5 +150,14 @@ describe('copy lives in copy.ts (spec 2026-10-26 §1.4)', () => {
       'vod/versionsLogic.ts', 'vod/vodPlayerLogic.ts', 'vod/categoryPicker.ts', 'net/trendingConfig.ts', 'vod/catchupLogic.ts',
       'vod/favToggle.ts', 'vod/launch.ts', 'vod/tabLogic.ts',
     ])).toEqual([]);
+  });
+  it('Settings, Add source, pairing, backup and Countries files have no inline UI strings', () => {
+    expect(stringFree(SETTINGS_FILES)).toEqual([]);
+  });
+  it('no file anywhere has an inline UI string (the string baseline is zero)', () => {
+    const left = Object.entries(scanTokens(SRC))
+      .filter(([f, c]) => (c.string ?? 0) > 0 && f !== 'worker.ts') // worker.ts: phase 0 owns it; cleared after phase 0b merges
+      .map(([f, c]) => `${f}: ${c.string}`);
+    expect(left).toEqual([]);
   });
 });

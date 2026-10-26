@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { toastFor } from '../../state/events.ts';
-import { backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, restoredCopy, storageItems } from './backupLogic.ts';
+import { BACKUP_DONE_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, restoredCopy, storageItems } from './backupLogic.ts';
 
 describe('Settings › Storage backup rows', () => {
   test('TV: clear cache, back up to and restore from the phone; no file rows', () => {
@@ -20,7 +20,8 @@ describe('Settings › Storage backup rows', () => {
   test('while waiting for the phone, the restore row says so and OK stops waiting', () => {
     const items = storageItems({ connected: true, waiting: true, files: false });
     expect(items[2]!.help).toMatch(/Waiting for your phone/);
-    expect(items[2]!.help).toMatch(/OK to stop/);
+    expect(items[2]!.help).toBe('Waiting for your phone: open Backup › Restore to this TV.');
+    expect(items[2]!.help!.length).toBeLessThanOrEqual(70);
   });
 
   test('off TVs: a backup file can be saved and restored', () => {
@@ -31,8 +32,9 @@ describe('Settings › Storage backup rows', () => {
   test('copy never names a provider or content, and says sources stay on the device', () => {
     const all = storageItems({ connected: true, waiting: false, files: true }).map((i) => `${i.label} ${i.help ?? ''}`).join(' ');
     expect(all).not.toMatch(/free|channels? package|subscription/i);
-    expect(backupDoneMessage('phone')).toMatch(/recovery code/i);
-    expect(backupDoneMessage('file')).toMatch(/shown only once/i);
+    expect(backupDoneMessage('phone')).toBe('Backup saved on your phone');
+    expect(backupDoneMessage('file')).toBe('Backup file saved');
+    expect(BACKUP_DONE_LINE).toMatch(/shown once/i);
   });
 });
 
@@ -52,7 +54,7 @@ describe('restore results', () => {
   test('summaries', () => {
     expect(restoredCopy({ applied: 0, pending: 0 })).toMatch(/already/i);
     expect(restoredCopy({ applied: 12, pending: 0 })).toBe('Restored 12 changes from your backup.');
-    expect(restoredCopy({ applied: 1, pending: 3 })).toMatch(/^Restored 1 change from your backup\. Some of it is for a source/);
+    expect(restoredCopy({ applied: 1, pending: 3 })).toMatch(/^Restored 1 change from your backup\. Some of it applies when you add its source/);
     expect(restoredCopy({ applied: 0, pending: 3 })).toMatch(/when you add/);
   });
 

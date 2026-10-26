@@ -54,8 +54,7 @@
     "space": 4
   },
   "screens/AddSource.tsx": {
-    "space": 10,
-    "string": 34
+    "space": 9
   },
   "screens/Countries.tsx": {
     "space": 1
@@ -66,8 +65,7 @@
     "space": 3
   },
   "screens/Placeholder.tsx": {
-    "space": 5,
-    "string": 3
+    "space": 5
   },
   "screens/Player.tsx": {
     "lineHeight": 1,
@@ -80,8 +78,7 @@
     "lineHeight": 1
   },
   "screens/Settings.tsx": {
-    "space": 3,
-    "string": 1
+    "space": 3
   },
   "screens/Start.tsx": {
     "space": 2
@@ -101,12 +98,6 @@
     "lineHeight": 2,
     "space": 7
   },
-  "screens/addSourceLogic.ts": {
-    "string": 20
-  },
-  "screens/journalLogic.ts": {
-    "string": 33
-  },
   "screens/live/LiveTv.tsx": {
     "space": 1
   },
@@ -122,62 +113,17 @@
     "radius": 1,
     "space": 6
   },
-  "screens/pairingLogic.ts": {
-    "string": 17
-  },
   "screens/settings/AboutPage.tsx": {
     "lineHeight": 2,
-    "space": 9,
-    "string": 5
-  },
-  "screens/settings/ChannelsPage.tsx": {
-    "space": 1,
-    "string": 30
-  },
-  "screens/settings/ConnectionsView.tsx": {
-    "string": 6
+    "space": 9
   },
   "screens/settings/CountriesPage.tsx": {
     "space": 1
   },
-  "screens/settings/DiagnosticsPage.tsx": {
-    "string": 8
-  },
-  "screens/settings/DisplayPage.tsx": {
-    "string": 3
-  },
-  "screens/settings/GuidePage.tsx": {
-    "string": 7
-  },
   "screens/settings/ManageOnPhonePage.tsx": {
     "radius": 1,
     "lineHeight": 2,
-    "space": 11,
-    "string": 11
-  },
-  "screens/settings/PlaybackLogView.tsx": {
-    "string": 8
-  },
-  "screens/settings/PlaybackPage.tsx": {
-    "string": 18
-  },
-  "screens/settings/SourcesPage.tsx": {
-    "string": 21
-  },
-  "screens/settings/StoragePage.tsx": {
-    "string": 12
-  },
-  "screens/settings/backupLogic.ts": {
-    "string": 26
-  },
-  "screens/settings/connectionsLogic.ts": {
-    "string": 5
-  },
-  "screens/settings/shared.ts": {
-    "string": 1
-  },
-  "screens/settingsLogic.ts": {
-    "string": 62
+    "space": 11
   },
   "shell/InitError.tsx": {
     "space": 3

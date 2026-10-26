@@ -3,7 +3,7 @@ import { Match, Switch, createMemo, createSignal, onCleanup, onMount } from 'sol
 import { Dialog } from '../components/Dialog.tsx';
 import { Sheet, SheetRowView } from '../components/Sheet.tsx';
 import { SHEET_PITCH, fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
-import { COMMON_COPY } from '../copy.ts';
+import { COMMON_COPY, SETTINGS_COPY } from '../copy.ts';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
@@ -243,7 +243,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Rail ref={(el) => { railNode = el; }} active="settings" onSelect={onRailSelect}
         onRight={() => { restoreFocus(); return true; }} />
-      <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Settings'}</Text>
+      <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{SETTINGS_COPY.title}</Text>
       <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onLeft={toRail}
         onClickRow={clickMenu} />
       <Text x={PAGE_X + 28} y={LAYOUT.safeY + TYPE.title - TYPE.body - 2} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>

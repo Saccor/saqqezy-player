@@ -1,25 +1,11 @@
 import { For, Text, View } from '@lightningtv/solid';
 import { Row } from '@lightningtv/solid/primitives';
+import { SETTINGS_COPY } from '../copy.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { router, type ScreenEntry, type ScreenId } from '../shell/router.ts';
 import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
 
-const TITLES: Record<ScreenId, string> = {
-  addSource: 'Add source',
-  countries: 'Your countries',
-  home: 'Home',
-  player: 'Player',
-  search: 'Search',
-  settings: 'Settings',
-  vod: 'Movies',
-  vodGrid: 'Movies',
-  movieDetail: 'Movie',
-  seriesDetail: 'Series',
-  vodPlay: 'Player',
-  start: 'Start',
-  startSports: 'Matches',
-  multiview: 'Multiview',
-};
+const TITLES: Record<ScreenId, string> = SETTINGS_COPY.placeholder.titles;
 
 /** Screens Home can open while they are placeholders (Tasks 6 to 11 replace them). */
 const HOME_LINKS: ScreenId[] = ['search', 'settings', 'player', 'addSource'];
@@ -34,7 +20,6 @@ function LinkButton(props: { target: ScreenId }) {
 export function PlaceholderScreen(props: { entry: ScreenEntry }) {
   const screen = props.entry.screen;
   const isHome = screen === 'home';
-  const isRoot = router.depth() <= 1;
   const params = Object.entries(props.entry.params).map(([k, v]) => `${k}=${String(v)}`).join(', ');
   const panelW = LAYOUT.width - LAYOUT.safeX * 2;
   const rowW = HOME_LINKS.length * (BTN_W + LAYOUT.gap) - LAYOUT.gap;
@@ -52,10 +37,10 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
           : <View x={48} y={300} width={2} height={2} autofocus />}
         <Text x={48} y={48} fontSize={TYPE.title} color={COLORS.text}>{TITLES[screen]}</Text>
         <Text x={48} y={124} fontSize={TYPE.body} color={COLORS.muted}>
-          {`This is the ${TITLES[screen]} screen (placeholder).`}
+          {SETTINGS_COPY.placeholder.screen(TITLES[screen])}
         </Text>
         <Text x={48} y={172} fontSize={TYPE.meta} color={COLORS.muted}>
-          {`${params ? `Params: ${params}. ` : ''}${isHome ? 'Ok opens a screen. ' : ''}${isRoot ? 'Back asks to exit.' : 'Back returns.'}`}
+          {params ? SETTINGS_COPY.placeholder.params(params) : ''}
         </Text>
       </View>
     </View>

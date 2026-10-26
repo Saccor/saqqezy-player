@@ -1,6 +1,7 @@
 /** Pure helpers for the Add source screen (validation, error copy, progress copy). Unit-tested. */
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { NewSource, SourceConfig } from '@iptv/core';
+import { ONBOARDING_COPY } from '../copy.ts';
 import { headerUsable, type HeaderSupport } from '@iptv/platform';
 
 export const DEFAULT_NAME = 'My TV';
@@ -15,7 +16,7 @@ export const URL_MAX = 8192;
 export const FIELD_MAX: Readonly<Record<string, number>> = {
   name: SOURCE_NAME_MAX, server: URL_MAX, username: URL_MAX, password: URL_MAX, playlistUrl: URL_MAX, epgUrl: URL_MAX,
 };
-export const NAME_TOO_LONG = `Use a name of ${SOURCE_NAME_MAX} characters or fewer.`;
+export const NAME_TOO_LONG = ONBOARDING_COPY.nameTooLong(SOURCE_NAME_MAX);
 
 /** Cuts `v` to at most `max` UTF-16 units (the protocol's measure) without splitting a surrogate pair. */
 export function clampField(v: string, max: number): string {
@@ -23,7 +24,7 @@ export function clampField(v: string, max: number): string {
   const code = v.charCodeAt(max - 1);
   return v.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max);
 }
-export const GENERIC_ERROR = 'Something went wrong. Please try again.';
+export const GENERIC_ERROR = ONBOARDING_COPY.genericError;
 
 export interface XtreamForm { name: string; server: string; username: string; password: string }
 export interface M3uForm { name: string; playlistUrl: string; epgUrl: string }
@@ -50,12 +51,12 @@ export function validateXtream(f: XtreamForm): Validation<XtreamForm> {
   if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
   const server = f.server.trim();
   const username = f.username.trim();
-  if (!server) return { ok: false, field: 'server', message: 'Enter the server address.' };
+  if (!server) return { ok: false, field: 'server', message: ONBOARDING_COPY.enterServer };
   if (!isHttpUrl(server)) {
-    return { ok: false, field: 'server', message: 'Enter a server address starting with http:// or https://.' };
+    return { ok: false, field: 'server', message: ONBOARDING_COPY.serverUrl };
   }
-  if (!username) return { ok: false, field: 'username', message: 'Enter your username.' };
-  if (!f.password) return { ok: false, field: 'password', message: 'Enter your password.' };
+  if (!username) return { ok: false, field: 'username', message: ONBOARDING_COPY.enterUsername };
+  if (!f.password) return { ok: false, field: 'password', message: ONBOARDING_COPY.enterPassword };
   return { ok: true, input: { kind: 'xtream', name: nameOf(f.name), server, username, password: f.password } };
 }
 
@@ -63,12 +64,12 @@ export function validateM3u(f: M3uForm): Validation<M3uForm> {
   if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
   const playlistUrl = f.playlistUrl.trim();
   const epgUrl = f.epgUrl.trim();
-  if (!playlistUrl) return { ok: false, field: 'playlistUrl', message: 'Enter the playlist URL.' };
+  if (!playlistUrl) return { ok: false, field: 'playlistUrl', message: ONBOARDING_COPY.enterLink };
   if (!isHttpUrl(playlistUrl)) {
-    return { ok: false, field: 'playlistUrl', message: 'Enter a playlist URL starting with http:// or https://.' };
+    return { ok: false, field: 'playlistUrl', message: ONBOARDING_COPY.linkUrl };
   }
   if (epgUrl && !isHttpUrl(epgUrl)) {
-    return { ok: false, field: 'epgUrl', message: 'Enter a TV guide URL starting with http:// or https://, or leave it empty.' };
+    return { ok: false, field: 'epgUrl', message: ONBOARDING_COPY.guideUrl };
   }
   const input: NewSource = { kind: 'm3u', name: nameOf(f.name), playlistUrl };
   if (epgUrl) input.epgUrl = epgUrl;
@@ -87,9 +88,9 @@ export function errorMessage(err: unknown): string {
 }
 
 export function progressText(p: { phase: 'playlist' | 'epg'; count: number } | undefined): string {
-  if (!p) return 'Connecting…';
+  if (!p) return ONBOARDING_COPY.connecting;
   const n = p.count.toLocaleString('en-US');
-  return p.phase === 'playlist' ? `Loading channels… ${n}` : `Loading TV guide… ${n}`;
+  return p.phase === 'playlist' ? ONBOARDING_COPY.loadingChannels(n) : ONBOARDING_COPY.loadingGuide(n);
 }
 
 export function maskSecret(s: string): string {
@@ -149,22 +150,23 @@ export const HEADER_FIELD_MAX = 512;
  */
 export function advancedHelp(support: HeaderSupport): string {
   const { lists, streams } = support;
+  const H = ONBOARDING_COPY.headers;
   const all = lists.userAgent && lists.referrer && streams.userAgent && streams.referrer;
-  if (all) return "Sent with this source's lists, guide and streams. Leave empty to use the app's default.";
+  if (all) return H.all;
   if (!headerUsable(support, 'userAgent') && !headerUsable(support, 'referrer')) {
-    return 'This TV cannot send these headers. The values are kept but not used here.';
+    return H.none;
   }
   if (!lists.userAgent && !lists.referrer && streams.userAgent && !streams.referrer) {
-    return "On this TV only the User-Agent is sent, and only with streams. Lists and the guide use the TV's own.";
+    return H.streamsOnly;
   }
   if (lists.userAgent && lists.referrer && !streams.userAgent && !streams.referrer) {
-    return "On this TV these are sent with lists and the guide only. Leave empty to use the app's default.";
+    return H.listsOnly;
   }
-  return "On this TV only some of these are sent. Leave empty to use the app's default.";
+  return H.partial;
 }
 
 /** Under a field this device cannot use: the value is kept (a later update may use it), so it stays editable. */
-export const HEADER_UNUSED_NOTE = 'Not used on this TV';
+export const HEADER_UNUSED_NOTE = ONBOARDING_COPY.unusedNote;
 
 /** True when no request on this device can carry `field`: the field is drawn dimmed with HEADER_UNUSED_NOTE. */
 export function headerFieldDimmed(support: HeaderSupport, field: keyof HttpForm): boolean {
@@ -189,10 +191,10 @@ export function withHttpSettings(src: SourceConfig, form: HttpForm): SourceConfi
 
 /** The source's info line for an Xtream account's connection limit, when the login reported one. */
 export function connectionsLine(max: number | undefined): string | undefined {
-  return max !== undefined && Number.isInteger(max) && max >= 1 ? `Connections allowed: ${max}` : undefined;
+  return max !== undefined && Number.isInteger(max) && max >= 1 ? ONBOARDING_COPY.connectionsAllowed(max) : undefined;
 }
 
 /** The pointer-mode button next to the password field (the Yellow key's action). */
 export function revealLabel(revealed: boolean): string {
-  return revealed ? 'Hide password' : 'Show password';
+  return revealed ? ONBOARDING_COPY.hidePassword : ONBOARDING_COPY.showPassword;
 }

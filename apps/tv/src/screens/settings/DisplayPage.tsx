@@ -3,6 +3,7 @@ import { createSignal, onCleanup } from 'solid-js';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList } from '../../components/SettingsList.tsx';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { motionLevel } from '../../shell/motion.ts';
 import { nextMotionLevel } from '../../shell/motionLogic.ts';
 import { router } from '../../shell/router.ts';
@@ -13,6 +14,7 @@ import { addTeamError, displayItems } from '../settingsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
 
 const KEYBOARD_ID = 'displayKeyboard';
+const D = SETTINGS_COPY.display;
 
 /** Display: the clock, where the app opens, poster size, motion, and the teams whose matches come first on Start. */
 export function DisplayPage(props: PageProps) {
@@ -60,7 +62,7 @@ export function DisplayPage(props: PageProps) {
     if (id === 'addTeam') { openKeyboard(); return; }
     if (id.startsWith('team:')) {
       const name = teams()[Number(id.slice(5))];
-      if (name !== undefined && await props.confirm(`Stop following ${name}?`, 'Remove')) {
+      if (name !== undefined && await props.confirm(D.stopTitle, D.stopYes, { line: name })) {
         // By name, captured before the dialog: the list may have changed while it was open.
         void saveSetting({ followedTeams: teams().filter((t) => t !== name) });
       }
@@ -80,7 +82,7 @@ export function DisplayPage(props: PageProps) {
         return (
           <View ref={(el) => { scrim = el; }} x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
             <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
-              label="Team name" value={e().value} error={e().error} hint="Done adds · Back cancels"
+              label={D.teamName} value={e().value} error={e().error}
               onChange={(v) => { const cur = edit(); if (cur) setEdit({ value: limitTyping(cur.value, v) }); }}
               onDone={submit} />
           </View>

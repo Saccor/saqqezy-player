@@ -29,6 +29,12 @@ const RULES: readonly { id: Exclude<CopyRuleId, 'length'>; re: RegExp }[] = [
 export const COPY_EXCEPTIONS: Readonly<Record<string, readonly CopyRuleId[]>> = {
   'TRENDING_COPY.attribution': ['length'], // licence wording, word for word (Task 17)
   'TRENDING_COPY.tmdb': ['length'], // licence wording, word for word (Task 17)
+  'ONBOARDING_COPY.legal': ['length'], // neutrality statement, CLAUDE.md rule 10 (Task 18)
+  'SETTINGS_COPY.about.legal': ['length'], // neutrality statement (Task 18)
+  'SETTINGS_COPY.about.responsibility': ['length'], // neutrality statement (Task 18)
+  'SETTINGS_COPY.phone.useCode': ['keyHint'], // Yellow toggles QR/code until phase 2 (Task 18)
+  'SETTINGS_COPY.phone.useQr': ['keyHint'], // (Task 18)
+  'SETTINGS_COPY.log.confirmClear': ['keyHint'], // two-press clear (Task 18)
   'SHELL_COPY.revealShow': ['keyHint'], // Yellow reveals a password until phase 2 (Task 16)
   'SHELL_COPY.revealHide': ['keyHint'], // (Task 16)
 };

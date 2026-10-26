@@ -3,6 +3,7 @@ import type { ElementNode } from '@lightningtv/solid';
 import type { AppSettings } from '@iptv/core';
 import { api } from '../../api.ts';
 import type { OptionItem } from '../../components/sheetLogic.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { patchSettings, settings } from '../../state/appState.ts';
 import { rollbackTarget } from '../settingsLogic.ts';
@@ -59,6 +60,6 @@ export async function saveSetting(partial: Partial<AppSettings>): Promise<void> 
     console.warn('Save settings failed', err instanceof Error ? err.name : 'Error');
     const back = rollbackTarget(previous, seq, saveSeq);
     if (back) patchSettings(back);
-    showToast("Couldn't save the setting.");
+    showToast(SETTINGS_COPY.saveFailed);
   }
 }

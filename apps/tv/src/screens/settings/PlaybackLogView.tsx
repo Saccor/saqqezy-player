@@ -3,11 +3,13 @@ import { createSignal, onCleanup } from 'solid-js';
 import type { JournalEvent } from '@iptv/player';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { journal } from '../../playback/playback.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { platformId } from '../../state/appState.ts';
 import { isTvPlatform } from '../../video/engineConfig.ts';
 import { journalText, logRows } from '../journalLogic.ts';
 
 const CLEAR_ARM_MS = 3000;
+const L = SETTINGS_COPY.log;
 
 /** The clipboard on desktop builds only; TVs have none. */
 function desktopClipboard(): Clipboard | undefined {
@@ -39,12 +41,12 @@ export function PlaybackLogView(props: {
 
   const items = (): SettingItem[] => {
     const rows: SettingItem[] = [
-      { id: 'back', label: 'Back to Diagnostics' },
-      { id: 'clear', label: armed() ? 'Press OK again to clear' : 'Clear log' },
+      { id: 'back', label: L.back },
+      { id: 'clear', label: armed() ? L.confirmClear : L.clear },
     ];
-    if (clipboard) rows.push({ id: 'copy', label: 'Copy log', value: copyNote() });
+    if (clipboard) rows.push({ id: 'copy', label: L.copy, value: copyNote() });
     const list = entries();
-    rows.push({ id: 'heading', label: list.length > 0 ? 'Newest first' : 'Nothing logged yet', heading: true });
+    rows.push({ id: 'heading', label: list.length > 0 ? L.newest : L.empty, heading: true });
     for (const r of logRows(list, Date.now())) rows.push({ id: r.id, label: r.text, value: r.time });
     return rows;
   };
@@ -65,9 +67,9 @@ export function PlaybackLogView(props: {
     } else if (id === 'copy' && clipboard) {
       try {
         clipboard.writeText(journalText(journal.entries(), Date.now()))
-          .then(() => setCopyNote('Copied'), () => setCopyNote('Copy not available'));
+          .then(() => setCopyNote(L.copied), () => setCopyNote(L.copyUnavailable));
       } catch {
-        setCopyNote('Copy not available');
+        setCopyNote(L.copyUnavailable);
       }
     }
   };
