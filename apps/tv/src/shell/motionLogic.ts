@@ -180,3 +180,14 @@ export function screenEnters(change: ScreenChange | undefined, screen: ScreenId,
 export function screenUnderlay(screen: ScreenId): boolean {
   return !VIDEO_SCREENS.has(screen);
 }
+
+/**
+ * Whether a freshly loaded image shows at once instead of fading in (spec 2026-10-26 §0.2).
+ * - Always on a TV: each fade is a running animation, and while one runs the renderer holds texture uploads to
+ *   `maxTextureUploadsDuringAnimation` per frame.
+ * - On a cache hit (loaded within `cacheHitMs` of mounting).
+ * - While a navigation key is held.
+ */
+export function imageShowsAtOnce(c: { tv: boolean; sinceMountMs: number; cacheHitMs: number; navHeld: boolean }): boolean {
+  return c.tv || c.sinceMountMs < c.cacheHitMs || c.navHeld;
+}

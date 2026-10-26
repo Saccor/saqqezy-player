@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { ScreenId } from './router.ts';
 import { EASE, MOTION } from './theme.ts';
-import { classifyGap, effectiveLevel, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, screenUnderlay, sessionLevel, AutoLite, type MotionContext } from './motionLogic.ts';
+import { classifyGap, effectiveLevel, imageShowsAtOnce, isNavKey, KeyCadence, nextMotionLevel, parseMotionLevel, planMotion, screenEnters, screenUnderlay, sessionLevel, AutoLite, type MotionContext } from './motionLogic.ts';
 
 const ctx = (o: Partial<MotionContext> = {}): MotionContext => ({ level: 'full', cadence: 'normal', gap: undefined, live: 0, ...o });
 
@@ -224,5 +224,19 @@ describe('screenUnderlay', () => {
         if (!screenUnderlay(s)) expect(screenEnters(change, s)).toBe(false);
       }
     }
+  });
+});
+
+describe('imageShowsAtOnce', () => {
+  const base = { tv: false, sinceMountMs: 400, cacheHitMs: MOTION.cacheHit, navHeld: false };
+  test('a TV never fades a loaded image (a running fade throttles texture uploads)', () => {
+    expect(imageShowsAtOnce({ ...base, tv: true })).toBe(true);
+  });
+  test('elsewhere a slow load fades in', () => {
+    expect(imageShowsAtOnce(base)).toBe(false);
+  });
+  test('a cache hit or a held navigation key shows it at once everywhere', () => {
+    expect(imageShowsAtOnce({ ...base, sinceMountMs: MOTION.cacheHit - 1 })).toBe(true);
+    expect(imageShowsAtOnce({ ...base, navHeld: true })).toBe(true);
   });
 });
