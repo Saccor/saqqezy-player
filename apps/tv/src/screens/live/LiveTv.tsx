@@ -32,7 +32,8 @@ import { companionStatus, initState, markStartup, settings } from '../../state/a
 import { externalLayoutChange } from '../../state/events.ts';
 import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
-import { EpgCache } from '../epgCache.ts';
+import { EpgCache, type EpgChange } from '../epgCache.ts';
+import { createRowSignals } from './rowSignals.ts';
 import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
   guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
@@ -77,11 +78,13 @@ const memory: {
  * listens through `warmListener`. While no Live TV is mounted, a refresh, a layout change or a source switch drops it,
  * and a short-EPG update marks its channels stale; pages older than 15 min are read again anyway (`maxAgeMs`).
  */
+/** Channels per guide page: the cache's page size and the row signals' page size must match. */
+const GUIDE_ROWS_PER_PAGE = 20;
 let warm: { sourceId: string | undefined; cache: EpgCache<ChannelRow, ProgrammeLite> } | undefined;
-let warmListener: () => void = () => undefined;
+let warmListener: (change: EpgChange) => void = () => undefined;
 let awayOffs: Array<() => void> = [];
 
-function warmCache(sourceId: string | undefined, onChange: () => void): EpgCache<ChannelRow, ProgrammeLite> {
+function warmCache(sourceId: string | undefined, onChange: (change: EpgChange) => void): EpgCache<ChannelRow, ProgrammeLite> {
   for (const off of awayOffs) off();
   awayOffs = [];
   warmListener = onChange;
@@ -90,7 +93,7 @@ function warmCache(sourceId: string | undefined, onChange: () => void): EpgCache
       sourceId,
       cache: new EpgCache<ChannelRow, ProgrammeLite>(
         (g, o, c, f, t) => api.getEpgRows(g, o, c, f, t),
-        { rowsPerPage: 20, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: () => warmListener() },
+        { rowsPerPage: GUIDE_ROWS_PER_PAGE, chunkMs: 3 * HOUR, maxEntries: 24, maxAgeMs: 15 * MINUTE, onChange: (change) => warmListener(change) },
       ),
     };
   }
@@ -173,7 +176,11 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const [now, setNow] = createSignal(opened);
   const [groups, setGroups] = createSignal<GroupInfo[]>([]);
   const [groupId, setGroupId] = createSignal<string | undefined>(undefined);
-  const [version, setVersion] = createSignal(0);
+  /** Guide rows re-run per page as pages land (not all rows on any page), and all of them on a group change. */
+  const rowSignals = createRowSignals(GUIDE_ROWS_PER_PAGE, (v) => {
+    const [read, write] = createSignal(v);
+    return [read, (n: number) => { write(n); }];
+  });
   const [row, setRow] = createSignal(0);
   const [viewStart, setViewStart] = createSignal(startView);
   const [anchor, setAnchor] = createSignal(startAnchor);
@@ -209,17 +216,17 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const vodReturn = liveReturn.take(initState()?.activeSourceId);
 
   // The last visit's rows (same source), so the grid draws them at once (`warmCache`).
-  const cache = warmCache(sourceId, () => setVersion((v) => v + 1));
+  const cache = warmCache(sourceId, (change) => rowSignals.apply(change));
   /** The source the cached rows belong to (a remote source switch invalidates them). */
   let cacheSourceId = sourceId;
 
   const viewRows = () => (pointerMode() ? EPG_POINTER_ROWS : EPG_VIEW_ROWS);
-  const total = () => { version(); return cache.total() ?? 0; };
+  const total = () => { rowSignals.trackAll(); return cache.total() ?? 0; };
   /** Channels in the group: its count is known before the first rows arrive (and while a reload emptied the cache). */
   const groupCount = () => total() || (groups().find((g) => g.id === groupId())?.count ?? 0);
-  const channelAt = (i: number) => { version(); return cache.channel(i); };
+  const channelAt = (i: number) => { rowSignals.track(i); return cache.channel(i); };
   const blocksAt = (i: number): Block[] => {
-    version();
+    rowSignals.track(i);
     const w = win();
     const covered = cache.covered(i)
       .map((r) => ({ start: Math.max(r.start, w.start), end: Math.min(r.end, w.end) }))

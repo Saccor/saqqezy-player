@@ -234,3 +234,46 @@ describe('EpgCache stale marks', () => {
     expect(h.fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('EpgCache change notices', () => {
+  it('a landing page names only its own page, and says when the row count moved', async () => {
+    const changes: unknown[] = [];
+    const cache = new EpgCache<Ch, Prog>(fakeFetch(45), { rowsPerPage: 20, chunkMs: CHUNK, onChange: (c) => changes.push(c) });
+    cache.setGroup('all', 45);
+    expect(changes).toEqual([{ all: true }]);
+    changes.length = 0;
+    await cache.ensure(25, 30, B, B + CHUNK);
+    expect(changes).toEqual([{ all: false, pages: [1], totalChanged: false }]);
+  });
+
+  it('the first answer that learns the total says so; invalidate is a change to everything', async () => {
+    const changes: unknown[] = [];
+    const cache = new EpgCache<Ch, Prog>(fakeFetch(45), { rowsPerPage: 20, chunkMs: CHUNK, onChange: (c) => changes.push(c) });
+    cache.setGroup('all');
+    changes.length = 0;
+    await cache.ensure(0, 5, B, B + CHUNK);
+    expect(changes[0]).toEqual({ all: false, pages: [0], totalChanged: true });
+    changes.length = 0;
+    cache.invalidate();
+    expect(changes).toEqual([{ all: true }]);
+  });
+
+  it('a group change notifies after the known total is set, so a listener that reads total() sees it', () => {
+    const seen: Array<number | undefined> = [];
+    const cache: EpgCache<Ch, Prog> = new EpgCache<Ch, Prog>(fakeFetch(45), { rowsPerPage: 20, chunkMs: CHUNK, onChange: () => seen.push(cache.total()) });
+    cache.setGroup('all', 45);
+    expect(seen).toEqual([45]);
+  });
+
+  it('a page whose last entry the LRU drops is named too', async () => {
+    const changes: Array<{ all: boolean; pages?: number[] }> = [];
+    const cache = new EpgCache<Ch, Prog>(fakeFetch(100), { rowsPerPage: 20, chunkMs: CHUNK, maxEntries: 2, onChange: (c) => changes.push(c) });
+    cache.setGroup('all', 100);
+    await cache.ensure(0, 1, B, B + CHUNK);   // page 0
+    await cache.ensure(20, 21, B, B + CHUNK); // page 1
+    changes.length = 0;
+    await cache.ensure(40, 41, B, B + CHUNK); // page 2 evicts page 0
+    expect(changes).toEqual([{ all: false, pages: [2, 0], totalChanged: false }]);
+    expect(cache.channel(0)).toBeUndefined();
+  });
+});
