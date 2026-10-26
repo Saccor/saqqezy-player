@@ -78,10 +78,6 @@
   "components/SettingsList.tsx": {
     "space": 8
   },
-  "components/StatusPill.tsx": {
-    "radius": 2,
-    "space": 4
-  },
   "components/StreamInfoPanel.tsx": {
     "space": 2,
     "string": 1
@@ -319,12 +315,6 @@
   "shell/Rail.tsx": {
     "radius": 4,
     "space": 5
-  },
-  "shell/Toast.tsx": {
-    "radius": 1
-  },
-  "shell/logic.ts": {
-    "space": 1
   },
   "shell/railLogic.ts": {
     "string": 1

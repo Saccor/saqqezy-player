@@ -34,7 +34,8 @@ import { exitApp } from './shell/platformExit.ts';
 import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
-import { Toast, showToast } from './shell/Toast.tsx';
+import { showToast, toastNotice } from './shell/Toast.tsx';
+import { NoticeLayer } from './components/Notice.tsx';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
 import { screenEnter, setMotionLevel } from './shell/motion.ts';
@@ -205,7 +206,7 @@ export function App() {
         banner has its own clock (two clocks showed together) and VodPlay's bar is the only chrome on the picture.
       */}
       <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds()) && !railRoute(current()?.screen)}><Clock /></Show>
-      <Toast />
+      <NoticeLayer extra={toastNotice} />
       <Show when={exitOpen()}>
         <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
       </Show>

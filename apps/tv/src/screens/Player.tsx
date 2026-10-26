@@ -9,7 +9,7 @@ import { CooldownNotice } from '../components/CooldownNotice.tsx';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
-import { StatusPill } from '../components/StatusPill.tsx';
+import { useNotice } from '../components/Notice.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { VolumeOsd } from '../components/VolumeOsd.tsx';
@@ -28,7 +28,7 @@ import { createZapper } from '../playback/zapper.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
-import { showToast, useToastFloor } from '../shell/Toast.tsx';
+import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
@@ -449,10 +449,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   /** The pointer is over the volume pill (counts as a button for the auto-hide). */
   const [overVolume, setOverVolume] = createSignal(false);
   const overlayShown = () => playerOverlayShown(pointerMode(), modal());
-  // Toasts ("Added to favourites", guide refresh failures) end above the banner, which they would otherwise cover.
-  useToastFloor(() => (bannerOn() && shown()
-    ? LAYOUT.height - LAYOUT.safeY - BANNER_H - bannerLift(overlayShown()) - LAYOUT.gap
-    : undefined));
   /**
    * Back to Live TV, the root `home` (past a Search below the Player), in one stack change; never a second Live TV.
    * `focusChannelId` is the row Live TV focuses. Without a Live TV in the stack it is a plain leave.
@@ -545,6 +541,10 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now())));
   // The cooldown message replaces the stream status: nothing is open while it shows.
   const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
+  useNotice(() => {
+    const s = status();
+    return s?.kind === 'toast' ? { id: 'player-status', kind: 'wait', text: s.text, spinner: true } : undefined;
+  });
   const showClock = () => settings()?.showClock === true;
   const CENTRE_W = 1100;
   const CENTRE_BOX = MESSAGE_BOXES.player;
@@ -558,10 +558,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       onLeft={() => true} onRight={() => true}
       onInfo={unlessModal(() => { if (bannerOn()) hideBanner(); else showBanner(); return true; })}
       onMenu={unlessModal(openMenu)} onLongOk={unlessModal(openMenu)} onRed={unlessModal(previous)} {...digitHandlers}>
-      <Show when={status()} keyed>{(s) => (
-        s.kind === 'toast'
-          ? <StatusPill text={s.text} spinner zIndex={25} />
-          : (
+      <Show when={status()?.kind === 'centre' ? status() : undefined} keyed>{(s) => (
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
               color={COLORS.panel} borderRadius={RADIUS.card} zIndex={4}>
@@ -569,7 +566,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
                 maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{s.text}</Text>
             </View>
-          )
       )}</Show>
 
       <Show when={coolCopy()}>{(c) => (

@@ -19,4 +19,11 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     lacks('components/InfoBanner.tsx', /MediaBadges/);
     lacks('screens/VodPlay.tsx', /MediaBadges/);
   });
+  it('Notice replaces StatusPill and the Toast view', () => {
+    there('components/Notice.tsx');
+    gone('components/StatusPill.tsx');
+    lacks('shell/Toast.tsx', /export function Toast\(/);
+    lacks('screens/Player.tsx', /useToastFloor/);
+    lacks('screens/VodPlay.tsx', /useToastFloor/);
+  });
 });

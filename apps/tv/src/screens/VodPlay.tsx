@@ -9,7 +9,7 @@ import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { BadgeRow } from '../components/Badge.tsx';
-import { StatusPill } from '../components/StatusPill.tsx';
+import { useNotice } from '../components/Notice.tsx';
 import { mediaBadges } from '../playback/mediaBadges.ts';
 import { onLogicalKey, sendKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -29,7 +29,7 @@ import { BACKGROUND_RGB, COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/t
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { platformId, settings } from '../state/appState.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
-import { showToast, useToastFloor } from '../shell/Toast.tsx';
+import { showToast } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
 import { VolumeControl, VolumeOsd } from '../components/VolumeOsd.tsx';
@@ -1479,8 +1479,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   });
   const subLines = () => cue().split('\n').length;
   const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
-  // Toasts end above a subtitle, else above the overlay's title.
-  useToastFloor(() => (cue() ? subY() - LAYOUT.gap : visible() ? TITLE_Y - LAYOUT.gap : undefined));
+  useNotice(() => (statusText() && !failed() && !notAvail() && !endCard()
+    ? { id: 'vod-status', kind: 'wait', text: statusText(), spinner: false } : undefined));
 
   return (
     <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height}
@@ -1549,10 +1549,6 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
               onActive={bump} />
           </Show>
         </View>
-      </Show>
-
-      <Show when={statusText() && !failed() && !notAvail() && !endCard()}>
-        <StatusPill text={statusText()} zIndex={20} />
       </Show>
 
       <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>

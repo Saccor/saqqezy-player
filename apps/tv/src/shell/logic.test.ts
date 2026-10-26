@@ -1,38 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createTapSequence, deferWordmark, slowestFrameMs, EXIT_OVERLAY_ID, formatClock, fullscreenVideoRoute, msToNextMinute, railRoute, screenOverlayOpen, showWordmark, TOAST_OVERLAY_ID, toastOnExpiry,
-  BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastLayout, toastOnShow,
+  BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X, SHELL_BACK_LABEL, SHELL_BACK_W, shellBackShown, shellBackX, toastOnShow,
 } from './logic.ts';
 import { router } from './router.ts';
-
-describe('toastLayout', () => {
-  it('sits above the bottom hint / button row, never on it', () => {
-    for (const t of ['Saved.', 'x'.repeat(400)]) {
-      const l = toastLayout(t);
-      expect(l.y + l.height).toBeLessThanOrEqual(BOTTOM_ROW_Y - LAYOUT.gap);
-      expect(l.y).toBeGreaterThan(LAYOUT.height / 2);
-    }
-  });
-
-  it('grows to two lines for a long message and keeps the text inside the box', () => {
-    const short = toastLayout('Saved.');
-    const long = toastLayout('A long synthetic notice that needs more than one line of the toast to be read in full, really.');
-    expect(long.height).toBeGreaterThan(short.height);
-    for (const l of [short, long]) {
-      expect(l.textY).toBeGreaterThanOrEqual(0);
-      expect(l.textY + l.lines * l.lineH).toBeLessThanOrEqual(l.height);
-    }
-    expect(long.lines).toBe(2);
-    expect(toastLayout('x'.repeat(1000)).lines).toBe(2);
-  });
-
-  it("ends above a screen's own controls when it gives a higher bottom, never lower than the default", () => {
-    const l = toastLayout('Saved.', 700);
-    expect(l.y + l.height).toBe(700);
-    const d = toastLayout('Saved.');
-    expect(toastLayout('Saved.', 2000).y).toBe(d.y);
-  });
-});
 import { LAYOUT } from './theme.ts';
 import { exitApp } from './platformExit.ts';
 
