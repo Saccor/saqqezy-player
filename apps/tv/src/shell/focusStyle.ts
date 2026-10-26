@@ -6,25 +6,14 @@ export function drawnFocus(sel: number | undefined, hover: number | undefined, p
 }
 
 /**
- * Where the drawn focus comes from in pointer mode. The hovered row wins only after the pointer actually moved; a wheel
- * step hands the drawn focus back to the key selection, and the `rehover()` the pointer layer runs after it (same
- * position, possibly a different row because the list scrolled) must not take it away again.
+ * Hover merges into focus: a genuine pointer move onto a selectable row selects it, so the drawn row, OK, Up/Down and
+ * the wheel all act on the same row. `rehover()` after a wheel step re-reports the same position, which is not a move.
  */
-export interface FocusSource {
-  hover: number | undefined;
-  at: { x: number; y: number } | undefined;
-  hoverWins: boolean;
-}
-export const focusInit = (): FocusSource => ({ hover: undefined, at: undefined, hoverWins: false });
+export interface FocusSource { at: { x: number; y: number } | undefined }
+export const focusInit = (): FocusSource => ({ at: undefined });
 
 /** A hover report: `index` is the selectable row under `at` (undefined: none), `at` undefined when the pointer left. */
-export function hoverEvent(s: FocusSource, index: number | undefined, at: { x: number; y: number } | undefined): FocusSource {
+export function hoverMove(s: FocusSource, index: number | undefined, at: { x: number; y: number } | undefined): { focus: FocusSource; select: number | undefined } {
   const moved = at !== undefined && (s.at === undefined || s.at.x !== at.x || s.at.y !== at.y);
-  return { hover: index, at, hoverWins: s.hoverWins || moved };
+  return { focus: { at }, select: moved ? index : undefined };
 }
-
-/** A wheel step moved the selection: draw it. */
-export const wheelFocus = (s: FocusSource): FocusSource => ({ ...s, hoverWins: false });
-
-export const drawnRow = (sel: number | undefined, s: FocusSource, pointer: boolean): number | undefined =>
-  drawnFocus(sel, s.hoverWins ? s.hover : undefined, pointer);

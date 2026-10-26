@@ -1,8 +1,8 @@
 import { For, Show, Text, View, type ElementNode, type JSX } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js';
-import { pointerMode, usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
+import { usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
-import { drawnRow, focusInit, hoverEvent, type FocusSource } from '../shell/focusStyle.ts';
+import { focusInit, hoverMove, type FocusSource } from '../shell/focusStyle.ts';
 import { riseIn, scrimIn } from '../shell/motion.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE, centerText } from '../shell/theme.ts';
@@ -10,7 +10,7 @@ import { BADGE_H, Badge } from './Badge.tsx';
 import {
   SHEET_CHECK_W, SHEET_FOOTER_LINE, SHEET_ICON_H, SHEET_ICON_W, SHEET_MAX_ROWS, SHEET_MORE_W, SHEET_PAD, SHEET_PITCH, SHEET_ROW_GAP,
   SHEET_ROW_H, SHEET_TABS_H, SHEET_VALUE_W, fromOptionItem, sheetClamp, sheetFollow, sheetFooter, sheetFrame, sheetListTop, sheetMore,
-  sheetScroll, sheetSelectable, sheetStep, sheetWheel, stackOpen, stackPop, stackPush, stackRestore, stackTop, tabStep,
+  sheetScroll, sheetSelectable, sheetStep, stackOpen, stackPop, stackPush, stackRestore, stackTop, tabStep,
   type OptionItem, type SheetPage, type SheetPlacement, type SheetRow, type SheetStack, type SheetTab,
 } from './sheetLogic.ts';
 
@@ -119,7 +119,7 @@ export function Sheet(props: SheetProps) {
   const listTop = () => sheetListTop(hasTabs());
   const tabW = () => (frame().w - SHEET_PAD * 2) / (props.tabs?.length || 1);
   const visible = () => rows().slice(scrollTop(), scrollTop() + SHEET_MAX_ROWS).map((row, k) => ({ row, i: scrollTop() + k }));
-  const lit = () => drawnRow(current(), focusSrc(), pointerMode());
+  const lit = () => current();
 
   const layers: (() => void)[] = [];
   const pop = () => {
@@ -172,7 +172,9 @@ export function Sheet(props: SheetProps) {
     subAt: (p) => indexAt(p),
     onHover: (p) => {
       const i = p ? indexAt(p) : undefined;
-      setFocusSrc(hoverEvent(focusSrc(), i !== undefined && sheetSelectable(rows()[i]) ? i : undefined, p));
+      const h = hoverMove(focusSrc(), i !== undefined && sheetSelectable(rows()[i]) ? i : undefined, p);
+      setFocusSrc(h.focus);
+      if (h.select !== undefined) setSel(h.select);
     },
     onClick: (p) => {
       const i = indexAt(p);
@@ -180,14 +182,7 @@ export function Sheet(props: SheetProps) {
       setSel(i);
       enter(i);
     },
-    onWheel: (dy) => {
-      if (dy !== 0) {
-        const w = sheetWheel(current(), rows(), dy > 0 ? 1 : -1, focusSrc(), pointerMode());
-        setSel(w.sel);
-        setFocusSrc(w.focus);
-      }
-      return true;
-    },
+    onWheel: (dy) => { if (dy !== 0) move(dy > 0 ? 1 : -1); return true; },
   });
   const scrim = () => props.scrim !== false;
 
