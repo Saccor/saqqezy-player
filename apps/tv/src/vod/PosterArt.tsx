@@ -1,6 +1,5 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, type JSX } from 'solid-js';
-import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { fadeInLoaded, motionNow } from '../shell/motion.ts';
@@ -12,8 +11,8 @@ const BAR_H = 6;
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
  * generated title card (stable colour, the title in text) when there is none or it fails; a skeleton (a plain surface
- * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): the shared FocusRing (a light ring
- * outside a dark gap; hover: a thin muted ring), an outset fill behind the card so the image never covers it.
+ * card) while the image or the tile itself (`pending`) is on the way. Focused (`lit`): a text-only card fills with the
+ * focus colour; the ring around the card is drawn by Tile.
  * `progress`: a bar at the bottom. `watched`: a check badge. `label`: a text-only card (View all, Loading…).
  * Children are extra overlays (zIndex 4 sits above the image). Layered by zIndex: a late-loading image would otherwise
  * be inserted on top of the overlays.
@@ -25,7 +24,6 @@ export function PosterArt(props: {
   progress?: number;
   watched?: boolean;
   lit: boolean;
-  hover?: boolean;
   label?: string;
   /** The tile itself is not here yet (a grid page or a row still loading): a skeleton card. */
   pending?: boolean;
@@ -43,7 +41,6 @@ export function PosterArt(props: {
   const face = () => posterFace({ pending: props.pending === true, image: shown(), loaded: shown() !== undefined && loadedUrl() === shown(), failed: false });
   return (
     <View width={props.w} height={props.h}>
-      <FocusRing w={props.w} h={props.h} radius={RADIUS.card} lit={props.lit} hover={props.hover} />
       <View width={props.w} height={props.h} zIndex={1} borderRadius={RADIUS.card}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>

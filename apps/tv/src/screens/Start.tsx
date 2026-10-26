@@ -6,9 +6,8 @@ import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
 import { createSheetChoice } from '../components/Sheet.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
-import { COMPACT_H } from '../components/WideTile.tsx';
-import { WideRow } from '../components/WideRow.tsx';
+import { Row } from '../components/Row.tsx';
+import { COMPACT_H } from '../components/wideTileLogic.ts';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
@@ -267,7 +266,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 const r = () => rows()[i]!;
                 const focusCol = () => (i === focus().row ? focus().col : undefined);
                 const lit = () => area() === 'rows' && i === focus().row;
-                // Built once per row change, not on every `props.row` read inside PosterRow (each tile reads it).
+                // Built once per row change, not on every `props.row` read inside Row (each tile reads it).
                 const posterRow = createMemo(() => (rowKind(r()) === 'poster' ? toPosterRow(r()) : undefined));
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
@@ -281,10 +280,12 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                       }}
                     </Show>
                     <Show when={rowKind(r()) === 'poster'} fallback={
-                      <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact visible={START_WIDE_VISIBLE}
+                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'wideCompact', cells: r().cells, now: now() }}
+                        focusCol={focusCol()} lit={lit()} visible={START_WIDE_VISIBLE}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     }>
-                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={posterRow()!} w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
+                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: posterRow()! }}
+                        w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     </Show>
                   </View>

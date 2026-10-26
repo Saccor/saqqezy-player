@@ -6,4 +6,5 @@ export const VOD_COPY = {
   loadingSubtitles: 'Loading subtitles…',
   versions: 'Versions',
   season: 'Season',
+  viewAll: 'View all',
 } as const;

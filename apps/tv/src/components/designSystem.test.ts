@@ -59,4 +59,9 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     lacks('screens/AddSource.tsx', /border=\{\{ width: 2/);
     lacks('components/CountryGrid.tsx', /color: COLORS\.accent \}/);
   });
+  it('Tile and Row replace PosterTile, WideTile, PosterRow and WideRow', () => {
+    there('components/Tile.tsx');
+    there('components/Row.tsx');
+    for (const f of ['PosterTile', 'WideTile', 'PosterRow', 'WideRow']) gone(`components/${f}.tsx`);
+  });
 });

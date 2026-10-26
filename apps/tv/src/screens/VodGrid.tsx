@@ -9,7 +9,7 @@ import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
-import { PosterTile } from '../components/PosterTile.tsx';
+import { Tile } from '../components/Tile.tsx';
 import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
@@ -466,7 +466,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)} onEnter={open} onMenu={openMenu} onLongOk={openMenu}>
         <For each={indices()}>{(i) => (
-          <PosterTile x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
+          <Tile variant="poster" x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
             hover={pointerMode() && hover() === i} />
         )}</For>
       </View>

@@ -48,9 +48,6 @@
   "components/PointerBar.tsx": {
     "space": 1
   },
-  "components/PosterRow.tsx": {
-    "string": 1
-  },
   "components/SettingsList.tsx": {
     "space": 8
   },
@@ -69,9 +66,6 @@
     "radius": 3,
     "space": 1
   },
-  "components/WideTile.tsx": {
-    "space": 4
-  },
   "components/countryGridLogic.ts": {
     "string": 3
   },
@@ -80,6 +74,9 @@
   },
   "components/foldPickerLogic.ts": {
     "string": 1
+  },
+  "components/tile/WideBody.tsx": {
+    "space": 4
   },
   "components/wideTileLogic.ts": {
     "string": 2

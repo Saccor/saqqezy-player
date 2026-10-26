@@ -4,6 +4,7 @@ import type { EpisodeView } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { stopMotion, tween, useFocusScale } from '../shell/motion.ts';
 import { COLORS, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
+import { FocusRing } from './FocusRing.tsx';
 import { PosterArt } from '../vod/PosterArt.tsx';
 import { cardAt, episodeMeta } from '../vod/seriesDetailLogic.ts';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
@@ -35,8 +36,9 @@ export function EpisodeCard(props: { x: number; y: number; ep: EpisodeView | und
     <View x={props.x} y={props.y} width={EP_W} height={EP_ROW_H} zIndex={props.lit ? 2 : 1}>
       <View ref={(el) => { still = el; }} width={EP_W} height={EP_H} zIndex={1}>
         <Show when={ep()} fallback={<View width={EP_W} height={EP_H} borderRadius={RADIUS.card} color={COLORS.surface} />}>
+          <FocusRing w={EP_W} h={EP_H} radius={RADIUS.card} lit={props.lit} hover={props.hover} />
           <PosterArt w={EP_W} h={EP_H} title={ep()?.title ?? ''} image={ep()?.still} watched={ep()?.watched}
-            progress={ep()?.watched ? undefined : ep()?.progress} lit={props.lit} hover={props.hover}
+            progress={ep()?.watched ? undefined : ep()?.progress} lit={props.lit}
             titleFont={TYPE.body} titleLines={2} titleBottom={96} />
         </Show>
       </View>

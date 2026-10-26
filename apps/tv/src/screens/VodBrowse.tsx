@@ -11,8 +11,8 @@ import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
 import { flagFor } from '../assets/flags/index.ts';
 import { TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
-import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
+import { posterCache } from '../components/posterCache.ts';
+import { Row } from '../components/Row.tsx';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
@@ -38,7 +38,7 @@ import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { regularSeasonCount } from '../vod/seriesDetailLogic.ts';
-import { metaLine } from '../vod/posterLogic.ts';
+import { metaLine, POSTER_H } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { KIND_COPY, grouped, vodStatusLine } from '../vod/kindCopy.ts';
 import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
@@ -600,7 +600,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                    <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()}
+                    <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: r() }}
                       focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                       onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
                       onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />

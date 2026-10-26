@@ -5,7 +5,8 @@ import { api, onEvent } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { BUTTON_H } from '../components/Button.tsx';
 import { createSheetChoice } from '../components/Sheet.tsx';
-import { COMPACT_W, MATCH_GRID_H, WIDE_GAP, WideTile } from '../components/WideTile.tsx';
+import { Tile } from '../components/Tile.tsx';
+import { COMPACT_W, MATCH_GRID_H, WIDE_GAP } from '../components/wideTileLogic.ts';
 import { pointerMode } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
@@ -219,7 +220,7 @@ export function StartSportsScreen() {
           <For each={visibleIdx()}>{(i) => {
             const e = () => grid().order[i]!;
             const p = () => layout().places[i]!;
-            return <WideTile x={p().x} y={p().y} cell={{ type: 'event', event: e() }} compact detail={e().competition ?? e().subTitle ?? ''}
+            return <Tile variant="wideCompact" x={p().x} y={p().y} cell={{ type: 'event', event: e() }} detail={e().competition ?? e().subTitle ?? ''}
               lit={gridFocused() && i === index()} now={now()} />;
           }}</For>
         </View>

@@ -6,8 +6,7 @@ import { FAV_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
-import { POSTER_H } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
+import { Row } from '../components/Row.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -17,7 +16,7 @@ import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
 import { minutesLeft, resumeBarShown, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
-import { metaLine } from '../vod/posterLogic.ts';
+import { metaLine, POSTER_H } from '../vod/posterLogic.ts';
 import { Backdrop } from '../vod/Backdrop.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import { joinMeta } from '../vod/stripLogic.ts';
@@ -273,7 +272,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}
           onEnter={openMore} onMenu={() => openMenu(moreCol())} onLongOk={() => openMenu(moreCol())}>
-          <PosterRow x={INFO_X} y={0} width={LAYOUT.width - LAYOUT.safeX} row={moreRow()} focusCol={moreCol()} lit={area() === 'more'}
+          <Row x={INFO_X} y={0} width={LAYOUT.width - LAYOUT.safeX} content={{ variant: 'poster', row: moreRow() }} focusCol={moreCol()} lit={area() === 'more'}
             onCellClick={(c) => { setMoreCol(c); openMore(); }} onCellOptions={(c) => { setMoreCol(c); openMenu(c); }} />
         </View>
       </Show>

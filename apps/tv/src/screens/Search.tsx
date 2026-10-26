@@ -3,16 +3,15 @@ import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
-import { POSTER_H } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
-import { WIDE_H } from '../components/WideTile.tsx';
-import { WideRow } from '../components/WideRow.tsx';
+import { Row } from '../components/Row.tsx';
+import { WIDE_H } from '../components/wideTileLogic.ts';
 import { devResume } from '../playback/devResume.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
+import { POSTER_H } from '../vod/posterLogic.ts';
 import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
@@ -300,11 +299,11 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
                   fontSize={TYPE.meta} color={COLORS.muted}>{searching()!}</Text>
               </Show>
               <Show when={area === 'vod'} fallback={
-                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={area === 'folders' ? foldersRow() : liveRow()} now={now()} visible={LIVE_VISIBLE}
-                  channelNumbers={area === 'live'}
+                <Row x={0} y={LABEL_H} width={RESULTS_W} visible={LIVE_VISIBLE}
+                  content={{ variant: 'wide', cells: (area === 'folders' ? foldersRow() : liveRow()).cells, now: now(), channelNumbers: area === 'live' }}
                   focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               }>
-                <PosterRow x={0} y={LABEL_H} width={RESULTS_W} row={vodRow()} visible={VOD_VISIBLE}
+                <Row x={0} y={LABEL_H} width={RESULTS_W} content={{ variant: 'poster', row: vodRow() }} visible={VOD_VISIBLE}
                   focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               </Show>
             </View>
