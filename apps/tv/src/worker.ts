@@ -8,9 +8,12 @@ import { tvHeaderSupport } from './net/headerSupport.ts';
 import { trendingBaseUrl } from './net/trendingConfig.ts';
 import { detectPlatform } from '@iptv/platform';
 import { guideBatchFor } from './workerOptions.ts';
+import { ThumbStore } from './images/thumbStore.ts';
 
 // All parsing, storage and networking for the UI runs here, off the UI thread.
-const storage = new IdbStorage();
+// Short of room for a catalogue: the thumbnail copies (a re-creatable cache in its own database) go first.
+const thumbs = new ThumbStore();
+const storage = new IdbStorage(undefined, undefined, undefined, { beforeLargeWrite: () => thumbs.clear() });
 // Header timeouts: 15 s by default (player_api.php); core asks for 90 s on playlist and XMLTV downloads, whose
 // bodies then fail after 30 s without data (BODY_IDLE_MS) instead of holding the source lock forever.
 // A source's User-Agent and Referer (`FetchInit.sourceHeaders`) ride in the dev proxy URL; production drops them.

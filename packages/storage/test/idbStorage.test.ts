@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test, vi } from 'vitest';
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { IdbStorage, done, req } from '../src/idbStorage.ts';
 import { storageContract } from './storageContract.ts';
 
@@ -49,7 +49,7 @@ describe('IdbStorage open', () => {
     expect(await s.getVod('s1', 'movie')).toEqual({ items: [], categories: [] });
   });
 
-  test('upgrades a version-2 database to version 3 (syncMeta) and keeps every hot structure as it was', async () => {
+  test('upgrades a version-2 database to version 4 (syncMeta, catalogs, chunks) and keeps every hot structure as it was', async () => {
     const factory = new IDBFactory();
     const layout = { version: 4, lists: [], hiddenChannels: ['s1:x1'], hiddenGroups: [], groupOrder: [], channelOrder: {}, channelNames: {}, groupNames: {}, sort: {}, hideNoEpg: false, recent: [] };
     const state = { position: 120_000, duration: 3600_000, watched: false, favourite: true, updatedAt: 5 };
@@ -86,8 +86,8 @@ describe('IdbStorage open', () => {
       open.onsuccess = () => resolve(open.result);
       open.onerror = () => reject(open.error);
     });
-    expect(db.version).toBe(3);
-    expect([...db.objectStoreNames].sort()).toEqual(['channels', 'meta', 'programmes', 'sources', 'syncMeta', 'vod', 'vodUser']);
+    expect(db.version).toBe(4);
+    expect([...db.objectStoreNames].sort()).toEqual(['catalogs', 'channels', 'chunks', 'meta', 'programmes', 'sources', 'syncMeta', 'vod', 'vodUser']);
     db.close();
   });
 
@@ -175,5 +175,307 @@ describe('IdbStorage error names', () => {
     const err = await p.catch((e: unknown) => e) as Error;
     expect(err.name).toBe('ConstraintError');
     expect(err.message).toBe('IndexedDB ConstraintError');
+  });
+});
+
+/** Creates a version-3 database with legacy catalogue records and a storage-failure backoff record. */
+async function makeV3(factory: IDBFactory): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const open = factory.open('iptv', 3);
+    open.onupgradeneeded = () => {
+      const db = open.result;
+      db.createObjectStore('sources', { keyPath: 'id' });
+      db.createObjectStore('channels', { keyPath: 'sourceId' });
+      db.createObjectStore('meta');
+      db.createObjectStore('programmes', { autoIncrement: true }).createIndex('byChannel', ['sourceId', 'epgId', 'start']);
+      db.createObjectStore('vod', { keyPath: ['sourceId', 'kind'] });
+      db.createObjectStore('vodUser', { keyPath: ['sourceId', 'itemId'] });
+      db.createObjectStore('syncMeta', { keyPath: ['scope', 'key'] });
+      const tx = open.transaction!;
+      tx.objectStore('sources').put({ id: 's1', kind: 'm3u', name: 'One', playlistUrl: 'http://example.test/a.m3u' });
+      tx.objectStore('channels').put({ sourceId: 's1', channels: [{ id: 's1:1', sourceId: 's1', name: 'Channel 1', url: 'http://example.test/1.ts', group: 'G', number: 1 }] });
+      tx.objectStore('vod').put({ sourceId: 's1', kind: 'movie', list: { items: [{ id: 's1:m1', kind: 'movie', title: 'Synthetic Film', categoryId: '1' }], categories: [] } });
+      tx.objectStore('meta').put({ count: 2, at: 1, storage: true }, 'refreshFail:s1:vod:series');
+      tx.objectStore('meta').put({ count: 1, at: 1 }, 'refreshFail:s1:epg');
+      tx.objectStore('meta').put({ storage: true, note: 'keep' }, 'other:s1');
+    };
+    open.onsuccess = () => { open.result.close(); resolve(); };
+    open.onerror = () => reject(open.error);
+  });
+}
+
+describe('IdbStorage v4 migration', () => {
+  test('upgrade keeps legacy catalogues readable and clears storage-failure backoff only', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    expect((await s.getChannels('s1')).map((c) => c.name)).toEqual(['Channel 1']);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Synthetic Film');
+    expect(await s.getMeta('refreshFail:s1:vod:series')).toBeUndefined();
+    expect(await s.getMeta('refreshFail:s1:epg')).toEqual({ count: 1, at: 1 });
+    expect(await s.getMeta('other:s1')).toEqual({ storage: true, note: 'keep' });
+    await s.settled();
+  });
+
+  test('a legacy record is rewritten in the background and its legacy copy deleted', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await s.getVod('s1', 'movie');
+    await s.settled();
+    const raw = await new Promise<number>((resolve) => {
+      const open = factory.open('iptv');
+      open.onsuccess = () => { const r = open.result.transaction('vod').objectStore('vod').count(); r.onsuccess = () => { open.result.close(); resolve(r.result); }; };
+    });
+    expect(raw).toBe(0);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Synthetic Film');
+  });
+
+  test('a quota failure with a legacy record of the same key deletes the legacy record and retries once', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const put = IDBObjectStore.prototype.put;
+    let failed = false;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks' && !failed) { failed = true; throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }
+      return put.call(this, value, key);
+    });
+    await s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Newer Film', categoryId: '1' }], categories: [] });
+    vi.restoreAllMocks();
+    expect(failed).toBe(true);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Newer Film');
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+  });
+
+  test('a quota failure with no legacy record is rethrown and not retried', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory);
+    const put = IDBObjectStore.prototype.put;
+    let attempts = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') { attempts++; throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }
+      return put.call(this, value, key);
+    });
+    try {
+      await expect(s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Film', categoryId: '1' }], categories: [] })).rejects.toThrow();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(attempts).toBe(1);
+  });
+
+  test('two reads before the first migration commits produce one migration (generation 1, one set of chunks)', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await Promise.all([s.getVod('s1', 'movie'), s.getVod('s1', 'movie')]);
+    await s.settled();
+    const heads = await rawAll(factory, 'catalogs');
+    const head = heads.find((h: any) => h.kind === 'movie') as any;
+    expect(head.gen).toBe(1);
+    const chunks = (await rawAll(factory, 'chunks')).filter((c: any) => c.kind === 'movie');
+    expect(chunks).toHaveLength(head.chunks);
+    expect(new Set(chunks.map((c: any) => c.gen))).toEqual(new Set([1]));
+  });
+
+  test('a migration queued behind a refresh never overwrites the newer list', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const replacing = s.replaceVod('s1', 'movie', { items: [{ id: 's1:m2', kind: 'movie', title: 'Newer Film', categoryId: '1' }], categories: [] });
+    await s.getVod('s1', 'movie');
+    await replacing;
+    await s.settled();
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Newer Film');
+    await s.settled();
+  });
+
+  test('a failed migration is logged once with the kind and error name only', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') throw new DOMException('x', 'DataError');
+      return put.call(this, value, key);
+    });
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('Catalogue migration failed', 'movie', 'DataError');
+  });
+});
+
+function rawAll(factory: IDBFactory, store: string): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const open = factory.open('iptv');
+    open.onsuccess = () => {
+      const r = open.result.transaction(store).objectStore(store).getAll();
+      r.onsuccess = () => { open.result.close(); resolve(r.result); };
+      r.onerror = () => reject(r.error);
+    };
+    open.onerror = () => reject(open.error);
+  });
+}
+
+describe('IdbStorage quota hook', () => {
+  const chans = Array.from({ length: 50 }, (_, i) => ({ id: `s1:${i}`, sourceId: 's1', name: `Channel ${i}`, url: `http://example.test/${i}.ts`, group: 'G', number: i }));
+
+  test('called with the encoded size when free space is short', async () => {
+    const hook = vi.fn(async () => {});
+    const s = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 82e6, quota: 83.9e6 }), beforeLargeWrite: hook });
+    await s.replaceChannels('s1', chans);
+    expect(hook).toHaveBeenCalledOnce();
+    expect((hook.mock.calls[0] as unknown as [number])[0]).toBeGreaterThan(0);
+  });
+
+  test('not called when there is room, and a failing hook never fails the write', async () => {
+    const roomy = vi.fn(async () => {});
+    const s1 = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 10e6, quota: 83.9e6 }), beforeLargeWrite: roomy });
+    await s1.replaceChannels('s1', chans);
+    expect(roomy).not.toHaveBeenCalled();
+    const s2 = new IdbStorage(new IDBFactory(), 'iptv', 2000, { estimate: async () => ({ usage: 83e6, quota: 83.9e6 }), beforeLargeWrite: async () => { throw new Error('busy'); } });
+    await s2.replaceChannels('s1', chans);
+    expect(await s2.getChannels('s1')).toHaveLength(50);
+  });
+});
+
+function rawPut(factory: IDBFactory, store: string, fn: (s: IDBObjectStore) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const open = factory.open('iptv');
+    open.onsuccess = () => {
+      const tx = open.result.transaction(store, 'readwrite');
+      fn(tx.objectStore(store));
+      tx.oncomplete = () => { open.result.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    open.onerror = () => reject(open.error);
+  });
+}
+
+describe('IdbStorage resilience', () => {
+  const film = { items: [{ id: 's1:m2', kind: 'movie' as const, title: 'Film', categoryId: '1' }], categories: [] };
+
+  test('a migration in flight never resurrects a source deleted meanwhile', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const codec = {
+      async encode(text: string) { await gate; return { enc: 'none' as const, bytes: new TextEncoder().encode(text).buffer as ArrayBuffer }; },
+      async decode(c: { bytes: ArrayBuffer }) { return new TextDecoder().decode(c.bytes); },
+    };
+    const s = new IdbStorage(factory, 'iptv', 2000, { codec });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.deleteSource('s1');
+      release();
+      await s.settled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+    expect(await s.getVod('s1', 'movie')).toBeUndefined();
+  });
+
+  test('a migration whose source record is gone deletes the orphan legacy record and writes nothing', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    await rawPut(factory, 'sources', (st) => { st.delete('s1'); });
+    const s = new IdbStorage(factory);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+  });
+
+  test('a migration retried after a quota failure writes nothing when the source is deleted before its head write', async () => {
+    const factory = new IDBFactory();
+    await makeV3(factory);
+    const s = new IdbStorage(factory);
+    await s.listSources(); // upgrades to v4 before the raw connection opens
+    const conn = await new Promise<IDBDatabase>((resolve, reject) => { const o = factory.open('iptv'); o.onsuccess = () => resolve(o.result); o.onerror = () => reject(o.error); });
+    const put = IDBObjectStore.prototype.put;
+    let chunkPuts = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === 'chunks') {
+        chunkPuts++;
+        if (chunkPuts === 1) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        // The retry's legacy delete is done; the source goes before the head write (its transaction is created later, so it queues behind this one).
+        if (chunkPuts === 2) conn.transaction('sources', 'readwrite').objectStore('sources').delete('s1');
+      }
+      return put.call(this, value, key);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await s.getVod('s1', 'movie');
+      await s.settled();
+      expect(chunkPuts).toBe(2);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+      conn.close();
+    }
+    expect(await rawAll(factory, 'sources')).toHaveLength(0);
+    expect(await rawAll(factory, 'vod')).toHaveLength(0);
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(0);
+  });
+
+  test('an undecodable chunk reads as missing, the head is dropped, and nothing rejects', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory);
+    await s.replaceVod('s1', 'movie', film);
+    await rawPut(factory, 'chunks', (st) => {
+      const c = st.openCursor();
+      c.onsuccess = () => { const cur = c.result; if (cur) cur.update({ ...cur.value, bytes: new Uint8Array([1, 2, 3, 4]).buffer }); };
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(await s.getVod('s1', 'movie')).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith('Catalogue chunk unreadable', 'movie');
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await rawAll(factory, 'catalogs')).toHaveLength(0);
+    expect((await rawAll(factory, 'chunks')).filter((c: any) => c.sourceId === 's1' && c.kind === 'movie')).toHaveLength(0);
+    await s.replaceVod('s1', 'movie', film);
+    expect((await s.getVod('s1', 'movie'))!.items[0]!.title).toBe('Film');
+  });
+
+  test('a head whose chunks are not all stored reads as missing', async () => {
+    const factory = new IDBFactory();
+    const s = new IdbStorage(factory, 'iptv', 2000, { chunkRows: 2 });
+    const chans = Array.from({ length: 6 }, (_, i) => ({ id: `s1:${i}`, sourceId: 's1', name: `Channel ${i}`, url: `http://example.test/${i}.ts`, group: 'G', number: i }));
+    await s.replaceChannels('s1', chans);
+    expect(await rawAll(factory, 'chunks')).toHaveLength(3);
+    await rawPut(factory, 'chunks', (st) => { st.delete(['s1', 'channels', 1, 1]); });
+    expect(await s.getChannels('s1')).toEqual([]);
+  });
+
+  test('a quota hook that never resolves cannot hold the write', async () => {
+    const s = new IdbStorage(new IDBFactory(), 'iptv', 2000, {
+      estimate: async () => ({ usage: 83e6, quota: 83.9e6 }),
+      beforeLargeWrite: () => new Promise<void>(() => undefined),
+      hookTimeoutMs: 20,
+    });
+    await s.replaceChannels('s1', [{ id: 's1:1', sourceId: 's1', name: 'C', url: 'http://example.test/1.ts', group: 'G', number: 1 }]);
+    expect(await s.getChannels('s1')).toHaveLength(1);
   });
 });
