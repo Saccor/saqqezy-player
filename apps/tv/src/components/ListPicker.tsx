@@ -5,6 +5,7 @@ import { panelRowHit } from '../input/pointerLogic.ts';
 import type { PickerIcon, PickerRow } from '../screens/homeMenuLogic.ts';
 import { scrimIn } from '../shell/motion.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { BADGE_H, Badge } from './Badge.tsx';
 import { pickerFooter, pickerSelectable } from './listPickerLogic.ts';
 import { firstSelectable, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
@@ -27,10 +28,7 @@ const MORE_W = 36;
 function RowIcon(p: { icon: PickerIcon; fg: number }) {
   return (
     <Show when={p.icon.src} fallback={
-      <View x={24} y={(ITEM_H - ICON_H) / 2} width={ICON_W} height={ICON_H} borderRadius={6} color={COLORS.badge}>
-        <Text y={(ICON_H - TYPE.meta) / 2 - 3} width={ICON_W} maxWidth={ICON_W} contain="width" textAlign="center" fontSize={TYPE.meta}
-          {...STRONG} color={p.fg}>{p.icon.badge ?? ''}</Text>
-      </View>
+      <Badge x={24} y={(ITEM_H - BADGE_H) / 2} text={p.icon.badge ?? ''} lit={p.fg === COLORS.onFocus} />
     }>{(src) => <View x={24} y={(ITEM_H - ICON_H) / 2} width={ICON_W} height={ICON_H} src={src()} />}</Show>
   );
 }

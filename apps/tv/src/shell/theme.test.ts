@@ -28,7 +28,7 @@ describe('theme tokens 2.0 (spec 2026-10-26 §1.1)', () => {
     expect(centerText(64, TYPE.meta)).toBe(16);
   });
   it('the merged colours are gone', () => {
-    for (const k of ['osd', 'onFocusTrack', 'buffered', 'scrubAhead', 'scrubBack', 'subtitleOutline', 'imageTrack']) {
+    for (const k of ['osd', 'onFocusTrack', 'buffered', 'scrubAhead', 'scrubBack', 'subtitleOutline', 'imageTrack', 'badge']) {
       expect(k in COLORS, k).toBe(false);
     }
   });

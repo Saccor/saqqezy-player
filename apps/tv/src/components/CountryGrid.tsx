@@ -5,6 +5,7 @@ import { COUNTRIES_COPY } from '../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
 import { COLORS, FOCUS, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { Badge } from './Badge.tsx';
 import { FocusRing } from './FocusRing.tsx';
 import {
   CHIP, ROW_PITCH, DEVICE_CHIP_BOXES, CHIP_BOXES, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,
@@ -47,7 +48,7 @@ function Chip(p: {
         color={picked() ? COLORS.surfaceRaised : COLORS.surface}
         border={picked() ? { width: 4, color: COLORS.accent } : { width: 0, color: COLORS.transparent }}>
         <Show when={'src' in p.art ? p.art.src : undefined} fallback={
-          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.badge}>
+          <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
             <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
               fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
           </View>
@@ -59,16 +60,10 @@ function Chip(p: {
           {COUNTRIES_COPY.folders(choiceFolders(p.choice))}
         </Text>
         <Show when={p.device ? DEVICE_CHIP_BOXES.device : undefined}>{(d) => (
-          <View x={d().x} y={d().y} width={d().w} height={d().h} borderRadius={d().h / 2} color={COLORS.badge}>
-            <Text y={(d().h - TYPE.meta) / 2 - 3} width={d().w} maxWidth={d().w} contain="width" textAlign="center"
-              fontSize={TYPE.meta} color={COLORS.text}>{COUNTRIES_COPY.thisTv}</Text>
-          </View>
+          <Badge x={d().x} y={d().y} text={COUNTRIES_COPY.thisTv} />
         )}</Show>
         <Show when={p.number}>{(n) => (
-          <View x={box().pill.x} y={box().pill.y} width={box().pill.w} height={box().pill.h} borderRadius={box().pill.h / 2} color={COLORS.accent}>
-            <Text y={(box().pill.h - TYPE.meta) / 2 - 3} width={box().pill.w} maxWidth={box().pill.w} contain="width" textAlign="center"
-              fontSize={TYPE.meta} {...STRONG} color={COLORS.onFocus}>{`✓ ${n()}`}</Text>
-          </View>
+          <Badge x={box().pill.x} y={box().pill.y} tone="selected" text={`✓ ${n()}`} />
         )}</Show>
       </View>
     </View>

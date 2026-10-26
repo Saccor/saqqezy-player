@@ -39,8 +39,6 @@ export const COLORS = {
   hover: 0x232b3cff,
   /** @deprecated Task 12 removes it: selected-but-not-focused is a ✓ mark. */
   selected: 0x3568d0ff,
-  /** @deprecated Task 4 removes it: badges are outlined, not filled. */
-  badge: 0xffffff26,
 } as const;
 
 /** Calm, dark title-card colours (white text stays readable on each). */

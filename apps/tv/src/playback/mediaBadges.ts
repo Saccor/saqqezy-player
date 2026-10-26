@@ -2,6 +2,7 @@ import type { VideoRange } from '@iptv/core';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
 import { channelsLabel, codecFamily, languageName, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
 import { formatBitrate } from './streamInfo.ts';
+import { SPACE } from '../shell/theme.ts';
 
 /**
  * The badges the player's controls show about what is playing right now: picture size, dynamic range, frame rate and
@@ -109,8 +110,8 @@ export function mediaBadges(input: MediaBadgeInput): string[] {
 }
 
 /** Inner padding either side of a badge's text, and the gap between badges. */
-export const BADGE_PAD = 14;
-export const BADGE_GAP = 10;
+export const BADGE_PAD = SPACE.m;
+export const BADGE_GAP = SPACE.s;
 
 export interface PlacedBadge { text: string; x: number; width: number }
 

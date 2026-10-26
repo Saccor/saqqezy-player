@@ -8,7 +8,7 @@ import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
-import { MediaBadges } from '../components/MediaBadges.tsx';
+import { BadgeRow } from '../components/Badge.tsx';
 import { StatusPill } from '../components/StatusPill.tsx';
 import { mediaBadges } from '../playback/mediaBadges.ts';
 import { onLogicalKey, sendKey } from '../input/keys.ts';
@@ -1523,7 +1523,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
               maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
           </Show>
-          <MediaBadges x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
+          <BadgeRow x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
           <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
             posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
             onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}

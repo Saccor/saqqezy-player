@@ -25,14 +25,15 @@
   "components/CountryGrid.tsx": {
     "fontSize": 2,
     "radius": 1,
-    "space": 5
+    "space": 3,
+    "string": 1
   },
   "components/DropdownHeader.tsx": {
     "space": 1
   },
   "components/EpgGrid.tsx": {
     "radius": 4,
-    "space": 5
+    "space": 6
   },
   "components/EpisodeRow.tsx": {
     "radius": 2,
@@ -47,7 +48,7 @@
   },
   "components/InfoBanner.tsx": {
     "radius": 2,
-    "space": 4,
+    "space": 3,
     "string": 1
   },
   "components/InfoStrip.tsx": {
@@ -60,12 +61,7 @@
     "string": 2
   },
   "components/ListPicker.tsx": {
-    "radius": 1,
-    "space": 7
-  },
-  "components/MediaBadges.tsx": {
-    "radius": 1,
-    "space": 1
+    "space": 6
   },
   "components/NumberEntry.tsx": {
     "border": 1,
@@ -130,7 +126,6 @@
     "string": 2
   },
   "playback/mediaBadges.ts": {
-    "space": 2,
     "string": 2
   },
   "playback/sourceLogic.ts": {

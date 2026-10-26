@@ -4,11 +4,12 @@ import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
-import { badgeWidth, cellBadge } from '../playback/sourceLogic.ts';
+import { cellBadge } from '../playback/sourceLogic.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE, centerText } from '../shell/theme.ts';
+import { BADGE_H, Badge, badgeWidth } from './Badge.tsx';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
@@ -198,7 +199,7 @@ export function EpgGrid(props: {
           const chLit = () => isRow() && focused() && props.area === 'channels';
           // A combined channel's badge ("4K", or "×3") at the cell's right end; the name takes what is left.
           const badge = () => cellBadge(ch()?.quality, ch()?.sourceCount);
-          const badgeW = () => badgeWidth(badge());
+          const badgeW = () => (badge() === '' ? 0 : badgeWidth(badge()));
           const nameW = () => (badgeW() > 0 ? NAME_W - badgeW() - BADGE_GAP : NAME_W);
           const all = createMemo<Block[]>((prev) => reuse(prev, props.blocks(i)));
           const visible = createMemo(() => {
@@ -219,9 +220,7 @@ export function EpgGrid(props: {
                   {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
                 <Show when={badgeW() > 0}>
-                  <Text x={NAME_X + NAME_W - badgeW()} y={TEXT_Y} width={badgeW()} maxWidth={badgeW()} contain="width"
-                    textAlign="right" maxLines={1} fontSize={TYPE.meta}
-                    color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{badge()}</Text>
+                  <Badge x={NAME_X + NAME_W - badgeW()} y={centerText(CELL_H, BADGE_H) + 4} text={badge()} lit={chLit()} />
                 </Show>
               </View>
               <View x={TL_X} width={TIMELINE_W} height={CELL_H}>

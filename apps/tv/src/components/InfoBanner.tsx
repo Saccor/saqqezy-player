@@ -9,7 +9,7 @@ import { BACKGROUND_RGB, COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/t
 import { iconTexture } from '../vod/icons.ts';
 import { scrimTexture } from '../vod/scrim.ts';
 import { logoCache } from './logoCache.ts';
-import { BADGE_H, MediaBadges } from './MediaBadges.tsx';
+import { BADGE_H, BadgeRow } from './Badge.tsx';
 import { logoKey } from './logoKey.ts';
 
 /** The banner's band: its text and progress, from the bottom safe edge up. */
@@ -141,7 +141,7 @@ export function InfoBanner(props: {
           fontSize={TYPE.meta} color={COLORS.muted}>{bannerNextLine(n)}</Text>
       )}</Show>
       {/* What is playing ("1080p · 50 fps · H.264 · Stereo AAC"): the right half of the next-programme line. */}
-      <MediaBadges x={BANNER_W - BADGES_W} y={(c().now ? NEXT_Y : PROGRESS_Y) + (TYPE.meta - BADGE_H) / 2 + 2}
+      <BadgeRow x={BANNER_W - BADGES_W} y={(c().now ? NEXT_Y : PROGRESS_Y) + (TYPE.meta - BADGE_H) / 2}
         maxWidth={BADGES_W} badges={props.badges ?? []} align="right" />
     </View>
   );

@@ -5,6 +5,7 @@ import type { AppEvent } from '@iptv/app-api';
 import type { SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { firstRunTarget, loadChoices } from './countriesLogic.ts';
+import { Badge } from '../components/Badge.tsx';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { Keyboard, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
@@ -82,7 +83,7 @@ function TypeTile(props: {
       <Text x={40} y={56} fontSize={TYPE.title} {...STRONG} color={focused() ? COLORS.onFocus : COLORS.text}>{props.title}</Text>
       <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={TYPE.body}
         color={focused() ? COLORS.onFocusMuted : COLORS.muted}>{props.body}</Text>
-      {props.badge ? <Text x={40} y={196} fontSize={TYPE.meta} {...STRONG} color={focused() ? COLORS.onFocusMuted : COLORS.muted}>{props.badge}</Text> : null}
+      {props.badge ? <Badge x={40} y={196} text={props.badge} lit={focused()} /> : null}
     </View>
   );
 }
