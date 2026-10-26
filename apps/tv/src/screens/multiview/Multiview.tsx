@@ -2,7 +2,8 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { GROUP_ALL } from '@iptv/core';
 import { api } from '../../api.ts';
-import { ContextMenu, type ContextMenuItem } from '../../components/ContextMenu.tsx';
+import { Sheet } from '../../components/Sheet.tsx';
+import { fromMenuItem, type MenuItem } from '../../components/sheetLogic.ts';
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import {
@@ -345,11 +346,11 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
   const closeMenu = () => { removeOverlay(MENU_ID); setMenu(undefined); focusRoot(); };
 
-  const menuEntries = createMemo<ContextMenuItem<MenuAction>[]>(() => {
+  const menuEntries = createMemo<MenuItem<MenuAction>[]>(() => {
     const s = state();
     const i = menu();
     if (!s || i === undefined) return [];
-    const out: ContextMenuItem<MenuAction>[] = [];
+    const out: MenuItem<MenuAction>[] = [];
     if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retry });
     else if (failure(i)?.retry.enabled) {
       // A plain Retry stays offered beside it: the app warns, it never blocks (decision 12.2).
@@ -637,8 +638,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
         <View x={e().ring.x} y={e().ring.y} width={e().ring.w} height={e().ring.h} borderRadius={18} border={{ width: 4, color: COLORS.focus }} />
       )}</Show>
       <Show when={menu() !== undefined}>
-        <ContextMenu ref={(el) => { menuNode = el; }} title={nameOf(menu() ?? 0) || MULTIVIEW_COPY.entry}
-          items={menuEntries()} cancel="cancel" onChoose={choose} />
+        <Sheet ref={(el) => { menuNode = el; }} title={nameOf(menu() ?? 0) || MULTIVIEW_COPY.entry} rows={menuEntries().map(fromMenuItem)}
+          follow="id" backLayerId={MENU_ID} onSelect={(_, i) => { const it = menuEntries()[i]; if (it) choose(it.action); }} />
       </Show>
       <Show when={picker()}>
         <MultiviewPicker ref={(el) => { pickerNode = el; }} backRef={(fn) => { pickerBack = fn; }}

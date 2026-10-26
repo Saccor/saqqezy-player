@@ -37,4 +37,8 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     there('components/Dialog.tsx');
     gone('shell/ConfirmDialog.tsx');
   });
+  it('Sheet replaces ContextMenu', () => {
+    there('components/Sheet.tsx');
+    gone('components/ContextMenu.tsx');
+  });
 });

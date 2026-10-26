@@ -13,9 +13,6 @@
     "space": 14,
     "string": 1
   },
-  "components/ContextMenu.tsx": {
-    "space": 3
-  },
   "components/CountryGrid.tsx": {
     "fontSize": 2,
     "radius": 1,

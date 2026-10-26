@@ -10,7 +10,8 @@ import type { ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api } from '../../api.ts';
 import { createChoiceMenu } from '../../components/choiceMenu.tsx';
-import { ContextMenu } from '../../components/ContextMenu.tsx';
+import { Sheet } from '../../components/Sheet.tsx';
+import { fromMenuItem } from '../../components/sheetLogic.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { ListPicker } from '../../components/ListPicker.tsx';
 import { favChangedToast, CATCHUP_COPY, SOURCE_COPY } from '../../copy.ts';
@@ -296,8 +297,9 @@ export function createLiveMenu(d: LiveMenuDeps) {
       <>
         <Show when={menu()}>{(m) => (
           <View zIndex={60}>
-            <ContextMenu ref={(el) => { menuNode = el; }} title={m().row.name} items={m().items} cancel="cancel"
-              onChoose={(a) => void choose(a)} pointerEnabled={pointerOn()} />
+            <Sheet ref={(el) => { menuNode = el; }} title={m().row.name} rows={m().items.map(fromMenuItem)} follow="id"
+              backLayerId={MENU_ID} onSelect={(_, i) => { const it = m().items[i]; if (it) void choose(it.action); }}
+              pointerEnabled={pointerOn()} />
           </View>
         )}</Show>
         <Show when={picker()}>{(p) => (
