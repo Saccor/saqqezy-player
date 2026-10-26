@@ -17,6 +17,8 @@ import { chunkStarts, pageRange, type TimeRange } from './guideLogic.ts';
 export interface EpgRowData<C, P> { channel: C; programmes: P[] }
 export type EpgFetch<C, P> = (groupId: string, offset: number, count: number, from: number, to: number) =>
   Promise<{ total: number; rows: EpgRowData<C, P>[] }>;
+/** What changed: everything (another group, an invalidate), or some pages' rows (and whether the row count moved). */
+export type EpgChange = { all: true } | { all: false; pages: number[]; totalChanged: boolean };
 
 export interface EpgCacheOptions {
   /** Channels per page (default 20). */
@@ -29,8 +31,8 @@ export interface EpgCacheOptions {
   maxAgeMs?: number;
   /** Clock for expiry (default `Date.now`). */
   now?: () => number;
-  /** Called whenever the cached data changes. */
-  onChange?: () => void;
+  /** Called whenever the cached data changes, with what changed. */
+  onChange?: (change: EpgChange) => void;
 }
 
 interface Entry<C, P> { page: number; chunk: number; rows: EpgRowData<C, P>[]; fetchedAt: number; epoch: number }
@@ -50,7 +52,7 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
   private readonly maxEntries: number;
   private readonly maxAgeMs: number;
   private readonly now: () => number;
-  private readonly onChange: () => void;
+  private readonly onChange: (change: EpgChange) => void;
 
   constructor(private readonly fetch: EpgFetch<C, P>, options: EpgCacheOptions = {}) {
     this.rowsPerPage = Math.max(1, options.rowsPerPage ?? 20);
@@ -72,16 +74,23 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
   setGroup(groupId: string, knownTotal?: number): void {
     if (groupId === this.groupId) return;
     this.groupId = groupId;
-    this.invalidate();
+    this.clear();
     this.totalRows = knownTotal;
+    // Notify only once the known total is in place: a listener that reads `total()` right away must see it, since the
+    // first answer that confirms it reports no change in the total.
+    this.onChange({ all: true });
   }
 
   invalidate(): void {
+    this.clear();
+    this.onChange({ all: true });
+  }
+
+  private clear(): void {
     this.generation++;
     this.totalRows = undefined;
     this.entries = new Map();
     this.inflight = new Map();
-    this.onChange();
   }
 
   total(): number | undefined {
@@ -206,17 +215,21 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
         if (gen !== this.generation) return;
         const old = this.entries.get(k);
         if (old && old.epoch > epoch) return; // a newer answer already landed
+        const totalChanged = this.totalRows !== res.total;
         this.totalRows = res.total;
         this.entries.delete(k);
         // A request older than the last stale mark may predate the change: readable, but fetched again.
         const fetchedAt = epoch === this.epoch ? this.now() : Number.NEGATIVE_INFINITY;
         this.entries.set(k, { page, chunk, rows: res.rows, fetchedAt, epoch });
+        const pages = [page];
         while (this.entries.size > this.maxEntries) {
           const oldest = this.entries.keys().next().value;
           if (oldest === undefined) break;
+          const dropped = this.entries.get(oldest)!.page;
           this.entries.delete(oldest);
+          if (!pages.includes(dropped)) pages.push(dropped);
         }
-        this.onChange();
+        this.onChange({ all: false, pages, totalChanged });
       },
       (err: unknown) => {
         done();

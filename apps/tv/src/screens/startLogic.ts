@@ -1,11 +1,12 @@
 /** The Start page: row kinds, focus movement and labels. Pure: no Solid, no Lightning. */
-import type { MatchFilterChip, SportsEventTile, StartCell, StartRow, VodTile } from '@iptv/app-api';
+import type { MatchFilterChip, SportsEventTile, StartCell, StartHome, StartRow, VodTile } from '@iptv/app-api';
 import { HIDDEN_COMPETITIONS_MAX, PINNED_COMPETITIONS_MAX, competitionKey, type AppSettings } from '@iptv/core';
 import { CATCHUP_COPY, favToggleLabel } from '../copy.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { metaLine } from '../vod/posterLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import { formatClock } from '../shell/logic.ts';
+import { sameData } from '../shell/sameData.ts';
 import type { RowModel } from '../vod/browseLogic.ts';
 
 export type StartRowKind = 'poster' | 'wide';
@@ -219,4 +220,9 @@ export function competitionPatch(choice: 'pin' | 'hide', key: string, st: MatchP
 /** The chip in effect: the first stored category the guide still offers, else All (a stale one does not filter). */
 export function activeMatchChip(chips: readonly { id: string }[], stored: readonly string[]): string {
   return stored.find((id) => chips.some((c) => c.id === id)) ?? 'all';
+}
+
+/** Whether a re-read Start page shows the same rows as `prev` (its `at` is a build time and is ignored). */
+export function sameStartRows(prev: StartHome | undefined, next: StartHome): boolean {
+  return prev !== undefined && sameData(prev.rows, next.rows);
 }

@@ -4,8 +4,13 @@ import { railRoute, TOAST_OVERLAY_ID } from './logic.ts';
 import { router, type ScreenEntry } from './router.ts';
 import { FOCUS, MOTION, type MotionToken } from './theme.ts';
 import {
-  AutoLite, effectiveLevel, KeyCadence, parseMotionLevel, planMotion, screenEnters, sessionLevel, type MotionLevel, type PropClass,
+  AutoLite, effectiveLevel, imageShowsAtOnce, KeyCadence, parseMotionLevel, planMotion, screenEnters, sessionLevel, type MotionLevel, type PropClass,
 } from './motionLogic.ts';
+import { platformId } from '../state/appState.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
+
+/** TVs show loaded images at once (no fade): see `imageShowsAtOnce`. */
+const IMAGES_AT_ONCE = isTvPlatform(platformId);
 
 /**
  * The one way the TV app animates (motion research §4 #1). The `transition` prop is broken on our stack (renderer 3.7 has
@@ -208,11 +213,11 @@ export function useFocusScale(node: () => ElementNode | undefined, lit: () => bo
 export const motionNow = now;
 
 /**
- * Shows an image node mounted at `MOTION.startAlpha` once its texture has loaded: a 160 ms fade, or at once when it
- * loaded within `MOTION.cacheHit` ms of `mountedAt` (a cache hit) or while a navigation key is held.
+ * Shows an image node mounted at `MOTION.startAlpha` once its texture has loaded: a 160 ms fade, or at once on a TV, on
+ * a cache hit (within `MOTION.cacheHit` ms of `mountedAt`) or while a navigation key is held.
  */
 export function fadeInLoaded(node: ElementNode, mountedAt: number): void {
-  if (now() - mountedAt < MOTION.cacheHit || navKeyHeld()) {
+  if (imageShowsAtOnce({ tv: IMAGES_AT_ONCE, sinceMountMs: now() - mountedAt, cacheHitMs: MOTION.cacheHit, navHeld: navKeyHeld() })) {
     stopMotion(node);
     node.alpha = 1;
     return;

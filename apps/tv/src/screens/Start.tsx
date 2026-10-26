@@ -26,7 +26,7 @@ import { wheelKey } from '../vod/browseLogic.ts';
 import { saveSetting } from './settings/shared.ts';
 import { createStartActions } from './startActions.tsx';
 import {
-  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow,
+  cellId, channelMenuItems, emptyStartText, eventMenuItems, eventMenuPatch, focusAfterLoad, locateStart, moveStart, rowKind, sameStartRows, toPosterRow,
   START_POSTER, START_POSTER_VISIBLE, START_ROW_Y, START_WIDE_VISIBLE, focusLabel, labelWidth,
   type StartFocus, type StartMemory,
 } from './startLogic.ts';
@@ -101,6 +101,8 @@ export function StartScreen(props: { entry: ScreenEntry }) {
     if (!input) return;
     // A page cached by an older build may still carry the channel row (spec 2026-10-24 §1.1): never draw it.
     const h = input.rows.some((r) => r.id === 'live') ? { ...input, rows: input.rows.filter((r) => r.id !== 'live') } : input;
+    // The 30 s re-read usually changes nothing: keep the rows (and every memo and text built from them) as they are.
+    if (sameStartRows(home(), h)) return;
     const hadRows = rows().length > 0;
     batch(() => {
       setHome(h);

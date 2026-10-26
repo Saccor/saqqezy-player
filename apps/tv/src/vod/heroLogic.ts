@@ -1,4 +1,5 @@
 import { metaLine } from './posterLogic.ts';
+import { isTvPlatform } from '../video/engineConfig.ts';
 
 /** Browse hero formatting for series. Pure: no Solid, no Lightning. */
 
@@ -13,4 +14,12 @@ export function seriesMetaLine(p: { year?: number; seasons: number; genre?: stri
   return [metaLine({ year: p.year }), seasonsText(p.seasons), metaLine({ genre: p.genre, ageRating: p.ageRating, rating: p.rating })]
     .filter((s) => s !== '')
     .join(' · ');
+}
+
+/**
+ * Backdrop art behind the browse strip and on Details: desktop and browser only (spec 2026-10-26 §0.3). On a TV each
+ * one is the largest texture on screen (~2.4–4 MB), two cross-fade layers and two gradient scrims.
+ */
+export function showsBackdrop(platform: string): boolean {
+  return !isTvPlatform(platform);
 }

@@ -6,7 +6,7 @@
 // Usage (with `pnpm relay:dev` and the TV dev server running, the TV on Settings → Manage on phone or computer):
 //   pnpm fake-phone '<QR URL or #s=…&k=… fragment>'   [--label "Fake phone"] [--seconds 60] [--no-bye]
 //   pnpm fake-phone ABCD-EFGH-JKMN                       (code mode; the code shown on the TV)
-// In the TV dev build, read what the pairing screen shows from the DevTools console: `__iptv.pairing()` gives
+// In the TV dev build, read what the pairing screen shows from the DevTools console: `await __iptv.pairing()` gives
 // `{ mode, qrUrl | code, expiresAt }` (DEV only; the app never logs it).
 //
 // --seconds N   disconnect after N seconds (default: stay until Ctrl+C)

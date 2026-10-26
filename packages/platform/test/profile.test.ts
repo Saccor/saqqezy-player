@@ -27,6 +27,10 @@ describe('profileFor', () => {
   it('only webOS toggles on the Play key', () => {
     expect((['browser', 'desktop', 'tizen', 'webos', 'androidtv'] as PlatformId[]).filter((id) => profileFor(id).playKeyToggles)).toEqual(['webos']);
   });
+  it('exit at the root follows each store: our dialog on Tizen, desktop and hosted web; LG platform back; Android none', () => {
+    const policy = Object.fromEntries((['browser', 'desktop', 'tizen', 'webos', 'androidtv'] as PlatformId[]).map((id) => [id, profileFor(id).exitPolicy]));
+    expect(policy).toEqual({ browser: 'dialog', desktop: 'dialog', tizen: 'dialog', webos: 'platformBack', androidtv: 'none' });
+  });
   it('returns a fresh, frozen object', () => {
     expect(Object.isFrozen(profileFor('desktop'))).toBe(true);
   });

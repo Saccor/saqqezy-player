@@ -127,11 +127,6 @@ const token = (ms: number, ease: string, kind: MotionKind): MotionToken => ({ ms
 /** Motion tokens (motion research §3) plus the dwell: how long focus must rest before the info strip and backdrop follow it. */
 export const MOTION = {
   dwell: 250,
-  /**
-   * TVs: the strip backdrop waits this much longer than the strip text (so ~650 ms of rest in all). A backdrop is a
-   * full-size image decode and upload plus a cross-fade, which a TV should not start while the user is still moving.
-   */
-  backdropDwellTv: 400,
   /** Card focus scale up and down: leaving is quicker than arriving. */
   focusIn: token(120, EASE.standard, 'focus'),
   focusOut: token(90, EASE.standard, 'focus'),

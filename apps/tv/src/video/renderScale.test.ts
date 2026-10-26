@@ -42,9 +42,10 @@ describe('renderPixelRatios', () => {
 });
 
 describe('rendererTuning', () => {
-  test('TVs spread texture uploads over frames and preload a 200 px margin', () => {
-    expect(rendererTuning('tizen')).toEqual({ boundsMargin: 200, textureProcessingTimeLimit: 10 });
-    expect(rendererTuning('webos')).toEqual({ boundsMargin: 200, textureProcessingTimeLimit: 10 });
+  test('TVs spread uploads over frames, upload 4 textures per frame during animations, cap at 60 fps, preload 200 px', () => {
+    const tv = { boundsMargin: 200, textureProcessingTimeLimit: 10, maxTextureUploadsDuringAnimation: 4, targetFPS: 60 };
+    expect(rendererTuning('tizen')).toEqual(tv);
+    expect(rendererTuning('webos')).toEqual(tv);
   });
 
   test('desktop and browser keep the renderer defaults', () => {

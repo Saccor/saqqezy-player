@@ -21,7 +21,6 @@ import { renderPixelRatios, rendererTuning } from './video/renderScale.ts';
 import './video/volume.ts';
 import { platformId } from './state/appState.ts';
 import { registerKeys } from './platform/tizen.ts';
-import { devPairing } from './screens/settings/ManageOnPhonePage.tsx';
 
 // Canvas text with the platform's default sans-serif face: no font files are bundled.
 Config.fontSettings = { fontFamily: 'sans-serif', fontSize: TYPE.body, color: COLORS.text };
@@ -71,9 +70,10 @@ window.addEventListener('resize', () => {
   layer.relayout();
 });
 
-// Dev-only debug handle for the browser console; stripped from production builds.
+// Dev-only debug handle for the browser console; stripped from production builds (the pairing page loads on demand).
 if (import.meta.env.DEV) (window as unknown as { __iptv: unknown }).__iptv = {
-  player, layer, playback, api, router, showToast, renderer, pairing: devPairing,
+  player, layer, playback, api, router, showToast, renderer,
+  pairing: () => import('./screens/settings/ManageOnPhonePage.tsx').then((m) => m.devPairing()),
 };
 
 // Tizen only delivers colour, digit, channel, play/pause and info keys that the app registers.

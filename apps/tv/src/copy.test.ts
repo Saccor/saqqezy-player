@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
+import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, LAZY_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
   it('is lowercase "favourites" everywhere, and the failure toast is one sentence', () => {
@@ -102,5 +102,12 @@ describe('Your countries copy', () => {
     expect(COUNTRIES_COPY.folders(1)).toBe('1 folder');
     expect(COUNTRIES_COPY.folders(31)).toBe('31 folders');
     expect(COUNTRIES_COPY.choose).toBe('Choose your countries…');
+  });
+});
+
+describe('lazy screen copy', () => {
+  it('says what failed and offers one action, in neutral words', () => {
+    expect(LAZY_COPY.failed).toBe("Couldn't open this screen.");
+    expect(LAZY_COPY.retry).toBe('Try again');
   });
 });

@@ -1,6 +1,6 @@
 import { Show, View } from '@lightningtv/solid';
 import { createMemo } from 'solid-js';
-import { QR_QUIET_MODULES, qrMatrix } from '../screens/pairingLogic.ts';
+import { QR_QUIET_MODULES, qrMatrix } from './qrMatrix.ts';
 
 const LIGHT = 0xffffffff;
 

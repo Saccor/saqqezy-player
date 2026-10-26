@@ -1,21 +1,19 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
+import { profileFor } from '@iptv/platform';
 import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
-import { CountriesScreen } from './screens/Countries.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
-import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
-import { SettingsScreen } from './screens/Settings.tsx';
 import { VodBrowseScreen } from './screens/VodBrowse.tsx';
 import { StartScreen } from './screens/Start.tsx';
 import { StartSportsScreen } from './screens/StartSports.tsx';
@@ -25,12 +23,15 @@ import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
+import { LazyScreen } from './shell/LazyScreen.tsx';
+import { isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, type LazyModule, type LazyScreenId } from './shell/lazyModule.ts';
+import type { ScreenEntry } from './shell/router.ts';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { deviceCountry } from './platform/deviceCountry.ts';
-import { exitApp } from './shell/platformExit.ts';
+import { rootBack, exitApp } from './shell/platformExit.ts';
 import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
@@ -40,10 +41,24 @@ import { reloadSourceLimit } from './state/activeLimit.ts';
 import { screenEnter, setMotionLevel } from './shell/motion.ts';
 import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, cooldownForStream, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { afterFrame } from './video/afterFrame.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
+/** What Back at the root does on this platform (our dialog, LG's platform back, or leave). */
+const EXIT_POLICY = profileFor(platformId).exitPolicy;
 const BADGE_H = 48;
+
+type EntryProps = { entry: ScreenEntry };
+/**
+ * Rare screens: loaded on first use, or in idle time after the first channel row (spec 2026-10-26 §0.3). Live TV, the
+ * Player, Start, Search, Add source (the first-run screen) and the Movies/Series screens stay in the start bundle.
+ */
+const LAZY: Record<LazyScreenId, LazyModule<EntryProps>> = {
+  settings: lazyModule<EntryProps>(() => import('./screens/Settings.tsx').then((m) => m.SettingsScreen)),
+  countries: lazyModule<EntryProps>(() => import('./screens/Countries.tsx').then((m) => m.CountriesScreen)),
+  multiview: lazyModule<EntryProps>(() => import('./screens/multiview/Multiview.tsx').then((m) => m.MultiviewScreen)),
+};
 
 function OfflineBadge() {
   return (
@@ -79,6 +94,14 @@ export function App() {
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));
+  // Rare screens compile in idle time once the first screen (whichever it is) has painted, so their first open does
+  // not wait. One shot.
+  let rarePreloaded = false;
+  createEffect(() => {
+    if (rarePreloaded || current() === undefined) return;
+    rarePreloaded = true;
+    afterFrame(() => void preloadInTurn(LAZY_SCREENS.map((id) => LAZY[id]), idleSchedule));
+  });
   const [overlayIds, setOverlayIds] = createSignal(router.overlays());
   onCleanup(router.subscribeOverlays(setOverlayIds));
   // The wordmark's canvas is drawn after the cold start (first Home rows), or after a short wait at most.
@@ -113,9 +136,13 @@ export function App() {
     if (yes) exitApp(platformId);
   };
 
-  // Every Back that no focused element handled lands here.
-  const onBack = () => {
-    if (router.back() === 'root') openExit();
+  // Every Back that no focused element handled lands here. At the root it follows the platform's exit rule; a held
+  // Back (repeated keydown) never opens or answers anything there.
+  const onBack = (e?: KeyboardEvent) => {
+    // The repeats of the held Back that opened the exit question must not close it again.
+    if (e?.repeat === true && exitOpen()) return true;
+    if (router.back() !== 'root') return true;
+    if (rootBack(EXIT_POLICY, platformId, e?.repeat === true) === 'dialog') openExit();
     return true;
   };
 
@@ -171,16 +198,14 @@ export function App() {
             <InitError onRetry={() => void bootstrap(api, router)} />
           </Show>
         }>
-          {(entry) => (entry.screen === 'addSource'
-            ? <AddSourceScreen entry={entry} />
-            : entry.screen === 'countries' ? <CountriesScreen entry={entry} />
+          {(entry) => (isLazyScreen(entry.screen)
+            ? <LazyScreen module={LAZY[entry.screen]} props={{ entry }} />
+            : entry.screen === 'addSource' ? <AddSourceScreen entry={entry} />
             : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen entry={entry} />
-            : entry.screen === 'settings' ? <SettingsScreen entry={entry} />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />
-            : entry.screen === 'multiview' ? <MultiviewScreen entry={entry} />
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />

@@ -148,7 +148,7 @@ Then:
 3. Open **http://localhost:5174** (the companion) in a second tab, next to the TV tab if you can.
 4. Connect, in one of two ways:
    - **By QR link.** You cannot scan the screen with the same computer, so copy the link instead: in the TV tab press
-     F12, open **Console** and type `__iptv.pairing().qrUrl`, then press Enter. Copy the link it prints (without the
+     F12, open **Console** and type `(await __iptv.pairing()).qrUrl`, then press Enter. Copy the link it prints (without the
      quotes) into the companion tab's address bar and press Enter. (This console helper exists only in this local
      test version.)
    - **By code.** On the TV, go right into the page, then press **F3** (Yellow) or choose **Use a code instead**. Type

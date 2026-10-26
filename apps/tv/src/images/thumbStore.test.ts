@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
-import { ThumbStore } from './thumbStore.ts';
+import { THUMB_STORE_MAX_BYTES, ThumbStore } from './thumbStore.ts';
 
 const bytes = (n: number, fill = 1) => new Uint8Array(n).fill(fill).buffer;
 
@@ -67,5 +67,21 @@ describe('ThumbStore', () => {
     await s.put('a', 'image/webp', bytes(10));
     await s.clear();
     expect(await s.get('a')).toBeUndefined();
+  });
+
+  it('defaults to a 15 MB cap, so thumbnails leave room for catalogues on a small quota', async () => {
+    expect(THUMB_STORE_MAX_BYTES).toBe(15e6);
+    let t = 0;
+    const s = new ThumbStore(new IDBFactory(), undefined, () => t);
+    // 3.7 MB copies (under the cap / 4 single-copy limit): four make 14.8 MB, a fifth makes 18.5 MB > 15 MB.
+    for (const k of ['a', 'b', 'c', 'd']) { t += 1; await s.put(k, 'image/webp', bytes(3_700_000)); }
+    expect(await s.get('a')).toBeDefined();
+    t += 1;
+    await s.put('e', 'image/webp', bytes(3_700_000));
+    // Evicted oldest-first down to 80 % (12 MB): a and b go.
+    expect(await s.get('a')).toBeUndefined();
+    expect(await s.get('b')).toBeUndefined();
+    expect(await s.get('c')).toBeDefined();
+    expect(await s.get('e')).toBeDefined();
   });
 });

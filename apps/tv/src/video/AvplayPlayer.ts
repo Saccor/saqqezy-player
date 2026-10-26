@@ -209,10 +209,26 @@ const START_SEEK_TIMEOUT_MS = 3_000;
 const RESTORE_TIMEOUT_MS = 5_000;
 /** `getStreamingProperty` is a synchronous bridge call: poll the live window at most this often. */
 const LIVE_WINDOW_POLL_MS = 2_000;
+/** `oncurrentplaytime` younger than this is used as the position; older, `getCurrentTime()` is polled (a sync call). */
+const POSITION_FRESH_MS = 500;
 /** A VOD seek never lands closer than this to the end (that would end the film at once). */
 const SEEK_END_MARGIN_MS = 1_000;
 /** A held frame never outlives this (as in Html5Player), so the screensaver cannot stay off over a failure screen. */
 const HOLD_MAX_MS = 30_000;
+
+/**
+ * Native teardowns waiting for the next frame, across every AvplayPlayer (multiview has two). An `open()` anywhere runs
+ * them first, so a scaler or the account's single connection is free before the next stream opens, exactly as when
+ * teardown was synchronous.
+ */
+const pendingTeardowns = new Set<() => void>();
+function flushTeardowns(): void {
+  for (const run of [...pendingTeardowns]) run();
+}
+/** Runs every pending AVPlay teardown now: the app is hiding or exiting and no frame may come. */
+export function flushAvplayTeardowns(): void {
+  flushTeardowns();
+}
 
 /**
  * `Player` on Samsung's AVPlay (`webapis.avplay`), used on Tizen. AVPlay draws on a video plane beneath the
@@ -226,9 +242,12 @@ export class AvplayPlayer implements Player {
   /** Clears the cue on screen once its duration has passed. */
   private cueTimer: ReturnType<typeof setTimeout> | undefined;
   private session: Session | undefined;
+  /** This player's native teardown waiting for the next frame, and its `closed()` promise. */
+  private teardown: { run: () => void; done: Promise<void> } | undefined;
   private rect: Rect = FULL;
   private aspect: AspectMode = 'auto';
   private lastPosition = 0;
+  private lastPositionAt = 0;
   private readonly space: Size;
   private readonly note: ((what: 'refererDropped') => void) | undefined;
   private refererNoted = false;
@@ -249,6 +268,7 @@ export class AvplayPlayer implements Player {
   private readonly resources: VideoResources | undefined;
   private readonly coversScreen: (() => boolean) | undefined;
   private readonly deviceRefused: ((why: 'subScaler' | 'audioStream') => void) | undefined;
+  private readonly afterFrame: ((fn: () => void) => void) | undefined;
   /** undefined: never muted, so the audio stream is never touched (single view). */
   private muted: boolean | undefined;
 
@@ -264,11 +284,17 @@ export class AvplayPlayer implements Player {
       coversScreen?: () => boolean;
       /** The TV itself refused the SUB scaler or the per-player audio call (not a stream's failure). */
       deviceRefused?: (why: 'subScaler' | 'audioStream') => void;
+      /**
+       * Runs `fn` after the next frame. AVPlay's stop()/close() are synchronous and take 140-190 ms on a G9: run inside
+       * a key handler they hold the screen. Absent (tests), teardown stays synchronous.
+       */
+      afterFrame?: (fn: () => void) => void;
     } = {},
   ) {
     this.resources = opts.resources;
     this.coversScreen = opts.coversScreen;
     this.deviceRefused = opts.deviceRefused;
+    this.afterFrame = opts.afterFrame;
     this.note = opts.note;
     this.panel = opts.panel;
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
@@ -299,11 +325,14 @@ export class AvplayPlayer implements Player {
 
   open(url: string, attemptId?: number, opts: OpenOptions = {}): Promise<void> {
     this.stop({ hold: true }); // a held frame stays until this stream plays
+    // AVPlay must be closed (here and on any other player: scalers, the account's connection) before it opens again.
+    flushTeardowns();
     const s: Session = { url, attemptId, dead: false, started: false, live: opts.live !== false };
     if (!s.live && opts.startMs !== undefined && opts.startMs > 0) s.startMs = opts.startMs;
     this.session = s;
     this.userPaused = false;
     this.lastPosition = 0;
+    this.lastPositionAt = 0;
     this.windowCache = undefined;
     this.emit(s, 'loading');
     const av = this.avplay;
@@ -333,6 +362,7 @@ export class AvplayPlayer implements Player {
         oncurrentplaytime: (ms) => {
           if (s.dead || typeof ms !== 'number') return;
           this.lastPosition = ms;
+          this.lastPositionAt = Date.now();
           clearTimeout(s.restoreWatchdog);
         },
         onerror: (type) => this.emit(s, 'error', { code: mapAvplayError(type), message: MESSAGE, detail: avplayErrorName(type) || undefined }),
@@ -375,6 +405,7 @@ export class AvplayPlayer implements Player {
             };
             try {
               s.seekWatchdog = setTimeout(go, START_SEEK_TIMEOUT_MS);
+              this.lastPositionAt = 0;
               av.seekTo(to, go, go);
               return;
             } catch {
@@ -423,12 +454,41 @@ export class AvplayPlayer implements Player {
     this.clearCue();
     this.windowCache = undefined;
     this.session = undefined;
-    if (s.resource) this.resources?.release(s.resource);
     this.video = false;
-    // Separate guards: a failing stop() (e.g. already idle) must not skip close().
-    try { this.avplay.stop(); } catch { /* ignore */ }
-    try { this.avplay.close(); } catch { /* ignore */ }
+    const resource = s.resource;
+    this.scheduleTeardown(() => {
+      // Separate guards: a failing stop() (e.g. already idle) must not skip close().
+      try { this.avplay.stop(); } catch { /* ignore */ }
+      try { this.avplay.close(); } catch { /* ignore */ }
+      // The scaler is free only once AVPlay has let go of it.
+      if (resource) {
+        try { this.resources?.release(resource); } catch { /* ignore */ }
+      }
+    });
     this.updateSaver();
+  }
+
+  /** Runs `native` now (no `afterFrame`) or after the next frame; `closed()` waits for it. */
+  private scheduleTeardown(native: () => void): void {
+    this.teardown?.run();
+    if (!this.afterFrame) {
+      native();
+      return;
+    }
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => { resolve = r; });
+    const t = {
+      done,
+      run: () => {
+        if (this.teardown !== t) return;
+        this.teardown = undefined;
+        pendingTeardowns.delete(t.run);
+        try { native(); } finally { resolve(); }
+      },
+    };
+    this.teardown = t;
+    pendingTeardowns.add(t.run);
+    this.afterFrame(t.run);
   }
 
   /** VOD only: live sessions are closed and reopened by the controller instead. */
@@ -456,6 +516,7 @@ export class AvplayPlayer implements Player {
     if (!sp || !s || !this.avplay.restore) return false;
     try {
       this.avplay.restore(sp.url, sp.positionMs, false);
+      this.lastPositionAt = 0;
     } catch {
       return false;
     }
@@ -479,9 +540,9 @@ export class AvplayPlayer implements Player {
     return true;
   }
 
-  /** `stop()` closes AVPlay synchronously: the previous stream is closed once `close()` has returned. */
+  /** Resolves once AVPlay's stop()/close() have run (after the next frame in the app; at once in tests). */
   closed(): Promise<void> {
-    return Promise.resolve();
+    return this.teardown?.done ?? Promise.resolve();
   }
 
   setRect(rect: Rect | 'fullscreen'): void {
@@ -593,11 +654,12 @@ export class AvplayPlayer implements Player {
   }
 
   /**
-   * ms. Polls `getCurrentTime()` (last good value if it throws); `oncurrentplaytime` also updates the fallback
-   * value, but is not relied on.
+   * ms. The `oncurrentplaytime` value while it is fresh (see `POSITION_FRESH_MS`) and the session has started;
+   * otherwise `getCurrentTime()` is polled (last good value if it throws).
    */
   position(): number {
     if (!this.session) return this.lastPosition;
+    if (this.session.started && Date.now() - this.lastPositionAt < POSITION_FRESH_MS) return this.lastPosition;
     try {
       const t = this.avplay.getCurrentTime();
       if (typeof t === 'number' && Number.isFinite(t)) this.lastPosition = t;
@@ -633,6 +695,7 @@ export class AvplayPlayer implements Player {
     const to = Math.max(w.start, w.end - targetS * 1000);
     if (to <= this.position() + 250) return true;
     try {
+      this.lastPositionAt = 0;
       this.avplay.seekTo(to, () => {}, () => {});
       return true;
     } catch {
@@ -691,6 +754,7 @@ export class AvplayPlayer implements Player {
     const to = this.clampSeek(ms);
     if (to === undefined) return false;
     try {
+      this.lastPositionAt = 0;
       this.avplay.seekTo(to, () => {}, () => {});
       this.clearCue();
       return true;
@@ -805,6 +869,7 @@ export class AvplayPlayer implements Player {
   destroy(): void {
     this.releaseLastFrame();
     this.stop();
+    this.teardown?.run();
     this.listeners.clear();
     this.subtitleListeners.clear();
   }
