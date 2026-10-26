@@ -280,7 +280,6 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     queueMicrotask(() => { if (alive) focusArea('episodes', true); });
   };
   const seasonRows = (): PickerRow[] => seasons().map((s, i) => ({ kind: 'list', id: String(i), label: seasonLabel(s), checked: i === season() }));
-  const seasonSheetRows = createMemo(() => seasonRows().map(fromPickerRow));
 
   // ---- Versions list ----
   const [picking, setPicking] = createSignal(false);
@@ -305,8 +304,6 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     setPicking(false);
     queueMicrotask(() => { if (alive) focusArea('actions', true); });
   }
-  const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.versionId));
-  const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
   const pickVersion = async (row: PickerRow) => {
     removePicker?.();
     closeVersions();
@@ -372,14 +369,22 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
         </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
-      <Show when={pickingSeason()}>
-        <Sheet ref={(el) => { seasonPickerNode = el; }} title={VOD_COPY.season} rows={seasonSheetRows()} backLayerId={SEASONS_ID}
-          onSelect={(_, i) => { const r = seasonRows()[i]; if (r) pickSeason(r); }} />
-      </Show>
-      <Show when={picking()}>
-        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
-          onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
-      </Show>
+      <Show when={pickingSeason()}>{(() => {
+        const seasonPickRows = createMemo(() => seasonRows());
+        const seasonSheetRows = createMemo(() => seasonPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { seasonPickerNode = el; }} title={VOD_COPY.season} rows={seasonSheetRows()} backLayerId={SEASONS_ID}
+            onSelect={(_, i) => { const r = seasonPickRows()[i]; if (r) pickSeason(r); }} />
+        );
+      })()}</Show>
+      <Show when={picking()}>{(() => {
+        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.versionId));
+        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }

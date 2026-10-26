@@ -612,7 +612,6 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     api.setVodTracks(tracksKeyId(p), tracks).catch((err) => console.warn('Track save failed', errName(err)));
   };
 
-  const sheetRows = createMemo(() => rows().map(fromPickerRow));
   const pickTrack = (row: PickerRow) => {
     if (row.kind !== 'list') return;
     if (row.id === DELAY_EARLIER_ROW || row.id === DELAY_LATER_ROW) {
@@ -1571,25 +1570,29 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       {/* Desktop volume: + and - keys and the wheel; with the controls hidden a change shows a short top-right pill. */}
       <VolumeOsd inBar={visible()} />
 
-      <Show when={pickerOpen()}>
-        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.audioAndSubtitles} rows={sheetRows()} backLayerId={TRACKS_ID}
-          onSelect={(_, i) => { const r = rows()[i]; if (r) pickTrack(r); }}
-          onAdjust={(_, i, d) => { const r = rows()[i]; return r ? adjustRow(r, d) : false; }} />
-      </Show>
+      <Show when={pickerOpen()}>{(() => {
+        const trackRows = createMemo(() => rows());
+        const trackSheetRows = createMemo(() => trackRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.audioAndSubtitles} rows={trackSheetRows()} backLayerId={TRACKS_ID}
+            onSelect={(_, i) => { const r = trackRows()[i]; if (r) pickTrack(r); }}
+            onAdjust={(_, i, d) => { const r = trackRows()[i]; return r ? adjustRow(r, d) : false; }} />
+        );
+      })()}</Show>
 
       <Show when={onlineRows()}>{(list) => {
-        const sheetRows = createMemo(() => list().map(fromPickerRow));
+        const onlineSheetRows = createMemo(() => list().map(fromPickerRow));
         return (
-          <Sheet ref={(el) => { onlineNode = el; }} title={VOD_COPY.subtitlesOnline} rows={sheetRows()} backLayerId={SUB_ONLINE_ID}
+          <Sheet ref={(el) => { onlineNode = el; }} title={VOD_COPY.subtitlesOnline} rows={onlineSheetRows()} backLayerId={SUB_ONLINE_ID}
             onSelect={(_, i) => { const r = list()[i]; if (r) pickOnline(r); }}
             footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
         );
       }}</Show>
 
       <Show when={versionPickRows()}>{(list) => {
-        const sheetRows = createMemo(() => list().map(fromPickerRow));
+        const versionSheetRows = createMemo(() => list().map(fromPickerRow));
         return (
-          <Sheet ref={(el) => { versionsNode = el; }} title={VOD_COPY.subtitleVersions} rows={sheetRows()} backLayerId={SUB_VERSIONS_ID}
+          <Sheet ref={(el) => { versionsNode = el; }} title={VOD_COPY.subtitleVersions} rows={versionSheetRows()} backLayerId={SUB_VERSIONS_ID}
             onSelect={(_, i) => { const r = list()[i]; if (r) pickVersion(r); }}
             footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
         );

@@ -327,7 +327,6 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let removePicker: (() => void) | undefined;
   /** Every category the grid has (Continue watching, Favourites and Recently added included), then the sorts. */
   const pickerRows = (): PickerRow[] => [...categoryRows(cats(), cat()?.id), ...sortRows(sorts(), sort())];
-  const pickerSheetRows = createMemo(() => pickerRows().map(fromPickerRow));
   const openPicker = () => {
     if (picking() || cats().length === 0 || !noOverlay()) return;
     setPicking(true);
@@ -485,10 +484,14 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       </Show>
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
-      <Show when={picking()}>
-        <Sheet ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerSheetRows()} backLayerId={CATEGORIES_ID}
-          onSelect={(_, i) => { const r = pickerRows()[i]; if (r) pick(r); }} />
-      </Show>
+      <Show when={picking()}>{(() => {
+        const pickRows = createMemo(() => pickerRows());
+        const pickerSheetRows = createMemo(() => pickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerSheetRows()} backLayerId={CATEGORIES_ID}
+            onSelect={(_, i) => { const r = pickRows()[i]; if (r) pick(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }

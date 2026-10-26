@@ -210,8 +210,6 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     removePicker?.();
     closeVersions();
   };
-  const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.playId));
-  const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
   const pickVersion = async (row: PickerRow) => {
     const t = tile();
     dismissVersions();
@@ -281,10 +279,14 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
-      <Show when={picking()}>
-        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
-          onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
-      </Show>
+      <Show when={picking()}>{(() => {
+        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.playId));
+        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }
