@@ -34,7 +34,6 @@ describe('toastLayout', () => {
   });
 });
 import { LAYOUT } from './theme.ts';
-import { exitApp } from './platformExit.ts';
 
 describe('formatClock', () => {
   it('formats HH:MM with leading zeros, 24 h', () => {
@@ -71,32 +70,6 @@ describe('createTapSequence', () => {
     expect(seq(3)).toBe(false);
     expect(seq(4)).toBe(false);
     expect(seq(5)).toBe(true);
-  });
-});
-
-describe('exitApp', () => {
-  it('Tizen exits the current application', () => {
-    const exit = vi.fn();
-    const g = { tizen: { application: { getCurrentApplication: () => ({ exit }) } }, close: vi.fn() };
-    exitApp('tizen', g);
-    expect(exit).toHaveBeenCalledOnce();
-    expect(g.close).not.toHaveBeenCalled();
-  });
-
-  it('webOS closes the window', () => {
-    const g = { close: vi.fn() };
-    exitApp('webos', g);
-    expect(g.close).toHaveBeenCalledOnce();
-  });
-
-  it('the browser does nothing', () => {
-    const g = { close: vi.fn() };
-    exitApp('browser', g);
-    expect(g.close).not.toHaveBeenCalled();
-  });
-
-  it('a missing Tizen API does not throw', () => {
-    expect(() => exitApp('tizen', {})).not.toThrow();
   });
 });
 

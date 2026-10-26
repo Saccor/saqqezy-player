@@ -1,6 +1,7 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
+import { profileFor } from '@iptv/platform';
 import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
 import { api, onEvent } from './api.ts';
@@ -30,7 +31,7 @@ import {
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { deviceCountry } from './platform/deviceCountry.ts';
-import { exitApp } from './shell/platformExit.ts';
+import { rootBack, exitApp } from './shell/platformExit.ts';
 import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
 import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
@@ -44,6 +45,8 @@ import { afterFrame } from './video/afterFrame.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
+/** What Back at the root does on this platform (our dialog, LG's platform back, or leave). */
+const EXIT_POLICY = profileFor(platformId).exitPolicy;
 const BADGE_H = 48;
 
 type EntryProps = { entry: ScreenEntry };
@@ -133,9 +136,13 @@ export function App() {
     if (yes) exitApp(platformId);
   };
 
-  // Every Back that no focused element handled lands here.
-  const onBack = () => {
-    if (router.back() === 'root') openExit();
+  // Every Back that no focused element handled lands here. At the root it follows the platform's exit rule; a held
+  // Back (repeated keydown) never opens or answers anything there.
+  const onBack = (e?: KeyboardEvent) => {
+    // The repeats of the held Back that opened the exit question must not close it again.
+    if (e?.repeat === true && exitOpen()) return true;
+    if (router.back() !== 'root') return true;
+    if (rootBack(EXIT_POLICY, platformId, e?.repeat === true) === 'dialog') openExit();
     return true;
   };
 
