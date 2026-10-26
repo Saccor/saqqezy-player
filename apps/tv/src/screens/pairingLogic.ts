@@ -1,8 +1,8 @@
-import qrcode from 'qrcode-generator';
 import type { CompanionStatus } from '@iptv/app-api';
 
 /**
- * Pure logic of the "Manage on phone or computer" page: copy, countdown, actions and the QR matrix.
+ * Pure logic of the "Manage on phone or computer" page: copy, countdown and actions. The QR matrix lives in
+ * `components/qrMatrix.ts`, so that Live TV (which reads `showPhoneBadge` at start) does not load the QR library.
  * The pairing URL and code are secrets: they are drawn, never logged or persisted.
  */
 
@@ -135,25 +135,6 @@ export function pairingActions(state: PairingState, mode: PairingMode): PairingA
     default: return [newCode, toggle];
   }
 }
-
-/** A QR symbol: `size` x `size` modules, row-major, true = dark. No quiet zone. */
-export interface QrMatrix { size: number; dark: boolean[] }
-
-/** Encodes text (byte mode, smallest version that fits) at error-correction level M. */
-export function qrMatrix(text: string): QrMatrix {
-  const qr = qrcode(0, 'M');
-  qr.addData(text, 'Byte');
-  qr.make();
-  const size = qr.getModuleCount();
-  const dark: boolean[] = new Array<boolean>(size * size);
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) dark[r * size + c] = qr.isDark(r, c);
-  }
-  return { size, dark };
-}
-
-/** Quiet zone around the symbol, in modules (the QR spec asks for 4). */
-export const QR_QUIET_MODULES = 4;
 
 /** The pointer-mode button that replaces the Yellow hint under the QR code or the code. */
 export function toggleButtonLabel(mode: PairingMode): string {
