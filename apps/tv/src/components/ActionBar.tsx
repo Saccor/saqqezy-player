@@ -1,7 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, TYPE } from '../shell/theme.ts';
+import { SELECTED_MARK, controlText, isLit, controlFill, selectedInk } from '../shell/focusStyle.ts';
+import { COLORS, SPACE, TYPE, centerText } from '../shell/theme.ts';
 import { selectedIndex } from './actionBarLogic.ts';
 import { BUTTON_H } from './Button.tsx';
 
@@ -82,18 +83,21 @@ export function ActionBar(props: {
       onEnter={() => { const a = props.actions[cur()]; if (a) props.onAction(a.id); return true; }}
       onMenu={() => options()} onLongOk={() => options()}>
       <For each={props.actions}>{(a, i) => {
-        const lit = () => focused() && cur() === i();
-        const fill = () => (lit() ? COLORS.focus : hover() === i() && pointerMode() ? COLORS.hover
-          : props.current === a.id ? COLORS.selected : COLORS.surfaceRaised);
+        const lit = () => isLit(focused() && cur() === i(), hover() === i(), pointerMode());
+        const fill = () => controlFill(lit(), COLORS.surfaceRaised);
+        const current = () => props.current === a.id;
         return (
           <View x={xs()[i()] ?? 0} width={a.width} height={BUTTON_H} borderRadius={BUTTON_H / 2}
             color={fill()}>
             <Show when={a.icon} fallback={
               <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={a.width} maxWidth={a.width} contain="width" maxLines={1} textAlign="center"
-                fontSize={TYPE.body} color={lit() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+                fontSize={TYPE.body} color={controlText(lit())}>{a.label}</Text>
             }>
               <View x={(a.width - ICON) / 2} y={(BUTTON_H - ICON) / 2} width={ICON} height={ICON} src={a.icon}
                 color={lit() ? COLORS.onFocus : COLORS.text} />
+            </Show>
+            <Show when={current()}>
+              <Text x={SPACE.s} y={centerText(BUTTON_H, TYPE.body)} fontSize={TYPE.body} color={selectedInk(lit())}>{SELECTED_MARK}</Text>
             </Show>
           </View>
         );

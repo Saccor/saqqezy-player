@@ -5,6 +5,7 @@ import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
 import { rowHit } from '../../input/pointerLogic.ts';
+import { controlFill, controlText, isLit } from '../../shell/focusStyle.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
@@ -239,12 +240,12 @@ export function ManageOnPhonePage(props: PageProps) {
         onEnter={() => { const a = actions()[selIndex()]; if (a) { setSelId(a.id); run(a.id); } return true; }}
         onYellow={() => { if (yellowHint()) run('toggleMode'); return true; }}>
         <For each={actions()}>{(a, i) => {
-          const active = () => focused() && i() === selIndex();
+          const lit = () => isLit(focused() && i() === selIndex(), hover() === i(), pointerMode());
           return (
             <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={BUTTON_H / 2}
-              color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surfaceRaised}>
+              color={controlFill(lit(), COLORS.surfaceRaised)}>
               <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
-                textAlign="center" fontSize={TYPE.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+                textAlign="center" fontSize={TYPE.body} color={controlText(lit())}>{a.label}</Text>
             </View>
           );
         }}</For>

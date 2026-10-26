@@ -1,6 +1,7 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
+import { controlFill, controlText, isLit } from '../shell/focusStyle.ts';
 import { COLORS, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { CHEVRON, dropdownWidth, GAP, PAD_X } from './dropdownLogic.ts';
@@ -38,8 +39,9 @@ export function DropdownHeader(props: {
   const h = () => props.height ?? DROPDOWN_H;
   const w = () => Math.min(dropdownWidth(props.label, size()), props.maxWidth ?? Infinity);
   const textW = () => w() - PAD_X * 2 - CHEVRON - GAP;
-  const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.transparent);
-  const ink = () => (focused() ? COLORS.onFocus : COLORS.text);
+  const lit = () => isLit(focused(), hovered(), pointerMode());
+  const fill = () => controlFill(lit());
+  const ink = () => controlText(lit());
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.align === 'right' ? props.x - w() : props.x - PAD_X} y={props.y}
       width={w()} height={h()} borderRadius={h() / 2} color={fill()}
@@ -50,7 +52,7 @@ export function DropdownHeader(props: {
       <Text x={PAD_X} y={(h() - size()) / 2 - 3} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={size()} {...STRONG} color={ink()}>{props.label}</Text>
       <View x={w() - PAD_X - CHEVRON} y={(h() - CHEVRON) / 2} width={CHEVRON} height={CHEVRON}
-        src={iconTexture('chevron')} color={focused() ? COLORS.onFocus : COLORS.subtle} />
+        src={iconTexture('chevron')} color={lit() ? COLORS.onFocus : COLORS.subtle} />
     </View>
   );
 }

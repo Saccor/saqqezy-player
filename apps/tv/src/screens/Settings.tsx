@@ -1,8 +1,8 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { Match, Switch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { Dialog } from '../components/Dialog.tsx';
-import { Sheet } from '../components/Sheet.tsx';
-import { fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
+import { Sheet, SheetRowView } from '../components/Sheet.tsx';
+import { SHEET_PITCH, fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
 import { COMMON_COPY } from '../copy.ts';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
@@ -11,6 +11,7 @@ import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
+import { isLit } from '../shell/focusStyle.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
@@ -25,12 +26,11 @@ import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
 import { SETTINGS_PAGES, settingsOpenAt } from './settingsLogic.ts';
 
-/** The menu sits at the rail's content edge; its rows are 72 apart, drawn 64 high. */
+/** The menu sits at the rail's content edge; its rows are Sheet rows: 72 high, 80 apart. */
 const MENU_X = LAYOUT.contentX;
 const MENU_Y = LAYOUT.safeY + 72;
 const MENU_W = 400;
-const MENU_ROW_H = 72;
-const MENU_ROW_DRAWN = 64;
+const MENU_ROW_H = SHEET_PITCH;
 /** The page: right of the menu (x 608) to the right safe edge, its rows level with the menu's. */
 const PAGE_X = MENU_X + MENU_W + LAYOUT.gap * 2;
 const PAGE_W = LAYOUT.width - LAYOUT.safeX - PAGE_X;
@@ -78,14 +78,8 @@ function Menu(props: {
       onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => props.onLeft()}>
       <For each={SETTINGS_PAGES}>{(p, i) => {
         const isSel = () => i() === props.selected;
-        const hovered = () => pointerMode() && hover() === i();
-        return (
-          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_DRAWN} borderRadius={RADIUS.card}
-            color={isSel() ? (focused() ? COLORS.focus : COLORS.surfaceRaised) : hovered() ? COLORS.hover : COLORS.transparent}>
-            <Text x={24} y={(MENU_ROW_DRAWN - TYPE.body) / 2 - 3} fontSize={TYPE.body}
-              color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
-          </View>
-        );
+        const lit = () => isLit(focused() && isSel(), pointerMode() && hover() === i(), pointerMode());
+        return <SheetRowView y={i() * MENU_ROW_H} width={MENU_W} row={{ id: p.id, label: p.title, checked: isSel() && !focused() }} lit={lit()} />;
       }}</For>
     </View>
   );

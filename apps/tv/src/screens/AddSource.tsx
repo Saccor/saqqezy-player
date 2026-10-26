@@ -14,6 +14,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
+import { controlFill, controlSubText, controlText, isLit } from '../shell/focusStyle.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
@@ -73,17 +74,17 @@ function TypeTile(props: {
   const [hovered, setHovered] = createSignal(false);
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress() });
-  const ring = () => (hovered() && pointerMode() && !focused() ? COLORS.muted : COLORS.transparent);
+  const lit = () => isLit(focused(), hovered(), pointerMode());
   return (
     <View ref={(el) => { node = el; props.ref(el); }} x={props.x} y={0} width={TILE_W} height={TILE_H} borderRadius={RADIUS.card}
-      color={focused() ? COLORS.focus : COLORS.surface} border={{ width: 2, color: ring() }}
+      color={controlFill(lit(), COLORS.surface)}
       onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? false}>
-      <Text x={40} y={56} fontSize={TYPE.title} {...STRONG} color={focused() ? COLORS.onFocus : COLORS.text}>{props.title}</Text>
+      <Text x={40} y={56} fontSize={TYPE.title} {...STRONG} color={controlText(lit())}>{props.title}</Text>
       <Text x={40} y={120} width={TILE_W - 80} maxWidth={TILE_W - 80} contain="width" fontSize={TYPE.body}
-        color={focused() ? COLORS.onFocusMuted : COLORS.muted}>{props.body}</Text>
-      {props.badge ? <Badge x={40} y={196} text={props.badge} lit={focused()} /> : null}
+        color={controlSubText(lit())}>{props.body}</Text>
+      {props.badge ? <Badge x={40} y={196} text={props.badge} lit={lit()} /> : null}
     </View>
   );
 }

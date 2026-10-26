@@ -53,4 +53,10 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
       lacks(f, /Back closes/);
     }
   });
+  it('one focus style per kind: no hover colour, no selected fill, no extra rings', () => {
+    lacks('components/FocusRing.tsx', /<Show/);
+    lacks('screens/multiview/Multiview.tsx', /border=\{\{ width: 4/);
+    lacks('screens/AddSource.tsx', /border=\{\{ width: 2/);
+    lacks('components/CountryGrid.tsx', /color: COLORS\.accent \}/);
+  });
 });

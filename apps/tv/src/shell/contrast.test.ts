@@ -18,9 +18,5 @@ describe('contrast', () => {
     expect(contrast(COLORS.onFocus, COLORS.subtle)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.accent, COLORS.background)).toBeGreaterThanOrEqual(3);
     expect(contrast(COLORS.focus, COLORS.background)).toBeGreaterThanOrEqual(3);
-    // The chip in effect (ActionBar `current`): its label, and the chip against the bar and its resting neighbours.
-    expect(contrast(COLORS.text, COLORS.selected)).toBeGreaterThanOrEqual(4.5);
-    expect(contrast(COLORS.selected, COLORS.background)).toBeGreaterThanOrEqual(3);
-    expect(contrast(COLORS.selected, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(3);
   });
 });

@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode, type JSX } from '@lightningtv/
 import { createEffect, createMemo, createSignal, on, onCleanup } from 'solid-js';
 import { usePointerBackdrop, usePointerTarget, type Point } from '../input/pointer.ts';
 import { panelRowHit } from '../input/pointerLogic.ts';
-import { focusInit, hoverMove, type FocusSource } from '../shell/focusStyle.ts';
+import { hoverInit, hoverMove, type HoverTrack } from '../shell/focusStyle.ts';
 import { riseIn, scrimIn } from '../shell/motion.ts';
 import { router } from '../shell/router.ts';
 import { COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE, centerText } from '../shell/theme.ts';
@@ -95,7 +95,7 @@ export function SheetRowView(props: { x?: number; y: number; width: number; row:
 export function Sheet(props: SheetProps) {
   const [selIndex, setSelIndex] = createSignal(props.initial ?? 0);
   const [selId, setSelId] = createSignal<string | undefined>(undefined);
-  const [focusSrc, setFocusSrc] = createSignal<FocusSource>(focusInit());
+  const [focusSrc, setFocusSrc] = createSignal<HoverTrack>(hoverInit());
   const [tab, setTab] = createSignal(0);
   const [stack, setStack] = createSignal<SheetStack | undefined>(undefined);
   createEffect(on(() => props.resetKey, () => { setSelIndex(props.initial ?? 0); setSelId(undefined); }, { defer: true }));

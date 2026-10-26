@@ -38,15 +38,13 @@ function Chip(p: {
 }) {
   let node: ElementNode | undefined;
   useFocusScale(() => node, () => p.lit);
-  const picked = () => p.number !== undefined;
   /** This TV's chip moves the flag left and puts the "This TV" badge beside it; name and count stay full width. */
   const box = () => (p.device ? DEVICE_CHIP_BOXES : CHIP_BOXES);
   return (
     <View ref={(el) => { node = el; p.ref(el); }} x={p.x} y={p.y} width={CHIP.w} height={CHIP.h}>
       <FocusRing w={CHIP.w} h={CHIP.h} radius={RADIUS.card} lit={p.lit} hover={p.hover} />
       <View width={CHIP.w} height={CHIP.h} zIndex={1} borderRadius={RADIUS.card}
-        color={picked() ? COLORS.surfaceRaised : COLORS.surface}
-        border={picked() ? { width: 4, color: COLORS.accent } : { width: 0, color: COLORS.transparent }}>
+        color={COLORS.surface}>
         <Show when={'src' in p.art ? p.art.src : undefined} fallback={
           <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
             <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"

@@ -49,9 +49,9 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
 
 /** One channel row (number, logo, name, now line, progress), positioned by the caller. */
 function ChannelRowView(props: {
-  y: number; width: number; row: ChannelRow | undefined; lit: boolean; isFocus: boolean;
+  y: number; width: number; row: ChannelRow | undefined; lit: boolean;
   now: number; playingId: string | undefined;
-  /** The pointer is over the row (pointer mode): a subtle fill, never focus. */
+  /** The pointer is over the row (pointer mode): drawn as focus (one hover style). */
   hover?: boolean;
   /** The `⋯` pill shows on this row: the text and progress bar end before it. */
   optionsShown?: boolean;
@@ -59,9 +59,10 @@ function ChannelRowView(props: {
   tag?: string | undefined;
 }) {
   const r = () => props.row;
-  const fill = () => (props.lit ? ROW_FOCUS_FILL : props.isFocus ? COLORS.surface : props.hover ? COLORS.hover : COLORS.transparent);
-  const textMain = () => (props.lit ? COLORS.onFocus : COLORS.text);
-  const textSub = () => (props.lit ? COLORS.onFocusMuted : COLORS.muted);
+  const on = () => props.lit || props.hover === true;
+  const fill = () => (on() ? ROW_FOCUS_FILL : COLORS.transparent);
+  const textMain = () => (on() ? COLORS.onFocus : COLORS.text);
+  const textSub = () => (on() ? COLORS.onFocusMuted : COLORS.muted);
   const textX = NUM_W + LOGO_W + 20;
   const numSize = () => (String(r()?.number ?? '').length >= 5 ? TYPE.meta : TYPE.body);
   const textW = () => rowTextEnd(props.width, props.optionsShown === true, props.tag ? TAG_W : 0) - textX;
@@ -193,7 +194,7 @@ export function ChannelList(props: {
       onLongOk={() => props.onOptions()} onMenu={() => props.onOptions()}>
       <For each={indices()}>{(i) => (
         <ChannelRowView y={(i - props.top) * ROW_H} width={props.width} row={props.row(i)}
-          lit={i === props.focus && focused()} isFocus={i === props.focus} now={props.now}
+          lit={i === props.focus && focused()} now={props.now}
           playingId={props.playingId} hover={hovered(i)} optionsShown={dotsRow() === i} tag={props.tag?.(i)} />
       )}</For>
       <Show when={dotsRow() !== undefined}>

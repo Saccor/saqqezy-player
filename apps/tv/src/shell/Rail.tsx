@@ -99,7 +99,8 @@ export function Rail(props: {
   const pad = (RAIL_ROW_H - RAIL_ICON) / 2;
   const width = () => (open() ? RAIL_OPEN_W : LAYOUT.railW);
   const lit = (id: RailId) => focused() && cursor() === id;
-  const tint = (id: RailId) => (lit(id) ? COLORS.onFocus : id === props.active || open() ? COLORS.text : COLORS.subtle);
+  const hovered = (id: RailId) => pointerMode() && hover() === id;
+  const tint = (id: RailId) => (lit(id) || hovered(id) ? COLORS.onFocus : id === props.active || open() ? COLORS.text : COLORS.subtle);
   /** The labels share one layer, so they fade in as one animation once it is rendered. */
   const fadeIn = (el: ElementNode) => {
     el.alpha = MOTION.startAlpha;
@@ -124,9 +125,9 @@ export function Rail(props: {
       <Show when={open()}>
         <Show when={pointerMode()}>
           <View x={RAIL_CLOSE.x} y={RAIL_CLOSE.y} width={RAIL_CLOSE.size} height={RAIL_CLOSE.size} borderRadius={RAIL_CLOSE.size / 2} zIndex={1}
-            color={hover() === 'close' ? COLORS.hover : COLORS.background}>
+            color={hover() === 'close' ? COLORS.focus : COLORS.background}>
             <View x={(RAIL_CLOSE.size - 28) / 2} y={(RAIL_CLOSE.size - 28) / 2} width={28} height={28} zIndex={2} src={iconTexture('close')}
-              color={hover() === 'close' ? COLORS.text : COLORS.subtle} />
+              color={hover() === 'close' ? COLORS.onFocus : COLORS.subtle} />
           </View>
         </Show>
       </Show>
@@ -141,7 +142,7 @@ export function Rail(props: {
               <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.focus} />
             </Show>
             <Show when={!lit(id) && pointerMode() && hover() === id}>
-              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.hover} />
+              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.focus} />
             </Show>
             <Show when={current() && !lit(id)}>
               <View x={20} y={(RAIL_ICON - 28) / 2} width={4} height={28} borderRadius={2} zIndex={1} color={COLORS.text} />

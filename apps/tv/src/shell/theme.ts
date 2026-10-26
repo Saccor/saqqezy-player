@@ -35,10 +35,6 @@ export const COLORS = {
   error: 0xff8a80ff,
   /** Fully transparent, for fills that are only drawn while focused. */
   transparent: 0x00000000,
-  /** @deprecated Task 12 removes it: pointer hover is drawn as focus. */
-  hover: 0x232b3cff,
-  /** @deprecated Task 12 removes it: selected-but-not-focused is a ✓ mark. */
-  selected: 0x3568d0ff,
 } as const;
 
 /** Calm, dark title-card colours (white text stays readable on each). */

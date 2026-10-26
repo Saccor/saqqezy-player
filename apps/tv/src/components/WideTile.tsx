@@ -101,7 +101,7 @@ function CompactBody(props: { image: string | undefined; context: string; main: 
           fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{props.main}</Text>
       }>
         <Text x={tx()} y={C_LINE1_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}
-          fontSize={TYPE.meta} color={props.live ? COLORS.accent : COLORS.muted}>{props.context}</Text>
+          fontSize={TYPE.meta} color={props.live ? COLORS.text : COLORS.muted}>{props.context}</Text>
         <Show when={props.sides} keyed fallback={line(C_LINE2_Y, props.main, true, 2)}>
           {(s) => <>{line(C_LINE2_Y, s[0], true)}{line(C_LINE3_Y, s[1], true)}</>}
         </Show>

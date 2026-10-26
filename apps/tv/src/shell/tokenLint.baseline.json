@@ -5,7 +5,6 @@
   },
   "components/Button.tsx": {
     "radius": 1,
-    "alpha": 1,
     "space": 1
   },
   "components/ChannelList.tsx": {
@@ -31,10 +30,6 @@
   },
   "components/EventChannels.tsx": {
     "space": 4
-  },
-  "components/FocusRing.tsx": {
-    "radius": 1,
-    "space": 2
   },
   "components/InfoBanner.tsx": {
     "radius": 2,
@@ -108,7 +103,6 @@
     "string": 7
   },
   "screens/AddSource.tsx": {
-    "border": 1,
     "space": 16,
     "string": 34
   },
@@ -139,7 +133,7 @@
     "string": 6
   },
   "screens/Settings.tsx": {
-    "space": 4,
+    "space": 3,
     "string": 1
   },
   "screens/Start.tsx": {
@@ -200,8 +194,7 @@
     "string": 2
   },
   "screens/multiview/Multiview.tsx": {
-    "radius": 6,
-    "border": 2,
+    "radius": 4,
     "alpha": 1,
     "space": 11,
     "string": 1

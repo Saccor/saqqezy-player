@@ -199,6 +199,8 @@ export function EpgGrid(props: {
           const ch = () => props.channel(i);
           const isRow = () => i === props.focusRow;
           const chLit = () => isRow() && focused() && props.area === 'channels';
+          // Hover is drawn as focus (one hover style); the focused row's channel cell while focus is elsewhere is only a cursor.
+          const chOn = () => chLit() || hoverChannel(i);
           // A combined channel's badge ("4K", or "×3") at the cell's right end; the name takes what is left.
           const badge = () => cellBadge(ch()?.quality, ch()?.sourceCount);
           const badgeW = () => (badge() === '' ? 0 : badgeWidth(badge()));
@@ -212,17 +214,17 @@ export function EpgGrid(props: {
           return (
             <View y={(i - props.top) * EPG_ROW_H} width={EPG_GRID_W} height={CELL_H}>
               <View width={CHANNEL_W - BLOCK_GAP} height={CELL_H} borderRadius={CELL_R}
-                color={chLit() ? COLORS.focus : isRow() ? COLORS.surfaceRaised : hoverChannel(i) ? COLORS.hover : COLORS.surface}>
+                color={chOn() ? COLORS.focus : COLORS.transparent}>
                 <Text x={8} y={TEXT_Y} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="right" maxLines={1}
-                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
+                  fontSize={TYPE.meta} color={chOn() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
                 <Logo url={ch()?.logo} name={ch()?.name} />
                 <Text x={NAME_X} y={TEXT_Y} width={nameW()} maxWidth={nameW()} contain="width" maxLines={1}
-                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocus : COLORS.text}>
+                  fontSize={TYPE.meta} color={chOn() ? COLORS.onFocus : COLORS.text}>
                   {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
                 <Show when={badgeW() > 0}>
-                  <Badge x={NAME_X + NAME_W - badgeW()} y={BADGE_Y} text={badge()} lit={chLit()} />
+                  <Badge x={NAME_X + NAME_W - badgeW()} y={BADGE_Y} text={badge()} lit={chOn()} />
                 </Show>
               </View>
               <View x={TL_X} width={TIMELINE_W} height={CELL_H}>

@@ -141,9 +141,9 @@ export function Keyboard(props: {
           const isShift = cell.def.kind === 'shift';
           return (
             <View x={L().pad + cell.x * L().unit} y={L().keysY + r() * L().rowStep} width={w} height={L().keyH} borderRadius={8}
-              color={focused() ? COLORS.focus : isShift && shift() ? COLORS.subtle : hovered() ? COLORS.hover : KEY_FILL}>
+              color={focused() || hovered() ? COLORS.focus : isShift && shift() ? COLORS.subtle : KEY_FILL}>
               <Text y={(L().keyH - TYPE.body) / 2 - 3} width={w} maxWidth={w} contain="width" textAlign="center"
-                fontSize={TYPE.body} color={focused() || (isShift && shift()) ? COLORS.onFocus : COLORS.text}>{keyLabel(cell.def, shift())}</Text>
+                fontSize={TYPE.body} color={focused() || hovered() || (isShift && shift()) ? COLORS.onFocus : COLORS.text}>{keyLabel(cell.def, shift())}</Text>
             </View>
           );
         }}</For>

@@ -2,6 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { onUnmappedKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
+import { controlFill } from '../shell/focusStyle.ts';
 import { COLORS, LAYOUT, SPACE, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { fractionAt } from '../vod/timelineLogic.ts';
@@ -69,16 +70,16 @@ export function VolumeControl(props: {
 
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={props.height}
-      color={lit() ? COLORS.hover : props.fill ?? COLORS.panel} borderRadius={props.height / 2}>
+      color={controlFill(lit(), props.fill ?? COLORS.panel)} borderRadius={props.height / 2}>
       <View x={iconX()} y={(props.height - icon()) / 2} width={icon()} height={icon()} src={iconTexture(silent() ? 'mute' : 'volume')}
-        color={lit() ? COLORS.text : COLORS.muted} />
+        color={lit() ? COLORS.onFocus : COLORS.muted} />
       <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.track} />
       <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
-        color={silent() ? COLORS.muted : COLORS.accent} />
+        color={silent() ? COLORS.muted : lit() ? COLORS.onFocus : COLORS.text} />
       <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
-        color={COLORS.text} />
+        color={lit() ? COLORS.onFocus : COLORS.text} />
       <Text x={props.width - PCT_W - 16} y={(props.height - TYPE.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
-        textAlign="right" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
+        textAlign="right" maxLines={1} fontSize={TYPE.body} color={lit() ? COLORS.onFocus : COLORS.text}>{`${volumePercent(volume())}%`}</Text>
     </View>
   );
 }

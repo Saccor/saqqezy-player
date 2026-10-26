@@ -2,6 +2,7 @@ import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { maskSecret } from '../screens/addSourceLogic.ts';
+import { controlFill, isLit } from '../shell/focusStyle.ts';
 import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 import { visibleTail } from './keyboardLogic.ts';
 
@@ -58,7 +59,8 @@ export function TextField(props: {
     ? (props.placeholder ?? '—')
     : fieldDisplay(props.value, { secret: props.secret, revealed: props.revealed, editing: props.editing, max: max() }));
   const active = () => focused() || props.editing === true;
-  const fill = () => (active() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.surface);
+  const lit = () => isLit(active(), hovered(), pointerMode());
+  const fill = () => controlFill(lit(), COLORS.surface);
 
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={FIELD_H}
@@ -67,13 +69,13 @@ export function TextField(props: {
       onEnter={() => { props.onEnter(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}
       onYellow={() => props.onYellow?.() ?? false}>
-      <Text x={24} y={14} fontSize={TYPE.meta} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{props.label}</Text>
+      <Text x={24} y={14} fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{props.label}</Text>
       <Text x={24} y={50} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={TYPE.body}
-        color={(empty() && !props.editing) || props.dimmed ? (active() ? COLORS.onFocusMuted : COLORS.muted) : active() ? COLORS.onFocus : COLORS.text}>{text()}</Text>
+        color={(empty() && !props.editing) || props.dimmed ? (lit() ? COLORS.onFocusMuted : COLORS.muted) : lit() ? COLORS.onFocus : COLORS.text}>{text()}</Text>
       {(props.hint && focused()) || props.note
         ? <Text x={props.width - 324} y={14} width={300} maxWidth={300} contain="width" textAlign="right"
-          fontSize={TYPE.meta} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{props.hint && focused() ? props.hint : props.note ?? ''}</Text>
+          fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{props.hint && focused() ? props.hint : props.note ?? ''}</Text>
         : null}
     </View>
   );

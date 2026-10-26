@@ -127,7 +127,9 @@ export function SettingsList(props: {
         const isSel = () => i === sel();
         const active = () => isSel() && focused();
         const hovered = () => pointerMode() && hover() === i;
-        const stepper = () => it()?.adjustable === true && (active() || hovered());
+        // Hover is drawn as focus. The remembered cursor while focus is elsewhere (isSel) draws nothing.
+        const lit = () => active() || hovered();
+        const stepper = () => it()?.adjustable === true && lit();
         const valueY = (DRAWN_H - TYPE.body) / 2 - 4;
         // Rows are reused across item changes (keyed by index), so the heading style is reactive too.
         const heading = () => it()?.heading === true;
@@ -136,23 +138,23 @@ export function SettingsList(props: {
         return (
           <View x={0} y={(i - top()) * SETTING_ROW_H} width={props.width} height={DRAWN_H}
             borderRadius={RADIUS.card}
-            color={active() ? COLORS.focus : isSel() ? COLORS.surface : hovered() ? COLORS.hover : COLORS.transparent}>
+            color={lit() ? COLORS.focus : COLORS.transparent}>
             <Text x={28} y={heading() ? DRAWN_H - TYPE.meta - 10 : it()?.help ? LABEL_Y : valueY}
               width={labelW()} maxWidth={labelW()} contain="width" maxLines={1}
               fontSize={heading() ? TYPE.meta : TYPE.body} fontStyle={heading() ? STRONG.fontStyle : 'normal'}
-              color={heading() ? COLORS.muted : dim() ? (active() ? COLORS.onFocusMuted : COLORS.muted) : active() ? COLORS.onFocus : COLORS.text}>{it()?.label ?? ''}</Text>
+              color={heading() ? COLORS.muted : dim() ? (lit() ? COLORS.onFocusMuted : COLORS.muted) : lit() ? COLORS.onFocus : COLORS.text}>{it()?.label ?? ''}</Text>
             <Show when={!heading() && it()?.help}>
               <Text x={28} y={HELP_Y} width={props.width - VALUE_W - 56} maxWidth={props.width - VALUE_W - 56} contain="width"
-                maxLines={1} fontSize={TYPE.meta} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{it()?.help ?? ''}</Text>
+                maxLines={1} fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{it()?.help ?? ''}</Text>
             </Show>
             {/* Focused (or, in pointer mode, hovered) adjustable row: a stepper (‹ value ›); otherwise the value right-aligned. */}
             <Show when={stepper()}>
-              <Text x={props.width - VALUE_W - 28} y={valueY} fontSize={TYPE.body} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{'‹'}</Text>
-              <Text x={props.width - 28 - 14} y={valueY} fontSize={TYPE.body} color={active() ? COLORS.onFocusMuted : COLORS.muted}>{'›'}</Text>
+              <Text x={props.width - VALUE_W - 28} y={valueY} fontSize={TYPE.body} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{'‹'}</Text>
+              <Text x={props.width - 28 - 14} y={valueY} fontSize={TYPE.body} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{'›'}</Text>
             </Show>
             <Text x={props.width - VALUE_W - 28 + (stepper() ? 28 : 0)} y={valueY} width={VALUE_W - (stepper() ? 56 : 0)}
               maxWidth={VALUE_W - (stepper() ? 56 : 0)} contain="width" textAlign={stepper() ? 'center' : 'right'}
-              maxLines={1} fontSize={TYPE.body} color={active() && !dim() ? COLORS.onFocus : active() ? COLORS.onFocusMuted : COLORS.muted}>{it()?.value ?? ''}</Text>
+              maxLines={1} fontSize={TYPE.body} color={lit() && !dim() ? COLORS.onFocus : lit() ? COLORS.onFocusMuted : COLORS.muted}>{it()?.value ?? ''}</Text>
           </View>
         );
       }}</For>

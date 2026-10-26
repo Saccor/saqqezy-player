@@ -13,6 +13,7 @@ import {
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../../shell/theme.ts';
+import { FocusRing } from '../../components/FocusRing.tsx';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
 import { cooldownForStream, initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
@@ -568,10 +569,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const scrimH = () => (large() ? 128 : 72);
     return (
       <View>
-        <Show when={focused() && chrome()}>
-          <View x={t().ring.x} y={t().ring.y} width={t().ring.w} height={t().ring.h} borderRadius={18}
-            border={{ width: 4, color: COLORS.focus }} />
-        </Show>
+        <View x={r().x} y={r().y}>
+          <FocusRing w={r().w} h={r().h} radius={RADIUS.card} lit={focused() && chrome()} clear />
+        </View>
         <Show when={fail()}>{(f) => (
           <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={RADIUS.card}>
             <Text x={pad()} y={r().h / 2 - 60} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
@@ -635,7 +635,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
         </View>
       )}</Show>
       <Show when={state()?.focus === 'empty' && full() === undefined && chrome() ? geometry()?.empty : undefined}>{(e) => (
-        <View x={e().ring.x} y={e().ring.y} width={e().ring.w} height={e().ring.h} borderRadius={18} border={{ width: 4, color: COLORS.focus }} />
+        <View x={e().rect.x} y={e().rect.y}>
+          <FocusRing w={e().rect.w} h={e().rect.h} radius={RADIUS.card} lit clear />
+        </View>
       )}</Show>
       <Show when={menu() !== undefined}>
         <Sheet ref={(el) => { menuNode = el; }} title={nameOf(menu() ?? 0) || MULTIVIEW_COPY.entry} rows={menuEntries().map(fromMenuItem)}
