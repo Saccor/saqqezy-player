@@ -1,6 +1,7 @@
 import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
 import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
+import { FAILURE_COPY } from '../copy/failure.ts';
 import { MOTION } from '../shell/theme.ts';
 import { oneSpace } from './tracks.ts';
 
@@ -160,8 +161,7 @@ export function dvColoursWarning(hint: VideoRange | undefined, info: StreamInfo,
 }
 
 export function noSoundText(audioTrackCount: number): string {
-  const base = "No sound: this device can't play this video's audio format.";
-  return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;
+  return audioTrackCount > 1 ? FAILURE_COPY.noSoundTryTrack : FAILURE_COPY.noSound;
 }
 
 /**

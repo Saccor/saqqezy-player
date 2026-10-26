@@ -193,7 +193,7 @@ export function MultiviewPicker(props: {
           fontSize={TYPE.body} color={COLORS.muted}>{MULTIVIEW_COPY.noChannelsMatch}</Text>
       </Show>
       <Show when={kbOpen()}>
-        <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={MULTIVIEW_COPY.searchChannels} hint={MULTIVIEW_COPY.searchHint}
+        <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={MULTIVIEW_COPY.searchChannels}
           value={query()} onChange={onQuery} onDone={toResults} onEdgeRight={toResults} />
       </Show>
       <ChannelList ref={(el) => { list = el; props.ref(el); }} x={x + PAD} y={LIST_Y} width={ROW_W} height={LIST_H}

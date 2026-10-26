@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import * as COPY from './copy.ts';
+import { COPY_EXCEPTIONS, collectCopy, copyViolations } from './copy/rules.ts';
 import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
@@ -85,22 +87,32 @@ describe('Your countries copy', () => {
 
   it('matches the spec word for word', () => {
     expect(COUNTRIES_COPY.page).toBe('Your countries');
-    expect(COUNTRIES_COPY.help).toBe('Pick the countries you watch. Their folders go to the top, right under Favourites. Nothing is removed.');
     expect(COUNTRIES_COPY.cap).toBe('You can pick up to 10 countries.');
-    expect(COUNTRIES_COPY.stale).toBe('None of your countries are in this playlist right now. Showing all folders.');
+    expect(COUNTRIES_COPY.stale).toBe('None of your countries are in this source. Showing all folders.');
     expect(COUNTRIES_COPY.combineOff).toBe('Movie and series categories now stay per country.');
-    expect(COUNTRIES_COPY.combineOn).toBe('Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.');
-    expect(COUNTRIES_COPY.none).toBe("Your playlist doesn't sort its folders by country.");
+    expect(COUNTRIES_COPY.combineOn).toBe('Not sorted by country while categories are combined.');
+    expect(COUNTRIES_COPY.none).toBe("This source doesn't sort its folders by country.");
     expect(COUNTRIES_COPY.loadError).toBe("Couldn't load your countries · Try again");
     expect(COUNTRIES_COPY.otherCountries(40)).toBe('Other countries (40)');
     expect(COUNTRIES_COPY.countries(41)).toBe('Countries (41)');
     expect(COUNTRIES_COPY.showing(2)).toBe('Showing 2 countries · Change');
     expect(COUNTRIES_COPY.showing(1)).toBe('Showing 1 country · Change');
-    expect(COUNTRIES_COPY.firstSub(41)).toBe('We found folders for 41 countries in your playlist. Pick one or more.');
+    expect(COUNTRIES_COPY.firstSub(41)).toBe('Folders for 41 countries found. Pick one or more.');
     expect(COUNTRIES_COPY.firstFoot).toBe('You can change this later in Settings › Your countries.');
     expect(COUNTRIES_COPY.languageLine('Swedish')).toBe('Audio and subtitles: Swedish first');
     expect(COUNTRIES_COPY.folders(1)).toBe('1 folder');
     expect(COUNTRIES_COPY.folders(31)).toBe('31 folders');
     expect(COUNTRIES_COPY.choose).toBe('Choose your countries…');
+  });
+});
+
+describe('every string in copy.ts follows the copy rules', () => {
+  it('has no violations outside the named exceptions', () => {
+    const entries = Object.entries(COPY).flatMap(([name, value]) => collectCopy(value, name));
+    expect(copyViolations(entries, COPY_EXCEPTIONS)).toEqual([]);
+  });
+  it('every named exception still points at a string (no stale exceptions)', () => {
+    const paths = new Set(Object.entries(COPY).flatMap(([name, value]) => collectCopy(value, name)).map((e) => e.path));
+    for (const p of Object.keys(COPY_EXCEPTIONS)) expect(paths.has(p), p).toBe(true);
   });
 });

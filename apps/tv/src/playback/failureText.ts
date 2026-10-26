@@ -1,4 +1,5 @@
 import type { SupervisorStatus } from '@iptv/player';
+import { FAILURE_COPY } from '../copy/failure.ts';
 
 type Failed = Extract<SupervisorStatus, { kind: 'failed' }>;
 
@@ -9,69 +10,29 @@ export interface FailureFacts {
   maxConnections?: number;
 }
 
-/**
- * Which screen asks: the Player (`stream`), Home's and the Guide's preview (`channel`), VodPlay (`video`) or a multiview
- * window (`window`). Only the unavailable, unsupported and gone texts differ, plus a window's account refusal (another
- * stream was refused, so the other windows play on); each keeps that screen's existing wording.
- */
-export type FailureSubject = 'stream' | 'channel' | 'video' | 'window';
-
-const UNAVAILABLE: Record<FailureSubject, string> = {
-  stream: "This channel isn't available right now.",
-  channel: "This channel isn't available right now.",
-  video: "This video can't play right now.",
-  window: "This channel can't play right now.",
-};
-const UNSUPPORTED: Record<FailureSubject, string> = {
-  stream: "This stream's format isn't supported on this device.",
-  channel: "This channel's format isn't supported on this device.",
-  video: "This video format can't play on this device.",
-  window: "This device can't play this channel's format.",
-};
-const GONE: Record<FailureSubject, string> = {
-  stream: "This channel isn't on your source anymore.",
-  channel: "This channel isn't on your source anymore.",
-  video: "This video isn't on your source anymore.",
-  window: "This channel isn't on your source anymore.",
-};
-
-/** Statuses after which another device on the account is a likely cause (spec §2.8: 401/403, or none known). */
+/** Statuses after which another device on the account is a likely cause (spec 2026-10-16 §2.8: 401/403, or none known). */
 const ACCOUNT_STATUSES: ReadonlySet<number> = new Set([401, 403]);
 
-/** Statuses a source sends when it caps how many or how often (spec §2.8 "Rate limited"). */
-const RATE_LIMIT_STATUSES: ReadonlySet<number> = new Set([429, 458, 509]);
-
-/** `text` (ending with a full stop) with " (N)" before it; unchanged when no status is known. */
+/** `text` with " (N)" before its first full stop; unchanged when no status is known. */
 function withStatus(text: string, status: number | undefined): string {
-  return status === undefined ? text : `${text.slice(0, -1)} (${status}).`;
+  return status === undefined ? text : text.replace('.', ` (${status}).`);
 }
 
 /**
- * The text for a failed play (spec 2026-10-16-source-retry §2.8): names the cause and the HTTP status when known.
- * `compact` gives the account-limit refusal a shorter form for a small box. One function for the live Player, the Home and Guide preview, and VodPlay. Neutral: never names a provider.
+ * The text for a failed play: one of five messages (spec 2026-10-26 §1.4) for every screen (Player, previews, VodPlay,
+ * multiview windows), with the HTTP status when known and, for an account refusal, the connection limit.
  */
-export function failureText(f: FailureFacts, subject: FailureSubject = 'channel', compact = false): string {
+export function failureText(f: FailureFacts): string {
   switch (f.reason) {
     case 'refused': {
-      if (f.httpStatus !== undefined && RATE_LIMIT_STATUSES.has(f.httpStatus)) {
-        return `Your source is limiting connections (${f.httpStatus}).`;
-      }
+      const base = withStatus(FAILURE_COPY.refused, f.httpStatus);
       const n = f.maxConnections;
-      if (subject === 'window') {
-        // Another stream was refused (owner decision 2026-10-20 §12.2): the source's reported limit when known.
-        const refused = withStatus('Your source refused another stream.', f.httpStatus);
-        if (n === undefined || !Number.isInteger(n) || n < 1) return refused;
-        return `${refused} It reports ${n} connection${n === 1 ? '' : 's'}.`;
-      }
-      const base = withStatus('Your source refused this stream.', f.httpStatus);
-      if (f.httpStatus !== undefined && !ACCOUNT_STATUSES.has(f.httpStatus)) return base;
-      if (n === undefined || !Number.isInteger(n) || n < 1) return base;
-      // `compact` (Live TV's small window) keeps the cause and the limit, and drops the rest.
-      if (compact) return `Source allows ${n} connection${n === 1 ? '' : 's'}; another device may be using it.`;
-      return `${base} It allows ${n} connection${n === 1 ? '' : 's'}: another device may be using this account.`;
+      const accountLike = f.httpStatus === undefined || ACCOUNT_STATUSES.has(f.httpStatus);
+      if (!accountLike || n === undefined || !Number.isInteger(n) || n < 1) return base;
+      return `${base} ${FAILURE_COPY.allows(n)}`;
     }
-    case 'gone': return withStatus(GONE[subject], f.httpStatus);
-    case 'unsupported': return UNSUPPORTED[subject];
-    default: return withStatus(UNAVAILABLE[subject], f.httpStatus);
+    case 'gone': return withStatus(FAILURE_COPY.tryAnother, f.httpStatus);
+    case 'unsupported': return FAILURE_COPY.noPicture;
+    default: return withStatus(FAILURE_COPY.unreachable, f.httpStatus);
   }
 }

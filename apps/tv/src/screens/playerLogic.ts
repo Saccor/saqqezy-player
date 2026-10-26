@@ -14,7 +14,7 @@ export function playerStatusText(
   if (!s) return undefined;
   if (s.kind === 'reconnecting') return { kind: 'toast', text: 'Reconnecting…' };
   if (s.kind === 'failed') {
-    return { kind: 'centre', text: failureText({ reason: s.reason, httpStatus: s.httpStatus, maxConnections }, 'stream') };
+    return { kind: 'centre', text: failureText({ reason: s.reason, httpStatus: s.httpStatus, maxConnections }) };
   }
   return undefined;
 }

@@ -57,7 +57,7 @@ export function tileFailure(f: TileFailureFacts): TileFailureView {
     const facts: FailureFacts = { reason: f.reason };
     if (f.httpStatus !== undefined) facts.httpStatus = f.httpStatus;
     if (f.maxConnections !== undefined) facts.maxConnections = f.maxConnections;
-    text = failureText(facts, 'window');
+    text = failureText(facts);
   }
   return { text, retry: { enabled: inMs === 0, inMs }, close: true };
 }

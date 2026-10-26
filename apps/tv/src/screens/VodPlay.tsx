@@ -72,7 +72,7 @@ const SYNC_ASK_EVERY_MS = 30_000;
 /** A file picker exists on computers only (TV engines have no file dialog). */
 const CAN_LOAD_FILE = !isTvPlatform(platformId);
 const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
-const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
+const CANT_PLAY_NOW = failureText({ reason: 'unavailable' });
 
 /** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
 const BAND_H = 620;
@@ -1473,7 +1473,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const text = notAvail() ? CATCHUP_COPY.notAvailable
       : endCard() ? `End of ${title}`
         : f
-          ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
+          ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() })
           : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
     return { text, box: MESSAGE_BOXES.vodCard };
   });

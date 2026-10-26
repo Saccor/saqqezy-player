@@ -84,8 +84,6 @@ export function CountriesPage(props: PageProps) {
     <View ref={(el) => { wrap = el; props.register(el); }} x={props.x} y={props.y} width={props.width} height={props.height}
       forwardFocus={forward} onLeft={() => props.onLeftEdge()}
       onBack={() => { model.flush(); return false; }}>
-      <Text x={PAD} y={0} width={props.width - PAD * 2} maxWidth={props.width - PAD * 2} contain="width" maxLines={2}
-        fontSize={TYPE.meta} color={COLORS.muted}>{COUNTRIES_COPY.help}</Text>
       <Text x={PAD} y={NOTICE_Y} width={props.width - PAD * 2} maxWidth={props.width - PAD * 2} contain="width" maxLines={2}
         fontSize={TYPE.meta} color={COLORS.text}>{model.notices().join(' ')}</Text>
       <Show when={grid()}>

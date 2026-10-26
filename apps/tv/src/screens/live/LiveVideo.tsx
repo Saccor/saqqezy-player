@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { CooldownNotice } from '../../components/CooldownNotice.tsx';
 import { MESSAGE_BOXES, messageTop } from '../../components/messageFit.ts';
-import { pointerMode, usePointerTarget } from '../../input/pointer.ts';
+import { usePointerTarget } from '../../input/pointer.ts';
 import { PAUSED_NOTE } from '../../playback/devResume.ts';
 import { playback } from '../../playback/playback.ts';
 import { COLORS, LAYOUT, RADIUS, TYPE } from '../../shell/theme.ts';
@@ -27,9 +27,9 @@ export function LiveVideo(props: { now: number; pausedNote: boolean; onRetry: ()
   usePointerTarget({ node: () => video, enabled: () => props.onVideoClick !== undefined, onClick: () => props.onVideoClick?.() });
   const playing = () => playback.current() !== undefined;
   const message = () => previewMessage(playing() ? playback.status() : undefined, playing(),
-    props.pausedNote ? PAUSED_NOTE : undefined, activeMaxConnections(), true);
+    props.pausedNote ? PAUSED_NOTE : undefined, activeMaxConnections());
   const failed = () => playing() && playback.status()?.kind === 'failed';
-  const notice = () => cooldownCopy(cooldown(), freshNow(props.now), pointerMode());
+  const notice = () => cooldownCopy(cooldown(), freshNow(props.now));
   return (
     <View width={LAYOUT.width} height={LAYOUT.height}>
       <View width={LAYOUT.width} height={R.y} color={COLORS.background} />

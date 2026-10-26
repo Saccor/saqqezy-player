@@ -542,7 +542,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     player.setAspect('auto');
   });
 
-  const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now()), pointerMode()));
+  const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now())));
   // The cooldown message replaces the stream status: nothing is open while it shows.
   const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
   const showClock = () => settings()?.showClock === true;

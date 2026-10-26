@@ -1,88 +1,33 @@
 import { describe, expect, it } from 'vitest';
+import { FAILURE_COPY } from '../copy/failure.ts';
 import { failureText } from './failureText.ts';
 
-describe('failureText (spec 2026-10-16-source-retry §2.8)', () => {
-  it('refused with a known connection limit names the limit', () => {
-    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 1 }))
-      .toBe('Your source refused this stream (403). It allows 1 connection: another device may be using this account.');
-    expect(failureText({ reason: 'refused', httpStatus: 401, maxConnections: 3 }))
-      .toBe('Your source refused this stream (401). It allows 3 connections: another device may be using this account.');
+describe('failureText: five messages (spec 2026-10-26 §1.4)', () => {
+  it('unavailable: couldn\'t reach the source, with the status when known', () => {
+    expect(failureText({ reason: 'unavailable' })).toBe("Couldn't reach the source.");
+    expect(failureText({ reason: 'unavailable', httpStatus: 503 })).toBe("Couldn't reach the source (503).");
   });
-
-  it('refused without a known limit', () => {
-    expect(failureText({ reason: 'refused', httpStatus: 403 })).toBe('Your source refused this stream (403).');
-    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 0 })).toBe('Your source refused this stream (403).');
+  it('refused: the source refused; a known account limit adds one short sentence (401, 403 or no status only)', () => {
+    expect(failureText({ reason: 'refused' })).toBe('The source refused this stream.');
+    expect(failureText({ reason: 'refused', httpStatus: 429 })).toBe('The source refused this stream (429).');
+    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 1 })).toBe('The source refused this stream (403). It allows 1 connection.');
+    expect(failureText({ reason: 'refused', maxConnections: 3 })).toBe('The source refused this stream. It allows 3 connections.');
+    expect(failureText({ reason: 'refused', httpStatus: 503, maxConnections: 2 })).toBe('The source refused this stream (503).');
+    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 0 })).toBe('The source refused this stream (403).');
   });
-
-  it('refused without a status (a TV-native player) leaves the status out', () => {
-    expect(failureText({ reason: 'refused' })).toBe('Your source refused this stream.');
-    expect(failureText({ reason: 'refused', maxConnections: 2 }))
-      .toBe('Your source refused this stream. It allows 2 connections: another device may be using this account.');
+  it('unsupported: no picture', () => {
+    expect(failureText({ reason: 'unsupported' })).toBe(FAILURE_COPY.noPicture);
   });
-
-  it('names the limit only for 401, 403 or no status (another device on the account); never for 503', () => {
-    expect(failureText({ reason: 'refused', httpStatus: 503, maxConnections: 2 })).toBe('Your source refused this stream (503).');
-    expect(failureText({ reason: 'refused', httpStatus: 500, maxConnections: 2 })).toBe('Your source refused this stream (500).');
-    expect(failureText({ reason: 'refused', httpStatus: 401, maxConnections: 2 })).toContain('another device');
+  it('gone: try another source', () => {
+    expect(failureText({ reason: 'gone' })).toBe('Gone from the source. Try another source.');
+    expect(failureText({ reason: 'gone', httpStatus: 404 })).toBe('Gone from the source (404). Try another source.');
   });
-
-  it('rate limits say the source is limiting connections', () => {
-    for (const s of [429, 458, 509]) {
-      expect(failureText({ reason: 'refused', httpStatus: s, maxConnections: 2 })).toBe(`Your source is limiting connections (${s}).`);
-    }
-  });
-
-  it('gone says the item is no longer on the source', () => {
-    expect(failureText({ reason: 'gone', httpStatus: 404 })).toBe("This channel isn't on your source anymore (404).");
-    expect(failureText({ reason: 'gone', httpStatus: 410 })).toBe("This channel isn't on your source anymore (410).");
-    expect(failureText({ reason: 'gone' })).toBe("This channel isn't on your source anymore.");
-    expect(failureText({ reason: 'gone', httpStatus: 404 }, 'video')).toBe("This video isn't on your source anymore (404).");
-  });
-
-  it("unavailable keeps today's text, plus the status when known", () => {
-    expect(failureText({ reason: 'unavailable' })).toBe("This channel isn't available right now.");
-    expect(failureText({ reason: 'unavailable', httpStatus: 500 })).toBe("This channel isn't available right now (500).");
-    expect(failureText({ reason: 'unavailable', httpStatus: 503 }, 'stream')).toBe("This channel isn't available right now (503).");
-    expect(failureText({ reason: 'unavailable' }, 'video')).toBe("This video can't play right now.");
-    expect(failureText({ reason: 'unavailable', httpStatus: 502 }, 'video')).toBe("This video can't play right now (502).");
-  });
-
-  it('unsupported keeps each screen\'s text', () => {
-    expect(failureText({ reason: 'unsupported' }, 'stream')).toBe("This stream's format isn't supported on this device.");
-    expect(failureText({ reason: 'unsupported' }, 'channel')).toBe("This channel's format isn't supported on this device.");
-    expect(failureText({ reason: 'unsupported' }, 'video')).toBe("This video format can't play on this device.");
-  });
-
-  it('the copy stays neutral', () => {
+  it('every message fits one line and stays neutral', () => {
     const all = [
-      failureText({ reason: 'refused', httpStatus: 403, maxConnections: 2 }),
-      failureText({ reason: 'refused', httpStatus: 429 }),
-      failureText({ reason: 'gone', httpStatus: 404 }),
-      failureText({ reason: 'unavailable', httpStatus: 500 }),
-    ].join(' ');
-    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel', true))
-      .toBe('Source allows 10 connections; another device may be using it.');
-    expect(failureText({ reason: 'refused', httpStatus: 401, maxConnections: 1 }, 'channel', true))
-      .toBe('Source allows 1 connection; another device may be using it.');
-    // Compact only changes the account-limit case.
-    expect(failureText({ reason: 'refused', httpStatus: 403 }, 'channel', true)).toBe(failureText({ reason: 'refused', httpStatus: 403 }));
-    expect(failureText({ reason: 'gone' }, 'channel', true)).toBe(failureText({ reason: 'gone' }));
-    expect(all).not.toMatch(/https?:|www\.|free|buy|subscribe/i);
-  });
-});
-
-describe('failureText: multiview window', () => {
-  it('a refusal says another stream was refused, with the reported limit when known', () => {
-    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 2 }, 'window')).toBe('Your source refused another stream (403). It reports 2 connections.');
-    expect(failureText({ reason: 'refused', httpStatus: 403, maxConnections: 1 }, 'window')).toBe('Your source refused another stream (403). It reports 1 connection.');
-    expect(failureText({ reason: 'refused', httpStatus: 403 }, 'window')).toBe('Your source refused another stream (403).');
-    expect(failureText({ reason: 'refused' }, 'window')).toBe('Your source refused another stream.');
-  });
-
-  it('rate limiting keeps the shared wording; the other causes have window wording', () => {
-    expect(failureText({ reason: 'refused', httpStatus: 429 }, 'window')).toBe('Your source is limiting connections (429).');
-    expect(failureText({ reason: 'unavailable', httpStatus: 500 }, 'window')).toBe("This channel can't play right now (500).");
-    expect(failureText({ reason: 'unsupported' }, 'window')).toBe("This device can't play this channel's format.");
-    expect(failureText({ reason: 'gone', httpStatus: 404 }, 'window')).toBe("This channel isn't on your source anymore (404).");
+      failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }), failureText({ reason: 'unavailable', httpStatus: 503 }),
+      failureText({ reason: 'gone', httpStatus: 410 }), failureText({ reason: 'unsupported' }), FAILURE_COPY.noSound, FAILURE_COPY.noSoundTryTrack,
+    ];
+    for (const s of all) expect(s.length, s).toBeLessThanOrEqual(70);
+    expect(all.join(' ')).not.toMatch(/https?:|www\.|free|buy|subscribe|provider/i);
   });
 });

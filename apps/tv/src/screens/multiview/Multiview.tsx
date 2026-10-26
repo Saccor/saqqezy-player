@@ -350,7 +350,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const i = menu();
     if (!s || i === undefined) return [];
     const out: ContextMenuItem<MenuAction>[] = [];
-    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retryNow });
+    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retry });
     else if (failure(i)?.retry.enabled) {
       // A plain Retry stays offered beside it: the app warns, it never blocks (decision 12.2).
       if (retryKind(i) === 'watchInstead') out.push({ action: 'watchInstead', label: MULTIVIEW_COPY.watchInstead });
@@ -578,7 +578,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
             <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
               textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
               {f().retryNow
-                ? `${f().hint} · OK: ${MULTIVIEW_COPY.retryNow} · ${MULTIVIEW_COPY.closeWindow}`
+                ? [f().hint, MULTIVIEW_COPY.retry].filter(Boolean).join(' · ')
                 : f().retry.enabled
                 ? `OK: ${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
                 : `OK: ${MULTIVIEW_COPY.closeWindow}`}
