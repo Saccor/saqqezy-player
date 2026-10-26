@@ -11,7 +11,7 @@ import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { isLit } from '../shell/focusStyle.ts';
+import { drawnFocus } from '../shell/focusStyle.ts';
 import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
@@ -78,7 +78,7 @@ function Menu(props: {
       onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => props.onLeft()}>
       <For each={SETTINGS_PAGES}>{(p, i) => {
         const isSel = () => i() === props.selected;
-        const lit = () => isLit(focused() && isSel(), pointerMode() && hover() === i(), pointerMode());
+        const lit = () => drawnFocus(focused() ? props.selected : undefined, hover(), pointerMode()) === i();
         return <SheetRowView y={i() * MENU_ROW_H} width={MENU_W} row={{ id: p.id, label: p.title, checked: isSel() && !focused() }} lit={lit()} />;
       }}</For>
     </View>

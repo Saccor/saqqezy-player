@@ -2,6 +2,11 @@ import { COLORS } from './theme.ts';
 
 /** One focus look per kind (UI rethink spec 2026-10-26 §1.2). Pure: no Solid, no Lightning. */
 
+/** In pointer mode the hovered item is drawn focused (on LG the pointer is focus), so only one item is lit; otherwise the key selection. */
+export function drawnFocus(sel: number | undefined, hover: number | undefined, pointer: boolean): number | undefined {
+  return pointer && hover !== undefined ? hover : sel;
+}
+
 /**
  * Hover merges into focus: a genuine pointer move onto a selectable row selects it, so the drawn row, OK, Up/Down and
  * the wheel all act on the same row. `rehover()` after a wheel step re-reports the same position, which is not a move.

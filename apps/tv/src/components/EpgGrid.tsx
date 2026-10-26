@@ -167,6 +167,8 @@ export function EpgGrid(props: {
       return true;
     },
   });
+  /** The pointer is over the guide: only the hovered cell is drawn lit (hover == focus, one lit at a time). */
+  const hoverActive = () => pointerMode() && hover() !== undefined;
   const hoverChannel = (i: number) => {
     const h = hover();
     return pointerMode() && h?.area === 'channels' && h.row === i;
@@ -200,7 +202,7 @@ export function EpgGrid(props: {
           const isRow = () => i === props.focusRow;
           const chLit = () => isRow() && focused() && props.area === 'channels';
           // Hover is drawn as focus (one hover style); the focused row's channel cell while focus is elsewhere is only a cursor.
-          const chOn = () => chLit() || hoverChannel(i);
+          const chOn = () => (hoverActive() ? hoverChannel(i) : chLit());
           // A combined channel's badge ("4K", or "×3") at the cell's right end; the name takes what is left.
           const badge = () => cellBadge(ch()?.quality, ch()?.sourceCount);
           const badgeW = () => (badge() === '' ? 0 : badgeWidth(badge()));
@@ -231,17 +233,14 @@ export function EpgGrid(props: {
                 <For each={visible()}>{(b) => {
                   const x = () => Math.max(0, timeToX(b.start, props.viewStart));
                   const w = () => Math.min(TIMELINE_W, timeToX(b.stop, props.viewStart)) - x() - BLOCK_GAP;
-                  const lit = () => isRow() && focused() && props.area === 'grid' && b.start === props.focusStart;
-                  const sel = () => isRow() && b.start === props.focusStart;
+                  const lit = () => (hoverActive() ? hoverBlock(i, b) : isRow() && focused() && props.area === 'grid' && b.start === props.focusStart);
                   const live = () => !b.filler && isOnAir(b, props.now);
                   const fill = () => (lit() ? COLORS.focus : live() ? COLORS.surfaceRaised : COLORS.surface);
-                  const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.muted }
-                    : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
                   const mark = () => (b.filler ? undefined : props.archiveMark?.(i, b));
                   const textX = () => (mark() === 'past' ? PAD_X + MARK + 8 : PAD_X);
                   const textW = () => Math.max(0, w() - textX() - PAD_X - (mark() === 'onAir' ? MARK + 8 : 0));
                   return (
-                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={CELL_R} border={ring()}>
+                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={CELL_R}>
                       <Show when={mark() && w() > 48 + MARK}>
                         <View x={mark() === 'past' ? PAD_X : w() - PAD_X - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
                           src={iconTexture('archive')} color={lit() ? COLORS.onFocus : COLORS.muted} />

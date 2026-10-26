@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { COLORS } from './theme.ts';
-import { SELECTED_MARK, controlFill, controlSubText, controlText, hoverInit, hoverMove, isLit, selectedInk } from './focusStyle.ts';
+import { SELECTED_MARK, controlFill, drawnFocus, controlSubText, controlText, hoverInit, hoverMove, isLit, selectedInk } from './focusStyle.ts';
 import { contrast } from './contrast.ts';
+
+describe('drawnFocus (one hover style, equal to focus; only one item lit)', () => {
+  it('draws the key selection, or the hovered item in pointer mode', () => {
+    expect(drawnFocus(2, undefined, false)).toBe(2);
+    expect(drawnFocus(2, 4, false)).toBe(2);
+    expect(drawnFocus(2, 4, true)).toBe(4);
+    expect(drawnFocus(2, undefined, true)).toBe(2);
+    expect(drawnFocus(undefined, 4, true)).toBe(4);
+    expect(drawnFocus(undefined, undefined, true)).toBeUndefined();
+  });
+});
 
 describe('hoverMove (hover merges into focus: a genuine pointer move onto a row selects it)', () => {
   const at = (x: number, y: number) => ({ x, y });
@@ -50,5 +61,6 @@ describe('controls: a focus fill with onFocus text, no scale (spec §1.2)', () =
     expect(selectedInk(true)).toBe(COLORS.onFocus);
     expect(contrast(COLORS.accent, COLORS.surface)).toBeGreaterThanOrEqual(3);
     expect(contrast(COLORS.accent, COLORS.background)).toBeGreaterThanOrEqual(3);
+    expect(contrast(COLORS.accent, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(3);
   });
 });
