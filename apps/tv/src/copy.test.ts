@@ -107,7 +107,7 @@ describe('Your countries copy', () => {
 
 describe('lazy screen copy', () => {
   it('says what failed and offers one action, in neutral words', () => {
-    expect(LAZY_COPY.failed).toBe("Couldn't open this screen");
+    expect(LAZY_COPY.failed).toBe("Couldn't open this screen.");
     expect(LAZY_COPY.retry).toBe('Try again');
   });
 });

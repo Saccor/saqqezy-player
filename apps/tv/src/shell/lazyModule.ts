@@ -49,6 +49,15 @@ export function tryAgain(reload: () => void = reloadApp): void {
 }
 
 /**
+ * When a lazy screen opens with nothing mounted yet (loading, or the load failed): its host takes focus at once. It is
+ * opened from inside another screen, and the focus manager would otherwise keep the destroyed screen's focus path, so
+ * keys would reach that screen and Try again could not be reached. A screen that is already loaded focuses itself.
+ */
+export function shouldFocusHostOnMount(mounted: unknown): boolean {
+  return mounted === undefined;
+}
+
+/**
  * After a lazy screen mounts (or its failure view appears): pass focus down again only while the empty host still
  * holds it. A screen that claimed focus on mount (Multiview opens its channel picker) keeps it.
  */
@@ -64,7 +73,7 @@ export const LAZY_SCREENS = ['settings', 'countries', 'multiview'] as const sati
 export type LazyScreenId = (typeof LAZY_SCREENS)[number];
 
 /**
- * Screens a cold start or a key on the first frame can show: never lazy (Watch and the guide live in `home`; Add
+ * Used only by tests, where it pins the rule: screens a cold start or a key on the first frame can show: never lazy (Watch and the guide live in `home`; Add
  * source is the first screen on a first run).
  */
 export const FIRST_FRAME_SCREENS: readonly ScreenId[] = ['home', 'player', 'start', 'vod', 'vodGrid', 'search', 'addSource'];

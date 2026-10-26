@@ -1,9 +1,9 @@
 import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
-import { createComponent, createSignal, onCleanup, type Component } from 'solid-js';
+import { createComponent, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { Button } from '../components/Button.tsx';
 import { LAZY_COPY } from '../copy.ts';
 import { COLORS, LAYOUT, TYPE } from './theme.ts';
-import { shouldRefocusHost, tryAgain, type LazyModule, type ScreenProps } from './lazyModule.ts';
+import { shouldFocusHostOnMount, shouldRefocusHost, tryAgain, type LazyModule, type ScreenProps } from './lazyModule.ts';
 
 /**
  * Renders a lazily loaded screen.
@@ -14,7 +14,7 @@ import { shouldRefocusHost, tryAgain, type LazyModule, type ScreenProps } from '
  * - A failed load shows "Couldn't open this screen" with Try again, which reloads the app (see `tryAgain`); Back works
  *   as on any screen.
  */
-export function LazyScreen<P extends ScreenProps>(props: { module: LazyModule<P>; props: P; reload?: () => void }) {
+export function LazyScreen<P extends ScreenProps>(props: { module: LazyModule<P>; props: P }) {
   let host: ElementNode | undefined;
   let alive = true;
   onCleanup(() => { alive = false; });
@@ -35,6 +35,8 @@ export function LazyScreen<P extends ScreenProps>(props: { module: LazyModule<P>
     });
   };
   if (!comp()) load();
+  // Loading or failed: take focus from the screen this was opened from (its nodes are gone, its focus path is not).
+  onMount(() => { if (shouldFocusHostOnMount(comp())) host?.setFocus(); });
   return (
     <View ref={host} width={LAYOUT.width} height={LAYOUT.height} forwardFocus={0}>
       <Show when={comp()} fallback={
@@ -42,7 +44,7 @@ export function LazyScreen<P extends ScreenProps>(props: { module: LazyModule<P>
           <View x={LAYOUT.safeX} y={LAYOUT.height / 2 - TYPE.title * 2} width={LAYOUT.width - 2 * LAYOUT.safeX} height={TYPE.title * 4} forwardFocus={1}>
             <Text width={LAYOUT.width - 2 * LAYOUT.safeX} maxWidth={LAYOUT.width - 2 * LAYOUT.safeX} contain="width" maxLines={1}
               fontSize={TYPE.title} color={COLORS.text}>{LAZY_COPY.failed}</Text>
-            <Button y={TYPE.title + LAYOUT.gap * 2} label={LAZY_COPY.retry} onPress={() => tryAgain(props.reload)} />
+            <Button y={TYPE.title + LAYOUT.gap * 2} label={LAZY_COPY.retry} onPress={() => tryAgain()} />
           </View>
         </Show>
       }>

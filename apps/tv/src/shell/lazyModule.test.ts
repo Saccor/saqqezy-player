@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, shouldRefocusHost, tryAgain } from './lazyModule.ts';
+import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, shouldFocusHostOnMount, shouldRefocusHost, tryAgain } from './lazyModule.ts';
 
 const Comp = () => null;
 
@@ -88,5 +88,15 @@ describe('focus after a lazy screen mounts', () => {
   it('does nothing once the screen is gone, or before the host exists', () => {
     expect(shouldRefocusHost(false, host, host)).toBe(false);
     expect(shouldRefocusHost(true, undefined, undefined)).toBe(false);
+  });
+});
+
+describe('focus when a lazy screen opens', () => {
+  it('takes focus at once while nothing is mounted (loading or failed), so keys never reach the screen left behind', () => {
+    expect(shouldFocusHostOnMount(undefined)).toBe(true);
+  });
+
+  it('leaves focus to a screen that is already loaded (it focuses itself on mount)', () => {
+    expect(shouldFocusHostOnMount(Comp)).toBe(false);
   });
 });
