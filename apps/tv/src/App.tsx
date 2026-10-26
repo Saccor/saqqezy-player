@@ -7,15 +7,12 @@ import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
-import { CountriesScreen } from './screens/Countries.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
-import { MultiviewScreen } from './screens/multiview/Multiview.tsx';
 import { MovieDetailScreen } from './screens/MovieDetail.tsx';
 import { PlaceholderScreen } from './screens/Placeholder.tsx';
 import { SeriesDetailScreen } from './screens/SeriesDetail.tsx';
 import { PlayerScreen } from './screens/Player.tsx';
 import { SearchScreen } from './screens/Search.tsx';
-import { SettingsScreen } from './screens/Settings.tsx';
 import { VodBrowseScreen } from './screens/VodBrowse.tsx';
 import { StartScreen } from './screens/Start.tsx';
 import { StartSportsScreen } from './screens/StartSports.tsx';
@@ -25,6 +22,9 @@ import { Clock } from './shell/Clock.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
+import { LazyScreen } from './shell/LazyScreen.tsx';
+import { isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, type LazyModule, type LazyScreenId } from './shell/lazyModule.ts';
+import type { ScreenEntry } from './shell/router.ts';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
   OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
@@ -44,6 +44,17 @@ import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
 const BADGE_H = 48;
+
+type EntryProps = { entry: ScreenEntry };
+/**
+ * Rare screens: loaded on first use, or in idle time after the first channel row (spec 2026-10-26 §0.3). Live TV, the
+ * Player, Start, Search, Add source (the first-run screen) and the Movies/Series screens stay in the start bundle.
+ */
+const LAZY: Record<LazyScreenId, LazyModule<EntryProps>> = {
+  settings: lazyModule<EntryProps>(() => import('./screens/Settings.tsx').then((m) => m.SettingsScreen)),
+  countries: lazyModule<EntryProps>(() => import('./screens/Countries.tsx').then((m) => m.CountriesScreen)),
+  multiview: lazyModule<EntryProps>(() => import('./screens/multiview/Multiview.tsx').then((m) => m.MultiviewScreen)),
+};
 
 function OfflineBadge() {
   return (
@@ -65,6 +76,13 @@ export function App() {
   // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
   const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
   createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
+  // Rare screens compile in idle time once the first channel row is on screen, so their first open does not wait.
+  let rarePreloaded = false;
+  createEffect(() => {
+    if (rarePreloaded || startupMs() === undefined) return;
+    rarePreloaded = true;
+    void preloadInTurn(LAZY_SCREENS.map((id) => LAZY[id]), idleSchedule);
+  });
   // Settings › Display › Motion (unset: the system's reduced-motion preference).
   createEffect(() => setMotionLevel(settings()?.motion));
   // The failure text names the Xtream account's connection limit: read it for the active source, and again after a
@@ -171,16 +189,14 @@ export function App() {
             <InitError onRetry={() => void bootstrap(api, router)} />
           </Show>
         }>
-          {(entry) => (entry.screen === 'addSource'
-            ? <AddSourceScreen entry={entry} />
-            : entry.screen === 'countries' ? <CountriesScreen entry={entry} />
+          {(entry) => (isLazyScreen(entry.screen)
+            ? <LazyScreen module={LAZY[entry.screen]} props={{ entry }} />
+            : entry.screen === 'addSource' ? <AddSourceScreen entry={entry} />
             : entry.screen === 'home' ? <LiveTvScreen entry={entry} />
             : entry.screen === 'player' ? <PlayerScreen entry={entry} />
             : entry.screen === 'search' ? <SearchScreen entry={entry} />
-            : entry.screen === 'settings' ? <SettingsScreen entry={entry} />
             : entry.screen === 'start' ? <StartScreen entry={entry} />
             : entry.screen === 'startSports' ? <StartSportsScreen />
-            : entry.screen === 'multiview' ? <MultiviewScreen entry={entry} />
             : entry.screen === 'vod' ? <VodBrowseScreen entry={entry} />
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />
