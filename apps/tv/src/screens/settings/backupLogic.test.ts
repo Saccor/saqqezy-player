@@ -14,7 +14,7 @@ describe('Settings › Storage backup rows', () => {
   test('without a phone the backup row says how to connect one', () => {
     const items = storageItems({ connected: false, waiting: false, files: false });
     expect(items[1]).toMatchObject({ disabled: true });
-    expect(items[1]!.help).toMatch(/Manage on phone/);
+    expect(items[1]!.help).toMatch(/Phone and computer/);
   });
 
   test('while waiting for the phone, the restore row says so and OK stops waiting', () => {
@@ -64,7 +64,7 @@ describe('restore results', () => {
   });
 
   test('errors become short copy', () => {
-    expect(backupErrorCopy({ name: 'NoCompanion', message: 'x' })).toMatch(/Manage on phone/);
+    expect(backupErrorCopy({ name: 'NoCompanion', message: 'x' })).toMatch(/Phone and computer/);
     expect(backupErrorCopy({ name: 'OldCompanion', message: 'Reload the page on your phone, then try again.' })).toMatch(/Reload/);
     expect(backupErrorCopy({ name: 'Timeout', message: 'x' })).toMatch(/didn't answer/);
     expect(backupErrorCopy({ name: 'BackupError', message: 'The recovery code does not open this backup.' })).toMatch(/recovery code/);

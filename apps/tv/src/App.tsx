@@ -47,7 +47,7 @@ import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 const EXIT_ID = EXIT_OVERLAY_ID;
 /**
  * App shell: screen stack, layered Back (overlays first, then screens, then the exit question), toasts,
- * brand wordmark, offline badge, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
+ * brand wordmark, Offline notice, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
  */
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);

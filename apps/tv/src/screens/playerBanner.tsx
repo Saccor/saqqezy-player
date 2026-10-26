@@ -1,5 +1,6 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import type { ChannelRow } from '@iptv/app-api';
+import { createMemo } from 'solid-js';
 import { BADGE_H, BadgeRow } from '../components/Badge.tsx';
 import { InfoBlock } from '../components/InfoBlock.tsx';
 import { textWidth } from '../components/textWidth.ts';
@@ -28,8 +29,8 @@ const TITLE_Y = TOP + LINE.meta + SPACE.s;
 
 /**
  * Bottom info band over the video, on a fade rather than a panel: the channel logo, then an InfoBlock (channel line,
- * programme title, start time with a progress track and the end time, the next programme), the clock, the live pill
- * and its hint at the right, and what is playing as badges. Purely visual; the Player decides when it is shown.
+ * programme title, start time with a progress track and the end time, the next programme), the clock and the live pill
+ * at the right, and what is playing as badges. Purely visual; the Player decides when it is shown.
  */
 export function PlayerBanner(props: {
   channel: ChannelRow; now: number; showClock: boolean; live?: { text: string };
@@ -44,7 +45,7 @@ export function PlayerBanner(props: {
   const rightCol = () => (props.showClock || props.live ? RIGHT_W + LAYOUT.gap : 0);
   const badgesRight = () => BANNER_W - (props.showClock ? RIGHT_W + LAYOUT.gap : 0);
   /** The badges' measured width (they draw right-aligned, so the overline ends before them). */
-  const badgesW = () => badgesWidth(layoutBadges(props.badges ?? [], (t) => textWidth(t, TYPE.meta), BADGES_W));
+  const badgesW = createMemo(() => badgesWidth(layoutBadges(props.badges ?? [], (t) => textWidth(t, TYPE.meta), BADGES_W)));
   const archive = () => c().archiveDays !== undefined;
   return (
     <View x={LAYOUT.safeX} y={bandY()} width={BANNER_W} height={BANNER_H} zIndex={5}>

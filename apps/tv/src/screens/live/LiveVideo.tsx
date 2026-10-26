@@ -18,7 +18,7 @@ const PAD = 24;
 
 /**
  * Live TV's mini video: the canvas is opaque everywhere except `LIVE_PREVIEW_RECT`, a hole onto the `<video>` under
- * it. Inside the hole: the status message while nothing plays (compact copy for the 416×234 box), or the cooldown
+ * it. Inside the hole: the status message while nothing plays, or the cooldown
  * notice with Retry (OK on the grid retries too). Drawn first, so everything else draws over the background.
  * Pointer: a click on the window is `onVideoClick` (undefined turns the click area off); the cooldown's Retry,
  * registered later, wins over it.

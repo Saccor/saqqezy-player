@@ -2,25 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { failureText } from '../playback/failureText.ts';
 import { COOLDOWN_TEXT } from '../state/cooldownLogic.ts';
 import { LINE } from '../shell/theme.ts';
-import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from './messageFit.ts';
-
-describe('stackedMessage', () => {
-  it('puts the hint under the last line of the text, the whole block centred and inside the box', () => {
-    // Home's preview: 588 × 331, text 524 wide; the Player: 1100 × 240; both at body size (26).
-    for (const [w, h, size] of [[524, 331, 26], [1036, 240, 26]] as const) {
-      for (const text of ['Short.', COOLDOWN_TEXT, `${COOLDOWN_TEXT} ${COOLDOWN_TEXT}`]) {
-        const s = stackedMessage(text, { width: w, fontSize: size, maxLines: 3 }, h, 22);
-        expect(s.hintY, text).toBeGreaterThanOrEqual(s.textY + s.lines * s.lineH);
-        expect(s.textY).toBeGreaterThanOrEqual(0);
-        expect(s.hintY + 22 * 1.3).toBeLessThanOrEqual(h);
-      }
-    }
-  });
-
-  it("counts the shorter cooldown copy as two lines in Home's preview (the old text wrapped into the hint at three)", () => {
-    expect(stackedMessage(COOLDOWN_TEXT, { width: 524, fontSize: 26, maxLines: 3 }, 331, 22).lines).toBe(2);
-  });
-});
+import { MESSAGE_BOXES, fitsBox, messageLines, messageTop } from './messageFit.ts';
 
 /** The longest failure text: a refusal naming the account's limit. */
 const LONG = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 });

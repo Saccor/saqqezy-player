@@ -14,7 +14,7 @@ const GROUP_ALL = 'all';
 
 /** The mini video window (the hole in the canvas the video shows through). */
 export const LIVE_PREVIEW_RECT: Rect = { x: LAYOUT.contentX, y: LAYOUT.safeY, w: 416, h: 234 };
-/** The focused programme's block, right of the video; it ends left of the shell's offline badge. */
+/** The focused programme's block, right of the video; it ends at the right safe margin. */
 export const INFO_X = LIVE_PREVIEW_RECT.x + LIVE_PREVIEW_RECT.w + 40;
 export const INFO_W = 764;
 /** The guide's ruler row; rows start 44 px below it. */

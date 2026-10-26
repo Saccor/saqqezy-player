@@ -9,7 +9,7 @@ const B = SETTINGS_COPY.backup;
  */
 
 export interface StorageRowsState {
-  /** A phone is connected (Manage on phone). */
+  /** A phone is connected (Phone and computer). */
   connected: boolean;
   /** The TV waits for the phone to send a backup ("Restore from your phone" was chosen). */
   waiting: boolean;

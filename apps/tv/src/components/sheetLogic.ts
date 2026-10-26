@@ -3,7 +3,7 @@
  * frames per placement, tabs, in-place sub-pages, and adapters from the old menus' rows. Pure: no Solid, no Lightning.
  */
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
-import { LAYOUT, LINE, SPACE } from '../shell/theme.ts';
+import { LAYOUT, LINE, SPACE, TYPE } from '../shell/theme.ts';
 import { firstSelectable, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
 export type SheetPlacement = 'side' | 'bottom' | 'center';
@@ -124,14 +124,27 @@ export function fromPickerRow(r: PickerRow, i: number): SheetRow {
 export const fromOptionItem = (o: OptionItem): SheetRow => ({ id: o.id, label: o.label, ...(o.value !== undefined ? { value: o.value } : {}) });
 export const fromMenuItem = <A extends string>(it: MenuItem<A>): SheetRow => ({ id: it.action, label: it.label });
 
+/** 0 with no line, 1 when it fits the box's text width, else 2 (the Text cuts a third line). */
+export function dialogLineCount(line: string | undefined, measure: (text: string, size: number) => number): 0 | 1 | 2 {
+  if (line === undefined || line === '') return 0;
+  return measure(line, TYPE.body) > DIALOG_W - DIALOG_PAD * 2 ? 2 : 1;
+}
+
+export const DIALOG_BTN_MIN_W = 200;
+/** Buttons share one width: the widest label plus `SPACE.l` each side, 200 at least; `rowW` is the row incl. the gap. */
+export function dialogButtons(labels: readonly string[], measure: (text: string, size: number) => number): { w: number; rowW: number } {
+  const w = Math.max(DIALOG_BTN_MIN_W, ...labels.map((l) => Math.ceil(measure(l, TYPE.body)) + SPACE.l * 2));
+  return { w, rowW: w * labels.length + LAYOUT.gap * (labels.length - 1) };
+}
+
 /** Dialog (a centred Sheet variant): title (one line), an optional line, an optional large detail, 1–2 buttons. */
-export function dialogFrame(hasLine: boolean, hasDetail: boolean, buttonH: number): {
+export function dialogFrame(lineCount: 0 | 1 | 2, hasDetail: boolean, buttonH: number): {
   x: number; y: number; w: number; h: number; titleY: number; lineY: number; detailY: number; buttonsY: number;
 } {
   const titleY = DIALOG_PAD;
   let y = titleY + LINE.title;
   const lineY = y + SPACE.m;
-  if (hasLine) y = lineY + LINE.body;
+  if (lineCount > 0) y = lineY + LINE.body * lineCount;
   const detailY = y + SPACE.m;
   if (hasDetail) y = detailY + LINE.title;
   const buttonsY = y + SPACE.xl;

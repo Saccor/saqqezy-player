@@ -270,7 +270,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
 
       <Show when={moreRow().items.length > 0}>
         <Text x={LAYOUT.safeX} y={moreY()} width={LAYOUT.width - LAYOUT.safeX * 2} maxWidth={LAYOUT.width - LAYOUT.safeX * 2} contain="width"
-          maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>More like this</Text>
+          maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{VOD_COPY.moreLikeThis}</Text>
         <View ref={(el) => { moreNode = el; }} y={moreY() + SPACE.xl} width={LAYOUT.width} height={POSTER_H}
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}

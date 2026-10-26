@@ -162,7 +162,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       else focusMenu();
     });
   };
-  /** A click that focuses the page's list (or Manage on phone's actions) goes through `focusPage`, so Back returns to the menu. */
+  /** A click that focuses the page's list (or the Phone and computer page's actions) goes through `focusPage`, so Back returns to the menu. */
   const focusFromPointer = (node: ElementNode) => {
     if (node === pageNode) focusPage();
     else node.setFocus();

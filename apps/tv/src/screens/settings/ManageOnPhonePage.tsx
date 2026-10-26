@@ -52,7 +52,7 @@ function companionHost(): string {
 }
 
 /**
- * Settings → Manage on phone or computer: a QR code (or a 12-character code), the countdown, the connection
+ * Settings → Phone and computer: a QR code (or a 12-character code), the countdown, the connection
  * status and Show a new code / Disconnect. Opening it starts a QR session unless one is already live.
  * One focusable node: Up/Down pick an action, Ok runs it, Yellow switches between QR and code, Left → menu.
  */

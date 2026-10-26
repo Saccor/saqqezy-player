@@ -3,7 +3,7 @@ import type { CompanionStatus } from '@iptv/app-api';
 import { SETTINGS_COPY } from '../copy.ts';
 
 /**
- * Pure logic of the "Manage on phone or computer" page: copy, countdown, actions and the QR matrix.
+ * Pure logic of the "Phone and computer" page: copy, countdown, actions and the QR matrix.
  * The pairing URL and code are secrets: they are drawn, never logged or persisted.
  */
 

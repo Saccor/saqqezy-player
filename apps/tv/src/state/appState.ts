@@ -193,7 +193,7 @@ async function followSources(e: SourcesChanged, deps: SourceFollowDeps): Promise
 }
 
 /**
- * Subscribes the shell to worker events (toasts, offline badge, companion status, source changes). Returns an
+ * Subscribes the shell to worker events (notices, offline state, companion status, source changes). Returns an
  * unsubscribe function. Without `follow` a source change only shows its toast.
  */
 export function wireEvents(

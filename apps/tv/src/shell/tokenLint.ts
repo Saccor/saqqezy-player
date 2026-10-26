@@ -61,9 +61,17 @@ const isSentence = (s: string): boolean => {
 const stripComments = (text: string): string =>
   text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' ')).replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
 
+/** `…>words</Text>` on a line that does not open the tag: the end of a multi-line `<Text …>`. */
+const JSX_TEXT_TAIL = /(?:^|[}"'\s])>([^<{}>]*[A-Za-z][^<{}>]*)<\/Text>/;
+/** Words alone on a line, between a line ending `>` and a line starting `</Text>`. */
+const JSX_TEXT_ALONE = /^[^<{}>=;()]+$/;
+
 function countStrings(text: string): number {
   let n = 0;
-  for (const line of stripComments(text).split('\n')) {
+  const lines = stripComments(text).split('\n');
+  for (const [i, line] of lines.entries()) {
+    if (!line.includes('<Text') && (JSX_TEXT_TAIL.test(line)
+      || (/[A-Za-z]/.test(line) && JSX_TEXT_ALONE.test(line) && /[^/]>\s*$/.test(lines[i - 1] ?? '') && /^\s*<\/Text>/.test(lines[i + 1] ?? '')))) n++;
     if (NOT_UI_LINE.test(line)) continue;
     for (const m of line.matchAll(LITERAL)) {
       const s = m[2]!;

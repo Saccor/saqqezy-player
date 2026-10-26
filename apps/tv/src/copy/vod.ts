@@ -7,6 +7,7 @@ export const VOD_COPY = {
   versions: 'Versions',
   season: 'Season',
   viewAll: 'View all',
+  moreLikeThis: 'More like this',
   allCategories: 'All categories',
   nothingHere: 'Nothing here yet.',
   resume: 'Resume',

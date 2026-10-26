@@ -277,7 +277,7 @@ export function resultsMessage(s: SearchState<SearchRows>): string | undefined {
 
 /** A subtle note beside the first row while the next query runs over the shown rows (with no rows the message says it). */
 export function searchingNote(s: SearchState<SearchRows>): string | undefined {
-  return s.busy && hasResults(s.results) ? 'Searching…' : undefined;
+  return s.busy && hasResults(s.results) ? LIVE_COPY.search.searching : undefined;
 }
 
 export interface SearchMemory {

@@ -4,7 +4,7 @@ import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import {
   SHEET_MAX_ROWS, SHEET_PITCH, SHEET_W, dialogFrame, fromMenuItem, fromOptionItem, fromPickerRow, sheetClamp, sheetFollow, sheetFooter,
-  sheetFrame, sheetMore, sheetScroll, sheetStep, stackOpen, stackPop, stackPush, stackRestore, stackTop, tabStep, type SheetPage, type SheetRow,
+  dialogButtons, dialogLineCount, sheetFrame, sheetMore, sheetScroll, sheetStep, stackOpen, stackPop, stackPush, stackRestore, stackTop, tabStep, type SheetPage, type SheetRow,
 } from './sheetLogic.ts';
 
 const r = (id: string, extra: Partial<SheetRow> = {}): SheetRow => ({ id, label: id, ...extra });
@@ -73,12 +73,30 @@ describe('sheet frames', () => {
     expect(f.y).toBe((LAYOUT.height - f.h) / 2);
   });
   it('dialog: title, optional line and detail, buttons, centred', () => {
-    expect(dialogFrame(false, false, 64)).toMatchObject({ w: 720, h: 256, titleY: 48, buttonsY: 144 });
-    expect(dialogFrame(true, false, 64)).toMatchObject({ h: 308, lineY: 112, buttonsY: 196 });
-    expect(dialogFrame(true, true, 64)).toMatchObject({ h: 372, lineY: 112, detailY: 164, buttonsY: 260 });
-    const d = dialogFrame(false, false, 64);
+    expect(dialogFrame(0, false, 64)).toMatchObject({ w: 720, h: 256, titleY: 48, buttonsY: 144 });
+    expect(dialogFrame(1, false, 64)).toMatchObject({ h: 308, lineY: 112, buttonsY: 196 });
+    expect(dialogFrame(1, true, 64)).toMatchObject({ h: 372, lineY: 112, detailY: 164, buttonsY: 260 });
+    const d = dialogFrame(0, false, 64);
     expect(d.x).toBe((LAYOUT.width - 720) / 2);
     expect(d.y).toBe((LAYOUT.height - 256) / 2);
+  });
+});
+
+describe('dialog lines and buttons', () => {
+  const per = (n: number) => (text: string) => text.length * n;
+  it('a line that fits the 624 px box is one line, a longer one is two', () => {
+    expect(dialogLineCount(undefined, per(10))).toBe(0);
+    expect(dialogLineCount('x'.repeat(62), per(10))).toBe(1);
+    expect(dialogLineCount('x'.repeat(63), per(10))).toBe(2);
+  });
+  it('a second line makes the box one body line taller', () => {
+    expect(dialogFrame(2, false, 64).h).toBe(dialogFrame(1, false, 64).h + 36);
+    expect(dialogFrame(2, false, 64)).toMatchObject({ lineY: 112, buttonsY: 232 });
+  });
+  it('buttons fit their label with 24 px each side, 200 px at least, equal widths', () => {
+    expect(dialogButtons(['Yes', 'No'], per(10))).toEqual({ w: 200, rowW: 200 * 2 + LAYOUT.gap });
+    expect(dialogButtons(['Stop', 'Keep watching'], per(14))).toEqual({ w: 13 * 14 + 48, rowW: (13 * 14 + 48) * 2 + LAYOUT.gap });
+    expect(dialogButtons(['Done'], per(14))).toEqual({ w: 200, rowW: 200 });
   });
 });
 

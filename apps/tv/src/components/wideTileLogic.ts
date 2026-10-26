@@ -16,13 +16,10 @@ export const COMPACT_H = 112;
 export const MATCH_GRID_H = 136;
 export const WIDE_GAP = 24;
 
-export const wideSize = (compact: boolean): { w: number; h: number } =>
-  (compact ? { w: COMPACT_W, h: COMPACT_H } : { w: WIDE_W, h: WIDE_H });
-
 /**
  * The bold main line names the thing to watch; the muted context line above it gives context ('' when empty or the
  * same as the main line). Channel: name / programme. Event: when · channels / title. Programme: when · channel / title.
- * View all: just the label. `live`: a match airing now (its context line is drawn in the accent). `short`: compact tiles
+ * View all: just the label. `live`: a match airing now (its context line is drawn in `text`, not `muted`). `short`: compact tiles
  * say "N ch". `sides`: a match's two sides, each drawn on its own line by the compact tile.
  */
 export function wideLines(c: WideCell, now: number, channelNumbers = false, short = false): { context: string; main: string; live: boolean; sides?: [string, string] } {

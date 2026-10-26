@@ -1,6 +1,8 @@
 /** Add source copy (spec 2026-10-26 §1.4): the login-type step, the forms, validation and the header notes. */
 export const ONBOARDING_COPY = {
   title: 'Add your TV source',
+  /** The name a source gets when the field is left empty. */
+  defaultName: 'My TV',
   intro: 'Use the login details you were given.',
   xtreamTitle: 'Xtream login',
   xtreamBody: 'Server, username and password',

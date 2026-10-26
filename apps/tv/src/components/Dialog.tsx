@@ -1,13 +1,13 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { createMemo } from 'solid-js';
 import { Row } from '@lightningtv/solid/primitives';
 import { COMMON_COPY } from '../copy/common.ts';
 import { usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { scrimIn } from '../shell/motion.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { Button, BUTTON_H } from './Button.tsx';
-import { DIALOG_PAD, DIALOG_W, dialogFrame } from './sheetLogic.ts';
-
-const BTN_W = 200;
+import { DIALOG_PAD, DIALOG_W, dialogButtons, dialogFrame, dialogLineCount } from './sheetLogic.ts';
+import { textWidth } from './textWidth.ts';
 
 /**
  * A centred Sheet variant (spec 2026-10-26 §1.3): a title, one line, an optional large detail (a recovery code), 1–2
@@ -17,8 +17,12 @@ const BTN_W = 200;
  */
 export function Dialog(props: { title: string; line?: string; detail?: string; yes?: string; no?: string | null; onYes: () => void; onNo: () => void }) {
   const single = () => props.no === null;
-  const rowW = () => (single() ? BTN_W : BTN_W * 2 + LAYOUT.gap);
-  const f = () => dialogFrame(props.line !== undefined, props.detail !== undefined, BUTTON_H);
+  const yesLabel = () => props.yes ?? COMMON_COPY.yes;
+  const noLabel = () => props.no ?? COMMON_COPY.no;
+  const btns = createMemo(() => dialogButtons(single() ? [yesLabel()] : [yesLabel(), noLabel()], textWidth));
+  const rowW = () => btns().rowW;
+  const lines = createMemo(() => dialogLineCount(props.line, textWidth));
+  const f = () => dialogFrame(lines(), props.detail !== undefined, BUTTON_H);
   const textW = DIALOG_W - DIALOG_PAD * 2;
   let scrim: ElementNode | undefined;
   let lift: ElementNode | undefined;
@@ -33,8 +37,8 @@ export function Dialog(props: { title: string; line?: string; detail?: string; y
           <Text x={DIALOG_PAD} y={f().titleY} width={textW} maxWidth={textW} contain="width" maxLines={1} textAlign="center"
             fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{props.title}</Text>
           <Show when={props.line}>
-            <Text x={DIALOG_PAD} y={f().lineY} width={textW} maxWidth={textW} contain="width" maxLines={1} textAlign="center"
-              fontSize={TYPE.body} color={COLORS.textSecondary}>{props.line ?? ''}</Text>
+            <Text x={DIALOG_PAD} y={f().lineY} width={textW} maxWidth={textW} contain="width" maxLines={2} textAlign="center"
+              fontSize={TYPE.body} lineHeight={LINE.body} color={COLORS.textSecondary}>{props.line ?? ''}</Text>
           </Show>
           <Show when={props.detail}>
             <Text x={DIALOG_PAD} y={f().detailY} width={textW} maxWidth={textW} contain="width" maxLines={1} textAlign="center"
@@ -42,9 +46,9 @@ export function Dialog(props: { title: string; line?: string; detail?: string; y
           </Show>
           <Row x={(DIALOG_W - rowW()) / 2} y={f().buttonsY} width={rowW()} height={BUTTON_H} gap={LAYOUT.gap}
             scroll="none" selected={single() ? 0 : 1} autofocus>
-            <Button width={BTN_W} label={props.yes ?? COMMON_COPY.yes} onPress={props.onYes} pointerLayer="overlay" pointerGlobal />
+            <Button width={btns().w} label={yesLabel()} onPress={props.onYes} pointerLayer="overlay" pointerGlobal />
             <Show when={!single()}>
-              <Button width={BTN_W} label={props.no ?? COMMON_COPY.no} onPress={props.onNo} pointerLayer="overlay" pointerGlobal />
+              <Button width={btns().w} label={noLabel()} onPress={props.onNo} pointerLayer="overlay" pointerGlobal />
             </Show>
           </Row>
         </View>

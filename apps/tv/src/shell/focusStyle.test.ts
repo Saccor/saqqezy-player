@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COLORS } from './theme.ts';
-import { SELECTED_MARK, controlFill, drawnFocus, controlSubText, controlText, hoverInit, hoverMove, isLit, selectedInk } from './focusStyle.ts';
+import { SELECTED_MARK, controlFill, drawnFocus, controlText, hoverInit, hoverMove, isLit, selectedInk } from './focusStyle.ts';
 import { contrast } from './contrast.ts';
 
 describe('drawnFocus (one hover style, equal to focus; only one item lit)', () => {
@@ -52,8 +52,6 @@ describe('controls: a focus fill with onFocus text, no scale (spec §1.2)', () =
     expect(controlFill(false)).toBe(COLORS.transparent);
     expect(controlText(true)).toBe(COLORS.onFocus);
     expect(controlText(false)).toBe(COLORS.text);
-    expect(controlSubText(true)).toBe(COLORS.onFocusMuted);
-    expect(controlSubText(false)).toBe(COLORS.muted);
   });
   it('selected is a ✓ in accent, readable at rest and on a focus fill', () => {
     expect(SELECTED_MARK).toBe('✓');

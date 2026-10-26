@@ -23,7 +23,7 @@ export const NOTICE_PAD = SPACE.l;
 export const NOTICE_GAP = SPACE.s;
 export const NOTICE_MIN_W = 240;
 export const NOTICE_MAX_W = 1008;
-/** Under the shell clock in the top-right corner. */
+/** Top right, below the safe margin (the shell clock is top left). */
 export const NOTICE_TOP = LAYOUT.safeY + 64;
 export const NOTICE_RIGHT = LAYOUT.width - LAYOUT.safeX;
 export const NOTICE_SPINNER = 36;
@@ -60,9 +60,6 @@ export const noticeIds = (placed: readonly PlacedNotice[]): string[] => placed.m
 
 /** Memo equality for id lists: a new array with the same ids in the same order changes nothing for the view. */
 export const sameIds = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((id, i) => id === b[i]);
-
-/** Only info hides by itself; wait stays while its condition is true; error stays until acted on or Back. */
-export const noticeAutoHides = (kind: NoticeKind): boolean => kind === 'info';
 
 /**
  * How much longer an info notice stays (0: hide now). The window is `MOTION.autoHide` from the later of when it showed

@@ -4,7 +4,7 @@ import type { NewSource, SourceConfig } from '@iptv/core';
 import { ONBOARDING_COPY } from '../copy.ts';
 import { headerUsable, type HeaderSupport } from '@iptv/platform';
 
-export const DEFAULT_NAME = 'My TV';
+export const DEFAULT_NAME = ONBOARDING_COPY.defaultName;
 
 /**
  * Field limits, shared with the phone companion's contract: the name limit is `NAME_MAX` in @iptv/core, the others

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { LAYOUT, MOTION, TYPE } from '../shell/theme.ts';
 import {
   NOTICE_GAP, NOTICE_H, NOTICE_MAX_SHOWN, NOTICE_MAX_W, NOTICE_MIN_W, NOTICE_NUMERAL_H, NOTICE_PAD, NOTICE_SPINNER, NOTICE_TOP,
-  autoHideDelay, noticeAutoHides, noticeIds, noticeOrder, noticeStack, sameIds, spinnerDots, type NoticeSpec,
+  autoHideDelay, noticeIds, noticeOrder, noticeStack, sameIds, spinnerDots, type NoticeSpec,
 } from './noticeLogic.ts';
 
 /** 10 px a character, whatever the size: easy numbers. */
@@ -14,11 +14,6 @@ describe('notice order and kinds (spec 2026-10-26 §1.3)', () => {
   it('errors first, then waits, then infos; stable inside a kind', () => {
     const order = noticeOrder([n('a', 'info'), n('b', 'wait'), n('c', 'error'), n('d', 'info'), n('e', 'error')]).map((x) => x.id);
     expect(order).toEqual(['c', 'e', 'b', 'a', 'd']);
-  });
-  it('only info hides by itself', () => {
-    expect(noticeAutoHides('info')).toBe(true);
-    expect(noticeAutoHides('wait')).toBe(false);
-    expect(noticeAutoHides('error')).toBe(false);
   });
 });
 

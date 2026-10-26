@@ -13,7 +13,7 @@ import {
 describe('SETTINGS_PAGES', () => {
   it('lists the ten pages in menu order, Your countries first', () => {
     expect(SETTINGS_PAGES.map((p) => p.title)).toEqual([
-      'Your countries', 'Sources', 'Manage on phone or computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
+      'Your countries', 'Sources', 'Phone and computer', 'TV guide', 'Playback', 'Channels', 'Display', 'Storage', 'Diagnostics', 'About',
     ]);
   });
 });

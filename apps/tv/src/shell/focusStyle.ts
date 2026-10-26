@@ -24,7 +24,6 @@ export function hoverMove(s: HoverTrack, index: number | undefined, at: { x: num
 export const isLit = (focused: boolean, hovered: boolean, pointer: boolean): boolean => focused || (pointer && hovered);
 export const controlFill = (lit: boolean, rest: number = COLORS.transparent): number => (lit ? COLORS.focus : rest);
 export const controlText = (lit: boolean): number => (lit ? COLORS.onFocus : COLORS.text);
-export const controlSubText = (lit: boolean): number => (lit ? COLORS.onFocusMuted : COLORS.muted);
 /** Selected but not focused: a ✓ and nothing else. */
 export const SELECTED_MARK = '✓';
 export const selectedInk = (lit: boolean): number => (lit ? COLORS.onFocus : COLORS.accent);

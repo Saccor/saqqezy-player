@@ -59,6 +59,11 @@ describe('tokenLint: UI strings', () => {
     expect(only("showToast('Saved')")).toEqual({ string: 1 });
     expect(only("const A = \"Couldn't load the sources.\";")).toEqual({ string: 1 });
   });
+  test('counts JSX text on a continuation line of a multi-line <Text>', () => {
+    expect(only('<Text x={0}\n  fontSize={TYPE.body} color={COLORS.text}>More like this</Text>')).toEqual({ string: 1 });
+    expect(only('<Text x={0}\n  color={COLORS.text}>\n  More like this\n</Text>')).toEqual({ string: 1 });
+    expect(only('<Text x={0}\n  color={COLORS.text}>{value()}</Text>')).toEqual({});
+  });
   test('skips identifiers, logs, thrown errors and comments', () => {
     expect(only("const B = 'sans-serif'; const id = 'audio';")).toEqual({});
     expect(only("console.warn('Poster action failed');")).toEqual({});

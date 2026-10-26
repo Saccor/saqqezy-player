@@ -3,7 +3,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { usePointerTarget } from '../input/pointer.ts';
 import { riseIn } from '../shell/motion.ts';
-import { COLORS, MOTION, RADIUS, STRONG, TYPE, centerText } from '../shell/theme.ts';
+import { COLORS, MOTION, RADIUS, STRONG, STROKE, TYPE, centerText } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { NOTICE_PAD, NOTICE_SPINNER, SPINNER_DOT, noticeIds, noticeStack, sameIds, spinnerDots, type NoticeSpec, type PlacedNotice } from './noticeLogic.ts';
 import { keepSpaces, textWidth } from './textWidth.ts';
@@ -44,7 +44,7 @@ function Spinner(props: { x: number; y: number }) {
   );
 }
 
-/** One notice pill (`panel` fill, pill radius). A click on an error with an action runs it, like OK on its screen. */
+/** One notice pill (opaque `surfaceRaised` fill with a `subtle` outline, pill radius). A click on an error with an action runs it, like OK on its screen. */
 export function NoticePill(props: { placed: PlacedNotice; onAction?: () => void }) {
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, enabled: () => props.onAction !== undefined, onClick: () => props.onAction?.() });
@@ -52,7 +52,7 @@ export function NoticePill(props: { placed: PlacedNotice; onAction?: () => void 
   const size = () => (p().spec.numeral ? TYPE.numeral : TYPE.body);
   return (
     <View ref={(el) => { node = el; riseIn(el, MOTION.toastIn); }} x={p().x} y={p().y} width={p().w} height={p().h}
-      color={COLORS.panel} borderRadius={RADIUS.pill(p().h)} zIndex={30}>
+      color={COLORS.surfaceRaised} border={{ width: STROKE.outline, color: COLORS.subtle }} borderRadius={RADIUS.pill(p().h)} zIndex={30}>
       <Show when={p().spec.spinner}><Spinner x={NOTICE_PAD} y={(p().h - NOTICE_SPINNER) / 2} /></Show>
       <Text x={p().textX} y={centerText(p().h, size())} width={p().textW} maxWidth={p().textW} contain="width" maxLines={1}
         fontSize={size()} {...(p().spec.numeral ? STRONG : {})} color={COLORS.text}>{keepSpaces(p().spec.text)}</Text>

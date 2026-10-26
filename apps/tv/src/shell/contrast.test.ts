@@ -13,6 +13,8 @@ describe('contrast', () => {
     expect(contrast(COLORS.subtle, COLORS.background)).toBeGreaterThanOrEqual(5);
     expect(contrast(COLORS.textSecondary, COLORS.surface)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.muted, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(COLORS.text, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(7);
+    expect(contrast(COLORS.subtle, COLORS.surfaceRaised)).toBeGreaterThanOrEqual(3);
     expect(contrast(COLORS.onFocus, COLORS.focus)).toBeGreaterThanOrEqual(7);
     expect(contrast(COLORS.onFocusMuted, COLORS.focus)).toBeGreaterThanOrEqual(4.5);
     expect(contrast(COLORS.onFocus, COLORS.subtle)).toBeGreaterThanOrEqual(4.5);

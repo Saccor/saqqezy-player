@@ -48,7 +48,7 @@ export function toastPriority(e: AppEvent): number {
 }
 
 /**
- * Offline badge state after an event. The worker decides: only a source it could not reach means offline, and it
+ * Offline state after an event. The worker decides: only a source it could not reach means offline, and it
  * sends `offline` itself (a stall or timeout is not offline, and that difference does not cross RPC). Any
  * successful refresh means online again.
  */

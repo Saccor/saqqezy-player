@@ -1,5 +1,5 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, on } from 'solid-js';
+import { createEffect, createMemo, on } from 'solid-js';
 import { stopMotion, tween } from '../shell/motion.ts';
 import { COLORS, LINE, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { INFO_PROGRESS_W, infoBlockLayout, metaLineLayout, overlineWidth } from './infoBlockLogic.ts';
@@ -45,7 +45,10 @@ export function InfoBlock(props: {
   const l = () => infoBlockLayout({ overline: props.overline !== undefined, titleSize: props.titleSize ?? 'title', metaLine: metaLine(), descriptionLines: lines() });
   const size = () => (props.titleSize === 'hero' ? TYPE.hero : TYPE.title);
   const titleX = () => (props.titleIcon ? ICON + TYPE.meta / 2 : 0);
-  const meta = () => metaLineLayout(Math.ceil(textWidth(props.meta ?? '', TYPE.meta)), props.progress !== undefined);
+  // Keyed on the meta text and on whether there is a progress track, not on the progress value that ticks with the clock.
+  const metaW = createMemo(() => Math.ceil(textWidth(props.meta ?? '', TYPE.meta)));
+  const hasProgress = createMemo(() => props.progress !== undefined);
+  const meta = createMemo(() => metaLineLayout(metaW(), hasProgress()));
   return (
     <View ref={(el) => { node = el; }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={l().height} zIndex={2}>
       <Show when={props.overline}>

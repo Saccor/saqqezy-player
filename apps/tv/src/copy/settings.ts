@@ -4,7 +4,7 @@ export const SETTINGS_COPY = {
   pages: {
     countries: 'Your countries',
     sources: 'Sources',
-    phone: 'Manage on phone or computer',
+    phone: 'Phone and computer',
     guide: 'TV guide',
     playback: 'Playback',
     channels: 'Channels',
@@ -167,7 +167,7 @@ export const SETTINGS_COPY = {
     clearHelp: 'Your sources, favourites and watch progress are kept',
     toPhone: 'Back up to your phone',
     toPhoneHelp: 'Lists, renames, progress and preferences, encrypted',
-    toPhoneNeedsPhone: 'Connect your phone first: Settings › Manage on phone',
+    toPhoneNeedsPhone: 'Connect your phone first: Settings › Phone and computer',
     fromPhone: 'Restore from your phone',
     /** The restore row while waiting, and the toast when waiting starts (OK still stops). */
     waiting: 'Waiting for your phone: open Backup › Restore to this TV.',
@@ -188,7 +188,7 @@ export const SETTINGS_COPY = {
     nothing: 'Nothing to restore: this TV already has everything in the backup.',
     restored: (n: number): string => `Restored ${n} ${n === 1 ? 'change' : 'changes'} from your backup.`,
     makeFailed: "Couldn't make the backup.",
-    needsPhone: 'Connect your phone first: Settings › Manage on phone.',
+    needsPhone: 'Connect your phone first: Settings › Phone and computer.',
     noAnswer: "The phone didn't answer. Keep its page open and try again.",
     busy: 'The phone is busy. Try again.',
   },

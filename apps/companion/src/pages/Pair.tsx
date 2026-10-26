@@ -4,7 +4,7 @@ import { COPY } from '../logic/copy.ts';
 import { connect } from '../state/store.ts';
 
 /**
- * Pairing by code: the 12-character code the TV shows (Settings → Manage on phone or computer → code).
+ * Pairing by code: the 12-character code the TV shows (Settings → Phone and computer → code).
  * The input formats itself as XXXX-XXXX-XXXX. Connect runs one key derivation (≈ 0.2–1 s), then connects.
  * The code is kept only in this page's memory and cleared once the derivation finished.
  */
@@ -51,7 +51,7 @@ export function PairPage(props: { message: string | undefined }) {
       <div class="card narrow">
         <h1>Manage your TV</h1>
         <p class="muted">
-          On your TV, open <strong>Settings → Manage on phone or computer</strong>. Scan the QR code with your phone's
+          On your TV, open <strong>Settings → Phone and computer</strong>. Scan the QR code with your phone's
           camera, or type the code below.
         </p>
         <Show when={props.message}>
