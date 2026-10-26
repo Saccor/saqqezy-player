@@ -40,6 +40,7 @@ import { reloadSourceLimit } from './state/activeLimit.ts';
 import { screenEnter, setMotionLevel } from './shell/motion.ts';
 import { onBackOnline } from './state/backOnline.ts';
 import { bootstrap, cooldown, cooldownForStream, initFailed, initState, offline, platformId, settings, startupMs, wireEvents } from './state/appState.ts';
+import { afterFrame } from './video/afterFrame.ts';
 import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 
 const EXIT_ID = EXIT_OVERLAY_ID;
@@ -76,13 +77,6 @@ export function App() {
   // Movies only: preloading series too would double the resident catalogue memory (one resident kind).
   const preloadVod = createVodPreloader({ preload: () => api.preloadVod('movie'), schedule: idleSchedule });
   createEffect(() => preloadVod(playback.status()?.kind, initState()?.activeSourceId));
-  // Rare screens compile in idle time once the first channel row is on screen, so their first open does not wait.
-  let rarePreloaded = false;
-  createEffect(() => {
-    if (rarePreloaded || startupMs() === undefined) return;
-    rarePreloaded = true;
-    void preloadInTurn(LAZY_SCREENS.map((id) => LAZY[id]), idleSchedule);
-  });
   // Settings › Display › Motion (unset: the system's reduced-motion preference).
   createEffect(() => setMotionLevel(settings()?.motion));
   // The failure text names the Xtream account's connection limit: read it for the active source, and again after a
@@ -97,6 +91,14 @@ export function App() {
 
   const [current, setCurrent] = createSignal(router.current());
   onCleanup(router.subscribe(setCurrent));
+  // Rare screens compile in idle time once the first screen (whichever it is) has painted, so their first open does
+  // not wait. One shot.
+  let rarePreloaded = false;
+  createEffect(() => {
+    if (rarePreloaded || current() === undefined) return;
+    rarePreloaded = true;
+    afterFrame(() => void preloadInTurn(LAZY_SCREENS.map((id) => LAZY[id]), idleSchedule));
+  });
   const [overlayIds, setOverlayIds] = createSignal(router.overlays());
   onCleanup(router.subscribeOverlays(setOverlayIds));
   // The wordmark's canvas is drawn after the cold start (first Home rows), or after a short wait at most.

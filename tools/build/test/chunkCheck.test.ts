@@ -75,6 +75,10 @@ describe('staticImports', () => {
     const code = 'import{a as b}from"./shared-1.js";import"./side-2.js";export{c}from"./re-3.js";const s=()=>import("./Settings-4.js");';
     expect(staticImports(code)).toEqual(['./shared-1.js', './side-2.js', './re-3.js']);
   });
+
+  it('reads star re-exports', () => {
+    expect(staticImports(`export*from"./star-5.js";export * from './star-6.js';`)).toEqual(['./star-5.js', './star-6.js']);
+  });
 });
 
 describe('checkStartup', () => {

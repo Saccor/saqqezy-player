@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, tryAgain } from './lazyModule.ts';
+import { FIRST_FRAME_SCREENS, isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, shouldRefocusHost, tryAgain } from './lazyModule.ts';
 
 const Comp = () => null;
 
@@ -70,5 +70,23 @@ describe('Try again after a failed screen load', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('focus after a lazy screen mounts', () => {
+  const host = { id: 'host' };
+  const picker = { id: 'picker' };
+
+  it('passes focus down again only while the empty host still holds it', () => {
+    expect(shouldRefocusHost(true, host, host)).toBe(true);
+  });
+
+  it('leaves focus alone when the screen claimed it on mount (Multiview opens its picker)', () => {
+    expect(shouldRefocusHost(true, picker, host)).toBe(false);
+  });
+
+  it('does nothing once the screen is gone, or before the host exists', () => {
+    expect(shouldRefocusHost(false, host, host)).toBe(false);
+    expect(shouldRefocusHost(true, undefined, undefined)).toBe(false);
   });
 });

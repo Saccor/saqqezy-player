@@ -32,7 +32,10 @@ export async function preloadInTurn(mods: ReadonlyArray<{ load(): Promise<unknow
   }
 }
 
-/** Reloads the app. Startup returns to the last channel, so this is a cheap way back to a working state. */
+/**
+ * Reloads the app. Startup returns to the last channel, so this is a cheap way back to a working state.
+ * On hosted targets (Titan OS, the web build) a reload while offline shows the browser's error page.
+ */
 export function reloadApp(): void {
   location.reload();
 }
@@ -43,6 +46,14 @@ export function reloadApp(): void {
  */
 export function tryAgain(reload: () => void = reloadApp): void {
   reload();
+}
+
+/**
+ * After a lazy screen mounts (or its failure view appears): pass focus down again only while the empty host still
+ * holds it. A screen that claimed focus on mount (Multiview opens its channel picker) keeps it.
+ */
+export function shouldRefocusHost<T>(alive: boolean, active: T | undefined, host: T | undefined): boolean {
+  return alive && host !== undefined && active === host;
 }
 
 /**

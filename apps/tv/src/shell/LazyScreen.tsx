@@ -3,7 +3,7 @@ import { createComponent, createSignal, onCleanup, type Component } from 'solid-
 import { Button } from '../components/Button.tsx';
 import { LAZY_COPY } from '../copy.ts';
 import { COLORS, LAYOUT, TYPE } from './theme.ts';
-import { tryAgain, type LazyModule, type ScreenProps } from './lazyModule.ts';
+import { shouldRefocusHost, tryAgain, type LazyModule, type ScreenProps } from './lazyModule.ts';
 
 /**
  * Renders a lazily loaded screen.
@@ -20,17 +20,18 @@ export function LazyScreen<P extends ScreenProps>(props: { module: LazyModule<P>
   onCleanup(() => { alive = false; });
   const [comp, setComp] = createSignal<Component<P> | undefined>(props.module.loaded());
   const [failed, setFailed] = createSignal(false);
+  // Runs after the screen's own mount code (its onMount and the microtasks it queued first).
+  const refocus = () => { if (shouldRefocusHost(alive, activeElement(), host)) host?.setFocus(); };
   const load = () => {
     props.module.load().then((c) => {
       if (!alive) return;
-      const hadFocus = host !== undefined && activeElement() === host;
       setComp(() => c);
-      if (hadFocus) queueMicrotask(() => { if (alive) host?.setFocus(); });
+      queueMicrotask(refocus);
     }, (err: unknown) => {
       console.warn('Screen failed to load', err instanceof Error ? err.name : 'Error');
       if (!alive) return;
       setFailed(true);
-      queueMicrotask(() => { if (alive) host?.setFocus(); });
+      queueMicrotask(refocus);
     });
   };
   if (!comp()) load();
