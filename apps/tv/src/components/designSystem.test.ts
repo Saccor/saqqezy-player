@@ -46,4 +46,11 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     gone('components/optionsMenuLogic.ts');
     gone('components/choiceMenu.tsx');
   });
+  it('Sheet replaces ListPicker, and no sheet carries a key-hint footer', () => {
+    gone('components/ListPicker.tsx');
+    gone('components/listPickerLogic.ts');
+    for (const f of ['screens/live/LiveTv.tsx', 'screens/MovieDetail.tsx', 'screens/SeriesDetail.tsx', 'screens/VodBrowse.tsx', 'screens/VodGrid.tsx', 'screens/VodPlay.tsx']) {
+      lacks(f, /Back closes/);
+    }
+  });
 });

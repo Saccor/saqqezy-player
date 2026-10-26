@@ -50,9 +50,6 @@
     "space": 6,
     "string": 2
   },
-  "components/ListPicker.tsx": {
-    "space": 6
-  },
   "components/PointerBar.tsx": {
     "space": 1
   },
@@ -89,9 +86,6 @@
   "components/foldPickerLogic.ts": {
     "string": 1
   },
-  "components/listPickerLogic.ts": {
-    "string": 1
-  },
   "components/wideTileLogic.ts": {
     "string": 2
   },
@@ -125,7 +119,7 @@
     "radius": 2,
     "lineHeight": 1,
     "space": 3,
-    "string": 10
+    "string": 8
   },
   "screens/Placeholder.tsx": {
     "space": 5,
@@ -142,7 +136,7 @@
   },
   "screens/SeriesDetail.tsx": {
     "lineHeight": 1,
-    "string": 10
+    "string": 6
   },
   "screens/Settings.tsx": {
     "space": 4,
@@ -156,18 +150,18 @@
   },
   "screens/VodBrowse.tsx": {
     "space": 1,
-    "string": 3
+    "string": 2
   },
   "screens/VodGrid.tsx": {
     "space": 2,
-    "string": 3
+    "string": 2
   },
   "screens/VodPlay.tsx": {
     "fontSize": 2,
     "radius": 1,
     "lineHeight": 2,
     "space": 7,
-    "string": 33
+    "string": 27
   },
   "screens/addSourceLogic.ts": {
     "string": 20
@@ -191,7 +185,7 @@
   },
   "screens/live/LiveTv.tsx": {
     "space": 1,
-    "string": 2
+    "string": 1
   },
   "screens/live/LiveVideo.tsx": {
     "lineHeight": 1
@@ -200,7 +194,7 @@
     "string": 7
   },
   "screens/live/liveMenu.tsx": {
-    "string": 13
+    "string": 12
   },
   "screens/matchesGridLogic.ts": {
     "string": 2

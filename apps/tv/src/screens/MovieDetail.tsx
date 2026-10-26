@@ -2,9 +2,10 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
-import { FAV_COPY } from '../copy.ts';
+import { FAV_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { POSTER_H } from '../components/PosterTile.tsx';
 import { PosterRow } from '../components/PosterRow.tsx';
 import { pointerMode } from '../input/pointer.ts';
@@ -209,6 +210,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
     removePicker?.();
     closeVersions();
   };
+  const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.playId));
+  const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
   const pickVersion = async (row: PickerRow) => {
     const t = tile();
     dismissVersions();
@@ -279,8 +282,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </View>
       <View zIndex={5}><menu.View /></View>
       <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.playId)}
-          onPick={(row) => void pickVersion(row)} hint="Ok plays · Back closes" />
+        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+          onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
       </Show>
     </View>
   );

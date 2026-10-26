@@ -5,16 +5,15 @@
  * rules live in liveLogic.ts and homeMenuLogic.ts.
  */
 import { Show, View, type ElementNode, type JSX } from '@lightningtv/solid';
-import { createSignal } from 'solid-js';
+import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api } from '../../api.ts';
 import { createSheetChoice } from '../../components/Sheet.tsx';
 import { Sheet } from '../../components/Sheet.tsx';
-import { fromMenuItem } from '../../components/sheetLogic.ts';
+import { fromMenuItem, fromPickerRow } from '../../components/sheetLogic.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
-import { ListPicker } from '../../components/ListPicker.tsx';
-import { favChangedToast, CATCHUP_COPY, SOURCE_COPY } from '../../copy.ts';
+import { favChangedToast, CATCHUP_COPY, LIVE_COPY, SOURCE_COPY } from '../../copy.ts';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { playback } from '../../playback/playback.ts';
 import { sourceOptions } from '../../playback/sourceLogic.ts';
@@ -302,12 +301,16 @@ export function createLiveMenu(d: LiveMenuDeps) {
               pointerEnabled={pointerOn()} />
           </View>
         )}</Show>
-        <Show when={picker()}>{(p) => (
-          <View zIndex={64}>
-            <ListPicker ref={(el) => { pickerNode = el; }} title={`Add "${p().row.name}" to`}
-              rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} pointerEnabled={pointerOn()} />
-          </View>
-        )}</Show>
+        <Show when={picker()}>{(p) => {
+          const pickRows = createMemo(() => pickerRows(p().lists, p().member));
+          const rows = createMemo(() => pickRows().map(fromPickerRow));
+          return (
+            <View zIndex={64}>
+              <Sheet ref={(el) => { pickerNode = el; }} title={LIVE_COPY.addTo(p().row.name)} rows={rows()} backLayerId={PICKER_ID}
+                onSelect={(_, i) => { const r = pickRows()[i]; if (r) void pick(r); }} pointerEnabled={pointerOn()} />
+            </View>
+          );
+        }}</Show>
         <Show when={edit()}>{(e) => {
           let scrim: ElementNode | undefined;
           // A click outside the keyboard is Back (cancel). The keyboard is a screen-layer target, so this backdrop is

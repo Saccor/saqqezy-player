@@ -6,7 +6,8 @@ import { api, onEvent } from '../../api.ts';
 import { DropdownHeader } from '../../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
-import { ListPicker } from '../../components/ListPicker.tsx';
+import { Sheet } from '../../components/Sheet.tsx';
+import { fromPickerRow } from '../../components/sheetLogic.ts';
 import {
   TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
 } from '../../components/foldPickerLogic.ts';
@@ -932,10 +933,13 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
-      <Show when={pickerView()}>{(view) => (
-        <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
-          initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes" />
-      )}</Show>
+      <Show when={pickerView()}>{(view) => {
+        const rows = createMemo(() => view().rows.map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={view().title} rows={rows()} backLayerId={PICKER_ID}
+            initial={view().initial} resetKey={view().key} onSelect={(_, i) => { const r = view().rows[i]; if (r) pick(r); }} />
+        );
+      }}</Show>
       <liveMenu.View />
     </View>
   );

@@ -6,7 +6,8 @@ import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { BadgeRow } from '../components/Badge.tsx';
 import { useNotice } from '../components/Notice.tsx';
@@ -16,7 +17,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
 import { isVodId, journal, playback, player } from '../playback/playback.ts';
-import { CATCHUP_COPY } from '../copy.ts';
+import { CATCHUP_COPY, VOD_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from '../vod/catchupLogic.ts';
@@ -611,6 +612,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     api.setVodTracks(tracksKeyId(p), tracks).catch((err) => console.warn('Track save failed', errName(err)));
   };
 
+  const sheetRows = createMemo(() => rows().map(fromPickerRow));
   const pickTrack = (row: PickerRow) => {
     if (row.kind !== 'list') return;
     if (row.id === DELAY_EARLIER_ROW || row.id === DELAY_LATER_ROW) {
@@ -1570,19 +1572,28 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <VolumeOsd inBar={visible()} />
 
       <Show when={pickerOpen()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack} onAdjust={adjustRow}
-          hint="Ok chooses · Back closes" />
+        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.audioAndSubtitles} rows={sheetRows()} backLayerId={TRACKS_ID}
+          onSelect={(_, i) => { const r = rows()[i]; if (r) pickTrack(r); }}
+          onAdjust={(_, i, d) => { const r = rows()[i]; return r ? adjustRow(r, d) : false; }} />
       </Show>
 
-      <Show when={onlineRows()}>{(list) => (
-        <ListPicker ref={(el) => { onlineNode = el; }} title="Subtitles online" rows={list()} onPick={pickOnline}
-          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
-      )}</Show>
+      <Show when={onlineRows()}>{(list) => {
+        const sheetRows = createMemo(() => list().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { onlineNode = el; }} title={VOD_COPY.subtitlesOnline} rows={sheetRows()} backLayerId={SUB_ONLINE_ID}
+            onSelect={(_, i) => { const r = list()[i]; if (r) pickOnline(r); }}
+            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
+        );
+      }}</Show>
 
-      <Show when={versionPickRows()}>{(list) => (
-        <ListPicker ref={(el) => { versionsNode = el; }} title="Subtitle versions" rows={list()} onPick={pickVersion}
-          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
-      )}</Show>
+      <Show when={versionPickRows()}>{(list) => {
+        const sheetRows = createMemo(() => list().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { versionsNode = el; }} title={VOD_COPY.subtitleVersions} rows={sheetRows()} backLayerId={SUB_VERSIONS_ID}
+            onSelect={(_, i) => { const r = list()[i]; if (r) pickVersion(r); }}
+            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
+        );
+      }}</Show>
 
       <Show when={linkText() !== undefined}>
         <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>

@@ -7,7 +7,8 @@ import { api } from '../api.ts';
 import { Button } from '../components/Button.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { PosterTile } from '../components/PosterTile.tsx';
 import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
@@ -326,6 +327,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
   let removePicker: (() => void) | undefined;
   /** Every category the grid has (Continue watching, Favourites and Recently added included), then the sorts. */
   const pickerRows = (): PickerRow[] => [...categoryRows(cats(), cat()?.id), ...sortRows(sorts(), sort())];
+  const pickerSheetRows = createMemo(() => pickerRows().map(fromPickerRow));
   const openPicker = () => {
     if (picking() || cats().length === 0 || !noOverlay()) return;
     setPicking(true);
@@ -484,8 +486,8 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
       <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerRows()}
-          onPick={pick} hint="Ok picks · Back closes" />
+        <Sheet ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerSheetRows()} backLayerId={CATEGORIES_ID}
+          onSelect={(_, i) => { const r = pickerRows()[i]; if (r) pick(r); }} />
       </Show>
     </View>
   );

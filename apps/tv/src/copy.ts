@@ -127,3 +127,5 @@ export { COMMON_COPY } from './copy/common.ts';
 export { COOLDOWN_COPY, FAILURE_COPY } from './copy/failure.ts';
 export { SHELL_COPY } from './copy/shell.ts';
 export { PLAYER_COPY } from './copy/player.ts';
+export { VOD_COPY } from './copy/vod.ts';
+export { LIVE_COPY } from './copy/live.ts';

@@ -7,7 +7,8 @@ import { api, onEvent } from '../api.ts';
 import { Button } from '../components/Button.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { flagFor } from '../assets/flags/index.ts';
 import { TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
 import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
@@ -613,10 +614,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
       <Show when={pickerView()}>
-        {(view) => (
-          <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
-            initial={view().initial} resetKey={view().key} onPick={(row) => pickCategory(row)} hint="Ok opens · Back closes" />
-        )}
+        {(view) => {
+          const rows = createMemo(() => view().rows.map(fromPickerRow));
+          return (
+            <Sheet ref={(el) => { pickerNode = el; }} title={view().title} rows={rows()} backLayerId={CATEGORIES_ID}
+              initial={view().initial} resetKey={view().key} onSelect={(_, i) => { const r = view().rows[i]; if (r) pickCategory(r); }} />
+          );
+        }}
       </Show>
     </View>
   );

@@ -1,9 +1,11 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createSignal, onCleanup, onMount } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { SeriesView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
+import { VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
@@ -278,6 +280,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     queueMicrotask(() => { if (alive) focusArea('episodes', true); });
   };
   const seasonRows = (): PickerRow[] => seasons().map((s, i) => ({ kind: 'list', id: String(i), label: seasonLabel(s), checked: i === season() }));
+  const seasonSheetRows = createMemo(() => seasonRows().map(fromPickerRow));
 
   // ---- Versions list ----
   const [picking, setPicking] = createSignal(false);
@@ -302,6 +305,8 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     setPicking(false);
     queueMicrotask(() => { if (alive) focusArea('actions', true); });
   }
+  const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.versionId));
+  const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
   const pickVersion = async (row: PickerRow) => {
     removePicker?.();
     closeVersions();
@@ -368,12 +373,12 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       </View>
       <View zIndex={5}><menu.View /></View>
       <Show when={pickingSeason()}>
-        <ListPicker ref={(el) => { seasonPickerNode = el; }} title="Season" rows={seasonRows()}
-          onPick={pickSeason} hint="Ok shows its episodes · Back closes" />
+        <Sheet ref={(el) => { seasonPickerNode = el; }} title={VOD_COPY.season} rows={seasonSheetRows()} backLayerId={SEASONS_ID}
+          onSelect={(_, i) => { const r = seasonRows()[i]; if (r) pickSeason(r); }} />
       </Show>
       <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.versionId)}
-          onPick={(row) => void pickVersion(row)} hint="Ok shows its episodes · Back closes" />
+        <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+          onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
       </Show>
     </View>
   );
