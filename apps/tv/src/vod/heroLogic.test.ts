@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { seasonsText, seriesMetaLine } from './heroLogic.ts';
+import { seasonsText, seriesMetaLine, showsBackdrop } from './heroLogic.ts';
 
 describe('heroLogic', () => {
+  test('backdrop art only off TV: Tizen and webOS draw a flat background instead', () => {
+    expect(showsBackdrop('tizen')).toBe(false);
+    expect(showsBackdrop('webos')).toBe(false);
+    expect(showsBackdrop('desktop')).toBe(true);
+    expect(showsBackdrop('browser')).toBe(true);
+  });
   test('season count: singular, plural, omitted at 0', () => {
     expect(seasonsText(0)).toBe('');
     expect(seasonsText(1)).toBe('1 season');
