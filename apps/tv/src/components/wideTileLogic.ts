@@ -50,3 +50,18 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
   if (sides) out.sides = sides;
   return out;
 }
+
+const SIDES_SEP = '\u0000';
+
+/**
+ * One string for a match's two side names. A tile keyed on it remounts its two lines only when a name changes, not
+ * for every refresh's new array (spec 2026-10-26 §0.3).
+ */
+export function sidesKey(sides: readonly [string, string] | undefined): string | undefined {
+  return sides ? `${sides[0]}${SIDES_SEP}${sides[1]}` : undefined;
+}
+
+export function sidesFromKey(key: string): [string, string] {
+  const i = key.indexOf(SIDES_SEP);
+  return [key.slice(0, i), key.slice(i + 1)];
+}

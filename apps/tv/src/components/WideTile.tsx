@@ -5,7 +5,7 @@ import { FocusRing } from './FocusRing.tsx';
 import { useFocusScale } from '../shell/motion.ts';
 import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { progressOf } from '../screens/homeLogic.ts';
-import { COMPACT_H, COMPACT_W, MATCH_GRID_H, WIDE_H, WIDE_W, wideLines, type WideCell } from './wideTileLogic.ts';
+import { COMPACT_H, COMPACT_W, MATCH_GRID_H, WIDE_H, WIDE_W, sidesFromKey, sidesKey, wideLines, type WideCell } from './wideTileLogic.ts';
 
 export { COMPACT_H, COMPACT_W, MATCH_GRID_H, WIDE_GAP, WIDE_H, WIDE_W, wideSize, type WideCell } from './wideTileLogic.ts';
 
@@ -102,8 +102,11 @@ function CompactBody(props: { image: string | undefined; context: string; main: 
       }>
         <Text x={tx()} y={C_LINE1_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}
           fontSize={TYPE.meta} color={props.live ? COLORS.accent : COLORS.muted}>{props.context}</Text>
-        <Show when={props.sides} keyed fallback={line(C_LINE2_Y, props.main, true, 2)}>
-          {(s) => <>{line(C_LINE2_Y, s[0], true)}{line(C_LINE3_Y, s[1], true)}</>}
+        <Show when={sidesKey(props.sides)} keyed fallback={line(C_LINE2_Y, props.main, true, 2)}>
+          {(k) => {
+            const [a, b] = sidesFromKey(k);
+            return <>{line(C_LINE2_Y, a, true)}{line(C_LINE3_Y, b, true)}</>;
+          }}
         </Show>
         <Show when={props.detail}>{line(C_LINE4_Y, props.detail ?? '', false)}</Show>
       </Show>

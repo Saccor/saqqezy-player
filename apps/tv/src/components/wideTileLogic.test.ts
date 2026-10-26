@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ChannelRow, SportsEventTile } from '@iptv/app-api';
-import { COMPACT_H, MATCH_GRID_H, wideLines, wideSize } from './wideTileLogic.ts';
+import { COMPACT_H, MATCH_GRID_H, sidesFromKey, sidesKey, wideLines, wideSize } from './wideTileLogic.ts';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const chan = (extra: Partial<ChannelRow> = {}): ChannelRow =>
@@ -51,5 +51,17 @@ describe('wideSize', () => {
     expect(wideSize(false)).toEqual({ w: 314, h: 176 });
     expect(wideSize(true)).toEqual({ w: 360, h: 112 });
     expect(MATCH_GRID_H - COMPACT_H).toBe(24);
+  });
+});
+
+describe('sidesKey', () => {
+  test('equal side names from a fresh array give the same key (no remount on refresh)', () => {
+    expect(sidesKey(['Team Alpha', 'Team Bravo'])).toBe(sidesKey(['Team Alpha', 'Team Bravo']));
+    expect(sidesKey(['Team Alpha', 'Team Bravo'])).not.toBe(sidesKey(['Team Alpha', 'Team Charlie']));
+    expect(sidesKey(undefined)).toBeUndefined();
+  });
+  test('round-trips, including empty names', () => {
+    expect(sidesFromKey(sidesKey(['Team Alpha', 'Team Bravo'])!)).toEqual(['Team Alpha', 'Team Bravo']);
+    expect(sidesFromKey(sidesKey(['', ''])!)).toEqual(['', '']);
   });
 });
