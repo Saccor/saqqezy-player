@@ -26,4 +26,11 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     lacks('screens/Player.tsx', /useToastFloor/);
     lacks('screens/VodPlay.tsx', /useToastFloor/);
   });
+  it('Notice replaces CooldownNotice, NumberEntry, OfflineBadge and PhoneBadge', () => {
+    gone('components/CooldownNotice.tsx');
+    gone('components/NumberEntry.tsx');
+    lacks('App.tsx', /function OfflineBadge/);
+    lacks('screens/live/LiveTv.tsx', /function PhoneBadge/);
+    lacks('components/VolumeOsd.tsx', /NumberEntry/);
+  });
 });

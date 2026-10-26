@@ -1,5 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { CooldownNotice } from '../../components/CooldownNotice.tsx';
+import { useNotice } from '../../components/Notice.tsx';
+import { COMMON_COPY } from '../../copy.ts';
 import { MESSAGE_BOXES, messageTop } from '../../components/messageFit.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import { PAUSED_NOTE } from '../../playback/devResume.ts';
@@ -30,6 +31,10 @@ export function LiveVideo(props: { now: number; pausedNote: boolean; onRetry: ()
     props.pausedNote ? PAUSED_NOTE : undefined, activeMaxConnections());
   const failed = () => playing() && playback.status()?.kind === 'failed';
   const notice = () => cooldownCopy(cooldown(), freshNow(props.now));
+  useNotice(() => {
+    const c = notice();
+    return c ? { id: 'live-cooldown', kind: 'error', text: c.text, action: COMMON_COPY.tryAgain, onAction: props.onRetry } : undefined;
+  });
   return (
     <View width={LAYOUT.width} height={LAYOUT.height}>
       <View width={LAYOUT.width} height={R.y} color={COLORS.background} />
@@ -38,9 +43,6 @@ export function LiveVideo(props: { now: number; pausedNote: boolean; onRetry: ()
       <View x={R.x + R.w} y={R.y} width={LAYOUT.width - R.x - R.w} height={R.h} color={COLORS.background} />
       {/* The click area. No colour: it draws nothing, so the hole stays open. */}
       <View ref={(el) => { video = el; }} x={R.x} y={R.y} width={R.w} height={R.h} />
-      <Show when={notice()}>{(c) => (
-        <CooldownNotice x={R.x} y={R.y} width={R.w} height={R.h} text={c().text} hint={c().hint} onRetry={props.onRetry} />
-      )}</Show>
       <Show when={notice() ? undefined : message()}>{(m) => (
         <View x={R.x} y={R.y} width={R.w} height={R.h} borderRadius={RADIUS.card}
           color={failed() || !playing() ? COLORS.surface : COLORS.panel}>

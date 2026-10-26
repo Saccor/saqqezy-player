@@ -2,20 +2,20 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { onUnmappedKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { fractionAt } from '../vod/timelineLogic.ts';
 import { volume, volumeRecent, volumeSet, volumeStep, volumeSupported, volumeToggleMute } from '../video/volume.ts';
 import { volumeKeyStep, volumePercent } from '../video/volumeLogic.ts';
-import { NUMBER_ENTRY_H, NUMBER_ENTRY_Y } from './NumberEntry.tsx';
+import { NOTICE_NUMERAL_H, NOTICE_TOP } from './noticeLogic.ts';
 
 const BAR_H = 8;
 const KNOB = 20;
 const PCT_W = 64;
 const OSD_W = 340;
 const OSD_H = 64;
-/** Below the Player's number entry box (top right, under the clock), so a volume change never covers typed digits. */
-const OSD_Y = NUMBER_ENTRY_Y + NUMBER_ENTRY_H + 16;
+/** Below the number-entry notice (top right, under the clock), so a volume change never covers typed digits. */
+const OSD_Y = NOTICE_TOP + NOTICE_NUMERAL_H + SPACE.m;
 
 /**
  * The volume control: a pill with a speaker (click: mute), a slider (click or drag: set) and the level; the wheel over

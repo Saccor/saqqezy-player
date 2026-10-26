@@ -4,10 +4,8 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CATCHUP_COPY, FAV_COPY, MULTIVIEW_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
-import { CooldownNotice } from '../components/CooldownNotice.tsx';
+import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
-import { NumberEntry } from '../components/NumberEntry.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { useNotice } from '../components/Notice.tsx';
 import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
@@ -545,6 +543,15 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const s = status();
     return s?.kind === 'toast' ? { id: 'player-status', kind: 'wait', text: s.text, spinner: true } : undefined;
   });
+  useNotice(() => {
+    const c = coolCopy();
+    return c ? { id: 'player-cooldown', kind: 'error', text: c.text, action: COMMON_COPY.tryAgain, onAction: () => { void retrySource(); } } : undefined;
+  });
+  useNotice(() => {
+    if (digits()) return { id: 'player-number', kind: 'wait', text: digits(), numeral: true };
+    const f = flash();
+    return f ? { id: 'player-number', kind: 'info', text: f } : undefined;
+  });
   const showClock = () => settings()?.showClock === true;
   const CENTRE_W = 1100;
   const CENTRE_BOX = MESSAGE_BOXES.player;
@@ -568,18 +575,9 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
             </View>
       )}</Show>
 
-      <Show when={coolCopy()}>{(c) => (
-        <CooldownNotice x={(LAYOUT.width - 1100) / 2} y={(LAYOUT.height - 240) / 2} width={1100} height={240}
-          text={c().text} hint={c().hint} fontSize={TYPE.body} onRetry={() => { void retrySource(); }} />
-      )}</Show>
-
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
         <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
       )}</Show>
-
-      <Show when={digits() || flash()}>
-        <NumberEntry text={digits()} message={digits() ? undefined : flash()} />
-      </Show>
 
       <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
         onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}

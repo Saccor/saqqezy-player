@@ -125,3 +125,4 @@ export const COUNTRIES_COPY = {
 } as const;
 export { COMMON_COPY } from './copy/common.ts';
 export { COOLDOWN_COPY, FAILURE_COPY } from './copy/failure.ts';
+export { SHELL_COPY } from './copy/shell.ts';

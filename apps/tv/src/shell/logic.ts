@@ -118,13 +118,6 @@ export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
 
 /**
- * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the
- * Guide narrows that line to end before it while offline.
- */
-export const OFFLINE_BADGE_W = 280;
-export const OFFLINE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - OFFLINE_BADGE_W;
-
-/**
  * The shell Back's x: the row start, except on Search and Settings. Search's full keyboard reaches down to just above
  * the row, so Back goes at the start of its results column (keyboard x + width + two gaps), on the same row. Settings
  * has the rail, so Back starts at the content edge (x 160), clear of it.

@@ -1,9 +1,6 @@
 {
   "App.tsx": {
-    "radius": 1,
-    "border": 1,
-    "space": 2,
-    "string": 2
+    "string": 1
   },
   "components/ActionBar.tsx": {
     "radius": 1,
@@ -61,10 +58,6 @@
   },
   "components/ListPicker.tsx": {
     "space": 6
-  },
-  "components/NumberEntry.tsx": {
-    "border": 1,
-    "space": 2
   },
   "components/OptionsMenu.tsx": {
     "space": 4
@@ -149,7 +142,7 @@
   },
   "screens/Player.tsx": {
     "lineHeight": 1,
-    "space": 3,
+    "space": 1,
     "string": 14
   },
   "screens/Search.tsx": {
@@ -206,9 +199,7 @@
     "space": 1
   },
   "screens/live/LiveTv.tsx": {
-    "radius": 1,
-    "border": 1,
-    "space": 2,
+    "space": 1,
     "string": 2
   },
   "screens/live/LiveVideo.tsx": {

@@ -17,8 +17,6 @@ export const INFO_X = LIVE_PREVIEW_RECT.x + LIVE_PREVIEW_RECT.w + 40;
 export const INFO_W = 764;
 /** The guide's ruler row; rows start 44 px below it. */
 export const GRID_Y = 312;
-/** The companion-phone badge: top right, inside the safe area. */
-export const PHONE_BADGE_POS = { x: LAYOUT.width - LAYOUT.safeX - 144, y: LAYOUT.safeY } as const;
 
 export type LivePlace = 'rail' | 'groups' | 'channels' | 'grid';
 export type LiveKey = 'up' | 'down' | 'left' | 'right' | 'back';

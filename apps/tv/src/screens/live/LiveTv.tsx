@@ -23,6 +23,8 @@ import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { dwellSignal } from '../../shell/dwell.ts';
 import { focusRailCollapsed, Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
+import { useNotice } from '../../components/Notice.tsx';
+import { SHELL_COPY } from '../../copy.ts';
 import { goRail } from '../../shell/railNav.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
@@ -42,7 +44,7 @@ import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
 import {
-  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen, locateFocus,
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen, locateFocus,
   sameInfo, type LiveKey, type LivePlace,
 } from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
@@ -113,20 +115,6 @@ function leaveWarm(cache: EpgCache<ChannelRow, ProgrammeLite>): void {
 /** The first Live TV mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
 
-const PHONE_BADGE_W = 144;
-const PHONE_BADGE_H = 48;
-
-/** "Phone": shown while a companion is connected (Settings → Manage on phone or computer). */
-function PhoneBadge() {
-  return (
-    <View x={PHONE_BADGE_POS.x} y={PHONE_BADGE_POS.y} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
-      borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.subtle }}>
-      <Text y={(PHONE_BADGE_H - TYPE.meta) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
-        textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>{'Phone'}</Text>
-    </View>
-  );
-}
-
 /**
  * Live TV (UI revamp phase 2): one guide. A mini preview (top left) with the focused programme beside it, and a
  * full-width EPG grid below: 11 rows x 2 h, the group dropdown in the ruler's channel column. Rows come from
@@ -139,6 +127,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     channelId?: string; groupId?: string; at?: number;
   };
   const opened = Date.now();
+  useNotice(() => (showPhoneBadge(companionStatus()) ? { id: 'phone', kind: 'wait', text: SHELL_COPY.phone } : undefined));
   const sourceId = initState()?.activeSourceId;
   // The source's catch-up days as last seen (same source), so the window is wide from the first frame and a remembered
   // time days back (a return from catch-up) is kept; read again on mount.
@@ -939,7 +928,6 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
           onFocusChanged={(f) => { if (f) setPlace('groups'); }} />
       </Show>
 
-      <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
 
       {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
