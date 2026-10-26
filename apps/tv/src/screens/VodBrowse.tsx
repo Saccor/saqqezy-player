@@ -6,7 +6,8 @@ import { VOD_ALL } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { Button } from '../components/Button.tsx';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
-import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
+import { InfoBlock } from '../components/InfoBlock.tsx';
+import { INFO_STRIP } from '../components/infoBlockLogic.ts';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
 import { flagFor } from '../assets/flags/index.ts';
@@ -556,7 +557,8 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <Rail ref={(el) => { railNode = el; }} active={tabOfKind(kind)} onSelect={(t) => goRail(tabOfKind(kind), t, () => router.back({ fromVod: true }))}
         onRight={() => focusArea(rows().length > 0 ? 'rows' : 'header')} onFocusChanged={(f) => { if (f) choose('rail'); }} />
       {/* The catalogue status while there is one, else the plot. */}
-      <InfoStrip title={stripTile()?.title ?? ''} meta={stripMeta()} plot={statusLine() || heroDetail()?.plot} />
+      <InfoBlock x={INFO_STRIP.x} y={INFO_STRIP.y} width={INFO_STRIP.w} title={stripTile()?.title ?? ''} meta={stripMeta() || undefined}
+        description={statusLine() || heroDetail()?.plot} fadeOnTitle />
       <Show when={hasHeader()}>
         {/* Above the backdrop's scrims (zIndex 1). */}
         <View zIndex={4}>
@@ -568,7 +570,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
 
       <Show when={status() === 'ready'} fallback={
         <View zIndex={2} onLeft={() => focusArea('rail')}>
-          <Text x={ROW_X} y={STRIP_Y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
+          <Text x={ROW_X} y={INFO_STRIP.y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
             fontSize={TYPE.title} color={COLORS.text}>{message()}</Text>
           {/* First load: skeleton rows (a label bar and poster placeholders) stand in for the rows (spec §3.7). */}
           <Show when={skeletonShown(status(), rows().length)}>

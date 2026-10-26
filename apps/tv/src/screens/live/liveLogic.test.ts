@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
-  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs, livePlaceOnOpen,
+  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs, livePlaceOnOpen, liveChannelLine, liveProgramme,
 } from './liveLogic.ts';
 import { TYPE } from '../../shell/theme.ts';
 
@@ -308,5 +308,25 @@ describe('livePlaceOnOpen', () => {
     expect(livePlaceOnOpen({ hasTarget: true, fromCatchup: false })).toBe('grid');
     expect(livePlaceOnOpen({ hasTarget: false, fromCatchup: true })).toBe('grid');
     expect(livePlaceOnOpen({ hasTarget: true, fromCatchup: true })).toBe('grid');
+  });
+});
+
+describe('liveProgramme and liveChannelLine (the focused programme block)', () => {
+  const ch = { id: 'c1', number: 7, name: 'Demo News', group: 'g', favourite: false, now: { title: 'Row now', start: 0, stop: 10 } };
+  const block = { start: 0, stop: 10, title: 'Block now', filler: false };
+  test('a real block wins over the row now', () => {
+    expect(liveProgramme(block, ch)?.title).toBe('Block now');
+  });
+  test('a filler block counts as none', () => {
+    expect(liveProgramme({ ...block, filler: true }, ch)).toBeUndefined();
+  });
+  test('no block falls back to the channel now', () => {
+    expect(liveProgramme(undefined, ch)?.title).toBe('Row now');
+    expect(liveProgramme(undefined, { ...ch, now: undefined })).toBeUndefined();
+  });
+  test('the channel line: number and name, plus sources for a combined channel; empty with no channel', () => {
+    expect(liveChannelLine(ch)).toBe('7 · Demo News');
+    expect(liveChannelLine({ ...ch, sourceCount: 3, quality: '4K' })).toBe('7 · Demo News · 4K · 3 sources');
+    expect(liveChannelLine(undefined)).toBe('');
   });
 });

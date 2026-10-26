@@ -17,12 +17,13 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
 import { isVodId, journal, playback, player } from '../playback/playback.ts';
-import { CATCHUP_COPY, VOD_COPY } from '../copy.ts';
+import { CATCHUP_COPY, PLAYER_COPY, VOD_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from '../vod/catchupLogic.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
-import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { InfoBlock } from '../components/InfoBlock.tsx';
+import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
 import { staticCaps } from '@iptv/player';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
@@ -1499,7 +1500,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={infoOn()}>
-        <StreamInfoPanel lines={infoLines()} />
+        <KeyValuePanel x={LAYOUT.safeX} y={LAYOUT.safeY} width={600} title={PLAYER_COPY.streamInfo} lines={infoLines()} framed />
       </Show>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
@@ -1518,12 +1519,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <Show when={visible()}>
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
           <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
-          <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
-            fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{title}</Text>
-          <Show when={label}>
-            <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
-              maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
-          </Show>
+          <InfoBlock x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} title={title} meta={label || undefined} />
           <BadgeRow x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
           <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
             posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}

@@ -5,11 +5,11 @@ import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, PLAYER_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
-import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
 import { useNotice } from '../components/Notice.tsx';
-import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
+import { PlayerBanner } from './playerBanner.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { VolumeOsd } from '../components/VolumeOsd.tsx';
 import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/pointer.ts';
@@ -578,7 +578,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
-        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
+        <PlayerBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
       )}</Show>
 
       <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
@@ -590,7 +590,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       <VolumeOsd inBar={overlayShown()} onHoverChange={setOverVolume} />
 
       <Show when={infoOn()}>
-        <StreamInfoPanel lines={infoLines()} />
+        <KeyValuePanel x={LAYOUT.safeX} y={LAYOUT.safeY} width={600} title={PLAYER_COPY.streamInfo} lines={infoLines()} framed />
       </Show>
 
       <Show when={menuPage()} keyed>{(page) => (

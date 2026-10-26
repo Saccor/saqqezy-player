@@ -6,4 +6,5 @@ export const PLAYER_COPY = {
   keepWatching: 'Keep watching',
   audioTrack: 'Audio track',
   options: 'Options',
+  streamInfo: 'Stream info',
 } as const;

@@ -26,14 +26,6 @@
   "components/EventChannels.tsx": {
     "space": 4
   },
-  "components/InfoBanner.tsx": {
-    "radius": 2,
-    "space": 3,
-    "string": 1
-  },
-  "components/InfoStrip.tsx": {
-    "lineHeight": 1
-  },
   "components/Keyboard.tsx": {
     "radius": 1,
     "border": 1,
@@ -45,10 +37,6 @@
   },
   "components/SettingsList.tsx": {
     "space": 8
-  },
-  "components/StreamInfoPanel.tsx": {
-    "space": 2,
-    "string": 1
   },
   "components/TextField.tsx": {
     "space": 4
@@ -164,11 +152,6 @@
   "screens/journalLogic.ts": {
     "string": 33
   },
-  "screens/live/LiveInfo.tsx": {
-    "radius": 2,
-    "lineHeight": 1,
-    "space": 1
-  },
   "screens/live/LiveTv.tsx": {
     "space": 1,
     "string": 1
@@ -220,7 +203,6 @@
     "space": 1
   },
   "screens/settings/DiagnosticsPage.tsx": {
-    "space": 1,
     "string": 8
   },
   "screens/settings/DisplayPage.tsx": {

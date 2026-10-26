@@ -38,15 +38,15 @@ import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache } from '../epgCache.ts';
 import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
-  guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
+  NO_INFO, guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
-import { resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
+import { progressOf, resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
 import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
-import { LiveInfo } from './LiveInfo.tsx';
+import { InfoBlock } from '../../components/InfoBlock.tsx';
 import {
-  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen, locateFocus,
-  sameInfo, type LiveKey, type LivePlace,
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, groupsRetryMs, hasNoLive, infoTimeLine, liveChannelLine, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen,
+  liveProgramme, locateFocus, sameInfo, timeLeftLabel, type LiveKey, type LivePlace,
 } from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
 import { createLiveMenu } from './liveMenu.tsx';
@@ -280,6 +280,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     return { channel, block: onNow && isOnAir(onNow, now()) ? onNow : undefined };
   }, undefined, { equals: sameInfo });
   const shown = dwellSignal(infoSource);
+  /** The focused programme block's values (the programme, its time line, on-air progress). */
+  const liveProg = () => liveProgramme(shown()?.block, shown()?.channel);
+  const onAir = () => { const p = liveProg(); return p !== undefined && isOnAir(p, now()); };
+  const onAirProgress = () => (onAir() ? progressOf(liveProg(), now()) : undefined);
 
   // ---- focus ----
 
@@ -908,7 +912,11 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         onRight={() => go('right')} onFocusChanged={(f) => { if (f) setPlace('rail'); }} />
 
       <Show when={ready() && groupCount() === 0} fallback={
-        <LiveInfo block={shown()?.block} channel={shown()?.channel} now={now()} expanded={expanded()} />
+        <InfoBlock x={INFO_X} y={LAYOUT.safeY} width={INFO_W} overline={liveChannelLine(shown()?.channel)}
+          title={liveProg()?.title ?? NO_INFO}
+          meta={liveProg() ? infoTimeLine(liveProg()!.start, liveProg()!.stop, now()).text : undefined}
+          progress={onAirProgress()} trailing={onAir() ? timeLeftLabel(liveProg()!.stop, now()) : undefined}
+          description={liveProg()?.desc} descriptionLines={expanded() ? 3 : 1} />
       }>
         <Text x={INFO_X} y={LAYOUT.safeY + 36} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3}
           fontSize={TYPE.body} color={COLORS.muted}>{emptyText()}</Text>

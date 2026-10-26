@@ -1,11 +1,13 @@
-import { For, Show, Text, View } from '@lightningtv/solid';
+import { Show, View } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
+import { KeyValuePanel } from '../../components/KeyValuePanel.tsx';
+import { KV_LINE_H } from '../../components/infoBlockLogic.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { deviceRefusal, deviceWindowMax, journal, playback, supervisor, testMultiviewAgain } from '../../playback/playback.ts';
 import { deviceWindowsLine } from '../../playback/deviceWindows.ts';
 import { debugOverlayVisible, setDebugOverlayVisible } from '../../shell/DebugOverlay.tsx';
-import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
+import { LAYOUT, SPACE } from '../../shell/theme.ts';
 import { platformId } from '../../state/appState.ts';
 import { readDeviceInfo } from '../../platform/deviceInfo.ts';
 import { diagnosticsLines, liveLines, onOff } from '../settingsLogic.ts';
@@ -13,9 +15,6 @@ import { journalSummary } from '../journalLogic.ts';
 import { ConnectionsView } from './ConnectionsView.tsx';
 import { PlaybackLogView } from './PlaybackLogView.tsx';
 import type { PageProps } from './shared.ts';
-
-const LINE_H = 38;
-const LABEL_W = 300;
 
 /**
  * Diagnostics: app version, platform, sources with counts and times, the last errors and the settings, built
@@ -66,7 +65,7 @@ export function DiagnosticsPage(props: PageProps) {
   onCleanup(() => { alive = false; props.register(undefined); });
 
   const linesY = () => SETTING_ROW_H * rows() + LAYOUT.gap;
-  const maxLines = () => Math.floor((props.height - linesY()) / LINE_H);
+  const maxLines = () => Math.floor((props.height - linesY()) / KV_LINE_H);
   return (
     <View x={props.x} y={props.y} width={props.width} height={props.height}>
       <Show when={view() === 'list'} fallback={view() === 'log'
@@ -76,14 +75,7 @@ export function DiagnosticsPage(props: PageProps) {
         <SettingsList ref={props.register} x={0} y={0} width={props.width} height={SETTING_ROW_H * rows()}
           items={items()} selected={sel()} onSelect={setSel} onAdjust={(id) => toggle(id)} onOk={ok}
           onLeftEdge={props.onLeftEdge} />
-        <For each={lines().slice(0, maxLines())}>{(line, i) => (
-          <View x={28} y={linesY() + i() * LINE_H} width={props.width - 56} height={LINE_H}>
-            <Text width={LABEL_W - 16} maxWidth={LABEL_W - 16} contain="width" maxLines={1} fontSize={TYPE.meta}
-              color={COLORS.muted}>{line[0]}</Text>
-            <Text x={LABEL_W} width={props.width - 56 - LABEL_W} maxWidth={props.width - 56 - LABEL_W} contain="width"
-              maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{line[1]}</Text>
-          </View>
-        )}</For>
+        <KeyValuePanel x={SPACE.l} y={linesY()} width={props.width - SPACE.xl} lines={lines()} maxLines={maxLines()} />
       </Show>
     </View>
   );

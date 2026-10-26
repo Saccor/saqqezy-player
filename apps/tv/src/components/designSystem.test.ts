@@ -69,4 +69,9 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     lacks('components/CountryGrid.tsx', /function Chip\(/);
     lacks('screens/AddSource.tsx', /function TypeTile\(/);
   });
+  it('InfoBlock and KeyValuePanel replace InfoStrip, LiveInfo, InfoBanner and StreamInfoPanel', () => {
+    there('components/InfoBlock.tsx');
+    there('components/KeyValuePanel.tsx');
+    for (const f of ['components/InfoStrip.tsx', 'screens/live/LiveInfo.tsx', 'components/InfoBanner.tsx', 'components/StreamInfoPanel.tsx']) gone(f);
+  });
 });

@@ -1,10 +1,12 @@
 /** Live TV (UI revamp phase 2): the merged channel guide's pure layout, keys, OK and menu rules. */
 import { keyTableFor, mapKey } from '@iptv/platform';
 import type { Rect } from '@iptv/player';
+import type { ChannelRow } from '@iptv/app-api';
 import { CATCHUP_COPY, LIVE_MENU_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { LAYOUT, TYPE } from '../../shell/theme.ts';
 import { guideOkAction } from '../../vod/catchupLogic.ts';
-import { dayLabel } from '../guideLogic.ts';
+import { dayLabel, type Block } from '../guideLogic.ts';
+import { sourcesLine } from '../../playback/sourceLogic.ts';
 import { formatRange, pickGroup, type GroupLite } from '../homeLogic.ts';
 import { buildChannelMenu, emptyGroupText, type ChannelMenuAction, type ListLite } from '../homeMenuLogic.ts';
 
@@ -88,6 +90,20 @@ export function timeLeftLabel(stop: number, now: number): string {
   const m = mins % 60;
   if (h === 0) return `${m} min left`;
   return m === 0 ? `${h} h left` : `${h} h ${m} min left`;
+}
+
+/** The programme the focused-programme block shows: a real block, else the row's now; a filler counts as none. */
+export function liveProgramme(block: Block | undefined, channel: ChannelRow | undefined): { start: number; stop: number; title: string; desc?: string } | undefined {
+  if (block && !block.filler) return block;
+  if (!block) return channel?.now;
+  return undefined;
+}
+
+/** "{number} · {channel}", plus "4K · 3 sources" for a combined channel; '' with no channel. */
+export function liveChannelLine(c: ChannelRow | undefined): string {
+  if (!c) return '';
+  const sources = sourcesLine(c.quality, c.sourceCount);
+  return sources ? `${c.number} · ${c.name} · ${sources}` : `${c.number} · ${c.name}`;
 }
 
 /**
