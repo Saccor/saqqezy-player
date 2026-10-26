@@ -125,3 +125,6 @@ export const COUNTRIES_COPY = {
   languageLine: (name: string): string => `Audio and subtitles: ${name} first`,
   folders: (n: number): string => `${n} ${n === 1 ? 'folder' : 'folders'}`,
 } as const;
+
+/** A lazily loaded screen whose code could not be loaded (spec 2026-10-26, error handling). */
+export const LAZY_COPY = { failed: "Couldn't open this screen", retry: 'Try again' } as const;

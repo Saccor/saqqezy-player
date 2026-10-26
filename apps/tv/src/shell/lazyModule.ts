@@ -1,0 +1,50 @@
+import type { Component } from 'solid-js';
+import type { ScreenId } from './router.ts';
+
+/** Props of a lazily loaded screen (Solid's `Component` needs an object-like props type). */
+export type ScreenProps = Record<string, unknown>;
+
+/** A screen module loaded on first use (or earlier, in idle time). */
+export interface LazyModule<P extends ScreenProps> { load(): Promise<Component<P>>; loaded(): Component<P> | undefined }
+
+/** Imports once and caches; concurrent loads share one import; a failed import can be tried again. */
+export function lazyModule<P extends ScreenProps>(importer: () => Promise<Component<P>>): LazyModule<P> {
+  let comp: Component<P> | undefined;
+  let pending: Promise<Component<P>> | undefined;
+  return {
+    load() {
+      if (comp) return Promise.resolve(comp);
+      pending ??= importer().then(
+        (c) => { comp = c; return c; },
+        (err: unknown) => { pending = undefined; throw err; },
+      );
+      return pending;
+    },
+    loaded: () => comp,
+  };
+}
+
+/** Loads `mods` one per `schedule` slot (idle time), so a rare screen's first open does not compile on the key. */
+export async function preloadInTurn(mods: ReadonlyArray<{ load(): Promise<unknown> }>, schedule: (run: () => void) => void): Promise<void> {
+  for (const m of mods) {
+    await new Promise<void>((resolve) => schedule(resolve));
+    await m.load().catch(() => undefined);
+  }
+}
+
+/**
+ * Rare screens, loaded on first use (spec 2026-10-26 §0.3), in idle-preload order. Settings carries its pages and the
+ * pairing page (with the QR library). Order: most likely first.
+ */
+export const LAZY_SCREENS = ['settings', 'countries', 'multiview'] as const satisfies readonly ScreenId[];
+export type LazyScreenId = (typeof LAZY_SCREENS)[number];
+
+/**
+ * Screens a cold start or a key on the first frame can show: never lazy (Watch and the guide live in `home`; Add
+ * source is the first screen on a first run).
+ */
+export const FIRST_FRAME_SCREENS: readonly ScreenId[] = ['home', 'player', 'start', 'vod', 'vodGrid', 'search', 'addSource'];
+
+export function isLazyScreen(id: ScreenId): id is LazyScreenId {
+  return (LAZY_SCREENS as readonly ScreenId[]).includes(id);
+}
