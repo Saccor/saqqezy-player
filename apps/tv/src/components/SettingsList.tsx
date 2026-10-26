@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal } from 'solid-js';
 import { pointerMode, usePointerFocus, usePointerTarget, type Point } from '../input/pointer.ts';
 import { rowHit } from '../input/pointerLogic.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { firstSelectable, renderRange, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
 export interface SettingItem {

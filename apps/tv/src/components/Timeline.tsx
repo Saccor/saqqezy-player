@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { jumpLabel, type Scrub } from '../vod/seekLogic.ts';
 import { bubbleX, fractionAt } from '../vod/timelineLogic.ts';
 import { clock } from '../vod/vodPlayerLogic.ts';

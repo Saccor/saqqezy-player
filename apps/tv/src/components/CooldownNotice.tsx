@@ -1,6 +1,6 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 import { stackedMessage } from './messageFit.ts';
 
 /**

@@ -3,7 +3,7 @@ import type { ProgrammeHit } from '@iptv/app-api';
 import { imageSrc } from '../images/imageSrc.ts';
 import { FocusRing } from './FocusRing.tsx';
 import { useFocusScale } from '../shell/motion.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { progressOf } from '../screens/homeLogic.ts';
 import { COMPACT_H, COMPACT_W, MATCH_GRID_H, WIDE_H, WIDE_W, wideLines, type WideCell } from './wideTileLogic.ts';
 

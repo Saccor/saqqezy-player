@@ -4,7 +4,7 @@ import type { CountryChoice } from '@iptv/app-api';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { motionLevel, tween, useFocusScale } from '../shell/motion.ts';
-import { COLORS, FOCUS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, FOCUS, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { FocusRing } from './FocusRing.tsx';
 import {
   CHIP, ROW_PITCH, DEVICE_CHIP_BOXES, CHIP_BOXES, cellAt, chipArt, chipLabel, choiceFolders, clampFocus, firstFocus, gridRows, keyAt, moveGrid, pickNumber,

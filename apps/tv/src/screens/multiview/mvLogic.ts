@@ -1,5 +1,6 @@
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import type { WindowNote } from '../../playback/windowNotes.ts';
+import { MOTION } from '../../shell/theme.ts';
 import type { Layout, LayoutInput, Rect } from './layout.ts';
 
 /**
@@ -36,7 +37,7 @@ export interface MvState {
 }
 
 export const SOUND_REST_MS = 400;
-export const CHROME_IDLE_MS = 4000;
+export const CHROME_IDLE_MS = MOTION.autoHide;
 
 export type MenuId = 'fullScreen' | 'makeLarge' | 'equalSize' | 'addChannel' | 'changeChannel' | 'keepSound' | 'soundFollows' | 'closeWindow';
 export interface MenuItem { id: MenuId; label: string; disabled?: string }

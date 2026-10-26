@@ -5,7 +5,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
-import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';

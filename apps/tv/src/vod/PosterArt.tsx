@@ -4,7 +4,7 @@ import { FocusRing } from '../components/FocusRing.tsx';
 import { posterCache } from '../components/posterCache.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { fadeInLoaded, motionNow } from '../shell/motion.ts';
-import { COLORS, LAYOUT, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;

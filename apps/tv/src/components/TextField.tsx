@@ -2,7 +2,7 @@ import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { maskSecret } from '../screens/addSourceLogic.ts';
-import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 import { visibleTail } from './keyboardLogic.ts';
 
 export const FIELD_H = 100;

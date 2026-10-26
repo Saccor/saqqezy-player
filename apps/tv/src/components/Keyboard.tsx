@@ -2,7 +2,7 @@ import { For, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { captureTextInput } from '../input/keys.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 import { fieldDisplay } from './TextField.tsx';
 import {
   FULL_LAYOUT, TEXT_LAYOUT, applyKey, keyAt, keyLabel, moveCursor, textEntryKey, type Cursor, type Direction, type KeyDef, type KeyboardLayout,

@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, on } from 'solid-js';
 import type { EpisodeView } from '@iptv/app-api';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { stopMotion, tween, useFocusScale } from '../shell/motion.ts';
-import { COLORS, LAYOUT, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
 import { PosterArt } from '../vod/PosterArt.tsx';
 import { cardAt, episodeMeta } from '../vod/seriesDetailLogic.ts';
 import { renderRange, scrollTopFor } from './virtualWindow.ts';
