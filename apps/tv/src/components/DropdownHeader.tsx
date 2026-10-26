@@ -2,7 +2,7 @@ import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { controlFill, controlText, isLit } from '../shell/focusStyle.ts';
-import { COLORS, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { CHEVRON, dropdownWidth, GAP, PAD_X } from './dropdownLogic.ts';
 
@@ -49,7 +49,7 @@ export function DropdownHeader(props: {
       onEnter={() => { props.onPress(); return true; }}
       onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown?.() ?? false}
       onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? true}>
-      <Text x={PAD_X} y={(h() - size()) / 2 - 3} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
+      <Text x={PAD_X} y={centerText(h(), size())} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={size()} {...STRONG} color={ink()}>{props.label}</Text>
       <View x={w() - PAD_X - CHEVRON} y={(h() - CHEVRON) / 2} width={CHEVRON} height={CHEVRON}
         src={iconTexture('chevron')} color={lit() ? COLORS.onFocus : COLORS.subtle} />

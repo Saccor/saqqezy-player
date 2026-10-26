@@ -27,7 +27,7 @@ import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
 import { staticCaps } from '@iptv/player';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { BACKGROUND_RGB, COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { platformId, settings } from '../state/appState.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
@@ -97,11 +97,14 @@ const TRACKS_W = 320;
 const NEXT_W = 280;
 /** The volume control at the row's left end (desktop only: TVs keep their remote's volume). */
 const VOLUME_W = 300;
-const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
 const SUB_OUTLINE_COLOR = COLORS.panel;
-/** Subtitle text size on the video (a user-facing size, not a UI type-scale step). */
-const SUB_FONT = 40;
+/** The live-edge mark on a catch-up timeline. */
+const CATCHUP_W = 4;
+const CATCHUP_H = 28;
+/** The x of the live-edge mark for a seek limit on a timeline of the given duration. */
+const liveEdgeX = (limitMs: number, durMs: number | undefined): number =>
+  CONTENT_X + Math.round((CONTENT_W * limitMs) / Math.max(1, durMs ?? 1)) - CATCHUP_W / 2;
 const CARD_W = 1000;
 const CARD_H = 260;
 /** The card's text area, between its top margin (24) and its buttons (y 148). */
@@ -1480,7 +1483,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     return { text, box: MESSAGE_BOXES.vodCard };
   });
   const subLines = () => cue().split('\n').length;
-  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
+  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * LINE.title;
   useNotice(() => (statusText() && !failed() && !notAvail() && !endCard()
     ? { id: 'vod-status', kind: 'wait', text: statusText(), spinner: false } : undefined));
 
@@ -1509,10 +1512,10 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <View zIndex={5}>
           <For each={SUB_OUTLINE}>{([dx, dy]) => (
             <Text x={CONTENT_X + dx} y={subY() + dy} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-              maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
+              maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
           )}</For>
           <Text x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-            maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+            maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={COLORS.text}>{cue()}</Text>
         </View>
       </Show>
 
@@ -1528,8 +1531,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             onPointerSeek={pointerSeek} onDrag={onDrag} onHover={bump} />
           {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
           <Show when={cu && now() < (cur() ?? cu).stop}>
-            <View x={CONTENT_X + Math.round((CONTENT_W * seekLimitMs(cur() ?? cu!, now())) / Math.max(1, p.durationMs ?? 1)) - 2}
-              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.accent} borderRadius={2} />
+            <View x={liveEdgeX(seekLimitMs(cur() ?? cu!, now()), p.durationMs)}
+              y={TIMELINE_Y + TIMELINE_H / 2 - CATCHUP_H / 2} width={CATCHUP_W} height={CATCHUP_H} color={COLORS.accent} borderRadius={RADIUS.pill(CATCHUP_W)} />
           </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={TYPE.meta} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
@@ -1549,15 +1552,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
-        <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
+        <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - SPACE.xl * 2 - SPACE.l} width={CARD_W} height={CARD_H}
           color={COLORS.surface} borderRadius={RADIUS.card}>
           {/* The text area above the buttons: y 24 to 148. */}
-          <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
-            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
+          <Text x={SPACE.xl} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - SPACE.xl * 2} maxWidth={CARD_W - SPACE.xl * 2}
+            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={LINE.body}
             fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
-              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}
+              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - SPACE.xl}
               actions={cardActions()} onAction={onCardAction} />
           </Show>
         </View>

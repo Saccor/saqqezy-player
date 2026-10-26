@@ -8,7 +8,7 @@ import { CountryGrid } from '../components/CountryGrid.tsx';
 import { gridWidth, type GridSort } from '../components/countryGridLogic.ts';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { settings } from '../state/appState.ts';
 import { languageName } from '../vod/tracks.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
@@ -121,7 +121,7 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
         </>
       )}</Show>
       <Show when={showLanguages()}>
-        <Text x={X} y={LANG_Y + (BUTTON_H - TYPE.body) / 2 - 4} width={GRID_W - BUTTON_W - LAYOUT.gap}
+        <Text x={X} y={LANG_Y + centerText(BUTTON_H, TYPE.body)} width={GRID_W - BUTTON_W - LAYOUT.gap}
           maxWidth={GRID_W - BUTTON_W - LAYOUT.gap} contain="width" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
           {languageLine(langs(), languageName) ?? ''}
         </Text>

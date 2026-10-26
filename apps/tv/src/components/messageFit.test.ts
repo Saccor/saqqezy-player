@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { failureText } from '../playback/failureText.ts';
 import { COOLDOWN_TEXT } from '../state/cooldownLogic.ts';
+import { LINE } from '../shell/theme.ts';
 import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from './messageFit.ts';
 
 describe('stackedMessage', () => {
@@ -65,8 +66,8 @@ describe('MESSAGE_BOXES', () => {
     for (const m of failures()) expect(fitsBox(m, MESSAGE_BOXES.vodCard), m).toBe(true);
   });
 
-  it('all boxes draw body text (26) on 32 px lines', () => {
-    for (const [key, b] of Object.entries(MESSAGE_BOXES)) expect(b.lineH, key).toBe(32);
+  it('all boxes draw body text on LINE.body lines', () => {
+    for (const [key, b] of Object.entries(MESSAGE_BOXES)) expect(b.lineH, key).toBe(LINE.body);
     expect(Object.keys(MESSAGE_BOXES)).not.toContain('vodCardSmall');
   });
 

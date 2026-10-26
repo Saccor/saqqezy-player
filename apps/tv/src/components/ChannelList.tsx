@@ -6,7 +6,7 @@ import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { ROW_OPTIONS_H, ROW_OPTIONS_LABEL, ROW_OPTIONS_PAD, ROW_OPTIONS_W, rowAt, rowTextEnd } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { formatRange, progressOf } from '../screens/homeLogic.ts';
-import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LINE, RADIUS, SPACE, TYPE } from '../shell/theme.ts';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
@@ -16,6 +16,8 @@ const NUM_W = 76;
 const LOGO_W = 104;
 const LOGO_H = 60;
 const BAR_H = 4;
+/** A row's drawn height: the row pitch less the gap between rows. */
+const BODY_H = ROW_H - SPACE.s;
 const ROW_FOCUS_FILL = COLORS.focus;
 const TRACK = COLORS.track;
 /** The `⋯` options button at the right end of the hovered row (pointer mode). */
@@ -30,16 +32,16 @@ function Logo(props: { x: number; y: number; url: string | undefined; number: nu
   // failed load is remembered by URL: that URL shows the number tile, the next channel's logo loads as usual.
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   return (
-    <View x={props.x} y={props.y} width={LOGO_W} height={LOGO_H} borderRadius={8}
+    <View x={props.x} y={props.y} width={LOGO_W} height={LOGO_H} borderRadius={RADIUS.card}
       color={props.focused ? COLORS.focus : COLORS.surface}>
       <Show when={logoKey(props.url, failedUrl(), (u) => logoCache.usable(u))} keyed fallback={
-        <Text y={(LOGO_H - TYPE.meta) / 2 - 2} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
+        <Text y={centerText(LOGO_H, TYPE.meta)} width={LOGO_W} maxWidth={LOGO_W} contain="width" textAlign="center"
           fontSize={TYPE.meta} color={props.focused ? COLORS.onFocusMuted : COLORS.muted}>{`${props.number}`}</Text>
       }>
         {(url) => {
           logoCache.touch(url);
           return (
-            <View x={4} y={4} width={LOGO_W - 8} height={LOGO_H - 8} src={imageSrc(url, LOGO_W - 8, LOGO_H - 8)}
+            <View width={LOGO_W} height={LOGO_H} src={imageSrc(url, LOGO_W, LOGO_H)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
@@ -73,26 +75,26 @@ function ChannelRowView(props: {
     return `${formatRange(n.start, n.stop)} · ${n.title}`;
   };
   return (
-    <View x={0} y={props.y} width={props.width} height={ROW_H - 6} color={fill()} borderRadius={RADIUS.card}>
+    <View x={0} y={props.y} width={props.width} height={BODY_H} color={fill()} borderRadius={RADIUS.card}>
       {/* Five digits and more (lists of 10,000+ channels) at a smaller size: at body size they are wider than the column. */}
-      <Text x={12} y={(ROW_H - 6 - numSize()) / 2 - 3} width={NUM_W - 16} maxWidth={NUM_W - 16} contain="width" maxLines={1}
+      <Text x={SPACE.s} y={centerText(BODY_H, numSize())} width={NUM_W - SPACE.m} maxWidth={NUM_W - SPACE.m} contain="width" maxLines={1}
         textAlign="right" fontSize={numSize()} color={textSub()}>{`${r()?.number ?? ''}`}</Text>
       {/* Not keyed on the row object: the logo is keyed on its URL inside, so a refetch of the same channel keeps the texture. */}
       <Show when={r()}>
-        <Logo x={NUM_W} y={(ROW_H - 6 - LOGO_H) / 2} url={r()?.logo} number={r()?.number ?? 0} focused={props.lit} />
+        <Logo x={NUM_W} y={(BODY_H - LOGO_H) / 2} url={r()?.logo} number={r()?.number ?? 0} focused={props.lit} />
       </Show>
       <Text x={textX} y={8} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={TYPE.body} color={textMain()}>
         {`${r()?.name ?? 'Loading…'}${r()?.id === props.playingId && r() ? ' ▶' : ''}`}
       </Text>
-      <Text x={textX} y={42} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
+      <Text x={textX} y={SPACE.s + LINE.body} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={TYPE.meta} color={textSub()}>{nowLine()}</Text>
       <Show when={props.tag}>{(t) => (
-        <Text x={textX + textW() + 16} y={(ROW_H - 6 - TYPE.meta) / 2 - 2} width={TAG_W} maxWidth={TAG_W} contain="width"
+        <Text x={textX + textW() + SPACE.m} y={centerText(BODY_H, TYPE.meta)} width={TAG_W} maxWidth={TAG_W} contain="width"
           maxLines={1} textAlign="right" fontSize={TYPE.meta} color={textSub()}>{t()}</Text>
       )}</Show>
       <Show when={r()?.now}>
-        <View x={textX} y={ROW_H - 6 - BAR_H - 4} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusMuted : TRACK}>
+        <View x={textX} y={BODY_H - BAR_H} width={textW()} height={BAR_H} color={props.lit ? COLORS.onFocusMuted : TRACK}>
           <View width={Math.round(textW() * progressOf(r()?.now, props.now))} height={BAR_H}
             color={props.lit ? COLORS.onFocus : COLORS.accent} />
         </View>
@@ -199,9 +201,9 @@ export function ChannelList(props: {
           playingId={props.playingId} hover={hovered(i)} optionsShown={dotsRow() === i} tag={props.tag?.(i)} />
       )}</For>
       <Show when={dotsRow() !== undefined}>
-        <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (ROW_H - 6 - DOTS_H) / 2}
-          width={DOTS_W} height={DOTS_H} borderRadius={DOTS_H / 2} color={hoverDots() ? COLORS.muted : COLORS.background}>
-          <Text y={(DOTS_H - TYPE.body) / 2 - 4} width={DOTS_W} maxWidth={DOTS_W} contain="width" textAlign="center"
+        <View x={props.width - DOTS_W - DOTS_PAD} y={((dotsRow() ?? 0) - props.top) * ROW_H + (BODY_H - DOTS_H) / 2}
+          width={DOTS_W} height={DOTS_H} borderRadius={RADIUS.pill(DOTS_H)} color={hoverDots() ? COLORS.muted : COLORS.background}>
+          <Text y={centerText(DOTS_H, TYPE.body)} width={DOTS_W} maxWidth={DOTS_W} contain="width" textAlign="center"
             fontSize={TYPE.body} color={hoverDots() ? COLORS.onFocus : COLORS.text}>{ROW_OPTIONS_LABEL}</Text>
         </View>
       </Show>

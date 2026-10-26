@@ -3,6 +3,8 @@
  * Lightning wraps text itself; this estimates the wrapped line count from the text length so the box can centre the
  * lines and give a long message (a refusal that names the account's limit) enough lines. Pure; unit-tested.
  */
+import { LINE } from '../shell/theme.ts';
+
 export interface MessageBox {
   /** About how many characters of the box's font fit on one line of its text width (a conservative estimate). */
   charsPerLine: number;
@@ -12,16 +14,16 @@ export interface MessageBox {
 }
 
 /**
- * The boxes that show failure text, all at body size (26) on 32 px lines. Text widths: Home's preview 540 px, the
+ * The boxes that show failure text, all at body size on LINE.body lines. Text widths: Home's preview 540 px, the
  * Guide's mini window 432 px, the Player's centred box 1020 px and VodPlay's card 920 px (about 0.55 em a character).
  */
 export const MESSAGE_BOXES = {
-  preview: { charsPerLine: 38, maxLines: 4, lineH: 32 },
-  guide: { charsPerLine: 30, maxLines: 4, lineH: 32 },
+  preview: { charsPerLine: 38, maxLines: 4, lineH: LINE.body },
+  guide: { charsPerLine: 30, maxLines: 4, lineH: LINE.body },
   /** Live TV's 416×234 mini window (spec phase 2). */
-  live: { charsPerLine: 24, maxLines: 4, lineH: 32 },
-  player: { charsPerLine: 71, maxLines: 3, lineH: 32 },
-  vodCard: { charsPerLine: 64, maxLines: 3, lineH: 32 },
+  live: { charsPerLine: 24, maxLines: 4, lineH: LINE.body },
+  player: { charsPerLine: 71, maxLines: 3, lineH: LINE.body },
+  vodCard: { charsPerLine: 64, maxLines: 3, lineH: LINE.body },
 } as const satisfies Record<string, MessageBox>;
 
 /** The estimated wrapped line count, at least 1 and at most the box's maximum. */

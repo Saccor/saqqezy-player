@@ -26,7 +26,7 @@ import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
 import { Dialog } from '../components/Dialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, MOTION, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
@@ -571,8 +571,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
               color={COLORS.panel} borderRadius={RADIUS.card} zIndex={4}>
-              <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
-                maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
+              <Text x={SPACE.xl} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - SPACE.xl * 2}
+                maxWidth={CENTRE_W - SPACE.xl * 2} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={LINE.body}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{s.text}</Text>
             </View>
       )}</Show>

@@ -5,14 +5,14 @@ import { CountryGrid } from '../../components/CountryGrid.tsx';
 import { gridWidth, resultLine, type GridSort } from '../../components/countryGridLogic.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { COUNTRIES_COPY } from '../../copy.ts';
-import { COLORS, TYPE } from '../../shell/theme.ts';
+import { COLORS, SPACE, TYPE } from '../../shell/theme.ts';
 import { OTHER_FOLDERS, RESET_PATCH, hasGrid, otherFoldersLabel, otherFoldersOf, otherFoldersPatch } from '../countriesLogic.ts';
 import { createCountriesModel } from '../countriesModel.ts';
 import { cycleOption } from '../settingsLogic.ts';
 import type { PageProps } from './shared.ts';
 
 /** Text inset, level with the page title (Settings draws it at x + 28). */
-const PAD = 28;
+const PAD = SPACE.l;
 const NOTICE_Y = 72;
 const GRID_Y = 140;
 const RESULT_H = 40;

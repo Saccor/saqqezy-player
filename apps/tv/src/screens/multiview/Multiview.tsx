@@ -12,7 +12,7 @@ import {
 } from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../../shell/theme.ts';
+import { ALPHA, centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
 import { FocusRing } from '../../components/FocusRing.tsx';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
 import { cooldownForStream, initState, settings } from '../../state/appState.ts';
@@ -28,6 +28,8 @@ import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
 import { canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
+/** The height of a window's status pill (and of the sound mark on a small window). */
+const STATUS_PILL_H = 40;
 const MENU_ID = 'multiviewMenu';
 const PICKER_ID = 'multiviewPicker';
 type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
@@ -561,6 +563,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const fail = () => failure(t().tile);
     const pad = () => (large() ? 24 : 16);
     const scrimH = () => (large() ? 128 : 72);
+    const iconS = () => (large() ? SPACE.xl : STATUS_PILL_H);
     return (
       <View>
         <View x={r().x} y={r().y}>
@@ -568,9 +571,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
         </View>
         <Show when={fail()}>{(f) => (
           <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={RADIUS.card}>
-            <Text x={pad()} y={r().h / 2 - 60} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
+            <Text x={pad()} y={r().h / 2 - SPACE.xl - SPACE.m} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
               textAlign="center" fontSize={large() ? TYPE.body : TYPE.meta} color={COLORS.text}>{f().text}</Text>
-            <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
+            <Text x={pad()} y={r().h / 2 + SPACE.xl} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
               textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
               {f().retryNow
                 ? [f().hint, MULTIVIEW_COPY.retry, MULTIVIEW_COPY.closeWindow].filter(Boolean).join(' · ')
@@ -581,24 +584,24 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
           </View>
         )}</Show>
         <Show when={freeingSlot() !== undefined && freeingSlot() === windowAt(t().tile)?.slot}>
-          <View x={r().x + pad()} y={r().y + pad()} width={300} height={40} borderRadius={20} color={COLORS.panel}>
-            <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
+          <View x={r().x + pad()} y={r().y + pad()} width={300} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
+            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
           </View>
         </Show>
         <Show when={!fail() && starting(t().tile)}>
-          <View x={r().x + pad()} y={r().y + pad()} width={160} height={40} borderRadius={20} color={COLORS.panel}>
-            <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
+          <View x={r().x + pad()} y={r().y + pad()} width={160} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
+            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
           </View>
         </Show>
         <Show when={sound()}>
-          <View x={r().x + r().w - pad() - (large() ? 48 : 40)} y={r().y + pad()} width={large() ? 48 : 40} height={large() ? 48 : 40}
-            borderRadius={large() ? 24 : 20} color={COLORS.panel} alpha={chrome() ? 1 : 0.7}>
-            <Text y={large() ? 10 : 7} width={large() ? 48 : 40} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>♪</Text>
+          <View x={r().x + r().w - pad() - iconS()} y={r().y + pad()} width={iconS()} height={iconS()}
+            borderRadius={RADIUS.pill(iconS())} color={COLORS.panel} alpha={chrome() ? 1 : ALPHA.dimmed}>
+            <Text y={centerText(iconS(), TYPE.meta)} width={iconS()} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>♪</Text>
           </View>
         </Show>
         <Show when={chrome() && !fail()}>
           <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.panel}>
-            <Text x={pad()} y={scrimH() - (large() ? 72 : 52)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
+            <Text x={pad()} y={centerText(scrimH(), large() ? TYPE.body : TYPE.meta)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
               maxLines={1} fontSize={large() ? TYPE.body : TYPE.meta} {...STRONG} color={COLORS.text}>{nameOf(t().tile)}</Text>
           </View>
         </Show>
@@ -622,9 +625,9 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       <For each={tiles()}>{(t) => <Chrome t={t} />}</For>
       <Show when={geometry()?.empty && full() === undefined && chrome() ? geometry()!.empty : undefined}>{(e) => (
         <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={RADIUS.card}>
-          <Text y={e().rect.h / 2 - 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.title} color={COLORS.subtle}>+</Text>
+          <Text y={e().rect.h / 2 - SPACE.xl} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.title} color={COLORS.subtle}>+</Text>
           <Show when={state()?.focus === 'empty'}>
-            <Text y={e().rect.h / 2 + 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{MULTIVIEW_COPY.addChannel}</Text>
+            <Text y={e().rect.h / 2 + SPACE.l} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{MULTIVIEW_COPY.addChannel}</Text>
           </Show>
         </View>
       )}</Show>

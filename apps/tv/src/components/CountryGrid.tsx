@@ -4,7 +4,7 @@ import type { CountryChoice } from '@iptv/app-api';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../input/pointer.ts';
 import { motionLevel, tween } from '../shell/motion.ts';
-import { COLORS, FOCUS, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, FOCUS, MOTION, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { Badge } from './Badge.tsx';
 import { Tile } from './Tile.tsx';
 import {
@@ -37,7 +37,7 @@ function ChipContent(p: { choice: CountryChoice; number: number | undefined; dev
     <>
       <Show when={'src' in p.art ? p.art.src : undefined} fallback={
         <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
-          <Text y={(box().flag.h - TYPE.body) / 2 - 4} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
+          <Text y={centerText(box().flag.h, TYPE.body)} width={box().flag.w} maxWidth={box().flag.w} contain="width" textAlign="center"
             fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{'badge' in p.art ? p.art.badge : ''}</Text>
         </View>
       }>{(src) => <View x={box().flag.x} y={box().flag.y} width={box().flag.w} height={box().flag.h} src={src()} />}</Show>
@@ -146,16 +146,16 @@ export function CountryGrid(props: CountryGridProps) {
         return (
           <Switch>
             <Match when={row()?.kind === 'sort'}>
-              <View y={y()} width={300} height={48} borderRadius={24}
+              <View y={y()} width={300} height={48} borderRadius={RADIUS.pill(48)}
                 color={toggle() ? (sortLit() ? COLORS.focus : COLORS.surfaceRaised) : COLORS.transparent}>
-                <Text x={toggle() ? 24 : 0} y={(48 - TYPE.meta) / 2 - 3} width={276} maxWidth={276} contain="width" maxLines={1}
+                <Text x={toggle() ? 24 : 0} y={centerText(48, TYPE.meta)} width={276} maxWidth={276} contain="width" maxLines={1}
                   fontSize={TYPE.meta} color={sortLit() ? COLORS.onFocus : COLORS.muted}>
                   {props.sort === 'az' ? COUNTRIES_COPY.sortAz : COUNTRIES_COPY.sortMost}
                 </Text>
               </View>
             </Match>
             <Match when={row()?.kind === 'heading'}>
-              <Text y={y() + 12} fontSize={TYPE.body} {...STRONG} color={COLORS.textSecondary}>{COUNTRIES_COPY.languages}</Text>
+              <Text y={y() + SPACE.s} fontSize={TYPE.body} {...STRONG} color={COLORS.textSecondary}>{COUNTRIES_COPY.languages}</Text>
             </Match>
             <Match when={row()?.kind === 'chips'}>
               <For each={keys()}>{(key, col) => {

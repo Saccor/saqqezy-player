@@ -22,7 +22,7 @@ import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -53,7 +53,7 @@ import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
 const ROW_X = LAYOUT.contentX;
 const ROW_Y = 262;
 const LABEL_H = 42;
-const ROW_GAP = 36;
+const ROW_GAP = SPACE.l;
 /** A row below the focused one is drawn while at least its title and a strip of it fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
 /** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */

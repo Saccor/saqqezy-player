@@ -16,7 +16,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { playback } from '../playback/playback.ts';
 import { applyInitState, headerSupportHere } from '../state/appState.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, LINE, SPACE, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, LINE, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
@@ -61,12 +61,16 @@ const FORM_Y = 170;
 const KEYBOARD_Y = WORDMARK_BOTTOM + 10;
 const FIELD_STEP = FIELD_H + 20;
 const FORM_W = 880;
+/** The submit button's width; the status line starts after it. */
+const SUBMIT_W = 260;
 const TILE_W = 600;
 const TILE_H = 260;
+/** The type step: the two cards start here. */
+const TILES_Y = LAYOUT.safeY + SPACE.xl * 6;
 /** Pointer mode: the `Show password` / `Hide password` button inside the password field's right end. */
 const REVEAL_W = 240;
 /** The reveal button's inset from the field's right edge. */
-const REVEAL_INSET = 14;
+const REVEAL_INSET = SPACE.m;
 
 /** A login-type card's text: title, body, optional badge. */
 function TypeCard(props: { title: string; body: string; badge?: string }) {
@@ -369,28 +373,28 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={onBack}
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Show when={ready() && step() === 'type'}>
-        <Text x={X} y={LAYOUT.safeY + 60} fontSize={TYPE.title} color={COLORS.text}>{O.title}</Text>
-        <Text x={X} y={LAYOUT.safeY + 140} fontSize={TYPE.body} color={COLORS.muted}>
+        <Text x={X} y={LAYOUT.safeY + SPACE.xl} fontSize={TYPE.title} color={COLORS.text}>{O.title}</Text>
+        <Text x={X} y={LAYOUT.safeY + SPACE.xl * 3} fontSize={TYPE.body} color={COLORS.muted}>
           {O.intro}
         </Text>
-        <View x={X} y={340} width={tileW2} height={TILE_H}>
+        <View x={X} y={TILES_Y} width={tileW2} height={TILE_H}>
           <TypeOption ref={(el) => { tiles[0] = el; }} x={0} title={O.xtreamTitle} body={O.xtreamBody}
             badge={O.mostCommon} onPress={() => openStep('xtream')} onRight={() => focusTile(1)} />
           <TypeOption ref={(el) => { tiles[1] = el; }} x={TILE_W + LAYOUT.gap * 2} title={O.m3uTitle}
             body={O.m3uBody} onPress={() => openStep('m3u')} onLeft={() => focusTile(0)} />
         </View>
-        <Text x={X} y={700} fontSize={TYPE.body} color={COLORS.muted}>
+        <Text x={X} y={TILES_Y + TILE_H + SPACE.xl * 2} fontSize={TYPE.body} color={COLORS.muted}>
           {O.legal}
         </Text>
       </Show>
 
       <Show when={ready() && step() !== 'type'}>
         {/* Ends before the wordmark zone: "Advanced · <long source name>" ran under the wordmark. */}
-        <Text x={X} y={LAYOUT.safeY + 40} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={TYPE.title} color={COLORS.text}>
+        <Text x={X} y={LAYOUT.safeY + SPACE.xl} width={TITLE_W} maxWidth={TITLE_W} contain="width" maxLines={1} fontSize={TYPE.title} color={COLORS.text}>
           {advanced ? O.advancedTitle(stored?.name ?? '') : editId !== undefined ? O.editTitle(FORM_TITLE[kind()]) : FORM_TITLE[kind()]}
         </Text>
         <Show when={advanced}>
-          <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + 16 + BUTTON_H + 32} width={FORM_W} maxWidth={FORM_W} contain="width"
+          <Text x={X} y={FORM_Y + fields().length * FIELD_STEP + SPACE.m + BUTTON_H + SPACE.l} width={FORM_W} maxWidth={FORM_W} contain="width"
             maxLines={3} fontSize={TYPE.body} color={COLORS.muted}>
             {advancedHelp(headerSupportHere)}
           </Text>
@@ -408,15 +412,15 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
             onYellow={f.secret ? () => { setRevealed((r) => !r); return true; } : undefined} />
         )}</For>
         <Button ref={(el) => { items[fields().length] = el; }} x={X} y={FORM_Y + fields().length * FIELD_STEP + 16}
-          width={260} label={editId !== undefined ? O.save : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
+          width={SUBMIT_W} label={editId !== undefined ? O.save : SUBMIT_LABEL[kind()]} dimmed={busy()} onPress={() => void submit()}
           onUp={() => focusItem(fields().length - 1)} onDown={() => true} />
         {/* Pointer mode: the Yellow key's action as a button inside the password field's right end. */}
         <Show when={pointerMode() && fields().some((f) => f.secret === true)}>
           <Button x={X + FORM_W - REVEAL_W - REVEAL_INSET} y={FORM_Y + fields().findIndex((f) => f.secret === true) * FIELD_STEP + (FIELD_H - BUTTON_H) / 2}
             width={REVEAL_W} label={revealLabel(revealed())} onPress={() => setRevealed((r) => !r)} />
         </Show>
-        <Text x={X + 260 + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + 16 + (BUTTON_H - TYPE.body) / 2 - 4}
-          width={FORM_W - 260 - LAYOUT.gap * 2} maxWidth={FORM_W - 260 - LAYOUT.gap * 2} contain="width" maxLines={2}
+        <Text x={X + SUBMIT_W + LAYOUT.gap * 2} y={FORM_Y + fields().length * FIELD_STEP + SPACE.m + centerText(BUTTON_H, TYPE.body)}
+          width={FORM_W - SUBMIT_W - LAYOUT.gap * 2} maxWidth={FORM_W - SUBMIT_W - LAYOUT.gap * 2} contain="width" maxLines={2}
           fontSize={TYPE.body} color={busy() ? COLORS.text : COLORS.error}>{statusText()}</Text>
         <Show when={editingField()}>{(f) => (
           <Keyboard ref={(el) => { keyboard = el; }} x={LAYOUT.width - LAYOUT.safeX - KEYBOARD_W} y={KEYBOARD_Y}

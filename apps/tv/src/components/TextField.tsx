@@ -3,10 +3,12 @@ import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { maskSecret } from '../screens/addSourceLogic.ts';
 import { controlFill, isLit } from '../shell/focusStyle.ts';
-import { COLORS, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, RADIUS, SPACE, TYPE } from '../shell/theme.ts';
 import { visibleTail } from './keyboardLogic.ts';
 
 export const FIELD_H = 100;
+/** The hint/note text at the field's right end. */
+const HINT_W = 300;
 /** Characters that fit on one line at the value font size, at the field widths used. */
 const CHARS_PER_PX = 1 / 16;
 
@@ -69,12 +71,12 @@ export function TextField(props: {
       onEnter={() => { props.onEnter(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}
       onYellow={() => props.onYellow?.() ?? false}>
-      <Text x={24} y={14} fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{props.label}</Text>
-      <Text x={24} y={50} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
+      <Text x={24} y={SPACE.m} fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{props.label}</Text>
+      <Text x={24} y={SPACE.xl} width={textW()} maxWidth={textW()} contain="width" maxLines={1}
         fontSize={TYPE.body}
         color={(empty() && !props.editing) || props.dimmed ? (lit() ? COLORS.onFocusMuted : COLORS.muted) : lit() ? COLORS.onFocus : COLORS.text}>{text()}</Text>
       {(props.hint && focused()) || props.note
-        ? <Text x={props.width - 324} y={14} width={300} maxWidth={300} contain="width" textAlign="right"
+        ? <Text x={props.width - HINT_W - SPACE.l} y={SPACE.m} width={HINT_W} maxWidth={HINT_W} contain="width" textAlign="right"
           fontSize={TYPE.meta} color={lit() ? COLORS.onFocusMuted : COLORS.muted}>{props.hint && focused() ? props.hint : props.note ?? ''}</Text>
         : null}
     </View>

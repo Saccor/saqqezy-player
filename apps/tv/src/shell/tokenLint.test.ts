@@ -90,4 +90,9 @@ describe('tokenLint: baseline', () => {
     }
     expect(over, 'Use the tokens in shell/theme.ts and the strings in copy.ts').toEqual([]);
   });
+  test('phase 1 is done: only worker.ts is left, and phase 0b owns it (spec 2026-10-26 §1.5)', () => {
+    const left = { 'worker.ts': { string: 1 } };
+    expect(JSON.parse(readFileSync(join(here, 'tokenLint.baseline.json'), 'utf8'))).toEqual(left);
+    expect(scanTokens(SRC)).toEqual(left);
+  });
 });

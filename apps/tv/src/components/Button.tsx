@@ -2,7 +2,7 @@ import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { controlFill, controlText, isLit } from '../shell/focusStyle.ts';
-import { ALPHA, COLORS, TYPE } from '../shell/theme.ts';
+import { ALPHA, centerText, COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 
 export const BUTTON_H = 64;
 
@@ -40,11 +40,11 @@ export function Button(props: {
   const fill = () => controlFill(lit(), COLORS.surfaceRaised);
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={w()} height={BUTTON_H}
-      borderRadius={BUTTON_H / 2} color={fill()}
+      borderRadius={RADIUS.pill(BUTTON_H)} color={fill()}
       alpha={props.dimmed ? ALPHA.dimmed : 1} onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}>
-      <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={w()} maxWidth={w()} contain="width" textAlign="center"
+      <Text y={centerText(BUTTON_H, TYPE.body)} width={w()} maxWidth={w()} contain="width" textAlign="center"
         fontSize={TYPE.body} color={controlText(lit())}>{props.label}</Text>
     </View>
   );

@@ -1,11 +1,11 @@
 import { Show, Text, View } from '@lightningtv/solid';
 import type { ProgrammeHit } from '@iptv/app-api';
 import { imageSrc } from '../../images/imageSrc.ts';
-import { COLORS, STRONG, TYPE } from '../../shell/theme.ts';
+import { centerText, COLORS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
 import { progressOf } from '../../screens/homeLogic.ts';
 import { COMPACT_W, WIDE_H, WIDE_W } from '../wideTileLogic.ts';
 
-const PAD = 18;
+const PAD = SPACE.m;
 const LOGO = 56;
 const TRACK_H = 4;
 /** Compact: a smaller pad and logo; the context line on top, then two lines (the sides, or the title), then the detail. */
@@ -25,10 +25,10 @@ export function FullBody(props: { image: string | undefined; context: string; ma
         {(u) => <View x={PAD} y={PAD} width={LOGO} height={LOGO} zIndex={2} src={imageSrc(u, LOGO, LOGO)} />}
       </Show>
       <Show when={props.context}>
-        <Text x={PAD + tx()} y={PAD + (LOGO - TYPE.meta) / 2 - 2} width={w - tx()} maxWidth={w - tx()}
+        <Text x={PAD + tx()} y={PAD + centerText(LOGO, TYPE.meta)} width={w - tx()} maxWidth={w - tx()}
           contain="width" maxLines={1} zIndex={3} fontSize={TYPE.meta} color={COLORS.muted}>{props.context}</Text>
       </Show>
-      <Text x={PAD} y={WIDE_H - PAD - TYPE.meta - 14} width={w} maxWidth={w} contain="width" maxLines={1} zIndex={3}
+      <Text x={PAD} y={WIDE_H - PAD - TYPE.meta - SPACE.m} width={w} maxWidth={w} contain="width" maxLines={1} zIndex={3}
         fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{props.main}</Text>
       <Show when={props.onAir} keyed>
         {(p) => (
@@ -55,7 +55,7 @@ export function CompactBody(props: { image: string | undefined; context: string;
       </Show>
       <Show when={props.context} fallback={
         // Only the main line (View all): centred in the tile.
-        <Text x={tx()} y={(props.h - TYPE.meta) / 2 - 4} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}
+        <Text x={tx()} y={centerText(props.h, TYPE.meta)} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}
           fontSize={TYPE.meta} {...STRONG} color={COLORS.text}>{props.main}</Text>
       }>
         <Text x={tx()} y={C_LINE1_Y} width={w()} maxWidth={w()} contain="width" maxLines={1} zIndex={3}

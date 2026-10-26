@@ -19,7 +19,7 @@ import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { belowTab } from '../shell/railLogic.ts';
 import { goRailNested } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { categoryRows, pickedSort, sortRows } from '../vod/categoryPicker.ts';
@@ -458,7 +458,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
           x={GRID_X} y={HEAD_Y} label={cat()?.name ?? ''} maxWidth={HEAD_MAX_W} onPress={openPicker}
           onDown={() => focusArea('grid')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) setArea('header'); }} />
       </Show>
-      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + 2} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
         fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{infoTitle()}</Text>
       <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + META_DY} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
         fontSize={TYPE.meta} color={COLORS.muted}>{infoMeta()}</Text>
@@ -476,7 +476,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
         {/* Left from Try again reaches the rail, as on browse. */}
         <View onLeft={() => focusArea('rail')}>
-          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label={COMMON_COPY.tryAgain} onPress={retry}
+          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + SPACE.xl * 2} label={COMMON_COPY.tryAgain} onPress={retry}
             onUp={() => focusArea('header')} />
         </View>
       </Show>

@@ -12,7 +12,7 @@ import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { drawnFocus } from '../shell/focusStyle.ts';
-import { COLORS, LAYOUT, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
@@ -246,7 +246,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{SETTINGS_COPY.title}</Text>
       <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onLeft={toRail}
         onClickRow={clickMenu} />
-      <Text x={PAGE_X + 28} y={LAYOUT.safeY + TYPE.title - TYPE.body - 2} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
+      <Text x={PAGE_X + SPACE.l} y={LAYOUT.safeY + TYPE.title - TYPE.body} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
       <PointerFocusContext.Provider value={focusFromPointer}>
       <Switch>
         <Match when={id() === 'countries'}><CountriesPage {...pageProps()} /></Match>
@@ -283,7 +283,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
               width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={RADIUS.card}
               onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
               onBack={() => true}>
-              <Text y={(BUSY_H - TYPE.body) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
+              <Text y={centerText(BUSY_H, TYPE.body)} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{t()}</Text>
             </View>
           </View>

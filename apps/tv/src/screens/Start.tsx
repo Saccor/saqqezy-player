@@ -17,7 +17,7 @@ import { dwellSignal } from '../shell/dwell.ts';
 import { goRail } from '../shell/railNav.ts';
 import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -37,7 +37,7 @@ import {
 const ROW_X = LAYOUT.contentX;
 const ROW_Y = START_ROW_Y;
 const LABEL_H = 42;
-const ROW_GAP = 28;
+const ROW_GAP = SPACE.l;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
 /** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */
@@ -275,7 +275,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                       {(t) => {
                         const x = ROW_X + labelWidth(r().title) + 24;
                         const w = LAYOUT.width - LAYOUT.safeX - x;
-                        return <Text x={x} y={2} width={w} maxWidth={w} contain="width" maxLines={1}
+                        return <Text x={x} y={0} width={w} maxWidth={w} contain="width" maxLines={1}
                           fontSize={TYPE.meta} color={COLORS.muted}>{t}</Text>;
                       }}
                     </Show>

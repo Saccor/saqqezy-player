@@ -10,7 +10,7 @@ import { Row } from '../components/Row.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
@@ -35,6 +35,9 @@ const PLOT_Y = 280;
 const CREDITS_Y = 410;
 const ACTIONS_Y = 520;
 const RESUME_Y = ACTIONS_Y + 92;
+/** The resume bar: its width and thickness. */
+const RESUME_W = 220;
+const RESUME_BAR_H = 4;
 const MORE_LABEL_Y = 694;
 /** Pointer mode: 50 px higher, so the shell's Back button (978–1026, bottom left) never covers the first poster. */
 const MORE_LABEL_Y_POINTER = 644;
@@ -248,7 +251,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       <Text x={INFO_X} y={META_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
         {joinMeta(metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }), tile()?.quality)}
       </Text>
-      <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
+      <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={LINE.body} fontSize={TYPE.body}
         color={COLORS.textSecondary}>{notAvailable() ? VOD_COPY.detailsUnavailable : detail()?.plot ?? ''}</Text>
       <Show when={detail()?.director || detail()?.cast}>
         <Text x={INFO_X} y={CREDITS_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
@@ -259,16 +262,16 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
         onDown={() => focusArea('more')} onFocusChanged={(f) => { if (f) setArea('actions'); }} />
       {/* Only with a known length: the bar and the minutes left would be guesses otherwise. */}
       <Show when={resumeBarShown(resumeMs(), durationMs())}>
-        <View x={INFO_X} y={RESUME_Y} width={220} height={4} borderRadius={2} color={COLORS.track}>
-          <View width={Math.round(220 * fraction())} height={4} borderRadius={2} color={COLORS.accent} />
+        <View x={INFO_X} y={RESUME_Y} width={RESUME_W} height={RESUME_BAR_H} borderRadius={RADIUS.pill(RESUME_BAR_H)} color={COLORS.track}>
+          <View width={Math.round(RESUME_W * fraction())} height={RESUME_BAR_H} borderRadius={RADIUS.pill(RESUME_BAR_H)} color={COLORS.accent} />
         </View>
-        <Text x={INFO_X + 236} y={RESUME_Y - 12} fontSize={TYPE.meta} color={COLORS.muted}>{minutesLeft(resumeMs(), durationMs())}</Text>
+        <Text x={INFO_X + RESUME_W + SPACE.m} y={RESUME_Y + centerText(RESUME_BAR_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.muted}>{minutesLeft(resumeMs(), durationMs())}</Text>
       </Show>
 
       <Show when={moreRow().items.length > 0}>
         <Text x={LAYOUT.safeX} y={moreY()} width={LAYOUT.width - LAYOUT.safeX * 2} maxWidth={LAYOUT.width - LAYOUT.safeX * 2} contain="width"
           maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>More like this</Text>
-        <View ref={(el) => { moreNode = el; }} y={moreY() + 44} width={LAYOUT.width} height={POSTER_H}
+        <View ref={(el) => { moreNode = el; }} y={moreY() + SPACE.xl} width={LAYOUT.width} height={POSTER_H}
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}
           onEnter={openMore} onMenu={() => openMenu(moreCol())} onLongOk={() => openMenu(moreCol())}>

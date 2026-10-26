@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { jumpLabel, type Scrub } from '../vod/seekLogic.ts';
 import { bubbleX, fractionAt } from '../vod/timelineLogic.ts';
 import { clock } from '../vod/vodPlayerLogic.ts';
@@ -11,6 +11,8 @@ export const TIMELINE_H = 64;
 const BAR_H = 10;
 const BAR_H_ACTIVE = 16;
 const KNOB = 28;
+/** The hover tick's width. */
+const HOVER_TICK_W = 2;
 const MARKER_W = 6;
 const MARKER_H = 40;
 const BUBBLE_W = 200;
@@ -83,7 +85,7 @@ export function Timeline(props: {
           color={s().targetMs >= props.posMs ? COLORS.accent : COLORS.track} />
       )}</Show>
       <Show when={focused() && !props.scrub && props.durMs !== undefined}>
-        <View x={xAt(props.posMs) - KNOB / 2} y={(TIMELINE_H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
+        <View x={xAt(props.posMs) - KNOB / 2} y={(TIMELINE_H - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={RADIUS.pill(KNOB)}
           color={COLORS.text} />
       </Show>
 
@@ -93,11 +95,11 @@ export function Timeline(props: {
         return (
           <View>
             <View x={mx() - MARKER_W / 2} y={(TIMELINE_H - MARKER_H) / 2} width={MARKER_W} height={MARKER_H}
-              borderRadius={MARKER_W / 2} color={COLORS.text} />
-            <View x={bx()} y={-BUBBLE_H - 4} width={BUBBLE_W} height={BUBBLE_H} borderRadius={RADIUS.card} color={COLORS.panel}>
+              borderRadius={RADIUS.pill(MARKER_W)} color={COLORS.text} />
+            <View x={bx()} y={-BUBBLE_H - SPACE.s} width={BUBBLE_W} height={BUBBLE_H} borderRadius={RADIUS.card} color={COLORS.panel}>
               <Text y={8} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{clock(s().targetMs)}</Text>
-              <Text y={50} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
+              <Text y={SPACE.s + LINE.body} width={BUBBLE_W} maxWidth={BUBBLE_W} contain="width" textAlign="center" maxLines={1}
                 fontSize={TYPE.meta} color={COLORS.muted}>{jumpLabel(s().targetMs - s().fromMs)}</Text>
             </View>
           </View>
@@ -106,10 +108,10 @@ export function Timeline(props: {
 
       <Show when={pointerMode() && !props.scrub && hoverX() !== undefined && props.durMs !== undefined}>
         <View>
-          <View x={(hoverX() ?? 0) - 1} y={barY() - 4} width={2} height={barH() + 8} color={COLORS.text} />
-          <View x={bubbleX(hoverX() ?? 0, HOVER_W, 0, props.width)} y={-HOVER_H + 4} width={HOVER_W} height={HOVER_H}
+          <View x={(hoverX() ?? 0) - HOVER_TICK_W / 2} y={barY() - SPACE.s} width={HOVER_TICK_W} height={barH() + SPACE.m} color={COLORS.text} />
+          <View x={bubbleX(hoverX() ?? 0, HOVER_W, 0, props.width)} y={-HOVER_H + SPACE.s} width={HOVER_W} height={HOVER_H}
             borderRadius={RADIUS.card} color={COLORS.panel}>
-            <Text y={(HOVER_H - TYPE.body) / 2 - 4} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
+            <Text y={centerText(HOVER_H, TYPE.body)} width={HOVER_W} maxWidth={HOVER_W} contain="width" textAlign="center"
               maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
               {clock(fractionAt(hoverX() ?? 0, props.width) * (props.durMs ?? 0))}
             </Text>

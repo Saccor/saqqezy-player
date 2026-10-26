@@ -3,10 +3,14 @@ import { createSignal, type JSX } from 'solid-js';
 import { posterCache } from '../components/posterCache.ts';
 import { imageSrc } from '../images/imageSrc.ts';
 import { fadeInLoaded, motionNow } from '../shell/motion.ts';
-import { COLORS, MOTION, RADIUS, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, MOTION, RADIUS, SPACE, TYPE } from '../shell/theme.ts';
 import { barWidth, posterFace, titleCardColour } from './posterLogic.ts';
 
 const BAR_H = 6;
+/** A title card's text sits this far above the poster's bottom edge by default. */
+const TITLE_BOTTOM = SPACE.xl * 2 + SPACE.m;
+/** The watched mark's diameter. */
+const WATCHED_D = 34;
 
 /**
  * The art of a poster or an episode still, filling a `w`×`h` box at 0,0 of its parent: the source's image, or a
@@ -44,14 +48,14 @@ export function PosterArt(props: {
       <View width={props.w} height={props.h} zIndex={1} borderRadius={RADIUS.card}
         color={props.label !== undefined ? (props.lit ? COLORS.focus : COLORS.surface) : face() === 'card' ? titleCardColour(props.title) : COLORS.surface} />
       <Show when={props.label !== undefined}>
-        <Text x={12} y={props.h / 2 - TYPE.body} width={props.w - 24} maxWidth={props.w - 24} contain="width" textAlign="center" maxLines={3}
+        <Text x={SPACE.s} y={props.h / 2 - TYPE.body} width={props.w - SPACE.m} maxWidth={props.w - SPACE.m} contain="width" textAlign="center" maxLines={3}
           zIndex={2} fontSize={TYPE.body} color={props.lit ? COLORS.onFocus : COLORS.text}>{props.label ?? ''}</Text>
       </Show>
       <Show when={props.label === undefined}>
         {/* Title card text: only on the card (no poster, or it failed), never on a skeleton. Mounted only then: renderer
             3.7 still lays out and rasterises a text node at alpha 0 (it checks only the parent's alpha). */}
         <Show when={face() === 'card'}>
-        <Text x={14} y={props.h - (props.titleBottom ?? 110)} width={props.w - 28} maxWidth={props.w - 28} contain="width"
+        <Text x={SPACE.m} y={props.h - (props.titleBottom ?? TITLE_BOTTOM)} width={props.w - SPACE.m * 2} maxWidth={props.w - SPACE.m * 2} contain="width"
           maxLines={props.titleLines ?? 3} zIndex={2} fontSize={props.titleFont ?? TYPE.meta} color={COLORS.text}>{props.title}</Text>
         </Show>
         <Show when={props.pending ? undefined : shown()} keyed>
@@ -78,8 +82,8 @@ export function PosterArt(props: {
           </View>
         </Show>
         <Show when={props.watched}>
-          <View x={props.w - 44} y={10} width={34} height={34} zIndex={4} borderRadius={17} color={COLORS.panel}>
-            <Text y={4} width={34} maxWidth={34} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>{'✓'}</Text>
+          <View x={props.w - WATCHED_D - SPACE.s} y={SPACE.s} width={WATCHED_D} height={WATCHED_D} zIndex={4} borderRadius={RADIUS.pill(WATCHED_D)} color={COLORS.panel}>
+            <Text y={centerText(WATCHED_D, TYPE.meta)} width={WATCHED_D} maxWidth={WATCHED_D} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>{'✓'}</Text>
           </View>
         </Show>
         {props.children}

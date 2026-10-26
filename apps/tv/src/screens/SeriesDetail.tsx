@@ -12,7 +12,7 @@ import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { Backdrop } from '../vod/Backdrop.tsx';
 import { iconTexture } from '../vod/icons.ts';
@@ -345,7 +345,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
         <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.hero} {...STRONG}
           color={COLORS.text}>{tile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{meta()}</Text>
-        <Text x={HERO_X} y={PLOT_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
+        <Text x={HERO_X} y={PLOT_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} lineHeight={LINE.body} fontSize={TYPE.body}
           color={COLORS.textSecondary}>{notAvailable() ? VOD_COPY.detailsUnavailable : detail()?.plot ?? ''}</Text>
         <Show when={detail()?.director || detail()?.cast}>
           <Text x={HERO_X} y={CREDITS_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>

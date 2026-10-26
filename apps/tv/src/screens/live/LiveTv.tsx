@@ -29,7 +29,7 @@ import { LIVE_COPY, SHELL_COPY } from '../../copy.ts';
 import { goRail } from '../../shell/railNav.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup, settings } from '../../state/appState.ts';
 import { externalLayoutChange } from '../../state/events.ts';
@@ -918,7 +918,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
           progress={onAirProgress()} trailing={onAir() ? timeLeftLabel(liveProg()!.stop, now()) : undefined}
           description={liveProg()?.desc} descriptionLines={expanded() ? 3 : 1} />
       }>
-        <Text x={INFO_X} y={LAYOUT.safeY + 36} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3}
+        <Text x={INFO_X} y={LAYOUT.safeY + SPACE.l} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3}
           fontSize={TYPE.body} color={COLORS.muted}>{emptyText()}</Text>
       </Show>
 

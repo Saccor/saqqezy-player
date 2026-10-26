@@ -17,7 +17,7 @@ import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
@@ -35,7 +35,7 @@ const RESULTS_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
 const RESULTS_W = LAYOUT.width - LAYOUT.safeX - RESULTS_X;
 const RESULTS_Y = KB_Y;
 const LABEL_H = 42;
-const ROW_GAP = 36;
+const ROW_GAP = SPACE.l;
 const NOTE_H = 36;
 /** Cards fully visible in each row (they fit the 824 px results area). */
 const VOD_VISIBLE = 4;

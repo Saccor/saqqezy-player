@@ -3,7 +3,7 @@ import { Row } from '@lightningtv/solid/primitives';
 import { SETTINGS_COPY } from '../copy.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
 import { router, type ScreenEntry, type ScreenId } from '../shell/router.ts';
-import { COLORS, LAYOUT, RADIUS, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, RADIUS, SPACE, TYPE } from '../shell/theme.ts';
 
 const TITLES: Record<ScreenId, string> = SETTINGS_COPY.placeholder.titles;
 
@@ -26,20 +26,20 @@ export function PlaceholderScreen(props: { entry: ScreenEntry }) {
 
   return (
     <View width={LAYOUT.width} height={LAYOUT.height} color={screen === 'player' ? COLORS.transparent : COLORS.background}>
-      <View x={LAYOUT.safeX} y={160} width={panelW} height={460} color={COLORS.surface}
+      <View x={LAYOUT.safeX} y={SPACE.xl * 3} width={panelW} height={460} color={COLORS.surface}
         borderRadius={RADIUS.card} forwardFocus={0}>
         {isHome
           ? (
-            <Row x={48} y={300} width={rowW} height={BUTTON_H} gap={LAYOUT.gap} scroll="none" autofocus>
+            <Row x={48} y={SPACE.xl * 6} width={rowW} height={BUTTON_H} gap={LAYOUT.gap} scroll="none" autofocus>
               <For each={HOME_LINKS}>{(t) => <LinkButton target={t} />}</For>
             </Row>
           )
-          : <View x={48} y={300} width={2} height={2} autofocus />}
+          : <View x={48} y={SPACE.xl * 6} width={2} height={2} autofocus />}
         <Text x={48} y={48} fontSize={TYPE.title} color={COLORS.text}>{TITLES[screen]}</Text>
-        <Text x={48} y={124} fontSize={TYPE.body} color={COLORS.muted}>
+        <Text x={48} y={SPACE.xl + LINE.title + SPACE.m} fontSize={TYPE.body} color={COLORS.muted}>
           {SETTINGS_COPY.placeholder.screen(TITLES[screen])}
         </Text>
-        <Text x={48} y={172} fontSize={TYPE.meta} color={COLORS.muted}>
+        <Text x={48} y={SPACE.xl + LINE.title + SPACE.m + LINE.body + SPACE.s} fontSize={TYPE.meta} color={COLORS.muted}>
           {params ? SETTINGS_COPY.placeholder.params(params) : ''}
         </Text>
       </View>
