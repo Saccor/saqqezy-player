@@ -3,6 +3,7 @@
  * frames per placement, tabs, in-place sub-pages, and adapters from the old menus' rows. Pure: no Solid, no Lightning.
  */
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
+import { drawnRow, wheelFocus, type FocusSource } from '../shell/focusStyle.ts';
 import { LAYOUT, LINE, SPACE } from '../shell/theme.ts';
 import { firstSelectable, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
@@ -61,6 +62,12 @@ export function sheetClamp(sel: number, rows: readonly SheetRow[]): number {
 
 export function sheetStep(sel: number, d: 1 | -1, rows: readonly SheetRow[]): number {
   return stepSelectable(sheetClamp(sel, rows), d, rows.length, (i) => sheetSelectable(rows[i]));
+}
+
+/** A wheel step: starts from the drawn row (the hovered one if it was drawn), and the new selection is then the drawn one. */
+export function sheetWheel(sel: number, rows: readonly SheetRow[], d: 1 | -1, focus: FocusSource, pointer: boolean): { sel: number; focus: FocusSource } {
+  const from = drawnRow(sel, focus, pointer) ?? sel;
+  return { sel: sheetStep(from, d, rows), focus: wheelFocus(focus) };
 }
 
 /** The row with `id` when it is still there, else `index` clamped (the old ContextMenu's rule). */
