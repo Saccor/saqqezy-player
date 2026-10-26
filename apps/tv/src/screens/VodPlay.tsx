@@ -1,12 +1,13 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
-import type { CatchupPlayable, VodPlayable, VodTracks } from '@iptv/app-api';
+import type { CatchupPlayable, VersionView, VodPlayable, VodTracks } from '@iptv/app-api';
 import { cueAt, type LoadedSubtitle, type SubtitleInput } from '@iptv/core';
 import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { ListPicker } from '../components/ListPicker.tsx';
+import { OptionsMenu } from '../components/OptionsMenu.tsx';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
 import { MediaBadges } from '../components/MediaBadges.tsx';
 import { StatusPill } from '../components/StatusPill.tsx';
@@ -16,7 +17,7 @@ import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
 import { isVodId, journal, playback, player } from '../playback/playback.ts';
-import { CATCHUP_COPY } from '../copy.ts';
+import { CATCHUP_COPY, SOURCE_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from '../vod/catchupLogic.ts';
@@ -45,7 +46,9 @@ import {
   oneSpace, overlayVisible, coverVideo, coverLatch, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackKey, trackRows, trackShape, tracksDue, tracksKeyId,
 } from '../vod/vodPlayerLogic.ts';
 import { SyncRecorder, syncReferenceTrack } from '../vod/syncRecorder.ts';
-import { pickAudioTrack, type TrackLanguageInput } from '../vod/tracks.ts';
+import { pickAudioTrack, trackLabels, type TrackLanguageInput } from '../vod/tracks.ts';
+import { audioItems, matchingEpisode, optionsItems, sourceItems, versionOwnerId, type OptionsPage } from '../vod/playerOptions.ts';
+import { withLanguages } from '../vod/versionsLogic.ts';
 import { cueLanguageCollector } from '../vod/cueLanguage.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
@@ -58,6 +61,7 @@ const TICK_MS = 250;
 const TRACKS_ID = 'vodTracks';
 const SUB_URL_ID = 'vodSubtitleLink';
 const INFO_ID = 'vodStreamInfo';
+const OPTIONS_ID = 'vodOptions';
 /** Whether this display shows Dolby Vision profile 5 ('none' on Samsung; unknown elsewhere until probed). */
 const DV5 = staticCaps(platformId, 'native').display.hdr.dv5?.value;
 const SUB_ONLINE_ID = 'vodSubtitleOnline';
@@ -92,6 +96,8 @@ const ACTIONS_Y = 916;
 const ROUND_W = BUTTON_H;
 const BACK_W = 180;
 const TRACKS_W = 320;
+/** The gear (Options): a round icon button like the transport's. */
+const OPTIONS_W = BUTTON_H;
 const NEXT_W = 280;
 /** The volume control at the row's left end (desktop only: TVs keep their remote's volume). */
 const VOLUME_W = 300;
@@ -338,6 +344,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const leave = (saveFirst = true) => {
     if (!alive) return;
     closePicker();
+    closeOptions();
     closeLinkEntry();
     closeOnline();
     closeVersions();
@@ -1064,6 +1071,144 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
   };
 
+  // ---- options (the gear and the Menu key) ----
+
+  /** The title's versions, listed under a movie's id or an episode's series id; loaded once it plays (or the menu opens). */
+  const versionOwner = cu ? undefined : versionOwnerId(p);
+  const [versions, setVersions] = createSignal<VersionView[]>([]);
+  let versionsAsked = false;
+  const loadVersions = () => {
+    if (versionsAsked || !versionOwner) return;
+    versionsAsked = true;
+    const view = p.kind === 'movie' ? api.getMovie(versionOwner) : api.getSeries(versionOwner, versionOwner);
+    view.then((v) => {
+      if (!alive || !v || v.versions.length < 2) return;
+      setVersions(v.versions);
+      // Versions whose names give no language: the source's probe data usually does.
+      if (v.versions.some((x) => !x.lang)) {
+        api.getVersionLanguages(versionOwner).then((langs) => {
+          if (alive && Object.keys(langs).length > 0) setVersions((cur) => withLanguages(cur, langs));
+        }, (err) => console.warn('Version languages failed', errName(err)));
+      }
+    }, (err) => console.warn('Versions failed', errName(err)));
+  };
+
+  const [optionsPage, setOptionsPage] = createSignal<OptionsPage | undefined>(undefined);
+  let optionsNode: ElementNode | undefined;
+  let removeOptions: (() => void) | undefined;
+  const focusOptions = () => queueMicrotask(() => { if (alive) optionsNode?.setFocus(); });
+  const openOptions = () => {
+    if (optionsPage() || pickerOpen()) return true;
+    bump();
+    loadVersions();
+    setOptionsPage('main');
+    removeOptions = router.pushOverlay(OPTIONS_ID, () => {
+      removeOptions = undefined;
+      setOptionsPage(undefined);
+      focusBarOrRoot();
+    });
+    focusOptions();
+    return true;
+  };
+  const closeOptions = () => {
+    removeOptions?.();
+    removeOptions = undefined;
+    setOptionsPage(undefined);
+  };
+
+  const audioLabels = () => trackLabels(playback.audioTracks(), 'audio', langInput());
+  const optionItems = createMemo(() => {
+    rowsTick();
+    const page = optionsPage();
+    if (page === 'audio') return audioItems(playback.audioTracks(), audioLabels());
+    if (page === 'source') return sourceItems(versions(), versionOwner);
+    const audios = playback.audioTracks();
+    const a = audios.findIndex((t) => t.active);
+    const texts = playback.textTracks();
+    const s = texts.findIndex((t) => t.active);
+    const ext = external();
+    const subtitles = extOn() && ext ? oneSpace(ext.name)
+      : s >= 0 ? trackLabels(texts, 'subtitle', langInput())[s] ?? 'On' : 'Off';
+    const items = optionsItems({ audio: a >= 0 ? audioLabels()[a] ?? 'Default' : 'Default', subtitles, versions: versions().length, infoOn: infoOn() });
+    // Catch-up keeps nothing of its own: no Settings trip (the programme would start over).
+    return cu ? items.filter((i) => i.id !== 'settings') : items;
+  });
+
+  /** Another version of this title, from where it is now; remembered for the title (as the detail's Versions list). */
+  const switchSource = async (versionId: string) => {
+    if (!versionOwner || versionId === versionOwner || switchBusy || !alive) return;
+    switchBusy = true;
+    const at = failed() ? (saveArmed ? (lastPos ?? startMs) : startMs) : playhead();
+    save();
+    let np: VodPlayable | undefined;
+    let missing = false;
+    try {
+      await api.pickVodVersion(versionOwner, versionId).catch((err: unknown) => console.warn('Pick failed', errName(err)));
+      if (p.kind === 'movie') {
+        np = await api.getVodPlayable(versionId, undefined, true);
+      } else {
+        const sv = await api.getSeries(versionOwner, versionId);
+        const ep = sv && p.series ? matchingEpisode(sv.seasons, p.series.season, p.series.episode) : undefined;
+        if (ep) np = await api.getVodPlayable(ep, sv!.versionId);
+        else missing = true;
+      }
+    } catch (err) {
+      console.warn('Source switch failed', errName(err));
+    }
+    switchBusy = false;
+    if (!alive) return;
+    if (!np) {
+      showToast(missing ? "This episode isn't in that version." : CANT_PLAY_NOW);
+      return;
+    }
+    closeOptions();
+    closePicker();
+    router.replace('vodPlay', { playable: { ...np, resumeMs: Math.max(0, Math.round(at)) } });
+  };
+
+  /** All settings: saved first, and this screen's entry resumes from here when Settings goes back to it. */
+  const openSettings = () => {
+    const at = playhead();
+    save();
+    const entryParams = props.entry.params as { playable?: VodPlayable; fromStart?: boolean };
+    entryParams.playable = { ...p, resumeMs: Math.max(0, Math.round(at)) };
+    entryParams.fromStart = false;
+    closeOptions();
+    router.push('settings', { page: 'playback' });
+  };
+
+  const chooseOption = (id: string) => {
+    bump();
+    if (id === 'audio' || id === 'source') {
+      setOptionsPage(id);
+      focusOptions();
+    } else if (id === 'back') {
+      setOptionsPage('main');
+      focusOptions();
+    } else if (id === 'subtitles') {
+      closeOptions();
+      openPicker();
+    } else if (id === 'info') {
+      closeOptions();
+      toggleInfo();
+      focusBarOrRoot();
+    } else if (id === 'settings') {
+      openSettings();
+    } else if (id.startsWith('track:')) {
+      const t = playback.audioTracks().find((x) => x.id === id.slice('track:'.length));
+      if (t) {
+        playback.selectAudioTrack(t.id);
+        chosen.audio = trackKey(t);
+        remember({ audio: chosen.audio });
+      }
+      setOptionsPage('main');
+      refreshRows();
+      focusOptions();
+    } else if (id.startsWith('ver:')) {
+      void switchSource(id.slice('ver:'.length));
+    }
+  };
+
   // ---- next episode ----
 
   const stopCountdown = () => {
@@ -1144,6 +1289,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     ];
     const right: Action[] = [
       { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
+      { id: 'options', label: 'Options', width: OPTIONS_W, round: true, icon: iconTexture('gear') },
       ...(p.next ? [{ id: 'next', label: 'Next episode', width: NEXT_W }] : []),
     ];
     const leftWs = [...left.map((a) => a.width), ...(volumeSupported ? [VOLUME_W] : [])];
@@ -1160,14 +1306,15 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const onAction = (id: string) => {
     if (id === 'back') { onBack(); return; }
     bump();
-    // Failed or ended: only the card's buttons act (Next episode still may).
-    if ((failed() || ended()) && id !== 'next') return;
+    // Failed or ended: only the card's buttons act (Next episode and Options, for another source, still may).
+    if ((failed() || ended()) && id !== 'next' && id !== 'options') return;
     if (id === 'toggle') togglePause();
     else if (id === 'back10') scrubPress(-1, SEEK_STEP_MS, 'skip');
     else if (id === 'fwd10') scrubPress(1, SEEK_STEP_MS, 'skip');
     else if (id === 'back30') scrubPress(-1, SKIP_LONG_MS, 'skip');
     else if (id === 'fwd30') scrubPress(1, SKIP_LONG_MS, 'skip');
     else if (id === 'tracks') openPicker();
+    else if (id === 'options') openOptions();
     else if (id === 'next') nextNow();
   };
   /** Shows the overlay and puts the focus on its timeline (the overlay's first row). */
@@ -1286,6 +1433,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (kind === 'playing' && latch().armed) {
       everPlayed = true;
       applyTracks();
+      // Ready before the menu opens (a Source row appearing under the focus would move the rows).
+      loadVersions();
     }
   }));
 
@@ -1339,7 +1488,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // The overlay hid while its bar had the focus: give it back to the root (focus is never on a hidden node).
   createEffect(on(visible, (v) => {
-    if (!v && (barFocused || timelineFocused) && !pickerOpen()) focusRoot();
+    if (!v && (barFocused || timelineFocused) && !pickerOpen() && !optionsPage()) focusRoot();
   }));
 
   // ---- lifecycle ----
@@ -1452,6 +1601,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     removeVersions?.();
     router.removeOverlay(SUB_VERSIONS_ID);
     router.removeOverlay(INFO_ID);
+    removeOptions?.();
+    router.removeOverlay(OPTIONS_ID);
     stopOurs();
   });
 
@@ -1490,7 +1641,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       onPlayPause={() => (failed() || ended() ? true : togglePause())}
       onPlay={() => mediaKey('Play')} onPause={() => mediaKey('Pause')} onStop={() => mediaKey('Stop')}
       onFastForward={() => mediaKey('FastForward')} onRewind={() => mediaKey('Rewind')}
-      onChannelUp={nextNow} onChannelDown={prevNow} onInfo={toggleInfo}>
+      onChannelUp={nextNow} onChannelDown={prevNow} onInfo={toggleInfo} onMenu={openOptions}>
 
       {/* Under everything (subtitles 5, overlay 10, cards 30): hides what sits on the video plane until the first picture. */}
       <Show when={coverVideo(status(), played(), latch().armed)}>
@@ -1577,6 +1728,12 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack} onAdjust={adjustRow}
           hint="Ok chooses · Back closes" />
       </Show>
+
+      <Show when={optionsPage()} keyed>{(page) => (
+        <OptionsMenu ref={(el) => { optionsNode = el; }}
+          title={page === 'audio' ? 'Audio track' : page === 'source' ? SOURCE_COPY.choose : 'Options'}
+          items={optionItems()} onChoose={chooseOption} />
+      )}</Show>
 
       <Show when={onlineRows()}>{(list) => (
         <ListPicker ref={(el) => { onlineNode = el; }} title="Subtitles online" rows={list()} onPick={pickOnline}
