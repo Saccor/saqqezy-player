@@ -63,7 +63,7 @@ function Chip(p: {
           <Badge x={d().x} y={d().y} text={COUNTRIES_COPY.thisTv} />
         )}</Show>
         <Show when={p.number}>{(n) => (
-          <Badge x={box().pill.x} y={box().pill.y} tone="selected" text={`✓ ${n()}`} />
+          <Badge x={box().pill.x} y={box().pill.y} tone="selected" text={COUNTRIES_COPY.selectedCount(n())} />
         )}</Show>
       </View>
     </View>

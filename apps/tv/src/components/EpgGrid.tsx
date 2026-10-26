@@ -8,7 +8,7 @@ import { cellBadge } from '../playback/sourceLogic.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { COLORS, LAYOUT, STRONG, TYPE, centerText } from '../shell/theme.ts';
+import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { BADGE_H, Badge, badgeWidth } from './Badge.tsx';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
@@ -40,6 +40,8 @@ export const EPG_GEOMETRY: GridGeometry = {
 /** Rows drawn beyond each edge of the viewport. */
 const ROW_BUFFER = 2;
 const CELL_H = EPG_CELL_H;
+/** The cell badge sits vertically centred in the cell (a pill, not text, so no text nudge). */
+const BADGE_Y = (CELL_H - BADGE_H) / 2;
 const BLOCK_GAP = 4;
 const CELL_R = 6;
 const PAD_X = 16;
@@ -220,7 +222,7 @@ export function EpgGrid(props: {
                   {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
                 <Show when={badgeW() > 0}>
-                  <Badge x={NAME_X + NAME_W - badgeW()} y={centerText(CELL_H, BADGE_H) + 4} text={badge()} lit={chLit()} />
+                  <Badge x={NAME_X + NAME_W - badgeW()} y={BADGE_Y} text={badge()} lit={chLit()} />
                 </Show>
               </View>
               <View x={TL_X} width={TIMELINE_W} height={CELL_H}>

@@ -25,15 +25,14 @@
   "components/CountryGrid.tsx": {
     "fontSize": 2,
     "radius": 1,
-    "space": 3,
-    "string": 1
+    "space": 3
   },
   "components/DropdownHeader.tsx": {
     "space": 1
   },
   "components/EpgGrid.tsx": {
     "radius": 4,
-    "space": 6
+    "space": 5
   },
   "components/EpisodeRow.tsx": {
     "radius": 2,

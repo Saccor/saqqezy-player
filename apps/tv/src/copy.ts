@@ -121,6 +121,7 @@ export const COUNTRIES_COPY = {
   change: 'Change',
   languageLine: (name: string): string => `Audio and subtitles: ${name} first`,
   folders: (n: number): string => `${n} ${n === 1 ? 'folder' : 'folders'}`,
+  selectedCount: (n: number): string => `✓ ${n}`,
 } as const;
 export { COMMON_COPY } from './copy/common.ts';
 export { COOLDOWN_COPY, FAILURE_COPY } from './copy/failure.ts';
