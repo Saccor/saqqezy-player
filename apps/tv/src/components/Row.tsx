@@ -1,5 +1,5 @@
 import { For, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createMemo, createSignal, on } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, untrack } from 'solid-js';
 import type { EpisodeView, VodTile } from '@iptv/app-api';
 import { VOD_COPY } from '../copy/vod.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -46,9 +46,12 @@ export function Row(props: {
   const poster = () => c() as Extract<RowContent, { variant: 'poster' }>;
   const wide = () => c() as Extract<RowContent, { variant: 'wide' | 'wideCompact' }>;
   const episode = () => c() as Extract<RowContent, { variant: 'episode' }>;
-  const defaults = () => rowDefaults(c().variant, TV);
-  const size = () => tileSize(c().variant, { w: props.w, h: props.h });
-  const pitch = () => size().w + tileGap(c().variant);
+  // A mounted row's variant never changes (callers key rows by id). Read it untracked: size, pitch and height must follow
+  // only the size props, not every signal inside the caller's content literal (which would restart the glide).
+  const variant = untrack(() => c().variant);
+  const defaults = () => rowDefaults(variant, TV);
+  const size = createMemo(() => tileSize(variant, { w: props.w, h: props.h }), undefined, { equals: (a, b) => a.w === b.w && a.h === b.h });
+  const pitch = createMemo(() => size().w + tileGap(variant));
   const visible = () => props.visible ?? defaults().visible;
   const cells = () => {
     const x = c();
@@ -76,16 +79,15 @@ export function Row(props: {
     onContextMenu: (p) => { const col = colAt(p.x); if (col !== undefined) props.onCellOptions?.(col); },
     onWheel: (dy, dx) => props.onWheel?.(dy, dx) ?? false,
   });
-  const h = () => tileRowHeight(c().variant, size().h);
+  const h = () => tileRowHeight(variant, size().h);
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={h()}>
       <View ref={(el) => { strip = el; }} width={Math.max(1, cells()) * pitch()} height={h()}>
         <For each={cols()}>{(col) => {
           const lit = () => props.lit && props.focusCol === col;
           const hov = () => pointerMode() && hover() === col;
-          // The variant of a mounted row never changes, but its content does (a refreshed `now`, new cells): every
+          // Content (a refreshed `now`, new cells) changes while mounted: every
           // content read below sits in a prop getter, so the tile follows it.
-          const variant = c().variant;
           if (variant === 'poster') {
             const cell = () => cellAt(poster().row, col);
             return <Tile variant="poster" x={col * pitch()} y={0} w={size().w} h={size().h} lit={lit()} hover={hov()}

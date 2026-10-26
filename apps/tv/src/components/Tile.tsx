@@ -37,10 +37,10 @@ export function Tile(props: TileProps) {
   let art: ElementNode | undefined;
   useFocusScale(() => art, () => props.lit);
   const wideImage = (c: WideCell) => (c.type === 'channel' ? c.channel.logo : c.type === 'event' ? c.event.icon : c.type === 'programme' ? c.hit.channel.logo : undefined);
-  return (
-    <View x={props.x} y={props.y} width={s().w} height={tileRowHeight(props.variant, s().h)} zIndex={props.lit ? 2 : 1}>
-      <View ref={(el) => { art = el; props.ref?.(el); }} width={s().w} height={s().h} zIndex={1}>
-        <FocusRing w={s().w} h={s().h} radius={RADIUS.card} lit={props.lit} hover={props.hover} />
+  const ring = () => <FocusRing w={s().w} h={s().h} radius={RADIUS.card} lit={props.lit} hover={props.hover} />;
+  const body = () => (
+    <>
+      {ring()}
         <Switch>
           <Match when={props.variant === 'poster' ? (props as PosterTileProps) : undefined}>{(p) => (
             <PosterArt w={s().w} h={s().h} title={p().tile?.title ?? ''} image={p().tile?.poster} progress={p().tile?.progress}
@@ -75,8 +75,16 @@ export function Tile(props: TileProps) {
             <LogoBody url={p().url} name={p().name} size={s().w} />
           )}</Match>
         </Switch>
-      </View>
+    </>
+  );
+  // Only an episode tile has text outside the scaled art; the others are one scaled node (a spare View per tile costs
+  // memory on 1 GB TVs).
+  return props.variant === 'episode' ? (
+    <View x={props.x} y={props.y} width={s().w} height={tileRowHeight(props.variant, s().h)} zIndex={props.lit ? 2 : 1}>
+      <View ref={(el) => { art = el; props.ref?.(el); }} width={s().w} height={s().h} zIndex={1}>{body()}</View>
       <Show when={props.variant === 'episode' ? (props as EpisodeTileProps) : undefined}>{(p) => <EpisodeText ep={p().ep} />}</Show>
     </View>
+  ) : (
+    <View ref={(el) => { art = el; props.ref?.(el); }} x={props.x} y={props.y} width={s().w} height={s().h} zIndex={props.lit ? 2 : 1}>{body()}</View>
   );
 }
