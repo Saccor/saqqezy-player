@@ -2,7 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, on } from 'solid-js';
 import { stopMotion, tween } from '../shell/motion.ts';
 import { COLORS, LINE, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
-import { INFO_PROGRESS_W, infoBlockLayout, metaLineLayout } from './infoBlockLogic.ts';
+import { INFO_PROGRESS_W, infoBlockLayout, metaLineLayout, overlineWidth } from './infoBlockLogic.ts';
 import { textWidth } from './textWidth.ts';
 
 const TRACK_H = 4;
@@ -16,6 +16,8 @@ const ICON = 24;
 export function InfoBlock(props: {
   x?: number; y?: number; width: number;
   overline?: string;
+  /** Room taken at the right of the overline's line (badges): the overline ends before it. */
+  overlineEndGap?: number;
   title: string;
   titleSize?: 'title' | 'hero';
   /** A small icon before the title (the catch-up mark), from the app's icon set. */
@@ -28,6 +30,8 @@ export function InfoBlock(props: {
   /** Default 1 (spec); the guide's expanded details pass 3. */
   descriptionLines?: number;
   fadeOnTitle?: boolean;
+  /** The title colour: the guide's "no information" fallback is dimmer. */
+  titleDim?: boolean;
 }) {
   let node: ElementNode | undefined;
   createEffect(on(() => props.title, (title, prev) => {
@@ -41,17 +45,17 @@ export function InfoBlock(props: {
   const l = () => infoBlockLayout({ overline: props.overline !== undefined, titleSize: props.titleSize ?? 'title', metaLine: metaLine(), descriptionLines: lines() });
   const size = () => (props.titleSize === 'hero' ? TYPE.hero : TYPE.title);
   const titleX = () => (props.titleIcon ? ICON + TYPE.meta / 2 : 0);
-  const meta = () => metaLineLayout(Math.ceil(textWidth(props.meta ?? '', TYPE.meta)), props.progress !== undefined, props.trailing !== undefined);
+  const meta = () => metaLineLayout(Math.ceil(textWidth(props.meta ?? '', TYPE.meta)), props.progress !== undefined);
   return (
     <View ref={(el) => { node = el; }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={l().height} zIndex={2}>
       <Show when={props.overline}>
-        <Text width={props.width} maxWidth={props.width} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.overline ?? ''}</Text>
+        <Text width={overlineWidth(props.width, props.overlineEndGap ?? 0)} maxWidth={overlineWidth(props.width, props.overlineEndGap ?? 0)} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.overline ?? ''}</Text>
       </Show>
       <Show when={props.titleIcon}>{(src) => (
         <View y={l().titleY + (size() - ICON) / 2} width={ICON} height={ICON} src={src()} color={COLORS.muted} />
       )}</Show>
       <Text x={titleX()} y={l().titleY} width={props.width - titleX()} maxWidth={props.width - titleX()} contain="width" maxLines={1}
-        fontSize={size()} {...STRONG} color={COLORS.text}>{props.title}</Text>
+        fontSize={size()} {...STRONG} color={props.titleDim ? COLORS.textSecondary : COLORS.text}>{props.title}</Text>
       <Show when={metaLine()}>
         <View y={l().metaY} width={props.width} height={LINE.meta}>
           <Text width={props.width} maxWidth={props.width} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.meta ?? ''}</Text>

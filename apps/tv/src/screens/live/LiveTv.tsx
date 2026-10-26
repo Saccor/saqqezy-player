@@ -914,7 +914,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       <Show when={ready() && groupCount() === 0} fallback={
         <InfoBlock x={INFO_X} y={LAYOUT.safeY} width={INFO_W} overline={liveChannelLine(shown()?.channel)}
           title={liveProg()?.title ?? NO_INFO}
-          meta={liveProg() ? infoTimeLine(liveProg()!.start, liveProg()!.stop, now()).text : undefined}
+          meta={liveProg() ? infoTimeLine(liveProg()!.start, liveProg()!.stop, now()) : undefined}
           progress={onAirProgress()} trailing={onAir() ? timeLeftLabel(liveProg()!.stop, now()) : undefined}
           description={liveProg()?.desc} descriptionLines={expanded() ? 3 : 1} />
       }>

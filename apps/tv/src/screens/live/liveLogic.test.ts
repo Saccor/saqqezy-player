@@ -1,9 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
   GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, NO_LIVE_TEXT, hasNoLive, liveEmptyText, liveKey, liveTypedChar, locateFocus, sameCell, sameInfo,
-  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, INFO_TRACK, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs, livePlaceOnOpen, liveChannelLine, liveProgramme,
+  LIVE_POINTER_LABELS, liveMenuItems, liveOkAction, timeLeftLabel, infoTimeLine, GROUPS_FAILED_TEXT, groupsRetryMs, livePlaceOnOpen, liveChannelLine, liveProgramme,
 } from './liveLogic.ts';
-import { TYPE } from '../../shell/theme.ts';
 
 describe('LIVE_POINTER_LABELS', () => {
   test('uses the spec copy', () => {
@@ -279,26 +278,15 @@ describe('sameCell', () => {
 describe('infoTimeLine', () => {
   const at = (day: number, h: number, m = 0) => new Date(2026, 9, day, h, m).getTime();
   const now = at(20, 0, 30);
-  /** The estimate the track must clear: 0.6 em a character at meta size. */
-  const textW = (s: string) => s.length * 0.6 * TYPE.meta;
 
-  test("today's programme: the time range only, the track at its usual place", () => {
-    expect(infoTimeLine(at(20, 20), at(20, 21, 30), now)).toEqual({ text: '20:00–21:30', trackX: INFO_TRACK.minX });
+  test("today's programme: the time range only", () => {
+    expect(infoTimeLine(at(20, 20), at(20, 21, 30), now)).toBe('20:00–21:30');
   });
 
-  test('another day: the day label first, and the track after the longer text', () => {
-    const y = infoTimeLine(at(19, 23), at(20, 1), now);
-    expect(y.text).toBe('Yesterday · 23:00–01:00');
-    expect(y.trackX).toBeGreaterThanOrEqual(textW(y.text) + 8);
-    expect(infoTimeLine(at(21, 9), at(21, 10), now).text).toBe('Tomorrow · 09:00–10:00');
-    const far = infoTimeLine(at(23, 9), at(23, 10), now);
-    expect(far.text).toMatch(/^\w{3} 23 \w{3} · 09:00–10:00$/);
-    expect(far.trackX).toBeGreaterThanOrEqual(textW(far.text) + 8);
-  });
-
-  test('the track and the longest time-left label still fit in the info block', () => {
-    const y = infoTimeLine(at(19, 23), at(20, 1), now);
-    expect(y.trackX + INFO_TRACK.w + INFO_TRACK.gap + textW('1 h 59 min left')).toBeLessThanOrEqual(INFO_W);
+  test('another day: the day label first', () => {
+    expect(infoTimeLine(at(19, 23), at(20, 1), now)).toBe('Yesterday · 23:00–01:00');
+    expect(infoTimeLine(at(21, 9), at(21, 10), now)).toBe('Tomorrow · 09:00–10:00');
+    expect(infoTimeLine(at(23, 9), at(23, 10), now)).toMatch(/^\w{3} 23 \w{3} · 09:00–10:00$/);
   });
 });
 

@@ -2,8 +2,10 @@ import { Show, Text, View } from '@lightningtv/solid';
 import type { ChannelRow } from '@iptv/app-api';
 import { BADGE_H, BadgeRow } from '../components/Badge.tsx';
 import { InfoBlock } from '../components/InfoBlock.tsx';
+import { textWidth } from '../components/textWidth.ts';
 import { Tile } from '../components/Tile.tsx';
 import { LOGO_TILE } from '../components/tileLogic.ts';
+import { badgesWidth, layoutBadges } from '../playback/mediaBadges.ts';
 import { formatClock } from '../shell/logic.ts';
 import { BACKGROUND_RGB, COLORS, LAYOUT, LINE, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
@@ -41,6 +43,8 @@ export function PlayerBanner(props: {
   const bandY = () => LAYOUT.height - LAYOUT.safeY - BANNER_H - lift();
   const rightCol = () => (props.showClock || props.live ? RIGHT_W + LAYOUT.gap : 0);
   const badgesRight = () => BANNER_W - (props.showClock ? RIGHT_W + LAYOUT.gap : 0);
+  /** The badges' measured width (they draw right-aligned, so the overline ends before them). */
+  const badgesW = () => badgesWidth(layoutBadges(props.badges ?? [], (t) => textWidth(t, TYPE.meta), BADGES_W));
   const archive = () => c().archiveDays !== undefined;
   return (
     <View x={LAYOUT.safeX} y={bandY()} width={BANNER_W} height={BANNER_H} zIndex={5}>
@@ -50,7 +54,7 @@ export function PlayerBanner(props: {
       <Tile variant="logo" x={0} y={TOP} url={c().logo} name={c().name} lit={false} />
 
       <InfoBlock x={TEXT_X} y={TOP} width={TEXT_W - rightCol()}
-        overline={`${c().number}  ${c().name}`} title={c().now?.title ?? NO_GUIDE_INFO}
+        overline={`${c().number}  ${c().name}`} overlineEndGap={badgesW()} titleDim={!c().now} title={c().now?.title ?? NO_GUIDE_INFO}
         titleIcon={c().now && archive() ? iconTexture('archive') : undefined}
         meta={c().now ? formatClock(new Date(c().now!.start)) : undefined}
         progress={c().now ? progressOf(c().now!, props.now) : undefined}

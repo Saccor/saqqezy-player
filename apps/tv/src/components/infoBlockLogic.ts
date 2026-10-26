@@ -18,11 +18,16 @@ export function infoBlockLayout(s: InfoBlockShape): { overlineY: number; titleY:
   return { overlineY: 0, titleY, metaY, descriptionY, height };
 }
 
-export function metaLineLayout(metaW: number, hasProgress: boolean, _hasTrailing: boolean): { trackX: number; trailingX: number } {
+export function metaLineLayout(metaW: number, hasProgress: boolean): { trackX: number; trailingX: number } {
   const trackX = metaW + SPACE.m;
   return { trackX, trailingX: hasProgress ? trackX + INFO_PROGRESS_W + SPACE.m : trackX };
 }
 
-export function keyValueHeight(n: number, title: boolean, framed: boolean): number {
-  return (framed ? SPACE.l * 2 : 0) + (title ? LINE.body + SPACE.m : 0) + n * KV_LINE_H;
+/** The overline's width when badges share its line (a long channel name never runs under them). */
+export function overlineWidth(width: number, badgesW: number): number {
+  return badgesW > 0 ? Math.max(0, width - badgesW - SPACE.m) : width;
+}
+
+export function keyValueHeight(n: number, hasTitle: boolean, framed: boolean): number {
+  return (framed ? SPACE.l * 2 : 0) + (hasTitle ? LINE.body + SPACE.m : 0) + n * KV_LINE_H;
 }

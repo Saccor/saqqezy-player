@@ -22,6 +22,9 @@ import type { PageProps } from './shared.ts';
  * the "Playback log" row that opens `PlaybackLogView` and the "Connections" row (multiview) that opens
  * `ConnectionsView`, plus "Test multiview again" once the TV refused a second picture.
  */
+/** Labels like "Exact-match subtitles" need the wide column the page always had. */
+const DIAGNOSTICS_LABEL_W = 300;
+
 export function DiagnosticsPage(props: PageProps) {
   const [lines, setLines] = createSignal<[string, string][]>([]);
   const [sel, setSel] = createSignal(0);
@@ -75,7 +78,7 @@ export function DiagnosticsPage(props: PageProps) {
         <SettingsList ref={props.register} x={0} y={0} width={props.width} height={SETTING_ROW_H * rows()}
           items={items()} selected={sel()} onSelect={setSel} onAdjust={(id) => toggle(id)} onOk={ok}
           onLeftEdge={props.onLeftEdge} />
-        <KeyValuePanel x={SPACE.l} y={linesY()} width={props.width - SPACE.xl} lines={lines()} maxLines={maxLines()} />
+        <KeyValuePanel x={SPACE.l} y={linesY()} width={props.width - SPACE.xl} lines={lines()} maxLines={maxLines()} labelW={DIAGNOSTICS_LABEL_W} />
       </Show>
     </View>
   );
