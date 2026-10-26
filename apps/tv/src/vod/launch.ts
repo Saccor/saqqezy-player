@@ -1,8 +1,9 @@
 import type { SeriesView, VodPlayable } from '@iptv/app-api';
+import { VOD_COPY } from '../copy.ts';
 
 /** Movies play launcher, shared by the browse hero and the movie detail. No Solid, no Lightning: the screen wires it. */
 
-export const CANT_PLAY = "This video can't play on this device.";
+export const CANT_PLAY = VOD_COPY.cantPlay;
 
 export interface LaunchDeps {
   /** False once the screen is gone. */

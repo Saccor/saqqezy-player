@@ -5,6 +5,7 @@ import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
 import { VOD_ALL } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { Button } from '../components/Button.tsx';
+import { COMMON_COPY, VOD_COPY } from '../copy.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { InfoBlock } from '../components/InfoBlock.tsx';
 import { INFO_STRIP } from '../components/infoBlockLogic.ts';
@@ -502,7 +503,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     if (s === 'error') return home()?.error?.message ?? copy.loadError;
     return '';
   };
-  const statusLine = () => vodStatusLine(kind, home());
+  const statusLine = () => vodStatusLine(home());
   /** The detail only shows while it belongs to the strip's title. */
   const heroDetail = () => (hero()?.tile.id === stripTile()?.id ? hero()?.detail : undefined);
   const art = () => heroDetail()?.backdrop ?? undefined;
@@ -563,7 +564,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
         {/* Above the backdrop's scrims (zIndex 1). */}
         <View zIndex={4}>
           <DropdownHeader ref={(el) => { headerNode = el; }} x={LAYOUT.width - LAYOUT.safeX} y={LAYOUT.safeY} align="right"
-            size={TYPE.body} label="All categories" onPress={openCategories}
+            size={TYPE.body} label={VOD_COPY.allCategories} onPress={openCategories}
             onDown={() => focusArea('rows')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) choose('header'); }} />
         </View>
       </Show>
@@ -582,7 +583,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
             )}</For>
           </Show>
           <Show when={status() === 'error'}>
-            <Button ref={(el) => { errorNode = el; }} x={ROW_X} y={ROW_Y} label="Try again"
+            <Button ref={(el) => { errorNode = el; }} x={ROW_X} y={ROW_Y} label={COMMON_COPY.tryAgain}
               onPress={() => void api.refreshVod(kind).catch(() => undefined).then(() => load())}
               onUp={() => focusArea(hasHeader() ? 'header' : 'rail')} />
           </Show>

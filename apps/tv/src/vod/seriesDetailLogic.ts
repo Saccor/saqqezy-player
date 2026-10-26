@@ -1,6 +1,6 @@
 import type { EpisodeView, SeasonView, SeriesPrimary, SeriesView } from '@iptv/app-api';
 import { episodeLabel } from '@iptv/core';
-import { FAV_COPY } from '../copy.ts';
+import { FAV_COPY, VOD_COPY } from '../copy.ts';
 import { seriesMetaLine } from './heroLogic.ts';
 import { formatRuntime } from './posterLogic.ts';
 
@@ -8,9 +8,9 @@ import { formatRuntime } from './posterLogic.ts';
 
 /** The primary button label: "Continue S2 · E4", "Play S1 · E1", or "Play" before the view has loaded. */
 export function primaryLabel(p: SeriesPrimary | undefined): string {
-  if (!p) return 'Play';
+  if (!p) return VOD_COPY.play;
   const label = episodeLabel(p.season, p.episode);
-  return p.mode === 'continue' ? `Continue ${label}` : `Play ${label}`;
+  return p.mode === 'continue' ? VOD_COPY.continueEpisode(label) : VOD_COPY.playEpisode(label);
 }
 
 /** Season index and episode index to open on: the season holding `primary`, that episode; else 0/0. */
@@ -26,15 +26,15 @@ export function initialFocus(view: SeriesView): { season: number; episode: numbe
 /** "E4 · 42 min" (runtime omitted when unknown). */
 export function episodeMeta(e: EpisodeView): string {
   const rt = formatRuntime(e.runtimeMin);
-  const label = `E${e.episode}`;
+  const label = VOD_COPY.episode(e.episode);
   return rt ? `${label} · ${rt}` : label;
 }
 
 /** The season dropdown label and list row label: the season's name when it is not just a number, else "Season N"; number 0 is "Specials". */
 export function seasonLabel(s: SeasonView): string {
-  if (s.number === 0) return 'Specials';
+  if (s.number === 0) return VOD_COPY.specials;
   const name = s.name.trim();
-  if (name === '' || /^\d+$/.test(name)) return `Season ${s.number}`;
+  if (name === '' || /^\d+$/.test(name)) return VOD_COPY.seasonNumber(s.number);
   return name;
 }
 

@@ -1,4 +1,5 @@
 import type { PosterSize, VodSort } from '@iptv/core';
+import { VOD_COPY } from '../copy.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import { POSTER_GAP } from './posterLogic.ts';
 
@@ -75,7 +76,7 @@ export function keepFailedPages<T>(fresh: ReadonlyMap<number, T[]>, failed: numb
   return out;
 }
 
-export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', provider: 'Provider order', title: 'A–Z', rating: 'Rating' };
+export const SORT_LABELS: Record<VodSort, string> = { added: VOD_COPY.sort.added, provider: VOD_COPY.sort.source, title: VOD_COPY.sort.title, rating: VOD_COPY.sort.rating };
 
 export function sortsFor(hasRecent: boolean): VodSort[] {
   // Provider order is the default without added dates (M3U); Xtream keeps Recently added first (owner decision 2).

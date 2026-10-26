@@ -139,7 +139,7 @@ describe('subtitle delay', () => {
 
   it('the delay row shows while a loaded file is on; pointer mode adds earlier/later rows to click', () => {
     const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 1200, canLoadFile: false });
-    expect(rows[1]).toEqual({ kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: +1.2 s (Left/Right)', checked: false });
+    expect(rows[1]).toEqual({ kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: +1.2 s', checked: false });
     const pointer = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, canLoadFile: false, pointer: true });
     expect(pointer.slice(1, 4).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW]);
     expect(subtitleExtraRows({ external: { name: 'English', active: false }, delayMs: 0, canLoadFile: false }).some((r) => r.kind === 'list' && r.id === DELAY_ROW)).toBe(false);
@@ -231,11 +231,11 @@ describe('subtitle speed', () => {
   it('the speed row sits under the delay, only while a loaded file is on', () => {
     const rows = subtitleExtraRows({ external: { name: 'English', active: true }, delayMs: 0, speed: SPEED_PAL_TO_FILM, canLoadFile: false });
     expect(rows.slice(1, 3).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, SPEED_ROW]);
-    expect(rows[2]).toEqual({ kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: 25 → 23.976 (Left/Right)', checked: false, help: SPEED_HELP });
+    expect(rows[2]).toEqual({ kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: 25 → 23.976', checked: false, help: SPEED_HELP });
     expect(SPEED_HELP).toBe('Fixes subtitles that drift further off as the film goes on');
     const pointer = subtitleExtraRows({ external: { name: 'English', active: true }, canLoadFile: false, pointer: true });
     expect(pointer.slice(1, 5).map((r) => r.kind === 'list' && r.id)).toEqual([DELAY_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, SPEED_ROW]);
-    expect(pointer[4]).toMatchObject({ label: 'Subtitle speed: Normal (Left/Right)' });
+    expect(pointer[4]).toMatchObject({ label: 'Subtitle speed: Normal' });
     const off = subtitleExtraRows({ external: { name: 'English', active: false }, canLoadFile: false });
     expect(off.some((r) => r.kind === 'list' && r.id === SPEED_ROW)).toBe(false);
     expect(subtitleExtraRows({ canLoadFile: false }).some((r) => r.kind === 'list' && r.id === SPEED_ROW)).toBe(false);
@@ -304,8 +304,8 @@ describe('subtitleExtraRows', () => {
   it('a loaded file (checked when on), load rows, and remove', () => {
     expect(subtitleExtraRows({ external: { name: 'film.srt', active: true }, canLoadFile: true })).toEqual([
       { kind: 'list', id: SUBTITLE_EXT_ROW, label: 'Subtitles: film.srt (loaded)', checked: true },
-      { kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: 0.0 s (Left/Right)', checked: false },
-      { kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: Normal (Left/Right)', checked: false, help: SPEED_HELP },
+      { kind: 'list', id: DELAY_ROW, label: 'Subtitle delay: 0.0 s', checked: false },
+      { kind: 'list', id: SPEED_ROW, label: 'Subtitle speed: Normal', checked: false, help: SPEED_HELP },
       { kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false },
       { kind: 'list', id: LOAD_FILE_ROW, label: 'Load subtitles from a file…', checked: false },
       { kind: 'list', id: REMOVE_EXT_ROW, label: 'Remove loaded subtitles', checked: false },

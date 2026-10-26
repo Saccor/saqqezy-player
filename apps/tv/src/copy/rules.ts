@@ -27,6 +27,8 @@ const RULES: readonly { id: Exclude<CopyRuleId, 'length'>; re: RegExp }[] = [
  * fails on an exception that points at nothing).
  */
 export const COPY_EXCEPTIONS: Readonly<Record<string, readonly CopyRuleId[]>> = {
+  'TRENDING_COPY.attribution': ['length'], // licence wording, word for word (Task 17)
+  'TRENDING_COPY.tmdb': ['length'], // licence wording, word for word (Task 17)
   'SHELL_COPY.revealShow': ['keyHint'], // Yellow reveals a password until phase 2 (Task 16)
   'SHELL_COPY.revealHide': ['keyHint'], // (Task 16)
 };

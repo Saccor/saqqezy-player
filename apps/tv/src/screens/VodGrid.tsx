@@ -5,6 +5,7 @@ import { VOD_ROW_CONTINUE, VOD_ROW_RECENT } from '@iptv/app-api';
 import type { VodSort } from '@iptv/core';
 import { api } from '../api.ts';
 import { Button } from '../components/Button.tsx';
+import { COMMON_COPY, VOD_COPY } from '../copy.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
 import { Sheet } from '../components/Sheet.tsx';
@@ -475,12 +476,12 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
         {/* Left from Try again reaches the rail, as on browse. */}
         <View onLeft={() => focusArea('rail')}>
-          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label={COMMON_COPY.tryAgain} onPress={retry}
             onUp={() => focusArea('header')} />
         </View>
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>
-        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>
+        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{VOD_COPY.nothingHere}</Text>
       </Show>
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>

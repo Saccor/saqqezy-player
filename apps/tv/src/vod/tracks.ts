@@ -1,6 +1,7 @@
 import type { LanguageHints } from '@iptv/app-api';
 import { englishLanguageName, isoLanguage, languageFromLabel, prefixLang } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
+import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 
 /**
@@ -23,7 +24,7 @@ export const LANGUAGE_NAMES: Record<string, string> = {
   spa: 'Spanish', fa: 'Persian', fas: 'Persian', per: 'Persian', fi: 'Finnish', fin: 'Finnish', fr: 'French',
   fra: 'French', fre: 'French', he: 'Hebrew', heb: 'Hebrew', hi: 'Hindi', hin: 'Hindi', hu: 'Hungarian',
   hun: 'Hungarian', id: 'Indonesian', ind: 'Indonesian', it: 'Italian', ita: 'Italian', ja: 'Japanese', jpn: 'Japanese',
-  ko: 'Korean', kor: 'Korean', nb: 'Norwegian', nob: 'Norwegian', no: 'Norwegian', nor: 'Norwegian', nl: 'Dutch',
+  ko: 'Korean', kor: 'Korean', nb: 'Norwegian', nob: 'Norwegian', 'no': 'Norwegian', nor: 'Norwegian', nl: 'Dutch',
   nld: 'Dutch', dut: 'Dutch', pl: 'Polish', pol: 'Polish', pt: 'Portuguese', por: 'Portuguese', ro: 'Romanian',
   ron: 'Romanian', rum: 'Romanian', ru: 'Russian', rus: 'Russian', sv: 'Swedish', swe: 'Swedish', th: 'Thai',
   tha: 'Thai', tr: 'Turkish', tur: 'Turkish', uk: 'Ukrainian', ukr: 'Ukrainian', vi: 'Vietnamese', vie: 'Vietnamese',
@@ -139,9 +140,9 @@ export function trackRows(audio: readonly TrackInfo[], text: readonly TrackInfo[
   const audioLabels = trackLabels(audio, 'audio', input);
   const textLabels = trackLabels(text, 'subtitle', input);
   return [
-    ...audio.map((t, i): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: `Audio: ${audioLabels[i]}`, checked: t.active })),
-    ...text.map((t, i): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: `Subtitles: ${textLabels[i]}`, checked: t.active })),
-    { kind: 'list', id: SUBTITLES_OFF, label: 'Subtitles off', checked: !text.some((t) => t.active) },
+    ...audio.map((t, i): PickerRow => ({ kind: 'list', id: `a:${t.id}`, label: VOD_COPY.audioRow(String(audioLabels[i])), checked: t.active })),
+    ...text.map((t, i): PickerRow => ({ kind: 'list', id: `s:${t.id}`, label: VOD_COPY.subtitlesRow(String(textLabels[i])), checked: t.active })),
+    { kind: 'list', id: SUBTITLES_OFF, label: VOD_COPY.subtitlesOff, checked: !text.some((t) => t.active) },
   ];
 }
 

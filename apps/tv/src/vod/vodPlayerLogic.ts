@@ -1,6 +1,7 @@
 import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
 import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
+import { VOD_COPY } from '../copy.ts';
 import { FAILURE_COPY } from '../copy/failure.ts';
 import { MOTION } from '../shell/theme.ts';
 import { oneSpace } from './tracks.ts';
@@ -78,7 +79,7 @@ export function cueText(text: string | null): string {
 
 /** The next-episode card: "Next: S2 · E5 · Title in 7 s". */
 export function nextCardText(label: string, secondsLeft: number): string {
-  return `Next: ${label} in ${secondsLeft} s`;
+  return VOD_COPY.nextIn(label, secondsLeft);
 }
 
 /** How close the playhead must come to the start position before the start counts as landed. */
@@ -148,7 +149,7 @@ export function tracksKeyId(p: VodPlayable): string {
  * The toast when the picture plays but the device decodes none of the sound (desktop browsers lack AC-3 / E-AC-3,
  * common in films). With more than one audio track, another one may play.
  */
-export const DV_COLOURS_TEXT = "Colours may look wrong on this TV: this video is in Dolby Vision, which it can't show.";
+export const DV_COLOURS_TEXT = VOD_COPY.dolbyVision;
 
 /**
  * Warn that the colours may be wrong: the video is Dolby Vision without a base layer this display can show (profile 5,

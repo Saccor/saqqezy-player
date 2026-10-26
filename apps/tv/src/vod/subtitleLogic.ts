@@ -1,5 +1,6 @@
 import { detectTextLanguage, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
+import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
 import { findTrack, languageName, preferredTrack } from './tracks.ts';
@@ -21,7 +22,7 @@ export const subtitleLanguageLabel = (code: string): string => (code === 'off' ?
 /** The Settings choices for the audio language: 'auto' (the stream's default track), then the subtitle languages. */
 export const AUDIO_LANGUAGE_OPTIONS: readonly string[] = ['auto', ...SUBTITLE_LANGUAGE_OPTIONS.filter((c) => c !== 'off')];
 
-export const audioLanguageLabel = (code: string): string => (code === 'auto' ? 'Stream default' : languageName(code) ?? code);
+export const audioLanguageLabel = (code: string): string => (code === 'auto' ? VOD_COPY.streamDefault : languageName(code) ?? code);
 
 /** What a remembered subtitle choice stores for "the file the user loaded" (`trackKey` always contains ':'). */
 export const SUBTITLE_KEY_EXT = 'ext';
@@ -65,7 +66,7 @@ export const SPEED_FILM_TO_PAL = 25 / 23.976;
 export const SUBTITLE_SPEEDS: readonly number[] = [1, SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL];
 /** 1, SPEED_PAL_TO_FILM or SPEED_FILM_TO_PAL: how much faster subtitle time runs than the video's. */
 export type SubtitleSpeed = number;
-export const SPEED_HELP = 'Fixes subtitles that drift further off as the film goes on';
+export const SPEED_HELP = VOD_COPY.speedHelp;
 
 /** Frame rates closer than this are the same rate (30 and 29.97 differ by 0.1%: no visible drift in a film). */
 const FPS_SAME = 0.5;
@@ -196,24 +197,24 @@ export function subtitleExtraRows(s: {
     const name = sourceSubtitleName(sub);
     const isLoaded = s.external?.name === name;
     loadedIsSource ||= isLoaded;
-    rows.push({ kind: 'list', id: `${SOURCE_PREFIX}${i}`, label: `Subtitles: ${name}`, checked: isLoaded && s.external?.active === true });
+    rows.push({ kind: 'list', id: `${SOURCE_PREFIX}${i}`, label: VOD_COPY.subtitlesRow(name), checked: isLoaded && s.external?.active === true });
   });
   if (s.external && !loadedIsSource) {
-    rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: `Subtitles: ${externalName(s.external)} (loaded)`, checked: s.external.active });
+    rows.push({ kind: 'list', id: SUBTITLE_EXT_ROW, label: VOD_COPY.subtitlesLoadedRow(externalName(s.external)), checked: s.external.active });
   }
   if (s.external?.active) {
-    rows.push({ kind: 'list', id: DELAY_ROW, label: `Subtitle delay: ${delayLabel(s.delayMs ?? 0)} (Left/Right)`, checked: false });
+    rows.push({ kind: 'list', id: DELAY_ROW, label: VOD_COPY.subtitleDelay(delayLabel(s.delayMs ?? 0)), checked: false });
     if (s.pointer) {
-      rows.push({ kind: 'list', id: DELAY_EARLIER_ROW, label: `Subtitles ${DELAY_POINTER_STEP_MS / 1000} s earlier`, checked: false });
-      rows.push({ kind: 'list', id: DELAY_LATER_ROW, label: `Subtitles ${DELAY_POINTER_STEP_MS / 1000} s later`, checked: false });
+      rows.push({ kind: 'list', id: DELAY_EARLIER_ROW, label: VOD_COPY.subtitlesEarlier(DELAY_POINTER_STEP_MS / 1000), checked: false });
+      rows.push({ kind: 'list', id: DELAY_LATER_ROW, label: VOD_COPY.subtitlesLater(DELAY_POINTER_STEP_MS / 1000), checked: false });
     }
-    rows.push({ kind: 'list', id: SPEED_ROW, label: `Subtitle speed: ${speedLabel(s.speed ?? 1)} (Left/Right)`, checked: false, help: SPEED_HELP });
-    if (s.another) rows.push({ kind: 'list', id: ANOTHER_VERSION_ROW, label: `Try another ${s.another.label} version…`, checked: false });
+    rows.push({ kind: 'list', id: SPEED_ROW, label: VOD_COPY.subtitleSpeed(speedLabel(s.speed ?? 1)), checked: false, help: SPEED_HELP });
+    if (s.another) rows.push({ kind: 'list', id: ANOTHER_VERSION_ROW, label: VOD_COPY.tryAnotherVersion(s.another.label), checked: false });
   }
-  if (s.canSearchOnline) rows.push({ kind: 'list', id: FIND_ONLINE_ROW, label: 'Find subtitles online…', checked: false });
-  rows.push({ kind: 'list', id: LOAD_URL_ROW, label: 'Load subtitles from a link…', checked: false });
-  if (s.canLoadFile) rows.push({ kind: 'list', id: LOAD_FILE_ROW, label: 'Load subtitles from a file…', checked: false });
-  if (s.external) rows.push({ kind: 'list', id: REMOVE_EXT_ROW, label: 'Remove loaded subtitles', checked: false });
+  if (s.canSearchOnline) rows.push({ kind: 'list', id: FIND_ONLINE_ROW, label: VOD_COPY.findOnline, checked: false });
+  rows.push({ kind: 'list', id: LOAD_URL_ROW, label: VOD_COPY.loadFromLink, checked: false });
+  if (s.canLoadFile) rows.push({ kind: 'list', id: LOAD_FILE_ROW, label: VOD_COPY.loadFromFile, checked: false });
+  if (s.external) rows.push({ kind: 'list', id: REMOVE_EXT_ROW, label: VOD_COPY.removeLoaded, checked: false });
   return rows;
 }
 
@@ -262,7 +263,7 @@ const fpsText = (fps: number) => `${Number(fps.toFixed(3))} fps`;
 export function versionLabel(v: { release: string; fps?: number; synced: boolean; hearingImpaired?: boolean }, n: number): string {
   const parts = [knownFps(v.fps) ? fpsText(v.fps) : '', v.synced ? 'exact match' : '', v.hearingImpaired ? 'CC' : ''].filter(Boolean);
   const tail = parts.map((t) => ` · ${t}`).join('');
-  let name = releaseName(v.release) || `Version ${n}`;
+  let name = releaseName(v.release) || VOD_COPY.version(n);
   const room = Math.max(8, VERSION_LABEL_MAX - tail.length);
   if (name.length > room) name = `${name.slice(0, room - 1).trimEnd()}…`;
   return name + tail;

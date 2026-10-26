@@ -1,11 +1,12 @@
 /** The tabs (Start, Live TV, Movies, Series) the rail moves between. Pure: no Solid, no Lightning. */
 import type { VodKind } from '@iptv/core';
+import { LIVE_COPY } from '../copy.ts';
 
 export type { VodKind };
 export type TabId = 'start' | 'live' | 'movies' | 'series';
 
 export const TABS: readonly TabId[] = ['start', 'live', 'movies', 'series'];
-export const TAB_LABELS: Record<TabId, string> = { start: 'Start', live: 'Live TV', movies: 'Movies', series: 'Series' };
+export const TAB_LABELS: Record<TabId, string> = { start: LIVE_COPY.rail.start, live: LIVE_COPY.rail.live, movies: LIVE_COPY.rail.movies, series: LIVE_COPY.rail.series };
 
 export function tabOfKind(kind: VodKind): TabId {
   return kind === 'series' ? 'series' : 'movies';

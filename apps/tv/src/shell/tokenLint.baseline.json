@@ -53,9 +53,6 @@
   "components/tile/WideBody.tsx": {
     "space": 4
   },
-  "net/trendingConfig.ts": {
-    "string": 2
-  },
   "screens/AddSource.tsx": {
     "space": 10,
     "string": 34
@@ -66,8 +63,7 @@
   "screens/MovieDetail.tsx": {
     "radius": 2,
     "lineHeight": 1,
-    "space": 3,
-    "string": 8
+    "space": 3
   },
   "screens/Placeholder.tsx": {
     "space": 5,
@@ -81,8 +77,7 @@
     "space": 1
   },
   "screens/SeriesDetail.tsx": {
-    "lineHeight": 1,
-    "string": 6
+    "lineHeight": 1
   },
   "screens/Settings.tsx": {
     "space": 3,
@@ -95,19 +90,16 @@
     "space": 3
   },
   "screens/VodBrowse.tsx": {
-    "space": 1,
-    "string": 2
+    "space": 1
   },
   "screens/VodGrid.tsx": {
-    "space": 2,
-    "string": 2
+    "space": 2
   },
   "screens/VodPlay.tsx": {
     "fontSize": 2,
     "radius": 1,
     "lineHeight": 2,
-    "space": 7,
-    "string": 27
+    "space": 7
   },
   "screens/addSourceLogic.ts": {
     "string": 20
@@ -201,45 +193,8 @@
   "vod/browseLogic.ts": {
     "space": 1
   },
-  "vod/catchupLogic.ts": {
-    "string": 1
-  },
-  "vod/categoryPicker.ts": {
-    "string": 2
-  },
-  "vod/favToggle.ts": {
-    "string": 1
-  },
   "vod/gridLogic.ts": {
-    "space": 1,
-    "string": 3
-  },
-  "vod/kindCopy.ts": {
-    "string": 11
-  },
-  "vod/launch.ts": {
-    "string": 1
-  },
-  "vod/posterMenuLogic.ts": {
-    "string": 8
-  },
-  "vod/seriesDetailLogic.ts": {
-    "string": 4
-  },
-  "vod/subtitleLogic.ts": {
-    "string": 14
-  },
-  "vod/tabLogic.ts": {
-    "string": 1
-  },
-  "vod/tracks.ts": {
-    "string": 4
-  },
-  "vod/versionsLogic.ts": {
-    "string": 3
-  },
-  "vod/vodPlayerLogic.ts": {
-    "string": 2
+    "space": 1
   },
   "worker.ts": {
     "string": 1

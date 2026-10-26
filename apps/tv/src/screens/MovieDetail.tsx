@@ -2,7 +2,7 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
-import { FAV_COPY, VOD_COPY } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { fromPickerRow } from '../components/sheetLogic.ts';
@@ -124,10 +124,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : 0);
   const actions = () => [
     ...(resumeMs() > 0
-      ? [{ id: 'play', label: 'Resume', width: 220 }, { id: 'start', label: 'From start', width: 220 }]
-      : [{ id: 'play', label: 'Play', width: 180 }]),
-    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `${view()!.versions.length} versions`, width: 220 }] : []),
-    ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
+      ? [{ id: 'play', label: VOD_COPY.resume, width: 220 }, { id: 'start', label: CATCHUP_COPY.fromStart, width: 220 }]
+      : [{ id: 'play', label: VOD_COPY.play, width: 180 }]),
+    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: VOD_COPY.versionCount(view()!.versions.length), width: 220 }] : []),
+    ...(view()?.split ? [{ id: 'combine', label: VOD_COPY.combineAgain, width: 260 }] : []),
     { id: 'fav', label: tile()?.favourite ? FAV_COPY.in : FAV_COPY.add, width: FAV_W, round: true,
       icon: iconTexture(tile()?.favourite ? 'heartFilled' : 'heart') },
   ];
@@ -249,10 +249,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
         {joinMeta(metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }), tile()?.quality)}
       </Text>
       <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
-        color={COLORS.textSecondary}>{notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}</Text>
+        color={COLORS.textSecondary}>{notAvailable() ? VOD_COPY.detailsUnavailable : detail()?.plot ?? ''}</Text>
       <Show when={detail()?.director || detail()?.cast}>
         <Text x={INFO_X} y={CREDITS_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
-          {joinMeta(detail()?.director ? `Director ${detail()!.director}` : undefined, detail()?.cast ? `With ${detail()!.cast}` : undefined)}
+          {joinMeta(detail()?.director ? VOD_COPY.director(detail()!.director!) : undefined, detail()?.cast ? VOD_COPY.cast(detail()!.cast!) : undefined)}
         </Text>
       </Show>
       <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={ACTIONS_Y} actions={actions()} onAction={(id) => void onAction(id)}

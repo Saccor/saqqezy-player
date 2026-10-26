@@ -1,11 +1,12 @@
 import type { VersionView } from '@iptv/app-api';
+import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_LANGUAGE_OPTIONS } from './subtitleLogic.ts';
 import { languageName as nameOf } from './tracks.ts';
 import { LANGUAGE_NAMES } from './vodPlayerLogic.ts';
 
 /** The Versions list's last row: shows each version as its own card. */
-export const SHOW_SEPARATELY = 'Show versions separately';
+export const SHOW_SEPARATELY = VOD_COPY.showSeparately;
 
 const languageName = (code: string) => nameOf(code) ?? code.toUpperCase();
 
@@ -19,7 +20,7 @@ export function withLanguages<T extends VersionView>(versions: readonly T[], lan
  * the list (`n`, from 1): "Version 2 · 4K", never "Unknown".
  */
 export function versionLabel(v: VersionView, n = 1): string {
-  return [v.lang ? languageName(v.lang) : `Version ${n}`, v.quality, ...v.tags, v.auto ? 'Auto' : undefined].filter(Boolean).join(' · ');
+  return [v.lang ? languageName(v.lang) : VOD_COPY.version(n), v.quality, ...v.tags, v.auto ? 'Auto' : undefined].filter(Boolean).join(' · ');
 }
 
 /** The Versions list: every version (the one shown checked), then "Show versions separately". */
@@ -39,4 +40,4 @@ export const preferredLanguageOption = (langs: readonly string[] | undefined): s
 export const preferredLanguagesFor = (option: string): string[] => (option === 'auto' ? [] : [option]);
 
 export const preferredLanguageLabel = (option: string): string =>
-  (option === 'auto' ? 'Automatic (TV language)' : LANGUAGE_NAMES[option] ?? option.toUpperCase());
+  (option === 'auto' ? VOD_COPY.automaticLanguage : LANGUAGE_NAMES[option] ?? option.toUpperCase());

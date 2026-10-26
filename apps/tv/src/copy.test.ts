@@ -134,4 +134,12 @@ describe('copy lives in copy.ts (spec 2026-10-26 §1.4)', () => {
   it('Live TV, guide, player, multiview and shell files have no inline UI strings', () => {
     expect(stringFree(LIVE_FILES)).toEqual([]);
   });
+  it('Movies, Series and VOD player files have no inline UI strings', () => {
+    expect(stringFree([
+      'screens/VodPlay.tsx', 'vod/subtitleLogic.ts', 'vod/kindCopy.ts', 'screens/MovieDetail.tsx', 'screens/SeriesDetail.tsx',
+      'vod/posterMenuLogic.ts', 'vod/seriesDetailLogic.ts', 'vod/tracks.ts', 'screens/VodBrowse.tsx', 'screens/VodGrid.tsx', 'vod/gridLogic.ts',
+      'vod/versionsLogic.ts', 'vod/vodPlayerLogic.ts', 'vod/categoryPicker.ts', 'net/trendingConfig.ts', 'vod/catchupLogic.ts',
+      'vod/favToggle.ts', 'vod/launch.ts', 'vod/tabLogic.ts',
+    ])).toEqual([]);
+  });
 });

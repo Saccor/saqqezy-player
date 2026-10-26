@@ -263,7 +263,7 @@ describe('dvColoursWarning', () => {
   });
 
   it('copy', () => {
-    expect(DV_COLOURS_TEXT).toBe("Colours may look wrong on this TV: this video is in Dolby Vision, which it can't show.");
+    expect(DV_COLOURS_TEXT).toBe("Colours may look wrong: this TV can't show Dolby Vision.");
   });
 });
 
