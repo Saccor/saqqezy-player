@@ -201,7 +201,7 @@ export function ChannelsPage(props: PageProps) {
       return;
     }
     if (choice === 'delete') {
-      if (!(await props.confirm(C.deleteTitle(l.name), C.deleteConfirm, { line: C.deleteLine }))) return;
+      if (!(await props.confirm(C.deleteTitle, C.deleteConfirm, { line: l.name }))) return;
       if (await applyOps([{ op: 'deleteList', listId: l.id }], C.deleteFailed)) {
         showToast(C.deleted);
         await reloadKeeping();

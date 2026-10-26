@@ -54,7 +54,8 @@ describe('restore results', () => {
   test('summaries', () => {
     expect(restoredCopy({ applied: 0, pending: 0 })).toMatch(/already/i);
     expect(restoredCopy({ applied: 12, pending: 0 })).toBe('Restored 12 changes from your backup.');
-    expect(restoredCopy({ applied: 1, pending: 3 })).toMatch(/^Restored 1 change from your backup\. Some of it applies when you add its source/);
+    expect(restoredCopy({ applied: 1, pending: 3 })).toBe('Restored 1 change. Some apply when you add their source.');
+    for (const n of [1, 999]) expect(restoredCopy({ applied: n, pending: 2 }).length).toBeLessThanOrEqual(70);
     expect(restoredCopy({ applied: 0, pending: 3 })).toMatch(/when you add/);
   });
 

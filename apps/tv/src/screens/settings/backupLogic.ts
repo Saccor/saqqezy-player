@@ -64,7 +64,7 @@ export function codeEntryProblem(input: string): string | undefined {
 export function restoredCopy(r: { applied: number; pending: number }): string {
   if (r.applied === 0) return r.pending ? B.nothingYet : B.nothing;
   const head = B.restored(r.applied);
-  return r.pending ? `${head} ${B.applyLater}` : head;
+  return r.pending ? B.restoredPending(r.applied) : head;
 }
 
 /** Copy for a failed backup or restore (worker errors cross as name + message). */
