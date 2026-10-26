@@ -43,9 +43,10 @@ export function noticeStack(list: readonly NoticeSpec[], measure: (text: string,
     const size = spec.numeral ? TYPE.numeral : TYPE.body;
     const h = spec.numeral ? NOTICE_NUMERAL_H : NOTICE_H;
     const lead = spec.spinner ? NOTICE_SPINNER + SPACE.m : 0;
-    const actionText = spec.action ? measure(spec.action, TYPE.body) : 0;
+    // Whole pixels, rounded up: the renderer wraps (then cuts to "...") a text whose box is a fraction narrower than it.
+    const actionText = spec.action ? Math.ceil(measure(spec.action, TYPE.body)) : 0;
     const actionW = spec.action ? actionText + SPACE.l : 0;
-    const want = NOTICE_PAD * 2 + lead + measure(spec.text, size) + actionW;
+    const want = NOTICE_PAD * 2 + lead + Math.ceil(measure(spec.text, size)) + actionW;
     const w = Math.round(Math.min(NOTICE_MAX_W, Math.max(NOTICE_MIN_W, want)));
     const textX = NOTICE_PAD + lead;
     const textW = w - textX - NOTICE_PAD - actionW;

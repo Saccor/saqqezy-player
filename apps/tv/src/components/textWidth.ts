@@ -28,3 +28,10 @@ export function textWidth(text: string, size: number = TYPE.meta): number {
   widths.set(key, w);
   return w;
 }
+
+/**
+ * Text for a wrapping <Text> (`maxWidth` set): Lightning's layout counts a run of spaces as one space but draws them
+ * all, so the texture is cut short at the end ("1  Channel 001" lost half its last digit). Every space of a run after the
+ * first becomes a no-break space: the same width, and measured as part of the next word.
+ */
+export const keepSpaces = (text: string): string => text.replace(/ {2,}/g, (run) => ` ${'\u00a0'.repeat(run.length - 1)}`);

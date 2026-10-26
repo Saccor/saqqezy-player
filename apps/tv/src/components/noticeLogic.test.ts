@@ -23,6 +23,15 @@ describe('notice order and kinds (spec 2026-10-26 §1.3)', () => {
 });
 
 describe('noticeStack: one pill each, top right under the clock', () => {
+  it('the text box is never narrower than the measured text (a fraction rounded away wrapped it to "Added to...")', () => {
+    // Canvas width of "Added to favourites" at 28 px sans-serif in desktop Chrome.
+    const [p] = noticeStack([n('a', 'info', 'Added to favourites')], () => 241.267578125);
+    expect(p!.textW).toBeGreaterThanOrEqual(241.267578125);
+    expect(Number.isInteger(p!.w)).toBe(true);
+    const [q] = noticeStack([n('a', 'error', 'Synthetic error', { action: 'Try again' })], (t) => (t === 'Try again' ? 100.4 : 150.6));
+    expect(q!.textW).toBeGreaterThanOrEqual(150.6);
+    expect(q!.w - NOTICE_PAD - q!.actionX!).toBeGreaterThanOrEqual(100.4);
+  });
   it('right-aligns to the safe edge and sizes to the text', () => {
     const [p] = noticeStack([n('a', 'info', 'Saved')], measure);
     expect(p!.y).toBe(NOTICE_TOP);

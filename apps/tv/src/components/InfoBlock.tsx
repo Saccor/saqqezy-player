@@ -3,7 +3,7 @@ import { createEffect, on } from 'solid-js';
 import { stopMotion, tween } from '../shell/motion.ts';
 import { COLORS, LINE, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { INFO_PROGRESS_W, infoBlockLayout, metaLineLayout, overlineWidth } from './infoBlockLogic.ts';
-import { textWidth } from './textWidth.ts';
+import { keepSpaces, textWidth } from './textWidth.ts';
 
 const TRACK_H = 4;
 const ICON = 24;
@@ -49,16 +49,16 @@ export function InfoBlock(props: {
   return (
     <View ref={(el) => { node = el; }} x={props.x ?? 0} y={props.y ?? 0} width={props.width} height={l().height} zIndex={2}>
       <Show when={props.overline}>
-        <Text width={overlineWidth(props.width, props.overlineEndGap ?? 0)} maxWidth={overlineWidth(props.width, props.overlineEndGap ?? 0)} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.overline ?? ''}</Text>
+        <Text width={overlineWidth(props.width, props.overlineEndGap ?? 0)} maxWidth={overlineWidth(props.width, props.overlineEndGap ?? 0)} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{keepSpaces(props.overline ?? '')}</Text>
       </Show>
       <Show when={props.titleIcon}>{(src) => (
         <View y={l().titleY + (size() - ICON) / 2} width={ICON} height={ICON} src={src()} color={COLORS.muted} />
       )}</Show>
       <Text x={titleX()} y={l().titleY} width={props.width - titleX()} maxWidth={props.width - titleX()} contain="width" maxLines={1}
-        fontSize={size()} {...STRONG} color={props.titleDim ? COLORS.textSecondary : COLORS.text}>{props.title}</Text>
+        fontSize={size()} {...STRONG} color={props.titleDim ? COLORS.textSecondary : COLORS.text}>{keepSpaces(props.title)}</Text>
       <Show when={metaLine()}>
         <View y={l().metaY} width={props.width} height={LINE.meta}>
-          <Text width={props.width} maxWidth={props.width} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.meta ?? ''}</Text>
+          <Text width={props.width} maxWidth={props.width} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{keepSpaces(props.meta ?? '')}</Text>
           <Show when={props.progress !== undefined}>
             <View x={meta().trackX} y={(TYPE.meta - TRACK_H) / 2} width={INFO_PROGRESS_W} height={TRACK_H} color={COLORS.track} borderRadius={RADIUS.pill(TRACK_H)}>
               <View width={Math.round(INFO_PROGRESS_W * (props.progress ?? 0))} height={TRACK_H} color={COLORS.accent} borderRadius={RADIUS.pill(TRACK_H)} />
@@ -66,13 +66,13 @@ export function InfoBlock(props: {
           </Show>
           <Show when={props.trailing}>
             <Text x={meta().trailingX} width={props.width - meta().trailingX} maxWidth={props.width - meta().trailingX} contain="width" maxLines={1}
-              fontSize={TYPE.meta} color={COLORS.muted}>{props.trailing ?? ''}</Text>
+              fontSize={TYPE.meta} color={COLORS.muted}>{keepSpaces(props.trailing ?? '')}</Text>
           </Show>
         </View>
       </Show>
       <Show when={props.description}>
         <Text y={l().descriptionY} width={props.width} maxWidth={props.width} contain="width" maxLines={lines()} lineHeight={LINE.body}
-          fontSize={TYPE.body} color={COLORS.textSecondary}>{props.description ?? ''}</Text>
+          fontSize={TYPE.body} color={COLORS.textSecondary}>{keepSpaces(props.description ?? '')}</Text>
       </Show>
     </View>
   );

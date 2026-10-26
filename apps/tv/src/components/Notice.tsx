@@ -6,7 +6,7 @@ import { riseIn } from '../shell/motion.ts';
 import { COLORS, MOTION, RADIUS, STRONG, TYPE, centerText } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { NOTICE_PAD, NOTICE_SPINNER, SPINNER_DOT, noticeIds, noticeStack, sameIds, spinnerDots, type NoticeSpec, type PlacedNotice } from './noticeLogic.ts';
-import { textWidth } from './textWidth.ts';
+import { keepSpaces, textWidth } from './textWidth.ts';
 
 export interface NoticeEntry extends NoticeSpec { onAction?: () => void }
 
@@ -55,7 +55,7 @@ export function NoticePill(props: { placed: PlacedNotice; onAction?: () => void 
       color={COLORS.panel} borderRadius={RADIUS.pill(p().h)} zIndex={30}>
       <Show when={p().spec.spinner}><Spinner x={NOTICE_PAD} y={(p().h - NOTICE_SPINNER) / 2} /></Show>
       <Text x={p().textX} y={centerText(p().h, size())} width={p().textW} maxWidth={p().textW} contain="width" maxLines={1}
-        fontSize={size()} {...(p().spec.numeral ? STRONG : {})} color={COLORS.text}>{p().spec.text}</Text>
+        fontSize={size()} {...(p().spec.numeral ? STRONG : {})} color={COLORS.text}>{keepSpaces(p().spec.text)}</Text>
       <Show when={p().actionX !== undefined}>
         <Text x={p().actionX ?? 0} y={centerText(p().h, TYPE.body)} maxLines={1} fontSize={TYPE.body} {...STRONG}
           color={COLORS.text}>{p().spec.action ?? ''}</Text>
