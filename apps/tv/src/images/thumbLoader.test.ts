@@ -83,4 +83,25 @@ describe('loadThumb', () => {
     expect((r.data as unknown as FakeBitmap).width).toBe(188);
     await flush();
   });
+
+  it('says where each image came from', async () => {
+    const fetched = setup();
+    expect((await loadThumb('http://img.test/p.jpg', 188, 282, true, fetched.deps)).from).toBe('fetched');
+    const stored = setup({ stored: { type: 'image/webp', bytes: new ArrayBuffer(9) } });
+    expect((await loadThumb('http://img.test/p.jpg', 188, 282, true, stored.deps)).from).toBe('stored');
+    const small = setup({ natural: [120, 120] });
+    expect((await loadThumb('http://img.test/p.jpg', 188, 282, true, small.deps)).from).toBe('asIs');
+  });
+
+  it('keeps the full image when the resize is ignored and no canvas is available', async () => {
+    const { deps, puts } = setup({ honoursResize: false });
+    deps.drawScaled = vi.fn(() => undefined);
+    const r = await loadThumb('http://img.test/p.jpg', 188, 282, true, deps);
+    const b = r.data as unknown as FakeBitmap;
+    expect([b.width, b.height, b.from, b.closed]).toEqual([1000, 1500, 'network', false]);
+    expect(r.from).toBe('asIs');
+    await flush();
+    expect(puts).toEqual([]);
+    expect(deps.encodeLater).not.toHaveBeenCalled();
+  });
 });

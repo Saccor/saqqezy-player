@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Player, PlayerState, StateDetail } from '@iptv/player';
 import {
-  AvplayPlayer, avplayDisplay, avplayErrorName, mapAvplayError,
+  AvplayPlayer, avplayDisplay, avplayErrorName, flushAvplayTeardowns, mapAvplayError,
   type AvplayLike, type AvplayListener, type AvplayTrack,
 } from './AvplayPlayer.ts';
 import { createVideoResources } from '../platform/tizenMultiview.ts';
@@ -22,8 +22,11 @@ class FakeAvplay implements AvplayLike {
   selected: [string, number][] = [];
   throwOn = new Set<string>();
 
+  /** Optional shared log across fakes: `tag:call`, in global call order. */
+  trace: { log: string[]; tag: string } | undefined;
   private hit(name: string): void {
     this.calls.push(name);
+    this.trace?.log.push(`${this.trace.tag}:${name}`);
     if (this.throwOn.has(name)) throw Object.assign(new Error('boom'), { name: 'InvalidStateError' });
   }
   open(_url: string): void { this.hit('open'); }
@@ -1546,5 +1549,160 @@ describe('AvplayPlayer: the TV refuses a second picture', () => {
     name = 'NotSupportedError';
     p.setMuted(true);
     expect(refused).toEqual(['audioStream']);
+  });
+});
+
+describe('AvplayPlayer: teardown after the next frame', () => {
+  function deferred() {
+    const av = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const p = new AvplayPlayer(av, { afterFrame: (fn) => { frames.push(fn); } });
+    return { av, p, frames, runFrame: () => frames.splice(0).forEach((f) => f()) };
+  }
+
+  test('stop() leaves AVPlay running until the frame, and closed() resolves after close()', async () => {
+    const { av, p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    av.calls.length = 0;
+    p.stop();
+    expect(av.calls).toEqual([]);
+    expect(p.currentUrl()).toBeUndefined();
+    let closed = false;
+    void p.closed().then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    runFrame();
+    await Promise.resolve();
+    expect(av.calls).toEqual(['stop', 'close']);
+    expect(closed).toBe(true);
+  });
+
+  test('open() with a teardown pending runs it first', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    await p.open(URL_B, 2);
+    expect(av.calls.slice(0, 3)).toEqual(['stop', 'close', 'open']);
+  });
+
+  test('an open on another player flushes this one, releasing its scaler first', async () => {
+    const resources = createVideoResources();
+    const avA = new FakeAvplay();
+    const avB = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const afterFrame = (fn: () => void) => { frames.push(fn); };
+    const a = new AvplayPlayer(avA, { afterFrame, resources, coversScreen: () => true });
+    const b = new AvplayPlayer(avB, { afterFrame, resources, coversScreen: () => true });
+    const log: string[] = [];
+    avA.trace = { log, tag: 'A' };
+    avB.trace = { log, tag: 'B' };
+    const avC = new FakeAvplay();
+    avC.trace = { log, tag: 'C' };
+    await a.open(URL_A, 1); // MAIN
+    const c = new AvplayPlayer(avC, { afterFrame, resources, coversScreen: () => true });
+    await c.open(URL_A, 3); // SUB
+    c.stop(); // SUB release pending
+    await b.open(URL_B, 2);
+    expect(avB.props).toContainEqual(['IN_APP_MULTIVIEW', 'VIDEO_VIEW_RESOURCE_SUB']);
+    expect(avB.calls).toContain('prepareAsync');
+    // C was stopped and closed (flushed by B's open) before B opened on the scaler C held.
+    expect(log.indexOf('C:close')).toBeGreaterThan(-1);
+    expect(log.indexOf('C:close')).toBeLessThan(log.indexOf('B:open'));
+    a.stop();
+    b.stop();
+    frames.splice(0).forEach((f) => f());
+  });
+
+  test('flushAvplayTeardowns() closes AVPlay even if the frame never comes', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    let closed = false;
+    void p.closed().then(() => { closed = true; });
+    flushAvplayTeardowns();
+    await Promise.resolve();
+    expect(av.calls).toEqual(['stop', 'close']);
+    expect(closed).toBe(true);
+  });
+
+  test('a second stop() with no session keeps the same pending closed() until the frame', async () => {
+    const { p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    const first = p.closed();
+    p.stop();
+    expect(p.closed()).toBe(first);
+    let closed = false;
+    void first.then(() => { closed = true; });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    runFrame();
+    await first;
+    expect(closed).toBe(true);
+  });
+
+  test('closed() resolves even if the native teardown throws', async () => {
+    const resources = createVideoResources();
+    const av = new FakeAvplay();
+    const frames: Array<() => void> = [];
+    const throwing = { ...resources, release: () => { throw new Error('boom'); } };
+    const p = new AvplayPlayer(av, { afterFrame: (fn) => { frames.push(fn); }, resources: throwing as typeof resources, coversScreen: () => true });
+    await p.open(URL_A, 1);
+    p.stop();
+    const closed = p.closed();
+    expect(() => { frames.splice(0).forEach((f) => f()); }).not.toThrow();
+    await closed;
+  });
+
+  test('destroy() runs a pending teardown at once', async () => {
+    const { av, p } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    av.calls.length = 0;
+    p.destroy();
+    expect(av.calls).toEqual(['stop', 'close']);
+  });
+
+  test('a second stop() before the frame tears down once', async () => {
+    const { av, p, runFrame } = deferred();
+    await p.open(URL_A, 1);
+    p.stop();
+    p.stop();
+    av.calls.length = 0;
+    runFrame();
+    expect(av.calls).toEqual(['stop', 'close']);
+  });
+});
+
+describe('AvplayPlayer: position from play-time events', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  test('a fresh oncurrentplaytime value is used without a sync call; a stale one polls', async () => {
+    vi.useFakeTimers();
+    const { av, p } = setup();
+    await p.open(URL_A, 1);
+    av.prepared[0]!.ok();
+    av.listener!.oncurrentplaytime?.(4000);
+    av.calls.length = 0;
+    expect(p.position()).toBe(4000);
+    expect(av.calls).not.toContain('getCurrentTime');
+    vi.advanceTimersByTime(600);
+    av.time = 4600;
+    expect(p.position()).toBe(4600);
+    expect(av.calls).toContain('getCurrentTime');
+  });
+
+  test('a seek makes the cached value stale', async () => {
+    vi.useFakeTimers();
+    const { av, p } = setup();
+    await p.open(URL_A, 1, { live: false });
+    av.prepared[0]!.ok();
+    av.durationMs = 60_000;
+    av.listener!.oncurrentplaytime?.(4000);
+    p.seek(30_000);
+    av.time = 30_000;
+    expect(p.position()).toBe(30_000);
   });
 });
