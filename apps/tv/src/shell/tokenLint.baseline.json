@@ -1,7 +1,4 @@
 {
-  "App.tsx": {
-    "string": 1
-  },
   "components/ActionBar.tsx": {
     "radius": 1,
     "space": 1
@@ -143,7 +140,7 @@
   "screens/Player.tsx": {
     "lineHeight": 1,
     "space": 1,
-    "string": 14
+    "string": 11
   },
   "screens/Search.tsx": {
     "space": 1,
@@ -294,10 +291,6 @@
   },
   "screens/startLogic.ts": {
     "string": 18
-  },
-  "shell/ConfirmDialog.tsx": {
-    "lineHeight": 1,
-    "space": 4
   },
   "shell/InitError.tsx": {
     "space": 3,

@@ -7,7 +7,11 @@ import { showToast } from '../../shell/Toast.tsx';
 import { patchSettings, settings } from '../../state/appState.ts';
 import { rollbackTarget } from '../settingsLogic.ts';
 
-export interface ConfirmOptions { single?: boolean; detail?: string }
+export interface ConfirmOptions {
+  single?: boolean; detail?: string;
+  /** A second, smaller line under the title (the title stays one line). */
+  line?: string;
+}
 
 /** What the Settings screen gives each page: its content box plus the shared modals. */
 export interface PageProps {

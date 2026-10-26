@@ -1,9 +1,10 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { Match, Switch, createSignal, onCleanup, onMount } from 'solid-js';
+import { Dialog } from '../components/Dialog.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { COMMON_COPY } from '../copy.ts';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
-import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
@@ -270,8 +271,8 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
         <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
       )}</Show>
       <Show when={dialog()}>{(d) => (
-        <ConfirmDialog message={d().message} yes={d().yes} no={d().opts?.single ? null : 'Cancel'} detail={d().opts?.detail}
-          onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
+        <Dialog title={d().message} line={d().opts?.line} yes={d().yes} no={d().opts?.single ? null : COMMON_COPY.cancel}
+          detail={d().opts?.detail} onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
       )}</Show>
       <Show when={busyText()}>{(t) => {
         let scrim: ElementNode | undefined;

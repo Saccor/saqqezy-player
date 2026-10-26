@@ -22,7 +22,7 @@ import { StartSportsScreen } from './screens/StartSports.tsx';
 import { VodGridScreen } from './screens/VodGrid.tsx';
 import { VodPlayScreen } from './screens/VodPlay.tsx';
 import { Clock } from './shell/Clock.tsx';
-import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
+import { Dialog } from './components/Dialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import {
@@ -198,7 +198,7 @@ export function App() {
       <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds()) && !railRoute(current()?.screen)}><Clock /></Show>
       <NoticeLayer extra={toastNotice} />
       <Show when={exitOpen()}>
-        <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
+        <Dialog title={SHELL_COPY.exit} onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
       </Show>
       <DebugOverlay />
     </View>

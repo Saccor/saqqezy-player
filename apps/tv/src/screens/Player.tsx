@@ -4,7 +4,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
+import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, PLAYER_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
 import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
 import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
 import { useNotice } from '../components/Notice.tsx';
@@ -23,7 +23,7 @@ import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
 import { mediaBadges } from '../playback/mediaBadges.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
-import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
+import { Dialog } from '../components/Dialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { COLORS, LAYOUT, MOTION, RADIUS, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -597,9 +597,8 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       )}</Show>
 
       <Show when={sleep().kind === 'asking' ? sleep() : undefined}>{(s) => (
-        <ConfirmDialog
-          message={`Still watching? Stopping in ${(s() as { secondsLeft: number }).secondsLeft} s`}
-          yes="Stop" no="Keep watching"
+        <Dialog title={PLAYER_COPY.stillWatching} line={PLAYER_COPY.stoppingIn((s() as { secondsLeft: number }).secondsLeft)}
+          yes={PLAYER_COPY.stop} no={PLAYER_COPY.keepWatching}
           onYes={() => { removeOverlay(SLEEP_ID); sleepTimer.set(0); sleepStop(); }}
           onNo={() => { removeOverlay(SLEEP_ID); keepWatching(); }} />
       )}</Show>

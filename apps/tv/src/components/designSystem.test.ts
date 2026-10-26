@@ -33,4 +33,8 @@ describe('design system 2.0 (spec 2026-10-26 §1.3): new components exist, repla
     lacks('screens/live/LiveTv.tsx', /function PhoneBadge/);
     lacks('components/VolumeOsd.tsx', /NumberEntry/);
   });
+  it('Dialog replaces ConfirmDialog', () => {
+    there('components/Dialog.tsx');
+    gone('shell/ConfirmDialog.tsx');
+  });
 });
