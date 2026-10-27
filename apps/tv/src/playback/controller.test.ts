@@ -489,6 +489,29 @@ describe('playback controller', () => {
       expect(bare.soundUndecodable()).toBe(false);
     });
 
+    it('liveSoundUndecodable: the player\'s answer for a playing live channel only, never for VOD', () => {
+      const f = fakes();
+      const undecodable = vi.fn(() => true);
+      const pb = createPlaybackController({ ...f.player, soundUndecodable: undecodable }, f.supervisor);
+      expect(pb.liveSoundUndecodable()).toBe(false);
+      pb.playChannel(ch('1'));
+      expect(pb.liveSoundUndecodable()).toBe(false); // still connecting
+      f.emit({ kind: 'playing' });
+      expect(pb.liveSoundUndecodable()).toBe(true);
+      undecodable.mockReturnValue(false);
+      expect(pb.liveSoundUndecodable()).toBe(false);
+      undecodable.mockReturnValue(true);
+      pb.playVod(vod, 0);
+      f.emit({ kind: 'playing' });
+      expect(pb.liveSoundUndecodable()).toBe(false);
+      pb.stop();
+      expect(pb.liveSoundUndecodable()).toBe(false);
+      const bare = createPlaybackController(f.player, f.supervisor);
+      bare.playChannel(ch('1'));
+      f.emit({ kind: 'playing' });
+      expect(bare.liveSoundUndecodable()).toBe(false);
+    });
+
     it('exposes audio and text tracks through the player', () => {
       const f = fakes();
       const pb = createPlaybackController(f.player, f.supervisor);

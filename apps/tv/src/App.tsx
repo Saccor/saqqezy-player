@@ -6,6 +6,7 @@ import { PointerBar } from './components/PointerBar.tsx';
 import { shellBack } from './input/pointer.ts';
 import { api, onEvent } from './api.ts';
 import { LIGHTNING_KEY_MAP } from './input/keys.ts';
+import { createLiveSoundWatch } from './playback/liveSound.ts';
 import { otherSlots, playback } from './playback/playback.ts';
 import { AddSourceScreen } from './screens/AddSource.tsx';
 import { LiveTvScreen } from './screens/live/LiveTv.tsx';
@@ -48,6 +49,8 @@ const EXIT_ID = EXIT_OVERLAY_ID;
 /** What Back at the root does on this platform (our dialog, LG's platform back, or leave). */
 const EXIT_POLICY = profileFor(platformId).exitPolicy;
 const BADGE_H = 48;
+/** How often the live channel is checked for sound this device cannot decode (the player needs ~3 s of picture). */
+const LIVE_SOUND_TICK_MS = 1000;
 
 type EntryProps = { entry: ScreenEntry };
 /**
@@ -179,6 +182,15 @@ export function App() {
       api.networkOnline().catch((err: unknown) => console.warn('Back-online retry failed', err instanceof Error ? err.name : 'Error'));
     }));
     void bootstrap(api, router);
+    // A live channel whose sound this device cannot decode (Dolby in desktop Chrome): say so once per channel.
+    const liveSound = createLiveSoundWatch({
+      channelId: () => playback.current()?.id,
+      soundUndecodable: () => playback.liveSoundUndecodable(),
+      audioTrackCount: () => playback.audioTracks().length,
+      toast: showToast,
+    });
+    const liveSoundTimer = setInterval(() => liveSound.tick(), LIVE_SOUND_TICK_MS);
+    onCleanup(() => clearInterval(liveSoundTimer));
     // Your countries: this TV's country goes first in the grid. Asynchronous on Tizen, so it never delays the boot.
     void deviceCountry().then((code) => api.setDeviceCountry(code)).catch((err: unknown) => {
       console.warn('Device country failed', err instanceof Error ? err.name : 'Error');

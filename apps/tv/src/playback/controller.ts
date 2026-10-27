@@ -39,6 +39,8 @@ export interface PlaybackController {
   bufferedAheadMs(): number | undefined;
   /** As `positionMs`: false unless the current VOD title was opened. Its picture plays but the device decodes no sound. */
   soundUndecodable(): boolean;
+  /** As `soundUndecodable`, for the live channel: false unless one plays (never for VOD). */
+  liveSoundUndecodable(): boolean;
   paused(): boolean;
   /** Attempts that reached their first frame (never reset): a new value means a new engine attempt is playing. */
   startedAttempts(): number;
@@ -367,6 +369,8 @@ export function createPlaybackController(
       return s === undefined ? undefined : s * 1000;
     },
     soundUndecodable: () => (pendingVod && vodOpened ? player.soundUndecodable?.() ?? false : false),
+    liveSoundUndecodable: () => (!pendingVod && !held && current() !== undefined && status()?.kind === 'playing'
+      ? player.soundUndecodable?.() ?? false : false),
     paused: () => supervisor.paused(),
     startedAttempts: () => supervisor.startedAttempts(),
     onSubtitle: (fn) => supervisor.onSubtitle(fn),
