@@ -6,7 +6,8 @@ import { api, onEvent } from '../../api.ts';
 import { DropdownHeader } from '../../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
-import { ListPicker } from '../../components/ListPicker.tsx';
+import { KEYBOARD_H, KEYBOARD_W, Keyboard } from '../../components/Keyboard.tsx';
+import { LIST_PICKER_W, ListPicker } from '../../components/ListPicker.tsx';
 import {
   TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
 } from '../../components/foldPickerLogic.ts';
@@ -40,6 +41,7 @@ import {
 } from '../guideLogic.ts';
 import { resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
 import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
+import { isGroupSearchRow, withGroupSearch } from './groupSearch.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
 import { LiveInfo } from './LiveInfo.tsx';
 import {
@@ -55,6 +57,11 @@ import { LiveVideo } from './LiveVideo.tsx';
 /** A focus that rests this long on a channel asks the worker for its now/next. It never plays. */
 const FOCUS_REST_MS = 700;
 const PICKER_ID = 'liveGroups';
+const GROUP_KEYBOARD_ID = 'liveGroupsKeyboard';
+/** The folder search keyboard and the Groups picker side by side, centred together. */
+const GROUP_KB_GAP = 48;
+const GROUP_KB_X = (LAYOUT.width - KEYBOARD_W - GROUP_KB_GAP - LIST_PICKER_W) / 2;
+const GROUP_PICKER_OFFSET = GROUP_KB_X + KEYBOARD_W + GROUP_KB_GAP - (LAYOUT.width - LIST_PICKER_W) / 2;
 const GROUP_ALL = 'all';
 const ROW_BUFFER = 2;
 
@@ -419,14 +426,45 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** The open level, one level up when a refresh left its country without folders (never an empty list). */
   const effectiveLevel = (): FoldLevel => foldEffectiveLevel(pickerLevel(), groups());
   // Built only while the picker is open: a library can have 1,000+ groups, and groups() changes on every refresh.
+  const groupLabel = (g: { name: string; count: number }) => `${g.name} · ${g.count}`;
+  // ---- folder search: a keyboard beside the picker filters the folders as the user types ----
+  const [groupQuery, setGroupQuery] = createSignal('');
+  const [groupKbOpen, setGroupKbOpen] = createSignal(false);
+  let groupKbNode: ElementNode | undefined;
+  let removeGroupKb: (() => void) | undefined;
   const pickerView = createMemo(() => {
     if (!picking()) return undefined;
-    return foldView(groups(), effectiveLevel(), {
+    const level = effectiveLevel();
+    const view = foldView(groups(), level, {
       title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
-      label: (g) => `${g.name} · ${g.count}`, flagOf: flagFor,
+      label: groupLabel, flagOf: flagFor,
       onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
     });
+    // The first level searches every folder (folded countries too); deeper levels are already short.
+    return level.kind === 'top' ? withGroupSearch(view, groups(), groupQuery(), { label: groupLabel, currentId: groupId() }) : view;
   });
+  const closeGroupKeyboard = () => {
+    removeGroupKb = undefined;
+    setGroupKbOpen(false);
+    queueMicrotask(() => { if (alive && picking()) pickerNode?.setFocus(); });
+  };
+  const openGroupKeyboard = () => {
+    if (groupKbOpen()) return;
+    setGroupKbOpen(true);
+    removeGroupKb = router.pushOverlay(GROUP_KEYBOARD_ID, closeGroupKeyboard);
+    queueMicrotask(() => { if (alive) groupKbNode?.setFocus(); });
+  };
+  /** Done or Right on the keyboard: to the results (the keyboard closes; the query stays). */
+  const toGroupResults = () => {
+    removeGroupKb?.();
+    closeGroupKeyboard();
+  };
+  const resetGroupSearch = () => {
+    removeGroupKb?.();
+    removeGroupKb = undefined;
+    setGroupKbOpen(false);
+    setGroupQuery('');
+  };
   const openPicker = () => {
     if (picking() || groups().length === 0 || router.topOverlay() !== undefined) return;
     // Where the open group is: inside its country when it is folded.
@@ -439,6 +477,12 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   /** Back on the picker: up one level (focus on the row that opened it), or closed from the top level. */
   function closePicker() {
     removePicker = undefined;
+    // Back with a query clears it first, so the full list returns before the picker closes.
+    if (groupQuery().trim() !== '') {
+      setGroupQuery('');
+      removePicker = router.pushOverlay(PICKER_ID, closePicker);
+      return;
+    }
     const level = effectiveLevel();
     const up = levelUp(level);
     if (up) {
@@ -447,6 +491,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       removePicker = router.pushOverlay(PICKER_ID, closePicker);
       return;
     }
+    resetGroupSearch();
     setPicking(false);
     queueMicrotask(() => { if (alive) focusPlace('groups'); });
   }
@@ -456,11 +501,16 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     removePicker?.();
     removePicker = undefined;
     setPickerLevel(TOP_LEVEL);
+    resetGroupSearch();
     setPicking(false);
     queueMicrotask(() => { if (alive) focusPlace('groups'); });
   };
   /** OK: a level opens in place; a group opens and focuses the grid at the playing channel, else row 0. */
   const pick = (r: PickerRow) => {
+    if (isGroupSearchRow(r)) {
+      openGroupKeyboard();
+      return;
+    }
     const act = foldPick(effectiveLevel(), r);
     if (act.kind === 'level') {
       setPickerFocusId(undefined);
@@ -470,6 +520,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     if (act.kind === 'none') return;
     removePicker?.();
     removePicker = undefined;
+    resetGroupSearch();
     setPicking(false);
     setPickerLevel(TOP_LEVEL);
     if (act.kind === 'choose') {
@@ -900,6 +951,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     playback.begin(); // drops any preview request still in flight
     removePicker?.();
     router.removeOverlay(PICKER_ID);
+    router.removeOverlay(GROUP_KEYBOARD_ID);
     liveMenu.cleanup();
   });
 
@@ -952,8 +1004,18 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
       <Show when={pickerView()}>{(view) => (
-        <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
-          initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes" />
+        <>
+          <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
+            initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes"
+            offsetX={groupKbOpen() ? GROUP_PICKER_OFFSET : 0} pointerEnabled={!groupKbOpen()} />
+          <Show when={groupKbOpen()}>
+            <View zIndex={61}>
+              <Keyboard ref={(el) => { groupKbNode = el; }} x={GROUP_KB_X} y={(LAYOUT.height - KEYBOARD_H) / 2}
+                label="Search folders" hint="Right: results · Back closes" value={groupQuery()}
+                onChange={setGroupQuery} onDone={toGroupResults} onEdgeRight={toGroupResults} />
+            </View>
+          </Show>
+        </>
       )}</Show>
       <liveMenu.View />
     </View>

@@ -8,7 +8,9 @@ import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { pickerFooter, pickerSelectable } from './listPickerLogic.ts';
 import { firstSelectable, scrollTopFor, stepSelectable } from './virtualWindow.ts';
 
-const WIDTH = 640;
+/** The panel width (screens that put a keyboard beside it place both). */
+export const LIST_PICKER_W = 640;
+const WIDTH = LIST_PICKER_W;
 const ITEM_H = 72;
 const STEP = ITEM_H + 12;
 const PAD = 32;
@@ -58,6 +60,8 @@ export function ListPicker(props: {
   /** The row selected when the picker opens, and again whenever `resetKey` changes (a level of a two-level list). */
   initial?: number;
   resetKey?: string;
+  /** Moves the panel right of centre (a keyboard beside it). Default 0. */
+  offsetX?: number;
 }) {
   const [sel, setSel] = createSignal(props.initial ?? 0);
   createEffect(on(() => props.resetKey, () => setSel(props.initial ?? 0), { defer: true }));
@@ -126,7 +130,7 @@ export function ListPicker(props: {
     <View ref={(el) => { scrim = el; scrimIn(el, () => lift); }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
       {/* The panel rises inside `lift`; the scrim only fades (scrimIn). */}
       <View ref={(el) => { lift = el; }}>
-        <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2} y={(LAYOUT.height - height()) / 2}
+        <View ref={(el) => { panel = el; props.ref(el); }} x={(LAYOUT.width - WIDTH) / 2 + (props.offsetX ?? 0)} y={(LAYOUT.height - height()) / 2}
           width={WIDTH} height={height()} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
           onUp={() => move(-1)} onDown={() => move(1)} onLeft={() => adjust(-1)} onRight={() => adjust(1)}
           onMenu={() => true} onLongOk={() => true}
