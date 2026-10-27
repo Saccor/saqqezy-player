@@ -29,9 +29,13 @@ export function optionsItems(s: OptionsState): OptionItem[] {
   ];
 }
 
-/** The audio page: one row per track (`labels` from `trackLabels`), the active one marked, then Back. */
-export function audioItems(tracks: readonly TrackInfo[], labels: readonly string[]): OptionItem[] {
-  if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this video' }];
+/**
+ * The audio page: one row per track (`labels` from `trackLabels`), the active one marked, then Back. `browserLimit`:
+ * the browser has no track list for files it plays itself (desktop Chrome lacks `video.audioTracks`), so none is
+ * not this video's fault.
+ */
+export function audioItems(tracks: readonly TrackInfo[], labels: readonly string[], browserLimit = false): OptionItem[] {
+  if (tracks.length === 0) return [{ id: 'back', label: browserLimit ? "This browser can't list this video's audio tracks" : 'No audio track list for this video' }];
   if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
   return [
     ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),

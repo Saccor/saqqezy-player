@@ -170,7 +170,7 @@ export function sourceRowIndex(rowId: string): number | undefined {
 }
 
 /**
- * The "Audio & subtitles" rows after the tracks: the loaded file, its delay and speed (while it shows) and another
+ * The "Subtitles" picker rows after the tracks: the loaded file, its delay and speed (while it shows) and another
  * version (a file found online: the row opens its language's versions), find online, the load actions, and remove.
  */
 export function subtitleExtraRows(s: {

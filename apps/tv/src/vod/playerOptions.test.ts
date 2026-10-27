@@ -35,6 +35,10 @@ describe('audioItems', () => {
     expect(audioItems([], [])).toEqual([{ id: 'back', label: 'No audio track list for this video' }]);
     expect(audioItems([track('1', 'en', true)], ['English'])).toEqual([{ id: 'back', label: 'Only one audio track' }]);
   });
+  test('a browser without a track list says the browser is why', () => {
+    expect(audioItems([], [], true)).toEqual([{ id: 'back', label: "This browser can't list this video's audio tracks" }]);
+    expect(audioItems([track('1', 'en', true), track('2', 'sv')], ['English', 'Swedish'], true)).toHaveLength(3);
+  });
 });
 
 describe('sourceItems', () => {

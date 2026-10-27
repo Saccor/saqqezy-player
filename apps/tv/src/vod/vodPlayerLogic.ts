@@ -160,7 +160,7 @@ export function dvColoursWarning(hint: VideoRange | undefined, info: StreamInfo,
 
 export function noSoundText(audioTrackCount: number): string {
   const base = "No sound: this device can't play this video's audio format.";
-  return audioTrackCount > 1 ? `${base} Try another track in Audio & subtitles.` : base;
+  return audioTrackCount > 1 ? `${base} Try another audio track in Options.` : base;
 }
 
 /**

@@ -75,6 +75,8 @@ const SYNC_ASK_AFTER_MS = 4 * 60_000;
 const SYNC_ASK_EVERY_MS = 30_000;
 /** A file picker exists on computers only (TV engines have no file dialog). */
 const CAN_LOAD_FILE = !isTvPlatform(platformId);
+/** Desktop Chrome has no `video.audioTracks`: files it plays itself list no audio tracks (hls.js streams still do). */
+const NO_TRACK_API = typeof document !== 'undefined' && !('audioTracks' in document.createElement('video'));
 const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
 const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
 
@@ -95,7 +97,7 @@ const ACTIONS_Y = 916;
 /** Control row: the transport icons (round) and the text buttons. */
 const ROUND_W = BUTTON_H;
 const BACK_W = 180;
-const TRACKS_W = 320;
+const TRACKS_W = 240;
 /** The gear (Options): a round icon button like the transport's. */
 const OPTIONS_W = BUTTON_H;
 const NEXT_W = 280;
@@ -593,8 +595,9 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     rowsTick();
     const ext = external();
     const on = extOn();
-    // A loaded file showing: "Subtitles off" is not checked (the stream's tracks are all off).
-    const base = trackRows(playback.audioTracks(), playback.textTracks(), langInput())
+    // Subtitles only: audio tracks are chosen in Options. A loaded file showing: "Subtitles off" is not checked
+    // (the stream's tracks are all off).
+    const base = trackRows([], playback.textTracks(), langInput())
       .map((r) => (r.kind === 'list' && on && (r.id === SUBTITLES_OFF || r.id.startsWith('s:')) ? { ...r, checked: false } : r));
     // Catch-up: the stream's own tracks only (a loaded file would be kept per title, and catch-up keeps nothing).
     if (cu) return base;
@@ -1120,7 +1123,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const optionItems = createMemo(() => {
     rowsTick();
     const page = optionsPage();
-    if (page === 'audio') return audioItems(playback.audioTracks(), audioLabels());
+    if (page === 'audio') return audioItems(playback.audioTracks(), audioLabels(), NO_TRACK_API);
     if (page === 'source') return sourceItems(versions(), versionOwner);
     const audios = playback.audioTracks();
     const a = audios.findIndex((t) => t.active);
@@ -1288,7 +1291,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       { id: 'fwd30', label: 'Forward 30 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd30') },
     ];
     const right: Action[] = [
-      { id: 'tracks', label: 'Audio & subtitles', width: TRACKS_W },
+      { id: 'tracks', label: 'Subtitles', width: TRACKS_W },
       { id: 'options', label: 'Options', width: OPTIONS_W, round: true, icon: iconTexture('gear') },
       ...(p.next ? [{ id: 'next', label: 'Next episode', width: NEXT_W }] : []),
     ];
@@ -1725,7 +1728,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       <VolumeOsd inBar={visible()} />
 
       <Show when={pickerOpen()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Audio & subtitles" rows={rows()} onPick={pickTrack} onAdjust={adjustRow}
+        <ListPicker ref={(el) => { pickerNode = el; }} title="Subtitles" rows={rows()} onPick={pickTrack} onAdjust={adjustRow}
           hint="Ok chooses · Back closes" />
       </Show>
 
