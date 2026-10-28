@@ -77,28 +77,38 @@ interface Base {
 /** The folds of one playlist (spec 2026-10-19-live-grouping §3), shared by every index built on the same base. */
 interface FoldBase {
   folds: ChannelFolds;
-  /** Channel id → its fold index. */
-  foldIndexOf: Map<string, number>;
-  /** Channel id → its playlist position. */
+  /** Channel id → its playlist position (its fold index is `folds.foldOf[position]`). */
   pos: Map<string, number>;
   /** Per fold: its members (playlist order) and its lead (the row's id and number). */
   members: Channel[][];
   leads: Channel[];
+  /** Scratch marks for `rowsOf` (one slot per fold): a slot equal to `stamp` was seen in the current pass. */
+  mark: Uint32Array;
+  stamp: number;
 }
 
 function buildFold(base: Base): FoldBase {
-  const folds = foldChannels(base.channels);
-  const foldIndexOf = new Map<string, number>();
+  const { channels } = base;
+  const folds = foldChannels(channels);
   const pos = new Map<string, number>();
-  base.channels.forEach((c, i) => {
-    foldIndexOf.set(c.id, folds.foldOf[i]!);
-    pos.set(c.id, i);
-  });
-  return {
-    folds, foldIndexOf, pos,
-    members: folds.folds.map((f) => f.members.map((i) => base.channels[i]!)),
-    leads: folds.folds.map((f) => base.channels[f.lead]!),
-  };
+  for (let i = 0; i < channels.length; i++) pos.set(channels[i]!.id, i);
+  const n = folds.folds.length;
+  const members: Channel[][] = new Array(n);
+  const leads: Channel[] = new Array(n);
+  for (let fi = 0; fi < n; fi++) {
+    const f = folds.folds[fi]!;
+    const m: Channel[] = new Array(f.members.length);
+    for (let j = 0; j < m.length; j++) m[j] = channels[f.members[j]!]!;
+    members[fi] = m;
+    leads[fi] = channels[f.lead]!;
+  }
+  return { folds, pos, members, leads, mark: new Uint32Array(n), stamp: 0 };
+}
+
+/** The fold index of a channel id, or undefined for an unknown id. */
+function foldIndexOf(fb: FoldBase, id: string): number | undefined {
+  const at = fb.pos.get(id);
+  return at === undefined ? undefined : fb.folds.foldOf[at];
 }
 
 export interface ChannelIndexOptions {
@@ -193,8 +203,8 @@ export class ChannelIndex {
   private readonly visibleCache = new Map<string, Channel[]>();
   /** Fold mode only. */
   private readonly fb: FoldBase | undefined;
-  /** Fold index → its row (null: no candidate). Depends on hidden channels, hidden groups and names only. */
-  private rowCache = new Map<number, Channel | null>();
+  /** Fold index → its row (null: no candidate; unset: not built yet). Depends on hidden channels, hidden groups and names only. */
+  private rowCache: (Channel | null | undefined)[] = [];
   /** Row id → match keys of a folded row's name. */
   private readonly rowKeys = new Map<string, NameKeys>();
 
@@ -302,14 +312,16 @@ export class ChannelIndex {
 
   /** Can stream for its row: not hidden, and its group not hidden. */
   private candidate(c: Channel): boolean {
-    return !this.hiddenCh.has(c.id) && !this.hiddenGr.has(groupIdOf(c));
+    // Size checks first: most indexes hide nothing, and the group id is a fresh string per call.
+    return (this.hiddenCh.size === 0 || !this.hiddenCh.has(c.id))
+      && (this.hiddenGr.size === 0 || !this.hiddenGr.has(groupIdOf(c)));
   }
 
   private row(fi: number): Channel | undefined {
-    let r = this.rowCache.get(fi);
+    let r = this.rowCache[fi];
     if (r === undefined) {
       r = this.buildRow(fi) ?? null;
-      this.rowCache.set(fi, r);
+      this.rowCache[fi] = r;
     }
     return r ?? undefined;
   }
@@ -325,10 +337,11 @@ export class ChannelIndex {
     if (members.length === 1) return this.candidate(lead) ? this.display(lead) : undefined;
     let count = 0;
     let quality = 4;
-    for (const m of members) {
-      if (!this.candidate(m)) continue;
+    const at = fb.folds.folds[fi]!.members;
+    for (let j = 0; j < members.length; j++) {
+      if (!this.candidate(members[j]!)) continue;
       count++;
-      quality = Math.min(quality, fb.folds.memberQuality[fb.pos.get(m.id)!]!);
+      quality = Math.min(quality, fb.folds.memberQuality[at[j]!]!);
     }
     if (count === 0) return undefined;
     let name = this.renamed.get(lead.id)?.name;
@@ -368,12 +381,16 @@ export class ChannelIndex {
   private rowsOf(src: readonly Channel[]): Channel[] {
     const fb = this.fb!;
     const out: Channel[] = [];
-    const seen = new Set<number>();
+    const { mark } = fb;
+    // A fresh stamp per pass instead of a set per call. On wrap-around, clear the marks so no old stamp can match.
+    let cur = fb.stamp + 1;
+    if (cur > 0xffffffff) { mark.fill(0); cur = 1; }
+    fb.stamp = cur;
     for (const c of src) {
       if (!this.candidate(c)) continue;
-      const fi = fb.foldIndexOf.get(c.id)!;
-      if (seen.has(fi)) continue;
-      seen.add(fi);
+      const fi = foldIndexOf(fb, c.id)!;
+      if (mark[fi] === cur) continue;
+      mark[fi] = cur;
       const r = this.shownRow(fi);
       if (r) out.push(r);
     }
@@ -386,7 +403,7 @@ export class ChannelIndex {
     const out: Channel[] = [];
     const seen = new Set<number>();
     for (const id of ids) {
-      const fi = fb.foldIndexOf.get(id);
+      const fi = foldIndexOf(fb, id);
       if (fi === undefined || seen.has(fi)) continue;
       seen.add(fi);
       const r = shownOnly ? this.shownRow(fi) : this.listRow(fi);
@@ -629,7 +646,7 @@ export class ChannelIndex {
     this.base.byNum ??= new Map(this.base.channels.map((c) => [c.number, c]));
     const c = this.base.byNum.get(n);
     if (!c || !this.candidate(c)) return undefined;
-    return this.shownRow(this.fb.foldIndexOf.get(c.id)!);
+    return this.shownRow(foldIndexOf(this.fb, c.id)!);
   }
 
   /**
@@ -733,7 +750,7 @@ export class ChannelIndex {
   /** The row id of any channel id (itself when not folded); undefined for an unknown id. */
   rowOf(id: string): string | undefined {
     if (!this.fb) return this.base.byId.has(id) ? id : undefined;
-    const fi = this.fb.foldIndexOf.get(id);
+    const fi = foldIndexOf(this.fb, id);
     return fi === undefined ? undefined : this.fb.leads[fi]!.id;
   }
 
@@ -746,7 +763,7 @@ export class ChannelIndex {
       const c = this.base.byId.get(id);
       return c ? [this.display(c)] : [];
     }
-    const fi = this.fb.foldIndexOf.get(id);
+    const fi = foldIndexOf(this.fb, id);
     if (fi === undefined) return [];
     const members = this.fb.members[fi]!;
     let cands = members.filter((m) => this.candidate(m));
@@ -760,21 +777,21 @@ export class ChannelIndex {
 
   /** `id`'s row as lists show it (its lead named for the row), even when hidden; the channel itself when not folding. */
   rowChannel(id: string): Channel | undefined {
-    const fi = this.fb?.foldIndexOf.get(id);
+    const fi = this.fb && foldIndexOf(this.fb, id);
     if (fi === undefined) return this.get(id);
     return this.row(fi) ?? this.display(this.fb!.leads[fi]!);
   }
 
   /** Every channel id of `id`'s row, hidden ones included, playlist order (`[id]` when not folding). */
   memberIds(id: string): string[] {
-    const fi = this.fb?.foldIndexOf.get(id);
+    const fi = this.fb && foldIndexOf(this.fb, id);
     if (fi === undefined) return this.base.byId.has(id) ? [id] : [];
     return this.fb!.members[fi]!.map((m) => m.id);
   }
 
   /** The fold key of `id`'s row (stable across refreshes; for remembered sources). Undefined when not folding. */
   foldKey(id: string): string | undefined {
-    const fi = this.fb?.foldIndexOf.get(id);
+    const fi = this.fb && foldIndexOf(this.fb, id);
     return fi === undefined ? undefined : this.fb!.folds.folds[fi]!.key;
   }
 
@@ -796,7 +813,7 @@ export class ChannelIndex {
    * id (else the lead); for a renamed channel its playlist original; else `c` itself.
    */
   guideChannel(c: Channel): Channel {
-    const fi = this.fb?.foldIndexOf.get(c.id);
+    const fi = this.fb && foldIndexOf(this.fb, c.id);
     if (fi !== undefined && this.fb!.members[fi]!.length > 1) {
       const g = this.guideMember(fi);
       return g.id === c.id ? g : { ...g, id: c.id };
