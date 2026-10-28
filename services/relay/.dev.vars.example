@@ -1,0 +1,11 @@
+# Copy to services/relay/.dev.vars (git-ignored) to override the local `pnpm relay:dev` settings.
+# Every variable is optional (uncomment to set); unset or invalid timer values mean the production limits (see README.md).
+
+# Comma-separated origins allowed to connect. Default in dev: the local TV and companion dev servers (wrangler.toml).
+# ALLOWED_ORIGINS=
+# Lifetime in ms of a session that never paired. pnpm relay:dev passes 60000.
+# RELAY_TTL_UNPAIRED_MS=
+# Maximum lifetime in ms of a paired session.
+# RELAY_TTL_MAX_MS=
+# Idle timeout in ms without frames.
+# RELAY_IDLE_MS=

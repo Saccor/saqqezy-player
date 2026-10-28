@@ -1,0 +1,9 @@
+# Copy to services/trending/.dev.vars (git-ignored) for `pnpm trending:dev`. Production uses
+# `wrangler secret put` and `--var` instead (see README.md). Never commit real values.
+
+# Operator contact (a URL or an address) for Wikimedia's User-Agent policy. Required for a cron run.
+CONTACT=
+# Comma-separated Wikipedia language codes. Default in dev: en,sv (wrangler.toml).
+# LANGS=
+# Optional TMDB v3 key or v4 read token. Without it the feed is built from Wikimedia data only.
+# TMDB_KEY=
