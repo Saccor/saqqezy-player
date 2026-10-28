@@ -1,5 +1,5 @@
 /** Pure helpers for the Add source screen (validation, error copy, progress copy). Unit-tested. */
-import { NAME_MAX, type NewSource, type SourceConfig } from '@iptv/core';
+import { NAME_MAX, validateSourceInput, type NewSource, type SourceConfig } from '@iptv/core';
 import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
 import { ONBOARDING_COPY } from '../copy.ts';
 import { headerUsable, type HeaderSupport } from '@iptv/platform';
@@ -28,47 +28,18 @@ export type Validation<F> =
   | { ok: true; input: NewSource }
   | { ok: false; field: keyof F & string; message: string };
 
-export function isHttpUrl(s: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(s);
-  } catch {
-    return false;
-  }
-  return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '';
-}
-
-const nameOf = (name: string) => name.trim() || DEFAULT_NAME;
-const nameTooLong = (name: string) => name.trim().length > NAME_MAX;
-
-/** The password is kept exactly as typed (it may legitimately contain spaces); everything else is trimmed. */
+/**
+ * Core's `validateSourceInput` (the phone companion's rules too) with the TV's copy. The password is kept exactly as
+ * typed (it may legitimately contain spaces); everything else is trimmed.
+ */
 export function validateXtream(f: XtreamForm): Validation<XtreamForm> {
-  if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
-  const server = f.server.trim();
-  const username = f.username.trim();
-  if (!server) return { ok: false, field: 'server', message: ONBOARDING_COPY.enterServer };
-  if (!isHttpUrl(server)) {
-    return { ok: false, field: 'server', message: ONBOARDING_COPY.serverUrl };
-  }
-  if (!username) return { ok: false, field: 'username', message: ONBOARDING_COPY.enterUsername };
-  if (!f.password) return { ok: false, field: 'password', message: ONBOARDING_COPY.enterPassword };
-  return { ok: true, input: { kind: 'xtream', name: nameOf(f.name), server, username, password: f.password } };
+  const { name, server, username, password } = f;
+  return validateSourceInput({ kind: 'xtream', name, server, username, password }, ONBOARDING_COPY) as Validation<XtreamForm>;
 }
 
 export function validateM3u(f: M3uForm): Validation<M3uForm> {
-  if (nameTooLong(f.name)) return { ok: false, field: 'name', message: NAME_TOO_LONG };
-  const playlistUrl = f.playlistUrl.trim();
-  const epgUrl = f.epgUrl.trim();
-  if (!playlistUrl) return { ok: false, field: 'playlistUrl', message: ONBOARDING_COPY.enterLink };
-  if (!isHttpUrl(playlistUrl)) {
-    return { ok: false, field: 'playlistUrl', message: ONBOARDING_COPY.linkUrl };
-  }
-  if (epgUrl && !isHttpUrl(epgUrl)) {
-    return { ok: false, field: 'epgUrl', message: ONBOARDING_COPY.guideUrl };
-  }
-  const input: NewSource = { kind: 'm3u', name: nameOf(f.name), playlistUrl };
-  if (epgUrl) input.epgUrl = epgUrl;
-  return { ok: true, input };
+  const { name, playlistUrl, epgUrl } = f;
+  return validateSourceInput({ kind: 'm3u', name, playlistUrl, epgUrl }, ONBOARDING_COPY) as Validation<M3uForm>;
 }
 
 /**

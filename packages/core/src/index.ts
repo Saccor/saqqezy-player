@@ -85,6 +85,10 @@ export {
   SourceService, TV_EPG_BATCH,
   type EpgResult, type IngestResult, type NewSource, type Progress, type RefreshOptions, type SourceServiceDeps,
 } from './service/sourceService.ts';
+export {
+  SOURCE_INPUT_TEXT, isHttpUrl, validateSourceInput,
+  type SourceInputCheck, type SourceInputField, type SourceInputText,
+} from './service/sourceInput.ts';
 export { TIMER_YIELD_EVERY, createYield, type YieldDeps } from './service/yieldNow.ts';
 export * from './layout/index.ts';
 export {

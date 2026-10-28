@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
-import { NAME_MAX } from '@iptv/core';
+import { NAME_MAX, isHttpUrl } from '@iptv/core';
 import {
   HEADER_UNUSED_NOTE, advancedHelp, connectionsLine, headerFieldDimmed, httpFormFromSource, withHttpSettings,
-  DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
+  DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, maskSecret, progressText,
   revealLabel, toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 

@@ -1,4 +1,4 @@
-import { NAME_MAX, type BackupEnvelope, type NewSource } from '@iptv/core';
+import { validateSourceInput as checkSourceInput, type BackupEnvelope, type NewSource } from '@iptv/core';
 import {
   BACKUP_PROTOCOL, ChannelClosedError, HEADERS_PROTOCOL, isPhoneToTv, isUnknownPhoneMessage, MAX_MESSAGE_BYTES, newPairingCode, newQrSecrets, PROTOCOL_VERSION,
   QueueFullError, SecureChannel, secretsFromCode,
@@ -77,7 +77,6 @@ const PROGRESS_INTERVAL_MS = 500;
 export const STATE_PUSH_DELAY_MS = 300;
 /** How long `stop()` and expiry wait for the goodbye to be handed to the transport before closing. */
 const BYE_GRACE_MS = 1_000;
-const DEFAULT_NAME = 'My TV';
 /** How long `sendBackup` waits for the phone's `backupSaved`. */
 export const BACKUP_ACK_MS = 30_000;
 
@@ -752,43 +751,13 @@ function checked(input: NewSource): NewSource {
   return v.input;
 }
 
-function isHttpUrl(s: string): boolean {
-  let u: URL;
-  try {
-    u = new URL(s);
-  } catch {
-    return false;
-  }
-  return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '';
-}
-
 /**
- * The on-TV Add source form's rules (apps/tv `validateXtream` / `validateM3u`), applied to companion input:
- * names of at most NAME_MAX characters, http/https addresses only, required fields present, names defaulted, the password kept exactly as typed and
- * everything else trimmed. Messages never echo the input.
+ * Companion input goes through core's `validateSourceInput`, the same rules as the on-TV Add source form, with its
+ * English messages. The phone gets only the message, not the field.
  */
 export function validateSourceInput(input: NewSource): { ok: true; input: NewSource } | { ok: false; message: string } {
-  if (input.name.trim().length > NAME_MAX) return { ok: false, message: `Use a name of ${NAME_MAX} characters or fewer.` };
-  const name = input.name.trim() || DEFAULT_NAME;
-  if (input.kind === 'xtream') {
-    const server = input.server.trim();
-    const username = input.username.trim();
-    if (!server) return { ok: false, message: 'Enter the server address.' };
-    if (!isHttpUrl(server)) return { ok: false, message: 'Enter a server address starting with http:// or https://.' };
-    if (!username) return { ok: false, message: 'Enter your username.' };
-    if (!input.password) return { ok: false, message: 'Enter your password.' };
-    return { ok: true, input: { kind: 'xtream', name, server, username, password: input.password } };
-  }
-  const playlistUrl = input.playlistUrl.trim();
-  const epgUrl = (input.epgUrl ?? '').trim();
-  if (!playlistUrl) return { ok: false, message: 'Enter the M3U link.' };
-  if (!isHttpUrl(playlistUrl)) return { ok: false, message: 'Enter a link starting with http:// or https://.' };
-  if (epgUrl && !isHttpUrl(epgUrl)) {
-    return { ok: false, message: 'Enter a guide link (http:// or https://) or leave it empty.' };
-  }
-  const out: NewSource = { kind: 'm3u', name, playlistUrl };
-  if (epgUrl) out.epgUrl = epgUrl;
-  return { ok: true, input: out };
+  const v = checkSourceInput(input);
+  return v.ok ? v : { ok: false, message: v.message };
 }
 
 /**
