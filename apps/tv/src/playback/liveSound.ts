@@ -2,10 +2,11 @@
  * Live TV's "no sound" note: the picture plays but the device decodes none of the sound (desktop Chrome has no
  * AC-3 / E-AC-3, common on UHD channels). Movies say the same in VodPlay; live says it once per channel per session.
  */
+import { FAILURE_COPY } from '../copy.ts';
 
+/** The same two failure messages as movies (spec 2026-10-26 §1.4: one wording per failure). */
 export function liveNoSoundText(audioTrackCount: number): string {
-  const base = "No sound: this device can't play this channel's audio format.";
-  return audioTrackCount > 1 ? `${base} Try another audio track in Options.` : base;
+  return audioTrackCount > 1 ? FAILURE_COPY.noSoundTryTrack : FAILURE_COPY.noSound;
 }
 
 export interface LiveSoundDeps {

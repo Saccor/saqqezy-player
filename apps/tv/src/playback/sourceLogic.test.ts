@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSourceView } from '@iptv/app-api';
-import { badgeWidth, cellBadge, rowIdOf, sourceLabel, sourceOptions, sourcesLine } from './sourceLogic.ts';
+import { cellBadge, rowIdOf, sourceLabel, sourceOptions, sourcesLine } from './sourceLogic.ts';
 
 const v = (id: string, label: string, extra: Partial<LiveSourceView> = {}): LiveSourceView =>
   ({ id, label, bad: false, blocked: false, ...extra });
@@ -26,11 +26,6 @@ describe('row badge and info line', () => {
     expect(cellBadge(undefined, 2)).toBe('×2');
     expect(cellBadge(undefined, undefined)).toBe('');
     expect(cellBadge(undefined, 1)).toBe('');
-  });
-  it('the badge width: estimated at 0.75 em a character at meta size, none without a badge', () => {
-    expect(badgeWidth('')).toBe(0);
-    expect(badgeWidth('4K')).toBe(36);
-    expect(badgeWidth('FHD')).toBeGreaterThan(badgeWidth('4K'));
   });
   it('the info line: quality and count', () => {
     expect(sourcesLine('4K', 3)).toBe('4K · 3 sources');

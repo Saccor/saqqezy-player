@@ -5,15 +5,14 @@
  * rules live in liveLogic.ts and homeMenuLogic.ts.
  */
 import { Show, View, type ElementNode, type JSX } from '@lightningtv/solid';
-import { createSignal } from 'solid-js';
+import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api } from '../../api.ts';
-import { createChoiceMenu } from '../../components/choiceMenu.tsx';
-import { ContextMenu } from '../../components/ContextMenu.tsx';
+import { Sheet, createSheetChoice } from '../../components/Sheet.tsx';
+import { fromMenuItem, fromPickerRow } from '../../components/sheetLogic.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
-import { ListPicker } from '../../components/ListPicker.tsx';
-import { favChangedToast, CATCHUP_COPY, SOURCE_COPY } from '../../copy.ts';
+import { favChangedToast, CATCHUP_COPY, LIVE_COPY, SOURCE_COPY } from '../../copy.ts';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { playback } from '../../playback/playback.ts';
 import { sourceOptions } from '../../playback/sourceLogic.ts';
@@ -73,8 +72,8 @@ export function createLiveMenu(d: LiveMenuDeps) {
   let removePicker: (() => void) | undefined;
   let removeKeyboard: (() => void) | undefined;
 
-  const days = createChoiceMenu(DAYS_ID, () => { if (d.alive()) d.refocus(); });
-  const sources = createChoiceMenu(SOURCES_ID, () => { if (d.alive()) d.refocus(); });
+  const days = createSheetChoice(DAYS_ID, () => { if (d.alive()) d.refocus(); });
+  const sources = createSheetChoice(SOURCES_ID, () => { if (d.alive()) d.refocus(); });
 
   /** Focuses the topmost open layer (a layer just opened has its node only after this tick), else the screen. */
   const focusTop = () => queueMicrotask(() => {
@@ -154,7 +153,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     } catch (err) {
       console.warn('Layout change failed', err instanceof Error ? err.name : 'Error');
     }
-    if (d.alive()) showToast("Couldn't change this channel.");
+    if (d.alive()) showToast(LIVE_COPY.lists.changeFailed);
     return false;
   };
 
@@ -177,7 +176,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
       focusTop();
     } catch (err) {
       console.warn('Load lists failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't load your lists.");
+      showToast(LIVE_COPY.lists.loadFailed);
     }
   };
 
@@ -234,10 +233,10 @@ export function createLiveMenu(d: LiveMenuDeps) {
     } else if (action === 'removeFromList' && m.inListId !== undefined) {
       ok = await applyOps([{ op: 'removeFromList', listId: m.inListId, channelIds: [r.id] }]);
       const name = listsFromGroups().find((l) => l.id === m.inListId)?.name;
-      if (ok) showToast(name ? `Removed from "${name}"` : 'Removed from the list');
+      if (ok) showToast(name ? LIVE_COPY.lists.removedFrom(name) : LIVE_COPY.lists.removed);
     } else if (action === 'hide' || action === 'unhide') {
       ok = await applyOps([{ op: action === 'hide' ? 'hideChannels' : 'unhideChannels', ids: [r.id] }]);
-      if (ok) showToast(action === 'hide' ? 'Channel hidden' : 'Channel shown');
+      if (ok) showToast(action === 'hide' ? LIVE_COPY.lists.hidden : LIVE_COPY.lists.shown);
     }
     if (ok && d.alive()) await d.reload(r.id).catch(() => undefined);
   };
@@ -246,7 +245,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
   const pick = async (p: PickerRow) => {
     const s = picker();
     if (!s || edit()) return;
-    if (p.kind === 'new') { openKeyboard('newList', s.row, 'New list'); return; }
+    if (p.kind === 'new') { openKeyboard('newList', s.row, LIVE_COPY.lists.newListValue); return; }
     if (p.kind === 'heading') return;
     const op: LayoutOp = p.checked
       ? { op: 'removeFromList', listId: p.id, channelIds: [s.row.id] }
@@ -275,7 +274,7 @@ export function createLiveMenu(d: LiveMenuDeps) {
     dismissAll();
     if (r.kind === 'unchanged') return; // Done on the current name: nothing to store
     if (!(await applyOps([{ op: 'renameChannel', id: e.row.id, name: r.name }])) || !d.alive()) return;
-    showToast(r.name === null ? 'Original name restored' : 'Channel renamed');
+    showToast(r.name === null ? LIVE_COPY.lists.restored : LIVE_COPY.lists.renamed);
     await d.reload(e.row.id).catch(() => undefined);
   };
 
@@ -296,16 +295,21 @@ export function createLiveMenu(d: LiveMenuDeps) {
       <>
         <Show when={menu()}>{(m) => (
           <View zIndex={60}>
-            <ContextMenu ref={(el) => { menuNode = el; }} title={m().row.name} items={m().items} cancel="cancel"
-              onChoose={(a) => void choose(a)} pointerEnabled={pointerOn()} />
+            <Sheet ref={(el) => { menuNode = el; }} title={m().row.name} rows={m().items.map(fromMenuItem)} follow="id"
+              backLayerId={MENU_ID} onSelect={(_, i) => { const it = m().items[i]; if (it) void choose(it.action); }}
+              pointerEnabled={pointerOn()} />
           </View>
         )}</Show>
-        <Show when={picker()}>{(p) => (
-          <View zIndex={64}>
-            <ListPicker ref={(el) => { pickerNode = el; }} title={`Add "${p().row.name}" to`}
-              rows={pickerRows(p().lists, p().member)} onPick={(r) => void pick(r)} pointerEnabled={pointerOn()} />
-          </View>
-        )}</Show>
+        <Show when={picker()}>{(p) => {
+          const pickRows = createMemo(() => pickerRows(p().lists, p().member));
+          const rows = createMemo(() => pickRows().map(fromPickerRow));
+          return (
+            <View zIndex={64}>
+              <Sheet ref={(el) => { pickerNode = el; }} title={LIVE_COPY.addTo(p().row.name)} rows={rows()} backLayerId={PICKER_ID}
+                onSelect={(_, i) => { const r = pickRows()[i]; if (r) void pick(r); }} pointerEnabled={pointerOn()} />
+            </View>
+          );
+        }}</Show>
         <Show when={edit()}>{(e) => {
           let scrim: ElementNode | undefined;
           // A click outside the keyboard is Back (cancel). The keyboard is a screen-layer target, so this backdrop is
@@ -317,10 +321,10 @@ export function createLiveMenu(d: LiveMenuDeps) {
             <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
               <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2}
                 y={(LAYOUT.height - KEYBOARD_H) / 2}
-                label={e().kind === 'newList' ? 'New list name' : 'Channel name (empty restores the original)'}
+                label={e().kind === 'newList' ? LIVE_COPY.lists.newListName : LIVE_COPY.lists.channelName}
                 value={e().value}
                 onChange={(v) => { const cur = edit(); if (cur) setEdit({ kind: cur.kind, row: cur.row, value: limitTyping(cur.value, v) }); }}
-                onDone={() => void submitEdit()} hint="Done saves · Back cancels" error={e().error} />
+                onDone={() => void submitEdit()} error={e().error} />
             </View>
           );
         }}</Show>

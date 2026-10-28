@@ -3,9 +3,11 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import { api } from '../../api.ts';
 import { Button, BUTTON_H } from '../../components/Button.tsx';
 import { QrCode } from '../../components/QrCode.tsx';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { pointerMode, usePointerFocus, usePointerTarget } from '../../input/pointer.ts';
 import { rowHit } from '../../input/pointerLogic.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
+import { controlFill, controlText, isLit } from '../../shell/focusStyle.ts';
+import { centerText, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
 import { companionStatus, setCompanionStatus } from '../../state/appState.ts';
 import {
   countdownLine, pairingActions, shouldForgetPairing, shouldReuseSession, statusCopy, toggleButtonLabel,
@@ -13,14 +15,15 @@ import {
 } from '../pairingLogic.ts';
 import type { PageProps } from './shared.ts';
 
+const PH = SETTINGS_COPY.phone;
 const COMPANION_ORIGIN = (import.meta.env.VITE_COMPANION_ORIGIN as string | undefined) || 'http://localhost:5174';
-const PANEL_X = 28;
+const PANEL_X = SPACE.l;
 const QR_SIZE = 420;
 const PANEL_W = 560;
 const PANEL_H = QR_SIZE;
 const COL_X = PANEL_X + PANEL_W + LAYOUT.gap * 2;
 const ACTION_W = 480;
-const ACTION_GAP = 20;
+const ACTION_GAP = SPACE.m;
 const ACTIONS_Y = 220;
 /** Pointer mode: the button that replaces the Yellow hint under the panel. */
 const TOGGLE_W = 320;
@@ -49,7 +52,7 @@ function companionHost(): string {
 }
 
 /**
- * Settings → Manage on phone or computer: a QR code (or a 12-character code), the countdown, the connection
+ * Settings → Phone and computer: a QR code (or a 12-character code), the countdown, the connection
  * status and Show a new code / Disconnect. Opening it starts a QR session unless one is already live.
  * One focusable node: Up/Down pick an action, Ok runs it, Yellow switches between QR and code, Left → menu.
  */
@@ -180,17 +183,17 @@ export function ManageOnPhonePage(props: PageProps) {
     return sh.mode === 'qr' && sh.qrUrl ? 'qr' : sh.code ? 'code' : 'message';
   };
   const message = () => {
-    if (failed()) return "Couldn't create a code. Check the connection and try again.";
-    if (starting()) return 'Getting a code…';
+    if (failed()) return PH.codeFailed;
+    if (starting()) return PH.getting;
     if (state() === 'connected' || state() === 'reconnecting') {
-      return 'You can now manage sources, lists and groups from your phone or computer. Changes show up here right away.';
+      return PH.connected;
     }
-    if (state() === 'waiting') return 'Getting a code…';
-    return 'Show a new code to connect your phone or computer.';
+    if (state() === 'waiting') return PH.getting;
+    return PH.showNew;
   };
   const statusLine = () => {
-    if (failed()) return "Couldn't create a code.";
-    if (starting()) return 'Getting a code…';
+    if (failed()) return PH.failedShort;
+    if (starting()) return PH.getting;
     return statusCopy(status(), mode());
   };
   const countdown = () => {
@@ -199,7 +202,7 @@ export function ManageOnPhonePage(props: PageProps) {
   };
   const yellowHint = () => {
     if (state() === 'connected' || state() === 'reconnecting') return '';
-    return mode() === 'qr' ? 'Yellow: use a code instead' : 'Yellow: show the QR code instead';
+    return mode() === 'qr' ? PH.useCode : PH.useQr;
   };
 
   return (
@@ -208,29 +211,29 @@ export function ManageOnPhonePage(props: PageProps) {
         <QrCode x={PANEL_X} size={QR_SIZE} text={shown()?.qrUrl ?? ''} />
       </Show>
       <Show when={panel() === 'code'}>
-        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-          <Text y={90} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
-            color={COLORS.muted}>{'On your phone or computer, open'}</Text>
-          <Text y={136} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body} {...STRONG}
+        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={RADIUS.card}>
+          <Text y={SPACE.xl * 2} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
+            color={COLORS.muted}>{PH.openOn}</Text>
+          <Text y={SPACE.xl * 2 + LINE.body + SPACE.s} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body} {...STRONG}
             color={COLORS.text}>{companionHost()}</Text>
-          <Text y={210} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
-            color={COLORS.muted}>{'and type this code:'}</Text>
-          <Text y={262} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.detailTitle} {...STRONG}
+          <Text y={SPACE.xl * 4 + SPACE.l} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.body}
+            color={COLORS.muted}>{PH.typeThisCode}</Text>
+          <Text y={SPACE.xl * 4 + SPACE.l + LINE.body + SPACE.m} width={PANEL_W} maxWidth={PANEL_W} contain="width" textAlign="center" fontSize={TYPE.hero} {...STRONG}
             color={COLORS.text}>{shown()?.code ?? ''}</Text>
         </View>
       </Show>
       <Show when={panel() === 'message'}>
-        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-          <Text x={32} y={40} width={PANEL_W - 64} maxWidth={PANEL_W - 64} contain="width" lineHeight={40}
+        <View x={PANEL_X} width={PANEL_W} height={PANEL_H} color={COLORS.surface} borderRadius={RADIUS.card}>
+          <Text x={SPACE.l} y={SPACE.xl} width={PANEL_W - SPACE.l * 2} maxWidth={PANEL_W - SPACE.l * 2} contain="width" lineHeight={LINE.body}
             fontSize={TYPE.body} color={COLORS.muted}>{message()}</Text>
         </View>
       </Show>
 
-      <Text x={COL_X} y={0} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
-        maxLines={2} lineHeight={42} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{statusLine()}</Text>
-      <Text x={COL_X} y={96} fontSize={TYPE.body} color={COLORS.muted}>{countdown()}</Text>
-      <Text x={COL_X} y={148} width={props.width - COL_X - 28} maxWidth={props.width - COL_X - 28} contain="width"
-        fontSize={TYPE.meta} color={COLORS.muted}>{'The connection is end-to-end encrypted.'}</Text>
+      <Text x={COL_X} y={0} width={props.width - COL_X - SPACE.l} maxWidth={props.width - COL_X - SPACE.l} contain="width"
+        maxLines={2} lineHeight={LINE.body} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{statusLine()}</Text>
+      <Text x={COL_X} y={SPACE.xl * 2} fontSize={TYPE.body} color={COLORS.muted}>{countdown()}</Text>
+      <Text x={COL_X} y={SPACE.xl * 3} width={props.width - COL_X - SPACE.l} maxWidth={props.width - COL_X - SPACE.l} contain="width"
+        fontSize={TYPE.meta} color={COLORS.muted}>{PH.encrypted}</Text>
 
       <View ref={(el) => { actionsNode = el; props.register(el); }} x={COL_X} y={ACTIONS_Y} width={ACTION_W}
         height={actions().length * (BUTTON_H + ACTION_GAP)} onFocusChanged={setFocused}
@@ -239,12 +242,12 @@ export function ManageOnPhonePage(props: PageProps) {
         onEnter={() => { const a = actions()[selIndex()]; if (a) { setSelId(a.id); run(a.id); } return true; }}
         onYellow={() => { if (yellowHint()) run('toggleMode'); return true; }}>
         <For each={actions()}>{(a, i) => {
-          const active = () => focused() && i() === selIndex();
+          const lit = () => isLit(focused() && i() === selIndex(), hover() === i(), pointerMode());
           return (
-            <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={BUTTON_H / 2}
-              color={active() ? COLORS.focus : pointerMode() && hover() === i() ? COLORS.hover : COLORS.surfaceRaised}>
-              <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={ACTION_W} maxWidth={ACTION_W} contain="width"
-                textAlign="center" fontSize={TYPE.body} color={active() ? COLORS.onFocus : COLORS.text}>{a.label}</Text>
+            <View y={i() * (BUTTON_H + ACTION_GAP)} width={ACTION_W} height={BUTTON_H} borderRadius={RADIUS.pill(BUTTON_H)}
+              color={controlFill(lit(), COLORS.surfaceRaised)}>
+              <Text y={centerText(BUTTON_H, TYPE.body)} width={ACTION_W} maxWidth={ACTION_W} contain="width"
+                textAlign="center" fontSize={TYPE.body} color={controlText(lit())}>{a.label}</Text>
             </View>
           );
         }}</For>
@@ -255,7 +258,7 @@ export function ManageOnPhonePage(props: PageProps) {
           <Button x={PANEL_X} y={PANEL_H + 16} width={TOGGLE_W} label={toggleButtonLabel(mode())} onPress={() => run('toggleMode')} />
         </Show>
       }>
-        <Text x={PANEL_X} y={PANEL_H + 32} fontSize={TYPE.meta} color={COLORS.muted}>{yellowHint()}</Text>
+        <Text x={PANEL_X} y={PANEL_H + SPACE.l} fontSize={TYPE.meta} color={COLORS.muted}>{yellowHint()}</Text>
       </Show>
     </View>
   );

@@ -1,9 +1,10 @@
 import { createSignal } from 'solid-js';
 import type { VodTile } from '@iptv/app-api';
+import { VOD_COPY } from '../copy.ts';
 
 /** The detail screens' Favourite button. No Lightning: the screen wires it. */
 
-export const SAVE_FAILED = "Couldn't save that. Try again.";
+export const SAVE_FAILED = VOD_COPY.saveFailed;
 
 export interface FavToggleDeps {
   /** False once the screen is gone. */

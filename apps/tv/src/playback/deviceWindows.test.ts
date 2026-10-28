@@ -57,7 +57,7 @@ describe('deviceWindowsLine (Diagnostics)', () => {
     expect(deviceWindowsLine(6, undefined)).toBe('Up to 6 windows');
     expect(deviceWindowsLine(1, undefined)).toBe('Not on this device');
     expect(deviceWindowsLine(1, { why: 'subScaler', at: 0 })).toBe('1 window: this TV refused a second picture');
-    expect(deviceWindowsLine(1, { why: 'noInstance', at: 0 })).toBe('1 window: this TV had no second player free');
+    expect(deviceWindowsLine(1, { why: 'noInstance', at: 0 })).toBe('1 window: this TV had no second player available');
     expect(deviceWindowsLine(1, { why: 'audioStream', at: 0 })).toBe('1 window: this TV cannot move the sound between windows');
   });
 });

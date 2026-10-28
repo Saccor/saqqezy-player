@@ -1,23 +1,23 @@
 import type { SourceCooldown } from '@iptv/app-api';
+import { COOLDOWN_COPY } from '../copy/failure.ts';
 
-/** Same words as core's `SOURCE_REFUSING_MESSAGE` (core stays out of the main-thread bundle). */
-export const COOLDOWN_TEXT = "Your source is refusing connections. The app is waiting so you don't get blocked.";
-/** Same words as core's `SOURCE_UNREACHABLE_MESSAGE`: the source stopped answering (spec §2.4). */
-export const UNREACHABLE_TEXT = "Your source isn't answering. The app is waiting so it doesn't flood it.";
+/** The cooldown's main line. Core's SOURCE_REFUSING/UNREACHABLE messages are diagnostics now; the UI says this. */
+export const COOLDOWN_TEXT = COOLDOWN_COPY.refused;
+export const UNREACHABLE_TEXT = COOLDOWN_COPY.unreachable;
 
 /**
  * What Home's preview box and the Player show while the current stream (its host or source) cools down, or undefined when
  * clear. The text says why: a refusal, or a source that stopped answering.
  */
-export function cooldownCopy(c: SourceCooldown, now: number, pointer: boolean): { text: string; hint: string } | undefined {
+export function cooldownCopy(c: SourceCooldown, now: number): { text: string; hint: string } | undefined {
   if (c.state === 'clear') return undefined;
   const text = c.reason === 'unreachable' ? UNREACHABLE_TEXT : COOLDOWN_TEXT;
-  return { text, hint: `${tryingAgainIn(c, now)} · ${pointer ? 'Click to retry now' : 'OK: Retry now'}` };
+  return { text, hint: tryingAgainIn(c, now) };
 }
 
 /** "Trying again in N min" (at least 1) for a cooldown that waits. */
 export function tryingAgainIn(c: { until: number }, now: number): string {
-  return `Trying again in ${Math.max(1, Math.ceil((c.until - now) / 60_000))} min`;
+  return COOLDOWN_COPY.tryingAgainIn(Math.max(1, Math.ceil((c.until - now) / 60_000)));
 }
 
 /**

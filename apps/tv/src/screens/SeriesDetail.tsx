@@ -1,15 +1,18 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { createEffect, createSignal, onCleanup, onMount } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { SeriesView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
+import { CATCHUP_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
-import { EP_ROW_H, EpisodeRow } from '../components/EpisodeRow.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
+import { Row } from '../components/Row.tsx';
+import { EP_ROW_H } from '../components/tileLogic.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { Backdrop } from '../vod/Backdrop.tsx';
 import { iconTexture } from '../vod/icons.ts';
@@ -187,9 +190,9 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
     const fav = base.find((a) => a.id === 'fav')!;
     return [
       ...play,
-      ...(resuming() ? [{ id: 'start', label: 'From start', width: 220 }] : []),
-      ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `${view()!.versions.length} versions`, width: 220 }] : []),
-      ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
+      ...(resuming() ? [{ id: 'start', label: CATCHUP_COPY.fromStart, width: 220 }] : []),
+      ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: VOD_COPY.versionCount(view()!.versions.length), width: 220 }] : []),
+      ...(view()?.split ? [{ id: 'combine', label: VOD_COPY.combineAgain, width: 260 }] : []),
       { ...fav, width: FAV_W, round: true, icon: iconTexture(tile()?.favourite ? 'heartFilled' : 'heart') },
     ];
   };
@@ -339,14 +342,14 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
       onCaptureKey={(e: KeyboardEvent) => { if (!e.repeat) userPressed = true; return false; }}>
       <Backdrop url={backdrop()} area="detail" />
       <View zIndex={2}>
-        <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.detailTitle} {...STRONG}
+        <Text x={HERO_X} y={TITLE_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.hero} {...STRONG}
           color={COLORS.text}>{tile()?.title ?? ''}</Text>
         <Text x={HERO_X} y={META_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{meta()}</Text>
-        <Text x={HERO_X} y={PLOT_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
-          color={COLORS.textSecondary}>{notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}</Text>
+        <Text x={HERO_X} y={PLOT_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={3} lineHeight={LINE.body} fontSize={TYPE.body}
+          color={COLORS.textSecondary}>{notAvailable() ? VOD_COPY.detailsUnavailable : detail()?.plot ?? ''}</Text>
         <Show when={detail()?.director || detail()?.cast}>
           <Text x={HERO_X} y={CREDITS_Y} width={HERO_W} maxWidth={HERO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
-            {joinMeta(detail()?.director ? `Director ${detail()!.director}` : undefined, detail()?.cast ? `With ${detail()!.cast}` : undefined)}
+            {joinMeta(detail()?.director ? VOD_COPY.director(detail()!.director!) : undefined, detail()?.cast ? VOD_COPY.cast(detail()!.cast!) : undefined)}
           </Text>
         </Show>
         <ActionBar ref={(el) => { actionsNode = el; }} x={HERO_X} y={ACTIONS_Y} actions={actions()} onAction={(id) => void onAction(id)}
@@ -360,21 +363,29 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
             onFocusChanged={(f: boolean) => { if (f) setArea('episodes'); }}
             onUp={() => moveEpisodes('up')} onDown={() => moveEpisodes('down')} onLeft={() => moveEpisodes('left')} onRight={() => moveEpisodes('right')}
             onEnter={() => { playEpisode(epCol()); return true; }} onMenu={() => openMenu(epCol())} onLongOk={() => openMenu(epCol())}>
-            <EpisodeRow x={HERO_X} y={0} width={ROW_W} episodes={view() ? episodes() : undefined}
+            <Row x={HERO_X} y={0} width={ROW_W} content={{ variant: 'episode', episodes: view() ? episodes() : undefined }}
               focusCol={view() ? epCol() : undefined} lit={area() === 'episodes'}
-              onCardClick={(c) => clickCard(c, false)} onCardOptions={(c) => clickCard(c, true)} />
+              onCellClick={(c) => clickCard(c, false)} onCellOptions={(c) => clickCard(c, true)} />
           </View>
         </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
-      <Show when={pickingSeason()}>
-        <ListPicker ref={(el) => { seasonPickerNode = el; }} title="Season" rows={seasonRows()}
-          onPick={pickSeason} hint="Ok shows its episodes · Back closes" />
-      </Show>
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.versionId)}
-          onPick={(row) => void pickVersion(row)} hint="Ok shows its episodes · Back closes" />
-      </Show>
+      <Show when={pickingSeason()}>{(() => {
+        const seasonPickRows = createMemo(() => seasonRows());
+        const seasonSheetRows = createMemo(() => seasonPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { seasonPickerNode = el; }} title={VOD_COPY.season} rows={seasonSheetRows()} backLayerId={SEASONS_ID}
+            onSelect={(_, i) => { const r = seasonPickRows()[i]; if (r) pickSeason(r); }} />
+        );
+      })()}</Show>
+      <Show when={picking()}>{(() => {
+        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.versionId));
+        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }

@@ -164,7 +164,7 @@ function rehover(): void {
 /**
  * Registers a click target on mount and removes it on cleanup. The call order decides "latest wins". A target is
  * scoped to the screen on top when it mounts; shell-level overlays mounted outside any screen (such as the App-level
- * `ConfirmDialog`) must pass `global: true`, or they stop being hit (and stop being modal) when the screen changes.
+ * `Dialog`) must pass `global: true`, or they stop being hit (and stop being modal) when the screen changes.
  */
 export function usePointerTarget(t: PointerTarget): void {
   const entry: Entry = { seq: ++nextSeq, t, scope: undefined };

@@ -1,4 +1,4 @@
-import { Show, Text, View, activeElement, type ElementNode } from '@lightningtv/solid';
+import { Show, View, activeElement, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { useFocusManager } from '@lightningtv/solid/primitives';
 import { profileFor } from '@iptv/platform';
@@ -21,7 +21,7 @@ import { StartSportsScreen } from './screens/StartSports.tsx';
 import { VodGridScreen } from './screens/VodGrid.tsx';
 import { VodPlayScreen } from './screens/VodPlay.tsx';
 import { Clock } from './shell/Clock.tsx';
-import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
+import { Dialog } from './components/Dialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
 import { InitError } from './shell/InitError.tsx';
 import { LazyScreen } from './shell/LazyScreen.tsx';
@@ -29,14 +29,16 @@ import { isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, type LazyModule,
 import type { ScreenEntry } from './shell/router.ts';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
-  OFFLINE_BADGE_W, OFFLINE_BADGE_X, railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
+  railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
 } from './shell/logic.ts';
 import { deviceCountry } from './platform/deviceCountry.ts';
 import { rootBack, exitApp } from './shell/platformExit.ts';
 import { screenUnderlay } from './shell/motionLogic.ts';
 import { router } from './shell/router.ts';
-import { COLORS, LAYOUT, TYPE } from './shell/theme.ts';
-import { Toast, showToast } from './shell/Toast.tsx';
+import { COLORS, LAYOUT } from './shell/theme.ts';
+import { showToast, toastNotice } from './shell/Toast.tsx';
+import { NoticeLayer, useNotice } from './components/Notice.tsx';
+import { SHELL_COPY } from './copy.ts';
 import { Wordmark } from './shell/Wordmark.tsx';
 import { reloadSourceLimit } from './state/activeLimit.ts';
 import { screenEnter, setMotionLevel } from './shell/motion.ts';
@@ -48,7 +50,6 @@ import { createVodPreloader, idleSchedule } from './vod/preload.ts';
 const EXIT_ID = EXIT_OVERLAY_ID;
 /** What Back at the root does on this platform (our dialog, LG's platform back, or leave). */
 const EXIT_POLICY = profileFor(platformId).exitPolicy;
-const BADGE_H = 48;
 /** How often the live channel is checked for sound this device cannot decode (the player needs ~3 s of picture). */
 const LIVE_SOUND_TICK_MS = 1000;
 
@@ -63,19 +64,9 @@ const LAZY: Record<LazyScreenId, LazyModule<EntryProps>> = {
   multiview: lazyModule<EntryProps>(() => import('./screens/multiview/Multiview.tsx').then((m) => m.MultiviewScreen)),
 };
 
-function OfflineBadge() {
-  return (
-    <View x={OFFLINE_BADGE_X} y={LAYOUT.safeY - 4} width={OFFLINE_BADGE_W} height={BADGE_H}
-      color={COLORS.surface} borderRadius={BADGE_H / 2} border={{ width: 2, color: COLORS.muted }} zIndex={10}>
-      <Text y={(BADGE_H - TYPE.meta) / 2 - 3} width={OFFLINE_BADGE_W} maxWidth={OFFLINE_BADGE_W} contain="width" textAlign="center"
-        maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{'Offline · saved list'}</Text>
-    </View>
-  );
-}
-
 /**
  * App shell: screen stack, layered Back (overlays first, then screens, then the exit question), toasts,
- * brand wordmark, offline badge, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
+ * brand wordmark, Offline notice, clock and debug HUD. Playback lives in the `playback` singleton (src/playback/playback.ts).
  */
 export function App() {
   useFocusManager(LIGHTNING_KEY_MAP);
@@ -107,6 +98,8 @@ export function App() {
   });
   const [overlayIds, setOverlayIds] = createSignal(router.overlays());
   onCleanup(router.subscribeOverlays(setOverlayIds));
+  useNotice(() => (offline() && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds())
+    ? { id: 'offline', kind: 'wait', text: SHELL_COPY.offline } : undefined));
   // The wordmark's canvas is drawn after the cold start (first Home rows), or after a short wait at most.
   const [wordmarkWaitedOut, setWordmarkWaitedOut] = createSignal(false);
   const wordmarkTimer = setTimeout(() => setWordmarkWaitedOut(true), WORDMARK_MAX_WAIT_MS);
@@ -236,15 +229,14 @@ export function App() {
       <Wordmark visible={showWordmark(current()?.screen, playback.rectIsFullscreen(), screenOverlayOpen(overlayIds()))}
         defer={wordmarkDeferred()} />
       {/* Badge and clock are App-level, so they draw above everything a screen draws: off over fullscreen video and while a screen's modal is open. */}
-      <Show when={offline() && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds())}><OfflineBadge /></Show>
       {/*
         Hidden until settings are loaded, so a disabled clock never flashes. Not over fullscreen video: the Player's info
         banner has its own clock (two clocks showed together) and VodPlay's bar is the only chrome on the picture.
       */}
       <Show when={settings()?.showClock === true && !fullscreenVideoRoute(current()?.screen) && !screenOverlayOpen(overlayIds()) && !railRoute(current()?.screen)}><Clock /></Show>
-      <Toast />
+      <NoticeLayer extra={toastNotice} />
       <Show when={exitOpen()}>
-        <ConfirmDialog message="Exit the app?" onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
+        <Dialog title={SHELL_COPY.exit} onYes={() => answerExit(true)} onNo={() => answerExit(false)} />
       </Show>
       <DebugOverlay />
     </View>

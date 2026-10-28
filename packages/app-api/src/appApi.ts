@@ -1498,7 +1498,7 @@ export class AppApi {
     return this.run('backupToPhone', async () => {
       const companion = this.companion;
       if (!companion?.sendBackup || companion.status().state !== 'connected') {
-        throw Object.assign(new Error('Connect your phone first: Settings → Manage on phone.'), { name: 'NoCompanion' });
+        throw Object.assign(new Error('Connect your phone first: Settings → Phone and computer.'), { name: 'NoCompanion' });
       }
       const made = await this.backups().create();
       await companion.sendBackup(made.envelope);

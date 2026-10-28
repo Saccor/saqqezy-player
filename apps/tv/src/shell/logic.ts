@@ -1,7 +1,6 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
-import { messageLines, type MessageBox } from '../components/messageFit.ts';
 import { router, type ScreenId } from './router.ts';
 import { LAYOUT } from './theme.ts';
 
@@ -59,14 +58,14 @@ export const EXIT_OVERLAY_ID = 'exitConfirm';
 /**
  * True while an overlay other than the shell's toast is on the router's overlay stack (defaults to the app router's):
  * a screen's keyboard, menu, picker or dialog, or the shell's exit question. A screen gates its keys and its focus
- * moves on this, and the shell hides its chrome (wordmark, clock, offline badge) on it. The toast is a Back layer
+ * moves on this, and the shell hides its chrome (wordmark, clock) on it. The toast is a Back layer
  * only: it has no focus and covers nothing, so it never counts (it would swallow Ok and the arrows for 4 s).
  */
 export function screenOverlayOpen(overlayIds: readonly string[] = router.overlays()): boolean {
   return overlayIds.some((id) => id !== TOAST_OVERLAY_ID);
 }
 
-/** The routes that show fullscreen video: the shell's clock and offline badge stay off them. */
+/** The routes that show fullscreen video: the shell's clock stays off them. */
 export function fullscreenVideoRoute(route: ScreenId | undefined): boolean {
   return route === 'player' || route === 'vodPlay' || route === 'multiview';
 }
@@ -118,29 +117,6 @@ export const SHELL_BACK_W = 200;
 export const BOTTOM_ROW_H = 48;
 export const BOTTOM_ROW_Y = LAYOUT.height - LAYOUT.safeY - BOTTOM_ROW_H;
 
-/**
- * The offline badge, top right before the clock. Short (it was 400 wide and covered the Guide's context line); the
- * Guide narrows that line to end before it while offline.
- */
-export const OFFLINE_BADGE_W = 280;
-export const OFFLINE_BADGE_X = LAYOUT.width - LAYOUT.safeX - 120 - LAYOUT.gap - OFFLINE_BADGE_W;
-
-/** The toast: 1100 wide, its text 1052 wide at body size (about 72 characters a line), at most two lines. */
-export const TOAST_W = 1100;
-const TOAST_BOX = { charsPerLine: 72, maxLines: 2, lineH: 32 } as const satisfies MessageBox;
-const TOAST_PAD_Y = 20;
-
-/**
- * Where a toast goes for `text`: bottom-centre, its bottom edge a gap above the hint line / pointer button row (which
- * it would otherwise cover), one line tall or two for a long message, the text centred inside the box.
- */
-export function toastLayout(text: string, bottom = TOAST_BOTTOM): { y: number; height: number; textY: number; lines: number; lineH: number } {
-  const lines = messageLines(text, TOAST_BOX);
-  const height = lines * TOAST_BOX.lineH + TOAST_PAD_Y * 2;
-  return { y: Math.min(bottom, TOAST_BOTTOM) - height, height, textY: TOAST_PAD_Y, lines, lineH: TOAST_BOX.lineH };
-}
-/** A toast's lowest bottom edge: a gap above the bottom row. A screen with controls higher up passes a higher one. */
-export const TOAST_BOTTOM = BOTTOM_ROW_Y - LAYOUT.gap;
 /**
  * The shell Back's x: the row start, except on Search and Settings. Search's full keyboard reaches down to just above
  * the row, so Back goes at the start of its results column (keyboard x + width + two gaps), on the same row. Settings

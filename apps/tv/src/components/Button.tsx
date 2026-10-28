@@ -1,7 +1,8 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { COLORS, TYPE } from '../shell/theme.ts';
+import { controlFill, controlText, isLit } from '../shell/focusStyle.ts';
+import { ALPHA, centerText, COLORS, RADIUS, TYPE } from '../shell/theme.ts';
 
 export const BUTTON_H = 64;
 
@@ -35,15 +36,16 @@ export function Button(props: {
     onClick: () => props.onPress(),
   });
   const w = () => props.width ?? 240;
-  const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.surfaceRaised);
+  const lit = () => isLit(focused(), hovered(), pointerMode());
+  const fill = () => controlFill(lit(), COLORS.surfaceRaised);
   return (
     <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x ?? 0} y={props.y ?? 0} width={w()} height={BUTTON_H}
-      borderRadius={BUTTON_H / 2} color={fill()}
-      alpha={props.dimmed ? 0.5 : 1} onFocusChanged={setFocused}
+      borderRadius={RADIUS.pill(BUTTON_H)} color={fill()}
+      alpha={props.dimmed ? ALPHA.dimmed : 1} onFocusChanged={setFocused}
       onEnter={() => { props.onPress(); return true; }}
       onUp={() => props.onUp?.() ?? false} onDown={() => props.onDown?.() ?? false}>
-      <Text y={(BUTTON_H - TYPE.body) / 2 - 4} width={w()} maxWidth={w()} contain="width" textAlign="center"
-        fontSize={TYPE.body} color={focused() ? COLORS.onFocus : COLORS.text}>{props.label}</Text>
+      <Text y={centerText(BUTTON_H, TYPE.body)} width={w()} maxWidth={w()} contain="width" textAlign="center"
+        fontSize={TYPE.body} color={controlText(lit())}>{props.label}</Text>
     </View>
   );
 }

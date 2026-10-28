@@ -1,5 +1,6 @@
 import { VOD_ROW_RECENT, type VodHome, type VodTile } from '@iptv/app-api';
 import type { VodSort } from '@iptv/core';
+import { SPACE } from '../shell/theme.ts';
 
 /** The Movies browse rows and focus. Pure: no Solid, no Lightning. */
 
@@ -130,7 +131,7 @@ export interface SkeletonRow { label: SkeletonRect; posters: SkeletonRect[] }
 
 const SKELETON_LABEL_W = 260;
 const SKELETON_LABEL_H = 20;
-const SKELETON_LABEL_GAP = 14;
+const SKELETON_LABEL_GAP = SPACE.m;
 
 /**
  * `rows` skeleton rows filling `area` (left edge x, top to bottom): a row label bar, then `cols` portrait (2:3) poster

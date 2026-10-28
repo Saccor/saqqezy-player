@@ -18,9 +18,6 @@ export const favToggleLabel = (isFavourite: boolean): string => (isFavourite ? F
 /** The toast after a change: what is now true. */
 export const favChangedToast = (isFavourite: boolean): string => (isFavourite ? FAV_COPY.added : FAV_COPY.removed);
 
-/** Live TV's channel menu, opened by OK: its play items above the programme and channel items. */
-export const LIVE_MENU_COPY = { watch: 'Watch', preview: 'Preview' } as const;
-
 /**
  * Catch-up strings (spec 2026-10-20-catch-up §5): neutral wording only (CLAUDE.md rule 3), no source or provider
  * names, nothing that suggests free content.
@@ -65,8 +62,7 @@ export const MULTIVIEW_COPY = {
   keepSound: 'Keep sound here',
   soundFollows: 'Sound follows focus',
   closeWindow: 'Close window',
-  retry: 'Retry',
-  retryNow: 'Retry now',
+  retry: 'Try again',
   watchInstead: 'Watch this one instead',
   stoppedForOther: 'Stopped so another window can play.',
   starting: 'Starting…',
@@ -74,15 +70,9 @@ export const MULTIVIEW_COPY = {
   onScreen: 'On screen',
   searchChannels: 'Search channels',
   noChannelsMatch: 'No channels match',
-  searchHint: 'Right: results · Back closes',
-  infoUnknown: 'Each window uses one connection from your source.',
+  limit: 'Each window uses one connection from your source.',
   deviceLimit: 'This TV can show one channel at a time.',
-  escalated: 'Your source refused extra streams several times. Try again in a few minutes.',
-  infoReported: (n: number): string => `Your source reports ${n} ${n === 1 ? 'connection' : 'connections'}. Each window uses one.`,
-  kicked: (k: number): string => `Your source seems to allow ${k} ${k === 1 ? 'stream' : 'streams'} at once.`,
-  learned: (k: number): string => `Last time your source refused window ${k}.`,
-  device: (n: number): string => `This device can play ${n} at once.`,
-  setting: (n: number): string => `Max windows is set to ${n} in Settings.`,
+  escalated: 'The source refused extra windows. Try again in a few minutes.',
 } as const;
 
 /**
@@ -91,7 +81,6 @@ export const MULTIVIEW_COPY = {
  */
 export const COUNTRIES_COPY = {
   page: 'Your countries',
-  help: 'Pick the countries you watch. Their folders go to the top, right under Favourites. Nothing is removed.',
   thisTv: 'This TV',
   sortMost: 'Most folders first',
   sortAz: 'A–Z',
@@ -109,22 +98,35 @@ export const COUNTRIES_COPY = {
   otherHeading: 'Other folders',
   showing: (n: number): string => `Showing ${n} ${n === 1 ? 'country' : 'countries'} · Change`,
   cap: 'You can pick up to 10 countries.',
-  stale: 'None of your countries are in this playlist right now. Showing all folders.',
+  stale: 'None of your countries are in this source. Showing all folders.',
   combineOff: 'Movie and series categories now stay per country.',
-  combineOn: 'Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.',
-  none: "Your playlist doesn't sort its folders by country.",
+  combineOn: 'Not sorted by country while categories are combined.',
+  none: "This source doesn't sort its folders by country.",
   loadError: "Couldn't load your countries · Try again",
   saveError: "Couldn't save the setting.",
   firstTitle: 'Which countries do you watch?',
-  firstSub: (n: number): string => `We found folders for ${n} countries in your playlist. Pick one or more.`,
-  firstFoot: 'You can change this later in Settings › Your countries.',
+  firstSub: (n: number): string => `Folders for ${n} countries found. Pick one or more.`,
   step: 'Last step',
   done: 'Done',
   skip: 'Skip',
   change: 'Change',
   languageLine: (name: string): string => `Audio and subtitles: ${name} first`,
   folders: (n: number): string => `${n} ${n === 1 ? 'folder' : 'folders'}`,
+  selectedCount: (n: number): string => `✓ ${n}`,
+  folderRow: (label: string, folders: string): string => `${label} · ${folders}`,
+  resultLive: (folders: string): string => `Live TV: ${folders} first`,
+  resultMovies: (n: number): string => `Movies: ${n}`,
+  resultSeries: (n: number): string => `Series: ${n}`,
 } as const;
 
 /** A lazily loaded screen whose code could not be loaded (spec 2026-10-26, error handling). */
 export const LAZY_COPY = { failed: "Couldn't open this screen.", retry: 'Try again' } as const;
+export { COMMON_COPY } from './copy/common.ts';
+export { COOLDOWN_COPY, FAILURE_COPY } from './copy/failure.ts';
+export { SHELL_COPY } from './copy/shell.ts';
+export { PLAYER_COPY } from './copy/player.ts';
+export { VOD_COPY } from './copy/vod.ts';
+export { TRENDING_COPY } from './copy/trending.ts';
+export { LIVE_COPY } from './copy/live.ts';
+export { SETTINGS_COPY } from './copy/settings.ts';
+export { ONBOARDING_COPY } from './copy/onboarding.ts';

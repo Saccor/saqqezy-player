@@ -1,7 +1,7 @@
 import { Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onMount } from 'solid-js';
 import type { ChannelRow } from '@iptv/app-api';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { ChannelList, ROW_H } from './ChannelList.tsx';
 
 const W = 900;
@@ -32,12 +32,12 @@ export function EventChannels(props: {
   onMount(() => queueMicrotask(() => list?.setFocus()));
   return (
     <View x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
-      <View x={x - 24} y={y - 24} width={W + 48} height={h + 168} color={COLORS.panel} borderRadius={LAYOUT.radius}>
-        <Text x={24} y={20} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
-        <Text x={24} y={64} fontSize={TYPE.meta} color={COLORS.muted}>{props.when}</Text>
-        <Text x={24} y={h + 116} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.hint ?? ''}</Text>
+      <View x={x - 24} y={y - 24} width={W + 48} height={h + 168} color={COLORS.panel} borderRadius={RADIUS.card}>
+        <Text x={24} y={SPACE.m} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
+        <Text x={24} y={SPACE.m + LINE.body} fontSize={TYPE.meta} color={COLORS.muted}>{props.when}</Text>
+        <Text x={24} y={h + SPACE.xl * 2 + SPACE.l} width={W} maxWidth={W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{props.hint ?? ''}</Text>
       </View>
-      <ChannelList ref={(el) => { list = el; }} x={x} y={y + 96} width={W} height={h} total={props.rows.length} top={top()} focus={focus()}
+      <ChannelList ref={(el) => { list = el; }} x={x} y={y + SPACE.xl * 2} width={W} height={h} total={props.rows.length} top={top()} focus={focus()}
         row={(i) => props.rows[i]} now={props.now} playingId={undefined}
         onMove={move} onPage={(d) => move(d * ROWS)} onLeft={() => true}
         onOk={() => pick(focus())} onOptions={() => { const r = props.rows[focus()]; if (r) props.onRowMenu?.(r.id); return true; }}

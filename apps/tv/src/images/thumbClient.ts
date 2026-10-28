@@ -1,3 +1,4 @@
+import { SETTINGS_COPY } from '../copy.ts';
 import type { ThumbReply, ThumbRequest } from './thumbService.ts';
 import type { ThumbMode } from './workerThumbDeps.ts';
 
@@ -87,11 +88,11 @@ export class ThumbClient {
 }
 
 export function thumbStatsLine(s: ThumbStats): string {
-  if (s.mode === undefined) return 'Starting';
-  if (s.failedWorker) return 'Renderer loader (worker failed)';
-  if (s.mode === 'stock') return 'Renderer loader (no worker support)';
-  return `Worker · ${s.stored} from device, ${s.fetched} shrunk, ${s.asIs} as is, ${s.failed} failed`
-    + ` · copies kept ${s.kept}, skipped ${s.skipped}`;
+  const D = SETTINGS_COPY.diagnostics;
+  if (s.mode === undefined) return D.imagesStarting;
+  if (s.failedWorker) return D.imagesWorkerFailed;
+  if (s.mode === 'stock') return D.imagesNoWorker;
+  return D.imagesWorker(s.stored, s.fetched, s.asIs, s.failed, s.kept, s.skipped);
 }
 
 let client: ThumbClient | undefined;

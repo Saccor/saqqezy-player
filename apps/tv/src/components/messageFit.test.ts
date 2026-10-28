@@ -1,28 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { failureText } from '../playback/failureText.ts';
 import { COOLDOWN_TEXT } from '../state/cooldownLogic.ts';
-import { MESSAGE_BOXES, fitsBox, messageLines, messageTop, stackedMessage } from './messageFit.ts';
-
-describe('stackedMessage', () => {
-  it('puts the hint under the last line of the text, the whole block centred and inside the box', () => {
-    // Home's preview: 588 × 331, text 524 wide; the Player: 1100 × 240; both at body size (26).
-    for (const [w, h, size] of [[524, 331, 26], [1036, 240, 26]] as const) {
-      for (const text of ['Short.', COOLDOWN_TEXT, `${COOLDOWN_TEXT} ${COOLDOWN_TEXT}`]) {
-        const s = stackedMessage(text, { width: w, fontSize: size, maxLines: 3 }, h, 22);
-        expect(s.hintY, text).toBeGreaterThanOrEqual(s.textY + s.lines * s.lineH);
-        expect(s.textY).toBeGreaterThanOrEqual(0);
-        expect(s.hintY + 22 * 1.3).toBeLessThanOrEqual(h);
-      }
-    }
-  });
-
-  it("counts the cooldown copy as three lines in Home's preview (it wrapped into the hint before)", () => {
-    expect(stackedMessage(COOLDOWN_TEXT, { width: 524, fontSize: 26, maxLines: 3 }, 331, 22).lines).toBe(3);
-  });
-});
+import { LINE } from '../shell/theme.ts';
+import { MESSAGE_BOXES, fitsBox, messageLines, messageTop } from './messageFit.ts';
 
 /** The longest failure text: a refusal naming the account's limit. */
-const LONG = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'video');
+const LONG = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 });
 
 describe('messageLines', () => {
   it('estimates wrapped lines from the box width, capped at its maximum', () => {
@@ -44,14 +27,14 @@ describe('messageLines', () => {
 
 describe('MESSAGE_BOXES', () => {
   /** Every text a failure box shows for a stream or a video. */
-  const failures = (subject: 'stream' | 'video') => [
-    failureText({ reason: 'unavailable' }, subject),
-    failureText({ reason: 'unavailable', httpStatus: 404 }, subject),
-    failureText({ reason: 'unsupported' }, subject),
-    failureText({ reason: 'gone', httpStatus: 404 }, subject),
-    failureText({ reason: 'refused', httpStatus: 429 }, subject),
-    failureText({ reason: 'refused', httpStatus: 403 }, subject),
-    failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, subject),
+  const failures = () => [
+    failureText({ reason: 'unavailable' }),
+    failureText({ reason: 'unavailable', httpStatus: 404 }),
+    failureText({ reason: 'unsupported' }),
+    failureText({ reason: 'gone', httpStatus: 404 }),
+    failureText({ reason: 'refused', httpStatus: 429 }),
+    failureText({ reason: 'refused', httpStatus: 403 }),
+    failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }),
   ];
 
   it('the longest failure text fits every box that shows failures', () => {
@@ -61,12 +44,12 @@ describe('MESSAGE_BOXES', () => {
   });
 
   it("every failure message fits the Player's box and VodPlay's card", () => {
-    for (const m of failures('stream')) expect(fitsBox(m, MESSAGE_BOXES.player), m).toBe(true);
-    for (const m of failures('video')) expect(fitsBox(m, MESSAGE_BOXES.vodCard), m).toBe(true);
+    for (const m of failures()) expect(fitsBox(m, MESSAGE_BOXES.player), m).toBe(true);
+    for (const m of failures()) expect(fitsBox(m, MESSAGE_BOXES.vodCard), m).toBe(true);
   });
 
-  it('all boxes draw body text (26) on 32 px lines', () => {
-    for (const [key, b] of Object.entries(MESSAGE_BOXES)) expect(b.lineH, key).toBe(32);
+  it('all boxes draw body text on LINE.body lines', () => {
+    for (const [key, b] of Object.entries(MESSAGE_BOXES)) expect(b.lineH, key).toBe(LINE.body);
     expect(Object.keys(MESSAGE_BOXES)).not.toContain('vodCardSmall');
   });
 
@@ -87,22 +70,19 @@ describe('MESSAGE_BOXES', () => {
 });
 
 describe('live box (416 x 234 mini window)', () => {
-  const limit = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel');
+  const limit = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 });
   const messages = [
-    failureText({ reason: 'unavailable' }, 'channel'),
-    failureText({ reason: 'unavailable', httpStatus: 404 }, 'channel'),
-    failureText({ reason: 'unsupported' }, 'channel'),
-    failureText({ reason: 'gone', httpStatus: 404 }, 'channel'),
-    failureText({ reason: 'refused', httpStatus: 429 }, 'channel'),
-    failureText({ reason: 'refused', httpStatus: 403 }, 'channel'),
+    failureText({ reason: 'unavailable' }),
+    failureText({ reason: 'unavailable', httpStatus: 404 }),
+    failureText({ reason: 'unsupported' }),
+    failureText({ reason: 'gone', httpStatus: 404 }),
+    failureText({ reason: 'refused', httpStatus: 429 }),
+    failureText({ reason: 'refused', httpStatus: 403 }),
     limit,
     COOLDOWN_TEXT,
   ];
 
-  it('every preview message fits; the account-limit refusal uses its compact form', () => {
-    const compact = failureText({ reason: 'refused', httpStatus: 403, maxConnections: 10 }, 'channel', true);
-    const all = [...messages.filter((m) => m !== limit), compact];
-    for (const m of all) expect(fitsBox(m, MESSAGE_BOXES.live), m).toBe(true);
-    expect(fitsBox(limit, MESSAGE_BOXES.live)).toBe(false);
+  it('every preview message fits, the account-limit refusal included (one short form for every box)', () => {
+    for (const m of messages) expect(fitsBox(m, MESSAGE_BOXES.live), m).toBe(true);
   });
 });

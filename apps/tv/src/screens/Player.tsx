@@ -4,13 +4,12 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import type { PlayableChannel } from '@iptv/app-api';
 import type { AspectMode } from '@iptv/player';
 import { api, onEvent } from '../api.ts';
-import { CATCHUP_COPY, FAV_COPY, MULTIVIEW_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
-import { CooldownNotice } from '../components/CooldownNotice.tsx';
-import { BANNER_H, InfoBanner } from '../components/InfoBanner.tsx';
-import { NumberEntry } from '../components/NumberEntry.tsx';
-import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
-import { StatusPill } from '../components/StatusPill.tsx';
-import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { CATCHUP_COPY, COMMON_COPY, FAV_COPY, MULTIVIEW_COPY, PLAYER_COPY, SOURCE_COPY, favChangedToast, favToggleLabel } from '../copy.ts';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
+import { useNotice } from '../components/Notice.tsx';
+import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
+import { PlayerBanner } from './playerBanner.tsx';
 import { PlayerPointerOverlay } from '../components/PlayerPointerOverlay.tsx';
 import { VolumeOsd } from '../components/VolumeOsd.tsx';
 import { pointerMode, setPointerAutoHide, usePointerTarget } from '../input/pointer.ts';
@@ -25,10 +24,10 @@ import { rowIdOf, sourceOptions } from '../playback/sourceLogic.ts';
 import { mediaBadges } from '../playback/mediaBadges.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { createZapper } from '../playback/zapper.ts';
-import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
+import { Dialog } from '../components/Dialog.tsx';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
-import { showToast, useToastFloor } from '../shell/Toast.tsx';
+import { COLORS, LAYOUT, LINE, MOTION, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
+import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { cooldown, settings } from '../state/appState.ts';
 import { MESSAGE_BOXES, messageLines, messageTop } from '../components/messageFit.ts';
@@ -42,7 +41,7 @@ import {
 import { deviceCeiling, windowLimit } from './multiview/windows.ts';
 
 const GROUP_ALL = 'all';
-const BANNER_MS = 4000;
+const BANNER_MS = MOTION.autoHide;
 const ZAP_DELAY_MS = 300;
 const NUMBER_IDLE_MS = 1500;
 const FLASH_MS = 2000;
@@ -196,12 +195,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     idleMs: NUMBER_IDLE_MS,
     maxDigits: 4,
     onChange: (t) => { setDigits(t); if (t) setFlash(undefined); },
-    onSubmit: (n) => void jumpTo(() => api.byNumber(n), `No channel ${n}`),
+    onSubmit: (n) => void jumpTo(() => api.byNumber(n), PLAYER_COPY.noChannel(n)),
   });
 
   const previous = () => {
     const prev = channelHistory.previous();
-    if (prev) void jumpTo(() => api.getPlayable(prev), 'Previous channel not available');
+    if (prev) void jumpTo(() => api.getPlayable(prev), PLAYER_COPY.previousUnavailable);
     return true;
   };
 
@@ -308,12 +307,12 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     const page = menuPage();
     if (page === 'audio') {
       const tracks = player.audioTracks();
-      if (tracks.length === 0) return [{ id: 'back', label: 'No audio track list for this stream' }];
-      if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
+      if (tracks.length === 0) return [{ id: 'back', label: PLAYER_COPY.noAudioList }];
+      if (tracks.length === 1) return [{ id: 'back', label: PLAYER_COPY.oneAudio }];
       const labels = trackLabels(tracks, 'audio', liveLangs());
       return [
-        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
-        { id: 'back', label: 'Back' },
+        ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? PLAYER_COPY.selected : '' })),
+        { id: 'back', label: COMMON_COPY.back },
       ];
     }
     const cur = playback.current();
@@ -321,16 +320,16 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     if (page === 'source') {
       return [
         ...sourceOptions(sources, cur?.id).map((o) => ({ id: `src:${o.id}`, label: o.label })),
-        { id: 'back', label: 'Back' },
+        { id: 'back', label: COMMON_COPY.back },
       ];
     }
     const tracks = player.audioTracks();
     const activeAt = tracks.findIndex((t) => t.active);
     return [
-      { id: 'audio', label: 'Audio track', value: activeAt >= 0 ? trackLabels(tracks, 'audio', liveLangs())[activeAt] ?? 'Default' : 'Default' },
-      { id: 'aspect', label: 'Aspect ratio', value: aspectLabel(aspect()) },
-      { id: 'sleep', label: 'Sleep timer', value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
-      { id: 'info', label: 'Stream info', value: infoOn() ? 'On' : 'Off' },
+      { id: 'audio', label: PLAYER_COPY.audioTrack, value: activeAt >= 0 ? trackLabels(tracks, 'audio', liveLangs())[activeAt] ?? PLAYER_COPY.default : PLAYER_COPY.default },
+      { id: 'aspect', label: PLAYER_COPY.aspectRatio, value: aspectLabel(aspect()) },
+      { id: 'sleep', label: PLAYER_COPY.sleepTimer, value: sleepLabel(sleepMinutes(), sleep().kind === 'armed' ? sleepTimer.minutesLeft() : undefined) },
+      { id: 'info', label: PLAYER_COPY.streamInfo, value: infoOn() ? PLAYER_COPY.on : PLAYER_COPY.off },
       // Several channels at once, where this device can play them (spec 2026-10-20-multiview §2.1).
       ...(multiviewOffered(windowLimit(deviceCeiling(deviceWindowMax()), settings()?.maxWindows ?? 'auto'))
         ? [{ id: 'multiview', label: MULTIVIEW_COPY.entry }] : []),
@@ -341,6 +340,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       ...(sources.length > 1 ? [{ id: 'source', label: SOURCE_COPY.source, value: `${sources.length}` }] : []),
     ];
   });
+  const menuRows = createMemo(() => menuItems().map(fromOptionItem));
 
   const choose = (id: string) => {
     if (id === 'multiview') {
@@ -424,7 +424,7 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     }
     // Behind live with the banner up: OK jumps to live (the pill says so) and keeps the banner.
     if (bannerOn()) setPillTick((v) => v + 1); // act on a fresh pill, not one up to 1 s old
-    if (bannerOn() && pill()?.hint) {
+    if (bannerOn() && pill()?.behind) {
       supervisor.goLive();
       showBanner();
       return true;
@@ -449,10 +449,6 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
   /** The pointer is over the volume pill (counts as a button for the auto-hide). */
   const [overVolume, setOverVolume] = createSignal(false);
   const overlayShown = () => playerOverlayShown(pointerMode(), modal());
-  // Toasts ("Added to favourites", guide refresh failures) end above the banner, which they would otherwise cover.
-  useToastFloor(() => (bannerOn() && shown()
-    ? LAYOUT.height - LAYOUT.safeY - BANNER_H - bannerLift(overlayShown()) - LAYOUT.gap
-    : undefined));
   /**
    * Back to Live TV, the root `home` (past a Search below the Player), in one stack change; never a second Live TV.
    * `focusChannelId` is the row Live TV focuses. Without a Live TV in the stack it is a plain leave.
@@ -542,9 +538,22 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
     player.setAspect('auto');
   });
 
-  const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now()), pointerMode()));
+  const coolCopy = createMemo(() => cooldownCopy(cooldown(), freshNow(now())));
   // The cooldown message replaces the stream status: nothing is open while it shows.
   const status = createMemo(() => (coolCopy() ? undefined : playerStatusText(playback.status(), activeMaxConnections())));
+  useNotice(() => {
+    const s = status();
+    return s?.kind === 'toast' ? { id: 'player-status', kind: 'wait', text: s.text, spinner: true } : undefined;
+  });
+  useNotice(() => {
+    const c = coolCopy();
+    return c ? { id: 'player-cooldown', kind: 'error', text: c.text, action: COMMON_COPY.tryAgain, onAction: () => { void retrySource(); } } : undefined;
+  });
+  useNotice(() => {
+    if (digits()) return { id: 'player-number', kind: 'wait', text: digits(), numeral: true };
+    const f = flash();
+    return f ? { id: 'player-number', kind: 'info', text: f } : undefined;
+  });
   const showClock = () => settings()?.showClock === true;
   const CENTRE_W = 1100;
   const CENTRE_BOX = MESSAGE_BOXES.player;
@@ -558,32 +567,19 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       onLeft={() => true} onRight={() => true}
       onInfo={unlessModal(() => { if (bannerOn()) hideBanner(); else showBanner(); return true; })}
       onMenu={unlessModal(openMenu)} onLongOk={unlessModal(openMenu)} onRed={unlessModal(previous)} {...digitHandlers}>
-      <Show when={status()} keyed>{(s) => (
-        s.kind === 'toast'
-          ? <StatusPill text={s.text} spinner zIndex={25} />
-          : (
+      <Show when={status()?.kind === 'centre' ? status() : undefined} keyed>{(s) => (
             // A refusal that names the account's limit runs to three lines: the box grows for it.
             <View x={(LAYOUT.width - CENTRE_W) / 2} y={(LAYOUT.height - centreH(s.text)) / 2} width={CENTRE_W} height={centreH(s.text)}
-              color={COLORS.panel} borderRadius={LAYOUT.radius * 2} zIndex={4}>
-              <Text x={40} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - 80}
-                maxWidth={CENTRE_W - 80} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={CENTRE_BOX.lineH}
+              color={COLORS.panel} borderRadius={RADIUS.card} zIndex={4}>
+              <Text x={SPACE.xl} y={messageTop(s.text, CENTRE_BOX, centreH(s.text))} width={CENTRE_W - SPACE.xl * 2}
+                maxWidth={CENTRE_W - SPACE.xl * 2} contain="width" textAlign="center" maxLines={CENTRE_BOX.maxLines} lineHeight={LINE.body}
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{s.text}</Text>
             </View>
-          )
-      )}</Show>
-
-      <Show when={coolCopy()}>{(c) => (
-        <CooldownNotice x={(LAYOUT.width - 1100) / 2} y={(LAYOUT.height - 240) / 2} width={1100} height={240}
-          text={c().text} hint={c().hint} fontSize={TYPE.body} onRetry={() => { void retrySource(); }} />
       )}</Show>
 
       <Show when={bannerOn() ? shown() : undefined}>{(ch) => (
-        <InfoBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
+        <PlayerBanner channel={ch()} now={now()} showClock={showClock()} live={pill()} lift={bannerLift(overlayShown())} badges={badges()} />
       )}</Show>
-
-      <Show when={digits() || flash()}>
-        <NumberEntry text={digits()} message={digits() ? undefined : flash()} />
-      </Show>
 
       <PlayerPointerOverlay visible={overlayShown()} onHoverChange={setOverButton}
         onBack={() => leave()} onChannelUp={() => zap(1)} onChannelDown={() => zap(-1)} onPrevious={previous}
@@ -594,18 +590,17 @@ export function PlayerScreen(props: { entry: ScreenEntry }) {
       <VolumeOsd inBar={overlayShown()} onHoverChange={setOverVolume} />
 
       <Show when={infoOn()}>
-        <StreamInfoPanel lines={infoLines()} />
+        <KeyValuePanel x={LAYOUT.safeX} y={LAYOUT.safeY} width={600} title={PLAYER_COPY.streamInfo} lines={infoLines()} framed />
       </Show>
 
       <Show when={menuPage()} keyed>{(page) => (
-        <OptionsMenu ref={(el) => { menuNode = el; }} title={page === 'audio' ? 'Audio track' : page === 'source' ? SOURCE_COPY.choose : 'Options'}
-          items={menuItems()} onChoose={choose} />
+        <Sheet ref={(el) => { menuNode = el; }} title={page === 'audio' ? PLAYER_COPY.audioTrack : page === 'source' ? SOURCE_COPY.choose : PLAYER_COPY.options}
+          rows={menuRows()} onSelect={(r) => choose(r.id)} scrim={false} swallow="player" zIndex={40} />
       )}</Show>
 
       <Show when={sleep().kind === 'asking' ? sleep() : undefined}>{(s) => (
-        <ConfirmDialog
-          message={`Still watching? Stopping in ${(s() as { secondsLeft: number }).secondsLeft} s`}
-          yes="Stop" no="Keep watching"
+        <Dialog title={PLAYER_COPY.stillWatching} line={PLAYER_COPY.stoppingIn((s() as { secondsLeft: number }).secondsLeft)}
+          yes={PLAYER_COPY.stop} no={PLAYER_COPY.keepWatching}
           onYes={() => { removeOverlay(SLEEP_ID); sleepTimer.set(0); sleepStop(); }}
           onNo={() => { removeOverlay(SLEEP_ID); keepWatching(); }} />
       )}</Show>

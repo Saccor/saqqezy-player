@@ -1,7 +1,7 @@
 import type { SeasonView, VersionView, VodPlayable } from '@iptv/app-api';
 import type { TrackInfo } from '@iptv/player';
-import type { OptionItem } from '../components/OptionsMenu.tsx';
-import { SOURCE_COPY } from '../copy.ts';
+import type { OptionItem } from '../components/sheetLogic.ts';
+import { COMMON_COPY, PLAYER_COPY, SOURCE_COPY, VOD_COPY } from '../copy.ts';
 import { versionLabel } from './versionsLogic.ts';
 
 /** The VOD player's options menu (the gear button): pages and their rows. No Solid, no Lightning: the screen wires it. */
@@ -21,11 +21,11 @@ export interface OptionsState {
 /** The main page: Audio track, Subtitles, Source (with versions), Stream info, then the app's Settings. */
 export function optionsItems(s: OptionsState): OptionItem[] {
   return [
-    { id: 'audio', label: 'Audio track', value: s.audio },
-    { id: 'subtitles', label: 'Subtitles', value: s.subtitles },
+    { id: 'audio', label: PLAYER_COPY.audioTrack, value: s.audio },
+    { id: 'subtitles', label: VOD_COPY.subtitles, value: s.subtitles },
     ...(s.versions > 1 ? [{ id: 'source', label: SOURCE_COPY.source, value: `${s.versions}` }] : []),
-    { id: 'info', label: 'Stream info', value: s.infoOn ? 'On' : 'Off' },
-    { id: 'settings', label: 'All settings' },
+    { id: 'info', label: PLAYER_COPY.streamInfo, value: s.infoOn ? PLAYER_COPY.on : PLAYER_COPY.off },
+    { id: 'settings', label: VOD_COPY.options.allSettings },
   ];
 }
 
@@ -35,19 +35,19 @@ export function optionsItems(s: OptionsState): OptionItem[] {
  * not this video's fault.
  */
 export function audioItems(tracks: readonly TrackInfo[], labels: readonly string[], browserLimit = false): OptionItem[] {
-  if (tracks.length === 0) return [{ id: 'back', label: browserLimit ? "This browser can't list this video's audio tracks" : 'No audio track list for this video' }];
-  if (tracks.length === 1) return [{ id: 'back', label: 'Only one audio track' }];
+  if (tracks.length === 0) return [{ id: 'back', label: browserLimit ? VOD_COPY.options.browserNoAudioList : VOD_COPY.options.noAudioList }];
+  if (tracks.length === 1) return [{ id: 'back', label: PLAYER_COPY.oneAudio }];
   return [
-    ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? 'Selected' : '' })),
-    { id: 'back', label: 'Back' },
+    ...tracks.map((t, i) => ({ id: `track:${t.id}`, label: labels[i] ?? t.label, value: t.active ? PLAYER_COPY.selected : '' })),
+    { id: 'back', label: COMMON_COPY.back },
   ];
 }
 
 /** The source page: every version of the title, the playing one marked, then Back. */
 export function sourceItems(versions: readonly VersionView[], playingId: string | undefined): OptionItem[] {
   return [
-    ...versions.map((v, i) => ({ id: `ver:${v.id}`, label: versionLabel(v, i + 1), value: v.id === playingId ? 'Playing' : '' })),
-    { id: 'back', label: 'Back' },
+    ...versions.map((v, i) => ({ id: `ver:${v.id}`, label: versionLabel(v, i + 1), value: v.id === playingId ? VOD_COPY.options.playing : '' })),
+    { id: 'back', label: COMMON_COPY.back },
   ];
 }
 

@@ -4,11 +4,12 @@ import type { ChannelRow } from '@iptv/app-api';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
 import { cellAt, sameGridHit, type GridGeometry, type GridHit } from '../input/pointerLogic.ts';
 import { imageSrc } from '../images/imageSrc.ts';
-import { badgeWidth, cellBadge } from '../playback/sourceLogic.ts';
+import { cellBadge } from '../playback/sourceLogic.ts';
 import { PX_PER_HOUR, VIEW_SPAN, isOnAir, monogram, ticks, timeToX, type Block } from '../screens/guideLogic.ts';
 import { formatClock } from '../shell/logic.ts';
 import { iconTexture } from '../vod/icons.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
+import { BADGE_H, Badge, badgeWidth } from './Badge.tsx';
 import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
@@ -39,8 +40,13 @@ export const EPG_GEOMETRY: GridGeometry = {
 /** Rows drawn beyond each edge of the viewport. */
 const ROW_BUFFER = 2;
 const CELL_H = EPG_CELL_H;
-const BLOCK_GAP = 4;
-const CELL_R = 6;
+/** The cell badge sits vertically centred in the cell (a pill, not text, so no text nudge). */
+const BADGE_Y = (CELL_H - BADGE_H) / 2;
+const BLOCK_GAP = SPACE.s;
+/** A ruler tick's height. */
+const TICK_H = SPACE.m;
+/** The now line's width. */
+const NOW_W = 2;
 const PAD_X = 16;
 const NUM_W = 44;
 const LOGO = 40;
@@ -58,17 +64,17 @@ function Logo(props: { url: string | undefined; name: string | undefined }) {
   const [failedUrl, setFailedUrl] = createSignal<string | undefined>(undefined);
   const key = () => logoKey(props.url, failedUrl(), (u) => logoCache.usable(u));
   return (
-    <View x={LOGO_X} y={(CELL_H - LOGO) / 2} width={LOGO} height={LOGO} borderRadius={CELL_R} color={COLORS.surfaceRaised}>
+    <View x={LOGO_X} y={(CELL_H - LOGO) / 2} width={LOGO} height={LOGO} borderRadius={RADIUS.card} color={COLORS.surfaceRaised}>
       {/* No logo in the user's own data: a tile with two initials. */}
       <Show when={key() === undefined}>
-        <Text y={(LOGO - TYPE.meta) / 2 - 2} width={LOGO} maxWidth={LOGO} contain="width" textAlign="center" maxLines={1}
+        <Text y={centerText(LOGO, TYPE.meta)} width={LOGO} maxWidth={LOGO} contain="width" textAlign="center" maxLines={1}
           fontSize={TYPE.meta} color={COLORS.muted} {...STRONG}>{monogram(props.name ?? '')}</Text>
       </Show>
       <Show when={key()} keyed>
         {(url) => {
           logoCache.touch(url);
           return (
-            <View width={LOGO} height={LOGO} borderRadius={CELL_R} src={imageSrc(url, LOGO, LOGO)}
+            <View width={LOGO} height={LOGO} borderRadius={RADIUS.card} src={imageSrc(url, LOGO, LOGO)}
               onEvent={{ failed: () => { logoCache.markFailed(url); setFailedUrl(url); } }} />
           );
         }}
@@ -164,6 +170,8 @@ export function EpgGrid(props: {
       return true;
     },
   });
+  /** The pointer is over the guide: only the hovered cell is drawn lit (hover == focus, one lit at a time). */
+  const hoverActive = () => pointerMode() && hover() !== undefined;
   const hoverChannel = (i: number) => {
     const h = hover();
     return pointerMode() && h?.area === 'channels' && h.row === i;
@@ -183,8 +191,8 @@ export function EpgGrid(props: {
       {/* Ruler (its channel column holds the screen's group dropdown) */}
       <For each={ticks(props.viewStart)}>{(t) => (
         <View x={TL_X + timeToX(t, props.viewStart)} y={0} width={240} height={RULER_H}>
-          <View x={0} y={RULER_H - 14} width={2} height={14} color={COLORS.track} />
-          <Text x={8} y={(RULER_H - TYPE.meta) / 2 - 4} fontSize={TYPE.meta} color={COLORS.subtle}>
+          <View x={0} y={RULER_H - TICK_H} width={2} height={TICK_H} color={COLORS.track} />
+          <Text x={8} y={centerText(RULER_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.subtle}>
             {formatClock(new Date(t))}
           </Text>
         </View>
@@ -196,9 +204,11 @@ export function EpgGrid(props: {
           const ch = () => props.channel(i);
           const isRow = () => i === props.focusRow;
           const chLit = () => isRow() && focused() && props.area === 'channels';
+          // Hover is drawn as focus (one hover style); the focused row's channel cell while focus is elsewhere is only a cursor.
+          const chOn = () => (hoverActive() ? hoverChannel(i) : chLit());
           // A combined channel's badge ("4K", or "×3") at the cell's right end; the name takes what is left.
           const badge = () => cellBadge(ch()?.quality, ch()?.sourceCount);
-          const badgeW = () => badgeWidth(badge());
+          const badgeW = () => (badge() === '' ? 0 : badgeWidth(badge()));
           const nameW = () => (badgeW() > 0 ? NAME_W - badgeW() - BADGE_GAP : NAME_W);
           const all = createMemo<Block[]>((prev) => reuse(prev, props.blocks(i)));
           const visible = createMemo(() => {
@@ -208,37 +218,32 @@ export function EpgGrid(props: {
           });
           return (
             <View y={(i - props.top) * EPG_ROW_H} width={EPG_GRID_W} height={CELL_H}>
-              <View width={CHANNEL_W - BLOCK_GAP} height={CELL_H} borderRadius={CELL_R}
-                color={chLit() ? COLORS.focus : isRow() ? COLORS.surfaceRaised : hoverChannel(i) ? COLORS.hover : COLORS.surface}>
+              <View width={CHANNEL_W - BLOCK_GAP} height={CELL_H} borderRadius={RADIUS.card}
+                color={chOn() ? COLORS.focus : COLORS.transparent}>
                 <Text x={8} y={TEXT_Y} width={NUM_W} maxWidth={NUM_W} contain="width" textAlign="right" maxLines={1}
-                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
+                  fontSize={TYPE.meta} color={chOn() ? COLORS.onFocusMuted : COLORS.subtle}>{`${ch()?.number ?? ''}`}</Text>
                 {/* Keyed by the logo string (not the row object), so chunk loads do not remount the logo. */}
                 <Logo url={ch()?.logo} name={ch()?.name} />
                 <Text x={NAME_X} y={TEXT_Y} width={nameW()} maxWidth={nameW()} contain="width" maxLines={1}
-                  fontSize={TYPE.meta} color={chLit() ? COLORS.onFocus : COLORS.text}>
+                  fontSize={TYPE.meta} color={chOn() ? COLORS.onFocus : COLORS.text}>
                   {ch() ? `${ch()!.id === props.playingId ? '▶ ' : ''}${ch()!.name}` : 'Loading…'}
                 </Text>
                 <Show when={badgeW() > 0}>
-                  <Text x={NAME_X + NAME_W - badgeW()} y={TEXT_Y} width={badgeW()} maxWidth={badgeW()} contain="width"
-                    textAlign="right" maxLines={1} fontSize={TYPE.meta}
-                    color={chLit() ? COLORS.onFocusMuted : COLORS.subtle}>{badge()}</Text>
+                  <Badge x={NAME_X + NAME_W - badgeW()} y={BADGE_Y} text={badge()} lit={chOn()} />
                 </Show>
               </View>
               <View x={TL_X} width={TIMELINE_W} height={CELL_H}>
                 <For each={visible()}>{(b) => {
                   const x = () => Math.max(0, timeToX(b.start, props.viewStart));
                   const w = () => Math.min(TIMELINE_W, timeToX(b.stop, props.viewStart)) - x() - BLOCK_GAP;
-                  const lit = () => isRow() && focused() && props.area === 'grid' && b.start === props.focusStart;
-                  const sel = () => isRow() && b.start === props.focusStart;
+                  const lit = () => (hoverActive() ? hoverBlock(i, b) : isRow() && focused() && props.area === 'grid' && b.start === props.focusStart);
                   const live = () => !b.filler && isOnAir(b, props.now);
                   const fill = () => (lit() ? COLORS.focus : live() ? COLORS.surfaceRaised : COLORS.surface);
-                  const ring = () => (sel() && !lit() ? { width: 2, color: COLORS.muted }
-                    : !lit() && hoverBlock(i, b) ? { width: 2, color: COLORS.muted } : undefined);
                   const mark = () => (b.filler ? undefined : props.archiveMark?.(i, b));
                   const textX = () => (mark() === 'past' ? PAD_X + MARK + 8 : PAD_X);
                   const textW = () => Math.max(0, w() - textX() - PAD_X - (mark() === 'onAir' ? MARK + 8 : 0));
                   return (
-                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={CELL_R} border={ring()}>
+                    <View x={x()} width={Math.max(2, w())} height={CELL_H} color={fill()} borderRadius={RADIUS.card}>
                       <Show when={mark() && w() > 48 + MARK}>
                         <View x={mark() === 'past' ? PAD_X : w() - PAD_X - MARK} y={(CELL_H - MARK) / 2} width={MARK} height={MARK}
                           src={iconTexture('archive')} color={lit() ? COLORS.onFocus : COLORS.muted} />
@@ -259,7 +264,7 @@ export function EpgGrid(props: {
 
       {/* Now line: 2 px, from the ruler to the last row. */}
       <Show when={nowX() >= 0 && nowX() <= TIMELINE_W}>
-        <View x={TL_X + nowX() - 1} y={RULER_H} width={2} height={viewRows() * EPG_ROW_H - (EPG_ROW_H - CELL_H)}
+        <View x={TL_X + nowX() - NOW_W / 2} y={RULER_H} width={NOW_W} height={viewRows() * EPG_ROW_H - (EPG_ROW_H - CELL_H)}
           color={COLORS.accent} zIndex={5} />
       </Show>
     </View>

@@ -4,6 +4,8 @@
  * refused). Then 1, remembered on this device until Diagnostics' Test again. A stream's own failure never counts: only
  * these device answers do, so one bad channel cannot turn multiview off. Pure apart from the injected storage.
  */
+import { PLAYER_COPY } from '../copy.ts';
+
 export type DeviceRefusal = 'noInstance' | 'subScaler' | 'audioStream';
 export interface DeviceRefusalRecord { why: DeviceRefusal; at: number }
 
@@ -55,14 +57,10 @@ export function createDeviceWindows(base: number, store: () => Storage | undefin
   };
 }
 
-const WHY_TEXT: Readonly<Record<DeviceRefusal, string>> = {
-  subScaler: 'this TV refused a second picture',
-  noInstance: 'this TV had no second player free',
-  audioStream: 'this TV cannot move the sound between windows',
-};
+const WHY_TEXT: Readonly<Record<DeviceRefusal, string>> = PLAYER_COPY.windows.why;
 
 /** Diagnostics' Multiview line. */
 export function deviceWindowsLine(max: number, refusal: DeviceRefusalRecord | undefined): string {
-  if (refusal) return `1 window: ${WHY_TEXT[refusal.why]}`;
-  return max > 1 ? `Up to ${max} windows` : 'Not on this device';
+  if (refusal) return PLAYER_COPY.windows.oneWindow(WHY_TEXT[refusal.why]);
+  return max > 1 ? PLAYER_COPY.windows.upTo(max) : PLAYER_COPY.windows.notOnDevice;
 }

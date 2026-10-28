@@ -8,10 +8,14 @@ import { stopMotion, tween } from './motion.ts';
 import {
   onRailClose, RAIL_CLOSE, RAIL_ICON, RAIL_ITEMS, RAIL_LABELS, RAIL_OPEN_W, RAIL_ROW_H, railIcon, railItemAt, railY, stepRail, type RailId,
 } from './railLogic.ts';
-import { COLORS, LAYOUT, MOTION, STRONG, TYPE } from './theme.ts';
+import { centerText, COLORS, LAYOUT, MOTION, RADIUS, SPACE, STRONG, TYPE } from './theme.ts';
 
 /** The open panel's x while closed: tucked behind the collapsed rail. */
 const PANEL_HIDDEN_X = LAYOUT.railW - RAIL_OPEN_W;
+/** The close button's icon, and the current-item mark beside the icons. */
+const CLOSE_ICON = 28;
+const MARK_W = 4;
+const MARK_H = 28;
 
 /** The rail node that `focusRailCollapsed` is focusing, until its focus arrives (Lightning focuses on a later tick). */
 let quietNext: ElementNode | undefined;
@@ -99,7 +103,8 @@ export function Rail(props: {
   const pad = (RAIL_ROW_H - RAIL_ICON) / 2;
   const width = () => (open() ? RAIL_OPEN_W : LAYOUT.railW);
   const lit = (id: RailId) => focused() && cursor() === id;
-  const tint = (id: RailId) => (lit(id) ? COLORS.onFocus : id === props.active || open() ? COLORS.text : COLORS.subtle);
+  const hovered = (id: RailId) => pointerMode() && hover() === id;
+  const tint = (id: RailId) => (lit(id) || hovered(id) ? COLORS.onFocus : id === props.active || open() ? COLORS.text : COLORS.subtle);
   /** The labels share one layer, so they fade in as one animation once it is rendered. */
   const fadeIn = (el: ElementNode) => {
     el.alpha = MOTION.startAlpha;
@@ -123,10 +128,10 @@ export function Rail(props: {
       <View ref={(el) => { panel = el; el.alpha = 0; el.x = PANEL_HIDDEN_X; }} width={RAIL_OPEN_W} height={LAYOUT.height} zIndex={0} color={COLORS.background} />
       <Show when={open()}>
         <Show when={pointerMode()}>
-          <View x={RAIL_CLOSE.x} y={RAIL_CLOSE.y} width={RAIL_CLOSE.size} height={RAIL_CLOSE.size} borderRadius={RAIL_CLOSE.size / 2} zIndex={1}
-            color={hover() === 'close' ? COLORS.hover : COLORS.background}>
-            <View x={(RAIL_CLOSE.size - 28) / 2} y={(RAIL_CLOSE.size - 28) / 2} width={28} height={28} zIndex={2} src={iconTexture('close')}
-              color={hover() === 'close' ? COLORS.text : COLORS.subtle} />
+          <View x={RAIL_CLOSE.x} y={RAIL_CLOSE.y} width={RAIL_CLOSE.size} height={RAIL_CLOSE.size} borderRadius={RADIUS.pill(RAIL_CLOSE.size)} zIndex={1}
+            color={hover() === 'close' ? COLORS.focus : COLORS.background}>
+            <View x={(RAIL_CLOSE.size - CLOSE_ICON) / 2} y={(RAIL_CLOSE.size - CLOSE_ICON) / 2} width={CLOSE_ICON} height={CLOSE_ICON} zIndex={2} src={iconTexture('close')}
+              color={hover() === 'close' ? COLORS.onFocus : COLORS.subtle} />
           </View>
         </Show>
       </Show>
@@ -138,13 +143,13 @@ export function Rail(props: {
         return (
           <View y={railY(id)} zIndex={1}>
             <Show when={lit(id)}>
-              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.focus} />
+              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RADIUS.pill(RAIL_ROW_H)} zIndex={1} color={COLORS.focus} />
             </Show>
             <Show when={!lit(id) && pointerMode() && hover() === id}>
-              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RAIL_ROW_H / 2} zIndex={1} color={COLORS.hover} />
+              <View x={24} y={-pad} width={width() - 48} height={RAIL_ROW_H} borderRadius={RADIUS.pill(RAIL_ROW_H)} zIndex={1} color={COLORS.focus} />
             </Show>
             <Show when={current() && !lit(id)}>
-              <View x={20} y={(RAIL_ICON - 28) / 2} width={4} height={28} borderRadius={2} zIndex={1} color={COLORS.text} />
+              <View x={SPACE.m} y={(RAIL_ICON - MARK_H) / 2} width={MARK_W} height={MARK_H} borderRadius={RADIUS.pill(MARK_W)} zIndex={1} color={COLORS.text} />
             </Show>
             <View x={(LAYOUT.railW - RAIL_ICON) / 2} width={RAIL_ICON} height={RAIL_ICON} zIndex={2} src={iconTexture(railIcon(id))} color={tint(id)} />
           </View>
@@ -153,7 +158,7 @@ export function Rail(props: {
       <Show when={open()}>
         <View ref={fadeIn} zIndex={2}>
           <For each={RAIL_ITEMS}>{(id) => (
-            <Text x={LAYOUT.railW - 8} y={railY(id) + (RAIL_ICON - TYPE.body) / 2 - 2} fontSize={TYPE.body} zIndex={2}
+            <Text x={LAYOUT.railW - 8} y={railY(id) + centerText(RAIL_ICON, TYPE.body)} fontSize={TYPE.body} zIndex={2}
               {...(id === props.active ? STRONG : {})} color={tint(id)}>
               {RAIL_LABELS[id]}
             </Text>

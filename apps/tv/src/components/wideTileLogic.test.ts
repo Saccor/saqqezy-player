@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { ChannelRow, SportsEventTile } from '@iptv/app-api';
-import { COMPACT_H, MATCH_GRID_H, sidesFromKey, sidesKey, wideLines, wideSize } from './wideTileLogic.ts';
+import { COMPACT_H, MATCH_GRID_H, sidesFromKey, sidesKey, wideLines } from './wideTileLogic.ts';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const chan = (extra: Partial<ChannelRow> = {}): ChannelRow =>
@@ -55,10 +55,8 @@ describe('wideLines', () => {
   });
 });
 
-describe('wideSize', () => {
-  test('the compact tile is 360 × 112, much shorter than the wide one; the grid tile adds one 24 px line', () => {
-    expect(wideSize(false)).toEqual({ w: 314, h: 176 });
-    expect(wideSize(true)).toEqual({ w: 360, h: 112 });
+describe('tile sizes', () => {
+  test('the grid tile adds one 24 px line to the compact tile', () => {
     expect(MATCH_GRID_H - COMPACT_H).toBe(24);
   });
 });

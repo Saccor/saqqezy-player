@@ -1,23 +1,18 @@
-import { Show, View } from '@lightningtv/solid';
+import { View } from '@lightningtv/solid';
 import { COLORS, FOCUS } from '../shell/theme.ts';
 
 /**
- * The card focus mark (spec §1.2): a light ring outside a dark gap, so it reads on any artwork. Pointer hover: a thin
- * muted ring. Place it first inside the card's node, at the card's 0,0; it draws at zIndex 0, below the card.
+ * The tile focus mark (spec 2026-10-26 §1.2): a 4 px light ring at 4 px offset around a dark gap, so it reads on any
+ * artwork. One node, always mounted: its fill is the dark gap (behind the tile) and its border the ring; it shows by
+ * alpha, never by remounting. Pointer hover draws the same ring (one hover style, equal to focus). Place it first inside
+ * the tile's node at 0,0; it draws at zIndex 0, below the tile. `clear` leaves the gap undrawn, for a video window (the
+ * fill would hide the video plane behind it) or a box that is already drawn.
  */
-export function FocusRing(props: { w: number; h: number; radius: number; lit: boolean; hover?: boolean }) {
+export function FocusRing(props: { w: number; h: number; radius: number; lit: boolean; hover?: boolean; clear?: boolean }) {
   const out = FOCUS.offset + FOCUS.ring;
   return (
-    <>
-      <Show when={props.lit}>
-        <View x={-out} y={-out} width={props.w + out * 2} height={props.h + out * 2} zIndex={0}
-          borderRadius={props.radius + out} color={COLORS.focus} />
-        <View x={-FOCUS.offset} y={-FOCUS.offset} width={props.w + FOCUS.offset * 2} height={props.h + FOCUS.offset * 2} zIndex={0}
-          borderRadius={props.radius + FOCUS.offset} color={COLORS.background} />
-      </Show>
-      <Show when={!props.lit && props.hover}>
-        <View x={-2} y={-2} width={props.w + 4} height={props.h + 4} zIndex={0} borderRadius={props.radius + 2} color={COLORS.muted} />
-      </Show>
-    </>
+    <View x={-out} y={-out} width={props.w + out * 2} height={props.h + out * 2} zIndex={0}
+      borderRadius={props.radius + out} color={props.clear ? COLORS.transparent : COLORS.background} border={{ width: FOCUS.ring, color: COLORS.focus }}
+      alpha={props.lit || props.hover === true ? 1 : 0} />
   );
 }

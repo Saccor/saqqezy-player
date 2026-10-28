@@ -1,29 +1,19 @@
-import { Show, Text, View } from '@lightningtv/solid';
-import { createEffect, createSignal, onCleanup } from 'solid-js';
-import { TOAST_OVERLAY_ID, TOAST_W, toastLayout, toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
+import { createSignal } from 'solid-js';
+import type { NoticeEntry } from '../components/Notice.tsx';
+import { autoHideDelay } from '../components/noticeLogic.ts';
+import { onLogicalKey } from '../input/keys.ts';
+import { TOAST_OVERLAY_ID, screenOverlayOpen, toastOnExpiry, toastOnShow, type ToastState } from './logic.ts';
 import { router } from './router.ts';
-import { riseIn } from './motion.ts';
-import { COLORS, LAYOUT, MOTION, TYPE } from './theme.ts';
 
-export const TOAST_MS = 4000;
 /** Default precedence. Only background guide-refresh failures use a lower one (0), so they never interrupt. */
 export const TOAST_PRIORITY_NORMAL = 1;
 
 const [state, setState] = createSignal<ToastState>({});
-/** The current screen's toast bottom edge (above its own bottom controls), or undefined for the default. */
-const [floor, setFloor] = createSignal<number | undefined>(undefined);
-
-/**
- * For a screen whose controls sit above the shell's bottom row (the Player's banner, VodPlay's bar and subtitles):
- * toasts end above `bottom()` while the screen is mounted. Call once in the screen's setup.
- */
-export function useToastFloor(bottom: () => number | undefined): void {
-  createEffect(() => setFloor(bottom()));
-  onCleanup(() => setFloor(undefined));
-}
-const text = () => state().current?.text;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let removeOverlay: (() => void) | undefined;
+let shownAt = 0;
+let lastKeyAt = -1;
+onLogicalKey(() => { lastKeyAt = Date.now(); });
 
 function stopTimer(): void {
   if (timer !== undefined) clearTimeout(timer);
@@ -37,12 +27,19 @@ function clear(): void {
   setState({});
 }
 
-/** (Re)starts the 4 s window and the Back layer for the toast now visible. */
-function startWindow(): void {
+/** Waits until the auto-hide window (MOTION.autoHide, paused by key presses and open sheets) has run out. */
+function arm(): void {
   stopTimer();
+  const left = () => autoHideDelay({ shownAt, lastKeyAt, now: Date.now(), held: screenOverlayOpen(router.overlays()) });
+  timer = setTimeout(() => (left() > 0 ? arm() : expire()), left());
+}
+
+/** (Re)starts the window and the Back layer for the toast now visible. */
+function startWindow(): void {
   removeOverlay?.();
   removeOverlay = router.pushOverlay(TOAST_OVERLAY_ID, clear);
-  timer = setTimeout(expire, TOAST_MS);
+  shownAt = Date.now();
+  arm();
 }
 
 function expire(): void {
@@ -59,8 +56,8 @@ function expire(): void {
 }
 
 /**
- * Shows a toast bottom-centre for 4 s. It is an overlay, so Back closes it before leaving the screen. A toast
- * with lower `priority` than the visible one waits until that one's 4 s are up (see `toastOnShow`).
+ * Shows a toast as an info Notice (top right) for MOTION.autoHide. It is an overlay, so Back closes it before leaving the
+ * screen. A toast with lower `priority` than the visible one waits until that one's window is up (see `toastOnShow`).
  */
 export function showToast(message: string, priority = TOAST_PRIORITY_NORMAL): void {
   const prev = state().current;
@@ -69,22 +66,8 @@ export function showToast(message: string, priority = TOAST_PRIORITY_NORMAL): vo
   if (next.current !== prev) startWindow();
 }
 
-export function Toast() {
-  return (
-    <Show when={text()}>
-      {(t) => {
-        const l = () => toastLayout(t(), floor());
-        // The outer node only carries the open motion (fade + rise, shell/motion.ts); the toast's own y follows its layout.
-        return (
-          <View ref={(el) => riseIn(el, MOTION.toastIn)} zIndex={20}>
-            <View x={(LAYOUT.width - TOAST_W) / 2} y={l().y} width={TOAST_W} height={l().height}
-              color={COLORS.surface} borderRadius={Math.min(36, l().height / 2)}>
-              <Text x={24} y={l().textY} width={TOAST_W - 48} maxWidth={TOAST_W - 48} contain="width" maxLines={l().lines}
-                lineHeight={l().lineH} textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{`${t()}`}</Text>
-            </View>
-          </View>
-        );
-      }}
-    </Show>
-  );
+/** The toast now visible, as a Notice for `NoticeLayer`. */
+export function toastNotice(): NoticeEntry | undefined {
+  const t = state().current?.text;
+  return t ? { id: TOAST_OVERLAY_ID, kind: 'info', text: t } : undefined;
 }

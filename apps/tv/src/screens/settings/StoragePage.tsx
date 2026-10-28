@@ -3,6 +3,7 @@ import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { api } from '../../api.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList } from '../../components/SettingsList.tsx';
+import { COMMON_COPY, SETTINGS_COPY } from '../../copy.ts';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';
@@ -11,11 +12,12 @@ import { showToast } from '../../shell/Toast.tsx';
 import { applyInitState, companionStatus, platformId, restoreWaitUntil, setRestoreWaitUntil } from '../../state/appState.ts';
 import { isTvPlatform } from '../../video/engineConfig.ts';
 import {
-  RESTORE_CONFIRM, backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, storageItems,
+  BACKUP_DONE_LINE, RESTORE_CONFIRM, RESTORE_CONFIRM_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, storageItems,
 } from './backupLogic.ts';
 import type { PageProps } from './shared.ts';
 
 const KEYBOARD_ID = 'storageKeyboard';
+const S = SETTINGS_COPY.storage;
 /** Backup files can be saved and opened off TVs (desktop, browser); TVs back up to the phone. */
 const FILES = !isTvPlatform(platformId);
 
@@ -75,29 +77,29 @@ export function StoragePage(props: PageProps) {
   const items = () => storageItems({ connected: companionStatus().state === 'connected', waiting: waiting(), files: FILES });
 
   /** Shows the recovery code once. */
-  const showCode = (where: 'phone' | 'file', code: string) => props.confirm(backupDoneMessage(where), 'Done', { single: true, detail: formatCode(code) });
+  const showCode = (where: 'phone' | 'file', code: string) => props.confirm(backupDoneMessage(where), S.done, { single: true, line: BACKUP_DONE_LINE, detail: formatCode(code) });
 
   const clearCache = async () => {
-    if (!(await props.confirm('Clear cached channels, guide, movies and series?', 'Clear'))) return;
-    const done = props.busy('Clearing…');
+    if (!(await props.confirm(S.clearTitle, S.clearYes, { line: S.clearLine }))) return;
+    const done = props.busy(S.clearing);
     playback.stop(); // the cached list the stream came from is gone
     try {
       applyInitState(await api.clearCache());
       done();
-      showToast('Cache cleared. Downloading channels and guide…');
+      showToast(S.cleared);
       api.refresh('both').catch((err: unknown) => {
         console.warn('Refresh after clear failed', err instanceof Error ? err.name : 'Error');
-        showToast("Couldn't download channels. Try again from Settings → Sources.");
+        showToast(S.downloadFailed);
       });
     } catch (err) {
       done();
       console.warn('Clear cache failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't clear the cache.");
+      showToast(S.clearFailed);
     }
   };
 
   const backupToPhone = async () => {
-    const done = props.busy('Sending a backup to your phone…');
+    const done = props.busy(S.sending);
     try {
       const { code } = await api.backupToPhone();
       done();
@@ -112,24 +114,24 @@ export function StoragePage(props: PageProps) {
   const restoreFromPhone = async () => {
     if (waiting()) {
       setRestoreWaitUntil(undefined);
-      showToast('Stopped waiting for your phone.');
+      showToast(S.stoppedWaiting);
       api.armPhoneRestore(false).catch(() => { /* the wait also ends by itself */ });
       return;
     }
-    if (!(await props.confirm(RESTORE_CONFIRM, 'Restore'))) return;
+    if (!(await props.confirm(RESTORE_CONFIRM, S.restoreYes, { line: RESTORE_CONFIRM_LINE }))) return;
     try {
       const { until } = await api.armPhoneRestore(true);
       setNow(Date.now());
       setRestoreWaitUntil(until);
-      showToast('Waiting for your phone: open Backup on it and choose Restore to this TV.');
+      showToast(SETTINGS_COPY.backup.waiting);
     } catch (err) {
       console.warn('Arm restore failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't start the restore.");
+      showToast(S.restoreFailed);
     }
   };
 
   const backupToFile = async () => {
-    const done = props.busy('Making a backup…');
+    const done = props.busy(S.making);
     try {
       const file = await api.backupToFile();
       download(file.data, file.fileName);
@@ -159,7 +161,7 @@ export function StoragePage(props: PageProps) {
     const problem = codeEntryProblem(e.value);
     if (problem) { setEntry({ ...e, error: problem }); return; }
     dismissKeyboard();
-    const done = props.busy('Restoring…');
+    const done = props.busy(S.restoring);
     try {
       // The result's toast comes with the `backupRestored` event.
       await api.restoreFromFile(e.data, e.value);
@@ -167,7 +169,7 @@ export function StoragePage(props: PageProps) {
     } catch (err) {
       done();
       console.warn('Restore from file failed', err instanceof Error ? err.name : 'Error');
-      showToast(backupErrorCopy(err, "Couldn't restore the backup."));
+      showToast(backupErrorCopy(err, S.restoreFileFailed));
     }
   };
 
@@ -193,7 +195,7 @@ export function StoragePage(props: PageProps) {
         return (
           <View ref={(el) => { scrim = el; }} x={0} y={0} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={70}>
             <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_H) / 2}
-              label="Recovery code" value={e().value} error={e().error} hint="Done restores · Back cancels"
+              label={S.recoveryCode} value={e().value} error={e().error}
               onChange={(v) => { const cur = entry(); if (cur) setEntry({ data: cur.data, value: v.slice(0, 64) }); }}
               onDone={() => void submitCode()} />
           </View>

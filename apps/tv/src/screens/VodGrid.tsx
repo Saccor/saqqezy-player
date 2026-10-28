@@ -5,10 +5,12 @@ import { VOD_ROW_CONTINUE, VOD_ROW_RECENT } from '@iptv/app-api';
 import type { VodSort } from '@iptv/core';
 import { api } from '../api.ts';
 import { Button } from '../components/Button.tsx';
+import { COMMON_COPY, VOD_COPY } from '../copy.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X } from '../components/dropdownLogic.ts';
-import { ListPicker } from '../components/ListPicker.tsx';
-import { PosterTile } from '../components/PosterTile.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
+import { Tile } from '../components/Tile.tsx';
 import { ScrollIndicator } from '../components/ScrollIndicator.tsx';
 import { renderRange, scrollTopFor } from '../components/virtualWindow.ts';
 import { pointerMode, usePointerTarget, type Point } from '../input/pointer.ts';
@@ -17,7 +19,7 @@ import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { belowTab } from '../shell/railLogic.ts';
 import { goRailNested } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { initState, settings } from '../state/appState.ts';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { categoryRows, pickedSort, sortRows } from '../vod/categoryPicker.ts';
@@ -456,7 +458,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
           x={GRID_X} y={HEAD_Y} label={cat()?.name ?? ''} maxWidth={HEAD_MAX_W} onPress={openPicker}
           onDown={() => focusArea('grid')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) setArea('header'); }} />
       </Show>
-      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + 2} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
+      <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
         fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{infoTitle()}</Text>
       <Text x={GRID_X + GRID_W - INFO_W} y={HEAD_Y + META_DY} width={INFO_W} maxWidth={INFO_W} contain="width" textAlign="right" maxLines={1}
         fontSize={TYPE.meta} color={COLORS.muted}>{infoMeta()}</Text>
@@ -465,7 +467,7 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         onUp={() => moveGrid('up')} onDown={() => moveGrid('down')} onLeft={() => moveGrid('left')} onRight={() => moveGrid('right')}
         onChannelUp={() => page(-1)} onChannelDown={() => page(1)} onEnter={open} onMenu={openMenu} onLongOk={openMenu}>
         <For each={indices()}>{(i) => (
-          <PosterTile x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
+          <Tile variant="poster" x={x(i)} y={y(i)} w={layout().cellW} h={layout().cellH} tile={tileAt(i)} lit={area() === 'grid' && focus() === i}
             hover={pointerMode() && hover() === i} />
         )}</For>
       </View>
@@ -474,19 +476,23 @@ export function VodGridScreen(props: { entry: ScreenEntry }) {
         <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{copy.loadError}</Text>
         {/* Left from Try again reaches the rail, as on browse. */}
         <View onLeft={() => focusArea('rail')}>
-          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + 80} label="Try again" onPress={retry}
+          <Button ref={(el) => { retryNode = el; onCleanup(() => { if (retryNode === el) retryNode = undefined; }); }} x={GRID_X} y={GRID_Y + SPACE.xl * 2} label={COMMON_COPY.tryAgain} onPress={retry}
             onUp={() => focusArea('header')} />
         </View>
       </Show>
       <Show when={!failed() && total() === 0 && cats().length > 0}>
-        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{'Nothing here yet.'}</Text>
+        <Text x={GRID_X} y={GRID_Y} fontSize={TYPE.body} color={COLORS.muted}>{VOD_COPY.nothingHere}</Text>
       </Show>
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerRows()}
-          onPick={pick} hint="Ok picks · Back closes" />
-      </Show>
+      <Show when={picking()}>{(() => {
+        const pickRows = createMemo(() => pickerRows());
+        const pickerSheetRows = createMemo(() => pickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={copy.categoriesTitle} rows={pickerSheetRows()} backLayerId={CATEGORIES_ID}
+            onSelect={(_, i) => { const r = pickRows()[i]; if (r) pick(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }

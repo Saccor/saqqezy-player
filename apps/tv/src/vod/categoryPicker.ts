@@ -1,5 +1,6 @@
 import type { VodCategoryView } from '@iptv/app-api';
 import { VOD_ALL, type VodSort } from '@iptv/core';
+import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SORT_LABELS } from './gridLogic.ts';
 import { grouped } from './kindCopy.ts';
@@ -17,13 +18,13 @@ export function catalogueCategories(cats: readonly VodCategoryView[]): VodCatego
 
 /** Picker rows; the count shows here only (spec §1.4), the current category is checked. */
 export function categoryRows(cats: readonly VodCategoryView[], currentId: string | undefined): PickerRow[] {
-  return cats.map((c) => ({ kind: 'list', id: c.id, label: `${c.name} · ${grouped(c.count)}`, checked: c.id === currentId }));
+  return cats.map((c) => ({ kind: 'list', id: c.id, label: VOD_COPY.categoryRow(c.name, grouped(c.count)), checked: c.id === currentId }));
 }
 
 const SORT_PREFIX = 'sort:';
 
 export function sortRows(sorts: readonly VodSort[], current: VodSort): PickerRow[] {
-  return sorts.map((s) => ({ kind: 'list', id: `${SORT_PREFIX}${s}`, label: `Sort: ${SORT_LABELS[s]}`, checked: s === current }));
+  return sorts.map((s) => ({ kind: 'list', id: `${SORT_PREFIX}${s}`, label: VOD_COPY.sortBy(SORT_LABELS[s]), checked: s === current }));
 }
 
 export function pickedSort(row: PickerRow): VodSort | undefined {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
 import { BADGE_GAP, BADGE_PAD, badgesWidth, fpsLabel, layoutBadges, mediaBadges, qualityLabel, videoCodecLabel } from './mediaBadges.ts';
+import { SPACE } from '../shell/theme.ts';
 
 describe('layoutBadges', () => {
   const w = (t: string) => t.length * 10;
@@ -106,5 +107,12 @@ describe('mediaBadges', () => {
     expect(mediaBadges({ info: {}, audio: [], text: plain, external: 'Danish' })).toEqual(['Danish subtitles']);
     expect(mediaBadges({ info: {}, audio: [], text: [], external: '' })).toEqual(['Subtitles']);
     expect(mediaBadges({ info: {}, audio: [], text: [], external: 'English', externalCc: true })).toEqual(['English CC']);
+  });
+});
+
+describe('badge spacing is on the scale (spec 2026-10-26 §1.1)', () => {
+  it('pads 16 and gaps 8', () => {
+    expect(BADGE_PAD).toBe(SPACE.m);
+    expect(BADGE_GAP).toBe(SPACE.s);
   });
 });

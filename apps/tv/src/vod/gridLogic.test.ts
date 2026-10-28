@@ -79,15 +79,15 @@ describe('gridLogic', () => {
   });
 
   test('grid layout per poster size', () => {
-    expect(gridLayout('standard')).toEqual({ cols: 8, cellW: 187, cellH: 280, rowPitch: 308 });
-    expect(gridLayout('compact')).toEqual({ cols: 10, cellW: 144, cellH: 216, rowPitch: 244 });
+    expect(gridLayout('standard')).toEqual({ cols: 8, cellW: 187, cellH: 280, rowPitch: 304 });
+    expect(gridLayout('compact')).toEqual({ cols: 10, cellW: 144, cellH: 216, rowPitch: 240 });
   });
 
   test('rendered rows: the full rows, plus the next one only when at least 60 px of it shows', () => {
-    // Standard: rows at 150, 458, 766; the fourth starts at 1074 and would show 6 px, so it is not drawn.
-    expect(GRID_Y + 3 * gridLayout('standard').rowPitch).toBe(1074);
+    // Standard: rows at 150, 454, 758; the fourth starts at 1062 and would show 18 px, so it is not drawn.
+    expect(GRID_Y + 3 * gridLayout('standard').rowPitch).toBe(1062);
     expect(renderedRows('standard')).toBe(3);
-    // Compact: the fourth starts at 882 and shows 198 px; the fifth (1126) is off screen.
+    // Compact: the fourth starts at 870 and shows 210 px; the fifth (1110) is off screen.
     expect(renderedRows('compact')).toBe(4);
     // Never fewer rows than the ones scrolled by.
     expect(renderedRows('standard')).toBeGreaterThanOrEqual(GRID_VIEW_ROWS);

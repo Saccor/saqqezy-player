@@ -2,7 +2,8 @@ import { Show, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup } from 'solid-js';
 import type { EpisodeView, SeriesView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
-import { ContextMenu } from '../components/ContextMenu.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromMenuItem } from '../components/sheetLogic.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
 import { showToast } from '../shell/Toast.tsx';
@@ -113,7 +114,8 @@ export function createPosterMenu(opts: { refocus: () => void; onChanged: () => v
   onCleanup(() => { alive = false; remove?.(); });
   const View = () => (
     <Show when={state()} keyed>
-      {(s) => <ContextMenu ref={(el) => { node = el; }} title={s.title} items={s.items} cancel="cancel" onChoose={(a) => void choose(a)} />}
+      {(s) => <Sheet ref={(el) => { node = el; }} title={s.title} rows={s.items.map(fromMenuItem)} follow="id" backLayerId={MENU_ID}
+        onSelect={(_, i) => { const it = s.items[i]; if (it) void choose(it.action); }} />}
     </Show>
   );
   return { open, openEpisode, isOpen: () => state() !== undefined, View };

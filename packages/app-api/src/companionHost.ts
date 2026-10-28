@@ -325,7 +325,7 @@ export class CompanionHost implements CompanionControl {
    */
   sendBackup(backup: BackupEnvelope): Promise<void> {
     const s = this.session;
-    if (!s || !s.connected) return Promise.reject(named('NoCompanion', 'Connect your phone first: Settings → Manage on phone.'));
+    if (!s || !s.connected) return Promise.reject(named('NoCompanion', 'Connect your phone first: Settings → Phone and computer.'));
     if (s.peerProtocol < BACKUP_PROTOCOL) {
       return Promise.reject(named('OldCompanion', 'Reload the page on your phone, then try again.'));
     }
@@ -339,7 +339,7 @@ export class CompanionHost implements CompanionControl {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         s.backupWaits.delete(at);
-        reject(named('Timeout', "The phone didn't answer. Keep Manage on phone open on it and try again."));
+        reject(named('Timeout', "The phone didn't answer. Keep the phone page open on it and try again."));
       }, BACKUP_ACK_MS);
       s.backupWaits.set(at, { resolve, reject, timer });
       s.channel.send({ t: 'backup', backup, tv: this.deps.tvLabel }).catch((err: unknown) => {
@@ -781,10 +781,10 @@ export function validateSourceInput(input: NewSource): { ok: true; input: NewSou
   }
   const playlistUrl = input.playlistUrl.trim();
   const epgUrl = (input.epgUrl ?? '').trim();
-  if (!playlistUrl) return { ok: false, message: 'Enter the playlist URL.' };
-  if (!isHttpUrl(playlistUrl)) return { ok: false, message: 'Enter a playlist URL starting with http:// or https://.' };
+  if (!playlistUrl) return { ok: false, message: 'Enter the M3U link.' };
+  if (!isHttpUrl(playlistUrl)) return { ok: false, message: 'Enter a link starting with http:// or https://.' };
   if (epgUrl && !isHttpUrl(epgUrl)) {
-    return { ok: false, message: 'Enter a TV guide URL starting with http:// or https://, or leave it empty.' };
+    return { ok: false, message: 'Enter a guide link (http:// or https://) or leave it empty.' };
   }
   const out: NewSource = { kind: 'm3u', name, playlistUrl };
   if (epgUrl) out.epgUrl = epgUrl;

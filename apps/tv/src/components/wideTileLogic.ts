@@ -1,5 +1,6 @@
 /** What a wide or compact tile says, and its size (Start, Search). Pure: no Solid, no Lightning. */
 import type { StartCell } from '@iptv/app-api';
+import { LIVE_COPY } from '../copy.ts';
 import { folderCount, programmeContext, type FolderCell, type HiddenCell, type ProgrammeCell } from '../screens/searchLogic.ts';
 import { channelsLabel, channelsShort, eventWhen } from '../screens/startLogic.ts';
 
@@ -15,13 +16,10 @@ export const COMPACT_H = 112;
 export const MATCH_GRID_H = 136;
 export const WIDE_GAP = 24;
 
-export const wideSize = (compact: boolean): { w: number; h: number } =>
-  (compact ? { w: COMPACT_W, h: COMPACT_H } : { w: WIDE_W, h: WIDE_H });
-
 /**
  * The bold main line names the thing to watch; the muted context line above it gives context ('' when empty or the
  * same as the main line). Channel: name / programme (Search, with numbers: number · programme / name). Event: when · channels / title. Programme: when · channel / title.
- * View all: just the label. `live`: a match airing now (its context line is drawn in the accent). `short`: compact tiles
+ * View all: just the label. `live`: a match airing now (its context line is drawn in `text`, not `muted`). `short`: compact tiles
  * say "N ch". `sides`: a match's two sides, each drawn on its own line by the compact tile.
  */
 export function wideLines(c: WideCell, now: number, channelNumbers = false, short = false): { context: string; main: string; live: boolean; sides?: [string, string] } {
@@ -30,7 +28,7 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
   let live = false;
   let sides: [string, string] | undefined;
   if (c.type === 'channel') {
-    const programme = c.channel.now?.title ?? 'No guide information';
+    const programme = c.channel.now?.title ?? LIVE_COPY.noGuideInfo;
     // Search: the name the user typed is the main line; the number tells duplicates (HD/SD, regional) apart.
     context = channelNumbers ? `${c.channel.number} · ${programme}` : c.channel.name;
     main = channelNumbers ? c.channel.name : programme;
@@ -46,10 +44,10 @@ export function wideLines(c: WideCell, now: number, channelNumbers = false, shor
     context = folderCount(c.hit);
     main = c.hit.name;
   } else if (c.type === 'hidden') {
-    context = 'Hidden by Your countries';
-    main = c.count === 1 ? '1 more in a hidden group' : `${c.count} more in hidden groups`;
+    context = LIVE_COPY.tile.hiddenContext;
+    main = LIVE_COPY.tile.hiddenMore(c.count);
   } else if (c.type === 'viewAll') {
-    main = 'View all';
+    main = LIVE_COPY.tile.viewAll;
   }
   const out: { context: string; main: string; live: boolean; sides?: [string, string] } = { context: context === main ? '' : context, main, live };
   if (sides) out.sides = sides;

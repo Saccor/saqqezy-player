@@ -194,8 +194,8 @@ export function chipArt(key: string, flagOf: (key: string) => string | undefined
 /** "Live TV: 24 folders first · Movies: 12 · Series: 9"; a section not known yet is left out; '' with nothing picked. */
 export function resultLine(c: Pick<CountryChoices, 'regions' | 'counts' | 'stale'>): string {
   if (c.regions.mode === 'off' || c.regions.codes.length === 0 || c.stale) return '';
-  const parts = [`Live TV: ${COUNTRIES_COPY.folders(c.counts.live)} first`];
-  if (c.counts.movies !== undefined) parts.push(`Movies: ${c.counts.movies}`);
-  if (c.counts.series !== undefined) parts.push(`Series: ${c.counts.series}`);
+  const parts = [COUNTRIES_COPY.resultLive(COUNTRIES_COPY.folders(c.counts.live))];
+  if (c.counts.movies !== undefined) parts.push(COUNTRIES_COPY.resultMovies(c.counts.movies));
+  if (c.counts.series !== undefined) parts.push(COUNTRIES_COPY.resultSeries(c.counts.series));
   return parts.join(' · ');
 }

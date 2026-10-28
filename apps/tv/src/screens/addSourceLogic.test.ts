@@ -55,11 +55,11 @@ describe('validateM3u', () => {
   });
 
   it('requires a valid playlist URL and a valid guide URL when given', () => {
-    expect(validateM3u({ ...ok, playlistUrl: '' })).toEqual({ ok: false, field: 'playlistUrl', message: 'Enter the playlist URL.' });
+    expect(validateM3u({ ...ok, playlistUrl: '' })).toEqual({ ok: false, field: 'playlistUrl', message: 'Enter the M3U link.' });
     expect(validateM3u({ ...ok, playlistUrl: 'list.m3u' }))
-      .toEqual({ ok: false, field: 'playlistUrl', message: 'Enter a playlist URL starting with http:// or https://.' });
+      .toEqual({ ok: false, field: 'playlistUrl', message: 'Enter a link starting with http:// or https://.' });
     expect(validateM3u({ ...ok, epgUrl: 'guide' }))
-      .toEqual({ ok: false, field: 'epgUrl', message: 'Enter a TV guide URL starting with http:// or https://, or leave it empty.' });
+      .toEqual({ ok: false, field: 'epgUrl', message: 'Enter a guide link (http:// or https://) or leave it empty.' });
   });
 });
 
@@ -170,10 +170,10 @@ describe('Advanced help and dimmed fields per platform (spec 2026-10-20-source-h
   const webos = { lists: F, streams: F };
 
   it('says what is sent on this device, in plain words', () => {
-    expect(advancedHelp(all)).toBe("Sent with this source's lists, guide and streams. Leave empty to use the app's default.");
-    expect(advancedHelp(tizen)).toBe("On this TV only the User-Agent is sent, and only with streams. Lists and the guide use the TV's own.");
-    expect(advancedHelp(webos)).toBe('This TV cannot send these headers. The values are kept but not used here.');
-    expect(advancedHelp({ lists: T, streams: F })).toBe("On this TV these are sent with lists and the guide only. Leave empty to use the app's default.");
+    expect(advancedHelp(all)).toBe('Sent with lists, guide and streams. Empty uses the default.');
+    expect(advancedHelp(tizen)).toBe('Used for streams only.');
+    expect(advancedHelp(webos)).toBe('Not used on this TV.');
+    expect(advancedHelp({ lists: T, streams: F })).toBe('Used for lists and the guide only.');
   });
 
   it('dims a field the platform cannot use (still editable); the note is neutral', () => {

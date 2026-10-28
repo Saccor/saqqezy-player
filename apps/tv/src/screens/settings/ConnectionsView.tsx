@@ -3,10 +3,13 @@ import { createSignal, onCleanup, onMount } from 'solid-js';
 import { api } from '../../api.ts';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { connectionMemory, journal } from '../../playback/playback.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { initState, platformId } from '../../state/appState.ts';
 import { activeConnectionsOf, maxConnectionsOf } from '../../state/sourceLimit.ts';
 import { isTvPlatform } from '../../video/engineConfig.ts';
 import { connectionsHeader, connectionsRows, connectionsText, type ConnectionsFacts } from './connectionsLogic.ts';
+
+const C = SETTINGS_COPY.connections;
 
 /** The clipboard on desktop builds only; TVs have none. */
 function desktopClipboard(): Clipboard | undefined {
@@ -51,11 +54,11 @@ export function ConnectionsView(props: {
 
   const items = (): SettingItem[] => {
     const now = Date.now();
-    const rows: SettingItem[] = [{ id: 'back', label: 'Back to Diagnostics' }];
-    if (clipboard) rows.push({ id: 'copy', label: 'Copy', value: copyNote() });
+    const rows: SettingItem[] = [{ id: 'back', label: C.back }];
+    if (clipboard) rows.push({ id: 'copy', label: C.copy, value: copyNote() });
     for (const [k, v] of connectionsHeader(facts())) rows.push({ id: `h:${k}`, label: k, value: v });
     const list = connectionsRows(entries, now);
-    rows.push({ id: 'heading', label: list.length > 0 ? 'Windows, newest first' : 'No multiview sessions yet.', heading: true });
+    rows.push({ id: 'heading', label: list.length > 0 ? C.windowsNewest : C.none, heading: true });
     for (const r of list) rows.push({ id: r.id, label: r.text, value: r.time });
     return rows;
   };
@@ -65,9 +68,9 @@ export function ConnectionsView(props: {
     else if (id === 'copy' && clipboard) {
       try {
         clipboard.writeText(connectionsText(facts(), entries, Date.now()))
-          .then(() => setCopyNote('Copied'), () => setCopyNote('Copy not available'));
+          .then(() => setCopyNote(C.copied), () => setCopyNote(C.copyUnavailable));
       } catch {
-        setCopyNote('Copy not available');
+        setCopyNote(C.copyUnavailable);
       }
     }
   };

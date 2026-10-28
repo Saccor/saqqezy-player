@@ -4,22 +4,28 @@ import type { LiveInfo } from '@iptv/player';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings, OpenOn } from '@iptv/core';
 import type { SettingItem } from '../components/SettingsList.tsx';
+import { SETTINGS_COPY } from '../copy.ts';
 import { audioLanguageLabel, subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
 
 export type SettingsPageId =
   | 'countries' | 'sources' | 'phone' | 'guide' | 'playback' | 'channels' | 'display' | 'storage' | 'diagnostics' | 'about';
 
+const PAGE = SETTINGS_COPY.pages;
+const D = SETTINGS_COPY.diagnostics;
+const V = SETTINGS_COPY.values;
+const P = SETTINGS_COPY.playback;
+
 export const SETTINGS_PAGES: readonly { id: SettingsPageId; title: string }[] = [
-  { id: 'countries', title: 'Your countries' },
-  { id: 'sources', title: 'Sources' },
-  { id: 'phone', title: 'Manage on phone or computer' },
-  { id: 'guide', title: 'TV guide' },
-  { id: 'playback', title: 'Playback' },
-  { id: 'channels', title: 'Channels' },
-  { id: 'display', title: 'Display' },
-  { id: 'storage', title: 'Storage' },
-  { id: 'diagnostics', title: 'Diagnostics' },
-  { id: 'about', title: 'About' },
+  { id: 'countries', title: PAGE.countries },
+  { id: 'sources', title: PAGE.sources },
+  { id: 'phone', title: PAGE.phone },
+  { id: 'guide', title: PAGE.guide },
+  { id: 'playback', title: PAGE.playback },
+  { id: 'channels', title: PAGE.channels },
+  { id: 'display', title: PAGE.display },
+  { id: 'storage', title: PAGE.storage },
+  { id: 'diagnostics', title: PAGE.diagnostics },
+  { id: 'about', title: PAGE.about },
 ];
 
 /**
@@ -38,11 +44,11 @@ export const AUTO_REFRESH_OPTIONS = [0, 6, 12, 24] as const;
 export const FORMAT_OPTIONS = ['ts', 'm3u8'] as const;
 export const LIVE_DELAY_OPTIONS = ['low', 'balanced', 'stable'] as const;
 export const liveDelayLabel = (v: AppSettings['liveDelay']): string =>
-  (v === 'low' ? 'Low' : v === 'stable' ? 'Stable' : 'Balanced (default)');
+  (v === 'low' ? P.liveDelayLow : v === 'stable' ? P.liveDelayStable : P.liveDelayBalanced);
 /** Multiview's Max windows (core's `MaxWindows`). */
 export const MAX_WINDOWS_OPTIONS = ['auto', 2, 3, 4, 5, 6] as const;
 export const maxWindowsLabel = (v: AppSettings['maxWindows'], ceiling: number): string =>
-  (v === 'auto' ? `Auto (this device: ${ceiling})` : String(v));
+  (v === 'auto' ? P.maxWindowsAuto(ceiling) : String(v));
 /** Same choices as the Player's sleep timer (and core's sanitizer). */
 export const SLEEP_DEFAULT_OPTIONS = [0, 15, 30, 60, 90, 120] as const;
 /** Errors shown on the Diagnostics page (most recent first). */
@@ -67,16 +73,16 @@ export function cycleOption<T>(options: readonly T[], current: T, dir: 1 | -1 = 
   return options[(i + dir + options.length) % options.length]!;
 }
 
-export const autoRefreshLabel = (h: number): string => (h <= 0 ? 'Never' : `${h} h`);
-export const formatLabel = (f: AppSettings['preferredFormat']): string => (f === 'm3u8' ? 'HLS (m3u8)' : 'TS (default)');
-export const sleepDefaultLabel = (m: number): string => (m <= 0 ? 'Off' : `${m} min`);
-export const onOff = (b: boolean): string => (b ? 'On' : 'Off');
+export const autoRefreshLabel = (h: number): string => (h <= 0 ? V.never : `${h} h`);
+export const formatLabel = (f: AppSettings['preferredFormat']): string => (f === 'm3u8' ? P.formatHls : P.formatTs);
+export const sleepDefaultLabel = (m: number): string => (m <= 0 ? V.off : P.sleepMinutes(m));
+export const onOff = (b: boolean): string => (b ? V.on : V.off);
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Local date and time `YYYY-MM-DD HH:MM`; 0 (never happened) is "Never". */
 export function formatTime(ts: number): string {
-  if (!ts || ts <= 0) return 'Never';
+  if (!ts || ts <= 0) return V.never;
   const d = new Date(ts);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -127,7 +133,7 @@ export interface DeviceInfo {
 }
 
 const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
-const size = (w?: number, h?: number): string => (isNum(w) && isNum(h) ? `${Math.round(w)}\u00d7${Math.round(h)}` : 'unknown');
+const size = (w?: number, h?: number): string => (isNum(w) && isNum(h) ? `${Math.round(w)}\u00d7${Math.round(h)}` : V.unknown);
 /** Short, safe text from a platform string: printable ASCII only, capped. */
 const clean = (v: string): string => v.replace(/[^\x20-\x7e]/g, '').trim().slice(0, 40);
 
@@ -135,25 +141,25 @@ const clean = (v: string): string => v.replace(/[^\x20-\x7e]/g, '').trim().slice
 export function uaVersions(ua: string | undefined): string {
   const tizen = /Tizen[ /](\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
   const chrome = /Chrom(?:e|ium)\/(\d+(?:\.\d+)*)/.exec(ua ?? '')?.[1];
-  const parts = [tizen ? `Tizen ${tizen}` : '', chrome ? `Chrome ${chrome}` : ''].filter(Boolean);
-  return parts.length > 0 ? parts.join(' \u00b7 ') : 'unknown';
+  const parts = [tizen ? D.tizenVersion(tizen) : '', chrome ? D.chromeVersion(chrome) : ''].filter(Boolean);
+  return parts.length > 0 ? parts.join(' \u00b7 ') : V.unknown;
 }
 
 /** Display and engine lines: viewport, screen, pixel ratio, design scale, render buffer, (Tizen) platform version and model, engine. */
 export function screenLines(d: DeviceInfo, platform: string): [string, string][] {
-  const scale = isNum(d.designScale) ? d.designScale.toFixed(2) : 'unknown';
-  const ratio = isNum(d.devicePixelRatio) ? String(Math.round(d.devicePixelRatio * 100) / 100) : 'unknown';
+  const scale = isNum(d.designScale) ? d.designScale.toFixed(2) : V.unknown;
+  const ratio = isNum(d.devicePixelRatio) ? String(Math.round(d.devicePixelRatio * 100) / 100) : V.unknown;
   const lines: [string, string][] = [
-    ['Viewport', `${size(d.innerWidth, d.innerHeight)} \u00b7 design scale ${scale}`],
-    ['Screen', `${size(d.screenWidth, d.screenHeight)} \u00b7 pixel ratio ${ratio}`],
-    ['Render', size(d.renderWidth, d.renderHeight)],
+    [D.viewport, D.viewportValue(size(d.innerWidth, d.innerHeight), scale)],
+    [D.screen, D.screenValue(size(d.screenWidth, d.screenHeight), ratio)],
+    [D.render, size(d.renderWidth, d.renderHeight)],
   ];
   if (platform === 'tizen') {
     const version = d.tizenPlatformVersion ? clean(d.tizenPlatformVersion) : '';
     const model = d.tizenModel ? clean(d.tizenModel) : '';
-    lines.push(['Device', `Tizen ${version || 'version unknown'} \u00b7 ${model || 'model unknown'}`]);
+    lines.push([D.device, D.tizenDevice(version || D.versionUnknown, model || D.modelUnknown)]);
   }
-  lines.push(['Engine', uaVersions(d.userAgent)]);
+  lines.push([D.engine, uaVersions(d.userAgent)]);
   return lines;
 }
 
@@ -177,10 +183,10 @@ export function guideStatus(s: DiagnosticsInfo['sources'][number], now: number):
   const g = s.guideImport;
   if (g?.stage === 'importing') {
     const min = Math.floor(Math.max(0, now - g.startedAt) / 60_000);
-    return `Guide: importing ${grouped(g.count)} programmes (${min < 1 ? '<1' : min} min)`;
+    return D.guideImporting(grouped(g.count), min < 1 ? '<1' : String(min));
   }
-  if (g?.stage === 'failed' && g.error) return `Guide: failed: ${errorText(g.error)}`;
-  return `Guide updated ${formatTime(s.epgAt)}`;
+  if (g?.stage === 'failed' && g.error) return D.guideFailed(errorText(g.error));
+  return D.guideUpdated(formatTime(s.epgAt));
 }
 
 /** `123 MB of 2,048 MB`: what the device lets the app keep (whole megabytes, thousands grouped by hand). */
@@ -196,37 +202,37 @@ export function storageLine(s: { used: number; quota: number }): string {
 export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string; device?: DeviceInfo; now?: number }): [string, string][] {
   const now = env.now ?? Date.now();
   const lines: [string, string][] = [
-    ['App version', info.appVersion],
-    ['Platform', env.platform],
+    [D.appVersion, info.appVersion],
+    [D.platform, env.platform],
     ...(env.device ? screenLines(env.device, env.platform) : []),
   ];
-  if (info.sources.length === 0) lines.push(['Sources', 'None']);
+  if (info.sources.length === 0) lines.push([D.sources, V.none]);
   info.sources.forEach((s, i) => {
-    const kind = KIND_LABEL[s.kind] ?? 'Other';
-    lines.push([`Source ${i + 1}`, `${stripUrls(s.name)} · ${kind} · ${s.channels} channels, ${s.skipped} skipped`]);
-    lines.push(['', `Channels updated ${formatTime(s.playlistAt)} · ${guideStatus(s, now)}`]);
+    const kind = KIND_LABEL[s.kind] ?? D.kindOther;
+    lines.push([D.sourceN(i + 1), D.sourceLine(stripUrls(s.name), kind, s.channels, s.skipped)]);
+    lines.push(['', D.channelsUpdated(formatTime(s.playlistAt), guideStatus(s, now))]);
     // Catch-up: counts and how archive times are written (never URLs or templates).
     if (s.catchupChannels || s.catchupUnsupported) {
-      const unsupported = s.catchupUnsupported ? `, ${s.catchupUnsupported} not supported` : '';
-      lines.push(['', `Catch-up: ${s.catchupChannels ?? 0} channels${unsupported}`]);
-      if (s.catchupTime) lines.push(['', `Catch-up time: ${stripUrls(s.catchupTime)}`]);
+      const unsupported = s.catchupUnsupported ? D.catchupUnsupported(s.catchupUnsupported) : '';
+      lines.push(['', D.catchupLine(s.catchupChannels ?? 0, unsupported)]);
+      if (s.catchupTime) lines.push(['', D.catchupTime(stripUrls(s.catchupTime))]);
     }
   });
-  if (info.storage) lines.push(['Storage', storageLine(info.storage)]);
+  if (info.storage) lines.push([D.storage, storageLine(info.storage)]);
   const errors = [...info.lastErrors].sort((a, b) => b.at - a.at).slice(0, MAX_ERRORS);
-  if (errors.length === 0) lines.push(['Errors', 'None']);
-  for (const e of errors) lines.push([`Error ${formatTime(e.at)}`, `${stripUrls(e.where)}: ${errorText(e)}`]);
+  if (errors.length === 0) lines.push([D.errors, V.none]);
+  for (const e of errors) lines.push([D.errorAt(formatTime(e.at)), `${stripUrls(e.where)}: ${errorText(e)}`]);
   const st = info.settings;
   lines.push(
-    ['Guide offset', offsetLabel(st.epgOffsetHours)],
-    ['Stream format', formatLabel(st.preferredFormat)],
-    ['Live delay', liveDelayLabel(st.liveDelay)],
-    ['Auto-refresh', autoRefreshLabel(st.autoRefreshHours)],
-    ['Sleep timer', sleepDefaultLabel(st.sleepTimerMinutes)],
-    ['Clock', onOff(st.showClock)],
-    ['Subtitle language', subtitleLanguageLabel(st.subtitleLanguage)],
-    ['Audio language', audioLanguageLabel(st.audioLanguage)],
-    ['Exact-match subtitles', onOff(st.subtitleExactMatch)],
+    [D.guideOffset, offsetLabel(st.epgOffsetHours)],
+    [D.streamFormat, formatLabel(st.preferredFormat)],
+    [D.liveDelay, liveDelayLabel(st.liveDelay)],
+    [D.autoRefresh, autoRefreshLabel(st.autoRefreshHours)],
+    [D.sleepTimer, sleepDefaultLabel(st.sleepTimerMinutes)],
+    [D.clock, onOff(st.showClock)],
+    [D.subtitleLanguage, subtitleLanguageLabel(st.subtitleLanguage)],
+    [D.audioLanguage, audioLanguageLabel(st.audioLanguage)],
+    [D.exactMatch, onOff(st.subtitleExactMatch)],
   );
   return lines;
 }
@@ -235,7 +241,7 @@ export function diagnosticsLines(info: DiagnosticsInfo, env: { platform: string;
 
 /** Auto, then −12 h … +14 h in 15 min steps (ids: 'auto' or the minutes). */
 export function catchupOffsetChoices(): { id: string; label: string }[] {
-  const out = [{ id: 'auto', label: 'Auto' }];
+  const out: { id: string; label: string }[] = [{ id: 'auto', label: V.auto }];
   for (let m = -12 * 60; m <= 14 * 60; m += 15) out.push({ id: String(m), label: catchupOffsetLabel(m) });
   return out;
 }
@@ -247,7 +253,7 @@ export function catchupOffsetIndex(choices: readonly { id: string }[], current: 
 
 /** `Auto`, or the offset from UTC as `UTC+1:00` / `UTC-3:30`. */
 export function catchupOffsetLabel(min: number | undefined): string {
-  if (min === undefined) return 'Auto';
+  if (min === undefined) return V.auto;
   const a = Math.abs(min);
   return `UTC${min < 0 ? '-' : '+'}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
 }
@@ -261,9 +267,9 @@ export function catchupOffsetFromId(id: string): number | undefined {
 
 // ---- Channels page: hide-without-guide toggle and "My lists" ----
 
-export const HIDE_NO_EPG_UNAVAILABLE = 'Available after the TV guide has been downloaded.';
-export const HIDE_NO_EPG_NO_GUIDE = 'This source has no TV guide.';
-export const HIDE_NO_EPG_HELP = 'Channels with no programme information are hidden everywhere except your lists.';
+export const HIDE_NO_EPG_UNAVAILABLE = SETTINGS_COPY.channels.guideUnavailable;
+export const HIDE_NO_EPG_NO_GUIDE = SETTINGS_COPY.channels.noGuide;
+export const HIDE_NO_EPG_HELP = SETTINGS_COPY.channels.hideHelp;
 
 /** What the worker knows about the active source's TV guide (`AppApi.guideStatus`). */
 export interface GuideStatus { coverageKnown: boolean; hasGuideUrl: boolean }
@@ -280,7 +286,7 @@ export function guideLoaded(status: GuideStatus): boolean {
  */
 export function hideNoEpgRow(status: GuideStatus, on: boolean): { disabled: boolean; value: string; help: string } {
   if (status.coverageKnown) return { disabled: false, value: onOff(on), help: HIDE_NO_EPG_HELP };
-  return { disabled: true, value: 'Off', help: status.hasGuideUrl ? HIDE_NO_EPG_UNAVAILABLE : HIDE_NO_EPG_NO_GUIDE };
+  return { disabled: true, value: V.off, help: status.hasGuideUrl ? HIDE_NO_EPG_UNAVAILABLE : HIDE_NO_EPG_NO_GUIDE };
 }
 
 /**
@@ -298,22 +304,22 @@ export type ListActionId = 'rename' | 'moveUp' | 'moveDown' | 'delete' | 'cancel
 /** Actions for a list on the Channels page. Favourites can be renamed but not moved or deleted. */
 export function listActions(listId: string, index: number, count: number): { id: ListActionId; label: string }[] {
   const fav = listId === 'fav';
-  const out: { id: ListActionId; label: string }[] = [{ id: 'rename', label: 'Rename…' }];
-  if (!fav && listMoveTarget(index, -1, count) !== undefined) out.push({ id: 'moveUp', label: 'Move up' });
-  if (!fav && listMoveTarget(index, 1, count) !== undefined) out.push({ id: 'moveDown', label: 'Move down' });
-  if (!fav) out.push({ id: 'delete', label: 'Delete…' });
-  out.push({ id: 'cancel', label: 'Cancel' });
+  const out: { id: ListActionId; label: string }[] = [{ id: 'rename', label: SETTINGS_COPY.channels.renameAction }];
+  if (!fav && listMoveTarget(index, -1, count) !== undefined) out.push({ id: 'moveUp', label: SETTINGS_COPY.channels.moveUp });
+  if (!fav && listMoveTarget(index, 1, count) !== undefined) out.push({ id: 'moveDown', label: SETTINGS_COPY.channels.moveDown });
+  if (!fav) out.push({ id: 'delete', label: SETTINGS_COPY.channels.deleteAction });
+  out.push({ id: 'cancel', label: SETTINGS_COPY.sources.cancel });
   return out;
 }
 
-const SOURCE_LABEL = { pdt: 'stream clock', edge: 'stream edge', buffer: 'buffered' } as const;
+const SOURCE_LABEL = { pdt: D.sourcePdt, edge: D.sourceEdge, buffer: D.sourceBuffer } as const;
 
 /**
  * Diagnostics lines for the live delay (no URLs). "Behind live" prefers the stream clock, else the stream edge,
  * else the buffer; when both the clock and the edge are known, the edge (what playback steers by) gets its own line.
  */
 export function liveLines(info: LiveInfo): [string, string][] {
-  let behind = 'Unknown';
+  let behind: string = D.behindUnknown;
   const edge = info.source !== 'buffer' && info.source !== undefined && info.behindLiveS !== undefined
     ? info.behindLiveS
     : undefined;
@@ -322,16 +328,16 @@ export function liveLines(info: LiveInfo): [string, string][] {
   } else if (edge !== undefined && info.source !== undefined) {
     behind = `${Math.round(edge)} s (${SOURCE_LABEL[info.source]})`;
   } else if (info.bufferAheadS !== undefined) {
-    behind = `${info.bufferAheadS.toFixed(1)} s buffered`;
+    behind = D.buffered(info.bufferAheadS.toFixed(1));
   }
   const edgeLine: [string, string][] = info.streamClockBehindS !== undefined && edge !== undefined
-    ? [['Behind stream edge', `${Math.round(edge)} s`]]
+    ? [[D.behindStreamEdge, `${Math.round(edge)} s`]]
     : [];
   return [
-    ['Behind live', behind],
+    [D.behindLive, behind],
     ...edgeLine,
-    ['Live target', `${info.targetS.toFixed(1)} s`],
-    ['Stalls / reconnects', `${info.stalls} / ${info.reconnects}`],
+    [D.liveTarget, `${info.targetS.toFixed(1)} s`],
+    [D.stalls, `${info.stalls} / ${info.reconnects}`],
   ];
 }
 
@@ -339,29 +345,29 @@ export function liveLines(info: LiveInfo): [string, string][] {
 
 const TEAMS_MAX = 50; // mirrors FOLLOWED_TEAMS_MAX in @iptv/core (the worker sanitises again)
 
-export const openOnLabel = (v: OpenOn) => (v === 'start' ? 'Start page' : 'Last channel');
+export const openOnLabel = (v: OpenOn) => (v === 'start' ? SETTINGS_COPY.display.openStart : SETTINGS_COPY.display.openLast);
 
-const MOTION_LABEL = { full: 'Full', reduced: 'Reduced', off: 'Off' } as const;
+const MOTION_LABEL = { full: SETTINGS_COPY.display.motionFull, reduced: SETTINGS_COPY.display.motionReduced, off: SETTINGS_COPY.display.motionOff } as const;
 
 /** `motion`: the level in force (the setting, or the system's reduced-motion preference when unset; default Full). */
 export function displayItems(st: Pick<AppSettings, 'showClock' | 'openOn' | 'followedTeams' | 'posterSize' | 'motion'>): SettingItem[] {
+  const C = SETTINGS_COPY.display;
   return [
-    { id: 'clock', label: 'Show the clock', value: onOff(st.showClock), adjustable: true, help: 'Top right, and in the channel banner' },
-    { id: 'openOn', label: 'Open on', value: openOnLabel(st.openOn), adjustable: true, help: 'Where the app opens: the last channel, or the Start page' },
-    { id: 'posterSize', label: 'Poster size', value: st.posterSize === 'compact' ? 'Compact' : 'Standard', adjustable: true,
-      help: 'Library grids: 8 posters a row, or 10' },
-    { id: 'motion', label: 'Motion', value: MOTION_LABEL[st.motion ?? 'full'], adjustable: true,
-      help: 'Full, Reduced (fades only) or Off (no animation)' },
-    { id: 'teamsHeading', label: 'Teams I follow', heading: true },
-    ...st.followedTeams.map((t, i): SettingItem => ({ id: `team:${i}`, label: t, help: 'Ok removes it' })),
-    { id: 'addTeam', label: 'Add a team', help: 'Their matches come first on the Start page' },
+    { id: 'clock', label: C.clock, value: onOff(st.showClock), adjustable: true, help: C.clockHelp },
+    { id: 'openOn', label: C.openOn, value: openOnLabel(st.openOn), adjustable: true, help: C.openOnHelp },
+    { id: 'posterSize', label: C.posterSize, value: st.posterSize === 'compact' ? C.posterCompact : C.posterStandard, adjustable: true,
+      help: C.posterHelp },
+    { id: 'motion', label: C.motion, value: MOTION_LABEL[st.motion ?? 'full'], adjustable: true, help: C.motionHelp },
+    { id: 'teamsHeading', label: C.teams, heading: true },
+    ...st.followedTeams.map((t, i): SettingItem => ({ id: `team:${i}`, label: t })),
+    { id: 'addTeam', label: C.addTeam, help: C.addTeamHelp },
   ];
 }
 
 export function addTeamError(list: string[], name: string): string | undefined {
   const t = name.trim();
-  if (!t) return 'Type a name';
-  if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return 'Already in the list';
-  if (list.length >= TEAMS_MAX) return `The list is full (${TEAMS_MAX})`;
+  if (!t) return SETTINGS_COPY.display.typeName;
+  if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return SETTINGS_COPY.display.alreadyIn;
+  if (list.length >= TEAMS_MAX) return SETTINGS_COPY.display.listFull(TEAMS_MAX);
   return undefined;
 }

@@ -36,10 +36,10 @@ export function createThumbService(opts: {
           } catch (e) {
             // Not transferred, so it is still ours to free.
             try { img.data.close(); } catch { /* ignore */ }
-            opts.post({ t: 'err', id: r.id, message: e instanceof Error ? e.message : 'Image failed' });
+            opts.post({ t: 'err', id: r.id, message: (e instanceof Error ? e : new Error('Image failed')).message });
           }
         },
-        (err: unknown) => opts.post({ t: 'err', id: r.id, message: err instanceof Error ? err.message : 'Image failed' }),
+        (err: unknown) => opts.post({ t: 'err', id: r.id, message: (err instanceof Error ? err : new Error('Image failed')).message }),
       ).finally(() => { active -= 1; next(); });
     }
   };
@@ -48,7 +48,7 @@ export function createThumbService(opts: {
     handle(msg) {
       if (msg.t !== 'load') return;
       if (opts.mode === 'stock') {
-        opts.post({ t: 'err', id: msg.id, message: 'stock' });
+        opts.post({ t: 'err', id: msg.id, message: opts.mode });
         return;
       }
       queue.push(msg);

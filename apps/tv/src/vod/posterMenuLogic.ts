@@ -1,6 +1,6 @@
 import type { EpisodeView, VodTile } from '@iptv/app-api';
 import type { SeriesPointer } from '@iptv/core';
-import { favToggleLabel } from '../copy.ts';
+import { COMMON_COPY, VOD_COPY, favToggleLabel } from '../copy.ts';
 
 /** The poster options menu. Pure: no Solid, no Lightning. */
 export type PosterAction = 'play' | 'favAdd' | 'favRemove' | 'watched' | 'unwatched' | 'removeContinue' | 'cancel';
@@ -13,19 +13,19 @@ export function buildPosterMenu(tile: VodTile, inContinue: boolean): { action: P
     { action: tile.favourite ? 'favRemove' : 'favAdd', label: favToggleLabel(tile.favourite) },
   ];
   // Series are marked watched per episode (Plan 5).
-  if (tile.kind === 'movie') items.push(tile.watched ? { action: 'unwatched', label: 'Mark as unwatched' } : { action: 'watched', label: 'Mark as watched' });
-  if (inContinue) items.push({ action: 'removeContinue', label: 'Remove from Continue watching' });
-  items.push({ action: 'cancel', label: 'Cancel' });
+  if (tile.kind === 'movie') items.push(tile.watched ? { action: 'unwatched', label: VOD_COPY.markUnwatched } : { action: 'watched', label: VOD_COPY.markWatched });
+  if (inContinue) items.push({ action: 'removeContinue', label: VOD_COPY.removeContinue });
+  items.push({ action: 'cancel', label: COMMON_COPY.cancel });
   return items;
 }
 
 /** An episode card's menu: watched or unwatched, and Remove from Continue watching when it has progress. */
 export function buildEpisodeMenu(ep: EpisodeView): { action: PosterAction; label: string }[] {
   const items: { action: PosterAction; label: string }[] = [
-    ep.watched ? { action: 'unwatched', label: 'Mark as unwatched' } : { action: 'watched', label: 'Mark as watched' },
+    ep.watched ? { action: 'unwatched', label: VOD_COPY.markUnwatched } : { action: 'watched', label: VOD_COPY.markWatched },
   ];
-  if (ep.progress !== undefined) items.push({ action: 'removeContinue', label: 'Remove from Continue watching' });
-  items.push({ action: 'cancel', label: 'Cancel' });
+  if (ep.progress !== undefined) items.push({ action: 'removeContinue', label: VOD_COPY.removeContinue });
+  items.push({ action: 'cancel', label: COMMON_COPY.cancel });
   return items;
 }
 

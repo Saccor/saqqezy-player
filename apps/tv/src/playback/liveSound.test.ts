@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLiveSoundWatch, liveNoSoundText } from './liveSound.ts';
+import { FAILURE_COPY } from '../copy.ts';
 
 describe('liveNoSoundText', () => {
-  it('names the channel; with more than one track it points at Options', () => {
-    expect(liveNoSoundText(1)).toBe("No sound: this device can't play this channel's audio format.");
-    expect(liveNoSoundText(0)).toBe("No sound: this device can't play this channel's audio format.");
-    expect(liveNoSoundText(2)).toBe("No sound: this device can't play this channel's audio format. Try another audio track in Options.");
+  it('says the same as the movie player; with more than one track it points at Options', () => {
+    expect(liveNoSoundText(1)).toBe(FAILURE_COPY.noSound);
+    expect(liveNoSoundText(0)).toBe(FAILURE_COPY.noSound);
+    expect(liveNoSoundText(2)).toBe(FAILURE_COPY.noSoundTryTrack);
+    expect(FAILURE_COPY.noSoundTryTrack).toContain('Options');
   });
 });
 

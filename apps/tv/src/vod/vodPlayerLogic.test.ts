@@ -1,3 +1,4 @@
+import { FAILURE_COPY } from '../copy/failure.ts';
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
@@ -262,15 +263,15 @@ describe('dvColoursWarning', () => {
   });
 
   it('copy', () => {
-    expect(DV_COLOURS_TEXT).toBe("Colours may look wrong on this TV: this video is in Dolby Vision, which it can't show.");
+    expect(DV_COLOURS_TEXT).toBe("Colours may look wrong: this TV can't show Dolby Vision.");
   });
 });
 
 describe('noSoundText', () => {
   it('says why there is no sound, and suggests another track when there is one', () => {
-    expect(noSoundText(1)).toBe("No sound: this device can't play this video's audio format.");
-    expect(noSoundText(0)).toBe("No sound: this device can't play this video's audio format.");
-    expect(noSoundText(2)).toBe("No sound: this device can't play this video's audio format. Try another audio track in Options.");
+    expect(noSoundText(1)).toBe(FAILURE_COPY.noSound);
+    expect(noSoundText(0)).toBe(FAILURE_COPY.noSound);
+    expect(noSoundText(2)).toBe(FAILURE_COPY.noSoundTryTrack);
   });
 });
 

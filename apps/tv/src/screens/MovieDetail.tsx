@@ -2,21 +2,21 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
-import { FAV_COPY } from '../copy.ts';
+import { CATCHUP_COPY, FAV_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
-import { POSTER_H } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
+import { Row } from '../components/Row.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
 import { createVodLauncher } from '../vod/launch.ts';
 import { minutesLeft, resumeBarShown, titleLengthMs } from '../vod/vodPlayerLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
-import { metaLine } from '../vod/posterLogic.ts';
+import { metaLine, POSTER_H } from '../vod/posterLogic.ts';
 import { Backdrop } from '../vod/Backdrop.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import { joinMeta } from '../vod/stripLogic.ts';
@@ -35,6 +35,9 @@ const PLOT_Y = 280;
 const CREDITS_Y = 410;
 const ACTIONS_Y = 520;
 const RESUME_Y = ACTIONS_Y + 92;
+/** The resume bar: its width and thickness. */
+const RESUME_W = 220;
+const RESUME_BAR_H = 4;
 const MORE_LABEL_Y = 694;
 /** Pointer mode: 50 px higher, so the shell's Back button (978–1026, bottom left) never covers the first poster. */
 const MORE_LABEL_Y_POINTER = 644;
@@ -124,10 +127,10 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   const fraction = () => (durationMs() > 0 ? Math.max(0, Math.min(1, resumeMs() / durationMs())) : 0);
   const actions = () => [
     ...(resumeMs() > 0
-      ? [{ id: 'play', label: 'Resume', width: 220 }, { id: 'start', label: 'From start', width: 220 }]
-      : [{ id: 'play', label: 'Play', width: 180 }]),
-    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: `${view()!.versions.length} versions`, width: 220 }] : []),
-    ...(view()?.split ? [{ id: 'combine', label: 'Combine again', width: 260 }] : []),
+      ? [{ id: 'play', label: VOD_COPY.resume, width: 220 }, { id: 'start', label: CATCHUP_COPY.fromStart, width: 220 }]
+      : [{ id: 'play', label: VOD_COPY.play, width: 180 }]),
+    ...((view()?.versions.length ?? 0) > 1 ? [{ id: 'versions', label: VOD_COPY.versionCount(view()!.versions.length), width: 220 }] : []),
+    ...(view()?.split ? [{ id: 'combine', label: VOD_COPY.combineAgain, width: 260 }] : []),
     { id: 'fav', label: tile()?.favourite ? FAV_COPY.in : FAV_COPY.add, width: FAV_W, round: true,
       icon: iconTexture(tile()?.favourite ? 'heartFilled' : 'heart') },
   ];
@@ -243,45 +246,49 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       <Backdrop url={backdrop()} area="detail" />
       <View zIndex={2}>
 
-      <Text x={INFO_X} y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.detailTitle} {...STRONG}
+      <Text x={INFO_X} y={TITLE_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.hero} {...STRONG}
         color={COLORS.text}>{tile()?.title ?? ''}</Text>
       <Text x={INFO_X} y={META_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
         {joinMeta(metaLine({ year: tile()?.year, runtimeMin: detail()?.runtimeMin, genre: detail()?.genre, ageRating: detail()?.ageRating, rating: tile()?.rating }), tile()?.quality)}
       </Text>
-      <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={38} fontSize={TYPE.body}
-        color={COLORS.textSecondary}>{notAvailable() ? 'Details are not available right now.' : detail()?.plot ?? ''}</Text>
+      <Text x={INFO_X} y={PLOT_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3} lineHeight={LINE.body} fontSize={TYPE.body}
+        color={COLORS.textSecondary}>{notAvailable() ? VOD_COPY.detailsUnavailable : detail()?.plot ?? ''}</Text>
       <Show when={detail()?.director || detail()?.cast}>
         <Text x={INFO_X} y={CREDITS_Y} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>
-          {joinMeta(detail()?.director ? `Director ${detail()!.director}` : undefined, detail()?.cast ? `With ${detail()!.cast}` : undefined)}
+          {joinMeta(detail()?.director ? VOD_COPY.director(detail()!.director!) : undefined, detail()?.cast ? VOD_COPY.cast(detail()!.cast!) : undefined)}
         </Text>
       </Show>
       <ActionBar ref={(el) => { actionsNode = el; }} x={INFO_X} y={ACTIONS_Y} actions={actions()} onAction={(id) => void onAction(id)}
         onDown={() => focusArea('more')} onFocusChanged={(f) => { if (f) setArea('actions'); }} />
       {/* Only with a known length: the bar and the minutes left would be guesses otherwise. */}
       <Show when={resumeBarShown(resumeMs(), durationMs())}>
-        <View x={INFO_X} y={RESUME_Y} width={220} height={4} borderRadius={2} color={COLORS.track}>
-          <View width={Math.round(220 * fraction())} height={4} borderRadius={2} color={COLORS.accent} />
+        <View x={INFO_X} y={RESUME_Y} width={RESUME_W} height={RESUME_BAR_H} borderRadius={RADIUS.pill(RESUME_BAR_H)} color={COLORS.track}>
+          <View width={Math.round(RESUME_W * fraction())} height={RESUME_BAR_H} borderRadius={RADIUS.pill(RESUME_BAR_H)} color={COLORS.accent} />
         </View>
-        <Text x={INFO_X + 236} y={RESUME_Y - 12} fontSize={TYPE.meta} color={COLORS.muted}>{minutesLeft(resumeMs(), durationMs())}</Text>
+        <Text x={INFO_X + RESUME_W + SPACE.m} y={RESUME_Y + centerText(RESUME_BAR_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.muted}>{minutesLeft(resumeMs(), durationMs())}</Text>
       </Show>
 
       <Show when={moreRow().items.length > 0}>
         <Text x={LAYOUT.safeX} y={moreY()} width={LAYOUT.width - LAYOUT.safeX * 2} maxWidth={LAYOUT.width - LAYOUT.safeX * 2} contain="width"
-          maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>More like this</Text>
-        <View ref={(el) => { moreNode = el; }} y={moreY() + 44} width={LAYOUT.width} height={POSTER_H}
+          maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{VOD_COPY.moreLikeThis}</Text>
+        <View ref={(el) => { moreNode = el; }} y={moreY() + SPACE.xl} width={LAYOUT.width} height={POSTER_H}
           onFocusChanged={(f: boolean) => { if (f) setArea('more'); }}
           onUp={() => moveMore('up')} onDown={() => moveMore('down')} onLeft={() => moveMore('left')} onRight={() => moveMore('right')}
           onEnter={openMore} onMenu={() => openMenu(moreCol())} onLongOk={() => openMenu(moreCol())}>
-          <PosterRow x={INFO_X} y={0} width={LAYOUT.width - LAYOUT.safeX} row={moreRow()} focusCol={moreCol()} lit={area() === 'more'}
+          <Row x={INFO_X} y={0} width={LAYOUT.width - LAYOUT.safeX} content={{ variant: 'poster', row: moreRow() }} focusCol={moreCol()} lit={area() === 'more'}
             onCellClick={(c) => { setMoreCol(c); openMore(); }} onCellOptions={(c) => { setMoreCol(c); openMenu(c); }} />
         </View>
       </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
-      <Show when={picking()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Versions" rows={versionRows(view()?.versions ?? [], view()?.playId)}
-          onPick={(row) => void pickVersion(row)} hint="Ok plays · Back closes" />
-      </Show>
+      <Show when={picking()}>{(() => {
+        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.playId));
+        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
+            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
+        );
+      })()}</Show>
     </View>
   );
 }

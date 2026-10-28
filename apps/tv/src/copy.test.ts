@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import * as COPY from './copy.ts';
+import { COPY_EXCEPTIONS, collectCopy, copyViolations } from './copy/rules.ts';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { scanTokens } from './shell/tokenLint.ts';
 import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, LAZY_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {
@@ -46,9 +51,6 @@ describe('multiview copy', () => {
   it('is neutral, and calls a tile a window', () => {
     const all: string[] = [];
     for (const v of Object.values(MULTIVIEW_COPY)) if (typeof v === 'string') all.push(v);
-    for (const n of [1, 2, 4]) {
-      all.push(MULTIVIEW_COPY.infoReported(n), MULTIVIEW_COPY.kicked(n), MULTIVIEW_COPY.learned(n), MULTIVIEW_COPY.device(n), MULTIVIEW_COPY.setting(n));
-    }
     for (const s of all) expect(s, s).not.toMatch(BANNED);
     expect(MULTIVIEW_COPY.closeWindow).toBe('Close window');
     expect(MULTIVIEW_COPY.addChannel).toBe('Add channel');
@@ -59,13 +61,9 @@ describe('multiview copy', () => {
     expect(MULTIVIEW_COPY.stoppedForOther).toBe('Stopped so another window can play.');
   });
 
-  it('counts read naturally', () => {
-    expect(MULTIVIEW_COPY.infoReported(1)).toBe('Your source reports 1 connection. Each window uses one.');
-    expect(MULTIVIEW_COPY.infoReported(3)).toBe('Your source reports 3 connections. Each window uses one.');
-    expect(MULTIVIEW_COPY.kicked(1)).toBe('Your source seems to allow 1 stream at once.');
-    expect(MULTIVIEW_COPY.kicked(2)).toBe('Your source seems to allow 2 streams at once.');
-    expect(MULTIVIEW_COPY.device(2)).toBe('This device can play 2 at once.');
-    expect(MULTIVIEW_COPY.setting(2)).toBe('Max windows is set to 2 in Settings.');
+  it('the six connection-limit explanations are one text', () => {
+    expect(MULTIVIEW_COPY.limit).toBe('Each window uses one connection from your source.');
+    expect(Object.keys(MULTIVIEW_COPY).filter((k) => /^(infoUnknown|infoReported|kicked|learned|device|setting)$/.test(k))).toEqual([]);
   });
 });
 
@@ -85,19 +83,18 @@ describe('Your countries copy', () => {
 
   it('matches the spec word for word', () => {
     expect(COUNTRIES_COPY.page).toBe('Your countries');
-    expect(COUNTRIES_COPY.help).toBe('Pick the countries you watch. Their folders go to the top, right under Favourites. Nothing is removed.');
     expect(COUNTRIES_COPY.cap).toBe('You can pick up to 10 countries.');
-    expect(COUNTRIES_COPY.stale).toBe('None of your countries are in this playlist right now. Showing all folders.');
+    expect(COUNTRIES_COPY.stale).toBe('None of your countries are in this source. Showing all folders.');
     expect(COUNTRIES_COPY.combineOff).toBe('Movie and series categories now stay per country.');
-    expect(COUNTRIES_COPY.combineOn).toBe('Movies and Series aren\'t sorted by country while "Combine categories across languages" is on.');
-    expect(COUNTRIES_COPY.none).toBe("Your playlist doesn't sort its folders by country.");
+    expect(COUNTRIES_COPY.combineOn).toBe('Not sorted by country while categories are combined.');
+    expect(COUNTRIES_COPY.none).toBe("This source doesn't sort its folders by country.");
     expect(COUNTRIES_COPY.loadError).toBe("Couldn't load your countries · Try again");
     expect(COUNTRIES_COPY.otherCountries(40)).toBe('Other countries (40)');
     expect(COUNTRIES_COPY.countries(41)).toBe('Countries (41)');
     expect(COUNTRIES_COPY.showing(2)).toBe('Showing 2 countries · Change');
     expect(COUNTRIES_COPY.showing(1)).toBe('Showing 1 country · Change');
-    expect(COUNTRIES_COPY.firstSub(41)).toBe('We found folders for 41 countries in your playlist. Pick one or more.');
-    expect(COUNTRIES_COPY.firstFoot).toBe('You can change this later in Settings › Your countries.');
+    expect(COUNTRIES_COPY.firstSub(41)).toBe('Folders for 41 countries found. Pick one or more.');
+    expect('firstFoot' in COUNTRIES_COPY).toBe(false);
     expect(COUNTRIES_COPY.languageLine('Swedish')).toBe('Audio and subtitles: Swedish first');
     expect(COUNTRIES_COPY.folders(1)).toBe('1 folder');
     expect(COUNTRIES_COPY.folders(31)).toBe('31 folders');
@@ -109,5 +106,65 @@ describe('lazy screen copy', () => {
   it('says what failed and offers one action, in neutral words', () => {
     expect(LAZY_COPY.failed).toBe("Couldn't open this screen.");
     expect(LAZY_COPY.retry).toBe('Try again');
+  });
+});
+
+describe('every string in copy.ts follows the copy rules', () => {
+  it('has no violations outside the named exceptions', () => {
+    const entries = Object.entries(COPY).flatMap(([name, value]) => collectCopy(value, name));
+    expect(copyViolations(entries, COPY_EXCEPTIONS)).toEqual([]);
+  });
+  it('every named exception still points at a string (no stale exceptions)', () => {
+    const paths = new Set(Object.entries(COPY).flatMap(([name, value]) => collectCopy(value, name)).map((e) => e.path));
+    for (const p of Object.keys(COPY_EXCEPTIONS)) expect(paths.has(p), p).toBe(true);
+  });
+});
+
+const SRC = dirname(fileURLToPath(import.meta.url));
+const stringFree = (files: readonly string[]) => {
+  const counts = scanTokens(SRC);
+  return files.filter((f) => (counts[f]?.string ?? 0) > 0).map((f) => `${f}: ${counts[f]!.string}`);
+};
+
+const LIVE_FILES = [
+  'screens/live/liveMenu.tsx', 'screens/live/liveLogic.ts', 'screens/live/LiveTv.tsx', 'screens/homeMenuLogic.ts', 'screens/homeLogic.ts',
+  'screens/guideLogic.ts', 'screens/Player.tsx', 'screens/playerLogic.ts', 'screens/startLogic.ts', 'screens/startActions.tsx',
+  'screens/matchesGridLogic.ts', 'screens/Search.tsx', 'screens/searchLogic.ts', 'screens/multiview/Multiview.tsx',
+  'screens/multiview/MultiviewPicker.tsx', 'screens/multiview/mvLogic.ts', 'components/countryGridLogic.ts', 'components/foldPickerLogic.ts',
+  'components/wideTileLogic.ts', 'components/ChannelList.tsx', 'components/Keyboard.tsx', 'components/TextField.tsx', 'state/events.ts',
+  'state/cooldownLogic.ts', 'playback/failureText.ts', 'playback/streamInfo.ts', 'playback/mediaBadges.ts', 'playback/sourceLogic.ts',
+  'playback/deviceWindows.ts', 'playback/devResume.ts', 'playback/tileFailure.ts', 'shell/railLogic.ts', 'shell/InitError.tsx', 'App.tsx',
+  'screens/playerBanner.tsx',
+] as const;
+
+const SETTINGS_FILES = [
+  'screens/settingsLogic.ts', 'screens/AddSource.tsx', 'screens/journalLogic.ts', 'screens/settings/ChannelsPage.tsx',
+  'screens/settings/backupLogic.ts', 'screens/settings/SourcesPage.tsx', 'screens/addSourceLogic.ts', 'screens/settings/PlaybackPage.tsx',
+  'screens/pairingLogic.ts', 'screens/settings/StoragePage.tsx', 'screens/settings/ManageOnPhonePage.tsx', 'screens/settings/DiagnosticsPage.tsx',
+  'screens/settings/PlaybackLogView.tsx', 'screens/settings/GuidePage.tsx', 'screens/settings/ConnectionsView.tsx', 'screens/settings/AboutPage.tsx',
+  'screens/settings/connectionsLogic.ts', 'screens/settings/DisplayPage.tsx', 'screens/settings/shared.ts', 'screens/Settings.tsx',
+  'screens/Placeholder.tsx', 'screens/Countries.tsx', 'screens/countriesModel.ts',
+] as const;
+
+describe('copy lives in copy.ts (spec 2026-10-26 §1.4)', () => {
+  it('Live TV, guide, player, multiview and shell files have no inline UI strings', () => {
+    expect(stringFree(LIVE_FILES)).toEqual([]);
+  });
+  it('Movies, Series and VOD player files have no inline UI strings', () => {
+    expect(stringFree([
+      'screens/VodPlay.tsx', 'vod/subtitleLogic.ts', 'vod/kindCopy.ts', 'screens/MovieDetail.tsx', 'screens/SeriesDetail.tsx',
+      'vod/posterMenuLogic.ts', 'vod/seriesDetailLogic.ts', 'vod/tracks.ts', 'screens/VodBrowse.tsx', 'screens/VodGrid.tsx', 'vod/gridLogic.ts',
+      'vod/versionsLogic.ts', 'vod/vodPlayerLogic.ts', 'vod/categoryPicker.ts', 'net/trendingConfig.ts', 'vod/catchupLogic.ts',
+      'vod/favToggle.ts', 'vod/launch.ts', 'vod/tabLogic.ts',
+    ])).toEqual([]);
+  });
+  it('Settings, Add source, pairing, backup and Countries files have no inline UI strings', () => {
+    expect(stringFree(SETTINGS_FILES)).toEqual([]);
+  });
+  it('no file anywhere has an inline UI string (the string baseline is zero)', () => {
+    const left = Object.entries(scanTokens(SRC))
+      .filter(([f, c]) => (c.string ?? 0) > 0 && f !== 'worker.ts') // worker.ts: phase 0 owns it; cleared after phase 0b merges
+      .map(([f, c]) => `${f}: ${c.string}`);
+    expect(left).toEqual([]);
   });
 });

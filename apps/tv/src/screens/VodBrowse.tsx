@@ -5,13 +5,16 @@ import { VOD_ROW_CONTINUE, VOD_ROW_ITEMS } from '@iptv/app-api';
 import { VOD_ALL } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { Button } from '../components/Button.tsx';
+import { COMMON_COPY, VOD_COPY } from '../copy.ts';
 import { DropdownHeader } from '../components/DropdownHeader.tsx';
-import { InfoStrip, STRIP_Y } from '../components/InfoStrip.tsx';
-import { ListPicker } from '../components/ListPicker.tsx';
+import { InfoBlock } from '../components/InfoBlock.tsx';
+import { INFO_STRIP } from '../components/infoBlockLogic.ts';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromPickerRow } from '../components/sheetLogic.ts';
 import { flagFor } from '../assets/flags/index.ts';
 import { TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, type FoldLevel } from '../components/foldPickerLogic.ts';
-import { POSTER_H, posterCache } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
+import { posterCache } from '../components/posterCache.ts';
+import { Row } from '../components/Row.tsx';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { dwellSignal } from '../shell/dwell.ts';
@@ -19,7 +22,7 @@ import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { focusRailCollapsed, Rail } from '../shell/Rail.tsx';
 import { goRail } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -37,7 +40,7 @@ import { createVodLauncher } from '../vod/launch.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { seriesMetaLine } from '../vod/heroLogic.ts';
 import { regularSeasonCount } from '../vod/seriesDetailLogic.ts';
-import { metaLine } from '../vod/posterLogic.ts';
+import { metaLine, POSTER_H } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import { KIND_COPY, grouped, vodStatusLine } from '../vod/kindCopy.ts';
 import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
@@ -50,7 +53,7 @@ import { tabOfKind, type VodKind } from '../vod/tabLogic.ts';
 const ROW_X = LAYOUT.contentX;
 const ROW_Y = 262;
 const LABEL_H = 42;
-const ROW_GAP = 36;
+const ROW_GAP = SPACE.l;
 /** A row below the focused one is drawn while at least its title and a strip of it fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
 /** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */
@@ -500,7 +503,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
     if (s === 'error') return home()?.error?.message ?? copy.loadError;
     return '';
   };
-  const statusLine = () => vodStatusLine(kind, home());
+  const statusLine = () => vodStatusLine(home());
   /** The detail only shows while it belongs to the strip's title. */
   const heroDetail = () => (hero()?.tile.id === stripTile()?.id ? hero()?.detail : undefined);
   const art = () => heroDetail()?.backdrop ?? undefined;
@@ -555,31 +558,32 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       <Rail ref={(el) => { railNode = el; }} active={tabOfKind(kind)} onSelect={(t) => goRail(tabOfKind(kind), t, () => router.back({ fromVod: true }))}
         onRight={() => focusArea(rows().length > 0 ? 'rows' : 'header')} onFocusChanged={(f) => { if (f) choose('rail'); }} />
       {/* The catalogue status while there is one, else the plot. */}
-      <InfoStrip title={stripTile()?.title ?? ''} meta={stripMeta()} plot={statusLine() || heroDetail()?.plot} />
+      <InfoBlock x={INFO_STRIP.x} y={INFO_STRIP.y} width={INFO_STRIP.w} title={stripTile()?.title ?? ''} meta={stripMeta() || undefined}
+        description={statusLine() || heroDetail()?.plot} fadeOnTitle />
       <Show when={hasHeader()}>
         {/* Above the backdrop's scrims (zIndex 1). */}
         <View zIndex={4}>
           <DropdownHeader ref={(el) => { headerNode = el; }} x={LAYOUT.width - LAYOUT.safeX} y={LAYOUT.safeY} align="right"
-            size={TYPE.body} label="All categories" onPress={openCategories}
+            size={TYPE.body} label={VOD_COPY.allCategories} onPress={openCategories}
             onDown={() => focusArea('rows')} onLeft={() => focusArea('rail')} onFocusChanged={(f) => { if (f) choose('header'); }} />
         </View>
       </Show>
 
       <Show when={status() === 'ready'} fallback={
         <View zIndex={2} onLeft={() => focusArea('rail')}>
-          <Text x={ROW_X} y={STRIP_Y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
+          <Text x={ROW_X} y={INFO_STRIP.y} width={LAYOUT.contentW} maxWidth={LAYOUT.contentW} contain="width" maxLines={2}
             fontSize={TYPE.title} color={COLORS.text}>{message()}</Text>
           {/* First load: skeleton rows (a label bar and poster placeholders) stand in for the rows (spec §3.7). */}
           <Show when={skeletonShown(status(), rows().length)}>
             <For each={SKELETONS}>{(r) => (
               <View>
                 <View x={r.label.x} y={r.label.y} width={r.label.w} height={r.label.h} borderRadius={r.label.h / 2} color={COLORS.surface} />
-                <For each={r.posters}>{(p) => <View x={p.x} y={p.y} width={p.w} height={p.h} borderRadius={LAYOUT.radius} color={COLORS.surface} />}</For>
+                <For each={r.posters}>{(p) => <View x={p.x} y={p.y} width={p.w} height={p.h} borderRadius={RADIUS.card} color={COLORS.surface} />}</For>
               </View>
             )}</For>
           </Show>
           <Show when={status() === 'error'}>
-            <Button ref={(el) => { errorNode = el; }} x={ROW_X} y={ROW_Y} label="Try again"
+            <Button ref={(el) => { errorNode = el; }} x={ROW_X} y={ROW_Y} label={COMMON_COPY.tryAgain}
               onPress={() => void api.refreshVod(kind).catch(() => undefined).then(() => load())}
               onUp={() => focusArea(hasHeader() ? 'header' : 'rail')} />
           </Show>
@@ -599,7 +603,7 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
                     <Text x={ROW_X} y={0} width={ROW_TITLE_W} maxWidth={ROW_TITLE_W} contain="width" maxLines={1} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                    <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()}
+                    <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: r() }}
                       focusCol={i === focus().row ? focus().col : undefined} lit={area() === 'rows' && i === focus().row}
                       onCellClick={(c) => { pointTo(i, c); focusArea('rows'); openCell(); }}
                       onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
@@ -613,10 +617,13 @@ export function VodBrowseScreen(props: { entry: ScreenEntry }) {
       {/* Above the rail (zIndex 50), so the menu's scrim dims it too. */}
       <View zIndex={60}><menu.View /></View>
       <Show when={pickerView()}>
-        {(view) => (
-          <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
-            initial={view().initial} resetKey={view().key} onPick={(row) => pickCategory(row)} hint="Ok opens · Back closes" />
-        )}
+        {(view) => {
+          const rows = createMemo(() => view().rows.map(fromPickerRow));
+          return (
+            <Sheet ref={(el) => { pickerNode = el; }} title={view().title} rows={rows()} backLayerId={CATEGORIES_ID}
+              initial={view().initial} resetKey={view().key} onSelect={(_, i) => { const r = view().rows[i]; if (r) pickCategory(r); }} />
+          );
+        }}
       </Show>
     </View>
   );

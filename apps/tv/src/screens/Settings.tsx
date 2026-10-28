@@ -1,15 +1,18 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
-import { Match, Switch, createSignal, onCleanup, onMount } from 'solid-js';
-import { OptionsMenu, type OptionItem } from '../components/OptionsMenu.tsx';
+import { Match, Switch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import { Dialog } from '../components/Dialog.tsx';
+import { Sheet, SheetRowView } from '../components/Sheet.tsx';
+import { SHEET_PITCH, fromOptionItem, type OptionItem } from '../components/sheetLogic.ts';
+import { COMMON_COPY, SETTINGS_COPY } from '../copy.ts';
 import { PointerFocusContext, pointerMode, usePointerBackdrop, usePointerTarget } from '../input/pointer.ts';
 import { rowAt } from '../input/pointerLogic.ts';
-import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { BOTTOM_ROW_Y } from '../shell/logic.ts';
 import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { drawnFocus } from '../shell/focusStyle.ts';
+import { centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { CountriesPage } from './settings/CountriesPage.tsx';
 import { AboutPage } from './settings/AboutPage.tsx';
 import { ChannelsPage } from './settings/ChannelsPage.tsx';
@@ -23,12 +26,11 @@ import { SourcesPage } from './settings/SourcesPage.tsx';
 import { StoragePage } from './settings/StoragePage.tsx';
 import { SETTINGS_PAGES, settingsOpenAt } from './settingsLogic.ts';
 
-/** The menu sits at the rail's content edge; its rows are 72 apart, drawn 64 high. */
+/** The menu sits at the rail's content edge; its rows are Sheet rows: 72 high, 80 apart. */
 const MENU_X = LAYOUT.contentX;
 const MENU_Y = LAYOUT.safeY + 72;
 const MENU_W = 400;
-const MENU_ROW_H = 72;
-const MENU_ROW_DRAWN = 64;
+const MENU_ROW_H = SHEET_PITCH;
 /** The page: right of the menu (x 608) to the right safe edge, its rows level with the menu's. */
 const PAGE_X = MENU_X + MENU_W + LAYOUT.gap * 2;
 const PAGE_W = LAYOUT.width - LAYOUT.safeX - PAGE_X;
@@ -76,14 +78,8 @@ function Menu(props: {
       onRight={() => props.onEnter()} onEnter={() => props.onEnter()} onLeft={() => props.onLeft()}>
       <For each={SETTINGS_PAGES}>{(p, i) => {
         const isSel = () => i() === props.selected;
-        const hovered = () => pointerMode() && hover() === i();
-        return (
-          <View y={i() * MENU_ROW_H} width={MENU_W} height={MENU_ROW_DRAWN} borderRadius={LAYOUT.radius}
-            color={isSel() ? (focused() ? COLORS.focus : COLORS.surfaceRaised) : hovered() ? COLORS.hover : COLORS.transparent}>
-            <Text x={24} y={(MENU_ROW_DRAWN - TYPE.body) / 2 - 3} fontSize={TYPE.body}
-              color={isSel() && focused() ? COLORS.onFocus : isSel() || hovered() ? COLORS.text : COLORS.muted}>{p.title}</Text>
-          </View>
-        );
+        const lit = () => drawnFocus(focused() ? props.selected : undefined, hover(), pointerMode()) === i();
+        return <SheetRowView y={i() * MENU_ROW_H} width={MENU_W} row={{ id: p.id, label: p.title, checked: isSel() && !focused() }} lit={lit()} />;
       }}</For>
     </View>
   );
@@ -166,7 +162,7 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       else focusMenu();
     });
   };
-  /** A click that focuses the page's list (or Manage on phone's actions) goes through `focusPage`, so Back returns to the menu. */
+  /** A click that focuses the page's list (or the Phone and computer page's actions) goes through `focusPage`, so Back returns to the menu. */
   const focusFromPointer = (node: ElementNode) => {
     if (node === pageNode) focusPage();
     else node.setFocus();
@@ -247,10 +243,10 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       forwardFocus={() => { restoreFocus(); return true; }}>
       <Rail ref={(el) => { railNode = el; }} active="settings" onSelect={onRailSelect}
         onRight={() => { restoreFocus(); return true; }} />
-      <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Settings'}</Text>
+      <Text x={MENU_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{SETTINGS_COPY.title}</Text>
       <Menu ref={(el) => { menuNode = el; }} selected={page()} onSelect={selectPage} onEnter={focusPage} onLeft={toRail}
         onClickRow={clickMenu} />
-      <Text x={PAGE_X + 28} y={LAYOUT.safeY + TYPE.title - TYPE.body - 2} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
+      <Text x={PAGE_X + SPACE.l} y={LAYOUT.safeY + TYPE.title - TYPE.body} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{title()}</Text>
       <PointerFocusContext.Provider value={focusFromPointer}>
       <Switch>
         <Match when={id() === 'countries'}><CountriesPage {...pageProps()} /></Match>
@@ -266,12 +262,16 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
       </Switch>
       </PointerFocusContext.Provider>
 
-      <Show when={chooser()}>{(c) => (
-        <OptionsMenu ref={(el) => { chooserNode = el; }} title={c().title} items={c().items} initial={c().initial} onChoose={(cid) => c().answer(cid)} />
-      )}</Show>
+      <Show when={chooser()}>{(c) => {
+        const rows = createMemo(() => c().items.map(fromOptionItem));
+        return (
+          <Sheet ref={(el) => { chooserNode = el; }} title={c().title} rows={rows()} initial={c().initial}
+            onSelect={(r) => c().answer(r.id)} scrim={false} swallow="player" zIndex={40} />
+        );
+      }}</Show>
       <Show when={dialog()}>{(d) => (
-        <ConfirmDialog message={d().message} yes={d().yes} no={d().opts?.single ? null : 'Cancel'} detail={d().opts?.detail}
-          onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
+        <Dialog title={d().message} line={d().opts?.line} yes={d().yes} no={d().opts?.single ? null : COMMON_COPY.cancel}
+          detail={d().opts?.detail} onYes={() => d().answer(true)} onNo={() => d().answer(false)} />
       )}</Show>
       <Show when={busyText()}>{(t) => {
         let scrim: ElementNode | undefined;
@@ -280,10 +280,10 @@ export function SettingsScreen(props: { entry?: ScreenEntry }) {
         return (
           <View ref={(el) => { scrim = el; }} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim} zIndex={60}>
             <View ref={(el) => { busyNode = el; }} x={(LAYOUT.width - BUSY_W) / 2} y={(LAYOUT.height - BUSY_H) / 2}
-              width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={LAYOUT.radius * 2}
+              width={BUSY_W} height={BUSY_H} color={COLORS.surface} borderRadius={RADIUS.card}
               onUp={() => true} onDown={() => true} onLeft={() => true} onRight={() => true} onEnter={() => true}
               onBack={() => true}>
-              <Text y={(BUSY_H - TYPE.body) / 2 - 4} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
+              <Text y={centerText(BUSY_H, TYPE.body)} width={BUSY_W} maxWidth={BUSY_W} contain="width" textAlign="center"
                 fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{t()}</Text>
             </View>
           </View>

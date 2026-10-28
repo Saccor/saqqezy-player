@@ -3,21 +3,21 @@ import { createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { KEYBOARD_W, Keyboard } from '../components/Keyboard.tsx';
-import { POSTER_H } from '../components/PosterTile.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
-import { WIDE_H } from '../components/WideTile.tsx';
-import { WideRow } from '../components/WideRow.tsx';
+import { LIVE_COPY } from '../copy.ts';
+import { Row } from '../components/Row.tsx';
+import { WIDE_H } from '../components/wideTileLogic.ts';
 import { devResume } from '../playback/devResume.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { playback } from '../playback/playback.ts';
 import { initState } from '../state/appState.ts';
 import { liveReturn, liveToRemember } from '../vod/liveReturn.ts';
 import { wheelKey } from '../vod/browseLogic.ts';
+import { POSTER_H } from '../vod/posterLogic.ts';
 import { Rail } from '../shell/Rail.tsx';
 import { railBelow, type RailId } from '../shell/railLogic.ts';
 import { goRailFrom } from '../shell/railNav.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
@@ -35,7 +35,7 @@ const RESULTS_X = KB_X + KEYBOARD_W + LAYOUT.gap * 2;
 const RESULTS_W = LAYOUT.width - LAYOUT.safeX - RESULTS_X;
 const RESULTS_Y = KB_Y;
 const LABEL_H = 42;
-const ROW_GAP = 36;
+const ROW_GAP = SPACE.l;
 const NOTE_H = 36;
 /** Cards fully visible in each row (they fit the 824 px results area). */
 const VOD_VISIBLE = 4;
@@ -282,9 +282,9 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       forwardFocus={() => place(clampSearchFocus(focus(), rows()))} onBack={onBack}>
       <Rail ref={(el) => { railNode = el; }} active="search" onSelect={onRailSelect}
         onRight={() => place(clampSearchFocus(focus(), rows()))} onFocusChanged={(f) => setOnRail(f)} />
-      <Text x={KB_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{'Search'}</Text>
+      <Text x={KB_X} y={LAYOUT.safeY} fontSize={TYPE.title} color={COLORS.text}>{LIVE_COPY.search.title}</Text>
 
-      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label="Channel, programme or title" hint="Right: results · Back returns" value={query()}
+      <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={LIVE_COPY.search.keyboardLabel} value={query()}
         onChange={onChange} onDone={() => { step(KEYBOARD, 'right'); }}
         onEdgeRight={() => { step(KEYBOARD, 'right'); }} onEdgeLeft={() => { step(KEYBOARD, 'left'); }} />
 
@@ -307,11 +307,11 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
                   fontSize={TYPE.meta} color={COLORS.muted}>{searching()!}</Text>
               </Show>
               <Show when={area === 'vod'} fallback={
-                <WideRow x={0} y={LABEL_H} width={RESULTS_W} row={area === 'folders' ? foldersRow() : liveRow()} now={now()} visible={LIVE_VISIBLE}
-                  channelNumbers={area === 'live'}
+                <Row x={0} y={LABEL_H} width={RESULTS_W} visible={LIVE_VISIBLE}
+                  content={{ variant: 'wide', cells: (area === 'folders' ? foldersRow() : liveRow()).cells, now: now(), channelNumbers: area === 'live' }}
                   focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               }>
-                <PosterRow x={0} y={LABEL_H} width={RESULTS_W} row={vodRow()} visible={VOD_VISIBLE}
+                <Row x={0} y={LABEL_H} width={RESULTS_W} content={{ variant: 'poster', row: vodRow() }} visible={VOD_VISIBLE}
                   focusCol={focusCol()} lit={lit()} onCellClick={(c) => clickCell(area, c)} onWheel={onWheel} />
               </Show>
             </View>

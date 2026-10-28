@@ -9,7 +9,7 @@ full-screen playback with zapping, number entry, previous channel, options and a
 search; settings; and a cached start that reopens the last channel in under a second.
 
 v1.1 adds organisation and a companion: your own lists (with Favourites), group order and hiding, channel renames
-and sorting, "hide channels without TV guide", and **Manage on phone or computer**: scan a QR code (or type a code)
+and sorting, "hide channels without TV guide", and **Phone and computer**: scan a QR code (or type a code)
 on the TV and manage sources, lists and groups from a web page. The TV and the page talk through an end-to-end
 encrypted relay that only passes ciphertext along and stores nothing.
 

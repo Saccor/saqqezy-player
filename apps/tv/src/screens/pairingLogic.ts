@@ -1,10 +1,13 @@
 import type { CompanionStatus } from '@iptv/app-api';
+import { SETTINGS_COPY } from '../copy.ts';
 
 /**
- * Pure logic of the "Manage on phone or computer" page: copy, countdown and actions. The QR matrix lives in
+ * Pure logic of the "Phone and computer" page: copy, countdown and actions. The QR matrix lives in
  * `components/qrMatrix.ts`, so that Live TV (which reads `showPhoneBadge` at start) does not load the QR library.
  * The pairing URL and code are secrets: they are drawn, never logged or persisted.
  */
+
+const PH = SETTINGS_COPY.phone;
 
 export type PairingMode = 'qr' | 'code';
 export type PairingState = CompanionStatus['state'];
@@ -29,7 +32,7 @@ export function formatCountdown(ms: number): string {
 export function countdownLine(status: CompanionStatus, now: number): string {
   if (status.expiresAt === undefined || !isPairingActive(status.state)) return '';
   const left = formatCountdown(status.expiresAt - now);
-  return status.state === 'waiting' ? `Code expires in ${left}` : `Session ends in ${left}`;
+  return status.state === 'waiting' ? PH.expiresIn(left) : PH.endsIn(left);
 }
 
 export const PEER_LABEL_MAX = 32;
@@ -50,17 +53,17 @@ export function cleanPeerLabel(label: string | undefined): string | undefined {
 export function statusCopy(status: CompanionStatus, mode: PairingMode): string {
   switch (status.state) {
     case 'waiting':
-      return mode === 'qr' ? "Open your phone's camera and scan the code." : 'Type this code on your phone or computer.';
+      return mode === 'qr' ? PH.scan : PH.typeCode;
     case 'connected': {
       const label = cleanPeerLabel(status.peerLabel);
-      return label ? `Connected: ${label}` : 'Connected';
+      return label ? PH.connectedTo(label) : PH.connectedPlain;
     }
     case 'reconnecting':
-      return 'Reconnecting…';
+      return PH.reconnecting;
     case 'expired':
       return endedCopy(status.reason);
     case 'idle':
-      return 'Disconnected.';
+      return PH.disconnected;
   }
 }
 
@@ -69,18 +72,18 @@ function endedCopy(reason: CompanionStatus['reason']): string {
   switch (reason) {
     case undefined:
     case 'expired':
-      return 'This code has expired.';
+      return PH.expired;
     case 'replaced':
-      return 'Session ended: opened on another screen.';
+      return PH.replaced;
     case 'rate-limit':
     case 'quota':
-      return 'Session ended: too much activity.';
+      return PH.tooMuch;
     case 'unreachable':
-      return 'Session ended: connection lost.';
+      return PH.lost;
     case 'peer-errors':
-      return 'Session ended: connection problem.';
+      return PH.problem;
     case 'stopped':
-      return 'Session ended.';
+      return PH.ended;
   }
 }
 
@@ -125,9 +128,9 @@ export interface PairingAction { id: PairingActionId; label: string }
  * drop the phone). Ended (expired or disconnected): a new code first, always.
  */
 export function pairingActions(state: PairingState, mode: PairingMode): PairingAction[] {
-  const toggle: PairingAction = { id: 'toggleMode', label: mode === 'qr' ? 'Use a code instead' : 'Show the QR code instead' };
-  const newCode: PairingAction = { id: 'newCode', label: 'Show a new code' };
-  const disconnect: PairingAction = { id: 'disconnect', label: 'Disconnect' };
+  const toggle: PairingAction = { id: 'toggleMode', label: mode === 'qr' ? PH.useCodeButton : PH.showQrInstead };
+  const newCode: PairingAction = { id: 'newCode', label: PH.newCode };
+  const disconnect: PairingAction = { id: 'disconnect', label: PH.disconnect };
   switch (state) {
     case 'waiting': return [toggle, newCode, disconnect];
     case 'connected':
@@ -138,5 +141,5 @@ export function pairingActions(state: PairingState, mode: PairingMode): PairingA
 
 /** The pointer-mode button that replaces the Yellow hint under the QR code or the code. */
 export function toggleButtonLabel(mode: PairingMode): string {
-  return mode === 'qr' ? 'Use a code instead' : 'Show the QR code';
+  return mode === 'qr' ? PH.useCodeButton : PH.showQrButton;
 }

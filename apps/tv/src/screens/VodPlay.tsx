@@ -6,31 +6,32 @@ import { api } from '../api.ts';
 import { ActionBar, type Action } from '../components/ActionBar.tsx';
 import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
-import { ListPicker } from '../components/ListPicker.tsx';
-import { OptionsMenu } from '../components/OptionsMenu.tsx';
+import { Sheet } from '../components/Sheet.tsx';
+import { fromOptionItem, fromPickerRow } from '../components/sheetLogic.ts';
 import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
-import { MediaBadges } from '../components/MediaBadges.tsx';
-import { StatusPill } from '../components/StatusPill.tsx';
+import { BadgeRow } from '../components/Badge.tsx';
+import { useNotice } from '../components/Notice.tsx';
 import { mediaBadges } from '../playback/mediaBadges.ts';
 import { onLogicalKey, sendKey } from '../input/keys.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../shell/logic.ts';
 import { failureText } from '../playback/failureText.ts';
 import { isVodId, journal, playback, player } from '../playback/playback.ts';
-import { CATCHUP_COPY, SOURCE_COPY } from '../copy.ts';
+import { CATCHUP_COPY, COMMON_COPY, PLAYER_COPY, SOURCE_COPY, VOD_COPY } from '../copy.ts';
 import {
   REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from '../vod/catchupLogic.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
-import { StreamInfoPanel } from '../components/StreamInfoPanel.tsx';
+import { InfoBlock } from '../components/InfoBlock.tsx';
+import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
 import { staticCaps } from '@iptv/player';
 import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { BACKGROUND_RGB, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { BACKGROUND_RGB, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
 import { platformId, settings } from '../state/appState.ts';
 import { isTvPlatform } from '../video/engineConfig.ts';
-import { showToast, useToastFloor } from '../shell/Toast.tsx';
+import { showToast } from '../shell/Toast.tsx';
 import { scrimTexture } from '../vod/scrim.ts';
 import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
 import { VolumeControl, VolumeOsd } from '../components/VolumeOsd.tsx';
@@ -67,7 +68,7 @@ const DV5 = staticCaps(platformId, 'native').display.hdr.dv5?.value;
 const SUB_ONLINE_ID = 'vodSubtitleOnline';
 const SUB_VERSIONS_ID = 'vodSubtitleVersions';
 /** OpenSubtitles' free plan asks for this line wherever its subtitles are picked. */
-const ONLINE_ATTRIBUTION = 'Subtitles provided by OpenSubtitles.com';
+const ONLINE_ATTRIBUTION = VOD_COPY.attribution;
 /** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
 const EXT_SUB_POLL_MS = 250;
 /** Automatic sync asks the worker once this much video is recorded, then at most this often. */
@@ -78,7 +79,7 @@ const CAN_LOAD_FILE = !isTvPlatform(platformId);
 /** Desktop Chrome has no `video.audioTracks`: files it plays itself list no audio tracks (hls.js streams still do). */
 const NO_TRACK_API = typeof document !== 'undefined' && !('audioTracks' in document.createElement('video'));
 const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
-const CANT_PLAY_NOW = failureText({ reason: 'unavailable' }, 'video');
+const CANT_PLAY_NOW = failureText({ reason: 'unavailable' });
 
 /** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
 const BAND_H = 620;
@@ -103,11 +104,14 @@ const OPTIONS_W = BUTTON_H;
 const NEXT_W = 280;
 /** The volume control at the row's left end (desktop only: TVs keep their remote's volume). */
 const VOLUME_W = 300;
-const SUB_LINE_H = 54;
 const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
-const SUB_OUTLINE_COLOR = COLORS.subtitleOutline;
-/** Subtitle text size on the video (a user-facing size, not a UI type-scale step). */
-const SUB_FONT = 40;
+const SUB_OUTLINE_COLOR = COLORS.panel;
+/** The live-edge mark on a catch-up timeline. */
+const CATCHUP_W = 4;
+const CATCHUP_H = 28;
+/** The x of the live-edge mark for a seek limit on a timeline of the given duration. */
+const liveEdgeX = (limitMs: number, durMs: number | undefined): number =>
+  CONTENT_X + Math.round((CONTENT_W * limitMs) / Math.max(1, durMs ?? 1)) - CATCHUP_W / 2;
 const CARD_W = 1000;
 const CARD_H = 260;
 /** The card's text area, between its top margin (24) and its buttons (y 148). */
@@ -769,7 +773,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (speed === 1) return false;
     setSpeedFor(ext, speed);
     refreshRows();
-    if (!quiet) showToast('Subtitle speed adjusted to match the video');
+    if (!quiet) showToast(VOD_COPY.speedAdjusted);
     return true;
   };
 
@@ -832,7 +836,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (normalizeSpeed(res.speed) !== subSpeed()) setSpeedFor(cur, normalizeSpeed(res.speed));
       finishSync();
       refreshRows();
-      showToast(`Subtitles synced to the video (${delayLabel(res.delayMs)})`);
+      showToast(VOD_COPY.synced(delayLabel(res.delayMs)));
     }, (err) => {
       s.asking = false;
       console.warn('Subtitle sync failed', errName(err));
@@ -879,11 +883,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       useExternal();
       // One toast: the file, and the speed when it was matched to the video at once.
       const matched = applyAutoSpeed(true);
-      showToast(`Subtitles on: ${oneSpace(toastName ?? loaded.name)}${matched ? ' · speed matched to the video' : ''}`);
+      showToast(VOD_COPY.subtitlesOn(oneSpace(toastName ?? loaded.name), matched));
       return undefined;
     } catch (err) {
       console.warn('Subtitle load failed', errName(err));
-      return err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't load the subtitles.";
+      return err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.subtitleLoadFailed;
     } finally {
       setSubBusy(false);
     }
@@ -901,7 +905,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   /** The "Subtitles online" picker: a searching row at once, then one row per language found for this title. */
   const openOnline = () => {
     const search = ++onlineSearch;
-    setOnlineRows([{ kind: 'list', id: 'searching', label: 'Searching…', checked: false }]);
+    setOnlineRows([{ kind: 'list', id: 'searching', label: VOD_COPY.searching, checked: false }]);
     removeOnline = router.pushOverlay(SUB_ONLINE_ID, () => {
       onlineSearch++;
       removeOnline = undefined;
@@ -914,7 +918,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (langs.length === 0) {
         closeOnline();
         focusBarOrRoot();
-        showToast('No subtitles found online for this title.');
+        showToast(VOD_COPY.noneOnline);
         return;
       }
       onlineLangs = langs;
@@ -924,7 +928,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (!alive || search !== onlineSearch) return;
       closeOnline();
       focusBarOrRoot();
-      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't search for subtitles.");
+      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.searchFailed);
     });
   };
 
@@ -959,7 +963,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const online = external()?.online;
     if (!online) return;
     const search = ++versionsSearch;
-    setVersionPickRows([{ kind: 'list', id: 'searching', label: 'Searching…', checked: false }]);
+    setVersionPickRows([{ kind: 'list', id: 'searching', label: VOD_COPY.searching, checked: false }]);
     removeVersions = router.pushOverlay(SUB_VERSIONS_ID, () => {
       versionsSearch++;
       versionList = undefined;
@@ -973,7 +977,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (versions.length === 0) {
         closeVersions();
         focusBarOrRoot();
-        showToast('No other versions found for this title.');
+        showToast(VOD_COPY.noOtherVersions);
         return;
       }
       versionList = { language: online.language, versions };
@@ -983,7 +987,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       if (!alive || search !== versionsSearch) return;
       closeVersions();
       focusBarOrRoot();
-      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : "Couldn't search for subtitles.");
+      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.searchFailed);
     });
   };
 
@@ -999,7 +1003,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       focusBarOrRoot();
       return;
     }
-    const label = `${onlineLanguageLabel(list.language)}${v.hearingImpaired ? ' CC' : ''}`;
+    const label = VOD_COPY.onlineVersionLabel(onlineLanguageLabel(list.language), Boolean(v.hearingImpaired));
     const details = { language: list.language, ...(v.fps ? { fps: v.fps } : {}), ...(v.hearingImpaired ? { cc: true } : {}) };
     void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
       if (!alive) return;
@@ -1054,7 +1058,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       void file.arrayBuffer().then(async (buf) => {
         const error = await loadSubtitle({ bytes: new Uint8Array(buf), name: file.name });
         if (error && alive) showToast(error);
-      }, () => showToast("Couldn't read that file."));
+      }, () => showToast(VOD_COPY.fileReadFailed));
     }, { once: true });
     input.addEventListener('cancel', () => input.remove(), { once: true });
     document.body.appendChild(input);
@@ -1131,8 +1135,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     const s = texts.findIndex((t) => t.active);
     const ext = external();
     const subtitles = extOn() && ext ? oneSpace(ext.name)
-      : s >= 0 ? trackLabels(texts, 'subtitle', langInput())[s] ?? 'On' : 'Off';
-    const items = optionsItems({ audio: a >= 0 ? audioLabels()[a] ?? 'Default' : 'Default', subtitles, versions: versions().length, infoOn: infoOn() });
+      : s >= 0 ? trackLabels(texts, 'subtitle', langInput())[s] ?? PLAYER_COPY.on : PLAYER_COPY.off;
+    const items = optionsItems({ audio: a >= 0 ? audioLabels()[a] ?? PLAYER_COPY.default : PLAYER_COPY.default, subtitles, versions: versions().length, infoOn: infoOn() });
     // Catch-up keeps nothing of its own: no Settings trip (the programme would start over).
     return cu ? items.filter((i) => i.id !== 'settings') : items;
   });
@@ -1161,7 +1165,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     switchBusy = false;
     if (!alive) return;
     if (!np) {
-      showToast(missing ? "This episode isn't in that version." : CANT_PLAY_NOW);
+      showToast(missing ? VOD_COPY.episodeNotInVersion : CANT_PLAY_NOW);
       return;
     }
     closeOptions();
@@ -1284,16 +1288,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const row = createMemo(() => {
     const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
     const centre: Action[] = [
-      { id: 'back30', label: 'Back 30 seconds', width: ROUND_W, round: true, icon: iconTexture('back30') },
-      { id: 'back10', label: 'Back 10 seconds', width: ROUND_W, round: true, icon: iconTexture('back10') },
+      { id: 'back30', label: VOD_COPY.back30, width: ROUND_W, round: true, icon: iconTexture('back30') },
+      { id: 'back10', label: VOD_COPY.back10, width: ROUND_W, round: true, icon: iconTexture('back10') },
       { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: ROUND_W, round: true, icon: iconTexture(paused() ? 'play' : 'pause') },
-      { id: 'fwd10', label: 'Forward 10 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd10') },
-      { id: 'fwd30', label: 'Forward 30 seconds', width: ROUND_W, round: true, icon: iconTexture('fwd30') },
+      { id: 'fwd10', label: VOD_COPY.forward10, width: ROUND_W, round: true, icon: iconTexture('fwd10') },
+      { id: 'fwd30', label: VOD_COPY.forward30, width: ROUND_W, round: true, icon: iconTexture('fwd30') },
     ];
     const right: Action[] = [
-      { id: 'tracks', label: 'Subtitles', width: TRACKS_W },
-      { id: 'options', label: 'Options', width: OPTIONS_W, round: true, icon: iconTexture('gear') },
-      ...(p.next ? [{ id: 'next', label: 'Next episode', width: NEXT_W }] : []),
+      { id: 'tracks', label: VOD_COPY.subtitles, width: TRACKS_W },
+      { id: 'options', label: PLAYER_COPY.options, width: OPTIONS_W, round: true, icon: iconTexture('gear') },
+      ...(p.next ? [{ id: 'next', label: VOD_COPY.nextEpisode, width: NEXT_W }] : []),
     ];
     const leftWs = [...left.map((a) => a.width), ...(volumeSupported ? [VOLUME_W] : [])];
     const xs = groupXs(CONTENT_W, 16, leftWs, centre.map((a) => a.width), right.map((a) => a.width));
@@ -1352,11 +1356,11 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     focusRoot();
   };
   const cardActions = (): Action[] => {
-    if (notAvail()) return [{ id: 'live', label: CATCHUP_COPY.watchLive, width: 260 }, { id: 'back', label: 'Back', width: 220 }];
+    if (notAvail()) return [{ id: 'live', label: CATCHUP_COPY.watchLive, width: 260 }, { id: 'back', label: COMMON_COPY.back, width: 220 }];
     if (endCard()) return endCardActions(cur()?.next).map((a) => ({ id: a.id, label: a.label, width: a.id === 'next' ? 420 : a.id === 'live' ? 260 : 220 }));
     return failed()
-      ? [{ id: 'retry', label: 'Try again', width: 260 }]
-      : [{ id: 'nextNow', label: 'Play now', width: 260 }, { id: 'cancel', label: 'Cancel', width: 220 }];
+      ? [{ id: 'retry', label: COMMON_COPY.tryAgain, width: 260 }]
+      : [{ id: 'nextNow', label: VOD_COPY.playNow, width: 260 }, { id: 'cancel', label: COMMON_COPY.cancel, width: 220 }];
   };
   const onCardAction = (id: string) => {
     if (id === 'live') watchLive();
@@ -1625,16 +1629,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   const card = createMemo(() => {
     const f = failed();
     const text = notAvail() ? CATCHUP_COPY.notAvailable
-      : endCard() ? `End of ${title}`
+      : endCard() ? VOD_COPY.endOf(title)
         : f
-          ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() }, 'video')
+          ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() })
           : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
     return { text, box: MESSAGE_BOXES.vodCard };
   });
   const subLines = () => cue().split('\n').length;
-  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * SUB_LINE_H;
-  // Toasts end above a subtitle, else above the overlay's title.
-  useToastFloor(() => (cue() ? subY() - LAYOUT.gap : visible() ? TITLE_Y - LAYOUT.gap : undefined));
+  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * LINE.title;
+  useNotice(() => (statusText() && !failed() && !notAvail() && !endCard()
+    ? { id: 'vod-status', kind: 'wait', text: statusText(), spinner: false } : undefined));
 
   return (
     <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height}
@@ -1652,7 +1656,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       </Show>
 
       <Show when={infoOn()}>
-        <StreamInfoPanel lines={infoLines()} />
+        <KeyValuePanel x={LAYOUT.safeX} y={LAYOUT.safeY} width={600} title={PLAYER_COPY.streamInfo} lines={infoLines()} framed />
       </Show>
 
       {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
@@ -1661,23 +1665,18 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <View zIndex={5}>
           <For each={SUB_OUTLINE}>{([dx, dy]) => (
             <Text x={CONTENT_X + dx} y={subY() + dy} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-              maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
+              maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
           )}</For>
           <Text x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-            maxLines={3} fontSize={SUB_FONT} lineHeight={SUB_LINE_H} color={COLORS.text}>{cue()}</Text>
+            maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={COLORS.text}>{cue()}</Text>
         </View>
       </Show>
 
       <Show when={visible()}>
         <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
           <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
-          <Text x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" maxLines={1}
-            fontSize={TYPE.playerTitle} {...STRONG} color={COLORS.text}>{title}</Text>
-          <Show when={label}>
-            <Text x={CONTENT_X} y={LABEL_Y} width={CONTENT_W} maxWidth={CONTENT_W} contain="width"
-              maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{label}</Text>
-          </Show>
-          <MediaBadges x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
+          <InfoBlock x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} title={title} meta={label || undefined} />
+          <BadgeRow x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
           <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
             posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
             onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}
@@ -1685,8 +1684,8 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
             onPointerSeek={pointerSeek} onDrag={onDrag} onHover={bump} />
           {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
           <Show when={cu && now() < (cur() ?? cu).stop}>
-            <View x={CONTENT_X + Math.round((CONTENT_W * seekLimitMs(cur() ?? cu!, now())) / Math.max(1, p.durationMs ?? 1)) - 2}
-              y={TIMELINE_Y + TIMELINE_H / 2 - 14} width={4} height={28} color={COLORS.accent} borderRadius={2} />
+            <View x={liveEdgeX(seekLimitMs(cur() ?? cu!, now()), p.durationMs)}
+              y={TIMELINE_Y + TIMELINE_H / 2 - CATCHUP_H / 2} width={CATCHUP_W} height={CATCHUP_H} color={COLORS.accent} borderRadius={RADIUS.pill(CATCHUP_W)} />
           </Show>
           <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
             fontSize={TYPE.meta} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
@@ -1705,20 +1704,16 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         </View>
       </Show>
 
-      <Show when={statusText() && !failed() && !notAvail() && !endCard()}>
-        <StatusPill text={statusText()} zIndex={20} />
-      </Show>
-
       <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
-        <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - 120} width={CARD_W} height={CARD_H}
-          color={COLORS.surface} borderRadius={LAYOUT.radius}>
+        <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - SPACE.xl * 2 - SPACE.l} width={CARD_W} height={CARD_H}
+          color={COLORS.surface} borderRadius={RADIUS.card}>
           {/* The text area above the buttons: y 24 to 148. */}
-          <Text x={40} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - 80} maxWidth={CARD_W - 80}
-            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={card().box.lineH}
+          <Text x={SPACE.xl} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - SPACE.xl * 2} maxWidth={CARD_W - SPACE.xl * 2}
+            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={LINE.body}
             fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{card().text}</Text>
           <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
             <ActionBar ref={(el) => { cardNode = el; }}
-              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - 40}
+              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - SPACE.xl}
               actions={cardActions()} onAction={onCardAction} />
           </Show>
         </View>
@@ -1727,33 +1722,50 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       {/* Desktop volume: + and - keys and the wheel; with the controls hidden a change shows a short top-right pill. */}
       <VolumeOsd inBar={visible()} />
 
-      <Show when={pickerOpen()}>
-        <ListPicker ref={(el) => { pickerNode = el; }} title="Subtitles" rows={rows()} onPick={pickTrack} onAdjust={adjustRow}
-          hint="Ok chooses · Back closes" />
-      </Show>
+      <Show when={pickerOpen()}>{(() => {
+        const trackRows = createMemo(() => rows());
+        const trackSheetRows = createMemo(() => trackRows().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.subtitles} rows={trackSheetRows()} backLayerId={TRACKS_ID}
+            onSelect={(_, i) => { const r = trackRows()[i]; if (r) pickTrack(r); }}
+            onAdjust={(_, i, d) => { const r = trackRows()[i]; return r ? adjustRow(r, d) : false; }} />
+        );
+      })()}</Show>
 
-      <Show when={optionsPage()} keyed>{(page) => (
-        <OptionsMenu ref={(el) => { optionsNode = el; }}
-          title={page === 'audio' ? 'Audio track' : page === 'source' ? SOURCE_COPY.choose : 'Options'}
-          items={optionItems()} onChoose={chooseOption} />
-      )}</Show>
 
-      <Show when={onlineRows()}>{(list) => (
-        <ListPicker ref={(el) => { onlineNode = el; }} title="Subtitles online" rows={list()} onPick={pickOnline}
-          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
-      )}</Show>
+      <Show when={optionsPage()} keyed>{(page) => {
+        const optionRows = createMemo(() => optionItems().map(fromOptionItem));
+        return (
+          <Sheet ref={(el) => { optionsNode = el; }}
+            title={page === 'audio' ? PLAYER_COPY.audioTrack : page === 'source' ? SOURCE_COPY.choose : PLAYER_COPY.options}
+            rows={optionRows()} onSelect={(r) => chooseOption(r.id)} scrim={false} swallow="player" zIndex={40} />
+        );
+      }}</Show>
 
-      <Show when={versionPickRows()}>{(list) => (
-        <ListPicker ref={(el) => { versionsNode = el; }} title="Subtitle versions" rows={list()} onPick={pickVersion}
-          hint={subBusy() ? 'Loading subtitles…' : ONLINE_ATTRIBUTION} />
-      )}</Show>
+      <Show when={onlineRows()}>{(list) => {
+        const onlineSheetRows = createMemo(() => list().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { onlineNode = el; }} title={VOD_COPY.subtitlesOnline} rows={onlineSheetRows()} backLayerId={SUB_ONLINE_ID}
+            onSelect={(_, i) => { const r = list()[i]; if (r) pickOnline(r); }}
+            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
+        );
+      }}</Show>
+
+      <Show when={versionPickRows()}>{(list) => {
+        const versionSheetRows = createMemo(() => list().map(fromPickerRow));
+        return (
+          <Sheet ref={(el) => { versionsNode = el; }} title={VOD_COPY.subtitleVersions} rows={versionSheetRows()} backLayerId={SUB_VERSIONS_ID}
+            onSelect={(_, i) => { const r = list()[i]; if (r) pickVersion(r); }}
+            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
+        );
+      }}</Show>
 
       <Show when={linkText() !== undefined}>
         <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>
           <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_URL_H) / 2}
-            layout={FULL_LAYOUT} label="Subtitle link (.srt or .vtt)" value={linkText() ?? ''}
+            layout={FULL_LAYOUT} label={VOD_COPY.subtitleLink} value={linkText() ?? ''}
             onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}
-            hint={subBusy() ? 'Loading subtitles…' : 'Done loads the link · Back cancels'} error={linkError()} />
+            hint={subBusy() ? VOD_COPY.loadingSubtitles : undefined} error={linkError()} />
         </View>
       </Show>
     </View>

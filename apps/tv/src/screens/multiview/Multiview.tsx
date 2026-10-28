@@ -2,8 +2,9 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { GROUP_ALL } from '@iptv/core';
 import { api } from '../../api.ts';
-import { ContextMenu, type ContextMenuItem } from '../../components/ContextMenu.tsx';
-import { MULTIVIEW_COPY } from '../../copy.ts';
+import { Sheet } from '../../components/Sheet.tsx';
+import { fromMenuItem, type MenuItem } from '../../components/sheetLogic.ts';
+import { COMMON_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { usePointerTarget } from '../../input/pointer.ts';
 import {
   clearWindowNote, connectionMemory, deviceWindowMax, dropRefusalMark, keepRefusalOnWindow, otherSlots, playback, pool, setInMultiview,
@@ -11,7 +12,8 @@ import {
 } from '../../playback/playback.ts';
 import { tileFailure } from '../../playback/tileFailure.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
+import { ALPHA, centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
+import { FocusRing } from '../../components/FocusRing.tsx';
 import { activeMaxConnections } from '../../state/activeLimit.ts';
 import { cooldownForStream, initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
@@ -26,6 +28,8 @@ import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
 import { canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
+/** The height of a window's status pill (and of the sound mark on a small window). */
+const STATUS_PILL_H = 40;
 const MENU_ID = 'multiviewMenu';
 const PICKER_ID = 'multiviewPicker';
 type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
@@ -144,7 +148,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const s = state();
     const r = canAddWindow({ deviceMax: deviceCeiling(deviceWindowMax()), userMax: settings()?.maxWindows ?? 'auto', open: s?.windows.length ?? 0 });
     if (r.ok) return { ok: true as const };
-    return { ok: false as const, reason: r.reason === 'setting' ? MULTIVIEW_COPY.setting(r.limit) : MULTIVIEW_COPY.device(r.limit) };
+    return { ok: false as const, reason: MULTIVIEW_COPY.limit };
   };
 
   const leave = (keep?: MvWindow) => {
@@ -345,19 +349,19 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
   const closeMenu = () => { removeOverlay(MENU_ID); setMenu(undefined); focusRoot(); };
 
-  const menuEntries = createMemo<ContextMenuItem<MenuAction>[]>(() => {
+  const menuEntries = createMemo<MenuItem<MenuAction>[]>(() => {
     const s = state();
     const i = menu();
     if (!s || i === undefined) return [];
-    const out: ContextMenuItem<MenuAction>[] = [];
-    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retryNow });
+    const out: MenuItem<MenuAction>[] = [];
+    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retry });
     else if (failure(i)?.retry.enabled) {
       // A plain Retry stays offered beside it: the app warns, it never blocks (decision 12.2).
       if (retryKind(i) === 'watchInstead') out.push({ action: 'watchInstead', label: MULTIVIEW_COPY.watchInstead });
       out.push({ action: 'retry', label: MULTIVIEW_COPY.retry });
     }
     for (const it of menuItems(s, i, canAdd())) out.push({ action: it.id, label: it.disabled ? `${it.label}: ${it.disabled}` : it.label });
-    out.push({ action: 'cancel', label: 'Cancel' });
+    out.push({ action: 'cancel', label: COMMON_COPY.cancel });
     return out;
   });
 
@@ -541,14 +545,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const p = picker();
     const s = state();
     if (!p || !s) return undefined;
-    const l = limits();
     const open = p.mode === 'add' ? s.windows.length : s.windows.length - 1;
-    const lines = pickerHint({ ...l, open, freeing: freeingSlot() !== undefined }).map((key) => {
-      if (key === 'infoReported') return MULTIVIEW_COPY.infoReported(l.reported ?? 0);
-      if (key === 'learned') return MULTIVIEW_COPY.learned(l.learnedRefusalAt ?? 0);
-      const text = MULTIVIEW_COPY[key];
-      return typeof text === 'string' ? text : '';
-    });
+    const lines = pickerHint({ open, freeing: freeingSlot() !== undefined }).map((key) => MULTIVIEW_COPY[key]);
     return lines.length > 0 ? lines.join(' ') : undefined;
   };
 
@@ -565,45 +563,45 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const fail = () => failure(t().tile);
     const pad = () => (large() ? 24 : 16);
     const scrimH = () => (large() ? 128 : 72);
+    const iconS = () => (large() ? SPACE.xl : STATUS_PILL_H);
     return (
       <View>
-        <Show when={focused() && chrome()}>
-          <View x={t().ring.x} y={t().ring.y} width={t().ring.w} height={t().ring.h} borderRadius={18}
-            border={{ width: 4, color: COLORS.focus }} />
-        </Show>
+        <View x={r().x} y={r().y}>
+          <FocusRing w={r().w} h={r().h} radius={RADIUS.card} lit={focused() && chrome()} clear />
+        </View>
         <Show when={fail()}>{(f) => (
-          <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-            <Text x={pad()} y={r().h / 2 - 60} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
+          <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={RADIUS.card}>
+            <Text x={pad()} y={r().h / 2 - SPACE.xl - SPACE.m} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
               textAlign="center" fontSize={large() ? TYPE.body : TYPE.meta} color={COLORS.text}>{f().text}</Text>
-            <Text x={pad()} y={r().h / 2 + 40} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
+            <Text x={pad()} y={r().h / 2 + SPACE.xl} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
               textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
               {f().retryNow
-                ? `${f().hint} · OK: ${MULTIVIEW_COPY.retryNow} · ${MULTIVIEW_COPY.closeWindow}`
+                ? [f().hint, MULTIVIEW_COPY.retry, MULTIVIEW_COPY.closeWindow].filter(Boolean).join(' · ')
                 : f().retry.enabled
-                ? `OK: ${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
-                : `OK: ${MULTIVIEW_COPY.closeWindow}`}
+                ? `${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
+                : MULTIVIEW_COPY.closeWindow}
             </Text>
           </View>
         )}</Show>
         <Show when={freeingSlot() !== undefined && freeingSlot() === windowAt(t().tile)?.slot}>
-          <View x={r().x + pad()} y={r().y + pad()} width={300} height={40} borderRadius={20} color={COLORS.panel}>
-            <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
+          <View x={r().x + pad()} y={r().y + pad()} width={300} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
+            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
           </View>
         </Show>
         <Show when={!fail() && starting(t().tile)}>
-          <View x={r().x + pad()} y={r().y + pad()} width={160} height={40} borderRadius={20} color={COLORS.panel}>
-            <Text x={16} y={7} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
+          <View x={r().x + pad()} y={r().y + pad()} width={160} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
+            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
           </View>
         </Show>
         <Show when={sound()}>
-          <View x={r().x + r().w - pad() - (large() ? 48 : 40)} y={r().y + pad()} width={large() ? 48 : 40} height={large() ? 48 : 40}
-            borderRadius={large() ? 24 : 20} color={COLORS.panel} alpha={chrome() ? 1 : 0.7}>
-            <Text y={large() ? 10 : 7} width={large() ? 48 : 40} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>♪</Text>
+          <View x={r().x + r().w - pad() - iconS()} y={r().y + pad()} width={iconS()} height={iconS()}
+            borderRadius={RADIUS.pill(iconS())} color={COLORS.panel} alpha={chrome() ? 1 : ALPHA.dimmed}>
+            <Text y={centerText(iconS(), TYPE.meta)} width={iconS()} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>♪</Text>
           </View>
         </Show>
         <Show when={chrome() && !fail()}>
-          <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.osd}>
-            <Text x={pad()} y={scrimH() - (large() ? 72 : 52)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
+          <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.panel}>
+            <Text x={pad()} y={centerText(scrimH(), large() ? TYPE.body : TYPE.meta)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
               maxLines={1} fontSize={large() ? TYPE.body : TYPE.meta} {...STRONG} color={COLORS.text}>{nameOf(t().tile)}</Text>
           </View>
         </Show>
@@ -626,19 +624,21 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       )}</For>
       <For each={tiles()}>{(t) => <Chrome t={t} />}</For>
       <Show when={geometry()?.empty && full() === undefined && chrome() ? geometry()!.empty : undefined}>{(e) => (
-        <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={LAYOUT.radius}>
-          <Text y={e().rect.h / 2 - 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.display} color={COLORS.subtle}>+</Text>
+        <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={RADIUS.card}>
+          <Text y={e().rect.h / 2 - SPACE.xl} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.title} color={COLORS.subtle}>+</Text>
           <Show when={state()?.focus === 'empty'}>
-            <Text y={e().rect.h / 2 + 30} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{MULTIVIEW_COPY.addChannel}</Text>
+            <Text y={e().rect.h / 2 + SPACE.l} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.body} color={COLORS.text}>{MULTIVIEW_COPY.addChannel}</Text>
           </Show>
         </View>
       )}</Show>
       <Show when={state()?.focus === 'empty' && full() === undefined && chrome() ? geometry()?.empty : undefined}>{(e) => (
-        <View x={e().ring.x} y={e().ring.y} width={e().ring.w} height={e().ring.h} borderRadius={18} border={{ width: 4, color: COLORS.focus }} />
+        <View x={e().rect.x} y={e().rect.y}>
+          <FocusRing w={e().rect.w} h={e().rect.h} radius={RADIUS.card} lit clear />
+        </View>
       )}</Show>
       <Show when={menu() !== undefined}>
-        <ContextMenu ref={(el) => { menuNode = el; }} title={nameOf(menu() ?? 0) || MULTIVIEW_COPY.entry}
-          items={menuEntries()} cancel="cancel" onChoose={choose} />
+        <Sheet ref={(el) => { menuNode = el; }} title={nameOf(menu() ?? 0) || MULTIVIEW_COPY.entry} rows={menuEntries().map(fromMenuItem)}
+          follow="id" backLayerId={MENU_ID} onSelect={(_, i) => { const it = menuEntries()[i]; if (it) choose(it.action); }} />
       </Show>
       <Show when={picker()}>
         <MultiviewPicker ref={(el) => { pickerNode = el; }} backRef={(fn) => { pickerBack = fn; }}

@@ -1,5 +1,8 @@
 import type { JournalEvent } from '@iptv/player';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { eventText, logTime } from '../journalLogic.ts';
+
+const CC = SETTINGS_COPY.connections;
 
 /**
  * Diagnostics → Connections (spec 2026-10-20-multiview §5.7, owner decision §12.10): what the owner reads back after
@@ -22,11 +25,11 @@ const KINDS = new Set(['open', 'playing', 'tileRefused', 'displaced', 'pingPong'
 
 export function connectionsHeader(f: ConnectionsFacts): [string, string][] {
   const out: [string, string][] = [
-    ['Your source reports', f.reported === undefined ? 'no limit' : `${f.reported} connection${f.reported === 1 ? '' : 's'}`],
+    [CC.reports, f.reported === undefined ? CC.noLimit : CC.connectionCount(f.reported)],
   ];
-  if (f.activeAtLogin !== undefined) out.push(['In use at the last sign-in', String(f.activeAtLogin)]);
-  out.push(['Most windows playing at once', String(f.maxSeen)]);
-  if (f.refusedAt !== undefined) out.push(['Refused at', `window ${f.refusedAt}`]);
+  if (f.activeAtLogin !== undefined) out.push([CC.inUse, String(f.activeAtLogin)]);
+  out.push([CC.maxSeen, String(f.maxSeen)]);
+  if (f.refusedAt !== undefined) out.push([CC.refusedAt, CC.windowN(f.refusedAt)]);
   return out;
 }
 
@@ -45,5 +48,5 @@ export function connectionsRows(events: readonly JournalEvent[], now: number): {
 export function connectionsText(f: ConnectionsFacts, events: readonly JournalEvent[], now: number): string {
   const head = connectionsHeader(f).map(([k, v]) => `${k}: ${v}`);
   const rows = connectionsRows(events, now).map((r) => `${r.time}  ${r.text}`);
-  return [...head, '', ...(rows.length > 0 ? rows : ['No multiview sessions yet.'])].join('\n');
+  return [...head, '', ...(rows.length > 0 ? rows : [CC.none])].join('\n');
 }

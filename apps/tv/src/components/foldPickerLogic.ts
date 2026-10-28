@@ -91,7 +91,7 @@ function topRows(entries: readonly FoldEntry[], o: FoldViewOptions): PickerRow[]
 function countryRows(entries: readonly FoldEntry[], o: FoldViewOptions): PickerRow[] {
   const current = entries.find((e) => e.id === o.currentId)?.fold;
   const rows: PickerRow[] = foldSummary(entries).map((c) => ({
-    kind: 'list', id: COUNTRY_PREFIX + c.key, label: `${c.label} · ${COUNTRIES_COPY.folders(c.folders)}`, checked: c.key === current,
+    kind: 'list', id: COUNTRY_PREFIX + c.key, label: COUNTRIES_COPY.folderRow(c.label, COUNTRIES_COPY.folders(c.folders)), checked: c.key === current,
     icon: chipArt(c.key, o.flagOf), more: true,
   }));
   rows.push({ kind: 'list', id: CHOOSE_ROW_ID, label: COUNTRIES_COPY.choose, checked: false });

@@ -1,7 +1,9 @@
 import type { VideoRange } from '@iptv/core';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
+import { PLAYER_COPY } from '../copy.ts';
 import { channelsLabel, codecFamily, languageName, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
 import { formatBitrate } from './streamInfo.ts';
+import { SPACE } from '../shell/theme.ts';
 
 /**
  * The badges the player's controls show about what is playing right now: picture size, dynamic range, frame rate and
@@ -55,7 +57,7 @@ export function videoCodecLabel(codec: string | undefined): string | undefined {
   return c ? VIDEO_CODECS.find(([re]) => re.test(c))?.[1] : undefined;
 }
 
-const RANGE = { hdr10: 'HDR10', hdr10plus: 'HDR10+', hlg: 'HLG', dv: 'Dolby Vision' } as const;
+const RANGE = { hdr10: PLAYER_COPY.range.names.hdr10, hdr10plus: PLAYER_COPY.range.names.hdr10plus, hlg: PLAYER_COPY.range.names.hlg, dv: PLAYER_COPY.range.dolbyVision } as const;
 
 /** The player's own Dolby Vision reading first, then the source's or title's range, then the player's; SDR is not a badge. */
 function rangeLabel(info: StreamInfo, hint: VideoRange | undefined): string | undefined {
@@ -75,15 +77,15 @@ const HEARING_IMPAIRED = /\b(sdh|cc|hoh|hearing)\b/i;
 const FORCED = /\bforced\b/i;
 
 function subtitleBadge(text: readonly TrackInfo[], external: string | undefined, externalCc?: boolean, input?: TrackLanguageInput): string | undefined {
-  if (external !== undefined && externalCc) return external ? `${external} CC` : 'CC';
-  if (external !== undefined) return external ? `${external} subtitles` : 'Subtitles';
+  if (external !== undefined && externalCc) return external ? PLAYER_COPY.badge.ccIn(external) : PLAYER_COPY.badge.cc;
+  if (external !== undefined) return external ? PLAYER_COPY.badge.subtitlesIn(external) : PLAYER_COPY.badge.subtitles;
   const at = text.findIndex((x) => x.active);
   const t = text[at];
   if (!t) return undefined;
   const lang = languageAt(text, at, 'subtitle', input);
-  if (t.forced || FORCED.test(t.label)) return lang ? `${lang} forced` : 'Forced subtitles';
-  if (t.hearingImpaired || HEARING_IMPAIRED.test(t.label)) return lang ? `${lang} CC` : 'CC';
-  return lang ? `${lang} subtitles` : 'Subtitles';
+  if (t.forced || FORCED.test(t.label)) return lang ? PLAYER_COPY.badge.forcedIn(lang) : PLAYER_COPY.badge.forcedSubtitles;
+  if (t.hearingImpaired || HEARING_IMPAIRED.test(t.label)) return lang ? PLAYER_COPY.badge.ccIn(lang) : PLAYER_COPY.badge.cc;
+  return lang ? PLAYER_COPY.badge.subtitlesIn(lang) : PLAYER_COPY.badge.subtitles;
 }
 
 export function mediaBadges(input: MediaBadgeInput): string[] {
@@ -109,8 +111,8 @@ export function mediaBadges(input: MediaBadgeInput): string[] {
 }
 
 /** Inner padding either side of a badge's text, and the gap between badges. */
-export const BADGE_PAD = 14;
-export const BADGE_GAP = 10;
+export const BADGE_PAD = SPACE.m;
+export const BADGE_GAP = SPACE.s;
 
 export interface PlacedBadge { text: string; x: number; width: number }
 

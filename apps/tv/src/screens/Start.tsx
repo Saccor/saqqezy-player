@@ -5,10 +5,9 @@ import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, ty
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
-import { createChoiceMenu } from '../components/choiceMenu.tsx';
-import { PosterRow } from '../components/PosterRow.tsx';
-import { COMPACT_H } from '../components/WideTile.tsx';
-import { WideRow } from '../components/WideRow.tsx';
+import { createSheetChoice } from '../components/Sheet.tsx';
+import { Row } from '../components/Row.tsx';
+import { COMPACT_H } from '../components/wideTileLogic.ts';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
@@ -18,7 +17,7 @@ import { dwellSignal } from '../shell/dwell.ts';
 import { goRail } from '../shell/railNav.ts';
 import type { RailId } from '../shell/railLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { initState, settings } from '../state/appState.ts';
@@ -38,7 +37,7 @@ import {
 const ROW_X = LAYOUT.contentX;
 const ROW_Y = START_ROW_Y;
 const LABEL_H = 42;
-const ROW_GAP = 28;
+const ROW_GAP = SPACE.l;
 /** A row below the focused one is drawn while at least its title and a strip of tiles fit on screen. */
 const ROW_PEEK = LABEL_H + 20;
 /** The rows' clip edge: a row sliding out upwards disappears here, just above the focused row's title. */
@@ -126,7 +125,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
 
   const refocusRows = () => queueMicrotask(() => { if (alive) focusArea('rows', false); });
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: refocusRows });
-  const menu = createChoiceMenu('startMenu', refocusRows);
+  const menu = createSheetChoice('startMenu', refocusRows);
 
   const openCell = () => {
     const c = focusedCell();
@@ -269,7 +268,7 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                 const r = () => rows()[i]!;
                 const focusCol = () => (i === focus().row ? focus().col : undefined);
                 const lit = () => area() === 'rows' && i === focus().row;
-                // Built once per row change, not on every `props.row` read inside PosterRow (each tile reads it).
+                // Built once per row change, not on every `props.row` read inside Row (each tile reads it).
                 const posterRow = createMemo(() => (rowKind(r()) === 'poster' ? toPosterRow(r()) : undefined));
                 return (
                   <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
@@ -278,15 +277,17 @@ export function StartScreen(props: { entry: ScreenEntry }) {
                       {(t) => {
                         const x = ROW_X + labelWidth(r().title) + 24;
                         const w = LAYOUT.width - LAYOUT.safeX - x;
-                        return <Text x={x} y={2} width={w} maxWidth={w} contain="width" maxLines={1}
+                        return <Text x={x} y={0} width={w} maxWidth={w} contain="width" maxLines={1}
                           fontSize={TYPE.meta} color={COLORS.muted}>{t}</Text>;
                       }}
                     </Show>
                     <Show when={rowKind(r()) === 'poster'} fallback={
-                      <WideRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={r()} now={now()} focusCol={focusCol()} lit={lit()} compact visible={START_WIDE_VISIBLE}
+                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'wideCompact', cells: r().cells, now: now() }}
+                        focusCol={focusCol()} lit={lit()} visible={START_WIDE_VISIBLE}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     }>
-                      <PosterRow x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} row={posterRow()!} w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
+                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: posterRow()! }}
+                        w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
                         onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
                     </Show>
                   </View>

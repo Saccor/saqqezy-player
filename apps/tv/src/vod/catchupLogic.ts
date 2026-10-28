@@ -3,7 +3,7 @@
  * seek plan and end card, and the in-memory "not available" marks. Pure: no Solid, no Lightning.
  */
 import type { ArchiveState, CatchupPlayable, VodPlayable } from '@iptv/app-api';
-import { CATCHUP_COPY } from '../copy.ts';
+import { CATCHUP_COPY, COMMON_COPY } from '../copy.ts';
 import { formatClock } from '../shell/logic.ts';
 
 const DAY = 86_400_000;
@@ -120,7 +120,7 @@ export function endCardActions(next: CatchupPlayable['next']): { id: 'next' | 'l
   return [
     ...(next ? [{ id: 'next' as const, label: CATCHUP_COPY.nextTitle(next.title) }] : []),
     { id: 'live', label: CATCHUP_COPY.watchLive },
-    { id: 'back', label: 'Back' },
+    { id: 'back', label: COMMON_COPY.back },
   ];
 }
 

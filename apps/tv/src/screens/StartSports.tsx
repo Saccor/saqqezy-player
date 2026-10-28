@@ -4,13 +4,14 @@ import type { MatchCompetitionChips, MatchFilterChip, SportsEventTile } from '@i
 import { api, onEvent } from '../api.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
 import { BUTTON_H } from '../components/Button.tsx';
-import { createChoiceMenu } from '../components/choiceMenu.tsx';
-import { COMPACT_W, MATCH_GRID_H, WIDE_GAP, WideTile } from '../components/WideTile.tsx';
+import { createSheetChoice } from '../components/Sheet.tsx';
+import { Tile } from '../components/Tile.tsx';
+import { COMPACT_W, MATCH_GRID_H, WIDE_GAP } from '../components/wideTileLogic.ts';
 import { pointerMode } from '../input/pointer.ts';
 import { parkLiveForScreen } from '../playback/parkLiveForScreen.ts';
 import { BOTTOM_ROW_Y, screenOverlayOpen } from '../shell/logic.ts';
 import { router } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { settings } from '../state/appState.ts';
 import { saveSetting } from './settings/shared.ts';
@@ -28,7 +29,7 @@ const TITLE_Y = LAYOUT.safeY + 16;
 const SUMMARY_X = LAYOUT.safeX + 200;
 const SPORTS_Y = 140;
 const COMPS_Y = SPORTS_Y + BUTTON_H + 16;
-const GRID_GAP_TOP = 28;
+const GRID_GAP_TOP = SPACE.l;
 const WIDTH = LAYOUT.width - 2 * LAYOUT.safeX;
 const FRAME = { cols: COLS, pitchX: COMPACT_W + WIDE_GAP, tileH: MATCH_GRID_H, rowGap: WIDE_GAP, labelH: 44, sectionGap: 16 } as const;
 const NO_COMPS: MatchCompetitionChips = { chips: [], more: [] };
@@ -120,7 +121,7 @@ export function StartSportsScreen() {
     rescue();
   };
   const actions = createStartActions({ alive: () => alive, reload: () => void load(), refocus: () => queueMicrotask(() => gridNode?.setFocus()) });
-  const menu = createChoiceMenu('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
+  const menu = createSheetChoice('matchesMenu', () => queueMicrotask(() => (compsNode ?? gridNode)?.setFocus()));
 
   const move = (key: 'up' | 'down' | 'left' | 'right') => {
     if (screenOverlayOpen()) return true;
@@ -192,7 +193,7 @@ export function StartSportsScreen() {
     <View width={LAYOUT.width} height={LAYOUT.height} color={COLORS.background} onBack={back}>
       <Text x={LAYOUT.safeX} y={TITLE_Y} fontSize={TYPE.title} {...STRONG} color={COLORS.text}>{MATCHES_COPY.title}</Text>
       <Show when={loaded()}>
-        <Text x={SUMMARY_X} y={TITLE_Y + 12} width={WIDTH - (SUMMARY_X - LAYOUT.safeX)} maxWidth={WIDTH - (SUMMARY_X - LAYOUT.safeX)}
+        <Text x={SUMMARY_X} y={TITLE_Y + SPACE.s} width={WIDTH - (SUMMARY_X - LAYOUT.safeX)} maxWidth={WIDTH - (SUMMARY_X - LAYOUT.safeX)}
           contain="width" maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{summary()}</Text>
       </Show>
       <Show when={sportActions().length > 0}>
@@ -206,7 +207,7 @@ export function StartSportsScreen() {
           onUp={() => { sportsNode?.setFocus(); return true; }} onDown={() => { if (grid().order.length) gridNode?.setFocus(); return true; }} />
       </Show>
       <Show when={loaded() && shown().length === 0}>
-        <Text x={LAYOUT.safeX} y={gridTop() + 20} fontSize={TYPE.body} color={COLORS.muted}>{MATCHES_COPY.empty}</Text>
+        <Text x={LAYOUT.safeX} y={gridTop() + SPACE.l} fontSize={TYPE.body} color={COLORS.muted}>{MATCHES_COPY.empty}</Text>
       </Show>
       <View ref={(el) => { gridNode = el; }} x={LAYOUT.safeX} y={gridTop()} width={WIDTH} height={Math.max(1, viewH())} clipping
         onFocusChanged={(f: boolean) => setGridFocused(f)}
@@ -219,7 +220,7 @@ export function StartSportsScreen() {
           <For each={visibleIdx()}>{(i) => {
             const e = () => grid().order[i]!;
             const p = () => layout().places[i]!;
-            return <WideTile x={p().x} y={p().y} cell={{ type: 'event', event: e() }} compact detail={e().competition ?? e().subTitle ?? ''}
+            return <Tile variant="wideCompact" x={p().x} y={p().y} cell={{ type: 'event', event: e() }} detail={e().competition ?? e().subTitle ?? ''}
               lit={gridFocused() && i === index()} now={now()} />;
           }}</For>
         </View>

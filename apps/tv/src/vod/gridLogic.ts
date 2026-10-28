@@ -1,11 +1,12 @@
 import type { PosterSize, VodSort } from '@iptv/core';
-import { LAYOUT } from '../shell/theme.ts';
+import { VOD_COPY } from '../copy.ts';
+import { LAYOUT, SPACE } from '../shell/theme.ts';
 import { POSTER_GAP } from './posterLogic.ts';
 
 /** The category grid. Pure: no Solid, no Lightning. */
 
 /** Space between two rows of posters (the column gap is the rows' `POSTER_GAP`). */
-export const GRID_ROW_GAP = 28;
+export const GRID_ROW_GAP = SPACE.l;
 
 /** Cell sizes across the content width with `POSTER_GAP` column gaps and `GRID_ROW_GAP` row gaps. */
 export function gridLayout(size: PosterSize): { cols: number; cellW: number; cellH: number; rowPitch: number } {
@@ -75,7 +76,7 @@ export function keepFailedPages<T>(fresh: ReadonlyMap<number, T[]>, failed: numb
   return out;
 }
 
-export const SORT_LABELS: Record<VodSort, string> = { added: 'Recently added', provider: 'Provider order', title: 'A–Z', rating: 'Rating' };
+export const SORT_LABELS: Record<VodSort, string> = { added: VOD_COPY.sort.added, provider: VOD_COPY.sort.source, title: VOD_COPY.sort.title, rating: VOD_COPY.sort.rating };
 
 export function sortsFor(hasRecent: boolean): VodSort[] {
   // Provider order is the default without added dates (M3U); Xtream keeps Recently added first (owner decision 2).

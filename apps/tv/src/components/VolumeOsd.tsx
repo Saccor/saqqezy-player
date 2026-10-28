@@ -2,20 +2,21 @@ import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import { onUnmappedKey } from '../input/keys.ts';
 import { usePointerTarget } from '../input/pointer.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { controlFill } from '../shell/focusStyle.ts';
+import { centerText, COLORS, LAYOUT, RADIUS, SPACE, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { fractionAt } from '../vod/timelineLogic.ts';
 import { volume, volumeRecent, volumeSet, volumeStep, volumeSupported, volumeToggleMute } from '../video/volume.ts';
 import { volumeKeyStep, volumePercent } from '../video/volumeLogic.ts';
-import { NUMBER_ENTRY_H, NUMBER_ENTRY_Y } from './NumberEntry.tsx';
+import { NOTICE_NUMERAL_H, NOTICE_TOP } from './noticeLogic.ts';
 
 const BAR_H = 8;
 const KNOB = 20;
 const PCT_W = 64;
 const OSD_W = 340;
 const OSD_H = 64;
-/** Below the Player's number entry box (top right, under the clock), so a volume change never covers typed digits. */
-const OSD_Y = NUMBER_ENTRY_Y + NUMBER_ENTRY_H + 16;
+/** Below the number-entry notice (top right, under the clock), so a volume change never covers typed digits. */
+const OSD_Y = NOTICE_TOP + NOTICE_NUMERAL_H + SPACE.m;
 
 /**
  * The volume control: a pill with a speaker (click: mute), a slider (click or drag: set) and the level; the wheel over
@@ -69,16 +70,16 @@ export function VolumeControl(props: {
 
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={props.height}
-      color={lit() ? COLORS.hover : props.fill ?? COLORS.panel} borderRadius={props.height / 2}>
+      color={controlFill(lit(), props.fill ?? COLORS.panel)} borderRadius={RADIUS.pill(props.height)}>
       <View x={iconX()} y={(props.height - icon()) / 2} width={icon()} height={icon()} src={iconTexture(silent() ? 'mute' : 'volume')}
-        color={lit() ? COLORS.text : COLORS.muted} />
-      <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={BAR_H / 2} color={COLORS.track} />
-      <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={BAR_H / 2}
-        color={silent() ? COLORS.muted : COLORS.accent} />
-      <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={KNOB / 2}
-        color={COLORS.text} />
-      <Text x={props.width - PCT_W - 16} y={(props.height - TYPE.body) / 2 - 4} width={PCT_W} maxWidth={PCT_W} contain="width"
-        textAlign="right" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>{`${volumePercent(volume())}%`}</Text>
+        color={lit() ? COLORS.onFocus : COLORS.muted} />
+      <View x={barX()} y={(props.height - BAR_H) / 2} width={barW()} height={BAR_H} borderRadius={RADIUS.pill(BAR_H)} color={COLORS.track} />
+      <View x={barX()} y={(props.height - BAR_H) / 2} width={Math.max(BAR_H, fill())} height={BAR_H} borderRadius={RADIUS.pill(BAR_H)}
+        color={silent() ? COLORS.muted : lit() ? COLORS.onFocus : COLORS.text} />
+      <View x={barX() + fill() - KNOB / 2} y={(props.height - KNOB) / 2} width={KNOB} height={KNOB} borderRadius={RADIUS.pill(KNOB)}
+        color={lit() ? COLORS.onFocus : COLORS.text} />
+      <Text x={props.width - PCT_W - 16} y={centerText(props.height, TYPE.body)} width={PCT_W} maxWidth={PCT_W} contain="width"
+        textAlign="right" maxLines={1} fontSize={TYPE.body} color={lit() ? COLORS.onFocus : COLORS.text}>{`${volumePercent(volume())}%`}</Text>
     </View>
   );
 }

@@ -8,7 +8,7 @@ import { CountryGrid } from '../components/CountryGrid.tsx';
 import { gridWidth, type GridSort } from '../components/countryGridLogic.ts';
 import { COUNTRIES_COPY } from '../copy.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { settings } from '../state/appState.ts';
 import { languageName } from '../vod/tracks.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
@@ -24,7 +24,6 @@ const SUB_Y = TITLE_Y + 64;
 const GRID_Y = SUB_Y + 56;
 const LANG_Y = 840;
 const BUTTONS_Y = 912;
-const FOOT_Y = 992;
 const GRID_H = LANG_Y - GRID_Y - 16;
 const BUTTON_W = 240;
 /** The languages "Preferred language" knows (Settings › Playback). */
@@ -122,7 +121,7 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
         </>
       )}</Show>
       <Show when={showLanguages()}>
-        <Text x={X} y={LANG_Y + (BUTTON_H - TYPE.body) / 2 - 4} width={GRID_W - BUTTON_W - LAYOUT.gap}
+        <Text x={X} y={LANG_Y + centerText(BUTTON_H, TYPE.body)} width={GRID_W - BUTTON_W - LAYOUT.gap}
           maxWidth={GRID_W - BUTTON_W - LAYOUT.gap} contain="width" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
           {languageLine(langs(), languageName) ?? ''}
         </Text>
@@ -135,7 +134,6 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
         <Button ref={(el) => { skipNode = el; }} x={BUTTON_W + LAYOUT.gap} width={BUTTON_W} label={COUNTRIES_COPY.skip}
           onPress={skip} onUp={aboveButtons} />
       </View>
-      <Text x={X} y={FOOT_Y} fontSize={TYPE.meta} color={COLORS.muted}>{COUNTRIES_COPY.firstFoot}</Text>
     </View>
   );
 }

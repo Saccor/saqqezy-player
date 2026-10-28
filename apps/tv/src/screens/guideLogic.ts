@@ -6,6 +6,8 @@
  * Left/Right (`stepLeft` / `stepRight`) move the anchor to the neighbouring block and scroll the view when needed.
  */
 
+import { LIVE_COPY } from '../copy.ts';
+
 export const MINUTE = 60_000;
 export const HALF_HOUR = 30 * MINUTE;
 export const HOUR = 60 * MINUTE;
@@ -18,7 +20,7 @@ export const WINDOW_BACK = 6 * HOUR;
 export const WINDOW_AHEAD = 48 * HOUR;
 /** Rows are fetched for the visible 2 h plus this much either side. */
 export const PREFETCH = 2 * HOUR;
-export const NO_INFO = 'No information';
+export const NO_INFO = LIVE_COPY.noInfo;
 
 export interface TimeRange { start: number; end: number }
 export interface ProgrammeLike { title: string; start: number; stop: number; desc?: string; archive?: boolean }
@@ -57,7 +59,7 @@ export function guideBackMs(catchupDays: number): number {
  * now for Today, else 18:00 that day (local time), never before the window.
  */
 export function dayJumpTargets(now: number, win: TimeRange): { label: string; at: number }[] {
-  const out: { label: string; at: number }[] = [{ label: 'Today', at: now }];
+  const out: { label: string; at: number }[] = [{ label: LIVE_COPY.guide.today, at: now }];
   const d = new Date(now);
   for (let back = 1; back <= 8; back++) {
     const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back).getTime();

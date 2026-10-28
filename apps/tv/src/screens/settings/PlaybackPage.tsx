@@ -2,6 +2,7 @@ import { createSignal, onCleanup } from 'solid-js';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { deviceWindowMax, playback, pool } from '../../playback/playback.ts';
 import { deviceCeiling } from '../multiview/windows.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { settings } from '../../state/appState.ts';
 import {
   FORMAT_OPTIONS, LIVE_DELAY_OPTIONS, MAX_WINDOWS_OPTIONS, SLEEP_DEFAULT_OPTIONS, cycleOption, formatLabel, liveDelayLabel,
@@ -12,6 +13,8 @@ import {
   PREFERRED_LANGUAGE_OPTIONS, preferredLanguageLabel, preferredLanguageOption, preferredLanguagesFor,
 } from '../../vod/versionsLogic.ts';
 import { saveSetting, type PageProps } from './shared.ts';
+
+const P = SETTINGS_COPY.playback;
 
 /**
  * Playback: stream format (TS / HLS), live delay, the default sleep timer, the subtitle and audio languages, exact-match subtitles,
@@ -30,26 +33,26 @@ export function PlaybackPage(props: PageProps) {
   const maxWindows = () => settings()?.maxWindows ?? 'auto';
   const ceiling = (): number => deviceCeiling(deviceWindowMax());
   const multiviewItems = (): SettingItem[] => (ceiling() < 2 ? [] : [
-    { id: 'maxWindows', label: 'Max windows', value: maxWindowsLabel(maxWindows(), ceiling()), adjustable: true,
-      help: 'Multiview: channels on screen at once. Each window uses one connection from your source.' },
+    { id: 'maxWindows', label: P.maxWindows, value: maxWindowsLabel(maxWindows(), ceiling()), adjustable: true,
+      help: P.maxWindowsHelp },
   ]);
   const items = (): SettingItem[] => [
-    { id: 'format', label: 'Preferred stream format', value: formatLabel(format()), adjustable: true,
-      help: "If channels don't start, try the other format." },
-    { id: 'liveDelay', label: 'Live delay', value: liveDelayLabel(liveDelay()), adjustable: true,
-      help: 'Low keeps you closer to live but may pause more often on Wi-Fi. Applies from the next channel.' },
-    { id: 'sleep', label: 'Default sleep timer', value: sleepDefaultLabel(sleep()), adjustable: true,
-      help: 'Starts with every channel you watch full screen' },
-    { id: 'subtitleLanguage', label: 'Subtitle language', value: subtitleLanguageLabel(subLang()), adjustable: true,
-      help: 'Movies and series start with subtitles in this language when they have them' },
-    { id: 'audioLanguage', label: 'Audio language', value: audioLanguageLabel(audioLang()), adjustable: true,
-      help: 'Movies, series and channels start with sound in this language when they have it' },
-    { id: 'subtitleExactMatch', label: 'Exact-match subtitles', value: onOff(exact()), adjustable: true,
-      help: 'Online subtitles timed for your exact file. Reads a little of it (never on one-connection accounts).' },
-    { id: 'combineDuplicates', label: 'Combine duplicates', value: onOff(combine()), adjustable: true,
-      help: 'Movies and series: one card per title. Languages and qualities are under Versions.' },
-    { id: 'preferredLanguage', label: 'Preferred language', value: preferredLanguageLabel(prefLang()), adjustable: true,
-      help: 'Which version of a title Play starts' },
+    { id: 'format', label: P.format, value: formatLabel(format()), adjustable: true,
+      help: P.formatHelp },
+    { id: 'liveDelay', label: P.liveDelay, value: liveDelayLabel(liveDelay()), adjustable: true,
+      help: P.liveDelayHelp },
+    { id: 'sleep', label: P.sleep, value: sleepDefaultLabel(sleep()), adjustable: true,
+      help: P.sleepHelp },
+    { id: 'subtitleLanguage', label: P.subtitleLanguage, value: subtitleLanguageLabel(subLang()), adjustable: true,
+      help: P.subtitleLanguageHelp },
+    { id: 'audioLanguage', label: P.audioLanguage, value: audioLanguageLabel(audioLang()), adjustable: true,
+      help: P.audioLanguageHelp },
+    { id: 'subtitleExactMatch', label: P.exactMatch, value: onOff(exact()), adjustable: true,
+      help: P.exactMatchHelp },
+    { id: 'combineDuplicates', label: P.combine, value: onOff(combine()), adjustable: true,
+      help: P.combineHelp },
+    { id: 'preferredLanguage', label: P.preferredLanguage, value: preferredLanguageLabel(prefLang()), adjustable: true,
+      help: P.preferredLanguageHelp },
     ...multiviewItems(),
   ];
 

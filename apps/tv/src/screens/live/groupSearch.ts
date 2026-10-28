@@ -1,4 +1,5 @@
 import type { FoldEntry, FoldView } from '../../components/foldPickerLogic.ts';
+import { LIVE_COPY } from '../../copy.ts';
 import type { PickerRow } from '../homeMenuLogic.ts';
 
 /**
@@ -30,13 +31,13 @@ export function withGroupSearch(
 ): FoldView {
   const q = query.trim();
   if (q === '') {
-    const search: PickerRow = { kind: 'list', id: GROUP_SEARCH_ROW_ID, label: 'Search folders', checked: false };
+    const search: PickerRow = { kind: 'list', id: GROUP_SEARCH_ROW_ID, label: LIVE_COPY.groupSearch.row, checked: false };
     return { ...view, rows: [search, ...view.rows], initial: view.initial + 1 };
   }
   const found = groupMatches(entries, q);
-  const search: PickerRow = { kind: 'list', id: GROUP_SEARCH_ROW_ID, label: `"${q}" · ${found.length} found`, checked: false };
+  const search: PickerRow = { kind: 'list', id: GROUP_SEARCH_ROW_ID, label: LIVE_COPY.groupSearch.found(q, found.length), checked: false };
   const rows: PickerRow[] = found.length > 0
     ? found.map((e) => ({ kind: 'list', id: e.id, label: o.label(e), checked: e.id === o.currentId }))
-    : [{ kind: 'heading', label: 'No folders match' }];
+    : [{ kind: 'heading', label: LIVE_COPY.groupSearch.none }];
   return { title: view.title, rows: [search, ...rows], initial: found.length > 0 ? 1 : 0, key: `search:${q}` };
 }

@@ -7,7 +7,8 @@ import { DropdownHeader, HeaderIconButton } from '../../components/DropdownHeade
 import { PAD_X as DROPDOWN_PAD_X, dropdownWidth } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
 import { KEYBOARD_H, KEYBOARD_W, Keyboard } from '../../components/Keyboard.tsx';
-import { LIST_PICKER_W, ListPicker } from '../../components/ListPicker.tsx';
+import { Sheet } from '../../components/Sheet.tsx';
+import { SHEET_W, fromPickerRow } from '../../components/sheetLogic.ts';
 import {
   TOP_LEVEL, effectiveLevel as foldEffectiveLevel, foldPick, foldView, levelRowId, levelUp, openLevel, type FoldLevel,
 } from '../../components/foldPickerLogic.ts';
@@ -24,10 +25,12 @@ import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { dwellSignal } from '../../shell/dwell.ts';
 import { focusRailCollapsed, Rail } from '../../shell/Rail.tsx';
 import type { RailId } from '../../shell/railLogic.ts';
+import { useNotice } from '../../components/Notice.tsx';
+import { LIVE_COPY, SHELL_COPY } from '../../copy.ts';
 import { goRail } from '../../shell/railNav.ts';
 import { BOTTOM_ROW_H, BOTTOM_ROW_Y, SCREEN_ROW_X } from '../../shell/logic.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { COLORS, LAYOUT, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, SPACE, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup, settings } from '../../state/appState.ts';
 import { externalLayoutChange } from '../../state/events.ts';
@@ -37,16 +40,16 @@ import { EpgCache, type EpgChange } from '../epgCache.ts';
 import { createRowSignals } from './rowSignals.ts';
 import {
   HOUR, MINUTE, VIEW_SPAN, blockIndexAt, buildBlocks, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideOpenTarget,
-  guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
+  NO_INFO, guideWindow, isOnAir, leftFromGrid, nowView, pageTime, prefetchRange, stepLeft, stepRight, type Block, type HStep,
 } from '../guideLogic.ts';
-import { resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
+import { progressOf, resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels } from '../homeLogic.ts';
 import { focusAfterRefresh, type PickerRow } from '../homeMenuLogic.ts';
 import { isGroupSearchRow, withGroupSearch } from './groupSearch.ts';
 import { showPhoneBadge } from '../pairingLogic.ts';
-import { LiveInfo } from './LiveInfo.tsx';
+import { InfoBlock } from '../../components/InfoBlock.tsx';
 import {
-  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, PHONE_BADGE_POS, groupsRetryMs, hasNoLive, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen, locateFocus,
-  sameInfo, type LiveKey, type LivePlace,
+  GRID_Y, INFO_W, INFO_X, LIVE_PREVIEW_RECT, groupsRetryMs, hasNoLive, infoTimeLine, liveChannelLine, liveEmptyText, liveKey, liveOkAction, livePlaceOnOpen,
+  liveProgramme, locateFocus, sameInfo, timeLeftLabel, type LiveKey, type LivePlace,
 } from './liveLogic.ts';
 import { createCatchupOpener } from './liveCatchup.ts';
 import { createLiveMenu } from './liveMenu.tsx';
@@ -58,13 +61,12 @@ import { LiveVideo } from './LiveVideo.tsx';
 const FOCUS_REST_MS = 700;
 const PICKER_ID = 'liveGroups';
 const GROUP_KEYBOARD_ID = 'liveGroupsKeyboard';
-/** The folder search keyboard and the Groups picker side by side, centred together. */
-const GROUP_KB_GAP = 48;
+/** The folder search keyboard opens left of the Groups sheet (the sheet stays on the right). */
+const GROUP_KB_GAP = SPACE.xl;
 /** The folder search button right of the group dropdown, in the ruler's channel column. */
 const GROUP_SEARCH_GAP = 8;
 const GROUP_HEADER_MAX_W = CHANNEL_W - 4 - RULER_H - GROUP_SEARCH_GAP;
-const GROUP_KB_X = (LAYOUT.width - KEYBOARD_W - GROUP_KB_GAP - LIST_PICKER_W) / 2;
-const GROUP_PICKER_OFFSET = GROUP_KB_X + KEYBOARD_W + GROUP_KB_GAP - (LAYOUT.width - LIST_PICKER_W) / 2;
+const GROUP_KB_X = LAYOUT.width - LAYOUT.safeX - SHEET_W - GROUP_KB_GAP - KEYBOARD_W;
 const GROUP_ALL = 'all';
 const ROW_BUFFER = 2;
 
@@ -126,20 +128,6 @@ function leaveWarm(cache: EpgCache<ChannelRow, ProgrammeLite>): void {
 /** The first Live TV mount of this page has decided whether to resume init's last channel (see `resumeTarget`). */
 let startupResumed = false;
 
-const PHONE_BADGE_W = 144;
-const PHONE_BADGE_H = 48;
-
-/** "Phone": shown while a companion is connected (Settings → Manage on phone or computer). */
-function PhoneBadge() {
-  return (
-    <View x={PHONE_BADGE_POS.x} y={PHONE_BADGE_POS.y} width={PHONE_BADGE_W} height={PHONE_BADGE_H} color={COLORS.surface}
-      borderRadius={PHONE_BADGE_H / 2} border={{ width: 2, color: COLORS.subtle }}>
-      <Text y={(PHONE_BADGE_H - TYPE.meta) / 2 - 3} width={PHONE_BADGE_W} maxWidth={PHONE_BADGE_W} contain="width"
-        textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>{'Phone'}</Text>
-    </View>
-  );
-}
-
 /**
  * Live TV (UI revamp phase 2): one guide. A mini preview (top left) with the focused programme beside it, and a
  * full-width EPG grid below: 11 rows x 2 h, the group dropdown in the ruler's channel column. Rows come from
@@ -152,6 +140,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     channelId?: string; groupId?: string; at?: number;
   };
   const opened = Date.now();
+  useNotice(() => (showPhoneBadge(companionStatus()) ? { id: 'phone', kind: 'wait', text: SHELL_COPY.phone } : undefined));
   const sourceId = initState()?.activeSourceId;
   // The source's catch-up days as last seen (same source), so the window is wide from the first frame and a remembered
   // time days back (a return from catch-up) is kept; read again on mount.
@@ -308,6 +297,10 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     return { channel, block: onNow && isOnAir(onNow, now()) ? onNow : undefined };
   }, undefined, { equals: sameInfo });
   const shown = dwellSignal(infoSource);
+  /** The focused programme block's values (the programme, its time line, on-air progress). */
+  const liveProg = () => liveProgramme(shown()?.block, shown()?.channel);
+  const onAir = () => { const p = liveProg(); return p !== undefined && isOnAir(p, now()); };
+  const onAirProgress = () => (onAir() ? progressOf(liveProg(), now()) : undefined);
 
   // ---- focus ----
 
@@ -440,7 +433,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     if (!picking()) return undefined;
     const level = effectiveLevel();
     const view = foldView(groups(), level, {
-      title: 'Groups', picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
+      title: LIVE_COPY.state.groups, picked: regionsOn(), currentId: groupId(), focusId: pickerFocusId(),
       label: groupLabel, flagOf: flagFor,
       onlyCount: settings()?.regions.mode === 'only' ? settings()?.regions.codes.length ?? 0 : 0,
     });
@@ -986,9 +979,13 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
         onRight={() => go('right')} onFocusChanged={(f) => { if (f) setPlace('rail'); }} />
 
       <Show when={ready() && groupCount() === 0} fallback={
-        <LiveInfo block={shown()?.block} channel={shown()?.channel} now={now()} expanded={expanded()} />
+        <InfoBlock x={INFO_X} y={LAYOUT.safeY} width={INFO_W} overline={liveChannelLine(shown()?.channel)}
+          title={liveProg()?.title ?? NO_INFO}
+          meta={liveProg() ? infoTimeLine(liveProg()!.start, liveProg()!.stop, now()) : undefined}
+          progress={onAirProgress()} trailing={onAir() ? timeLeftLabel(liveProg()!.stop, now()) : undefined}
+          description={liveProg()?.desc} descriptionLines={expanded() ? 3 : 1} />
       }>
-        <Text x={INFO_X} y={LAYOUT.safeY + 36} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3}
+        <Text x={INFO_X} y={LAYOUT.safeY + SPACE.l} width={INFO_W} maxWidth={INFO_W} contain="width" maxLines={3}
           fontSize={TYPE.body} color={COLORS.muted}>{emptyText()}</Text>
       </Show>
 
@@ -1012,25 +1009,27 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
           onFocusChanged={(f) => { if (f) setPlace('groupSearch'); }} />
       </Show>
 
-      <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
 
       {/* Pointer mode only: the bottom row, after the shell's Back; the grid shows `EPG_POINTER_ROWS` above it. */}
       <PointerBar x={SCREEN_ROW_X} y={BOTTOM_ROW_Y} height={BOTTOM_ROW_H} items={pointer.bar} enabled={pointerOn()} />
 
-      <Show when={pickerView()}>{(view) => (
-        <>
-          <ListPicker ref={(el) => { pickerNode = el; }} title={view().title} rows={view().rows}
-            initial={view().initial} resetKey={view().key} onPick={pick} hint="Ok picks · Back closes"
-            offsetX={groupKbOpen() ? GROUP_PICKER_OFFSET : 0} pointerEnabled={!groupKbOpen()} />
-          <Show when={groupKbOpen()}>
-            <View zIndex={61}>
-              <Keyboard ref={(el) => { groupKbNode = el; }} x={GROUP_KB_X} y={(LAYOUT.height - KEYBOARD_H) / 2}
-                label="Search folders" hint="Right: results · Back closes" value={groupQuery()}
-                onChange={setGroupQuery} onDone={toGroupResults} onEdgeRight={toGroupResults} />
-            </View>
-          </Show>
-        </>
-      )}</Show>
+      <Show when={pickerView()}>{(view) => {
+        const rows = createMemo(() => view().rows.map(fromPickerRow));
+        return (
+          <>
+            <Sheet ref={(el) => { pickerNode = el; }} title={view().title} rows={rows()} backLayerId={PICKER_ID}
+              initial={view().initial} resetKey={view().key} onSelect={(_, i) => { const r = view().rows[i]; if (r) pick(r); }}
+              pointerEnabled={!groupKbOpen()} />
+            <Show when={groupKbOpen()}>
+              <View zIndex={61}>
+                <Keyboard ref={(el) => { groupKbNode = el; }} x={GROUP_KB_X} y={(LAYOUT.height - KEYBOARD_H) / 2}
+                  label={LIVE_COPY.groupSearch.keyboardLabel} value={groupQuery()}
+                  onChange={setGroupQuery} onDone={toGroupResults} onEdgeRight={toGroupResults} />
+              </View>
+            </Show>
+          </>
+        );
+      }}</Show>
       <liveMenu.View />
     </View>
   );

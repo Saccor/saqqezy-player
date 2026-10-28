@@ -2,7 +2,8 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createMemo, createSignal, onCleanup } from 'solid-js';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
 import { POINTER_BAR_H, POINTER_BTN_W, barLayout } from '../input/pointerLogic.ts';
-import { COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
+import { controlFill, controlText } from '../shell/focusStyle.ts';
+import { centerText, COLORS, LAYOUT, TYPE } from '../shell/theme.ts';
 
 export interface PointerBarItem { id: string; label: string; width?: number; onPress: () => void }
 
@@ -31,9 +32,9 @@ function PointerButton(props: {
   onCleanup(() => props.onHover(false));
   return (
     <View ref={(el) => { node = el; }} x={props.x} y={props.y} width={props.width} height={props.height}
-      borderRadius={props.height / 2} color={hovered() ? COLORS.hover : COLORS.surfaceRaised}>
-      <Text y={(props.height - TYPE.meta) / 2 - 3} width={props.width} maxWidth={props.width} contain="width" textAlign="center"
-        maxLines={1} fontSize={TYPE.meta} color={COLORS.text}>{props.label}</Text>
+      borderRadius={props.height / 2} color={controlFill(hovered(), COLORS.surfaceRaised)}>
+      <Text y={centerText(props.height, TYPE.meta)} width={props.width} maxWidth={props.width} contain="width" textAlign="center"
+        maxLines={1} fontSize={TYPE.meta} color={controlText(hovered())}>{props.label}</Text>
     </View>
   );
 }

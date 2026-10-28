@@ -9,10 +9,11 @@ import { applyInitState } from '../../state/appState.ts';
 import { maxConnectionsOf } from '../../state/sourceLimit.ts';
 import { connectionsLine } from '../addSourceLogic.ts';
 import { markSubscreenLeave, type PageProps } from './shared.ts';
-import { CATCHUP_COPY } from '../../copy.ts';
+import { CATCHUP_COPY, SETTINGS_COPY } from '../../copy.ts';
 import { catchupOffsetChoices, catchupOffsetFromId, catchupOffsetIndex, catchupOffsetLabel } from '../settingsLogic.ts';
 
 const ADD_ID = '__add';
+const S = SETTINGS_COPY.sources;
 /** Focused row across visits (Edit/Add source return to it). */
 let lastSel = 0;
 const KIND: Record<SourceSummary['kind'], string> = { xtream: 'Xtream', m3u: 'M3U' };
@@ -51,21 +52,21 @@ export function SourcesPage(props: PageProps) {
     ...sources().map((s) => ({
       id: s.id,
       label: s.name,
-      value: s.active ? 'Active' : '',
-      help: [KIND[s.kind], connectionsLine(limits().get(s.id)), 'Ok: options'].filter(Boolean).join(' · '),
+      value: s.active ? SETTINGS_COPY.values.active : '',
+      help: [KIND[s.kind], connectionsLine(limits().get(s.id))].filter(Boolean).join(' · '),
     })),
-    { id: ADD_ID, label: 'Add source', help: 'Xtream login or M3U link' },
+    { id: ADD_ID, label: S.add, help: S.addHelp },
   ];
 
   const setActive = async (s: SourceSummary) => {
-    const done = props.busy('Switching source…');
+    const done = props.busy(S.switching);
     playback.stop(); // the playing channel belongs to the old source
     try {
       applyInitState(await api.setActiveSource(s.id));
-      showToast(`Now using ${s.name}`);
+      showToast(S.nowUsing(s.name));
     } catch (err) {
       console.warn('Set active source failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't switch to this source.");
+      showToast(S.switchFailed);
     } finally {
       done();
     }
@@ -73,26 +74,26 @@ export function SourcesPage(props: PageProps) {
   };
 
   const refreshNow = async () => {
-    showToast('Refreshing channels and TV guide…');
+    showToast(S.refreshing);
     try {
       await api.refresh('both');
-      showToast('Channels and TV guide updated');
+      showToast(S.refreshed);
     } catch (err) {
       console.warn('Refresh failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't refresh. Showing saved list.");
+      showToast(S.refreshFailed);
     }
   };
 
   const remove = async (s: SourceSummary) => {
-    if (!(await props.confirm(`Delete "${s.name}"?`, 'Delete'))) return;
+    if (!(await props.confirm(S.deleteTitle, S.delete, { line: s.name }))) return;
     // Deleting waits for a refresh of that source that may still be running.
-    const done = props.busy('Deleting source…');
+    const done = props.busy(S.deleting);
     if (s.active) playback.stop();
     try {
       const state = await api.deleteSource(s.id);
       applyInitState(state);
       done();
-      showToast('Source deleted');
+      showToast(S.deleted);
       if (state.sources.length === 0) {
         router.reset('addSource');
         return;
@@ -100,7 +101,7 @@ export function SourcesPage(props: PageProps) {
     } catch (err) {
       done();
       console.warn('Delete source failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't delete this source.");
+      showToast(S.deleteFailed);
     }
     await load();
     setSel((i) => Math.min(i, items().length - 1));
@@ -116,10 +117,10 @@ export function SourcesPage(props: PageProps) {
     if (!alive || pick === undefined) return;
     try {
       const saved = await api.setCatchupOffset(s.id, catchupOffsetFromId(pick));
-      showToast(`${CATCHUP_COPY.time}: ${catchupOffsetLabel(saved)}`);
+      showToast(S.catchupSaved(catchupOffsetLabel(saved)));
     } catch (err) {
       console.warn('Catch-up time save failed', err instanceof Error ? err.name : 'Error');
-      showToast("Couldn't save the catch-up time.");
+      showToast(S.catchupFailed);
     }
   };
 
@@ -132,13 +133,13 @@ export function SourcesPage(props: PageProps) {
     const s = sources().find((x) => x.id === id);
     if (!s) return;
     const choice = await props.choose(s.name, [
-      ...(s.active ? [] : [{ id: 'active', label: 'Set as active' }]),
-      { id: 'edit', label: 'Edit' },
-      { id: 'advanced', label: 'Advanced' },
+      ...(s.active ? [] : [{ id: 'active', label: S.setActive }]),
+      { id: 'edit', label: S.edit },
+      { id: 'advanced', label: S.advanced },
       { id: 'catchupTime', label: CATCHUP_COPY.time },
-      ...(s.active ? [{ id: 'refresh', label: 'Refresh now' }] : []),
-      { id: 'delete', label: 'Delete' },
-      { id: 'cancel', label: 'Cancel' },
+      ...(s.active ? [{ id: 'refresh', label: S.refreshNow }] : []),
+      { id: 'delete', label: S.delete },
+      { id: 'cancel', label: S.cancel },
     ]);
     if (!alive) return;
     if (choice === 'active') await setActive(s);

@@ -1,58 +1,40 @@
-/** Design tokens (UI revamp spec §1.1). Colours are Lightning `0xRRGGBBAA` numbers. */
+/** Design tokens 2.0 (UI rethink spec 2026-10-26 §1.1). Colours are Lightning `0xRRGGBBAA` numbers. */
 export const COLORS = {
   background: 0x0b0d12ff,
   /** Cards without art, wide cards, guide cells. */
   surface: 0x151a24ff,
-  /** Airing-now cells, unfocused buttons, the focused row's channel cell. */
+  /** Airing-now cells, unfocused buttons. */
   surfaceRaised: 0x1b2232ff,
-  /** Progress tracks and the scroll track. */
+  /** Every progress track, on any background (the bar tokens merged, spec §1.1). */
   track: 0x232a38ff,
-  /** The focus ring and focused fills: one focus style for the whole app. */
+  /**
+   * How far a VOD has loaded, drawn over `track` on the Timeline (owner decision in plan review: the buffered bar stays).
+   * A lighter step of `track`: 1.45:1 against it, and `accent` stays dominant at 3.08:1 over it.
+   */
+  trackBuffered: 0x3a4356ff,
+  /** The focus ring and focused fills; pointer hover is drawn the same (spec §1.2). */
   focus: 0xeef0f4ff,
   /** Text and icons on a focus fill. */
   onFocus: 0x0b0d12ff,
-  /** Secondary text on a focus fill. */
+  /** Secondary text on a focus fill, and a progress track on a focus fill. */
   onFocusMuted: 0x4a505cff,
-  /** The unfilled part of a progress bar on a focus fill. */
-  onFocusTrack: 0xc5c9d2ff,
-  /** Only progress fills, the guide's now line and similar position marks. */
+  /** Only progress fills, the guide's now line and the selected ✓. */
   accent: 0x4f8cffff,
-  /**
-   * The chip in effect at rest (ActionBar `current`): a deeper accent, so `text` on it is ≥ 4.5:1 and the chip is
-   * ≥ 3:1 against the background and the resting chips beside it. A focused chip keeps the focus fill.
-   */
-  selected: 0x3568d0ff,
   text: 0xeef0f4ff,
   /** Plots and descriptions. */
   textSecondary: 0xc9cdd6ff,
   /** Meta lines and channel numbers (≥ 7:1 on the background). */
   muted: 0xa3a9b8ff,
-  /** Icons at rest, the time ruler (≥ 5:1 on the background). */
+  /** Icons at rest, the time ruler, badge outlines (≥ 5:1 on the background). */
   subtle: 0x8a91a3ff,
-  /** Semi-transparent background, for panels drawn over video. */
+  /** Semi-transparent background for anything drawn over video (sheets, notices, the subtitle outline). */
   panel: 0x0b0d12e6,
-  /** Lighter see-through background for the full-screen info banner, so the picture shows through. */
-  osd: 0x0b0d12a6,
-  /** Dims whatever is underneath a dialog or the open rail. */
+  /** Dims whatever is underneath a sheet or dialog. */
   scrim: 0x0b0d12a0,
   /** Validation and error text (always with words, never colour alone). */
   error: 0xff8a80ff,
-  /** Pointer hover highlight (pointer mode only). */
-  hover: 0x232b3cff,
-  /** Fully transparent, for fills that are only drawn while focused or hovered. */
+  /** Fully transparent, for fills that are only drawn while focused. */
   transparent: 0x00000000,
-  /** The buffered range on the movie timeline. */
-  buffered: 0xffffff4d,
-  /** The pending seek range ahead of the playhead on the timeline. */
-  scrubAhead: 0x4f8cff66,
-  /** The pending seek range behind the playhead on the timeline. */
-  scrubBack: 0xffffff80,
-  /** The outline behind subtitle text drawn over video. */
-  subtitleOutline: 0x000000e6,
-  /** Media badges over video: a light see-through fill that reads on dark and bright pictures, quieter than buttons. */
-  badge: 0xffffff26,
-  /** A progress track drawn on artwork, where `track` would not read. */
-  imageTrack: 0x000000aa,
 } as const;
 
 /** Calm, dark title-card colours (white text stays readable on each). */
@@ -63,19 +45,32 @@ export const TITLE_CARD_COLOURS: readonly number[] = [
 /** The background colour without alpha (0xRRGGBB), for the canvas fade textures (`vod/scrim.ts`). */
 export const BACKGROUND_RGB = Math.floor(COLORS.background / 0x100);
 
-/** The type scale. `meta` (24) is the smallest text anywhere. */
+/** Four text sizes plus the numeral (spec §1.1). `meta` (24) is the smallest text anywhere. */
 export const TYPE = {
-  display: 48,
-  title: 40,
-  body: 26,
   meta: 24,
-  /** Named exceptions. */
-  detailTitle: 64,
-  playerTitle: 44,
-  numberEntry: 72,
+  body: 28,
+  /** Screen and section titles, the player title. */
+  title: 40,
+  /** Detail title only. */
+  hero: 64,
+  /** Number entry only. */
+  numeral: 72,
 } as const;
 
-export const SPACE = { xs: 4, s: 8, m: 12, l: 16, xl: 24, xxl: 32, xxxl: 48 } as const;
+/** Line heights for wrapped text, per size. */
+export const LINE = { meta: 32, body: 36, title: 48 } as const;
+
+/** Every layout gap (spec §1.1): 4, 12 and 32 are dropped. */
+export const SPACE = { s: 8, m: 16, l: 24, xl: 48 } as const;
+
+/** 12 for cards, cells and rows; a pill is half its height. */
+export const RADIUS = { card: 12, pill: (h: number): number => h / 2 } as const;
+
+/** The one alpha a resting element may take (a dimmed button). */
+export const ALPHA = { dimmed: 0.5 } as const;
+
+/** The badge outline (spec §1.3 Badge: "one small outlined label"). */
+export const STROKE = { outline: 2 } as const;
 
 /** 1920x1080 design space with a 5% overscan-safe margin; content starts right of the collapsed rail. */
 export const LAYOUT = {
@@ -83,9 +78,8 @@ export const LAYOUT = {
   height: 1080,
   safeX: 96,
   safeY: 54,
-  /** Base spacing step. */
-  gap: 24,
-  radius: 10,
+  /** Base spacing step (SPACE.l). */
+  gap: SPACE.l,
   /** The collapsed rail's width. */
   railW: 128,
   /** Content's left edge on screens with the rail. */
@@ -94,7 +88,12 @@ export const LAYOUT = {
   contentW: 1664,
 } as const;
 
-/** One focus style (spec §1.2): cards scale and get a light ring outside a dark gap; the rest get a fill only. */
+/** The renderer draws a text line a few px below its y; centred text lifts by this much. */
+const TEXT_NUDGE = 4;
+/** The y of a one-line text of `size` centred in a box `boxH` tall. */
+export const centerText = (boxH: number, size: number): number => (boxH - size) / 2 - TEXT_NUDGE;
+
+/** Focus (spec §1.2): tiles scale and get a 4 px ring at 4 px offset; rows, buttons, tabs and cells get a fill only. */
 export const FOCUS = { scale: 1.05, ring: 4, offset: 4, /** The focused card's scale while OK is held. */ press: 1.02 } as const;
 
 /**
@@ -127,6 +126,8 @@ const token = (ms: number, ease: string, kind: MotionKind): MotionToken => ({ ms
 /** Motion tokens (motion research §3) plus the dwell: how long focus must rest before the info strip and backdrop follow it. */
 export const MOTION = {
   dwell: 250,
+  /** Every auto-hide (toasts and info notices, the live banner, the VOD controls). Spec §1.1. */
+  autoHide: 4000,
   /** Card focus scale up and down: leaving is quicker than arriving. */
   focusIn: token(120, EASE.standard, 'focus'),
   focusOut: token(90, EASE.standard, 'focus'),

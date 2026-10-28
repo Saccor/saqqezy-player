@@ -5,16 +5,17 @@ import { CountryGrid } from '../../components/CountryGrid.tsx';
 import { gridWidth, resultLine, type GridSort } from '../../components/countryGridLogic.ts';
 import { SETTING_ROW_H, SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { COUNTRIES_COPY } from '../../copy.ts';
-import { COLORS, TYPE } from '../../shell/theme.ts';
+import { COLORS, LINE, SPACE, TYPE } from '../../shell/theme.ts';
 import { OTHER_FOLDERS, RESET_PATCH, hasGrid, otherFoldersLabel, otherFoldersOf, otherFoldersPatch } from '../countriesLogic.ts';
 import { createCountriesModel } from '../countriesModel.ts';
 import { cycleOption } from '../settingsLogic.ts';
 import type { PageProps } from './shared.ts';
 
 /** Text inset, level with the page title (Settings draws it at x + 28). */
-const PAD = 28;
-const NOTICE_Y = 72;
-const GRID_Y = 140;
+const PAD = SPACE.l;
+/** Notices (up to two lines) sit at the page top, level with the menu's first row; the grid follows them. */
+const NOTICE_Y = 0;
+const GRID_Y = NOTICE_Y + LINE.meta * 2 + SPACE.s;
 const RESULT_H = 40;
 const LIST_H = 2 * SETTING_ROW_H;
 
@@ -84,8 +85,6 @@ export function CountriesPage(props: PageProps) {
     <View ref={(el) => { wrap = el; props.register(el); }} x={props.x} y={props.y} width={props.width} height={props.height}
       forwardFocus={forward} onLeft={() => props.onLeftEdge()}
       onBack={() => { model.flush(); return false; }}>
-      <Text x={PAD} y={0} width={props.width - PAD * 2} maxWidth={props.width - PAD * 2} contain="width" maxLines={2}
-        fontSize={TYPE.meta} color={COLORS.muted}>{COUNTRIES_COPY.help}</Text>
       <Text x={PAD} y={NOTICE_Y} width={props.width - PAD * 2} maxWidth={props.width - PAD * 2} contain="width" maxLines={2}
         fontSize={TYPE.meta} color={COLORS.text}>{model.notices().join(' ')}</Text>
       <Show when={grid()}>

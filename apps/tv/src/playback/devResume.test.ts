@@ -6,7 +6,7 @@ const REMOTE = 'http://source.example.test/live/u/p/1.ts';
 
 describe('dev resume gate', () => {
   it('uses the spec copy and the fake source host', () => {
-    expect(PAUSED_NOTE).toBe('Paused after reload: press OK to play');
+    expect(PAUSED_NOTE).toBe('Paused after reload');
     expect(LOCAL_FAKE_HOST).toBe('127.0.0.1:8899');
   });
 

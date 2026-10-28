@@ -7,7 +7,7 @@ import { ChannelList, ROW_H } from '../../components/ChannelList.tsx';
 import { KEYBOARD_H, KEYBOARD_W, Keyboard } from '../../components/Keyboard.tsx';
 import { MULTIVIEW_COPY } from '../../copy.ts';
 import { router } from '../../shell/router.ts';
-import { COLORS, LAYOUT, STRONG, TYPE } from '../../shell/theme.ts';
+import { centerText, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
 import {
   PICKER_SEARCH_DEBOUNCE_MS, PICKER_SEARCH_LIMIT, answerCount, backDecision, createRequestTokens, focusAfterSearch, searchRowLabel,
 } from './pickerSearchLogic.ts';
@@ -172,10 +172,10 @@ export function MultiviewPicker(props: {
       {/* The windows keep playing behind, dimmed. */}
       <View x={0} y={0} width={x} height={LAYOUT.height} color={COLORS.scrim} />
       <View x={x} y={0} width={PICKER_W} height={LAYOUT.height} color={COLORS.panel}>
-        <Text x={PAD + 8} y={28} width={PICKER_W - PAD * 2} maxWidth={PICKER_W - PAD * 2} contain="width" maxLines={1}
+        <Text x={PAD + 8} y={SPACE.l} width={PICKER_W - PAD * 2} maxWidth={PICKER_W - PAD * 2} contain="width" maxLines={1}
           fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{props.title}</Text>
         <Show when={props.info}>
-          <Text x={PAD + 8} y={72} width={PICKER_W - PAD * 2 - 16} maxWidth={PICKER_W - PAD * 2 - 16} contain="width" maxLines={2}
+          <Text x={PAD + 8} y={SPACE.l + LINE.body + SPACE.s} width={PICKER_W - PAD * 2 - 16} maxWidth={PICKER_W - PAD * 2 - 16} contain="width" maxLines={2}
             fontSize={TYPE.meta} color={COLORS.muted}>{props.info}</Text>
         </Show>
       </View>
@@ -184,16 +184,16 @@ export function MultiviewPicker(props: {
         onFocusChanged={(f: boolean) => setSearchLit(f)}
         onEnter={openKeyboard} onDown={() => { if (shownTotal() > 0) list?.setFocus(); return true; }}
         onUp={() => true} onLeft={() => true} onRight={() => true} onLongOk={() => true} onMenu={() => true}>
-        <View width={ROW_W} height={ROW_H - 8} y={4} borderRadius={12} color={searchLit() ? COLORS.focus : COLORS.surface} />
-        <Text x={20} y={(ROW_H - TYPE.body) / 2 - 2} width={ROW_W - 40} maxWidth={ROW_W - 40} contain="width" maxLines={1}
+        <View width={ROW_W} height={ROW_H - SPACE.s} y={0} borderRadius={RADIUS.card} color={searchLit() ? COLORS.focus : COLORS.surface} />
+        <Text x={SPACE.m} y={centerText(ROW_H - SPACE.s, TYPE.body)} width={ROW_W - SPACE.m * 2} maxWidth={ROW_W - SPACE.m * 2} contain="width" maxLines={1}
           fontSize={TYPE.body} color={searchLit() ? COLORS.onFocus : label().muted ? COLORS.muted : COLORS.text}>{label().text}</Text>
       </View>
       <Show when={searching() && found()?.rows.length === 0}>
-        <Text x={x + PAD + 20} y={LIST_Y + 24} width={ROW_W - 40} maxWidth={ROW_W - 40} contain="width" maxLines={1}
+        <Text x={x + PAD + SPACE.m} y={LIST_Y + 24} width={ROW_W - SPACE.m * 2} maxWidth={ROW_W - SPACE.m * 2} contain="width" maxLines={1}
           fontSize={TYPE.body} color={COLORS.muted}>{MULTIVIEW_COPY.noChannelsMatch}</Text>
       </Show>
       <Show when={kbOpen()}>
-        <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={MULTIVIEW_COPY.searchChannels} hint={MULTIVIEW_COPY.searchHint}
+        <Keyboard ref={(el) => { kbNode = el; }} x={KB_X} y={KB_Y} label={MULTIVIEW_COPY.searchChannels}
           value={query()} onChange={onQuery} onDone={toResults} onEdgeRight={toResults} />
       </Show>
       <ChannelList ref={(el) => { list = el; props.ref(el); }} x={x + PAD} y={LIST_Y} width={ROW_W} height={LIST_H}
