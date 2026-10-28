@@ -1,5 +1,5 @@
 import type { TrackInfo } from '@iptv/player';
-import { languageName } from './tracks.ts';
+import { englishLanguageName } from '@iptv/core';
 
 /**
  * Automatic subtitle sync, the player's half (spec 2026-10-21 §4): while a loaded file shows, the stream's own track
@@ -75,6 +75,6 @@ const isForced = (t: TrackInfo) => t.forced === true || /\bforced\b/i.test(t.lab
  */
 export function syncReferenceTrack(tracks: readonly TrackInfo[], lang: string | undefined): TrackInfo | undefined {
   const full = tracks.filter((t) => !isForced(t));
-  const want = lang ? languageName(lang) : undefined;
-  return (want ? full.find((t) => t.language !== undefined && languageName(t.language) === want) : undefined) ?? full[0];
+  const want = lang ? englishLanguageName(lang) : undefined;
+  return (want ? full.find((t) => t.language !== undefined && englishLanguageName(t.language) === want) : undefined) ?? full[0];
 }

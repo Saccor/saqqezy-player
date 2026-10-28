@@ -17,28 +17,6 @@ export function oneSpace(s: string): string {
 /** Picker row id for "Subtitles off": unprefixed, so no track row (`a:<id>`, `s:<id>`) can produce it. */
 export const SUBTITLES_OFF = 'off';
 
-/** English names for the language codes streams commonly carry (ISO 639-1 and 639-2, both 639-2 forms). */
-export const LANGUAGE_NAMES: Record<string, string> = {
-  ar: 'Arabic', ara: 'Arabic', cs: 'Czech', ces: 'Czech', cze: 'Czech', da: 'Danish', dan: 'Danish', de: 'German',
-  deu: 'German', ger: 'German', el: 'Greek', ell: 'Greek', gre: 'Greek', en: 'English', eng: 'English', es: 'Spanish',
-  spa: 'Spanish', fa: 'Persian', fas: 'Persian', per: 'Persian', fi: 'Finnish', fin: 'Finnish', fr: 'French',
-  fra: 'French', fre: 'French', he: 'Hebrew', heb: 'Hebrew', hi: 'Hindi', hin: 'Hindi', hu: 'Hungarian',
-  hun: 'Hungarian', id: 'Indonesian', ind: 'Indonesian', it: 'Italian', ita: 'Italian', ja: 'Japanese', jpn: 'Japanese',
-  ko: 'Korean', kor: 'Korean', nb: 'Norwegian', nob: 'Norwegian', 'no': 'Norwegian', nor: 'Norwegian', nl: 'Dutch',
-  nld: 'Dutch', dut: 'Dutch', pl: 'Polish', pol: 'Polish', pt: 'Portuguese', por: 'Portuguese', ro: 'Romanian',
-  ron: 'Romanian', rum: 'Romanian', ru: 'Russian', rus: 'Russian', sv: 'Swedish', swe: 'Swedish', th: 'Thai',
-  tha: 'Thai', tr: 'Turkish', tur: 'Turkish', uk: 'Ukrainian', ukr: 'Ukrainian', vi: 'Vietnamese', vie: 'Vietnamese',
-  zh: 'Chinese', zho: 'Chinese', chi: 'Chinese',
-};
-
-/**
- * A language code's English name ("pt-BR", "ENG", "ger" and less common codes such as "ice" too); undefined for an
- * undetermined (`und`) or unrecognised code.
- */
-export function languageName(code: string): string | undefined {
-  return LANGUAGE_NAMES[code.toLowerCase().split(/[-_]/)[0] ?? ''] ?? englishLanguageName(code);
-}
-
 /**
  * What a remembered track choice stores: `<language>:<label>` (language may be empty). Engine ids change per open, and
  * two tracks often share a language (main and commentary), so both are kept. The codec is not part of it.
@@ -122,7 +100,7 @@ export function trackLabels(tracks: readonly TrackInfo[], kind: TrackKind, input
   return tracks.map((t, i) => {
     const raw = oneSpace(t.label);
     const lang = langs[i];
-    const name = lang ? languageName(lang) : undefined;
+    const name = lang ? englishLanguageName(lang) : undefined;
     let base: string;
     if (PLACEHOLDER.test(raw)) base = name ?? `${kind === 'audio' ? 'Audio' : 'Subtitle'} ${i + 1}`;
     else base = name && !languageFromLabel(raw) ? `${name} · ${raw}` : raw;
@@ -154,16 +132,16 @@ const isForced = (t: TrackInfo) => /\bforced\b/i.test(t.label);
  * forced one (forced subtitles only cover foreign-language lines).
  */
 export function preferredTrack(tracks: readonly TrackInfo[], code: string): TrackInfo | undefined {
-  const name = code === 'off' || code === 'auto' ? undefined : languageName(code);
+  const name = code === 'off' || code === 'auto' ? undefined : englishLanguageName(code);
   if (!name) return undefined;
   const byLang = tracks.filter((t) => {
     const lang = isoLanguage(t.language) ?? languageFromLabel(t.label);
-    return lang !== undefined && languageName(lang) === name;
+    return lang !== undefined && englishLanguageName(lang) === name;
   });
   const lower = name.toLowerCase();
   const matches = byLang.length > 0
     ? byLang
-    : tracks.filter((t) => t.label.toLowerCase().includes(lower) || languageName(t.label.trim()) === name);
+    : tracks.filter((t) => t.label.toLowerCase().includes(lower) || englishLanguageName(t.label.trim()) === name);
   return matches.find((t) => !isForced(t)) ?? matches[0];
 }
 

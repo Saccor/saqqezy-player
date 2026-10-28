@@ -1,6 +1,6 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { onCleanup, onMount, createSignal } from 'solid-js';
-import { countryLanguages } from '@iptv/core';
+import { countryLanguages, englishLanguageName } from '@iptv/core';
 import { api } from '../api.ts';
 import { flagFor } from '../assets/flags/index.ts';
 import { Button, BUTTON_H } from '../components/Button.tsx';
@@ -10,7 +10,6 @@ import { COUNTRIES_COPY } from '../copy.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
 import { centerText, COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { settings } from '../state/appState.ts';
-import { languageName } from '../vod/tracks.ts';
 import { PREFERRED_LANGUAGE_OPTIONS } from '../vod/versionsLogic.ts';
 import { SKIP_PATCH, firstRunFocus, firstRunLanguages, languageLine, preselect } from './countriesLogic.ts';
 import { createCountriesModel } from './countriesModel.ts';
@@ -123,7 +122,7 @@ export function CountriesScreen(_props: { entry: ScreenEntry }) {
       <Show when={showLanguages()}>
         <Text x={X} y={LANG_Y + centerText(BUTTON_H, TYPE.body)} width={GRID_W - BUTTON_W - LAYOUT.gap}
           maxWidth={GRID_W - BUTTON_W - LAYOUT.gap} contain="width" maxLines={1} fontSize={TYPE.body} color={COLORS.text}>
-          {languageLine(langs(), languageName) ?? ''}
+          {languageLine(langs(), englishLanguageName) ?? ''}
         </Text>
         <Button ref={(el) => { changeNode = el; }} x={X + GRID_W - BUTTON_W} y={LANG_Y} width={BUTTON_W} label={COUNTRIES_COPY.change}
           onPress={change} onUp={() => { gridNode?.setFocus(); return true; }} onDown={() => { doneNode?.setFocus(); return true; }} />

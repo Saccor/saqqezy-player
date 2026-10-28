@@ -1,5 +1,6 @@
 import { UNCATEGORIZED } from '../constants.ts';
 import type { Channel } from '../types.ts';
+import { englishLanguageName } from './language.ts';
 import { LANG_CODES, peelPrefix, prepare } from './nameTags.ts';
 
 /**
@@ -149,13 +150,11 @@ const ALIASES: Record<string, string> = {
   PAK: 'PK', KUR: 'KU', KRD: 'KU', CHN: 'CN', JPN: 'JP', KOR: 'KR', THA: 'TH', MEX: 'MX', ARG: 'AR', BRA: 'BR', CAN: 'CA', AUS: 'AU',
 };
 
-/** English labels of language-only keys (`lang:xx`). */
-const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English', es: 'Spanish', ar: 'Arabic', fr: 'French', pt: 'Portuguese', de: 'German', sv: 'Swedish',
-  da: 'Danish', no: 'Norwegian', fi: 'Finnish', it: 'Italian', nl: 'Dutch', pl: 'Polish', tr: 'Turkish', el: 'Greek',
-  he: 'Hebrew', hi: 'Hindi', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', ru: 'Russian', uk: 'Ukrainian',
-  fa: 'Persian', ku: 'Kurdish', cs: 'Czech', hu: 'Hungarian', ro: 'Romanian', th: 'Thai', vi: 'Vietnamese', id: 'Indonesian',
-};
+/** English labels of language-only keys (`lang:xx`): the languages a region can be. */
+const LANGUAGE_LABELS: Record<string, string> = Object.fromEntries([
+  'en', 'es', 'ar', 'fr', 'pt', 'de', 'sv', 'da', 'no', 'fi', 'it', 'nl', 'pl', 'tr', 'el', 'he', 'hi', 'ja', 'ko', 'zh',
+  'ru', 'uk', 'fa', 'ku', 'cs', 'hu', 'ro', 'th', 'vi', 'id',
+].map((code) => [code, englishLanguageName(code) ?? code]));
 
 /** Whole names of a language spoken in many countries: a language-only group, not a country. */
 const LANGUAGE_NAMES: Record<string, string> = {

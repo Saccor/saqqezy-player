@@ -1,19 +1,19 @@
-import { SUBTITLE_LANGUAGES, detectTextLanguage, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
+import { SUBTITLE_LANGUAGES, detectTextLanguage, englishLanguageName, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
-import { findTrack, languageName, preferredTrack } from './tracks.ts';
+import { findTrack, preferredTrack } from './tracks.ts';
 
 /** The Settings choices for the subtitle language: the languages core's settings accept. */
 export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = SUBTITLE_LANGUAGES;
 
-export const subtitleLanguageLabel = (code: string): string => (code === 'off' ? 'Off' : languageName(code) ?? code);
+export const subtitleLanguageLabel = (code: string): string => (code === 'off' ? 'Off' : englishLanguageName(code) ?? code);
 
 /** The Settings choices for the audio language: 'auto' (the stream's default track), then the subtitle languages. */
 export const AUDIO_LANGUAGE_OPTIONS: readonly string[] = ['auto', ...SUBTITLE_LANGUAGE_OPTIONS.filter((c) => c !== 'off')];
 
-export const audioLanguageLabel = (code: string): string => (code === 'auto' ? VOD_COPY.streamDefault : languageName(code) ?? code);
+export const audioLanguageLabel = (code: string): string => (code === 'auto' ? VOD_COPY.streamDefault : englishLanguageName(code) ?? code);
 
 /** What a remembered subtitle choice stores for "the file the user loaded" (`trackKey` always contains ':'). */
 export const SUBTITLE_KEY_EXT = 'ext';
@@ -131,7 +131,7 @@ const SOURCE_PREFIX = 'src:';
  * file the same way (`sourceSubtitleName` in app-api), so the picker can tell which one is loaded.
  */
 export function sourceSubtitleName(sub: SourceSubtitleInfo): string {
-  const what = sub.label?.trim() || (sub.language ? languageName(sub.language) : undefined) || 'Subtitles';
+  const what = sub.label?.trim() || (sub.language ? englishLanguageName(sub.language) : undefined) || 'Subtitles';
   return `${what} (from source)`;
 }
 
@@ -150,7 +150,7 @@ const DETECT_CUES = 40;
 
 /** A loaded file's row name: its language first when its name does not say it ("Swedish · subs.srt"). */
 function externalName(ext: { name: string; language?: string }): string {
-  const lang = ext.language ? languageName(ext.language.split(/[-_]/)[0] ?? '') : undefined;
+  const lang = ext.language ? englishLanguageName(ext.language.split(/[-_]/)[0] ?? '') : undefined;
   return lang && !languageFromFileName(ext.name) ? `${lang} · ${ext.name}` : ext.name;
 }
 
@@ -217,7 +217,7 @@ const ONLINE_PREFIX = 'os:';
 /** A language code's display name: "Swedish", "Portuguese (BR)" for a regional variant, the code itself when unknown. */
 export function onlineLanguageLabel(code: string): string {
   const [lang = '', region] = code.split(/[-_]/);
-  const name = languageName(lang);
+  const name = englishLanguageName(lang);
   if (!name) return code.toUpperCase();
   return region ? `${name} (${region.toUpperCase()})` : name;
 }

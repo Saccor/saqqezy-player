@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
-import { SUBTITLE_LANGUAGES, sanitizeSettings } from '@iptv/core';
+import { SUBTITLE_LANGUAGES, englishLanguageName, sanitizeSettings } from '@iptv/core';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW,
   SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, stepDelay,
@@ -8,7 +8,7 @@ import {
   SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
   subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName, loadedLanguage,
 } from './subtitleLogic.ts';
-import { languageName, preferredTrack } from './tracks.ts';
+import { preferredTrack } from './tracks.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
   const x: TrackInfo = { id, label, active };
@@ -32,11 +32,11 @@ describe('subtitle language setting', () => {
   });
 
   it('names 639-1, both 639-2 forms and region tags', () => {
-    expect(languageName('en')).toBe('English');
-    expect(languageName('ENG')).toBe('English');
-    expect(languageName('ger')).toBe('German');
-    expect(languageName('pt-BR')).toBe('Portuguese');
-    expect(languageName('zz')).toBeUndefined();
+    expect(englishLanguageName('en')).toBe('English');
+    expect(englishLanguageName('ENG')).toBe('English');
+    expect(englishLanguageName('ger')).toBe('German');
+    expect(englishLanguageName('pt-BR')).toBe('Portuguese');
+    expect(englishLanguageName('zz')).toBeUndefined();
   });
 });
 

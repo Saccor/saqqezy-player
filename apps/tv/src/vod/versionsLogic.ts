@@ -1,14 +1,13 @@
 import type { VersionView } from '@iptv/app-api';
+import { englishLanguageName } from '@iptv/core';
 import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_LANGUAGE_OPTIONS } from './subtitleLogic.ts';
-import { languageName as nameOf } from './tracks.ts';
-import { LANGUAGE_NAMES } from './tracks.ts';
 
 /** The Versions list's last row: shows each version as its own card. */
 export const SHOW_SEPARATELY = VOD_COPY.showSeparately;
 
-const languageName = (code: string) => nameOf(code) ?? code.toUpperCase();
+const languageName = (code: string) => englishLanguageName(code) ?? code.toUpperCase();
 
 /** `versions` with the languages `getVersionLanguages` found filled in (a version's own language is never replaced). */
 export function withLanguages<T extends VersionView>(versions: readonly T[], langs: Record<string, string>): T[] {
@@ -40,4 +39,4 @@ export const preferredLanguageOption = (langs: readonly string[] | undefined): s
 export const preferredLanguagesFor = (option: string): string[] => (option === 'auto' ? [] : [option]);
 
 export const preferredLanguageLabel = (option: string): string =>
-  (option === 'auto' ? VOD_COPY.automaticLanguage : LANGUAGE_NAMES[option] ?? option.toUpperCase());
+  (option === 'auto' ? VOD_COPY.automaticLanguage : englishLanguageName(option) ?? option.toUpperCase());

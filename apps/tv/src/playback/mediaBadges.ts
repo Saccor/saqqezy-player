@@ -1,7 +1,7 @@
-import type { VideoRange } from '@iptv/core';
+import { englishLanguageName, type VideoRange } from '@iptv/core';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
 import { PLAYER_COPY } from '../copy.ts';
-import { channelsLabel, codecFamily, languageName, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
+import { channelsLabel, codecFamily, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
 import { formatBitrate } from './streamInfo.ts';
 import { SPACE } from '../shell/theme.ts';
 
@@ -70,7 +70,7 @@ function rangeLabel(info: StreamInfo, hint: VideoRange | undefined): string | un
 function languageAt(tracks: readonly TrackInfo[], i: number, kind: 'audio' | 'subtitle', input: TrackLanguageInput | undefined): string | undefined {
   if (i < 0) return undefined;
   const code = trackLanguages(tracks, kind, input)[i];
-  return code ? languageName(code) : undefined;
+  return code ? englishLanguageName(code) : undefined;
 }
 
 const HEARING_IMPAIRED = /\b(sdh|cc|hoh|hearing)\b/i;
