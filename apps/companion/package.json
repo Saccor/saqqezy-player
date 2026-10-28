@@ -20,6 +20,6 @@
     "@iptv/storage": "workspace:*",
     "vite": "8.3.4",
     "vite-plugin-solid": "2.11.14",
-    "wrangler": "4.151.0"
+    "wrangler": "4.153.0"
   }
 }
