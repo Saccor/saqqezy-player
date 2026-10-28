@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { ChannelIndex, type ChannelRegionView } from '../src/index/channelIndex.ts';
+import { foldSummary } from '../src/index/countryFold.ts';
 import { buildRegionsRecord, knownCountries } from '../src/text/regions.ts';
 import type { Channel } from '../src/types.ts';
 
@@ -34,4 +35,15 @@ test('2k groups / 50k channels: build + groups() with the country fold within th
   expect(folded - flat).toBeLessThan(5);
   // Absolute guard only: the flat build alone is ~25 ms on this PC (fresh 50k-channel index per run); the fold delta above is the budget.
   expect(folded).toBeLessThan(45);
+});
+
+// Moved from test/countryFold.test.ts with its budget unchanged.
+test('foldSummary over 2,000 entries stays under 5 ms', () => {
+  const codes = ['SE', 'DK', 'BE', 'DE', 'FR', 'NL', 'PL', 'ES'];
+  const entries = Array.from({ length: 2000 }, (_, i) => ({ count: 20, ...(i % 10 ? { fold: codes[i % codes.length]! } : {}) }));
+  foldSummary(entries);
+  const t0 = performance.now();
+  const out = foldSummary(entries);
+  expect(performance.now() - t0).toBeLessThan(5);
+  expect(out).toHaveLength(codes.length);
 });

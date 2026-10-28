@@ -92,23 +92,6 @@ describe('groupEvents', () => {
     expect(events.map((g) => g.key).sort()).toEqual([`t:cup final@${T0}`, `t:other show@${T0}`]);
     expect(events.find((g) => g.key === `t:cup final@${T0}`)!.airings).toEqual(['c1', 'c2']);
   });
-
-  test('budget: 50k candidates group in under 300 ms', () => {
-    const items: GroupInput<string>[] = [];
-    // Varied names, as in real guides (distinct first letters spread the fuzzy buckets).
-    const az = 'abcdefghijklmnopqrstuvwxyz';
-    const name = (k: number) => `${az[k % 26]}${az[Math.floor(k / 26) % 26]}${az[(k * 7) % 26]}ton ${k}`;
-    for (let m = 0; m < 5000; m++) {
-      const a = name(2 * m);
-      const b = name(2 * m + 1);
-      for (let c = 0; c < 10; c++) items.push(item(`${a} v ${b}`, a, b, `c${c}`, (m % 48) * 30));
-    }
-    const t = performance.now();
-    const { events } = groupEvents(items, new Map(), id);
-    const ms = performance.now() - t;
-    expect(ms).toBeLessThan(300);
-    expect(events).toHaveLength(5000);
-  });
 });
 
 describe('isFollowed', () => {

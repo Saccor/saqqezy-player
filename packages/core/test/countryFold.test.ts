@@ -39,14 +39,4 @@ describe('country fold helpers', () => {
     ]);
     expect(foldSummary([])).toEqual([]);
   });
-
-  test('foldSummary over 2,000 entries stays under 5 ms', () => {
-    const codes = ['SE', 'DK', 'BE', 'DE', 'FR', 'NL', 'PL', 'ES'];
-    const entries = Array.from({ length: 2000 }, (_, i) => ({ count: 20, ...(i % 10 ? { fold: codes[i % codes.length]! } : {}) }));
-    foldSummary(entries);
-    const t0 = performance.now();
-    const out = foldSummary(entries);
-    expect(performance.now() - t0).toBeLessThan(5);
-    expect(out).toHaveLength(codes.length);
-  });
 });

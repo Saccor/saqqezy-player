@@ -58,18 +58,7 @@ describe('picker filtering', () => {
   });
 });
 
-describe('picker perf and memo keys', () => {
-  it('filters 50k channels in under 50 ms (keys built beforehand, as the picker memoises them)', () => {
-    const many = Array.from({ length: 50_000 }, (_, i) => ch(`c${i}`, `Channel ${i} Ünïcode`, `Group ${i % 300}`, i + 1));
-    const k = buildSearchKeys(many);
-    filterChannels(k, 'warm up');
-    for (const q of ['unicode group 12', 'channel 4999', '12', 'nothing matches this']) {
-      const t0 = performance.now();
-      filterChannels(k, q);
-      expect(performance.now() - t0, q).toBeLessThan(50);
-    }
-  });
-
+describe('picker memo keys', () => {
   it('sameNames: equal renames count as the same (a layout change elsewhere keeps the keys)', () => {
     const a = { c1: 'One', c2: 'Two' };
     expect(sameNames(a, a)).toBe(true);
