@@ -6,7 +6,7 @@ development and packages for Samsung Tizen TVs.
 
 v1 covers: a remote-first Channels screen with live preview, favourites, hidden channels and recently watched;
 full-screen playback with zapping, number entry, previous channel, options and a sleep timer; a TV guide grid;
-search; settings; and a cached start that reopens the last channel in under a second.
+search; settings; and a cached start designed to reopen the last channel in under a second.
 
 v1.1 adds organisation and a companion: your own lists (with Favourites), group order and hiding, channel renames
 and sorting, "hide channels without TV guide", and **Phone and computer**: scan a QR code (or type a code)
@@ -23,8 +23,8 @@ refusal cooldowns; live delay and recovery; and a dev proxy that logs with crede
 - **Manage from your phone, local test:** [docs/try-v1.md](docs/try-v1.md#6-manage-from-your-phone-local-test)
 - **Deploy the relay and the companion web app (Cloudflare):** [docs/deploy-companion.md](docs/deploy-companion.md)
 - **Deploy the trending feed (Start page rows, Cloudflare):** [docs/deploy-trending.md](docs/deploy-trending.md)
-- **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). The Samsung build has
-  not yet been verified on a real TV.
+- **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). Installed and profiled on one
+  Samsung Tizen device (an Odyssey G9 monitor); other models are untested.
 - **What comes later:** [docs/backlog.md](docs/backlog.md)
 
 ## Guardrails (summary)
@@ -41,8 +41,8 @@ The full rules are in [docs/GUARDRAILS.md](docs/GUARDRAILS.md). In short:
 - **Credentials stay on the device**, never in logs, error text or diagnostics. The companion sends them to the TV
   end-to-end encrypted; the relay sees only ciphertext and stores nothing. Any future sync must be end-to-end
   encrypted too.
-- **Speed is the feature:** cached start under 1 s, key response under 100 ms, parsing off the UI thread,
-  virtualised lists for 50k+ channels.
+- **Speed is the feature:** targets of a cached start under 1 s and a key response under 100 ms, parsing off the UI
+  thread, virtualised lists for 50k+ channels.
 
 ## Package map
 

@@ -1,10 +1,13 @@
 # Installing the app on a Samsung TV
 
-> **Not yet verified on a real TV.** These steps follow Samsung's developer documentation, but nobody has
-> installed this build on an actual TV yet. If a step does not match what you see, please note what happened.
+> Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); other models are untested.
+> These steps follow Samsung's developer documentation. If a step does not match what you see, please note what
+> happened.
 
-This guide puts the app on your own Samsung TV in **developer mode**. You need a Windows, Mac or Linux
-computer on the **same home network** as the TV. It takes about an hour the first time.
+This guide puts the app on your own Samsung TV (or Samsung smart monitor) in **developer mode**. You need a
+Windows, Mac or Linux computer on the **same home network** as the TV (not a guest network). It takes about an
+hour the first time with Tizen Studio; on Windows, [Apps2Samsung](#alternative-apps2samsung-no-tizen-studio) is
+quicker.
 
 ## Which TVs work
 
@@ -39,10 +42,11 @@ The app plays your own sources only. It does not come with any channels.
 2. On the TV, open the **Apps** screen.
 3. With the Apps screen open, press **1 2 3 4 5** on the remote.
    - If your remote has no number buttons, press the **123** (or colour) button to show an on-screen number pad.
+     If there is no such key, use the **SmartThings** phone app: pair the TV, open its remote and its number pad.
 4. A "Developer mode" window opens. Switch **Developer mode** to **On**.
 5. Enter your **computer's** IP address from point 1 (not the TV's). Select **OK**.
-6. **Restart the TV**: hold the power button on the remote until the TV turns off and on again (a normal
-   power-off is not enough). Back on the Apps screen you should see "Developer mode" at the top.
+6. **Restart the TV**: hold the power button on the remote for 5 seconds or more, until the TV turns off and on
+   again (a normal power-off is not enough). Back on the Apps screen you should see "Developer mode" at the top.
 7. Find the **TV's** IP address: Settings > General > Network > Network Status > IP Settings.
 
 ## Step 3: Connect to the TV and create a certificate
@@ -97,11 +101,41 @@ Samsung only installs apps that are signed with a certificate made for **your** 
 4. The app appears on the TV's Apps screen as **Saqqezy Player**. Open it and add your source in Settings.
 
 Without the Tizen CLI, `pnpm build:tizen` still makes an **unsigned** package, `dist-tizen/Saqqezy-Player-unsigned.wgt`,
-which Apps2Samsung can sign and install (see [install-on-odyssey-g9.md](install-on-odyssey-g9.md), which works for
-any Samsung TV or monitor in developer mode).
+which Apps2Samsung can sign and install: see [Alternative: Apps2Samsung](#alternative-apps2samsung-no-tizen-studio).
 
 To update the app later, repeat step 4 (points 2 and 3). The TV must still be in developer mode with your
 computer's IP address.
+
+---
+
+## Alternative: Apps2Samsung (no Tizen Studio)
+
+Apps2Samsung is a free Windows tool that makes the certificate for your device and installs a `.wgt` for you. It
+works for any Samsung TV or monitor in developer mode. You need a free **Samsung account**.
+
+1. Turn on developer mode and restart the TV as in [step 2](#step-2-turn-on-developer-mode-on-the-tv). Write down the
+   TV's IP address (point 7).
+2. Build the unsigned package in the app's folder: `pnpm build:tizen`. It prints
+   `Unsigned package: dist-tizen/Saqqezy-Player-unsigned.wgt`. (If you only received the `.wgt` file, skip this.)
+3. Download the **latest release** of **Apps2Samsung** from its GitHub Releases page (search for
+   "Apps2Samsung github") and start it.
+4. Sign in with your **Samsung account** when it asks.
+5. Select the TV in the list. If it is not found, type the TV's IP address.
+6. Choose **custom .wgt** as the source, then pick `dist-tizen\Saqqezy-Player-unsigned.wgt` in the app's folder.
+7. Start the install. When it finishes, open **Apps** on the TV and start **Saqqezy Player**.
+
+If Apps2Samsung says the package is rejected (a signature or author certificate error), uninstall any older copy
+from the TV first, then try again. If it still fails, use Tizen Studio (steps 1 to 4).
+
+## Check that it works
+
+Open **Settings > Diagnostics** in the app and note:
+
+- **Player**: "AVPlay" or "HTML5". If it says HTML5, `webapis.js` did not load.
+- **Viewport**, **Screen**, **pixel ratio** and **design scale**, plus **Device** (Tizen version and model) and **Engine**.
+- Whether the picture fills the screen, and whether video plays in the Home preview and in full screen.
+
+Include these when you report a problem.
 
 ---
 
@@ -123,13 +157,15 @@ computer's IP address.
 - Computer and TV must be on the same network. Some routers block devices from seeing each other ("guest
   network" or "AP isolation"): use the main network.
 - Try `sdb disconnect` and then `sdb connect <TV-IP>` again.
+- If the IP address looks reversed after you enter it, enter the four numbers in reverse order (Apps2Samsung FAQ).
+- If the computer still cannot reach the TV, unplug the TV for 10 to 15 seconds and try again.
 
 ### Install refused: platform version
 
 - If the install fails with a message about the platform or required version, the TV is older than Tizen 6.0
   (a 2020 or earlier model). Check the TV's model year (below). These models are not supported.
-- If the TV is 2021 or newer and the app still does not start or shows a black screen, please report it: this
-  build has not been tested on a real TV yet. Settings > Diagnostics shows which player is in use ("AVPlay" or
+- If the TV is 2021 or newer and the app still does not start or shows a black screen, please report it: only one
+  Samsung device has been tested so far. Settings > Diagnostics shows which player is in use ("AVPlay" or
   "HTML5").
 
 ### How do I find my TV's model year?

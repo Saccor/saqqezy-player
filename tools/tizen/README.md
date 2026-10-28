@@ -1,7 +1,7 @@
 # tools/tizen
 
 Samsung Tizen packaging for `apps/tv`. User-facing install steps: `docs/install-on-samsung.md`.
-**Not yet verified on a real TV.**
+Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); other models are untested.
 
 | File | What it does |
 |---|---|
@@ -50,7 +50,7 @@ Known risks (unverified until tried on a TV):
 
 ## Multiview (two windows, Tizen 7.0+)
 
-**Not yet verified on a TV.**
+Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); other models are untested.
 - `src/platform/tizenMultiview.ts`: `tizenWindowCeiling` gives 2 windows when `webapis.avplaystore.getPlayer`,
   `webapis.avplay.enableAudioStream`/`disableAudioStream` exist and the platform version is 7.0+ (`tizen.systeminfo`, else
   the user agent); else 1 and Options hides Multiview. `createVideoResources` shares the MAIN and SUB scalers.
@@ -69,7 +69,7 @@ Known risks (unverified until tried on a TV):
 By default Samsung gives apps a 1920x1080 viewport and letterboxes it on a 32:9 panel. `config.xml` carries a
 **commented-out** line, `<tizen:metadata key="http://tizen.org/metadata/app_ui_type/base_screen_resolution" value="extensive"/>`,
 which asks for a wider viewport (Samsung lists the G95SC model group as supporting it). Do not enable it yet. First
-install the default build (`docs/install-on-odyssey-g9.md`), read the real numbers on Settings > Diagnostics
+install the default build (`docs/install-on-samsung.md`), read the real numbers on Settings > Diagnostics
 (Viewport, Screen, pixel ratio, design scale, Device, Engine), then try the line together with
 `<meta name="viewport" content="width=device-width">` in the Tizen `index.html` and a responsive layout. AVPlay
 stays in a fixed 1920x1080 space and may need a rect conversion.

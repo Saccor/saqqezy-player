@@ -108,7 +108,7 @@ if (idProblem) fail(idProblem);
 const unsignedPath = join(out, UNSIGNED_WGT);
 const packed = zipDirectory(out, unsignedPath, (f) => f.toLowerCase().endsWith('.wgt'));
 console.log(`Unsigned package: dist-tizen/${UNSIGNED_WGT} (${statSync(unsignedPath).size} bytes, ${packed.length} files).`);
-console.log('Apps2Samsung or Tizen Studio signs it for your device: see docs/install-on-odyssey-g9.md.');
+console.log('Apps2Samsung or Tizen Studio signs it for your device: see docs/install-on-samsung.md.');
 
 // 4. Sign and package when possible.
 const hasCli = run('tizen', ['version'], { stdio: 'ignore' }).status === 0;

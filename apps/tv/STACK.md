@@ -330,7 +330,7 @@ The URL is built in the worker (never logged; `/timeshift/` paths are masked) an
 
 ## Tizen (Task 12)
 
-**Not yet verified on a real TV.** Packaging: `pnpm build:tizen` (`tools/tizen/build-wgt.mjs`, see `tools/tizen/README.md`); user guide `docs/install-on-samsung.md`.
+Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); other models are untested. Packaging: `pnpm build:tizen` (`tools/tizen/build-wgt.mjs`, see `tools/tizen/README.md`); user guide `docs/install-on-samsung.md`.
 
 - **Minimum: Tizen 6.0 (2021 models, Chromium 76).** Tizen 5.0 (Chromium 63) lacks `import.meta`; 5.5 (Chromium 69) lacks `queueMicrotask`, `globalThis` and `Object.fromEntries`, which the app and libraries use. `config.xml` sets `required_version="6.0"`, so older TVs refuse to install it.
 - Runtime APIs newer than Chromium 76 must be avoided or feature-detected: no `Object.hasOwn` (93), `String.prototype.replaceAll` (85), `structuredClone` (98, tests/MemoryStorage only), `TextDecoderStream` (core decodes with `TextDecoder`), module workers (80). `DecompressionStream` (80) is feature-detected: without it a gzip list fails with "This device cannot read compressed lists".
