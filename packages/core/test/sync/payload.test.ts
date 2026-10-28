@@ -10,7 +10,7 @@ import { openBackup } from '../../src/sync/backupCrypto.ts';
 import { SyncClock } from '../../src/sync/clock.ts';
 import { encodeHlc } from '../../src/sync/hlc.ts';
 import {
-  DELTA_MAX_BYTES, SNAPSHOT_MAX_BYTES, SYNCED_SETTINGS, decodePayload, encodePayload, payloadBytes,
+  SYNCED_SETTINGS, decodePayload, encodePayload,
 } from '../../src/sync/payload.ts';
 import type { SyncRecord, SyncValue } from '../../src/sync/types.ts';
 
@@ -192,25 +192,17 @@ describe('sync payload', () => {
   });
 });
 
-describe('sync payload size (budgeted uncompressed: CompressionStream is Chromium 80+)', () => {
+describe('sync payload at scale', () => {
   const ids = Array.from({ length: 50_000 }, (_, i) => `x${100_000 + i}`);
 
-  test('50k hidden channels hidden in one action fit a snapshot with room to spare', () => {
+  test('50k hidden channels hidden in one action round-trip', () => {
     const p = encodePayload(ids.map((id) => rec('hc', id, true)), T);
-    const bytes = payloadBytes(p);
-    expect(bytes).toBeLessThan(SNAPSHOT_MAX_BYTES / 2);
     expect(decodePayload(JSON.parse(JSON.stringify(p)))).toHaveLength(50_000);
   });
 
-  test('50k hidden channels with 50k distinct stamps from two devices still fit the 2 MB snapshot', () => {
+  test('50k hidden channels with 50k distinct stamps from two devices keep every stamp', () => {
     const p = encodePayload(ids.map((id, i) => rec('hc', id, i % 3 !== 0, { wall: T - i * 1000, node: i % 2 ? 'nodeaa' : 'nodebb' })), T);
     expect(p.c.length).toBe(50_000);
-    expect(payloadBytes(p)).toBeLessThan(SNAPSHOT_MAX_BYTES);
-  });
-
-  test('a typical delta (one progress save, a favourite) is far below the 64 KB delta cap', () => {
-    const p = encodePayload([sample[0]!, sample[2]!], T);
-    expect(payloadBytes(p)).toBeLessThan(DELTA_MAX_BYTES / 100);
   });
 
   test('region values are checked: modes, codes and category kinds', () => {

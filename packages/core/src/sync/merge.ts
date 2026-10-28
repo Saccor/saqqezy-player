@@ -36,44 +36,6 @@ export function lwwRegister<T>(local: Stamped<T> | undefined, remote: Stamped<T>
   return wins(remote, local) ? remote : local;
 }
 
-/** Whole-array LWW (group order, channel order, list order): the newer array replaces the other, never interleaved. */
-export const mergeOrder: <T extends readonly string[] | null>(local: Stamped<T> | undefined, remote: Stamped<T> | undefined) => Stamped<T> | undefined = lwwRegister;
-
-/**
- * LWW element set (hidden channels and groups, list membership, favourites, splits): per element, the newer stamp
- * decides whether it is in (`true`) or out (`false`, a tombstone). Returns a new map; inputs are not changed.
- */
-export function mergeElementSet(
-  local: ReadonlyMap<string, Stamped<boolean>>, remote: ReadonlyMap<string, Stamped<boolean>>,
-): Map<string, Stamped<boolean>> {
-  const out = new Map(local);
-  for (const [id, r] of remote) if (wins(r, out.get(id))) out.set(id, r);
-  return out;
-}
-
-/** The members of an element set. */
-export function members(set: ReadonlyMap<string, Stamped<boolean>>): string[] {
-  const out: string[] = [];
-  for (const [id, s] of set) if (s.v) out.push(id);
-  return out;
-}
-
-/** LWW map (channel and group renames): per key, the newer stamp; `null` = rename removed (a tombstone). */
-export function mergeLwwMap(
-  local: ReadonlyMap<string, Stamped<string | null>>, remote: ReadonlyMap<string, Stamped<string | null>>,
-): Map<string, Stamped<string | null>> {
-  const out = new Map(local);
-  for (const [k, r] of remote) if (wins(r, out.get(k))) out.set(k, r);
-  return out;
-}
-
-/** Drops tombstones older than `TOMBSTONE_TTL_MS`. Returns a new map. */
-export function pruneTombstones<T>(set: ReadonlyMap<string, Stamped<T>>, now: number, isRemoved: (v: T) => boolean): Map<string, Stamped<T>> {
-  const out = new Map<string, Stamped<T>>();
-  for (const [k, s] of set) if (!(isRemoved(s.v) && hlcWall(s.t) < now - TOMBSTONE_TTL_MS)) out.set(k, s);
-  return out;
-}
-
 /** Tombstone records older than `TOMBSTONE_TTL_MS`: safe to forget. */
 export const expiredTombstone = (r: SyncRecord, now: number): boolean => isTombstone(r) && hlcWall(r.t) < now - TOMBSTONE_TTL_MS;
 

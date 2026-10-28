@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { encodeHlc, hlcWall } from '../../src/sync/hlc.ts';
 import {
-  TOMBSTONE_TTL_MS, clampStamp, isTombstone, lwwRegister, members, mergeElementSet, mergeLwwMap, mergeOrder, mergeRecords, pruneTombstones,
+  TOMBSTONE_TTL_MS, clampStamp, isTombstone, lwwRegister, mergeRecords,
   type Stamped,
 } from '../../src/sync/merge.ts';
 import { registerKey, type SyncRecord } from '../../src/sync/types.ts';
@@ -31,44 +31,6 @@ describe('LWW register', () => {
   });
 });
 
-describe('LWW element set', () => {
-  test('add, remove and re-add resolve per element by stamp', () => {
-    const local = new Map([['x1', s(T, true)], ['x2', s(T, true)], ['x3', s(T + 5, false)]]);
-    const remote = new Map([['x1', s(T + 1, false)], ['x2', s(T - 1, false)], ['x3', s(T + 6, true)], ['x4', s(T, true)]]);
-    const merged = mergeElementSet(local, remote);
-    expect(members(merged).sort()).toEqual(['x2', 'x3', 'x4']);
-    expect(merged.get('x1')).toEqual(s(T + 1, false));
-    // Inputs are not changed.
-    expect(local.get('x1')).toEqual(s(T, true));
-  });
-
-  test('merging is commutative and idempotent', () => {
-    const a = new Map([['x1', s(T, true)], ['x2', s(T + 2, false, 'nodeaa')]]);
-    const b = new Map([['x1', s(T + 1, false)], ['x2', s(T + 2, true, 'nodebb')]]);
-    expect(members(mergeElementSet(a, b)).sort()).toEqual(members(mergeElementSet(b, a)).sort());
-    const ab = mergeElementSet(a, b);
-    expect(mergeElementSet(ab, b)).toEqual(ab);
-  });
-});
-
-describe('LWW map (renames)', () => {
-  test('per key; null removes a rename and wins when newer', () => {
-    const local = new Map([['s:a', s<string | null>(T, 'Morning desk')], ['s:b', s<string | null>(T, 'Evening desk')]]);
-    const remote = new Map([['s:a', s<string | null>(T + 1, null)], ['s:b', s<string | null>(T - 1, 'Old')], ['s:c', s<string | null>(T, 'New')]]);
-    const m = mergeLwwMap(local, remote);
-    expect(m.get('s:a')!.v).toBeNull();
-    expect(m.get('s:b')!.v).toBe('Evening desk');
-    expect(m.get('s:c')!.v).toBe('New');
-  });
-});
-
-describe('whole-array LWW (orders)', () => {
-  test('the newer array replaces the other, never interleaved', () => {
-    expect(mergeOrder(s(T, ['g:A', 'g:B']), s(T + 1, ['g:C']))).toEqual(s(T + 1, ['g:C']));
-    expect(mergeOrder(s(T + 1, ['g:A', 'g:B']), s(T, ['g:C']))).toEqual(s(T + 1, ['g:A', 'g:B']));
-  });
-});
-
 describe('tombstones', () => {
   test('element removals and map clears are tombstones; a false setting or hideNoEpg is a value', () => {
     expect(isTombstone({ k: 'hc', v: false })).toBe(true);
@@ -78,15 +40,6 @@ describe('tombstones', () => {
     expect(isTombstone({ k: 'hc', v: true })).toBe(false);
     expect(isTombstone({ k: 'ne', v: false })).toBe(false);
     expect(isTombstone({ k: 'st', v: false })).toBe(false);
-  });
-
-  test('pruned after 90 days; newer tombstones and live values stay', () => {
-    const set = new Map([
-      ['old-off', s(T - TOMBSTONE_TTL_MS - 1, false)],
-      ['old-on', s(T - 200 * DAY, true)],
-      ['new-off', s(T - 89 * DAY, false)],
-    ]);
-    expect([...pruneTombstones(set, T, (v) => v === false).keys()].sort()).toEqual(['new-off', 'old-on']);
   });
 });
 

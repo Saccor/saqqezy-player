@@ -11,7 +11,6 @@ export interface Hlc { wall: number; counter: number; node: string }
 export const HLC_COUNTER_MAX = 36 * 36 - 1;
 /** A remote stamp is never taken to be more than this far ahead of the local wall clock (§6.2). */
 export const HLC_MAX_DRIFT_MS = 24 * 3600_000;
-export const HLC_LENGTH = 17;
 const WALL_DIGITS = 9;
 const COUNTER_DIGITS = 2;
 const NODE_RE = /^[0-9a-z]{6}$/;

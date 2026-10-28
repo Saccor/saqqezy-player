@@ -29,10 +29,6 @@ export interface SyncPayload {
 
 export type PayloadEntry = [sid: string, stamp: number, value: unknown, pk?: string];
 
-/** Uncompressed caps of the mailbox (§6.5). */
-export const SNAPSHOT_MAX_BYTES = 2_000_000;
-export const DELTA_MAX_BYTES = 64 * 1024;
-
 /** The settings that sync (§6.3). Device-tuned ones (`epgOffsetHours`, `preferredFormat`, `liveDelay`, …) never do. */
 export const SYNCED_SETTINGS: ReadonlySet<string> = new Set([
   'subtitleLanguage', 'audioLanguage', 'preferredLanguages', 'combineDuplicates', 'combineCategories', 'followedTeams', 'regions',
@@ -257,9 +253,4 @@ export function decodePayload(x: unknown): SyncRecord[] {
     }
   }
   return out;
-}
-
-/** UTF-8 size of the payload as sent (JSON, uncompressed). */
-export function payloadBytes(p: SyncPayload): number {
-  return new TextEncoder().encode(JSON.stringify(p)).length;
 }
