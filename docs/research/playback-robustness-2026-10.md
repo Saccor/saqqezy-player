@@ -10,7 +10,7 @@
 
 ## 0. Short answers
 
-1. **The "refresh" is Vite's dev reload, not the app.** Saving any core, app-api or worker file makes the dev server reload the whole page. Other Claude sessions are committing to this same checkout while the dev server runs, and you see a reload each time they save. Every reload also drops the stream and reopens it, which a source with a one-connection limit may refuse. **This cannot happen in a TV or production build** (no HMR there). Verified, §1.
+1. **The "refresh" is Vite's dev reload, not the app.** Saving any core, app-api or worker file makes the dev server reload the whole page. Other work was being saved into this same checkout while the dev server ran, and each save showed up as a reload. Every reload also drops the stream and reopens it, which a source with a one-connection limit may refuse. **This cannot happen in a TV or production build** (no HMR there). Verified, §1.
 2. **More delay helps only one kind of freeze.** A bigger buffer absorbs network jitter. It does nothing for server-side drops, connection limits, reloads or decoder errors. The **Stable** preset already gives 10 s (HLS) / 6 s (TS) and is a free experiment today. Raising the default without data would trade closeness to live for little gain (§3).
 3. **On TVs the stack is right. On PC the browser is the weak link.** Samsung AVPlay, webOS native and Android Media3 are native pipelines with proper demuxers, and the browser build can never match them. For a robust PC player, the answer stays **Tauri + libmpv** (B3). The browser build stays a developer tool (§4).
 4. **The real gap is evidence.** Diagnostics only shows counters (stalls, reconnects), which reset on every reload. Nobody can tell *why* a given freeze happened, so tuning thresholds now would be guessing (§2).
@@ -42,7 +42,7 @@
 
 **Fix options (dev only):**
 1. **Stable dev mode:** `pnpm dev:stable` sets `server.hmr: false` (and no file watching), so nothing reloads while you watch. Code changes then need a manual F5. Recommended for watching sessions.
-2. **Agent sessions in their own worktrees,** so their saves never touch the checkout your dev server serves. Recommended either way; this is a session-setup habit, not code.
+2. **Code changes in their own worktrees,** so saves never touch the checkout the dev server serves. Recommended either way; this is a working habit, not code.
 3. B2 item 9 (already designed, not built): no auto-resume right after a reload, and a clean player and worker teardown on hot updates.
 
 ---
@@ -102,7 +102,7 @@ So: **no stack change for the TV apps.** For PC, the browser build is the wrong 
 
 ## 5. Proposed next steps (in order)
 
-1. **Stable dev mode** (`pnpm dev:stable`, HMR off) and agent sessions in separate worktrees. Small; it stops the refreshes today.
+1. **Stable dev mode** (`pnpm dev:stable`, HMR off) and code changes in separate worktrees. Small; it stops the refreshes today.
 2. **Playback journal** (§2), shown in Diagnostics and surviving reloads. Small to medium; it gives us the facts.
 3. **Watch with the journal** on desktop dev and on the Odyssey G9 (Tizen build). Try Stable vs Balanced.
 4. **Tune the ladder from the data,** or fix the specific cause it shows (for example the B2 request guard if refusals show up).

@@ -1,6 +1,6 @@
 # Performance on the Samsung Odyssey OLED G9 (<model>, Tizen)
 
-Research date: 2026-10-19. Branch `claude/g9-perf-27cd15`, based on `feat/tizen-g9-beta` (a4a4624).
+Research date: 2026-10-19. Based on `feat/tizen-g9-beta` (a4a4624).
 
 ## What the user reported
 
