@@ -1,1 +1,14 @@
 * text=auto eol=lf
+
+# Binary assets: never normalise line endings or diff them as text.
+*.png binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff2 binary
+*.ttf binary
+*.wgt binary
+
+# Docs do not count towards the repository's language statistics.
+docs/** linguist-documentation

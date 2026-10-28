@@ -11,3 +11,16 @@ tools/fake-xtream/media/
 # Wrangler local secrets and state (e.g. services/trending/.dev.vars with TMDB_KEY), never committed.
 .dev.vars
 .wrangler/
+# Local tool state, editor settings and OS files.
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db
+# Build and run leftovers (TV packages are built locally, never committed).
+*.wgt
+*.ipk
+*.log
+*.tsbuildinfo
+# Env files with real values (the tracked examples have none).
+.env
+.env.*.local
