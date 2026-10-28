@@ -37,7 +37,3 @@ export function staticCaps(platform: CapsPlatform, engine: EngineName): MediaCap
   }
   return caps;
 }
-
-export function capsSupport(caps: MediaCaps, codec: AudioCodec): Support {
-  return caps.audio[codec]?.value ?? 'unknown';
-}

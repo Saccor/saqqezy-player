@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { capsSupport, staticCaps } from '../../src/index.ts';
+import { staticCaps, type AudioCodec, type MediaCaps, type Support } from '../../src/index.ts';
+
+const capsSupport = (caps: MediaCaps, codec: AudioCodec): Support => caps.audio[codec]?.value ?? 'unknown';
 
 describe('staticCaps', () => {
   it('desktop Chromium engines cannot decode Dolby or DTS', () => {

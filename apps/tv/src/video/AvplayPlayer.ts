@@ -1,5 +1,5 @@
 import type {
-  AspectMode, LiveProfile, MediaCapsProbe, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
+  AspectMode, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, Rect, StateDetail, StreamInfo, TrackInfo,
 } from '@iptv/player';
 import { dvFromFourCC, subtitleText } from '@iptv/core';
 import { audioCodecOf, staticCaps, type AudioCodec } from '@iptv/player';
@@ -300,23 +300,6 @@ export class AvplayPlayer implements Player {
     this.saver = opts.screenSaver ? createScreenSaverGuard(opts.screenSaver) : undefined;
     this.space = opts.displaySpace ?? DESIGN;
     this.prepareTimeoutMs = opts.prepareTimeoutMs ?? PREPARE_TIMEOUT_MS;
-  }
-
-  /** What the panel adds to the static Tizen caps (spec §3.3 item 4); empty without panel facts. */
-  capsProbe(): MediaCapsProbe {
-    const p = this.panel;
-    const a = p?.answered;
-    if (!p || !a) return {};
-    const cap = <T>(value: T) => ({ value, evidence: 'probe' as const });
-    const display: NonNullable<MediaCapsProbe['display']> = {};
-    // Only facts an API answered: an unanswered query must never cap a display at 1080p or claim no HDR.
-    if (a.eightK && p.eightK) display.maxHeight = cap(4320);
-    else if (a.uhd) display.maxHeight = cap(p.uhd ? 2160 : 1080);
-    if (a.hdrTv) {
-      const hdr = p.hdrTv ? 'decode' : 'none';
-      display.hdr = { hdr10: cap(hdr), hdr10plus: cap(hdr), hlg: cap(hdr) };
-    }
-    return Object.keys(display).length > 0 ? { display } : {};
   }
 
   panelCaps(): PanelCaps | undefined {

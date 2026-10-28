@@ -11,9 +11,5 @@
     ["opus", "opus"], ["Opus", "opus"], ["flac", "flac"], ["fLaC", "flac"], ["ac-4", "ac4"], ["pcm_s16le", "pcm"], ["lpcm", "pcm"],
     ["AC-4", "ac4"], ["OPUS", "opus"], ["LPCM", "pcm"], ["DTSC", "dts"], ["DTSE", "dtshd"], ["DTSH", "dtshd"], ["AC-3", "ac3"], ["EC-3", "eac3"]
   ],
-  "audioUnknown": ["", "xyz", "mp4a", "vorbis2"],
-  "video": [
-    ["avc1.640028", "h264"], ["H264", "h264"], ["h264", "h264"], ["hvc1.1.6.L120.90", "hevc"], ["hev1.2.4.L153.B0", "hevc10"],
-    ["HEVC", "hevc"], ["hevc", "hevc"], ["av01.0.08M.10", "av1"], ["vp09.02.40.10", "vp9"], ["mpeg2video", "mpeg2"], ["MPEG2", "mpeg2"]
-  ]
+  "audioUnknown": ["", "xyz", "mp4a", "vorbis2"]
 }

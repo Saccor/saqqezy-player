@@ -36,7 +36,3 @@ export interface MediaCaps {
   /** Engine quirks the decision functions need (e.g. mpegts.js: first audio PID only, no DVB AC-3). */
   quirks: { firstAudioPidOnly?: boolean; dvbAc3Undetected?: boolean; noMpeg2?: boolean; textSubsViaCallback?: boolean };
 }
-
-type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
-/** What a native host reports in `hello`; `evidence: 'probe'` is implied. */
-export type MediaCapsProbe = DeepPartial<Omit<MediaCaps, 'schema' | 'platform' | 'engine'>>;
