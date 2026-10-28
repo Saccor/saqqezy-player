@@ -149,7 +149,7 @@ const NOT_SPORT_WORDS: ReadonlySet<string> = new Set(['passport', 'passports', '
 
 /**
  * A channel's own name or its folder name says it shows sport: a generic sport word, or a word that starts or ends
- * with "sport" ("supersport", "sportv"). Guides that tag no sport category use this as the sport signal instead.
+ * with "sport" ("examplesport", "sportexample"). Guides that tag no sport category use this as the sport signal instead.
  */
 export function isSportChannelName(name: string): boolean {
   for (const w of foldText(name).split(/[^\p{L}\p{N}]+/u)) {
