@@ -7,7 +7,6 @@ import {
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
-  BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
   type BackupEnvelope, type RestoreSummary, compileQuery, nameKeys, nameMatchScore, NO_MATCH,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
@@ -21,6 +20,7 @@ import {
 } from './streamFormat.ts';
 import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
 import { SubtitleController } from './subtitleController.ts';
+import { BackupController } from './backupController.ts';
 import { assembleStartHome, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
@@ -108,8 +108,7 @@ export interface AppApiDeps {
   nowNextWaitMs?: number;
 }
 
-/** How long "Restore from your phone" waits for the phone (§6.5 S1). */
-export const RESTORE_WAIT_MS = 5 * 60_000;
+export { RESTORE_WAIT_MS } from './backupController.ts';
 
 export class AppApi {
   private readonly service: SourceService;
@@ -206,15 +205,7 @@ export class AppApi {
   private readonly subs: SubtitleController;
   private readonly trending: TrendingService | undefined;
   private readonly catchup: CatchupController;
-  private readonly backupIterations: number | undefined;
-  private backupSvc: BackupService | undefined;
-  /** Until when a restore sent from the phone is accepted (the user opened "Restore from your phone"). */
-  private restoreUntil = 0;
-  /**
-   * The restore being applied now (under the index lock): who asked, and what it changed for the active source. Its
-   * layout and VOD events are held back and sent once when it is done (`finishRestore`).
-   */
-  private restoring: RestoreRun | undefined;
+  private readonly backup: BackupController;
 
   constructor(deps: AppApiDeps) {
     this.service = deps.service;
@@ -239,7 +230,6 @@ export class AppApi {
       deps.emit({ type: 'companion', status });
     });
     this.vod = deps.vod;
-    this.backupIterations = deps.backupIterations;
     this.subs = new SubtitleController({
       ...(deps.subtitles ? { subtitles: deps.subtitles } : {}),
       ...(deps.onlineSubtitles ? { onlineSubtitles: deps.onlineSubtitles } : {}),
@@ -269,6 +259,18 @@ export class AppApi {
       })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
+    this.backup = new BackupController({
+      service: this.service, storage: deps.storage, emit: this.emit, now: this.now, iterations: deps.backupIterations, vod: deps.vod,
+      companion: () => this.companion,
+      activeId: () => this.activeId,
+      layout: () => this.index.layout(),
+      commitLayout: (id, before, layout, origin) => this.commitLayoutLocked(id, before, layout, [], origin),
+      withIndex: (fn) => this.withIndex(fn),
+      settings: () => this.currentSettings(),
+      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
+      vodRestored: (id, what) => this.vodc?.restored(id, what),
+      record: (where, err) => { this.record(where, err); },
+    });
     this.catchup = new CatchupController({
       service: this.service, now: this.now,
       onRefined: (channelId) => this.emit({ type: 'archiveRefined', channelId }),
@@ -306,7 +308,7 @@ export class AppApi {
         this.startBackground(source.id);
       }
       // A restored backup may hold this source's lists, hidden channels and progress (pending until now).
-      await this.applyPendingBackup(source);
+      await this.backup.applyPending(source);
       this.sourcesChanged(origin);
       return { sourceId: source.id, channelCount: result.channelCount };
     });
@@ -1339,8 +1341,7 @@ export class AppApi {
     if (opts.locked && (refold || reregion)) {
       this.setIndex(this.channels, this.index.layout(), this.coverage);
       this.invalidateNowNext();
-      if (this.restoring) this.restoring.layout = true;
-      else this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
+      if (!this.backup.noteLayout()) this.emit({ type: 'layoutChanged', version: this.index.layout().version, origin: 'local' });
     } else if (refold) await this.refold();
     else if (reregion) await this.reregion();
     const regroup = before.combineDuplicates !== this.settings.combineDuplicates
@@ -1356,46 +1357,22 @@ export class AppApi {
    * (shown once, never stored) after the phone said it saved the backup.
    */
   backupToPhone(): Promise<{ code: string; records: number }> {
-    return this.run('backupToPhone', async () => {
-      const companion = this.companion;
-      if (!companion?.sendBackup || companion.status().state !== 'connected') {
-        throw Object.assign(new Error('Connect your phone first: Settings → Phone and computer.'), { name: 'NoCompanion' });
-      }
-      const made = await this.backups().create();
-      await companion.sendBackup(made.envelope);
-      return { code: made.code, records: made.records };
-    });
+    return this.run('backupToPhone', () => this.backup.toPhone());
   }
 
   /** Makes an encrypted backup as a file's text (off TVs: the UI saves it). */
   backupToFile(): Promise<{ code: string; data: string; fileName: string; records: number }> {
-    return this.run('backupToFile', async () => {
-      const made = await this.backups().create();
-      const day = new Date(made.envelope.at).toISOString().slice(0, 10);
-      return { code: made.code, data: JSON.stringify(made.envelope), fileName: `tv-backup-${day}.json`, records: made.records };
-    });
+    return this.run('backupToFile', () => this.backup.toFile());
   }
 
   /** Restores a backup file's text with its recovery code. */
   restoreFromFile(data: string, code: string): Promise<RestoreSummary> {
-    return this.run('restoreFromFile', async () => {
-      let envelope: unknown;
-      try {
-        envelope = typeof data === 'string' && data.length <= BACKUP_ENVELOPE_MAX_CHARS + 4096 ? JSON.parse(data) : undefined;
-      } catch {
-        envelope = undefined;
-      }
-      if (!isBackupEnvelope(envelope)) throw new BackupError('invalid', 'This file is not a backup from this app.');
-      return this.restoreBackup(envelope, code, 'local');
-    });
+    return this.run('restoreFromFile', () => this.backup.fromFile(data, code));
   }
 
   /** "Restore from your phone": the TV accepts one restore from the phone for RESTORE_WAIT_MS (or stops waiting). */
   armPhoneRestore(on: boolean): Promise<{ until: number | undefined }> {
-    return this.run('armPhoneRestore', async () => {
-      this.restoreUntil = on ? this.now() + RESTORE_WAIT_MS : 0;
-      return { until: on ? this.restoreUntil : undefined };
-    });
+    return this.run('armPhoneRestore', () => this.backup.armPhone(on));
   }
 
   /**
@@ -1403,104 +1380,7 @@ export class AppApi {
    * for it (`armPhoneRestore`); a success ends the wait, a wrong code keeps it so the user can try again.
    */
   restoreFromCompanion(envelope: BackupEnvelope, code: string): Promise<RestoreSummary> {
-    return this.run('restoreFromCompanion', async () => {
-      if (this.now() >= this.restoreUntil) {
-        throw Object.assign(new Error('On the TV, open Settings → Storage → Restore from your phone first.'), { name: 'NotReady' });
-      }
-      const res = await this.restoreBackup(envelope, code, 'remote');
-      this.restoreUntil = 0;
-      return res;
-    });
-  }
-
-  private backups(): BackupService {
-    const vod = this.vod;
-    this.backupSvc ??= new BackupService({
-      storage: this.storage, clock: this.service.syncClock, now: this.now, iterations: this.backupIterations,
-      vod: vod && {
-        getVodPicks: (id, kind) => vod.getVodPicks(id, kind),
-        getVodSplits: (id, kind) => vod.getVodSplits(id, kind),
-        getVodLayout: (id, kind) => vod.getVodLayout(id, kind),
-        applyRestore: async (id, plan) => {
-          await vod.applyRestore(id, plan);
-          // Noted for the active source only: another source's VOD state is read when it becomes active.
-          const run = this.restoring;
-          if (!run || id !== this.activeId) return;
-          if (plan.vod.length) run.vodUser = true;
-          if (plan.picks.length || plan.splits.length || plan.vodLayout?.length) run.vodGrouping = true;
-        },
-      },
-      loadLayout: (id) => (id === this.activeId ? Promise.resolve(this.index.layout()) : this.service.loadLayout(id)),
-      applyLayout: (id, ops) => this.applyRestoredLayout(id, ops),
-      getSettings: () => this.currentSettings(),
-      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
-    });
-    return this.backupSvc;
-  }
-
-  /**
-   * Opens the backup first, outside the index lock: the PBKDF2 derivation is the slow step on a TV and touches no
-   * state, so channel calls never queue behind it. Only the merge runs under the lock (the active source's layout
-   * changes through its index). Then refreshes exactly what changed and tells the UI.
-   */
-  private async restoreBackup(envelope: unknown, code: string, origin: LayoutOrigin): Promise<RestoreSummary> {
-    const opened = await this.backups().open(envelope, code);
-    const run = newRestoreRun(origin);
-    const res = await this.withIndex(() => this.restoringAs(run, () => this.backups().apply(opened)))
-      .finally(() => this.finishRestore(run));
-    this.emit({ type: 'backupRestored', origin, applied: res.applied, pending: res.pending, sources: res.sources, at: res.at });
-    return res;
-  }
-
-  /** Applies what a restored backup kept for `source` (just added). Never fails the add. */
-  private async applyPendingBackup(source: SourceConfig): Promise<void> {
-    try {
-      if (!(await this.storage.listSyncMeta(BACKUP_FP_SCOPE)).length) return;
-      const run = newRestoreRun('local');
-      await this.withIndex(() => this.restoringAs(run, () => this.backups().applyPending(source)))
-        .finally(() => this.finishRestore(run));
-    } catch (err) {
-      this.record('applyPendingBackup', err);
-    }
-  }
-
-  /** Runs a restore's merge with `run` noting what it changes. Caller holds the index lock. */
-  private async restoringAs<T>(run: RestoreRun, fn: () => Promise<T>): Promise<T> {
-    this.restoring = run;
-    try {
-      return await fn();
-    } finally {
-      this.restoring = undefined;
-    }
-  }
-
-  /**
-   * After a restore (a failed one too, for what it applied), the screens re-read exactly what changed: one
-   * `layoutChanged` marked `restored` (no toast of its own) when the active layout or its index changed, and the VOD
-   * user map or category config is read again (`vodRefreshed`). Restored settings went through `applySettings`.
-   */
-  private finishRestore(run: RestoreRun): void {
-    if (run.layout) {
-      this.emit({
-        type: 'layoutChanged', version: this.index.layout().version, origin: run.origin === 'remote' ? 'remote' : 'local', restored: true,
-      });
-    }
-    const id = this.activeId;
-    if (id && (run.vodUser || run.vodGrouping)) this.vodc?.restored(id, { user: run.vodUser, grouping: run.vodGrouping });
-  }
-
-  /** Restored layout ops: the active source through its index (caller holds the index lock), others in storage. */
-  private async applyRestoredLayout(id: string, ops: LayoutOp[]): Promise<void> {
-    if (id !== this.activeId) {
-      await this.service.updateLayout(id, (l) => {
-        const r = applyOps(l, ops);
-        return r.changed ? r.layout : undefined;
-      });
-      return;
-    }
-    const before = this.index.layout();
-    const res = applyOps(before, ops);
-    if (res.changed) await this.commitLayoutLocked(id, before, res.layout, [], this.restoring?.origin ?? 'local');
+    return this.run('restoreFromCompanion', () => this.backup.fromCompanion(envelope, code));
   }
 
   clearCache(): Promise<InitState> {
@@ -1872,10 +1752,7 @@ export class AppApi {
     this.favSet = undefined;
     if (before.channelNames !== layout.channelNames) this.invalidateNowNext();
     // A restore tells the UI once, when it is done.
-    if (this.restoring) {
-      this.restoring.layout = true;
-      return;
-    }
+    if (this.backup.noteLayout()) return;
     const event: Extract<AppEvent, { type: 'layoutChanged' }> = { type: 'layoutChanged', version: layout.version, origin: origin === 'remote' ? 'remote' : 'local' };
     if (onlyRecentChanged(before, layout)) event.recentOnly = true;
     this.emit(event);
@@ -2775,9 +2652,6 @@ void exhaustive;
 
 const trendPart = (items: StartTrendTile[], at: string | undefined): StartTrendPart => (at ? { items, at } : { items });
 
-/** What a restore changed for the active source, so `finishRestore` refreshes exactly that. */
-interface RestoreRun { origin: LayoutOrigin; layout: boolean; vodUser: boolean; vodGrouping: boolean }
-const newRestoreRun = (origin: LayoutOrigin): RestoreRun => ({ origin, layout: false, vodUser: false, vodGrouping: false });
 
 function sameRegions(a: RegionSettings, b: RegionSettings): boolean {
   return a.mode === b.mode && a.codes.join() === b.codes.join();
