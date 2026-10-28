@@ -4,8 +4,6 @@ import type { MovieView, VodTile } from '@iptv/app-api';
 import { api } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, VOD_COPY } from '../copy.ts';
 import { ActionBar } from '../components/ActionBar.tsx';
-import { Sheet } from '../components/Sheet.tsx';
-import { fromPickerRow } from '../components/sheetLogic.ts';
 import { Row } from '../components/Row.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
@@ -21,7 +19,7 @@ import { Backdrop } from '../vod/Backdrop.tsx';
 import { iconTexture } from '../vod/icons.ts';
 import { joinMeta } from '../vod/stripLogic.ts';
 import { createFavToggle } from '../vod/favToggle.ts';
-import { versionRows, withLanguages } from '../vod/versionsLogic.ts';
+import { createVersionsPicker } from '../vod/VersionsPicker.tsx';
 import type { PickerRow } from './homeMenuLogic.ts';
 
 const VERSIONS_ID = 'movie-versions';
@@ -147,7 +145,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       } else if (id === 'fav') {
         await fav.toggle(t);
       } else if (id === 'versions') {
-        openVersions();
+        versions.open();
       } else if (id === 'combine') {
         await api.setVodSplit(t.id, false).catch((err: unknown) => console.warn('Combine failed', errName(err)));
         if (alive) await load(false);
@@ -186,35 +184,19 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   };
 
   // ---- Versions list ----
-  const [picking, setPicking] = createSignal(false);
-  let pickerNode: ElementNode | undefined;
-  let removePicker: (() => void) | undefined;
-  const openVersions = () => {
-    const shown = view();
-    if (!shown || shown.versions.length < 2) return;
-    // Versions whose names give no language: the source's probe data usually does (fills in while the list shows).
-    if (shown.versions.some((v) => !v.lang)) {
-      api.getVersionLanguages(params.id).then((langs) => {
-        const cur = view();
-        if (alive && cur && Object.keys(langs).length > 0) setView({ ...cur, versions: withLanguages(cur.versions, langs) });
-      }).catch((err) => console.warn('Version languages failed', errName(err)));
-    }
-    setPicking(true);
-    removePicker = router.pushOverlay(VERSIONS_ID, closeVersions);
-    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
-  };
-  function closeVersions() {
-    removePicker = undefined;
-    setPicking(false);
-    queueMicrotask(() => { if (alive) focusArea('actions'); });
-  }
-  const dismissVersions = () => {
-    removePicker?.();
-    closeVersions();
-  };
+  const versions = createVersionsPicker({
+    layerId: VERSIONS_ID,
+    titleId: params.id,
+    view,
+    setView,
+    alive: () => alive,
+    shownId: () => view()?.playId,
+    onClosed: () => focusArea('actions'),
+    onPick: (row) => void pickVersion(row),
+  });
   const pickVersion = async (row: PickerRow) => {
     const t = tile();
-    dismissVersions();
+    versions.close();
     if (!t) return;
     if (row.kind === 'new') {
       await api.setVodSplit(t.id, true).catch((err: unknown) => console.warn('Split failed', errName(err)));
@@ -235,7 +217,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   });
   onCleanup(() => {
     alive = false;
-    removePicker?.();
+    versions.dispose();
   });
 
   const backdrop = () => detail()?.backdrop;
@@ -281,14 +263,7 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
       </Show>
       </View>
       <View zIndex={5}><menu.View /></View>
-      <Show when={picking()}>{(() => {
-        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.playId));
-        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
-        return (
-          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
-            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
-        );
-      })()}</Show>
+      <versions.View />
     </View>
   );
 }

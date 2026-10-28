@@ -24,7 +24,7 @@ import { metaLine } from '../vod/posterLogic.ts';
 import {
   fallbackArea, moveArea, refocus, remountRestore, restoreFocusMove, seasonLabel, seriesActions, seriesMeta, type SavedFocus, type SeriesAction, type SeriesArea,
 } from '../vod/seriesDetailLogic.ts';
-import { versionRows, withLanguages } from '../vod/versionsLogic.ts';
+import { createVersionsPicker } from '../vod/VersionsPicker.tsx';
 import type { PickerRow } from './homeMenuLogic.ts';
 
 const VERSIONS_ID = 'series-versions';
@@ -218,7 +218,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
         const t = tile();
         if (t) await fav.toggle(t);
       } else if (id === 'versions') {
-        openVersions();
+        versions.open();
       } else if (id === 'combine') {
         await api.setVodSplit(params.id, false).catch((err: unknown) => console.warn('Combine failed', errName(err)));
         if (alive) await load();
@@ -283,31 +283,18 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   const seasonRows = (): PickerRow[] => seasons().map((s, i) => ({ kind: 'list', id: String(i), label: seasonLabel(s), checked: i === season() }));
 
   // ---- Versions list ----
-  const [picking, setPicking] = createSignal(false);
-  let pickerNode: ElementNode | undefined;
-  let removePicker: (() => void) | undefined;
-  const openVersions = () => {
-    const shown = view();
-    if (!shown || shown.versions.length < 2) return;
-    // Versions whose names give no language: the source's probe data usually does (fills in while the list shows).
-    if (shown.versions.some((v) => !v.lang)) {
-      api.getVersionLanguages(params.id).then((langs) => {
-        const cur = view();
-        if (alive && cur && Object.keys(langs).length > 0) setView({ ...cur, versions: withLanguages(cur.versions, langs) });
-      }).catch((err) => console.warn('Version languages failed', errName(err)));
-    }
-    setPicking(true);
-    removePicker = router.pushOverlay(VERSIONS_ID, closeVersions);
-    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
-  };
-  function closeVersions() {
-    removePicker = undefined;
-    setPicking(false);
-    queueMicrotask(() => { if (alive) focusArea('actions', true); });
-  }
+  const versions = createVersionsPicker({
+    layerId: VERSIONS_ID,
+    titleId: params.id,
+    view,
+    setView,
+    alive: () => alive,
+    shownId: () => view()?.versionId,
+    onClosed: () => focusArea('actions', true),
+    onPick: (row) => void pickVersion(row),
+  });
   const pickVersion = async (row: PickerRow) => {
-    removePicker?.();
-    closeVersions();
+    versions.close();
     if (row.kind === 'heading') return;
     if (row.kind === 'new') {
       await api.setVodSplit(params.id, true).catch((err: unknown) => console.warn('Split failed', errName(err)));
@@ -325,7 +312,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   });
   onCleanup(() => {
     alive = false;
-    removePicker?.();
+    versions.dispose();
     removeSeasonPicker?.();
   });
 
@@ -378,14 +365,7 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
             onSelect={(_, i) => { const r = seasonPickRows()[i]; if (r) pickSeason(r); }} />
         );
       })()}</Show>
-      <Show when={picking()}>{(() => {
-        const versionPickRows = createMemo(() => versionRows(view()?.versions ?? [], view()?.versionId));
-        const versionSheetRows = createMemo(() => versionPickRows().map(fromPickerRow));
-        return (
-          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.versions} rows={versionSheetRows()} backLayerId={VERSIONS_ID}
-            onSelect={(_, i) => { const r = versionPickRows()[i]; if (r) void pickVersion(r); }} />
-        );
-      })()}</Show>
+      <versions.View />
     </View>
   );
 }
