@@ -21,7 +21,7 @@ export const MAX_LENGTH = 2048;
 const chars = (s: string, offset: number): KeyCell[] =>
   [...s].map((ch, i) => ({ def: { kind: 'char', ch }, x: offset + i, w: 1 }));
 
-export const SHORTCUTS = ['http://', 'https://', '.com', ':8080', '/'] as const;
+const SHORTCUTS = ['http://', 'https://', '.com', ':8080', '/'] as const;
 
 export type KeyRows = readonly (readonly KeyCell[])[];
 

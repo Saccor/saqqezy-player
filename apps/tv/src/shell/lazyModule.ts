@@ -36,7 +36,7 @@ export async function preloadInTurn(mods: ReadonlyArray<{ load(): Promise<unknow
  * Reloads the app. Startup returns to the last channel, so this is a cheap way back to a working state.
  * On hosted targets (Titan OS, the web build) a reload while offline shows the browser's error page.
  */
-export function reloadApp(): void {
+function reloadApp(): void {
   location.reload();
 }
 

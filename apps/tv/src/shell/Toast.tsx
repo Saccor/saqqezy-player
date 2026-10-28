@@ -6,7 +6,7 @@ import { TOAST_OVERLAY_ID, screenOverlayOpen, toastOnExpiry, toastOnShow, type T
 import { router } from './router.ts';
 
 /** Default precedence. Only background guide-refresh failures use a lower one (0), so they never interrupt. */
-export const TOAST_PRIORITY_NORMAL = 1;
+const TOAST_PRIORITY_NORMAL = 1;
 
 const [state, setState] = createSignal<ToastState>({});
 let timer: ReturnType<typeof setTimeout> | undefined;

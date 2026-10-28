@@ -17,9 +17,9 @@ export const PX_PER_HOUR = 612;
 export const VIEW_SPAN = 2 * HOUR;
 /** The guide covers now - 6 h .. now + 48 h. */
 export const WINDOW_BACK = 6 * HOUR;
-export const WINDOW_AHEAD = 48 * HOUR;
+const WINDOW_AHEAD = 48 * HOUR;
 /** Rows are fetched for the visible 2 h plus this much either side. */
-export const PREFETCH = 2 * HOUR;
+const PREFETCH = 2 * HOUR;
 export const NO_INFO = LIVE_COPY.noInfo;
 
 export interface TimeRange { start: number; end: number }
@@ -197,7 +197,7 @@ export const isOnAir = (b: { start: number; stop: number }, now: number): boolea
  * view, back to its start (or to its last 2 h when it is longer); when it starts in the last half hour or later,
  * forward so that it sits one hour into the view.
  */
-export function revealStart(block: Block, viewStart: number, win: TimeRange, span = VIEW_SPAN): number {
+function revealStart(block: Block, viewStart: number, win: TimeRange, span = VIEW_SPAN): number {
   if (block.start < viewStart) {
     return clampViewStart(Math.min(viewStart, Math.max(floorHalfHour(block.start), floorHalfHour(block.stop - span))), win, span);
   }

@@ -26,17 +26,17 @@ const FONT_STACK = '"Arial Black", "Helvetica Neue", Helvetica, Arial, sans-seri
 const RES = 2;
 
 /** Drawn bounds in the 1920x1080 design space: centred, at the top of the overscan-safe area. */
-export const WORDMARK_W = BOX_W;
-export const WORDMARK_H = CROP_BOTTOM - CROP_TOP;
-export const WORDMARK_X = (LAYOUT.width - WORDMARK_W) / 2;
-export const WORDMARK_Y = LAYOUT.safeY;
+const WORDMARK_W = BOX_W;
+const WORDMARK_H = CROP_BOTTOM - CROP_TOP;
+const WORDMARK_X = (LAYOUT.width - WORDMARK_W) / 2;
+const WORDMARK_Y = LAYOUT.safeY;
 /** First free design y below the mark; top-row content that crosses the centre starts here. */
 export const WORDMARK_BOTTOM = WORDMARK_Y + WORDMARK_H;
 /**
  * Horizontal zone reserved around the screen centre for the top row. Badges stay outside it; the drawn mark is
  * narrower and centred inside it.
  */
-export const WORDMARK_ZONE_W = 520;
+const WORDMARK_ZONE_W = 520;
 export const WORDMARK_ZONE_X = (LAYOUT.width - WORDMARK_ZONE_W) / 2;
 
 const css = (rgba: number) => `#${(rgba >>> 8).toString(16).padStart(6, '0')}`;
@@ -92,7 +92,7 @@ function renderWordmark(): string | undefined {
 
 let cached: string | undefined;
 /** The rendered mark as a PNG data URL (2x), drawn once and cached. */
-export function wordmarkImage(): string | undefined {
+function wordmarkImage(): string | undefined {
   if (cached === undefined) cached = renderWordmark();
   return cached;
 }

@@ -61,7 +61,7 @@ export function notices(next: CountryChoices, prev?: CountryChoices): string[] {
 }
 
 /** How long the grid waits for the worker (busy with a guide refresh) before "Couldn't load your countries". */
-export const CHOICES_TIMEOUT_MS = 2000;
+const CHOICES_TIMEOUT_MS = 2000;
 
 /** `get()`'s answer, or undefined on a failure or after `timeoutMs`. */
 export async function loadChoices(get: () => Promise<CountryChoices>, timeoutMs = CHOICES_TIMEOUT_MS): Promise<CountryChoices | undefined> {
@@ -79,7 +79,7 @@ export async function loadChoices(get: () => Promise<CountryChoices>, timeoutMs 
 }
 
 /** Fast presses on the remote send one write. */
-export const SAVE_DEBOUNCE_MS = 300;
+const SAVE_DEBOUNCE_MS = 300;
 
 export interface CountrySaver {
   /** Merges `patch` into the pending write and (re)starts the 300 ms wait. */

@@ -1,7 +1,7 @@
 /** Pure index math for the virtualised channel list (no Solid, no Lightning), unit-tested. */
 
 /** Rows rendered beyond each edge of the viewport. */
-export const BUFFER_ROWS = 5;
+const BUFFER_ROWS = 5;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 

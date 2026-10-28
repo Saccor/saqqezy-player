@@ -45,7 +45,7 @@ function Spinner(props: { x: number; y: number }) {
 }
 
 /** One notice pill (opaque `surfaceRaised` fill with a `subtle` outline, pill radius). A click on an error with an action runs it, like OK on its screen. */
-export function NoticePill(props: { placed: PlacedNotice; onAction?: () => void }) {
+function NoticePill(props: { placed: PlacedNotice; onAction?: () => void }) {
   let node: ElementNode | undefined;
   usePointerTarget({ node: () => node, enabled: () => props.onAction !== undefined, onClick: () => props.onAction?.() });
   const p = () => props.placed;

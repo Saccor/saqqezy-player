@@ -6,7 +6,7 @@ import { centerText, COLORS, STRONG, TYPE } from '../shell/theme.ts';
 import { iconTexture } from '../vod/icons.ts';
 import { CHEVRON, dropdownWidth, GAP, PAD_X } from './dropdownLogic.ts';
 
-export const DROPDOWN_H = 64;
+const DROPDOWN_H = 64;
 
 /**
  * "Action ▾": a focusable header that opens a picker (`onPress`). Focused: a focus fill. It replaces the library's

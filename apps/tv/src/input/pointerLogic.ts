@@ -30,7 +30,7 @@ export function rowTextEnd(width: number, optionsShown: boolean, tagW = 0): numb
 // ---- pointer mode ----
 
 /** A move within this distance of the last accepted position is jitter. */
-export const JITTER_PX = 3;
+const JITTER_PX = 3;
 /** Screens that opt in (the Player) leave pointer mode after this long without movement. */
 export const AUTO_HIDE_MS = 3000;
 
@@ -251,9 +251,9 @@ export function nextClick(
 
 export const WHEEL_STEP_MS = 120;
 /** Accumulated px per step (a mouse notch is about 100 px). */
-export const WHEEL_STEP_PX = 50;
-export const WHEEL_LINE_PX = 40;
-export const WHEEL_PAGE_PX = 800;
+const WHEEL_STEP_PX = 50;
+const WHEEL_LINE_PX = 40;
+const WHEEL_PAGE_PX = 800;
 
 export type WheelDir = -1 | 0 | 1;
 /** A pause longer than this drops what an axis had accumulated (a throttled step never waits for a later touch). */

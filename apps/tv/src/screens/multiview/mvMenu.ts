@@ -12,7 +12,7 @@ import {
 import type { MvHealth } from './mvHealth.ts';
 import type { MultiviewSession } from './session.ts';
 
-export type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
+type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
 
 export function createMvMenu(d: {
   state: () => MvState | undefined;

@@ -6,7 +6,7 @@ import { LIVE_COPY } from '../copy.ts';
 export type MatchSectionId = 'live' | 'today' | 'tomorrow';
 /** `from`/`to`: the section's index range in `order`. */
 export interface MatchSection { id: MatchSectionId; label: string; from: number; to: number }
-export const SECTION_LABELS: Record<MatchSectionId, string> = LIVE_COPY.matches.sections;
+const SECTION_LABELS: Record<MatchSectionId, string> = LIVE_COPY.matches.sections;
 const SECTION_ORDER: readonly MatchSectionId[] = ['live', 'today', 'tomorrow'];
 
 export function sectionOf(e: Pick<SportsEventTile, 'start' | 'stop'>, now: number): MatchSectionId {

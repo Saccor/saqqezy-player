@@ -7,9 +7,9 @@ import { COLORS, LINE, SPACE, TYPE } from '../../shell/theme.ts';
 import type { PageProps } from './shared.ts';
 
 const A = SETTINGS_COPY.about;
-export const APP_NAME = A.app;
-export const LEGAL_TEXT = `${A.legal} ${A.responsibility}`;
-export const CONTACT_TEXT = A.contact;
+const APP_NAME = A.app;
+const LEGAL_TEXT = `${A.legal} ${A.responsibility}`;
+const CONTACT_TEXT = A.contact;
 /** Data-source credits for Start's trending rows (Wikimedia and Wikidata; TMDB only in builds that use its key). */
 const ATTRIBUTION = aboutAttribution({
   VITE_TRENDING_URL: import.meta.env.VITE_TRENDING_URL as string | undefined,

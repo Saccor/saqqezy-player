@@ -7,7 +7,7 @@ import { formatRange } from './homeLogic.ts';
 
 /** Debounced search with a stale-result guard (pure: timers and the search call are injected). */
 
-export const SEARCH_DEBOUNCE_MS = 150;
+const SEARCH_DEBOUNCE_MS = 150;
 export const SEARCH_LIMIT = 50;
 
 export interface SearchState<R> {
@@ -79,7 +79,7 @@ export const GUIDE_PENDING_NOTE = LIVE_COPY.search.guidePending;
 export const VOD_PENDING_NOTE = LIVE_COPY.search.vodPending;
 export const VOD_ROW_LABEL = LIVE_COPY.search.vodRow;
 export const FOLDERS_ROW_LABEL = LIVE_COPY.search.foldersRow;
-export const LIVE_ROW_LABEL = LIVE_COPY.search.liveRow;
+const LIVE_ROW_LABEL = LIVE_COPY.search.liveRow;
 
 /** Events after which Search re-runs the open query: a search index became ready, or a guide import finished. */
 export function rerunsSearch(e: AppEvent): boolean {

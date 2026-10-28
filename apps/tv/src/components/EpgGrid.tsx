@@ -14,8 +14,8 @@ import { logoCache } from './logoCache.ts';
 import { logoKey } from './logoKey.ts';
 import { renderRange } from './virtualWindow.ts';
 
-export const EPG_ROW_H = 60;
-export const EPG_CELL_H = 56;
+const EPG_ROW_H = 60;
+const EPG_CELL_H = 56;
 export const EPG_VIEW_ROWS = 11;
 /** Pointer mode: the bottom button row (y 978) must stay clear. */
 export const EPG_POINTER_ROWS = 10;
@@ -23,9 +23,9 @@ export const RULER_H = 44;
 /** Wide enough for a full channel name next to the number and logo (308 px of text). */
 export const CHANNEL_W = 440;
 /** 2 h at 612 px/h. */
-export const TIMELINE_W = 1224;
+const TIMELINE_W = 1224;
 export const EPG_GRID_X = LAYOUT.contentX;
-export const EPG_GRID_W = LAYOUT.contentW;
+const EPG_GRID_W = LAYOUT.contentW;
 /** The timeline starts right after the channel column. */
 const TL_X = CHANNEL_W;
 /**
@@ -33,7 +33,7 @@ const TL_X = CHANNEL_W;
  * x 0 and are `CHANNEL_W` wide; the timeline starts at `TL_X`. A row is `EPG_ROW_H` tall including the 4 px gap
  * under its tiles, so a point in that gap counts as the row above.
  */
-export const EPG_GEOMETRY: GridGeometry = {
+const EPG_GEOMETRY: GridGeometry = {
   rulerH: RULER_H, rowH: EPG_ROW_H, viewRows: EPG_VIEW_ROWS, channelW: CHANNEL_W, timelineX: TL_X, timelineW: TIMELINE_W,
   pxPerHour: PX_PER_HOUR,
 };

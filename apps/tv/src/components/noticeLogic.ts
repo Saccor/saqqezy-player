@@ -25,7 +25,7 @@ export const NOTICE_MIN_W = 240;
 export const NOTICE_MAX_W = 1008;
 /** Top right, below the safe margin (the shell clock is top left). */
 export const NOTICE_TOP = LAYOUT.safeY + 64;
-export const NOTICE_RIGHT = LAYOUT.width - LAYOUT.safeX;
+const NOTICE_RIGHT = LAYOUT.width - LAYOUT.safeX;
 export const NOTICE_SPINNER = 36;
 export const SPINNER_DOT = 6;
 export const NOTICE_MAX_SHOWN = 3;

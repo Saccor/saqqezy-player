@@ -12,7 +12,7 @@ function errName(err: unknown): string | undefined {
 /** Logical keys as seen by the UI: the remote keys plus the synthesised long-press of Ok. */
 export type UiKey = LogicalKey | 'LongOk';
 
-export const LONG_PRESS_MS = 600;
+const LONG_PRESS_MS = 600;
 
 const LOGICAL_KEYS: UiKey[] = [
   'Up', 'Down', 'Left', 'Right', 'Ok', 'LongOk', 'Back', 'Menu', 'Info', 'ChannelUp', 'ChannelDown',

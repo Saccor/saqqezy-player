@@ -8,7 +8,7 @@ export type TileVariant = 'poster' | 'wide' | 'wideCompact' | 'episode' | 'chip'
 
 export const EP_W = 400;
 export const EP_H = 225;
-export const EP_GAP = SPACE.l;
+const EP_GAP = SPACE.l;
 /** Episode cards fully in view; the next one peeks in at the right edge. */
 export const EP_VISIBLE = 4;
 /** The still plus the meta, title and two synopsis lines below it. */

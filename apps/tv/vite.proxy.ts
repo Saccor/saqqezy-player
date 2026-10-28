@@ -18,7 +18,7 @@ import { maskUrl } from './src/dev/maskUrl.ts';
 import { rewriteHls } from './src/dev/rewriteHls.ts';
 import { UNREACHABLE_HEADER } from './src/net/devProxy.ts';
 
-export const PROXY_PATH = '/__proxy';
+const PROXY_PATH = '/__proxy';
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 

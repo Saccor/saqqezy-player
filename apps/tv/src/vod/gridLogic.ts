@@ -6,7 +6,7 @@ import { POSTER_GAP } from './posterLogic.ts';
 /** The category grid. Pure: no Solid, no Lightning. */
 
 /** Space between two rows of posters (the column gap is the rows' `POSTER_GAP`). */
-export const GRID_ROW_GAP = SPACE.l;
+const GRID_ROW_GAP = SPACE.l;
 
 /** Cell sizes across the content width with `POSTER_GAP` column gaps and `GRID_ROW_GAP` row gaps. */
 export function gridLayout(size: PosterSize): { cols: number; cellW: number; cellH: number; rowPitch: number } {

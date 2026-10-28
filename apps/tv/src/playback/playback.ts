@@ -165,7 +165,7 @@ const openRate = new SourceOpenRate({
 /** Per source, the gap between opens of every slot (multiview windows open about 1.15 s apart). */
 const openGap = new SharedOpenGap();
 /** Per source and host, the streams every slot has open: a window's refusal can stay on that window. */
-export const ledger = new ConnectionLedger();
+const ledger = new ConnectionLedger();
 
 const reportFailed = (err: unknown) => console.warn('Cooldown report failed', err instanceof Error ? err.name : 'Error');
 

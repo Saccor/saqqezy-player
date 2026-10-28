@@ -54,7 +54,7 @@ export const SPEED_PAL_TO_FILM = 23.976 / 25;
 /** A subtitle timed for 23.976 fps on a 25 fps video. */
 export const SPEED_FILM_TO_PAL = 25 / 23.976;
 /** The speed choices, in Left/Right order: Normal, 25 → 23.976, 23.976 → 25. */
-export const SUBTITLE_SPEEDS: readonly number[] = [1, SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL];
+const SUBTITLE_SPEEDS: readonly number[] = [1, SPEED_PAL_TO_FILM, SPEED_FILM_TO_PAL];
 /** 1, SPEED_PAL_TO_FILM or SPEED_FILM_TO_PAL: how much faster subtitle time runs than the video's. */
 export type SubtitleSpeed = number;
 export const SPEED_HELP = VOD_COPY.speedHelp;
@@ -105,7 +105,7 @@ export function stepSpeed(speed: SubtitleSpeed, dir: 1 | -1): SubtitleSpeed {
 }
 
 /** One Left/Right press on the delay row; the pointer rows step further. */
-export const DELAY_STEP_MS = 100;
+const DELAY_STEP_MS = 100;
 export const DELAY_POINTER_STEP_MS = 500;
 const DELAY_MAX_MS = 60_000;
 

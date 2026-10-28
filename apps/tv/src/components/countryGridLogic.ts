@@ -9,7 +9,7 @@ import { COUNTRIES_COPY } from '../copy.ts';
 
 export type GridSort = 'most' | 'az';
 /** The "A–Z" toggle exists with more choices than this. */
-export const AZ_TOGGLE_AFTER = 24;
+const AZ_TOGGLE_AFTER = 24;
 /** One chip at 1080p (spec: at least 240 × 140), and the gap between chips. */
 export const CHIP = { w: 260, h: 164, gap: 24 } as const;
 export interface Box { x: number; y: number; w: number; h: number }
@@ -47,7 +47,7 @@ export type GridMove = { focus: GridFocus } | { edge: GridEdge };
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Countries, then languages. `most` keeps the worker's order (this TV first, most folders first). */
-export function orderChoices(choices: readonly CountryChoice[], sort: GridSort, deviceCountry?: string): { countries: CountryChoice[]; languages: CountryChoice[] } {
+function orderChoices(choices: readonly CountryChoice[], sort: GridSort, deviceCountry?: string): { countries: CountryChoice[]; languages: CountryChoice[] } {
   const countries = choices.filter((c) => !c.isLanguage);
   const languages = choices.filter((c) => c.isLanguage);
   if (sort === 'az') {
@@ -72,7 +72,7 @@ export function gridRows(choices: readonly CountryChoice[], sort: GridSort, colu
   return rows;
 }
 
-export const rowSelectable = (r: GridRow | undefined): boolean => r !== undefined && (r.kind === 'chips' || (r.kind === 'sort' && r.toggle));
+const rowSelectable = (r: GridRow | undefined): boolean => r !== undefined && (r.kind === 'chips' || (r.kind === 'sort' && r.toggle));
 const cellsIn = (r: GridRow): number => (r.kind === 'chips' ? r.keys.length : 1);
 
 /** The chip of `key` (this TV's country), else the first chip, else the first selectable row. */

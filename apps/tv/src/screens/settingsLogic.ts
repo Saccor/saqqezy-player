@@ -37,8 +37,8 @@ export function settingsOpenAt(params: Record<string, unknown> | undefined, reme
   return typeof params?.focusItem === 'string' ? { page: i, direct: true, focusItem: params.focusItem } : { page: i, direct: true };
 }
 
-export const OFFSET_LIMIT = 12;
-export const OFFSET_STEP = 0.5;
+const OFFSET_LIMIT = 12;
+const OFFSET_STEP = 0.5;
 export const AUTO_REFRESH_OPTIONS = [0, 6, 12, 24] as const;
 export const FORMAT_OPTIONS = ['ts', 'm3u8'] as const;
 export const LIVE_DELAY_OPTIONS = ['low', 'balanced', 'stable'] as const;
@@ -51,7 +51,7 @@ export const maxWindowsLabel = (v: AppSettings['maxWindows'], ceiling: number): 
 /** Same choices as the Player's sleep timer (and core's sanitizer). */
 export const SLEEP_DEFAULT_OPTIONS = [0, 15, 30, 60, 90, 120] as const;
 /** Errors shown on the Diagnostics page (most recent first). */
-export const MAX_ERRORS = 4;
+const MAX_ERRORS = 4;
 
 /** EPG offset after one Left (-1) or Right (+1): 0.5 h steps on the half-hour grid, clamped to ±12 h. */
 export function stepOffset(hours: number, dir: 1 | -1): number {
@@ -176,7 +176,7 @@ const grouped = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g
  * The guide half of a source's "updated" line: a running import (programmes so far, whole minutes), a failed one
  * (its reason), else the last good import's time.
  */
-export function guideStatus(s: DiagnosticsInfo['sources'][number], now: number): string {
+function guideStatus(s: DiagnosticsInfo['sources'][number], now: number): string {
   const g = s.guideImport;
   if (g?.stage === 'importing') {
     const min = Math.floor(Math.max(0, now - g.startedAt) / 60_000);

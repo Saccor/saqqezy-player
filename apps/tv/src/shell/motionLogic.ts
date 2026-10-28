@@ -14,7 +14,7 @@ export type Cadence = 'normal' | 'brisk' | 'repeat';
 /** What an animated property is: movement (x, y, scale) or a fade (alpha). */
 export type PropClass = 'move' | 'fade';
 
-export const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
+const MOTION_LEVELS: readonly MotionLevel[] = ['full', 'reduced', 'off'];
 
 export interface MotionContext {
   level: MotionLevel;

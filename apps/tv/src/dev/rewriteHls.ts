@@ -1,7 +1,7 @@
 // Pure helpers for the dev proxy (apps/tv/vite.proxy.ts). No Node or DOM APIs, so they are unit-testable.
 import { headerQuery, type RouteHeaders } from '../net/headerParams.ts';
 
-export const HLS_PATH = '/__proxy/hls';
+const HLS_PATH = '/__proxy/hls';
 
 /**
  * `/__proxy/hls/<file name>?u=<url>`, plus `&ua=`/`&ref=` for the source headers. The file name is cosmetic (only

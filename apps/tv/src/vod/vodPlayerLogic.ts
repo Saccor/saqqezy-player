@@ -6,7 +6,7 @@ import { FAILURE_COPY } from '../copy/failure.ts';
 import { MOTION } from '../shell/theme.ts';
 import { oneSpace } from '../playback/tracks.ts';
 
-export const OVERLAY_HIDE_MS = MOTION.autoHide;
+const OVERLAY_HIDE_MS = MOTION.autoHide;
 export const NEXT_COUNTDOWN_S = 10;
 export const PROGRESS_SAVE_MS = 10_000;
 
@@ -79,7 +79,7 @@ export function nextCardText(label: string, secondsLeft: number): string {
 }
 
 /** How close the playhead must come to the start position before the start counts as landed. */
-export const START_LANDED_MS = 5000;
+const START_LANDED_MS = 5000;
 
 /**
  * Whether playhead progress saves are armed (latching). Until then a save could overwrite the saved resume point:

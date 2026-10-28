@@ -57,7 +57,7 @@ export function catchupVodPlayable(c: CatchupPlayable): VodPlayable {
 }
 
 /** The stand-in's item id (never stored: catch-up saves nothing). */
-export const catchupItemId = (c: { channelId: string; start: number }): string => `catchup:${c.channelId}:${c.start}`;
+const catchupItemId = (c: { channelId: string; start: number }): string => `catchup:${c.channelId}:${c.start}`;
 
 /** How far a seek may go: the programme's end, or for one on air, now (its live edge). */
 export function seekLimitMs(c: { start: number; stop: number }, now: number): number {

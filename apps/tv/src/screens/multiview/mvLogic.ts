@@ -193,7 +193,7 @@ export function layoutInput(s: MvState, windowLimit: number): LayoutInput {
  * "Most windows playing at once" counts a window only after this much play without a break (G9 decision C), so one
  * that opened and failed at once is not counted. A later cut verdict corrects any overcount (`capSeen`).
  */
-export const STEADY_PLAY_MS = 10_000;
+const STEADY_PLAY_MS = 10_000;
 
 /**
  * When each slot's current run of play began: kept while it plays, set at `now` when it starts, dropped on any break

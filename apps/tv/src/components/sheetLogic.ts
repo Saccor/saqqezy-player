@@ -41,7 +41,7 @@ export const SHEET_ROW_GAP = SPACE.s;
 export const SHEET_PITCH = SHEET_ROW_H + SHEET_ROW_GAP;
 export const SHEET_PAD = SPACE.l;
 /** The title band above the rows (or the tabs). */
-export const SHEET_HEAD = 64;
+const SHEET_HEAD = 64;
 export const SHEET_TABS_H = 64;
 export const SHEET_MAX_ROWS = 7;
 export const SHEET_FOOTER_LINE = LINE.meta;
@@ -130,7 +130,7 @@ export function dialogLineCount(line: string | undefined, measure: (text: string
   return measure(line, TYPE.body) > DIALOG_W - DIALOG_PAD * 2 ? 2 : 1;
 }
 
-export const DIALOG_BTN_MIN_W = 200;
+const DIALOG_BTN_MIN_W = 200;
 /** Buttons share one width: the widest label plus `SPACE.l` each side, 200 at least; `rowW` is the row incl. the gap. */
 export function dialogButtons(labels: readonly string[], measure: (text: string, size: number) => number): { w: number; rowW: number } {
   const w = Math.max(DIALOG_BTN_MIN_W, ...labels.map((l) => Math.ceil(measure(l, TYPE.body)) + SPACE.l * 2));

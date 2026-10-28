@@ -13,7 +13,7 @@ import {
 } from './pickerSearchLogic.ts';
 
 /** The picker's panel (spec 2026-10-20-multiview §2.3): 560 px on the right, over the dimmed windows. */
-export const PICKER_W = 560;
+const PICKER_W = 560;
 const PAD = 16;
 /** The title, the info line under it (up to 2 lines), then the search row. */
 const HEAD = 152;

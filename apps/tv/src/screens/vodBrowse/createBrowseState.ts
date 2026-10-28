@@ -23,7 +23,7 @@ const MEMORY_MAX = 20;
  * The focus by identity (row id, tile id) and the last column per row id; and the last home, rows and categories
  * shown, so a later visit draws them at once.
  */
-export interface BrowseMemory { focus: FocusMemory; cols: Map<string, number>; home?: VodHome; rows?: RowModel[]; cats?: VodCategoryView[] }
+interface BrowseMemory { focus: FocusMemory; cols: Map<string, number>; home?: VodHome; rows?: RowModel[]; cats?: VodCategoryView[] }
 /** Kept across visits (per source and kind) so Back from the detail or the grid returns to the same poster. */
 const memories = new Map<string, BrowseMemory>();
 const memoryFor = (key: string): BrowseMemory =>

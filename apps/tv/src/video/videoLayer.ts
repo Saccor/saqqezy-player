@@ -10,7 +10,7 @@ export function designScale(win: { innerWidth: number; innerHeight: number } = w
 }
 
 /** Maps a design-space rect to CSS pixels. */
-export function toCss(rect: Rect, scale: number): Rect {
+function toCss(rect: Rect, scale: number): Rect {
   return { x: rect.x * scale, y: rect.y * scale, w: rect.w * scale, h: rect.h * scale };
 }
 

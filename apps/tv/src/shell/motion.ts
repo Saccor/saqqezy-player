@@ -70,7 +70,7 @@ export function noteNavKeyUp(): void {
 }
 
 /** A navigation key is being held (keys arrive under 120 ms apart): skip decorative work such as image fades. */
-export function navKeyHeld(): boolean {
+function navKeyHeld(): boolean {
   return cadence.held(now());
 }
 

@@ -41,7 +41,7 @@ export function columnHeight(heights: readonly number[], gap: number): number {
 }
 
 /** The column glides over at most this many rows; a longer move (Home/End, a pointer jump) snaps. */
-export const SHIFT_MAX_ROWS = 2;
+const SHIFT_MAX_ROWS = 2;
 
 /**
  * How the row column moves when the focused row goes from `from` to `to` (motion research §4 #5). `snap`: the first
