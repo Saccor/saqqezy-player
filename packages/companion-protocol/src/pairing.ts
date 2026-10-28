@@ -1,4 +1,4 @@
-import { fromB64Url, toB64Url } from './b64.ts';
+import { fromB64Url, toB64Url } from '@iptv/core';
 
 /**
  * Pairing secrets. Two ways to pair:

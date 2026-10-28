@@ -12,7 +12,7 @@ import {
   type WebSocketLike,
 } from '../src/wsTransport.ts';
 import { QueueFullError, SecureChannel } from '../src/channel.ts';
-import { toB64Url } from '../src/b64.ts';
+import { toB64Url } from '@iptv/core';
 
 /** A scriptable stand-in for the browser WebSocket. */
 class FakeWs implements WebSocketLike {

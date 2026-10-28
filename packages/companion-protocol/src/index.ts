@@ -1,4 +1,4 @@
-export { toB64Url, fromB64Url } from './b64.ts';
+export { toB64Url, fromB64Url } from '@iptv/core';
 export {
   type PairingSecrets,
   PairingError,

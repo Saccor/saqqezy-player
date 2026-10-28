@@ -1,3 +1,4 @@
+import { toB64Url } from '../text/b64.ts';
 import type { SourceConfig } from '../types.ts';
 import { normalizeServer } from '../xtream/client.ts';
 
@@ -64,16 +65,10 @@ export async function deriveFingerprintKey(sk: Uint8Array): Promise<CryptoKey> {
   );
 }
 
-function base64url(bytes: Uint8Array): string {
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 /** The source's fingerprint (`SyncRef.sfp`): the HMAC of its canonical identity, truncated to 128 bits. */
 export async function sourceFingerprint(kFp: CryptoKey, source: SourceConfig): Promise<string> {
   const mac = await crypto.subtle.sign('HMAC', kFp, new TextEncoder().encode(canonicalSourceIdentity(source)));
-  return base64url(new Uint8Array(mac).subarray(0, SFP_BYTES));
+  return toB64Url(new Uint8Array(mac).subarray(0, SFP_BYTES));
 }
 
 /** `SyncRef.sid` of a stored id: without the `sourceId:` prefix when it has one (group ids have none). */
