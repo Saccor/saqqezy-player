@@ -12,6 +12,7 @@ import { DropdownHeader } from '../components/DropdownHeader.tsx';
 import { moveFocus } from '../components/virtualWindow.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
+import { prefetchVodPlay } from '../shell/vodPlayModule.ts';
 import { COLORS, LAYOUT, LINE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { Backdrop } from '../vod/Backdrop.tsx';
@@ -309,6 +310,8 @@ export function SeriesDetailScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     void load();
     actionsNode?.setFocus();
+    // Play is the next likely step: the player's chunk loads now (usually already preloaded in idle time).
+    prefetchVodPlay();
   });
   onCleanup(() => {
     alive = false;

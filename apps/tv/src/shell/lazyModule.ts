@@ -66,10 +66,10 @@ export function shouldRefocusHost<T>(alive: boolean, active: T | undefined, host
 }
 
 /**
- * Rare screens, loaded on first use (spec 2026-10-26 §0.3), in idle-preload order. Settings carries its pages and the
- * pairing page (with the QR library). Order: most likely first.
+ * Rare screens, loaded on first use (spec 2026-10-26 §0.3), in idle-preload order. The VOD player (movies, series,
+ * catch-up) comes first; Settings carries its pages and the pairing page (with the QR library). Order: most likely first.
  */
-export const LAZY_SCREENS = ['settings', 'countries', 'multiview'] as const satisfies readonly ScreenId[];
+export const LAZY_SCREENS = ['vodPlay', 'settings', 'countries', 'multiview'] as const satisfies readonly ScreenId[];
 export type LazyScreenId = (typeof LAZY_SCREENS)[number];
 
 /**

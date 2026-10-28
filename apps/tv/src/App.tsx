@@ -19,7 +19,6 @@ import { VodBrowseScreen } from './screens/VodBrowse.tsx';
 import { StartScreen } from './screens/Start.tsx';
 import { StartSportsScreen } from './screens/StartSports.tsx';
 import { VodGridScreen } from './screens/VodGrid.tsx';
-import { VodPlayScreen } from './screens/VodPlay.tsx';
 import { Clock } from './shell/Clock.tsx';
 import { Dialog } from './components/Dialog.tsx';
 import { DebugOverlay } from './shell/DebugOverlay.tsx';
@@ -27,6 +26,7 @@ import { InitError } from './shell/InitError.tsx';
 import { LazyScreen } from './shell/LazyScreen.tsx';
 import { isLazyScreen, LAZY_SCREENS, lazyModule, preloadInTurn, type LazyModule, type LazyScreenId } from './shell/lazyModule.ts';
 import type { ScreenEntry } from './shell/router.ts';
+import { vodPlayModule } from './shell/vodPlayModule.ts';
 import {
   BOTTOM_ROW_H, BOTTOM_ROW_Y, deferWordmark, EXIT_OVERLAY_ID, fullscreenVideoRoute, SHELL_BACK_LABEL, SHELL_BACK_W, screenOverlayOpen, shellBackShown, shellBackX,
   railRoute, showWordmark, WORDMARK_MAX_WAIT_MS,
@@ -56,9 +56,11 @@ const LIVE_SOUND_TICK_MS = 1000;
 type EntryProps = { entry: ScreenEntry };
 /**
  * Rare screens: loaded on first use, or in idle time after the first channel row (spec 2026-10-26 §0.3). Live TV, the
- * Player, Start, Search, Add source (the first-run screen) and the Movies/Series screens stay in the start bundle.
+ * Player, Start, Search, Add source (the first-run screen) and the Movies/Series screens stay in the start bundle; the
+ * VOD player loads with its first title (the detail screens prefetch it).
  */
 const LAZY: Record<LazyScreenId, LazyModule<EntryProps>> = {
+  vodPlay: vodPlayModule,
   settings: lazyModule<EntryProps>(() => import('./screens/Settings.tsx').then((m) => m.SettingsScreen)),
   countries: lazyModule<EntryProps>(() => import('./screens/Countries.tsx').then((m) => m.CountriesScreen)),
   multiview: lazyModule<EntryProps>(() => import('./screens/multiview/Multiview.tsx').then((m) => m.MultiviewScreen)),
@@ -215,7 +217,7 @@ export function App() {
             : entry.screen === 'vodGrid' ? <VodGridScreen entry={entry} />
             : entry.screen === 'movieDetail' ? <MovieDetailScreen entry={entry} />
             : entry.screen === 'seriesDetail' ? <SeriesDetailScreen entry={entry} />
-            : entry.screen === 'vodPlay' ? <VodPlayScreen entry={entry} /> : <PlaceholderScreen entry={entry} />)}
+            : <PlaceholderScreen entry={entry} />)}
         </Show>
       </View>
       {/*

@@ -43,8 +43,8 @@ describe('preloadInTurn', () => {
 });
 
 describe('route table', () => {
-  it('Settings (with its pages and pairing), Countries and Multiview load lazily', () => {
-    expect([...LAZY_SCREENS].sort()).toEqual(['countries', 'multiview', 'settings']);
+  it('the VOD player, Settings (with its pages and pairing), Countries and Multiview load lazily', () => {
+    expect([...LAZY_SCREENS].sort()).toEqual(['countries', 'multiview', 'settings', 'vodPlay']);
     for (const id of LAZY_SCREENS) expect(isLazyScreen(id)).toBe(true);
   });
 

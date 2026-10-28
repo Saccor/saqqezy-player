@@ -32,6 +32,14 @@ describe('forbiddenSources', () => {
     expect(hits).toHaveLength(7);
   });
 
+  it('flags the VOD player and its parts', () => {
+    expect(forbiddenSources([
+      '../../src/screens/VodPlay.tsx',
+      '../../src/screens/vodPlay/createVodCore.ts',
+      '../../src/screens/VodPlayers.tsx',
+    ])).toEqual(['../../src/screens/VodPlay.tsx', '../../src/screens/vodPlay/createVodCore.ts']);
+  });
+
   it('keeps what the first frame needs (AddSource is the first-run screen), and helpers the rare screens share with it', () => {
     expect(forbiddenSources([
       '../../src/screens/live/LiveTv.tsx',

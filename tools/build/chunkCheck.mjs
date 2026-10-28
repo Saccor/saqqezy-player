@@ -18,6 +18,8 @@ export const LAZY_ONLY = [
   /\/src\/screens\/Settings\.tsx$/,
   /\/src\/screens\/settings\/[A-Za-z]+Page\.tsx$/,
   /\/src\/screens\/multiview\/Multiview\.tsx$/,
+  /\/src\/screens\/VodPlay\.tsx$/,
+  /\/src\/screens\/vodPlay\//,
 ];
 
 /** The entries of `sources` that match a lazy-only pattern ('\' normalised to '/'). */

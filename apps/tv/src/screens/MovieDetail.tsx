@@ -8,6 +8,7 @@ import { Row } from '../components/Row.tsx';
 import { pointerMode } from '../input/pointer.ts';
 import { screenOverlayOpen } from '../shell/logic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
+import { prefetchVodPlay } from '../shell/vodPlayModule.ts';
 import { centerText, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { moveBrowse, type RowModel } from '../vod/browseLogic.ts';
@@ -214,6 +215,8 @@ export function MovieDetailScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     void load(true);
     actionsNode?.setFocus();
+    // Play is the next likely step: the player's chunk loads now (usually already preloaded in idle time).
+    prefetchVodPlay();
   });
   onCleanup(() => {
     alive = false;
