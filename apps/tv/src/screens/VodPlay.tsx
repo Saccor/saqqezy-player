@@ -1,243 +1,75 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { Show, View } from '@lightningtv/solid';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
-import type { CatchupPlayable, VersionView, VodPlayable, VodTracks } from '@iptv/app-api';
-import { cueAt, type LoadedSubtitle, type SubtitleInput } from '@iptv/core';
+import type { VodTracks } from '@iptv/app-api';
+import { cueAt } from '@iptv/core';
 import { api } from '../api.ts';
-import { ActionBar, type Action } from '../components/ActionBar.tsx';
-import { Keyboard, KEYBOARD_URL_H, KEYBOARD_W } from '../components/Keyboard.tsx';
-import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
-import { Sheet } from '../components/Sheet.tsx';
-import { fromOptionItem, fromPickerRow } from '../components/sheetLogic.ts';
-import { MESSAGE_BOXES, messageTop } from '../components/messageFit.ts';
-import { BadgeRow } from '../components/Badge.tsx';
+import { MESSAGE_BOXES } from '../components/messageFit.ts';
 import { useNotice } from '../components/Notice.tsx';
 import { mediaBadges } from '../playback/mediaBadges.ts';
-import { onLogicalKey, sendKey } from '../input/keys.ts';
-import { pointerMode, usePointerTarget } from '../input/pointer.ts';
-import { SHELL_BACK_LABEL } from '../shell/logic.ts';
+import { onLogicalKey } from '../input/keys.ts';
+import { usePointerTarget } from '../input/pointer.ts';
 import { failureText } from '../playback/failureText.ts';
-import { isVodId, journal, playback, player } from '../playback/playback.ts';
-import { CATCHUP_COPY, COMMON_COPY, PLAYER_COPY, SOURCE_COPY, VOD_COPY } from '../copy.ts';
-import {
-  REOPEN_MIN_GAP_MS, catchupVodPlayable, endCardActions, missingArchive, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
-} from '../vod/catchupLogic.ts';
+import { playback, player } from '../playback/playback.ts';
+import { CATCHUP_COPY, PLAYER_COPY, VOD_COPY } from '../copy.ts';
+import { notAvailableFailure } from '../vod/catchupLogic.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
-import { InfoBlock } from '../components/InfoBlock.tsx';
 import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
 import { staticCaps } from '@iptv/player';
-import type { PickerRow } from './homeMenuLogic.ts';
 import { router, type ScreenEntry } from '../shell/router.ts';
-import { BACKGROUND_RGB, COLORS, LAYOUT, LINE, RADIUS, SPACE, STRONG, TYPE } from '../shell/theme.ts';
+import { COLORS, LAYOUT } from '../shell/theme.ts';
 import { activeMaxConnections } from '../state/activeLimit.ts';
-import { platformId, settings } from '../state/appState.ts';
-import { isTvPlatform } from '../video/engineConfig.ts';
+import { platformId } from '../state/appState.ts';
 import { showToast } from '../shell/Toast.tsx';
-import { scrimTexture } from '../vod/scrim.ts';
-import { Timeline, TIMELINE_H } from '../components/Timeline.tsx';
-import { VolumeControl, VolumeOsd } from '../components/VolumeOsd.tsx';
-import { volumeStep, volumeSupported } from '../video/volume.ts';
-import { BUTTON_H } from '../components/Button.tsx';
-import { iconTexture } from '../vod/icons.ts';
+import { VolumeOsd } from '../components/VolumeOsd.tsx';
+import { volumeStep } from '../video/volume.ts';
+import { bufferedEndMs } from '../vod/timelineLogic.ts';
 import {
-  commitDelayMs, dragScrub, holdPress, mediaKeyAction, pressScrub, SEEK_STEP_MS, seekStep, SKIP_LONG_MS, type HoldRun, type Scrub,
-} from '../vod/seekLogic.ts';
-import { bufferedEndMs, elapsedText, groupXs, remainingText } from '../vod/timelineLogic.ts';
-import {
-  DV_COLOURS_TEXT, NEXT_COUNTDOWN_S, PROGRESS_SAVE_MS, dvColoursWarning, SUBTITLE_KEY_OFF, cueText, knownDuration, nextCardText, noSoundText,
-  overlayVisible, coverVideo, coverLatch, pauseOnHidden, progressSaveArmed, shapeCheckDue, trackShape, tracksDue, tracksKeyId,
+  DV_COLOURS_TEXT, PROGRESS_SAVE_MS, dvColoursWarning, cueText, knownDuration, nextCardText, noSoundText,
+  coverVideo, coverLatch, pauseOnHidden,
 } from '../vod/vodPlayerLogic.ts';
-import { SyncRecorder, syncReferenceTrack } from '../vod/syncRecorder.ts';
-import { SUBTITLES_OFF, oneSpace, pickAudioTrack, trackKey, trackLabels, trackRows, type TrackLanguageInput } from '../vod/tracks.ts';
-import { audioItems, matchingEpisode, optionsItems, sourceItems, versionOwnerId, type OptionsPage } from '../vod/playerOptions.ts';
-import { withLanguages } from '../vod/versionsLogic.ts';
-import { cueLanguageCollector } from '../vod/cueLanguage.ts';
-import {
-  ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
-  REMOVE_EXT_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, loadedLanguage, onlineFileId, onlineLanguageLabel, onlineLanguageRows, sourceRowIndex, sourceSubtitleName, stepDelay, type OnlineLanguage,
-  delayLabel, pickSubtitle, subtitleExtraRows, SPEED_ROW, autoSpeed, normalizeSpeed, stepSpeed, subtitleTime, versionFileId, versionRows,
-  type SubtitleSpeed, type VersionInfo,
-} from '../vod/subtitleLogic.ts';
+import { oneSpace } from '../vod/tracks.ts';
+import { SUBTITLE_KEY_EXT, onlineLanguageLabel, subtitleTime } from '../vod/subtitleLogic.ts';
+import { createVodCore } from './vodPlay/createVodCore.ts';
+import { createVodSeek } from './vodPlay/createVodSeek.ts';
+import { createVodCatchup } from './vodPlay/createVodCatchup.ts';
+import { createLoadedSubtitle } from './vodPlay/createLoadedSubtitle.ts';
+import { createSubtitleFinder } from './vodPlay/createSubtitleFinder.ts';
+import { createVodTracks } from './vodPlay/createVodTracks.ts';
+import { createVodOptions } from './vodPlay/createVodOptions.ts';
+import { createEpisodeSwitch } from './vodPlay/createEpisodeSwitch.ts';
+import { createVodFocus } from './vodPlay/createVodFocus.ts';
+import { createVodKeys } from './vodPlay/createVodKeys.ts';
+import { SubtitleCue, VodControls } from './vodPlay/VodOverlay.tsx';
+import { VodCard } from './vodPlay/VodCard.tsx';
+import { VodSheets } from './vodPlay/VodSheets.tsx';
+import { INFO_ID, TICK_MS, errName } from './vodPlay/layout.ts';
+import { cardActions, vodStatusText } from './vodPlay/vodPlayLogic.ts';
 
-const TICK_MS = 250;
-const TRACKS_ID = 'vodTracks';
-const SUB_URL_ID = 'vodSubtitleLink';
-const INFO_ID = 'vodStreamInfo';
-const OPTIONS_ID = 'vodOptions';
 /** Whether this display shows Dolby Vision profile 5 ('none' on Samsung; unknown elsewhere until probed). */
 const DV5 = staticCaps(platformId, 'native').display.hdr.dv5?.value;
-const SUB_ONLINE_ID = 'vodSubtitleOnline';
-const SUB_VERSIONS_ID = 'vodSubtitleVersions';
-/** OpenSubtitles' free plan asks for this line wherever its subtitles are picked. */
-const ONLINE_ATTRIBUTION = VOD_COPY.attribution;
 /** How often a loaded subtitle file's cue is looked up (the engines' own subtitles poll at the same rate). */
 const EXT_SUB_POLL_MS = 250;
-/** Automatic sync asks the worker once this much video is recorded, then at most this often. */
-const SYNC_ASK_AFTER_MS = 4 * 60_000;
-const SYNC_ASK_EVERY_MS = 30_000;
-/** A file picker exists on computers only (TV engines have no file dialog). */
-const CAN_LOAD_FILE = !isTvPlatform(platformId);
-/** Desktop Chrome has no `video.audioTracks`: files it plays itself list no audio tracks (hls.js streams still do). */
-const NO_TRACK_API = typeof document !== 'undefined' && !('audioTracks' in document.createElement('video'));
-const SUBTITLE_FILE_TYPES = '.srt,.vtt,text/vtt,application/x-subrip';
-const CANT_PLAY_NOW = failureText({ reason: 'unavailable' });
-
-/** The controls' dark band: tall enough that the title (y 596) sits where it is still ~75% dark. */
-const BAND_H = 620;
-const BAND_Y = LAYOUT.height - BAND_H;
-const CONTENT_X = LAYOUT.safeX;
-const CONTENT_W = LAYOUT.width - LAYOUT.safeX * 2;
-const TITLE_Y = 596;
-const LABEL_Y = 654;
-/** The media badges: under the episode label, else in its place. */
-const BADGES_LABEL_Y = LABEL_Y + 50;
-/** The timeline's hit area; the scrub bubble (88 px) sits above it, clear of the label (ends ~690). */
-const TIMELINE_Y = 788;
-const TIMES_Y = TIMELINE_Y + TIMELINE_H + 6;
-const TIME_W = 600;
-const ACTIONS_Y = 916;
-/** Control row: the transport icons (round) and the text buttons. */
-const ROUND_W = BUTTON_H;
-const BACK_W = 180;
-const TRACKS_W = 240;
-/** The gear (Options): a round icon button like the transport's. */
-const OPTIONS_W = BUTTON_H;
-const NEXT_W = 280;
-/** The volume control at the row's left end (desktop only: TVs keep their remote's volume). */
-const VOLUME_W = 300;
-const SUB_OUTLINE: [number, number][] = [[-2, -2], [2, -2], [-2, 2], [2, 2], [0, 3]];
-const SUB_OUTLINE_COLOR = COLORS.panel;
-/** The live-edge mark on a catch-up timeline. */
-const CATCHUP_W = 4;
-const CATCHUP_H = 28;
-/** The x of the live-edge mark for a seek limit on a timeline of the given duration. */
-const liveEdgeX = (limitMs: number, durMs: number | undefined): number =>
-  CONTENT_X + Math.round((CONTENT_W * limitMs) / Math.max(1, durMs ?? 1)) - CATCHUP_W / 2;
-const CARD_W = 1000;
-const CARD_H = 260;
-/** The card's text area, between its top margin (24) and its buttons (y 148). */
-const CARD_TEXT_H = 124;
-
-const errName = (err: unknown) => (err instanceof Error ? err.name : 'Error');
 
 /**
  * The VOD player: fullscreen video with a bottom overlay (title, progress, times, actions), pause, a seek marker that
  * commits 500 ms after the last press, resume, progress saves, audio and subtitle choices remembered per title (per series for episodes), drawn
- * subtitles for engines that cannot draw them, the next-episode card, and the failure messages.
+ * subtitles for engines that cannot draw them, the next-episode card, and the failure messages. Its parts live in
+ * `vodPlay/`: the shared state (`createVodCore`), seeking, catch-up, the subtitle file and where it comes from, the
+ * track choices, Options and the episode switch; this component wires them to the keys, the tick and the drawing.
  */
 export function VodPlayScreen(props: { entry: ScreenEntry }) {
-  const params = props.entry.params as { playable?: VodPlayable; fromStart?: boolean; catchup?: CatchupPlayable };
-  /**
-   * Catch-up mode (spec 2026-10-20-catch-up §5.4): a programme from the source's archive, played as a stand-in title.
-   * Its timeline is the programme; nothing is saved (no progress, no remembered tracks, no loaded subtitles).
-   */
-  const cu = params.catchup;
-  const p: VodPlayable = cu ? catchupVodPlayable(cu) : params.playable!;
-  const startMs = cu ? 0 : params.fromStart ? 0 : p.resumeMs;
-  const standId = `vod:${p.itemId}`;
-  /** The live channel that played before a catch-up programme opened: Back plays it again. */
-  const liveBefore = cu && !isVodId(playback.current()?.id) ? playback.current()?.id : undefined;
+  const c = createVodCore(props.entry);
+  const { p, cu, startMs, bump, visible, failed, ended, status } = c;
 
-  const [now, setNow] = createSignal(Date.now());
-  const [lastKeyAt, setLastKeyAt] = createSignal(Date.now());
-  const [pos, setPos] = createSignal(startMs);
-  const [dur, setDur] = createSignal<number | undefined>(knownDuration(undefined, p.durationMs));
-  const [paused, setPaused] = createSignal(false);
-  /** A pending seek (keys, ±10 or a drag): Ok or its idle timer commits it, Back cancels it. */
-  const [scrub, setScrub] = createSignal<Scrub | undefined>(undefined);
-  /** A pointer drag on the timeline is held (the overlay stays up). */
-  const [dragging, setDragging] = createSignal(false);
-  const [bufEnd, setBufEnd] = createSignal<number | undefined>(undefined);
-  const [cue, setCue] = createSignal('');
-  const [pickerOpen, setPickerOpen] = createSignal(false);
-  const [rowsTick, setRowsTick] = createSignal(0);
-  const [countdown, setCountdown] = createSignal<number | undefined>(undefined);
-  /** Subtitles the user loaded for this title (a link or a file), and whether they show instead of the stream's. */
-  const [external, setExternal] = createSignal<LoadedSubtitle | undefined>(undefined);
-  const [extOn, setExtOn] = createSignal(false);
-  /** The loaded file's language (stored, or from its name or text). */
-  const extLanguage = createMemo(() => {
-    const ext = external();
-    return ext ? loadedLanguage(ext) : undefined;
-  });
-  /** Embedded subtitle tracks' languages detected from their cues this open, by engine track id. */
-  const [detectedLangs, setDetectedLangs] = createSignal<Record<string, string>>({});
-  const cueLangs = cueLanguageCollector((id, lang) => setDetectedLangs((d) => ({ ...d, [id]: lang })));
-  /** Everything the track labels and badges know about languages besides the tracks' own data. */
-  const langInput = (): TrackLanguageInput => ({ ...(p.languageHints ? { hints: p.languageHints } : {}), detected: detectedLangs() });
-  /** The link being typed for "Load subtitles from a link…" (undefined: the keyboard is closed). */
-  const [linkText, setLinkText] = createSignal<string | undefined>(undefined);
-  const [linkError, setLinkError] = createSignal<string | undefined>(undefined);
-  const [subBusy, setSubBusy] = createSignal(false);
-  /** "Find subtitles online" is set up (the worker has the service's key). */
-  const [onlineOk, setOnlineOk] = createSignal(false);
-  /** The "Subtitles online" picker's rows (undefined: closed). */
-  const [onlineRows, setOnlineRows] = createSignal<PickerRow[] | undefined>(undefined);
-  /** The loaded file's delay: how much later (positive) or earlier its cues show. Kept with the file. */
-  const [subDelay, setSubDelay] = createSignal(0);
-  /** The loaded file's speed (a frame-rate fix): how fast its time runs against the video's. Kept with the file. */
-  const [subSpeed, setSubSpeed] = createSignal<SubtitleSpeed>(1);
-  /** The "Try another version" picker's rows (undefined: closed). */
-  const [versionPickRows, setVersionPickRows] = createSignal<PickerRow[] | undefined>(undefined);
-  /** Catch-up: the URL playing now (a seek may re-open another), and where in the programme it starts. */
-  const [cur, setCur] = createSignal<CatchupPlayable | undefined>(cu);
-  const [openedAt, setOpenedAt] = createSignal(cu?.openedAtMs ?? 0);
-  /** Catch-up: the programme ended (or its end was reached); the card offers the next one and live. */
-  const [endCard, setEndCard] = createSignal(false);
-  /** Catch-up: the source did not return this programme (§5.5). */
-  const [notAvail, setNotAvail] = createSignal(false);
-
-  let root: ElementNode | undefined;
-  let barNode: ElementNode | undefined;
-  let timelineNode: ElementNode | undefined;
-  let pickerNode: ElementNode | undefined;
-  let keyboardNode: ElementNode | undefined;
-  let removeLinkEntry: (() => void) | undefined;
-  let onlineNode: ElementNode | undefined;
-  let removeOnline: (() => void) | undefined;
-  /** Bumped per search, so a search answered after its picker closed changes nothing. */
-  let onlineSearch = 0;
-  /** The languages of the last online search (each with its versions). */
-  let onlineLangs: OnlineLanguage[] = [];
-  let versionsNode: ElementNode | undefined;
-  let removeVersions: (() => void) | undefined;
-  /** Bumped per versions list, so one answered after its picker closed changes nothing. */
-  let versionsSearch = 0;
-  /** The versions listed in the open picker, and the language they are in. */
-  let versionList: { language: string; versions: VersionInfo[] } | undefined;
-  /** Ticks left to wait for the video's frame rate before the loaded file's automatic speed is given up. */
-  let autoSpeedTries = 0;
-  /** Ticks left asking for the video's frame rate early (about 10 s of playing). */
-  let fpsPrimeTicks = 40;
-  let delaySaveTimer: ReturnType<typeof setTimeout> | undefined;
-  let cardNode: ElementNode | undefined;
-  let barFocused = false;
-  let timelineFocused = false;
-  let alive = true;
-  let lastPos: number | undefined = startMs;
-  let commitTimer: ReturnType<typeof setTimeout> | undefined;
-  let countdownTimer: ReturnType<typeof setInterval> | undefined;
-  let rowsTimer: ReturnType<typeof setTimeout> | undefined;
-  let removePicker: (() => void) | undefined;
-  let hold: HoldRun | undefined;
+  const focus = createVodFocus(c);
+  const { focusRoot, focusCard, focusBarOrRoot } = focus;
   let endedHandled = false;
-  /** One episode switch (next or previous) in flight at a time. */
-  let switchBusy = false;
   /** The no-sound toast was shown (once per title). */
   let soundWarned = false;
-  /** Catch-up: a frame was seen (a later failure is a normal one), when the stream was asked for, and the last re-open. */
-  let everPlayed = false;
+  let dvWarned = false;
   /** True from the first picture of this open; until then an opaque view covers the video plane (`coverVideo`). */
   const [latch, setLatch] = createSignal({ armed: false, played: false });
   const played = () => latch().played;
-  let openedWall = Date.now();
-  let lastReopenAt: number | undefined;
-  let reopenTimer: ReturnType<typeof setTimeout> | undefined;
-  let reopenSeq = 0;
-  let dvWarned = false;
-  // Automatic subtitle sync (spec 2026-10-21 §4): listening to the stream's own track (unseen) while a loaded file shows.
-  let sync: { recorder: SyncRecorder; trackId: string; key: string; nextAskAt: number; asking: boolean } | undefined;
-  /** The file sync is done with (synced, given up, or the user set its delay or speed): never listened to again. */
-  let syncFinishedFor: string | undefined;
   // Stream info (Info key): codec, resolution and dynamic range. Never the URL path (`streamInfoLines`).
   const [infoOn, setInfoOn] = createSignal(false);
   const [infoTick, setInfoTick] = createSignal(0);
@@ -257,1173 +89,54 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   };
   /** The choices to (re)apply whenever the stream starts playing; updated by the picker. */
   const chosen: VodTracks = { ...p.tracks };
-  /** The `startedAttempts` value the remembered tracks were last applied for (once per engine attempt). */
-  let tracksAppliedAt: number | undefined;
-  /** The track lists' shape when they were last applied (`trackShape`): late tracks re-apply the choices. */
-  let tracksAppliedShape: string | undefined;
-  /** Ticks since the tracks were last applied (`shapeCheckDue`). */
-  let shapeTicks = 0;
-  /**
-   * Playhead saves wait until this attempt played near the start position (or the user seeked, or paused while it
-   * played): see `progressSaveArmed`. A start at 0 is armed at once.
-   */
-  let saveArmed = progressSaveArmed({ armed: false, startMs, playing: false, posMs: undefined });
-  /** Re-evaluates the arming from what the stream shows now (plus a user action). */
-  const arm = (user: { userSeeked?: boolean; userPaused?: boolean } = {}) => {
-    saveArmed = progressSaveArmed({ armed: saveArmed, startMs, playing: status()?.kind === 'playing', posMs: trustedPos(), ...user });
-  };
 
-  const status = () => playback.status();
-  const failed = () => {
-    const s = status();
-    return s?.kind === 'failed' ? s : undefined;
-  };
-  const ended = () => status()?.kind === 'ended';
-  const visible = () => overlayVisible({
-    paused: paused(),
-    seeking: scrub() !== undefined || dragging(),
-    problem: failed() !== undefined || ended(),
-    lastKeyAt: lastKeyAt(),
-    now: now(),
+  // The parts (each reads and writes the shared state `c`; the later ones are reached lazily from the earlier ones).
+  const catchup = createVodCatchup(c, { closePicker: () => tracks.closePicker(), dropSeek: () => seek.dropSeek(), focusCard });
+  const seek = createVodSeek(c, { notAvail: catchup.notAvail, reopenAt: catchup.reopenAt });
+  const sub = createLoadedSubtitle(c, {
+    chosen, remember: (t) => tracks.remember(t), applySubtitle: () => tracks.applySubtitle(), refreshRows: () => tracks.refreshRows(),
   });
-  const bump = () => {
-    const t = Date.now();
-    setNow(t);
-    setLastKeyAt(t);
-  };
+  const finder = createSubtitleFinder(c, sub, { focusBarOrRoot });
+  const tracks = createVodTracks(c, sub, finder, { chosen, focusBarOrRoot });
+  const options = createVodOptions(c, sub, tracks, { entry: () => props.entry, chosen, infoOn, toggleInfo, focusBarOrRoot });
+  const episodes = createEpisodeSwitch(c, { closePicker: tracks.closePicker, leave: (saveFirst) => leave(saveFirst), focusCard });
+  const { endCard, notAvail } = catchup;
+  const { dropSeek } = seek;
+
   // What is playing, as badges under the title while the controls show: re-read each tick (the engine learns the
   // size, frame rate and tracks after the start), redrawn only when a badge changes.
   const badges = createMemo((): string[] => {
     if (!visible()) return [];
-    now();
-    const ext = external();
-    const extLang = extLanguage();
+    c.now();
+    const ext = sub.external();
+    const extLang = sub.extLanguage();
     return mediaBadges({
-      info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(), languages: langInput(),
+      info: player.streamInfo(), hint: p.video, audio: playback.audioTracks(), text: playback.textTracks(), languages: tracks.langInput(),
       ...(ext && chosen.subtitle === SUBTITLE_KEY_EXT ? { external: extLang ? onlineLanguageLabel(extLang) : '', externalCc: ext.cc === true } : {}),
     });
   }, [], { equals: (a, b) => a.join('|') === b.join('|') });
-  /** The playhead and duration only while the stream is this title's (never a held title's or another one's). */
-  const ours = () => playback.current()?.id === standId;
-  /** Catch-up: programme time (where the URL starts plus the engine's playhead), and the programme's length. */
-  const trustedPos = () => {
-    if (!ours()) return undefined;
-    const e = playback.positionMs();
-    return e === undefined || !cu ? e : openedAt() + e;
-  };
-  const trustedDur = () => (ours() ? (cu ? p.durationMs : playback.durationMs()) : undefined);
-  const focusRoot = () => queueMicrotask(() => { if (alive) root?.setFocus(); });
-
-  // ---- progress ----
-
-  /**
-   * Saves `atMs` (default: the trusted playhead, once saves are armed) when the duration is known. Never after
-   * unmount.
-   */
-  const save = (atMs?: number) => {
-    if (!alive || cu) return; // catch-up never appears in Continue watching
-    const d = knownDuration(trustedDur(), p.durationMs);
-    if (atMs === undefined) {
-      arm();
-      if (!saveArmed) return;
-    }
-    const at = atMs ?? trustedPos();
-    if (d === undefined || at === undefined || !Number.isFinite(at)) return;
-    api.saveVodProgress(p.itemId, Math.max(0, Math.min(at, d)), d, p.series).catch((err) => console.warn('Progress save failed', errName(err)));
-  };
-
-  /**
-   * Stops the stream only while it is still this title's: never one that has since replaced it (the next episode's
-   * screen starts its own, and a held live channel may already be back).
-   */
-  const stopOurs = () => {
-    if (playback.current()?.id === standId) playback.stop();
-  };
-
-  const closePicker = () => {
-    removePicker?.();
-    removePicker = undefined;
-    setPickerOpen(false);
-  };
 
   /** Back: save, stop, leave. After a catch-up programme, the live channel that played before plays again. */
   const leave = (saveFirst = true) => {
-    if (!alive) return;
-    closePicker();
-    closeOptions();
-    closeLinkEntry();
-    closeOnline();
-    closeVersions();
-    if (saveFirst) save();
-    stopOurs();
-    alive = false;
+    if (!c.alive) return;
+    tracks.closePicker();
+    options.closeOptions();
+    finder.closeLinkEntry();
+    finder.closeOnline();
+    finder.closeVersions();
+    if (saveFirst) c.save();
+    c.stopOurs();
+    c.alive = false;
     router.back();
-    if (liveBefore) resumeLive(liveBefore);
+    if (c.liveBefore) catchup.resumeLive(c.liveBefore);
   };
 
-  /** Plays a live channel again (no screen change): the screen below sets its own video rect. */
-  const resumeLive = (channelId: string) => {
-    const token = playback.begin();
-    api.getPlayable(channelId).then((pc) => {
-      if (pc && playback.isLatest(token) && playback.current() === undefined) playback.playChannel(pc);
-    }, (err) => console.warn('Live resume failed', errName(err)));
-  };
-
-  /** Catch-up: Watch live on the programme's channel (back to a Player below, else a new one in this place). */
-  const watchLive = () => {
-    const c = cur();
-    if (!c || !alive) return;
-    const token = playback.begin();
-    api.getPlayable(c.channelId).then((pc) => {
-      if (!alive || !pc || !playback.isLatest(token)) return;
-      alive = false;
-      closePicker();
-      playback.playChannel(pc);
-      const params2 = { channelId: c.channelId, groupId: 'all' };
-      if (router.below()?.screen === 'player') router.back(params2);
-      else router.replace('player', params2);
-    }, (err) => {
-      console.warn('Watch live failed', errName(err));
-      showToast(CANT_PLAY_NOW);
-    });
-  };
-
-  /** Catch-up: the next programme of the channel from the archive, in this player's place. */
-  const playNextProgramme = () => {
-    const c = cur();
-    if (!c?.next || !alive) return;
-    api.getCatchupPlayable(c.channelId, c.next.start).then((n) => {
-      if (!alive) return;
-      if (!('kind' in n)) {
-        showToast(CATCHUP_COPY.notAvailable);
-        return;
-      }
-      alive = false;
-      closePicker();
-      router.replace('vodPlay', { catchup: n });
-    }, (err) => console.warn('Next programme failed', errName(err)));
-  };
-
-  /** Catch-up: a new archive URL that starts at `targetMs` into the programme (at most one per 2 s, close before open). */
-  const reopenAt = (targetMs: number) => {
-    const c = cur();
-    if (!c || !alive) return;
-    const now = Date.now();
-    if (!reopenAllowed(lastReopenAt, now)) {
-      if (reopenTimer !== undefined) clearTimeout(reopenTimer);
-      reopenTimer = setTimeout(() => { reopenTimer = undefined; reopenAt(targetMs); }, REOPEN_MIN_GAP_MS - (now - (lastReopenAt ?? now)));
-      return;
-    }
-    lastReopenAt = now;
-    const seq = ++reopenSeq;
-    setPos(targetMs);
-    lastPos = targetMs;
-    api.getCatchupPlayable(c.channelId, c.start, targetMs).then((n) => {
-      if (!alive || seq !== reopenSeq) return;
-      if (!('kind' in n)) {
-        showToast(CATCHUP_COPY.notAvailable);
-        return;
-      }
-      setCur(n);
-      setOpenedAt(n.openedAtMs);
-      setBufEnd(undefined);
-      openedWall = Date.now();
-      playback.playVod(catchupVodPlayable(n), reopenStartMs(targetMs, n.openedAtMs, n.url));
-    }, (err) => console.warn('Catch-up seek failed', errName(err)));
-  };
-
-  /** Catch-up: the source did not return this programme. The Guide stops offering it for a while; the journal notes it. */
-  const showNotAvailable = (httpStatus?: number) => {
-    if (notAvail()) return;
-    const c = cur();
-    if (c) missingArchive.mark(c.channelId, c.start, Date.now());
-    journal.add({ k: 'catchupMissing', t: Date.now(), ...(c?.mode ? { mode: c.mode } : {}), ...(httpStatus !== undefined ? { httpStatus } : {}) });
-    stopOurs();
-    setNotAvail(true);
-    queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
-  };
-  const showEndCard = () => {
-    if (endCard() || notAvail()) return;
-    if (!playback.paused()) playback.pause();
-    setEndCard(true);
-    dropSeek();
-    closePicker();
-    queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
-  };
-
-  // ---- pause and seek ----
-
-  const togglePause = () => {
-    bump();
-    if (playback.paused()) {
-      playback.resume();
-    } else {
-      playback.pause();
-      arm({ userPaused: true }); // paused while it played: this is where they are
-      save();
-    }
-    setPaused(playback.paused());
-    return true;
-  };
-
-  const clearCommit = () => {
-    if (commitTimer !== undefined) clearTimeout(commitTimer);
-    commitTimer = undefined;
-  };
-  /** Drops a pending seek without seeking (Back, a failure, the end). A held drag stops following the pointer. */
-  const dropSeek = () => {
-    clearCommit();
-    setScrub(undefined);
-    setDragging(false);
-  };
-
-  const commitSeek = () => {
-    const s = scrub();
-    dropSeek();
-    if (!s || !alive) return;
-    if (cu) {
-      // In place when the open stream covers the target (HLS archive playlists), else a new URL from there.
-      const plan = seekPlan(s.targetMs, openedAt(), playback.durationMs());
-      if (plan.kind === 'inPlace') {
-        playback.seek(plan.engineMs);
-        setPos(s.targetMs);
-        setBufEnd(undefined);
-        lastPos = s.targetMs;
-      } else {
-        reopenAt(plan.offsetMs);
-      }
-      return;
-    }
-    arm({ userSeeked: true }); // the user chose this position
-    playback.seek(s.targetMs);
-    setPos(s.targetMs);
-    setBufEnd(undefined); // the buffer reading is the old position's until the engine reports again
-    lastPos = s.targetMs;
-  };
-
-  /** The duration a seek may use now; undefined while the title failed, ended or has no known length. */
-  const seekableDur = () => {
-    if (failed() || ended() || notAvail()) return undefined;
-    // Catch-up: the programme, and for one on air only up to now.
-    if (cu) return seekLimitMs(cur() ?? cu, Date.now()) || undefined;
-    const d = trustedDur();
-    return d !== undefined && Number.isFinite(d) && d > 0 ? d : undefined;
-  };
-  const playhead = () => trustedPos() ?? pos();
-
-  /** One press of a scrub (Left/Right) or skip (±10): moves the target; it commits after its source's idle delay. */
-  const scrubPress = (dir: 1 | -1, stepMs: number, source: 'keys' | 'skip') => {
-    bump();
-    const d = seekableDur();
-    if (d === undefined || dragging()) return true;
-    const s = pressScrub(scrub(), playhead(), d, dir, stepMs, source);
-    setScrub(s);
-    clearCommit();
-    const wait = commitDelayMs(s.source);
-    if (wait !== undefined) commitTimer = setTimeout(commitSeek, wait);
-    return true;
-  };
-  const scrubKey = (key: 'Left' | 'Right') => {
-    const r = holdPress(hold, key, Date.now());
-    hold = r.run;
-    return scrubPress(key === 'Right' ? 1 : -1, seekStep(r.heldMs), 'keys');
-  };
-
-  /** A click on the timeline: seek there at once. */
-  const pointerSeek = (fraction: number) => {
-    bump();
-    const d = seekableDur();
-    if (d === undefined) return;
-    setScrub(dragScrub(scrub(), playhead(), d, fraction));
-    commitSeek();
-  };
-  /** A drag on the timeline moves the target live; the release commits it, Back (or a lost drag) drops it. */
-  const onDrag = (fraction: number, phase: 'start' | 'move' | 'end' | 'cancel') => {
-    bump();
-    if (phase === 'cancel') {
-      if (dragging()) dropSeek();
-      return;
-    }
-    if (phase !== 'start' && !dragging()) return; // Back cancelled this drag: ignore it until the release
-    const d = seekableDur();
-    if (d === undefined) {
-      dropSeek();
-      return;
-    }
-    if (phase === 'start') {
-      clearCommit();
-      setDragging(true);
-    }
-    setScrub(dragScrub(scrub(), playhead(), d, fraction));
-    if (phase === 'end') commitSeek();
-  };
-
-  // ---- tracks ----
-
-  const applyTracks = () => {
-    tracksAppliedAt = playback.startedAttempts();
-    const audios = playback.audioTracks();
-    const texts = playback.textTracks();
-    tracksAppliedShape = trackShape(audios, texts);
-    shapeTicks = 0;
-    // The remembered choice, else the preferred language from Settings (applied, never remembered as the user's choice).
-    const a = pickAudioTrack(audios, chosen.audio, settings()?.audioLanguage ?? 'auto');
-    if (a && !a.active) playback.selectAudioTrack(a.id);
-    applySubtitle(texts);
-  };
-
-  /** The remembered subtitle choice, else the preferred language from Settings (`pickSubtitle`). */
-  const applySubtitle = (texts = playback.textTracks()) => {
-    const pick = pickSubtitle({
-      chosen: chosen.subtitle, texts, hasExternal: external() !== undefined, preferred: settings()?.subtitleLanguage ?? 'off',
-    });
-    if (pick.kind === 'external' || pick.kind === 'off') {
-      // The track automatic sync listens to stays on (unseen) while the loaded file shows.
-      if (texts.some((t) => t.active && !(pick.kind === 'external' && t.id === sync?.trackId))) playback.selectTextTrack(null);
-    } else if (pick.kind === 'track') {
-      const t = texts.find((x) => x.id === pick.id);
-      if (t && !t.active) playback.selectTextTrack(t.id);
-    }
-    showExternal(pick.kind === 'external');
-  };
-
-  /** Shows (or stops showing) the loaded subtitle file; the cue on screen is cleared either way. */
-  const showExternal = (on: boolean) => {
-    if (!on) stopSync(false);
-    if (on === extOn()) return;
-    setExtOn(on);
-    setCue('');
-  };
-
-  const rows = (): PickerRow[] => {
-    rowsTick();
-    const ext = external();
-    const on = extOn();
-    // Subtitles only: audio tracks are chosen in Options. A loaded file showing: "Subtitles off" is not checked
-    // (the stream's tracks are all off).
-    const base = trackRows([], playback.textTracks(), langInput())
-      .map((r) => (r.kind === 'list' && on && (r.id === SUBTITLES_OFF || r.id.startsWith('s:')) ? { ...r, checked: false } : r));
-    // Catch-up: the stream's own tracks only (a loaded file would be kept per title, and catch-up keeps nothing).
-    if (cu) return base;
-    return [...base, ...subtitleExtraRows({
-      ...(p.subtitles ? { source: p.subtitles } : {}),
-      external: ext && { name: oneSpace(ext.name), active: on, ...(extLanguage() ? { language: extLanguage() } : {}) }, canLoadFile: CAN_LOAD_FILE, canSearchOnline: onlineOk(),
-      delayMs: subDelay(), speed: subSpeed(), pointer: pointerMode(),
-      ...(ext?.online && onlineOk() ? { another: { label: onlineLanguageLabel(ext.online.language) } } : {}),
-    })];
-  };
-  /** Engines may report the new active track a moment later: read the rows now and once more shortly after. */
-  const refreshRows = () => {
-    setRowsTick((v) => v + 1);
-    if (rowsTimer !== undefined) clearTimeout(rowsTimer);
-    rowsTimer = setTimeout(() => { if (alive) setRowsTick((v) => v + 1); }, 300);
-  };
-
-  const remember = (tracks: VodTracks) => {
-    if (cu) return; // catch-up keeps nothing
-    // Episodes remember their choices per series; movies per title.
-    api.setVodTracks(tracksKeyId(p), tracks).catch((err) => console.warn('Track save failed', errName(err)));
-  };
-
-  const pickTrack = (row: PickerRow) => {
-    if (row.kind !== 'list') return;
-    if (row.id === DELAY_EARLIER_ROW || row.id === DELAY_LATER_ROW) {
-      changeDelay(row.id === DELAY_LATER_ROW ? 1 : -1, DELAY_POINTER_STEP_MS);
-      return;
-    }
-    if (row.id === DELAY_ROW) return; // Left/Right change it
-    if (row.id === SPEED_ROW) {
-      changeSpeed(1); // Left/Right too; Ok (or a click) steps on, wrapping
-      return;
-    }
-    if (row.id === ANOTHER_VERSION_ROW) {
-      closePicker();
-      openVersions();
-      return;
-    }
-    if (row.id === FIND_ONLINE_ROW) {
-      closePicker();
-      openOnline();
-      return;
-    }
-    if (row.id === LOAD_URL_ROW) {
-      closePicker();
-      openLinkEntry();
-      return;
-    }
-    if (row.id === LOAD_FILE_ROW) {
-      closePicker();
-      pickFile();
-      return;
-    }
-    if (row.id === REMOVE_EXT_ROW) {
-      removeExternal();
-      refreshRows();
-      return;
-    }
-    const srcIndex = sourceRowIndex(row.id);
-    if (srcIndex !== undefined) {
-      const sub = p.subtitles?.[srcIndex];
-      const ext = external();
-      // Already loaded: just turn it on; else download it (a failure is a toast, the picker stays).
-      if (sub && ext && ext.name === sourceSubtitleName(sub)) useExternal();
-      else if (sub) {
-        void loadWith(() => api.loadSourceSubtitle(p.itemId, sub)).then((error) => {
-          if (!alive) return;
-          if (error) showToast(error);
-          refreshRows();
-        });
-        return;
-      }
-    } else if (row.id === SUBTITLE_EXT_ROW) {
-      useExternal();
-    } else if (row.id === SUBTITLES_OFF) {
-      playback.selectTextTrack(null);
-      showExternal(false);
-      chosen.subtitle = SUBTITLE_KEY_OFF;
-      remember({ subtitle: SUBTITLE_KEY_OFF });
-      setCue('');
-    } else if (row.id.startsWith('a:')) {
-      const t = playback.audioTracks().find((x) => x.id === row.id.slice(2));
-      if (!t) return;
-      playback.selectAudioTrack(t.id);
-      chosen.audio = trackKey(t);
-      remember({ audio: chosen.audio });
-    } else if (row.id.startsWith('s:')) {
-      const t = playback.textTracks().find((x) => x.id === row.id.slice(2));
-      if (!t) return;
-      playback.selectTextTrack(t.id);
-      showExternal(false);
-      chosen.subtitle = trackKey(t);
-      remember({ subtitle: chosen.subtitle });
-    }
-    refreshRows();
-  };
-
-  // ---- subtitles from a link or a file ----
-
-  /** The loaded file on, the stream's subtitles off; remembered like any other subtitle choice. */
-  const useExternal = () => {
-    if (!external()) return;
-    if (playback.textTracks().some((t) => t.active)) playback.selectTextTrack(null);
-    showExternal(true);
-    chosen.subtitle = SUBTITLE_KEY_EXT;
-    remember({ subtitle: SUBTITLE_KEY_EXT });
-  };
-
-  /** Left/Right on the delay row (or a pointer row): move the loaded file's cues; saved shortly after the last press. */
-  const changeDelay = (dir: 1 | -1, step?: number) => {
-    finishSync(); // the user sets it: automatic sync stops for this file
-    const next = stepDelay(subDelay(), dir, step);
-    setSubDelay(next);
-    refreshRows();
-    if (delaySaveTimer !== undefined) clearTimeout(delaySaveTimer);
-    delaySaveTimer = setTimeout(() => {
-      delaySaveTimer = undefined;
-      api.setSubtitleDelay(p.itemId, next).catch((err) => console.warn('Subtitle delay save failed', errName(err)));
-    }, 400);
-  };
-  const adjustRow = (row: PickerRow, dir: 1 | -1) => {
-    if (row.kind !== 'list') return false;
-    if (row.id === DELAY_ROW) changeDelay(dir);
-    else if (row.id === SPEED_ROW) changeSpeed(dir);
-    else return false;
-    return true;
-  };
-
-  /** The loaded file's speed set (by the user, or once automatically): kept with the file, never overridden later. */
-  const setSpeedFor = (ext: LoadedSubtitle, speed: SubtitleSpeed) => {
-    setSubSpeed(speed);
-    setExternal({ ...ext, speed });
-    api.setSubtitleSpeed(p.itemId, speed).catch((err) => console.warn('Subtitle speed save failed', errName(err)));
-  };
-  /** Left/Right on the speed row: Normal, 25 → 23.976, 23.976 → 25 (wrapping). */
-  const changeSpeed = (dir: 1 | -1) => {
-    const ext = external();
-    if (!ext) return;
-    finishSync();
-    setSpeedFor(ext, stepSpeed(subSpeed(), dir));
-    refreshRows();
-  };
-
-  /** The playing video's frame rate, when the engine reports it. */
-  const videoFps = (): number | undefined => {
-    try {
-      const fps = player.streamInfo().fps;
-      return fps !== undefined && Number.isFinite(fps) && fps > 0 ? fps : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-
-  /**
-   * A loaded file with no speed set: when its frame rate and the video's are both known and differ, the matching
-   * speed is set (and said). Waits a few ticks for the engine to report the video's rate; a set speed is kept.
-   */
-  const applyAutoSpeed = (quiet = false): boolean => {
-    const ext = external();
-    if (!ext || ext.speed !== undefined || ext.fps === undefined || autoSpeedTries <= 0) return false;
-    const fps = videoFps();
-    if (fps === undefined) {
-      autoSpeedTries--;
-      return false;
-    }
-    autoSpeedTries = 0;
-    const speed = autoSpeed(ext.fps, fps);
-    if (speed === 1) return false;
-    setSpeedFor(ext, speed);
-    refreshRows();
-    if (!quiet) showToast(VOD_COPY.speedAdjusted);
-    return true;
-  };
-
-  // ---- automatic sync against the stream's own subtitles (spec 2026-10-21 §4) ----
-
-  const syncKey = (ext: LoadedSubtitle) => `${ext.name}|${ext.cues.length}`;
-
-  /** Starts listening when a loaded file shows and the stream has a track to compare with (not catch-up). */
-  const startSync = () => {
-    const ext = external();
-    if (sync || cu || !ext || !extOn() || syncFinishedFor === syncKey(ext)) return;
-    const ref = syncReferenceTrack(playback.textTracks(), ext.language ?? ext.online?.language);
-    if (!ref) return;
-    if (!ref.active) playback.selectTextTrack(ref.id);
-    sync = { recorder: new SyncRecorder(), trackId: ref.id, key: syncKey(ext), nextAskAt: 0, asking: false };
-  };
-  /** Stops listening. `release`: the stream's track goes off again (only while the loaded file is still the choice). */
-  const stopSync = (release: boolean) => {
-    const s = sync;
-    sync = undefined;
-    if (release && s && chosen.subtitle === SUBTITLE_KEY_EXT && playback.textTracks().some((t) => t.id === s.trackId && t.active)) {
-      playback.selectTextTrack(null);
-    }
-  };
-  const finishSync = () => {
-    const ext = external();
-    if (ext) syncFinishedFor = syncKey(ext);
-    stopSync(true);
-  };
-  /** Each tick: record, and every 30 s (once 4 min are recorded) ask the worker for a better delay and speed. */
-  const syncTick = (at: number | undefined, playing: boolean) => {
-    if (!sync) {
-      if (playing && shapeTicks % 4 === 0) startSync();
-      return;
-    }
-    const ext = external();
-    // Another file, the file off, or the stream's track turned off elsewhere: listen again from the start later.
-    if (!ext || !extOn() || syncKey(ext) !== sync.key || !playback.textTracks().some((t) => t.id === sync!.trackId && t.active)) {
-      stopSync(false);
-      return;
-    }
-    if (at === undefined || !Number.isFinite(at)) return;
-    sync.recorder.tick(at, playing && !playback.paused());
-    if (sync.recorder.exhausted()) {
-      finishSync();
-      return;
-    }
-    const t = Date.now();
-    if (sync.asking || t < sync.nextAskAt || sync.recorder.playedMs() < SYNC_ASK_AFTER_MS) return;
-    const s = sync;
-    s.asking = true;
-    s.nextAskAt = t + SYNC_ASK_EVERY_MS;
-    api.syncSubtitle(p.itemId, s.recorder.sample(), { delayMs: subDelay(), speed: subSpeed() }).then((res) => {
-      s.asking = false;
-      if (!alive || sync !== s || !res) return;
-      const cur = external();
-      if (!cur) return;
-      setSubDelay(res.delayMs);
-      api.setSubtitleDelay(p.itemId, res.delayMs).catch((err) => console.warn('Subtitle delay save failed', errName(err)));
-      if (normalizeSpeed(res.speed) !== subSpeed()) setSpeedFor(cur, normalizeSpeed(res.speed));
-      finishSync();
-      refreshRows();
-      showToast(VOD_COPY.synced(delayLabel(res.delayMs)));
-    }, (err) => {
-      s.asking = false;
-      console.warn('Subtitle sync failed', errName(err));
-    });
-  };
-
-  const removeExternal = () => {
-    stopSync(true);
-    api.clearSubtitle(p.itemId).catch((err) => console.warn('Subtitle remove failed', errName(err)));
-    setSubSpeed(1);
-    setExternal(undefined);
-    showExternal(false);
-    // It was the choice: the preferred language takes over (the choice stays for the series' other episodes).
-    if (chosen.subtitle === SUBTITLE_KEY_EXT) applySubtitle();
-  };
-
-  /** Loads, keeps and turns on a subtitle file; returns the error to show (a message meant for the user). */
-  const loadSubtitle = (input: SubtitleInput) => loadWith(() => api.loadSubtitle(p.itemId, input));
-
-  /** The loaded file now showing: its delay and speed (Normal until set, or set to match the video's frame rate). */
-  const useLoaded = (loaded: LoadedSubtitle) => {
-    // A delay change still waiting to be saved belonged to the previous file.
-    if (delaySaveTimer !== undefined) {
-      clearTimeout(delaySaveTimer);
-      delaySaveTimer = undefined;
-    }
-    setExternal(loaded);
-    setSubDelay(loaded.delayMs ?? 0);
-    setSubSpeed(normalizeSpeed(loaded.speed));
-    // About 5 s for the engine to report the video's frame rate.
-    autoSpeedTries = 20;
-  };
-
-  /** A newly loaded file starts with no delay. `toastName`: what the toast calls it (default: its name). */
-  const loadWith = async (load: () => Promise<LoadedSubtitle>, toastName?: string): Promise<string | undefined> => {
-    if (subBusy()) return undefined;
-    setSubBusy(true);
-    // The previous file must not get an automatic speed while the new one downloads.
-    autoSpeedTries = 0;
-    try {
-      const loaded = await load();
-      if (!alive) return undefined;
-      useLoaded(loaded);
-      useExternal();
-      // One toast: the file, and the speed when it was matched to the video at once.
-      const matched = applyAutoSpeed(true);
-      showToast(VOD_COPY.subtitlesOn(oneSpace(toastName ?? loaded.name), matched));
-      return undefined;
-    } catch (err) {
-      console.warn('Subtitle load failed', errName(err));
-      return err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.subtitleLoadFailed;
-    } finally {
-      setSubBusy(false);
-    }
-  };
-
-  // ---- subtitles found online ----
-
-  function closeOnline() {
-    onlineSearch++;
-    removeOnline?.();
-    removeOnline = undefined;
-    setOnlineRows(undefined);
-  }
-
-  /** The "Subtitles online" picker: a searching row at once, then one row per language found for this title. */
-  const openOnline = () => {
-    const search = ++onlineSearch;
-    setOnlineRows([{ kind: 'list', id: 'searching', label: VOD_COPY.searching, checked: false }]);
-    removeOnline = router.pushOverlay(SUB_ONLINE_ID, () => {
-      onlineSearch++;
-      removeOnline = undefined;
-      setOnlineRows(undefined);
-      focusBarOrRoot();
-    });
-    queueMicrotask(() => { if (alive) onlineNode?.setFocus(); });
-    api.findSubtitlesOnline(p.itemId, p.series?.id, videoFps()).then((langs) => {
-      if (!alive || search !== onlineSearch) return;
-      if (langs.length === 0) {
-        closeOnline();
-        focusBarOrRoot();
-        showToast(VOD_COPY.noneOnline);
-        return;
-      }
-      onlineLangs = langs;
-      setOnlineRows(onlineLanguageRows(langs));
-    }, (err) => {
-      console.warn('Subtitle search failed', errName(err));
-      if (!alive || search !== onlineSearch) return;
-      closeOnline();
-      focusBarOrRoot();
-      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.searchFailed);
-    });
-  };
-
-  /** A language picked: download its best file and turn it on. */
-  const pickOnline = (row: PickerRow) => {
-    if (row.kind !== 'list') return;
-    const fileId = onlineFileId(row.id);
-    if (fileId === undefined || subBusy()) return;
-    const lang = onlineLangs.find((l) => l.fileId === fileId);
-    const label = lang ? `${onlineLanguageLabel(lang.language)}${lang.cc ? ' CC' : ''}` : row.label;
-    const details = lang ? { language: lang.language, ...(lang.fps ? { fps: lang.fps } : {}), ...(lang.cc ? { cc: true } : {}) } : undefined;
-    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
-      if (!alive) return;
-      closeOnline();
-      focusBarOrRoot();
-      if (error) showToast(error);
-    });
-  };
-
-  // ---- other versions of the loaded file's language ----
-
-  function closeVersions() {
-    versionsSearch++;
-    versionList = undefined;
-    removeVersions?.();
-    removeVersions = undefined;
-    setVersionPickRows(undefined);
-  }
-
-  /** "Try another version": the loaded file's language's versions (listed once per session), the loaded one checked. */
-  const openVersions = () => {
-    const online = external()?.online;
-    if (!online) return;
-    const search = ++versionsSearch;
-    setVersionPickRows([{ kind: 'list', id: 'searching', label: VOD_COPY.searching, checked: false }]);
-    removeVersions = router.pushOverlay(SUB_VERSIONS_ID, () => {
-      versionsSearch++;
-      versionList = undefined;
-      removeVersions = undefined;
-      setVersionPickRows(undefined);
-      focusBarOrRoot();
-    });
-    queueMicrotask(() => { if (alive) versionsNode?.setFocus(); });
-    api.subtitleVersions(p.itemId, online.language, p.series?.id, videoFps()).then((versions) => {
-      if (!alive || search !== versionsSearch) return;
-      if (versions.length === 0) {
-        closeVersions();
-        focusBarOrRoot();
-        showToast(VOD_COPY.noOtherVersions);
-        return;
-      }
-      versionList = { language: online.language, versions };
-      setVersionPickRows(versionRows(versions, external()?.online?.fileId));
-    }, (err) => {
-      console.warn('Subtitle versions failed', errName(err));
-      if (!alive || search !== versionsSearch) return;
-      closeVersions();
-      focusBarOrRoot();
-      showToast(err instanceof Error && err.name === 'SubtitleError' ? err.message : VOD_COPY.searchFailed);
-    });
-  };
-
-  /** A version picked: download that one file and turn it on (the loaded one just closes the list). */
-  const pickVersion = (row: PickerRow) => {
-    if (row.kind !== 'list' || subBusy()) return;
-    const fileId = versionFileId(row.id);
-    const list = versionList;
-    const v = list?.versions.find((x) => x.fileId === fileId);
-    if (fileId === undefined || !list || !v) return;
-    if (fileId === external()?.online?.fileId) {
-      closeVersions();
-      focusBarOrRoot();
-      return;
-    }
-    const label = VOD_COPY.onlineVersionLabel(onlineLanguageLabel(list.language), Boolean(v.hearingImpaired));
-    const details = { language: list.language, ...(v.fps ? { fps: v.fps } : {}), ...(v.hearingImpaired ? { cc: true } : {}) };
-    void loadWith(() => api.loadOnlineSubtitle(p.itemId, fileId, label, details)).then((error) => {
-      if (!alive) return;
-      closeVersions();
-      focusBarOrRoot();
-      if (error) showToast(error);
-    });
-  };
-
-  function closeLinkEntry() {
-    removeLinkEntry?.();
-    removeLinkEntry = undefined;
-    setLinkText(undefined);
-    setLinkError(undefined);
-  }
-  const openLinkEntry = () => {
-    setLinkText('');
-    setLinkError(undefined);
-    removeLinkEntry = router.pushOverlay(SUB_URL_ID, () => {
-      removeLinkEntry = undefined;
-      setLinkText(undefined);
-      setLinkError(undefined);
-      focusBarOrRoot();
-    });
-    queueMicrotask(() => { if (alive) keyboardNode?.setFocus(); });
-  };
-  /** Done on the keyboard: load the link; on failure the keyboard stays open with the error. */
-  const submitLink = async () => {
-    const url = (linkText() ?? '').trim();
-    if (!url || subBusy()) return;
-    setLinkError(undefined);
-    const error = await loadSubtitle({ url });
-    if (!alive || linkText() === undefined) return;
-    if (error) {
-      setLinkError(error);
-    } else {
-      closeLinkEntry();
-      focusBarOrRoot();
-    }
-  };
-
-  /** The computer's file dialog (opened from the key press or click itself, which the browser requires). */
-  const pickFile = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = SUBTITLE_FILE_TYPES;
-    input.style.display = 'none';
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (!file || !alive) return;
-      void file.arrayBuffer().then(async (buf) => {
-        const error = await loadSubtitle({ bytes: new Uint8Array(buf), name: file.name });
-        if (error && alive) showToast(error);
-      }, () => showToast(VOD_COPY.fileReadFailed));
-    }, { once: true });
-    input.addEventListener('cancel', () => input.remove(), { once: true });
-    document.body.appendChild(input);
-    input.click();
-    focusBarOrRoot();
-  };
-
-  const openPicker = () => {
-    if (pickerOpen()) return;
-    refreshRows();
-    setPickerOpen(true);
-    removePicker = router.pushOverlay(TRACKS_ID, () => {
-      removePicker = undefined;
-      setPickerOpen(false);
-      focusBarOrRoot();
-    });
-    queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
-  };
-
-  // ---- options (the gear and the Menu key) ----
-
-  /** The title's versions, listed under a movie's id or an episode's series id; loaded once it plays (or the menu opens). */
-  const versionOwner = cu ? undefined : versionOwnerId(p);
-  const [versions, setVersions] = createSignal<VersionView[]>([]);
-  let versionsAsked = false;
-  const loadVersions = () => {
-    if (versionsAsked || !versionOwner) return;
-    versionsAsked = true;
-    const view = p.kind === 'movie' ? api.getMovie(versionOwner) : api.getSeries(versionOwner, versionOwner);
-    view.then((v) => {
-      if (!alive || !v || v.versions.length < 2) return;
-      setVersions(v.versions);
-      // Versions whose names give no language: the source's probe data usually does.
-      if (v.versions.some((x) => !x.lang)) {
-        api.getVersionLanguages(versionOwner).then((langs) => {
-          if (alive && Object.keys(langs).length > 0) setVersions((cur) => withLanguages(cur, langs));
-        }, (err) => console.warn('Version languages failed', errName(err)));
-      }
-    }, (err) => console.warn('Versions failed', errName(err)));
-  };
-
-  const [optionsPage, setOptionsPage] = createSignal<OptionsPage | undefined>(undefined);
-  let optionsNode: ElementNode | undefined;
-  let removeOptions: (() => void) | undefined;
-  const focusOptions = () => queueMicrotask(() => { if (alive) optionsNode?.setFocus(); });
-  const openOptions = () => {
-    if (optionsPage() || pickerOpen()) return true;
-    bump();
-    loadVersions();
-    setOptionsPage('main');
-    removeOptions = router.pushOverlay(OPTIONS_ID, () => {
-      removeOptions = undefined;
-      setOptionsPage(undefined);
-      focusBarOrRoot();
-    });
-    focusOptions();
-    return true;
-  };
-  const closeOptions = () => {
-    removeOptions?.();
-    removeOptions = undefined;
-    setOptionsPage(undefined);
-  };
-
-  const audioLabels = () => trackLabels(playback.audioTracks(), 'audio', langInput());
-  const optionItems = createMemo(() => {
-    rowsTick();
-    const page = optionsPage();
-    if (page === 'audio') return audioItems(playback.audioTracks(), audioLabels(), NO_TRACK_API);
-    if (page === 'source') return sourceItems(versions(), versionOwner);
-    const audios = playback.audioTracks();
-    const a = audios.findIndex((t) => t.active);
-    const texts = playback.textTracks();
-    const s = texts.findIndex((t) => t.active);
-    const ext = external();
-    const subtitles = extOn() && ext ? oneSpace(ext.name)
-      : s >= 0 ? trackLabels(texts, 'subtitle', langInput())[s] ?? PLAYER_COPY.on : PLAYER_COPY.off;
-    const items = optionsItems({ audio: a >= 0 ? audioLabels()[a] ?? PLAYER_COPY.default : PLAYER_COPY.default, subtitles, versions: versions().length, infoOn: infoOn() });
-    // Catch-up keeps nothing of its own: no Settings trip (the programme would start over).
-    return cu ? items.filter((i) => i.id !== 'settings') : items;
-  });
-
-  /** Another version of this title, from where it is now; remembered for the title (as the detail's Versions list). */
-  const switchSource = async (versionId: string) => {
-    if (!versionOwner || versionId === versionOwner || switchBusy || !alive) return;
-    switchBusy = true;
-    const at = failed() ? (saveArmed ? (lastPos ?? startMs) : startMs) : playhead();
-    save();
-    let np: VodPlayable | undefined;
-    let missing = false;
-    try {
-      await api.pickVodVersion(versionOwner, versionId).catch((err: unknown) => console.warn('Pick failed', errName(err)));
-      if (p.kind === 'movie') {
-        np = await api.getVodPlayable(versionId, undefined, true);
-      } else {
-        const sv = await api.getSeries(versionOwner, versionId);
-        const ep = sv && p.series ? matchingEpisode(sv.seasons, p.series.season, p.series.episode) : undefined;
-        if (ep) np = await api.getVodPlayable(ep, sv!.versionId);
-        else missing = true;
-      }
-    } catch (err) {
-      console.warn('Source switch failed', errName(err));
-    }
-    switchBusy = false;
-    if (!alive) return;
-    if (!np) {
-      showToast(missing ? VOD_COPY.episodeNotInVersion : CANT_PLAY_NOW);
-      return;
-    }
-    closeOptions();
-    closePicker();
-    router.replace('vodPlay', { playable: { ...np, resumeMs: Math.max(0, Math.round(at)) } });
-  };
-
-  /** All settings: saved first, and this screen's entry resumes from here when Settings goes back to it. */
-  const openSettings = () => {
-    const at = playhead();
-    save();
-    const entryParams = props.entry.params as { playable?: VodPlayable; fromStart?: boolean };
-    entryParams.playable = { ...p, resumeMs: Math.max(0, Math.round(at)) };
-    entryParams.fromStart = false;
-    closeOptions();
-    router.push('settings', { page: 'playback' });
-  };
-
-  const chooseOption = (id: string) => {
-    bump();
-    if (id === 'audio' || id === 'source') {
-      setOptionsPage(id);
-      focusOptions();
-    } else if (id === 'back') {
-      setOptionsPage('main');
-      focusOptions();
-    } else if (id === 'subtitles') {
-      closeOptions();
-      openPicker();
-    } else if (id === 'info') {
-      closeOptions();
-      toggleInfo();
-      focusBarOrRoot();
-    } else if (id === 'settings') {
-      openSettings();
-    } else if (id.startsWith('track:')) {
-      const t = playback.audioTracks().find((x) => x.id === id.slice('track:'.length));
-      if (t) {
-        playback.selectAudioTrack(t.id);
-        chosen.audio = trackKey(t);
-        remember({ audio: chosen.audio });
-      }
-      setOptionsPage('main');
-      refreshRows();
-      focusOptions();
-    } else if (id.startsWith('ver:')) {
-      void switchSource(id.slice('ver:'.length));
-    }
-  };
-
-  // ---- next episode ----
-
-  const stopCountdown = () => {
-    if (countdownTimer !== undefined) clearInterval(countdownTimer);
-    countdownTimer = undefined;
-    setCountdown(undefined);
-  };
-
-  /**
-   * Replaces this player with another episode of the same series (the next or the previous one). It starts at its own
-   * `resumeMs` (0 when none). Callers save progress first.
-   */
-  const switchTo = async (target: { id: string } | undefined) => {
-    const seriesId = p.series?.id;
-    if (!target || !seriesId || switchBusy || !alive) return;
-    switchBusy = true;
-    stopCountdown();
-    let np: VodPlayable | undefined;
-    try {
-      np = await api.getVodPlayable(target.id, seriesId);
-    } catch (err) {
-      console.warn('Episode switch failed', errName(err));
-    }
-    switchBusy = false;
-    if (!alive) return;
-    if (!np) {
-      showToast(CANT_PLAY_NOW);
-      if (ended()) leave(false);
-      return;
-    }
-    closePicker();
-    router.replace('vodPlay', { playable: np });
-  };
-  const playNext = () => switchTo(p.next);
-
-  const startCountdown = () => {
-    stopCountdown();
-    setCountdown(NEXT_COUNTDOWN_S);
-    countdownTimer = setInterval(() => {
-      const left = (countdown() ?? 0) - 1;
-      if (left <= 0) {
-        void playNext();
-        return;
-      }
-      setCountdown(left);
-    }, 1000);
-    queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
-  };
-
-  /** Save where we are, then switch (ignored while another switch is in flight). */
-  const saveAndSwitch = (target: { id: string } | undefined) => {
-    if (!target || !p.series || switchBusy) return true;
-    // The end card already saved the end position; the engine's playhead may now read short of it.
-    if (!ended()) save();
-    void switchTo(target);
-    return true;
-  };
-  /** Channel up and the overlay's Next episode button: the next episode. */
-  const nextNow = () => saveAndSwitch(p.next);
-  /** Channel down: the previous episode. */
-  const prevNow = () => saveAndSwitch(p.prev);
-
-  // ---- overlay actions ----
-
-  /**
-   * The control row, one focus row in three groups: pointer Back and the volume on the left (the shell's Back pill would
-   * sit on the row, so it is off here), the transport icons centred, the track and episode buttons on the right. The
-   * volume is pointer-only (the keyboard has + and -): it takes its place in the left group but is no focus stop.
-   */
-  const row = createMemo(() => {
-    const left: Action[] = pointerMode() ? [{ id: 'back', label: SHELL_BACK_LABEL, width: BACK_W }] : [];
-    const centre: Action[] = [
-      { id: 'back30', label: VOD_COPY.back30, width: ROUND_W, round: true, icon: iconTexture('back30') },
-      { id: 'back10', label: VOD_COPY.back10, width: ROUND_W, round: true, icon: iconTexture('back10') },
-      { id: 'toggle', label: paused() ? 'Play' : 'Pause', width: ROUND_W, round: true, icon: iconTexture(paused() ? 'play' : 'pause') },
-      { id: 'fwd10', label: VOD_COPY.forward10, width: ROUND_W, round: true, icon: iconTexture('fwd10') },
-      { id: 'fwd30', label: VOD_COPY.forward30, width: ROUND_W, round: true, icon: iconTexture('fwd30') },
-    ];
-    const right: Action[] = [
-      { id: 'tracks', label: VOD_COPY.subtitles, width: TRACKS_W },
-      { id: 'options', label: PLAYER_COPY.options, width: OPTIONS_W, round: true, icon: iconTexture('gear') },
-      ...(p.next ? [{ id: 'next', label: VOD_COPY.nextEpisode, width: NEXT_W }] : []),
-    ];
-    const leftWs = [...left.map((a) => a.width), ...(volumeSupported ? [VOLUME_W] : [])];
-    const xs = groupXs(CONTENT_W, 16, leftWs, centre.map((a) => a.width), right.map((a) => a.width));
-    const volumeX = volumeSupported ? xs[left.length] : undefined;
-    const rest = xs.slice(leftWs.length);
-    const actions: Action[] = [
-      ...left.map((a, i) => ({ ...a, x: xs[i] })),
-      ...[...centre, ...right].map((a, i) => ({ ...a, x: rest[i] })),
-    ];
-    return { actions, volumeX };
-  });
-  const actions = () => row().actions;
-  const onAction = (id: string) => {
-    if (id === 'back') { onBack(); return; }
-    bump();
-    // Failed or ended: only the card's buttons act (Next episode and Options, for another source, still may).
-    if ((failed() || ended()) && id !== 'next' && id !== 'options') return;
-    if (id === 'toggle') togglePause();
-    else if (id === 'back10') scrubPress(-1, SEEK_STEP_MS, 'skip');
-    else if (id === 'fwd10') scrubPress(1, SEEK_STEP_MS, 'skip');
-    else if (id === 'back30') scrubPress(-1, SKIP_LONG_MS, 'skip');
-    else if (id === 'fwd30') scrubPress(1, SKIP_LONG_MS, 'skip');
-    else if (id === 'tracks') openPicker();
-    else if (id === 'options') openOptions();
-    else if (id === 'next') nextNow();
-  };
-  /** Shows the overlay and puts the focus on its timeline (the overlay's first row). */
-  const focusTimeline = () => {
-    bump();
-    queueMicrotask(() => { if (alive && visible()) timelineNode?.setFocus(); });
-    return true;
-  };
-  const focusBar = () => {
-    bump();
-    queueMicrotask(() => { if (alive && visible()) barNode?.setFocus(); });
-    return true;
-  };
-  /** After an overlay closes: the bar when it still shows, else the root. */
-  function focusBarOrRoot() {
-    queueMicrotask(() => {
-      if (!alive) return;
-      if (visible() && barNode) barNode.setFocus();
-      else root?.setFocus();
-    });
-  }
-
-  const retry = () => {
-    bump();
-    if (cu) {
-      reopenAt(lastPos ?? openedAt());
-      focusRoot();
-      return;
-    }
-    // Until saves are armed the playhead is not the title's real position (it never played, or dropped the start seek).
-    playback.playVod(p, saveArmed ? (lastPos ?? startMs) : startMs);
-    focusRoot();
-  };
-  const cardActions = (): Action[] => {
-    if (notAvail()) return [{ id: 'live', label: CATCHUP_COPY.watchLive, width: 260 }, { id: 'back', label: COMMON_COPY.back, width: 220 }];
-    if (endCard()) return endCardActions(cur()?.next).map((a) => ({ id: a.id, label: a.label, width: a.id === 'next' ? 420 : a.id === 'live' ? 260 : 220 }));
-    return failed()
-      ? [{ id: 'retry', label: COMMON_COPY.tryAgain, width: 260 }]
-      : [{ id: 'nextNow', label: VOD_COPY.playNow, width: 260 }, { id: 'cancel', label: COMMON_COPY.cancel, width: 220 }];
-  };
-  const onCardAction = (id: string) => {
-    if (id === 'live') watchLive();
-    else if (id === 'back') leave(false);
-    else if (id === 'next') playNextProgramme();
-    else if (id === 'retry') retry();
-    else if (id === 'nextNow') void playNext();
-    else if (id === 'cancel') { stopCountdown(); leave(false); }
-  };
-
-  // ---- keys ----
-
-  /** Ok on the root (the overlay hidden, or shown by a pause): pause, and the timeline takes the focus. */
-  const onEnter = () => {
-    if (failed() || ended() || endCard() || notAvail()) return true;
-    if (!visible()) {
-      bump();
-      if (!playback.paused()) togglePause();
-    } else {
-      togglePause();
-    }
-    return focusTimeline();
-  };
-  /** Ok on the timeline: commit a pending scrub at once, else play/pause. */
-  const onTimelineEnter = () => {
-    if (failed() || ended()) return true;
-    if (dragging()) return true;
-    if (scrub()) {
-      bump();
-      commitSeek();
-      return true;
-    }
-    return togglePause();
-  };
-  /** Left/Right on the root: the overlay shows with the timeline focused, and the press already scrubs. */
-  const rootScrub = (key: 'Left' | 'Right') => {
-    focusTimeline();
-    return scrubKey(key);
-  };
-  /** Play, Pause, Stop, Fast-forward and Rewind (remote media keys); Stop is Back. */
-  const mediaKey = (key: 'Play' | 'Pause' | 'Stop' | 'FastForward' | 'Rewind') => {
-    const act = mediaKeyAction(key, { paused: playback.paused(), blocked: failed() !== undefined || ended() });
-    if (act === 'stop') { sendKey('Back'); return true; } // the same path as a Back press (layers close first)
-    if (act === 'toggle') togglePause();
-    else if (act === 'forward') scrubPress(1, SKIP_LONG_MS, 'skip');
-    else if (act === 'back') scrubPress(-1, SKIP_LONG_MS, 'skip');
-    return true;
-  };
-  const onBack = () => {
-    if (router.topOverlay() !== undefined) return false; // the shell closes the picker first
-    if (scrub() !== undefined || dragging()) {
-      bump();
-      dropSeek(); // Back cancels a pending scrub: nothing seeks
-      return true;
-    }
-    stopCountdown();
-    leave(!ended());
-    return true;
-  };
+  const keys = createVodKeys(c, { focus, seek, catchup, tracks, options, episodes, leave });
+  const { onBack, onEnter } = keys;
 
   // The whole screen: moving the pointer shows the overlay, so its buttons can be clicked; the wheel sets the volume.
   usePointerTarget({
-    node: () => root,
+    node: focus.root,
     onHover: (pt) => { if (pt) bump(); },
     onClick: () => bump(),
     onWheel: (dy) => {
@@ -1438,24 +151,24 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   createEffect(on(() => status()?.kind, (kind) => {
     setLatch(coverLatch(latch(), kind));
     if (kind === 'playing' && latch().armed) {
-      everPlayed = true;
-      applyTracks();
+      catchup.everPlayed = true;
+      tracks.applyTracks();
       // Ready before the menu opens (a Source row appearing under the focus would move the rows).
-      loadVersions();
+      options.loadVersions();
     }
   }));
 
   // Catch-up: an end right after the open with no frame is Not available; any other end shows the end card.
   createEffect(on(ended, (isEnded) => {
     if (!cu || !isEnded) return;
-    if (notAvailableFailure({ kind: 'ended' }, everPlayed, Date.now() - openedWall)) showNotAvailable();
-    else showEndCard();
+    if (notAvailableFailure({ kind: 'ended' }, catchup.everPlayed, Date.now() - catchup.openedWall)) catchup.showNotAvailable();
+    else catchup.showEndCard();
   }));
 
   // Catch-up: a first open the source answered with 404/410/400/5xx (both forms) is Not available.
   createEffect(on(() => failed(), (f) => {
     if (!cu || !f) return;
-    if (notAvailableFailure(f, everPlayed, Date.now() - openedWall)) showNotAvailable(f.httpStatus);
+    if (notAvailableFailure(f, catchup.everPlayed, Date.now() - catchup.openedWall)) catchup.showNotAvailable(f.httpStatus);
   }));
 
   // Ended: save the end position; offer the next episode, else return to the detail.
@@ -1463,30 +176,30 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
     if (cu || !isEnded || endedHandled) return;
     endedHandled = true;
     dropSeek();
-    const d = knownDuration(trustedDur(), p.durationMs);
-    if (d !== undefined) save(d);
-    closePicker();
-    if (p.next && p.series) startCountdown();
-    else queueMicrotask(() => { if (alive) leave(false); });
+    const d = knownDuration(c.trustedDur(), p.durationMs);
+    if (d !== undefined) c.save(d);
+    tracks.closePicker();
+    if (p.next && p.series) episodes.startCountdown();
+    else queueMicrotask(() => { if (c.alive) leave(false); });
   }));
 
   // A failure with a Try again button takes the focus; any other failure leaves it on the root (Back still works).
   createEffect(on(() => failed()?.reason, (reason) => {
     if (reason === undefined || notAvail()) return;
     dropSeek();
-    closePicker();
-    if (reason !== 'unsupported') queueMicrotask(() => { if (alive) cardNode?.setFocus(); });
+    tracks.closePicker();
+    if (reason !== 'unsupported') focusCard();
     else focusRoot();
   }));
 
   // A loaded subtitle file showing: its cue is looked up from the playhead (no engine track carries it).
   createEffect(() => {
-    const ext = external();
-    if (!extOn() || !ext) return;
+    const ext = sub.external();
+    if (!sub.extOn() || !ext) return;
     const show = () => {
-      const at = trustedPos();
+      const at = c.trustedPos();
       // A positive delay shows each cue later: look up the cue for that much earlier; the speed fixes frame-rate drift.
-      setCue(at === undefined || !Number.isFinite(at) ? '' : cueText(cueAt(ext.cues, subtitleTime(at, subDelay(), subSpeed()))));
+      sub.setCue(at === undefined || !Number.isFinite(at) ? '' : cueText(cueAt(ext.cues, subtitleTime(at, sub.subDelay(), sub.subSpeed()))));
     };
     show();
     const timer = setInterval(show, EXT_SUB_POLL_MS);
@@ -1495,7 +208,7 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
 
   // The overlay hid while its bar had the focus: give it back to the root (focus is never on a hidden node).
   createEffect(on(visible, (v) => {
-    if (!v && (barFocused || timelineFocused) && !pickerOpen() && !optionsPage()) focusRoot();
+    if (!v && focus.controlsFocused() && !tracks.pickerOpen() && !options.optionsPage()) focusRoot();
   }));
 
   // ---- lifecycle ----
@@ -1503,32 +216,30 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   onMount(() => {
     playback.setRect('fullscreen');
     playback.playVod(p, startMs);
-    root?.setFocus();
+    focus.focusRootNow();
 
     const tick = setInterval(() => {
-      setNow(Date.now());
-      const at = trustedPos();
+      c.setNow(Date.now());
+      const at = c.trustedPos();
       if (at !== undefined && Number.isFinite(at)) {
-        setPos(at);
-        lastPos = at;
+        c.setPos(at);
+        c.lastPos = at;
       }
-      const d = knownDuration(trustedDur(), p.durationMs);
-      setDur(d);
-      setBufEnd(d === undefined ? undefined : bufferedEndMs(at ?? pos(), playback.bufferedAheadMs(), d));
-      setPaused(playback.paused());
+      const d = knownDuration(c.trustedDur(), p.durationMs);
+      c.setDur(d);
+      c.setBufEnd(d === undefined ? undefined : bufferedEndMs(at ?? c.pos(), playback.bufferedAheadMs(), d));
+      c.setPaused(playback.paused());
       // A new engine attempt plays (a quick reopen may never leave 'playing'): re-apply the remembered tracks.
       const playing = status()?.kind === 'playing';
-      shapeTicks++;
-      const shape = playing && shapeCheckDue(shapeTicks) ? trackShape(playback.audioTracks(), playback.textTracks()) : tracksAppliedShape;
-      if (tracksDue(tracksAppliedAt, playback.startedAttempts(), playing, tracksAppliedShape, shape)) applyTracks();
+      tracks.tick(playing);
       // A loaded file without a speed: set it once the engine reports the video's frame rate.
-      if (playing && autoSpeedTries > 0) applyAutoSpeed();
+      if (playing) sub.tickAutoSpeed();
       // Where the engine reports no frame rate it is measured once playing: ask early, so a search has it.
-      if (playing && fpsPrimeTicks > 0 && !cu) fpsPrimeTicks = videoFps() === undefined ? fpsPrimeTicks - 1 : 0;
+      if (playing) sub.primeFps();
       // Arm progress saves as soon as the start seek has landed.
-      if (!saveArmed) arm();
+      if (!c.saveArmed) c.arm();
       // Catch-up: the programme's end reached (the archive may run on into the next one, or reach live).
-      if (cu && playing && at !== undefined && d !== undefined && at >= d) showEndCard();
+      if (cu && playing && at !== undefined && d !== undefined && at >= d) catchup.showEndCard();
       // A silent picture (a sound format this device cannot decode): say so once instead of playing on in silence.
       if (!soundWarned && playing && !playback.paused() && playback.soundUndecodable()) {
         soundWarned = true;
@@ -1539,44 +250,41 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         dvWarned = true;
         showToast(DV_COLOURS_TEXT);
       }
-      if (infoOn() && shapeTicks % 4 === 0) setInfoTick((v) => v + 1);
-      syncTick(at, playing);
+      if (infoOn() && tracks.shapeTicks() % 4 === 0) setInfoTick((v) => v + 1);
+      sub.syncTick(at, playing, tracks.shapeTicks());
     }, TICK_MS);
     const saver = setInterval(() => {
-      if (status()?.kind === 'playing' && !playback.paused()) save();
+      if (status()?.kind === 'playing' && !playback.paused()) c.save();
     }, PROGRESS_SAVE_MS);
     // Hidden: save and pause; visible again stays paused until the user presses Ok.
     const onVisibility = () => {
       if (!document.hidden) return;
-      save();
+      c.save();
       if (pauseOnHidden({ hidden: true, paused: playback.paused(), problem: failed() !== undefined || ended() })) {
         playback.pause();
-        setPaused(playback.paused());
+        c.setPaused(playback.paused());
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     // A released Left/Right ends the hold run (the next press steps 10 s again).
-    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Left' || e.key === 'Right') hold = undefined; };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Left' || e.key === 'Right') seek.endHold(); };
     document.addEventListener('keyup', onKeyUp);
     const offKeys = onLogicalKey(() => bump());
     const offSubs = playback.onSubtitle((text) => {
-      if (!alive) return;
-      if (!extOn()) {
-        setCue(cueText(text));
-        cueLangs.add(text, () => playback.textTracks().find((t) => t.active));
+      if (!c.alive) return;
+      if (!sub.extOn()) {
+        sub.setCue(cueText(text));
+        tracks.cueLangs.add(text, () => playback.textTracks().find((t) => t.active));
       }
-      else if (sync) {
-        const at = trustedPos();
-        if (at !== undefined && Number.isFinite(at)) sync.recorder.cue(text !== null && text.trim() !== '', at);
-      }
+      else sub.syncCue(text !== null && text.trim() !== '', c.trustedPos);
     });
     // The subtitles loaded earlier for this title: shown when chosen (the tracks may already have been applied).
     // Catch-up keeps no subtitles of its own.
-    if (!cu) api.onlineSubtitlesAvailable().then((ok) => { if (alive) setOnlineOk(ok); }, () => { /* not offered */ });
+    if (!cu) api.onlineSubtitlesAvailable().then((ok) => { if (c.alive) finder.setOnlineOk(ok); }, () => { /* not offered */ });
     if (!cu) api.getSubtitle(p.itemId).then((loaded) => {
-      if (!alive || !loaded) return;
-      useLoaded(loaded);
-      if (chosen.subtitle === SUBTITLE_KEY_EXT) applySubtitle();
+      if (!c.alive || !loaded) return;
+      sub.useLoaded(loaded);
+      if (chosen.subtitle === SUBTITLE_KEY_EXT) tracks.applySubtitle();
     }, (err) => console.warn('Subtitle read failed', errName(err)));
     onCleanup(() => {
       clearInterval(tick);
@@ -1589,39 +297,24 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
   });
 
   onCleanup(() => {
-    alive = false;
+    c.alive = false;
     dropSeek();
-    if (reopenTimer !== undefined) clearTimeout(reopenTimer);
-    if (rowsTimer !== undefined) clearTimeout(rowsTimer);
-    if (countdownTimer !== undefined) clearInterval(countdownTimer);
+    catchup.dispose();
+    tracks.disposeTimer();
+    episodes.dispose();
     // A delay changed just before leaving: save it now.
-    if (delaySaveTimer !== undefined) {
-      clearTimeout(delaySaveTimer);
-      api.setSubtitleDelay(p.itemId, subDelay()).catch((err) => console.warn('Subtitle delay save failed', errName(err)));
-    }
-    removePicker?.();
-    router.removeOverlay(TRACKS_ID);
-    removeLinkEntry?.();
-    router.removeOverlay(SUB_URL_ID);
-    removeOnline?.();
-    router.removeOverlay(SUB_ONLINE_ID);
-    removeVersions?.();
-    router.removeOverlay(SUB_VERSIONS_ID);
+    sub.flushDelay();
+    tracks.disposePicker();
+    finder.dispose();
     router.removeOverlay(INFO_ID);
-    removeOptions?.();
-    router.removeOverlay(OPTIONS_ID);
-    stopOurs();
+    options.dispose();
+    c.stopOurs();
   });
 
   // ---- drawing ----
 
   const title = oneSpace(p.title);
   const label = p.episodeLabel ? oneSpace(p.episodeLabel) : '';
-  const statusText = () => {
-    const s = status();
-    // No status: the open is held (refusal cooldown or open-rate cap) and will start by itself.
-    return s === undefined || s.kind === 'loading' ? 'Loading…' : s.kind === 'reconnecting' ? 'Reconnecting…' : '';
-  };
   /**
    * The card's text (the failure: its cause and status, spec 2026-10-16-source-retry §2.8; else the next-episode
    * countdown) and the box it fits (body size, up to three lines for a long refusal that names the account's limit).
@@ -1632,23 +325,23 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
       : endCard() ? VOD_COPY.endOf(title)
         : f
           ? failureText({ reason: f.reason, httpStatus: f.httpStatus, maxConnections: activeMaxConnections() })
-          : nextCardText(oneSpace(p.next?.label ?? ''), countdown() ?? 0);
+          : nextCardText(oneSpace(p.next?.label ?? ''), episodes.countdown() ?? 0);
     return { text, box: MESSAGE_BOXES.vodCard };
   });
-  const subLines = () => cue().split('\n').length;
-  const subY = () => (visible() ? TITLE_Y - LAYOUT.gap : LAYOUT.height - LAYOUT.safeY - 20) - subLines() * LINE.title;
-  useNotice(() => (statusText() && !failed() && !notAvail() && !endCard()
-    ? { id: 'vod-status', kind: 'wait', text: statusText(), spinner: false } : undefined));
+  useNotice(() => {
+    const s = vodStatusText(status());
+    return s && !failed() && !notAvail() && !endCard() ? { id: 'vod-status', kind: 'wait', text: s, spinner: false } : undefined;
+  });
 
   return (
-    <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height}
+    <View ref={focus.rootRef} width={LAYOUT.width} height={LAYOUT.height}
       onBack={onBack} onEnter={onEnter}
-      onLeft={() => rootScrub('Left')} onRight={() => rootScrub('Right')}
-      onUp={focusTimeline} onDown={focusTimeline}
-      onPlayPause={() => (failed() || ended() ? true : togglePause())}
-      onPlay={() => mediaKey('Play')} onPause={() => mediaKey('Pause')} onStop={() => mediaKey('Stop')}
-      onFastForward={() => mediaKey('FastForward')} onRewind={() => mediaKey('Rewind')}
-      onChannelUp={nextNow} onChannelDown={prevNow} onInfo={toggleInfo} onMenu={openOptions}>
+      onLeft={() => keys.rootScrub('Left')} onRight={() => keys.rootScrub('Right')}
+      onUp={focus.focusTimeline} onDown={focus.focusTimeline}
+      onPlayPause={() => (failed() || ended() ? true : seek.togglePause())}
+      onPlay={() => keys.mediaKey('Play')} onPause={() => keys.mediaKey('Pause')} onStop={() => keys.mediaKey('Stop')}
+      onFastForward={() => keys.mediaKey('FastForward')} onRewind={() => keys.mediaKey('Rewind')}
+      onChannelUp={episodes.nextNow} onChannelDown={episodes.prevNow} onInfo={toggleInfo} onMenu={options.openOptions}>
 
       {/* Under everything (subtitles 5, overlay 10, cards 30): hides what sits on the video plane until the first picture. */}
       <Show when={coverVideo(status(), played(), latch().armed)}>
@@ -1659,115 +352,25 @@ export function VodPlayScreen(props: { entry: ScreenEntry }) {
         <KeyValuePanel x={LAYOUT.safeX} y={LAYOUT.safeY} width={600} title={PLAYER_COPY.streamInfo} lines={infoLines()} framed />
       </Show>
 
-      {/* Subtitles: above the video, below the overlay; lifted above the band while it shows. */}
-      {/* A dark outline (offset copies) keeps the text readable on bright pictures without a font shadow. */}
-      <Show when={cue()}>
-        <View zIndex={5}>
-          <For each={SUB_OUTLINE}>{([dx, dy]) => (
-            <Text x={CONTENT_X + dx} y={subY() + dy} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-              maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={SUB_OUTLINE_COLOR}>{cue()}</Text>
-          )}</For>
-          <Text x={CONTENT_X} y={subY()} width={CONTENT_W} maxWidth={CONTENT_W} contain="width" textAlign="center"
-            maxLines={3} fontSize={TYPE.title} lineHeight={LINE.title} color={COLORS.text}>{cue()}</Text>
-        </View>
-      </Show>
+      <SubtitleCue cue={sub.cue()} overlayShown={visible()} />
 
-      <Show when={visible()}>
-        <View zIndex={10} width={LAYOUT.width} height={LAYOUT.height}>
-          <View y={BAND_Y} width={LAYOUT.width} height={BAND_H} src={scrimTexture('player', BACKGROUND_RGB)} />
-          <InfoBlock x={CONTENT_X} y={TITLE_Y} width={CONTENT_W} title={title} meta={label || undefined} />
-          <BadgeRow x={CONTENT_X} y={label ? BADGES_LABEL_Y : LABEL_Y} maxWidth={CONTENT_W} badges={badges()} />
-          <Timeline ref={(el) => { timelineNode = el; }} x={CONTENT_X} y={TIMELINE_Y} width={CONTENT_W}
-            posMs={pos()} durMs={dur()} bufferedEndMs={bufEnd()} scrub={scrub()}
-            onLeft={() => scrubKey('Left')} onRight={() => scrubKey('Right')} onEnter={onTimelineEnter}
-            onDown={focusBar} onFocusChanged={(f) => { timelineFocused = f; }}
-            onPointerSeek={pointerSeek} onDrag={onDrag} onHover={bump} />
-          {/* Catch-up of a programme on air: the live edge, as far as a seek can go. */}
-          <Show when={cu && now() < (cur() ?? cu).stop}>
-            <View x={liveEdgeX(seekLimitMs(cur() ?? cu!, now()), p.durationMs)}
-              y={TIMELINE_Y + TIMELINE_H / 2 - CATCHUP_H / 2} width={CATCHUP_W} height={CATCHUP_H} color={COLORS.accent} borderRadius={RADIUS.pill(CATCHUP_W)} />
-          </Show>
-          <Text x={CONTENT_X} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" maxLines={1}
-            fontSize={TYPE.meta} color={COLORS.text}>{elapsedText(pos(), dur())}</Text>
-          <Show when={dur() !== undefined}>
-            <Text x={CONTENT_X + CONTENT_W - TIME_W} y={TIMES_Y} width={TIME_W} maxWidth={TIME_W} contain="width" textAlign="right"
-              maxLines={1} fontSize={TYPE.meta} color={COLORS.muted}>{remainingText(pos(), dur() ?? 0, now())}</Text>
-          </Show>
-          <ActionBar ref={(el) => { barNode = el; }} x={CONTENT_X} y={ACTIONS_Y} actions={actions()} onAction={onAction}
-            initial="toggle" onUp={focusTimeline} onDown={() => true}
-            onFocusChanged={(f) => { barFocused = f; }} />
-          {/* After the bar: its hit area spans the row, and the later target wins where they overlap. */}
-          <Show when={row().volumeX !== undefined}>
-            <VolumeControl x={CONTENT_X + (row().volumeX ?? 0)} y={ACTIONS_Y} width={VOLUME_W} height={BUTTON_H} fill={COLORS.surfaceRaised}
-              onActive={bump} />
-          </Show>
-        </View>
-      </Show>
+      <VodControls visible={visible()} title={title} label={label} badges={badges()}
+        posMs={c.pos()} durMs={c.dur()} bufferedEndMs={c.bufEnd()} scrub={c.scrub()} now={c.now()} paused={c.paused()} hasNext={Boolean(p.next)}
+        catchup={cu ? (c.cur() ?? cu) : undefined} catchupDurMs={p.durationMs}
+        timelineRef={focus.timelineRef} barRef={focus.barRef}
+        onScrubKey={seek.scrubKey} onTimelineEnter={keys.onTimelineEnter} onTimelineDown={focus.focusBar} onTimelineFocus={focus.onTimelineFocus}
+        onPointerSeek={seek.pointerSeek} onDrag={seek.onDrag} onActive={bump}
+        onAction={keys.onAction} onBarUp={focus.focusTimeline} onBarFocus={focus.onBarFocus} />
 
-      <Show when={notAvail() || endCard() || failed() || (countdown() !== undefined && p.next)}>
-        <View zIndex={30} x={(LAYOUT.width - CARD_W) / 2} y={(LAYOUT.height - CARD_H) / 2 - SPACE.xl * 2 - SPACE.l} width={CARD_W} height={CARD_H}
-          color={COLORS.surface} borderRadius={RADIUS.card}>
-          {/* The text area above the buttons: y 24 to 148. */}
-          <Text x={SPACE.xl} y={24 + messageTop(card().text, card().box, CARD_TEXT_H)} width={CARD_W - SPACE.xl * 2} maxWidth={CARD_W - SPACE.xl * 2}
-            contain="width" textAlign="center" maxLines={card().box.maxLines} lineHeight={LINE.body}
-            fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{card().text}</Text>
-          <Show when={notAvail() || endCard() || failed()?.reason !== 'unsupported'}>
-            <ActionBar ref={(el) => { cardNode = el; }}
-              x={(CARD_W - cardActions().reduce((w, a) => w + a.width + 16, -16)) / 2} y={CARD_H - BUTTON_H - SPACE.xl}
-              actions={cardActions()} onAction={onCardAction} />
-          </Show>
-        </View>
-      </Show>
+      <VodCard shown={Boolean(notAvail() || endCard() || failed() || (episodes.countdown() !== undefined && p.next))}
+        card={card()} withActions={notAvail() || endCard() || failed()?.reason !== 'unsupported'}
+        actions={cardActions({ notAvail: notAvail(), endCard: endCard(), next: c.cur()?.next, failed: failed() !== undefined })}
+        onAction={keys.onCardAction} actionsRef={focus.cardRef} />
 
       {/* Desktop volume: + and - keys and the wheel; with the controls hidden a change shows a short top-right pill. */}
       <VolumeOsd inBar={visible()} />
 
-      <Show when={pickerOpen()}>{(() => {
-        const trackRows = createMemo(() => rows());
-        const trackSheetRows = createMemo(() => trackRows().map(fromPickerRow));
-        return (
-          <Sheet ref={(el) => { pickerNode = el; }} title={VOD_COPY.subtitles} rows={trackSheetRows()} backLayerId={TRACKS_ID}
-            onSelect={(_, i) => { const r = trackRows()[i]; if (r) pickTrack(r); }}
-            onAdjust={(_, i, d) => { const r = trackRows()[i]; return r ? adjustRow(r, d) : false; }} />
-        );
-      })()}</Show>
-
-
-      <Show when={optionsPage()} keyed>{(page) => {
-        const optionRows = createMemo(() => optionItems().map(fromOptionItem));
-        return (
-          <Sheet ref={(el) => { optionsNode = el; }}
-            title={page === 'audio' ? PLAYER_COPY.audioTrack : page === 'source' ? SOURCE_COPY.choose : PLAYER_COPY.options}
-            rows={optionRows()} onSelect={(r) => chooseOption(r.id)} scrim={false} swallow="player" zIndex={40} />
-        );
-      }}</Show>
-
-      <Show when={onlineRows()}>{(list) => {
-        const onlineSheetRows = createMemo(() => list().map(fromPickerRow));
-        return (
-          <Sheet ref={(el) => { onlineNode = el; }} title={VOD_COPY.subtitlesOnline} rows={onlineSheetRows()} backLayerId={SUB_ONLINE_ID}
-            onSelect={(_, i) => { const r = list()[i]; if (r) pickOnline(r); }}
-            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
-        );
-      }}</Show>
-
-      <Show when={versionPickRows()}>{(list) => {
-        const versionSheetRows = createMemo(() => list().map(fromPickerRow));
-        return (
-          <Sheet ref={(el) => { versionsNode = el; }} title={VOD_COPY.subtitleVersions} rows={versionSheetRows()} backLayerId={SUB_VERSIONS_ID}
-            onSelect={(_, i) => { const r = list()[i]; if (r) pickVersion(r); }}
-            footer={subBusy() ? VOD_COPY.loadingSubtitles : ONLINE_ATTRIBUTION} />
-        );
-      }}</Show>
-
-      <Show when={linkText() !== undefined}>
-        <View zIndex={40} width={LAYOUT.width} height={LAYOUT.height} color={COLORS.scrim}>
-          <Keyboard ref={(el) => { keyboardNode = el; }} x={(LAYOUT.width - KEYBOARD_W) / 2} y={(LAYOUT.height - KEYBOARD_URL_H) / 2}
-            layout={FULL_LAYOUT} label={VOD_COPY.subtitleLink} value={linkText() ?? ''}
-            onChange={(v) => { setLinkText(v); setLinkError(undefined); }} onDone={() => void submitLink()}
-            hint={subBusy() ? VOD_COPY.loadingSubtitles : undefined} error={linkError()} />
-        </View>
-      </Show>
+      <VodSheets sub={sub} tracks={tracks} options={options} finder={finder} />
     </View>
   );
 }
