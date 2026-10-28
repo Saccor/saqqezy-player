@@ -6,7 +6,7 @@ import { foldChannels, type ChannelFolds } from '../live/fold.ts';
 import { compileQuery, nameMatchScore, nameKeys, NO_MATCH, type CompiledQuery, type NameKeys } from '../text/searchMatch.ts';
 import type { GroupRegion } from '../text/regions.ts';
 import { foldActive, splitFold } from './countryFold.ts';
-import { regionRule, sureRegionKeys, type RegionRule, type RegionState } from './regionRule.ts';
+import { orderProviderGroups, regionRule, sureRegionKeys, type RegionRule, type RegionState } from './regionRule.ts';
 
 export type { RegionState } from './regionRule.ts';
 import type { RegionMode } from '../settings.ts';
@@ -509,20 +509,7 @@ export class ChannelIndex {
    * the others (the user's order always wins).
    */
   private orderedProviderGroups(): string[] {
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const gid of this.lay.groupOrder) {
-      if (this.base.members.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
-    }
-    const chosen = this.rd.state.mode === 'off' ? undefined : this.rd.chosen;
-    if (chosen) {
-      const picked = this.base.providerOrder.filter((gid) => chosen.has(gid) && !seen.has(gid));
-      // Array sort is stable: provider order stays inside a rank. Ranks may be Infinity, so compare, never subtract.
-      picked.sort((x, y) => { const rx = this.rd.rankOf(x); const ry = this.rd.rankOf(y); return rx < ry ? -1 : rx > ry ? 1 : 0; });
-      for (const gid of picked) { out.push(gid); seen.add(gid); }
-    }
-    for (const gid of this.base.providerOrder) if (!seen.has(gid)) out.push(gid);
-    return out;
+    return orderProviderGroups(this.base.providerOrder, this.lay.groupOrder, this.base.members, this.rd);
   }
 
   /** Not a group of a chosen country while your countries are on: listed under "Other groups". */

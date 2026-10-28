@@ -52,6 +52,30 @@ export function sureRegionKeys(detected: Readonly<Record<string, GroupRegion>>):
   return out;
 }
 
+/**
+ * Provider group ids in the TV's order, shared by `ChannelIndex` and the phone companion: `groupOrder` ids that exist
+ * first, then, while the rule is on, the chosen countries' groups by pick order (`rankOf`) then provider order, then
+ * the rest in provider order (the user's order always wins).
+ */
+export function orderProviderGroups(
+  providerOrder: readonly string[], groupOrder: readonly string[], exists: ReadonlySet<string> | ReadonlyMap<string, unknown>,
+  rule: Pick<RegionRule, 'state' | 'chosen' | 'rankOf'>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const gid of groupOrder) {
+    if (exists.has(gid) && !seen.has(gid)) { out.push(gid); seen.add(gid); }
+  }
+  if (rule.state.mode !== 'off') {
+    const picked = providerOrder.filter((gid) => rule.chosen.has(gid) && !seen.has(gid));
+    // Array sort is stable: provider order stays inside a rank. Ranks may be Infinity, so compare, never subtract.
+    picked.sort((x, y) => { const rx = rule.rankOf(x); const ry = rule.rankOf(y); return rx < ry ? -1 : rx > ry ? 1 : 0; });
+    for (const gid of picked) { out.push(gid); seen.add(gid); }
+  }
+  for (const gid of providerOrder) if (!seen.has(gid)) out.push(gid);
+  return out;
+}
+
 export function regionRule(
   groupIds: Iterable<string>, layout: Pick<Layout, 'groupRegion' | 'shownGroups'>, input: RegionRuleInput | undefined,
 ): RegionRule {
