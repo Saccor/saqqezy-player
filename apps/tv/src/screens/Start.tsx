@@ -4,7 +4,7 @@ import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
 import { api, onEvent } from '../api.ts';
 import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
-import { canFromStart } from '../vod/catchupLogic.ts';
+import { canFromStart } from '../playback/catchupLogic.ts';
 import { createSheetChoice } from '../components/Sheet.tsx';
 import { Row } from '../components/Row.tsx';
 import { SlidingRows } from '../components/SlidingRows.tsx';

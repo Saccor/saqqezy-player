@@ -5,7 +5,7 @@
  * seekLogic.ts and catchupLogic.ts.
  */
 import { playback } from '../../playback/playback.ts';
-import { seekLimitMs, seekPlan } from '../../vod/catchupLogic.ts';
+import { seekLimitMs, seekPlan } from '../../playback/catchupLogic.ts';
 import { commitDelayMs, dragScrub, holdPress, pressScrub, seekStep, type HoldRun } from '../../vod/seekLogic.ts';
 import type { VodCore } from './createVodCore.ts';
 

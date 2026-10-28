@@ -1,6 +1,6 @@
 /** Pure rules of the VOD player screen's card (no Solid, no engine). */
 import type { CatchupPlayable } from '@iptv/app-api';
-import { endCardActions } from '../../vod/catchupLogic.ts';
+import { endCardActions } from '../../playback/catchupLogic.ts';
 import { CATCHUP_COPY, COMMON_COPY, VOD_COPY } from '../../copy.ts';
 
 /** A card button: its action id, label and width. */

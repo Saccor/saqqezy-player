@@ -10,7 +10,7 @@ import { journal, playback } from '../../playback/playback.ts';
 import { CATCHUP_COPY } from '../../copy.ts';
 import { router } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
-import { REOPEN_MIN_GAP_MS, catchupVodPlayable, missingArchive, reopenAllowed, reopenStartMs } from '../../vod/catchupLogic.ts';
+import { REOPEN_MIN_GAP_MS, catchupVodPlayable, missingArchive, reopenAllowed, reopenStartMs } from '../../playback/catchupLogic.ts';
 import type { VodCore } from './createVodCore.ts';
 import { errName } from './layout.ts';
 

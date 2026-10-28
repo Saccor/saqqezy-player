@@ -9,7 +9,7 @@ import type { CatchupPlayable, VodPlayable } from '@iptv/app-api';
 import { api } from '../../api.ts';
 import { isVodId, playback } from '../../playback/playback.ts';
 import type { ScreenEntry } from '../../shell/router.ts';
-import { catchupVodPlayable } from '../../vod/catchupLogic.ts';
+import { catchupVodPlayable } from '../../playback/catchupLogic.ts';
 import type { Scrub } from '../../vod/seekLogic.ts';
 import { knownDuration, overlayVisible, progressSaveArmed } from '../../vod/vodPlayerLogic.ts';
 import { errName } from './layout.ts';

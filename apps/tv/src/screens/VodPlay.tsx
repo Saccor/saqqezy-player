@@ -11,7 +11,7 @@ import { usePointerTarget } from '../input/pointer.ts';
 import { failureText } from '../playback/failureText.ts';
 import { playback, player } from '../playback/playback.ts';
 import { CATCHUP_COPY, PLAYER_COPY, VOD_COPY } from '../copy.ts';
-import { notAvailableFailure } from '../vod/catchupLogic.ts';
+import { notAvailableFailure } from '../playback/catchupLogic.ts';
 import { streamInfoLines } from '../playback/streamInfo.ts';
 import { KeyValuePanel } from '../components/KeyValuePanel.tsx';
 import { staticCaps } from '@iptv/player';

@@ -7,7 +7,7 @@ import { playback } from '../playback/playback.ts';
 import { router } from '../shell/router.ts';
 import { showToast } from '../shell/Toast.tsx';
 import { CATCHUP_COPY, LIVE_COPY } from '../copy.ts';
-import { canFromStart } from '../vod/catchupLogic.ts';
+import { canFromStart } from '../playback/catchupLogic.ts';
 import { channelsLabel, eventWhen } from './startLogic.ts';
 
 const GROUP_ALL = 'all';

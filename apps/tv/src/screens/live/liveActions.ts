@@ -11,7 +11,7 @@ import { cooling } from '../../playback/cooldown.ts';
 import { deviceWindowMax, playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';
 import { initState, settings } from '../../state/appState.ts';
-import { missingArchive } from '../../vod/catchupLogic.ts';
+import { missingArchive } from '../../playback/catchupLogic.ts';
 import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { multiviewOffered } from '../playerLogic.ts';
 import { VIEW_SPAN, clampViewStart, dayJumpTargets, dayJumpView, guideBackMs, guideWindow, isOnAir, type Block } from '../guideLogic.ts';

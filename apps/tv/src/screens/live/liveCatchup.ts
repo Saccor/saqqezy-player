@@ -9,7 +9,7 @@ import { CATCHUP_COPY } from '../../copy.ts';
 import { devResume } from '../../playback/devResume.ts';
 import { router } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
-import { archiveLine } from '../../vod/catchupLogic.ts';
+import { archiveLine } from '../../playback/catchupLogic.ts';
 
 /** `beforePush` runs right before the catch-up player opens (Live TV marks that focus must come back from memory). */
 export function createCatchupOpener(alive: () => boolean, beforePush: () => void) {

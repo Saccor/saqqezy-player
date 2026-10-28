@@ -4,7 +4,7 @@ import type { Rect } from '@iptv/player';
 import type { ChannelRow } from '@iptv/app-api';
 import { CATCHUP_COPY, LIVE_COPY, MULTIVIEW_COPY } from '../../copy.ts';
 import { LAYOUT } from '../../shell/theme.ts';
-import { guideOkAction } from '../../vod/catchupLogic.ts';
+import { guideOkAction } from '../../playback/catchupLogic.ts';
 import { dayLabel, type Block } from '../guideLogic.ts';
 import { sourcesLine } from '../../playback/sourceLogic.ts';
 import { formatRange, pickGroup, type GroupLite } from '../homeLogic.ts';

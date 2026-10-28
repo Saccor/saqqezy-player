@@ -16,7 +16,7 @@ import { pointerMode } from '../../input/pointer.ts';
 import { SHELL_BACK_LABEL } from '../../shell/logic.ts';
 import { BACKGROUND_RGB, COLORS, LAYOUT, LINE, RADIUS, TYPE } from '../../shell/theme.ts';
 import { volumeSupported } from '../../video/volume.ts';
-import { seekLimitMs } from '../../vod/catchupLogic.ts';
+import { seekLimitMs } from '../../playback/catchupLogic.ts';
 import { iconTexture } from '../../vod/icons.ts';
 import { scrimTexture } from '../../vod/scrim.ts';
 import type { Scrub } from '../../vod/seekLogic.ts';
