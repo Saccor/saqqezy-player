@@ -22,7 +22,7 @@ import {
 } from '../../vod/vodPlayerLogic.ts';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_POINTER_STEP_MS, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW,
-  REMOVE_EXT_ROW, SPEED_ROW, SUBTITLE_EXT_ROW, SUBTITLE_KEY_EXT, onlineLanguageLabel, pickSubtitle, sourceRowIndex, sourceSubtitleName,
+  REMOVE_EXT_ROW, SPEED_ROW, SUBTITLE_EXT_ROW, onlineLanguageLabel, pickSubtitle, sourceRowIndex, sourceSubtitleName,
   subtitleExtraRows,
 } from '../../vod/subtitleLogic.ts';
 import type { VodCore } from './createVodCore.ts';
