@@ -71,8 +71,8 @@ More detail: [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECUR
   a session id and a non-extractable AES-256-GCM key. Every frame has a random IV, authenticated header data and
   replay protection ([`packages/companion-protocol`](packages/companion-protocol/src)).
 - **A relay that cannot read anything.** A Cloudflare Durable Object per pairing forwards opaque binary frames,
-  with limits on size, rate, bytes and lifetime. Its per-IP limiter keys on an HMAC of the address, so no raw
-  IP is ever held ([`services/relay`](services/relay)).
+  with limits on size, rate, bytes and lifetime. Its new-session limiter keys on hashes of the address prefix,
+  never the raw IP ([`services/relay`](services/relay)).
 - **Parsing off the UI thread.** M3U, Xtream and a streaming XMLTV parser run in a Web Worker behind a typed RPC.
   A 100 MB guide streams in with bounded memory, and a 54k-channel guide import keeps the API answering
   (p95 under 15 ms).

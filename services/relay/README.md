@@ -26,11 +26,13 @@ Raw IPs are not even held in memory: the per-IP limiter keys on an HMAC of the a
 | Idle timeout | 5 minutes without frames (pings count; connects do not) |
 | Reconnect queue | 2 MiB and 60 s per waiting peer; 32 MiB across all sessions in an isolate, beyond which frames for absent peers are dropped |
 
-The per-IP limit is **per isolate**, so it is approximate: Cloudflare runs many isolates and each
-keeps its own count in memory. No shared store ever holds IPs, by design (the Workers Rate Limiting
-binding would need an account-level setup). The limiter key is HMAC-SHA256 of the IPv4 address or
-IPv6 /64 under a random per-isolate key, truncated to 16 bytes; raw IPs are never held, and stale
-keys are pruned a few at a time on every check. **CGNAT:** many users can share one IPv4 address
+The per-IP limit has two layers. First, each isolate counts in memory, keyed on HMAC-SHA256 of the IPv4
+address or IPv6 /64 under a random per-isolate key, truncated to 16 bytes. Stale keys are pruned a few at
+a time on every check. Then the Workers Rate Limiting binding `NEW_SESSION_LIMITER` (`[[ratelimits]]` in
+`wrangler.toml`, the same 10 per minute) enforces the limit across isolates. Its key is a truncated
+SHA-256 of the address prefix, never the raw IP. Without the binding (local dev, tests) the in-memory
+count alone decides, and if the binding errors the in-memory decision stands, so a rate-limit outage
+never blocks every pairing. **CGNAT:** many users can share one IPv4 address
 (mobile carriers, some ISPs), so they also share the 10-per-minute budget. Joins and reconnects to a
 known session are free, so this only limits creating new pairings.
 
