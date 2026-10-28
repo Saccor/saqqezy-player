@@ -2,7 +2,7 @@
 
 **A fast TV player for your own playlists and TV guides. It ships with no content.**
 
-[![CI](https://github.com/Saccor/iptv-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Saccor/iptv-app/actions/workflows/ci.yml)
+[![CI](https://github.com/Saccor/saqqezy-player/actions/workflows/ci.yml/badge.svg)](https://github.com/Saccor/saqqezy-player/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-lightgrey)
 
