@@ -4,7 +4,7 @@ import type { VodPlayable } from '@iptv/app-api';
 import { VOD_COPY } from '../copy.ts';
 import { FAILURE_COPY } from '../copy/failure.ts';
 import { MOTION } from '../shell/theme.ts';
-import { oneSpace } from './tracks.ts';
+import { oneSpace } from '../playback/tracks.ts';
 
 export const OVERLAY_HIDE_MS = MOTION.autoHide;
 export const NEXT_COUNTDOWN_S = 10;

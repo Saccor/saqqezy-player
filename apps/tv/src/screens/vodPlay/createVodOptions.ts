@@ -13,7 +13,7 @@ import { playback } from '../../playback/playback.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { audioItems, matchingEpisode, optionsItems, sourceItems, versionOwnerId, type OptionsPage } from '../../vod/playerOptions.ts';
-import { oneSpace, trackKey, trackLabels } from '../../vod/tracks.ts';
+import { oneSpace, trackKey, trackLabels } from '../../playback/tracks.ts';
 import { withLanguages } from '../../vod/versionsLogic.ts';
 import type { VodCore } from './createVodCore.ts';
 import type { LoadedSubtitleState } from './createLoadedSubtitle.ts';

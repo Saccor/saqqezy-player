@@ -1,7 +1,7 @@
 import { englishLanguageName, type VideoRange } from '@iptv/core';
 import type { StreamInfo, TrackInfo } from '@iptv/player';
 import { PLAYER_COPY } from '../copy.ts';
-import { channelsLabel, codecFamily, trackLanguages, type TrackLanguageInput } from '../vod/tracks.ts';
+import { channelsLabel, codecFamily, trackLanguages, type TrackLanguageInput } from './tracks.ts';
 import { formatBitrate } from './streamInfo.ts';
 import { SPACE } from '../shell/theme.ts';
 

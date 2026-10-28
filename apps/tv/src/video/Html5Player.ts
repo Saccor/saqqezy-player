@@ -7,7 +7,7 @@ import type {
 } from '@iptv/player';
 import { REFUSAL_STATUSES } from '@iptv/core';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
-import { codecFamily } from '../vod/tracks.ts';
+import { codecFamily } from '../playback/tracks.ts';
 import { AutoMute } from './autoMute.ts';
 import { chooseEngine, nextEngineAfterFailure, type TriedEngine } from './engineChoice.ts';
 import { CUSHION_MAX_WAIT_MS, START_CUSHION_S, hlsConfig, mpegtsConfig } from './engineConfig.ts';

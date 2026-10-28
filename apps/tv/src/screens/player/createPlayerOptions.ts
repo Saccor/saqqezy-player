@@ -18,7 +18,7 @@ import { router } from '../../shell/router.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import type { createLayerSet } from '../../shell/layerSet.ts';
 import { settings } from '../../state/appState.ts';
-import { channelLanguageInput, pickAudioTrack, trackKey, trackLabels } from '../../vod/tracks.ts';
+import { channelLanguageInput, pickAudioTrack, trackKey, trackLabels } from '../../playback/tracks.ts';
 import { deviceCeiling, windowLimit } from '../multiview/windows.ts';
 import { aspectLabel, multiviewOffered, nextAspect, sleepLabel } from '../playerLogic.ts';
 

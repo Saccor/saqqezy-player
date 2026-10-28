@@ -13,7 +13,7 @@ import type { PickerRow } from '../homeMenuLogic.ts';
 import { playback, player } from '../../playback/playback.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { SyncRecorder, syncReferenceTrack } from '../../vod/syncRecorder.ts';
-import { oneSpace } from '../../vod/tracks.ts';
+import { oneSpace } from '../../playback/tracks.ts';
 import {
   DELAY_ROW, SPEED_ROW, SUBTITLE_KEY_EXT, autoSpeed, delayLabel, loadedLanguage, normalizeSpeed, stepDelay, stepSpeed,
   type SubtitleSpeed,

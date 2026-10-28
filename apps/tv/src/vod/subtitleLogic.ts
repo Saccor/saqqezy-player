@@ -3,7 +3,7 @@ import type { TrackInfo } from '@iptv/player';
 import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
-import { findTrack, preferredTrack } from './tracks.ts';
+import { findTrack, preferredTrack } from '../playback/tracks.ts';
 
 /** The Settings choices for the subtitle language: the languages core's settings accept. */
 export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = SUBTITLE_LANGUAGES;

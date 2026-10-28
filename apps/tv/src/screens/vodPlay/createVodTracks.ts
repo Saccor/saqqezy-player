@@ -16,7 +16,7 @@ import { platformId, settings } from '../../state/appState.ts';
 import { showToast } from '../../shell/Toast.tsx';
 import { isTvPlatform } from '../../video/engineConfig.ts';
 import { cueLanguageCollector } from '../../vod/cueLanguage.ts';
-import { SUBTITLES_OFF, oneSpace, pickAudioTrack, trackKey, trackRows, type TrackLanguageInput } from '../../vod/tracks.ts';
+import { SUBTITLES_OFF, oneSpace, pickAudioTrack, trackKey, trackRows, type TrackLanguageInput } from '../../playback/tracks.ts';
 import {
   SUBTITLE_KEY_OFF, shapeCheckDue, trackShape, tracksDue, tracksKeyId,
 } from '../../vod/vodPlayerLogic.ts';

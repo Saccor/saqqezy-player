@@ -8,7 +8,7 @@ import {
   SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
   subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName, loadedLanguage,
 } from './subtitleLogic.ts';
-import { preferredTrack } from './tracks.ts';
+import { preferredTrack } from '../playback/tracks.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
   const x: TrackInfo = { id, label, active };

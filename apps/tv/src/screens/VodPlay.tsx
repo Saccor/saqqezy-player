@@ -27,7 +27,7 @@ import {
   DV_COLOURS_TEXT, PROGRESS_SAVE_MS, dvColoursWarning, cueText, knownDuration, nextCardText, noSoundText,
   coverVideo, coverLatch, pauseOnHidden,
 } from '../vod/vodPlayerLogic.ts';
-import { oneSpace } from '../vod/tracks.ts';
+import { oneSpace } from '../playback/tracks.ts';
 import { SUBTITLE_KEY_EXT, onlineLanguageLabel, subtitleTime } from '../vod/subtitleLogic.ts';
 import { createVodCore } from './vodPlay/createVodCore.ts';
 import { createVodSeek } from './vodPlay/createVodSeek.ts';

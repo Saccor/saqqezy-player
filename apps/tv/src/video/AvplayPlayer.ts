@@ -3,7 +3,7 @@ import type {
 } from '@iptv/player';
 import { dvFromFourCC, subtitleText } from '@iptv/core';
 import { audioCodecOf, staticCaps, type AudioCodec } from '@iptv/player';
-import { codecFamily } from '../vod/tracks.ts';
+import { codecFamily } from '../playback/tracks.ts';
 import { createScreenSaverGuard } from '../platform/screenSaverGuard.ts';
 import type { VideoResource, VideoResources } from '../platform/tizenMultiview.ts';
 import { adaptiveInfo, type PanelCaps } from './adaptiveInfo.ts';
