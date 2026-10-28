@@ -5,9 +5,6 @@ import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_KEY_OFF } from './vodPlayerLogic.ts';
 import { findTrack, languageName, preferredTrack } from './tracks.ts';
 
-/** `languageName` and `preferredTrack` moved to `tracks.ts`; re-exported so existing imports keep working. */
-export { languageName, preferredTrack } from './tracks.ts';
-
 /** The Settings choices for the subtitle language: the languages core's settings accept. */
 export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = SUBTITLE_LANGUAGES;
 

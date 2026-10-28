@@ -3,11 +3,12 @@ import type { TrackInfo } from '@iptv/player';
 import { SUBTITLE_LANGUAGES, sanitizeSettings } from '@iptv/core';
 import {
   ANOTHER_VERSION_ROW, DELAY_EARLIER_ROW, DELAY_LATER_ROW, DELAY_ROW, FIND_ONLINE_ROW, LOAD_FILE_ROW, LOAD_URL_ROW, REMOVE_EXT_ROW, SUBTITLE_EXT_ROW,
-  SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, languageName, stepDelay,
-  onlineFileId, onlineLanguageRows, pickSubtitle, preferredTrack, subtitleExtraRows, subtitleLanguageLabel,
+  SUBTITLE_KEY_EXT, SUBTITLE_LANGUAGE_OPTIONS, AUDIO_LANGUAGE_OPTIONS, audioLanguageLabel, delayLabel, stepDelay,
+  onlineFileId, onlineLanguageRows, pickSubtitle, subtitleExtraRows, subtitleLanguageLabel,
   SPEED_FILM_TO_PAL, SPEED_PAL_TO_FILM, SPEED_HELP, SPEED_ROW, VERSION_LABEL_MAX, autoSpeed, normalizeSpeed, speedLabel, stepSpeed,
   subtitleTime, versionFileId, versionLabel, versionRows, sourceRowIndex, sourceSubtitleName, loadedLanguage,
 } from './subtitleLogic.ts';
+import { languageName, preferredTrack } from './tracks.ts';
 
 const t = (id: string, label: string, language?: string, active = false): TrackInfo => {
   const x: TrackInfo = { id, label, active };

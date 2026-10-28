@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import { channelLanguageInput, codecFamily, pickAudioTrack, trackKey, trackLabels, trackLanguages, trackRows } from './tracks.ts';
-import * as vodPlayerLogic from './vodPlayerLogic.ts';
-import * as subtitleLogic from './subtitleLogic.ts';
 
 const t = (id: string, label: string, language?: string, active = false, codec?: string): TrackInfo => {
   const x: TrackInfo = { id, label, active };
@@ -148,15 +146,6 @@ describe('trackLabels', () => {
     expect(trackRows([t('0', 'Svenska', 'swe', true, 'E-AC-3')], [])[0]!.label).toBe('Audio: Svenska (E-AC-3)');
     const rows = trackRows([t('0', 'Track 1')], [t('0', 'Subtitles 1')], { hints: { title: 'en', titleScope: 'audio' }, detected: { 0: 'fi' } });
     expect(rows.map((r) => (r.kind === 'list' ? r.label : ''))).toEqual(['Audio: English', 'Subtitles: Finnish', 'Subtitles off']);
-  });
-});
-
-describe('re-exports', () => {
-  it('the old modules still export the moved helpers', () => {
-    expect(vodPlayerLogic.trackKey).toBe(trackKey);
-    expect(vodPlayerLogic.trackRows).toBe(trackRows);
-    expect(vodPlayerLogic.findTrack).toBeTypeOf('function');
-    expect(subtitleLogic.preferredTrack).toBeTypeOf('function');
   });
 });
 

@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { TrackInfo } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import {
-  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, SUBTITLES_OFF, clock, dvColoursWarning, noSoundText, coverVideo, coverLatch, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, findTrack, knownDuration, minutesLeft, nextCardText, titleLengthMs, oneSpace, overlayVisible, remaining, trackKey, trackRows, tracksKeyId,
+  DV_COLOURS_TEXT, SUBTITLE_KEY_OFF, clock, dvColoursWarning, noSoundText, coverVideo, coverLatch, shapeCheckDue, pauseOnHidden, progressSaveArmed, resumeBarShown, tracksDue, cueText, knownDuration, minutesLeft, nextCardText, titleLengthMs, overlayVisible, remaining, tracksKeyId,
 } from './vodPlayerLogic.ts';
+import { SUBTITLES_OFF, findTrack, oneSpace, trackKey, trackRows } from './tracks.ts';
 
 describe('clock', () => {
   it('formats m:ss and h:mm:ss', () => {

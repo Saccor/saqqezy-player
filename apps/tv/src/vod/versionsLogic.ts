@@ -3,7 +3,7 @@ import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
 import { SUBTITLE_LANGUAGE_OPTIONS } from './subtitleLogic.ts';
 import { languageName as nameOf } from './tracks.ts';
-import { LANGUAGE_NAMES } from './vodPlayerLogic.ts';
+import { LANGUAGE_NAMES } from './tracks.ts';
 
 /** The Versions list's last row: shows each version as its own card. */
 export const SHOW_SEPARATELY = VOD_COPY.showSeparately;
