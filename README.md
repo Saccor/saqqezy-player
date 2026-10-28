@@ -67,8 +67,9 @@ More detail: [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECUR
 
 ## Technical highlights
 
-- **End-to-end encrypted pairing.** The QR code or typed code goes through PBKDF2-SHA256 (200,000 iterations) to
-  a session id and a non-extractable AES-256-GCM key. Every frame has a random IV, authenticated header data and
+- **End-to-end encrypted pairing.** A QR code carries a random session id and AES-256-GCM key in the URL
+  fragment. A typed code is stretched with PBKDF2-SHA256 (200,000 iterations) into both. Keys are non-extractable,
+  and every frame has a random IV, authenticated header data and
   replay protection ([`packages/companion-protocol`](packages/companion-protocol/src)).
 - **A relay that cannot read anything.** A Cloudflare Durable Object per pairing forwards opaque binary frames,
   with limits on size, rate, bytes and lifetime. Its new-session limiter keys on hashes of the address prefix,
@@ -83,7 +84,7 @@ More detail: [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECUR
   budget, a stall watchdog, live delay and a TS ↔ HLS fallback. Native players come first, and hls.js / mpegts.js
   are only a fallback.
 - **Fast first frame.** Screens that are never needed first (settings, multiview, the film player) load lazily,
-  and a build check keeps them out of the start bundle. A cached start reopens the last channel.
+  and a build check on the source maps names any module that leaks into the start bundle. A cached start reopens the last channel.
 - **Tests as specification.** 4,728 Vitest tests run on synthetic fixtures. Performance budgets run as tests
   (`pnpm test:perf`), and strict TypeScript covers every package.
 

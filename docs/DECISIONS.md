@@ -120,5 +120,6 @@ the TV stack details are in [apps/tv/STACK.md](../apps/tv/STACK.md).
   Every byte in the start bundle is parsed and compiled on each launch on a 32-bit TV CPU.
 - **Why:** a code-split is easy to undo by accident with one static import. A check that names the offending module
   keeps the split in place.
+- **Gap:** the check runs by hand on a `vite build --sourcemap` build; only its unit tests run in CI.
 - **Trade-offs:** a lazy screen has to claim focus while it loads, or key presses reach the screen left behind
   (fixed twice: `1d097ad`, `be905fb`). A failed chunk load needs its own recovery path.
