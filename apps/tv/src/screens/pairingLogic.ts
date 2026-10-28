@@ -1,4 +1,5 @@
 import type { CompanionStatus } from '@iptv/app-api';
+import { zeroPad } from '@iptv/core';
 import { SETTINGS_COPY } from '../copy.ts';
 
 /**
@@ -25,7 +26,7 @@ export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${zeroPad(m)}:${zeroPad(s)}`;
 }
 
 /** The line under the status: what ends, and when. Empty without a live session. */

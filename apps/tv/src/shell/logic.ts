@@ -1,10 +1,9 @@
 /** Pure helpers for the shell widgets (unit-tested; the .tsx components stay thin). */
 
+import { zeroPad as pad } from '@iptv/core';
 import { FULL_LAYOUT } from '../components/keyboardLogic.ts';
 import { router, type ScreenId } from './router.ts';
 import { LAYOUT } from './theme.ts';
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Local time as 24 h `HH:MM`. */
 export function formatClock(d: Date): string {

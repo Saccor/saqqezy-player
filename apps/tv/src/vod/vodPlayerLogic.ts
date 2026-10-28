@@ -1,4 +1,4 @@
-import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, type VideoRange } from '@iptv/core';
+import { dvFromFourCC, subtitleText, wrongColoursWithoutDv, zeroPad as pad, type VideoRange } from '@iptv/core';
 import type { StreamInfo, SupervisorStatus, Support } from '@iptv/player';
 import type { VodPlayable } from '@iptv/app-api';
 import { VOD_COPY } from '../copy.ts';
@@ -16,7 +16,6 @@ export function clock(ms: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 

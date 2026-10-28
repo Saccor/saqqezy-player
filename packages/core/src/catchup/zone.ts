@@ -1,3 +1,5 @@
+import { zeroPad } from '../text/pad.ts';
+
 /**
  * The catch-up zone (spec 2026-10-20-catch-up §4): the time zone wall-clock catch-up URLs (`xc`, `{Y}…`, `{utc:FMT}`)
  * are written in. Unix-second placeholders need none.
@@ -97,7 +99,7 @@ export function pickZone(i: ZoneInputs): ZoneChoice {
 /** `+1:00`, `-3:30`. */
 export function formatOffset(min: number): string {
   const a = Math.abs(min);
-  return `${min < 0 ? '-' : '+'}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
+  return `${min < 0 ? '-' : '+'}${Math.floor(a / 60)}:${zeroPad(a % 60)}`;
 }
 
 /** The Diagnostics wording: "Europe/Stockholm", "UTC+1:00 (fixed offset)", "UTC", "manual +1:00". */

@@ -2,6 +2,7 @@
  * Catch-up URL templates (spec 2026-10-20-catch-up §1.3): the Kodi-compatible placeholder set. Anything outside it
  * makes the template invalid, so the app never builds a wrong URL silently.
  */
+import { zeroPad as pad } from '../text/pad.ts';
 import { wallClock, type CatchupZone, type WallClock } from './zone.ts';
 
 /** Programme times (the displayed ones) and the current time, in ms. */
@@ -78,7 +79,6 @@ export function validTemplate(tpl: string): boolean {
   return parse(tpl) !== null;
 }
 
-const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
 function fmt(w: WallClock, f: string): string {
   let out = '';

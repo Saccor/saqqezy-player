@@ -1,4 +1,5 @@
 /** Xtream timeshift URLs (spec 2026-10-20-catch-up §1.4), for Xtream sources and M3U `xc` channels. */
+import { zeroPad as pad } from '../text/pad.ts';
 import { wallClock, type CatchupZone } from './zone.ts';
 
 /** The pieces of an Xtream live URL; `user` and `pass` decoded. */
@@ -34,7 +35,6 @@ export function parseXcLiveUrl(url: string): XcParts | undefined {
   return undefined;
 }
 
-const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
 /** `YYYY-MM-DD:HH-MM` of `ms` in `zone`, floored to the minute. */
 export function xcStart(ms: number, zone: CatchupZone): string {

@@ -1,7 +1,7 @@
 /** Pure helpers for the Settings screen (value steppers, option cycling, labels, diagnostics text). Unit-tested. */
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { LiveInfo } from '@iptv/player';
-import { FOLLOWED_TEAMS_MAX, type AppSettings, type OpenOn } from '@iptv/core';
+import { FOLLOWED_TEAMS_MAX, formatOffset, zeroPad as pad, type AppSettings, type OpenOn } from '@iptv/core';
 import type { SettingItem } from '../components/SettingsList.tsx';
 import { SETTINGS_COPY } from '../copy.ts';
 import { audioLanguageLabel, subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
@@ -76,8 +76,6 @@ export const autoRefreshLabel = (h: number): string => (h <= 0 ? V.never : `${h}
 export const formatLabel = (f: AppSettings['preferredFormat']): string => (f === 'm3u8' ? P.formatHls : P.formatTs);
 export const sleepDefaultLabel = (m: number): string => (m <= 0 ? V.off : P.sleepMinutes(m));
 export const onOff = (b: boolean): string => (b ? V.on : V.off);
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Local date and time `YYYY-MM-DD HH:MM`; 0 (never happened) is "Never". */
 export function formatTime(ts: number): string {
@@ -253,8 +251,7 @@ export function catchupOffsetIndex(choices: readonly { id: string }[], current: 
 /** `Auto`, or the offset from UTC as `UTC+1:00` / `UTC-3:30`. */
 export function catchupOffsetLabel(min: number | undefined): string {
   if (min === undefined) return V.auto;
-  const a = Math.abs(min);
-  return `UTC${min < 0 ? '-' : '+'}${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`;
+  return `UTC${formatOffset(min)}`;
 }
 
 /** The choice id back to minutes (undefined = Auto); anything unknown is undefined too. */

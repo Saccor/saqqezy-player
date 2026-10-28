@@ -1,3 +1,4 @@
+import { zeroPad as pad } from '@iptv/core';
 import type { JournalEvent, ReconnectReason } from '@iptv/player';
 import { SETTINGS_COPY } from '../copy.ts';
 import { stripUrls } from './settingsLogic.ts';
@@ -7,7 +8,6 @@ import { stripUrls } from './settingsLogic.ts';
  * these lines.
  */
 
-const pad = (n: number) => String(n).padStart(2, '0');
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 const join = (...parts: (string | false | undefined)[]) => parts.filter((p): p is string => typeof p === 'string' && p !== '').join(' · ');
 

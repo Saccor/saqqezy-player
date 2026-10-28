@@ -1,3 +1,4 @@
+import { formatClock } from '../shell/logic.ts';
 import { clock } from './vodPlayerLogic.ts';
 
 /** The fraction (0..1) of a timeline `width` wide at node-local `x`; 0 for an empty width. */
@@ -21,8 +22,7 @@ export function elapsedText(posMs: number, durMs: number | undefined): string {
 export function remainingText(posMs: number, durMs: number, nowMs: number): string {
   const left = Math.max(0, durMs - posMs);
   const end = new Date(nowMs + left);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `−${clock(left)} · ends ${pad(end.getHours())}:${pad(end.getMinutes())}`;
+  return `−${clock(left)} · ends ${formatClock(end)}`;
 }
 
 /**
