@@ -29,7 +29,7 @@ refusal cooldowns; live delay and recovery; and a dev proxy that logs with crede
 
 ## Guardrails (summary)
 
-The full rules are in [CLAUDE.md](CLAUDE.md). In short:
+The full rules are in [docs/GUARDRAILS.md](docs/GUARDRAILS.md). In short:
 
 - **No bundled content:** no default, demo or sample playlists, portals or guide URLs. Test data is synthetic.
 - **No provider links or piracy-flavoured wording** anywhere (app, docs, store), and no broadcaster or league

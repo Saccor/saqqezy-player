@@ -47,7 +47,7 @@ Organisation and the companion (Plans 3 and 4):
 
 Items deliberately left out of v1. Evidence comes from the user-needs research,
 [`research/user-needs-2026-10.md`](research/user-needs-2026-10.md) (section numbers below refer to it). Legal
-guardrails in `CLAUDE.md` apply to every item: no bundled content, no provider links, client-only media,
+guardrails in `docs/GUARDRAILS.md` apply to every item: no bundled content, no provider links, client-only media,
 credentials stay on the device.
 
 ## Features

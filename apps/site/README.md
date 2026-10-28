@@ -16,7 +16,7 @@ make no requests to other companies. Keep it that way: no analytics, no third-pa
 
 `public/screens/*.webp` are real screens of the TV app on a showcase test source: every channel, programme and title
 name is made up, the posters and logos are drawn by the fake provider, and the video is the licensed Big Buck Bunny test
-stream (credited on the page). Never use a real playlist for them (CLAUDE.md legal rules 1, 3 and 4).
+stream (credited on the page). Never use a real playlist for them (docs/GUARDRAILS.md legal rules 1, 3 and 4).
 
 To refresh them after UI changes, start the TV dev server (`pnpm dev`) and a showcase provider in a second terminal, then
 run the capture script from the repository root (needs Chrome and ffmpeg):

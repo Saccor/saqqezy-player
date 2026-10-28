@@ -124,4 +124,4 @@ If a feed stays empty, open **Workers & Pages → iptv-trending-production → L
 - While the TMDB key is used: "This product uses the TMDB API but is not endorsed or certified by TMDB." The TMDB logo
   is to be added to About before a public beta (it is not in the app yet).
 
-Store screenshots of the Start page must use synthetic or public-domain titles only (CLAUDE.md rules 3 and 4).
+Store screenshots of the Start page must use synthetic or public-domain titles only (docs/GUARDRAILS.md rules 3 and 4).

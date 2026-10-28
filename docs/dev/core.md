@@ -17,4 +17,4 @@
 
 ## Rules
 
-See `CLAUDE.md`. Test data stays synthetic. Credentials never reach logs or error text.
+See `docs/GUARDRAILS.md`. Test data stays synthetic. Credentials never reach logs or error text.
