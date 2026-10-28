@@ -52,11 +52,7 @@ const TRENDING_URL = trendingBaseUrl({
   VITE_TRENDING_URL: import.meta.env.VITE_TRENDING_URL as string | undefined, DEV: import.meta.env.DEV,
 });
 /** The feed's own fetch: straight from the device (the feed answers CORS), cut off after API_TIMEOUT_MS. */
-const trendingFetch = (url: string, init: RequestInit): Promise<Response> => {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), API_TIMEOUT_MS);
-  return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
-};
+const trendingFetch = withTimeout((url, init) => fetch(url, init), API_TIMEOUT_MS);
 
 // Phone companion. The relay only ever sees ciphertext; never log these URLs (they carry the session id).
 const RELAY_URL = ((import.meta.env.VITE_RELAY_URL as string | undefined) || 'ws://127.0.0.1:8787').replace(/\/+$/, '');
