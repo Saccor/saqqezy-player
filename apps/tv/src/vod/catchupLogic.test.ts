@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CatchupPlayable } from '@iptv/app-api';
 import {
-  EARLY_END_MS, MISSING_TTL_MS, archiveLine, canFromStart, archiveStateOf, catchupPosition, catchupSubtitle, catchupVodPlayable, createMissingMarks,
+  EARLY_END_MS, MISSING_TTL_MS, archiveLine, canFromStart, catchupSubtitle, catchupVodPlayable, createMissingMarks,
   endCardActions, guideOkAction, notAvailableFailure, reopenAllowed, reopenStartMs, seekLimitMs, seekPlan,
 } from './catchupLogic.ts';
 
@@ -10,16 +10,6 @@ const D = 24 * H;
 const NOW = new Date(2026, 9, 20, 20, 0).getTime();
 
 describe('archive state and the details line', () => {
-  it('mirrors the worker rule at its boundaries', () => {
-    expect(archiveStateOf(undefined, { start: NOW - 2 * H, stop: NOW - H }, NOW)).toBe('none');
-    expect(archiveStateOf(3, { start: NOW + 1, stop: NOW + H }, NOW)).toBe('future');
-    expect(archiveStateOf(3, { start: NOW - H, stop: NOW + 1 }, NOW)).toBe('onAir');
-    expect(archiveStateOf(3, { start: NOW - 3 * D, stop: NOW - 3 * D + H }, NOW)).toBe('available');
-    expect(archiveStateOf(3, { start: NOW - 3 * D - 1, stop: NOW - 3 * D + H }, NOW)).toBe('tooOld');
-    expect(archiveStateOf(3, { start: NOW - 4 * D, stop: NOW - 4 * D + H }, NOW, true)).toBe('available');
-    expect(archiveStateOf(3, { start: NOW - H, stop: NOW - 1 }, NOW, false)).toBe('none');
-  });
-
   it('says how long a programme stays, or why it cannot play', () => {
     expect(archiveLine('available', 3, { start: NOW - H, stop: NOW }, NOW)).toBe('Catch-up · 2 days left');
     expect(archiveLine('available', 3, { start: NOW - 2 * D - H, stop: NOW - 2 * D }, NOW)).toBe('Catch-up · Last day');
@@ -53,10 +43,6 @@ describe('the catch-up player', () => {
     });
     expect(catchupSubtitle('Channel 001', new Date(2026, 9, 20, 18, 0).getTime(), new Date(2026, 9, 20, 19, 30).getTime()))
       .toBe('Channel 001 · Tue 18:00–19:30');
-  });
-
-  it('position is the URL start plus the engine playhead', () => {
-    expect(catchupPosition(120_000, 5_000)).toBe(125_000);
   });
 
   it('a programme on air is clamped to now; an ended one to its length', () => {

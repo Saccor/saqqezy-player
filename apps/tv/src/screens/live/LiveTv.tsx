@@ -1,7 +1,7 @@
 import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from 'solid-js';
 import type { AppEvent, ArchiveState, ChannelRow, ProgrammeLite } from '@iptv/app-api';
-import type { GroupInfo } from '@iptv/core';
+import { archiveState as archiveStateOf, type GroupInfo } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
 import { DropdownHeader, HeaderIconButton } from '../../components/DropdownHeader.tsx';
 import { PAD_X as DROPDOWN_PAD_X, dropdownWidth } from '../../components/dropdownLogic.ts';
@@ -34,7 +34,7 @@ import { COLORS, LAYOUT, SPACE, TYPE } from '../../shell/theme.ts';
 import { visibleInterval } from '../../shell/visibleInterval.ts';
 import { companionStatus, initState, markStartup, settings } from '../../state/appState.ts';
 import { externalLayoutChange } from '../../state/events.ts';
-import { archiveStateOf, missingArchive } from '../../vod/catchupLogic.ts';
+import { missingArchive } from '../../vod/catchupLogic.ts';
 import { liveReturn } from '../../vod/liveReturn.ts';
 import { EpgCache, type EpgChange } from '../epgCache.ts';
 import { createRowSignals } from './rowSignals.ts';

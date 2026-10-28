@@ -3,10 +3,10 @@
  * seek plan and end card, and the in-memory "not available" marks. Pure: no Solid, no Lightning.
  */
 import type { ArchiveState, CatchupPlayable, VodPlayable } from '@iptv/app-api';
+import { daysLeft } from '@iptv/core';
 import { CATCHUP_COPY, COMMON_COPY } from '../copy.ts';
 import { formatClock } from '../shell/logic.ts';
 
-const DAY = 86_400_000;
 /** At most one seek re-open per this long. */
 export const REOPEN_MIN_GAP_MS = 2000;
 /** A Not available answer keeps the programme unoffered this long (memory only). */
@@ -14,25 +14,10 @@ export const MISSING_TTL_MS = 30 * 60_000;
 /** A catch-up stream that ends this soon after opening, with no frame, is Not available. */
 export const EARLY_END_MS = 3000;
 
-/**
- * The archive state on the TV, mirroring core's `archiveState` (the worker has the same rule): `refined` is the
- * source's own answer for a programme, when its row was refined.
- */
-export function archiveStateOf(
-  days: number | undefined, prog: { start: number; stop: number }, now: number, refined?: boolean,
-): ArchiveState {
-  if (days === undefined) return 'none';
-  if (prog.start > now) return 'future';
-  if (now < prog.stop) return 'onAir';
-  if (refined !== undefined) return refined ? 'available' : 'none';
-  if (prog.start < now - days * DAY) return 'tooOld';
-  return 'available';
-}
-
 /** The focused programme's details line (§5.1), or undefined where the Guide shows nothing new (future, no catch-up and on air). */
 export function archiveLine(state: ArchiveState, days: number | undefined, prog: { start: number; stop: number }, now: number): string | undefined {
   if (state === 'available' && days !== undefined) {
-    return CATCHUP_COPY.daysLeft(Math.max(0, Math.floor(days - (now - prog.start) / DAY)));
+    return CATCHUP_COPY.daysLeft(daysLeft(days, prog.start, now));
   }
   if (state === 'onAir') return CATCHUP_COPY.fromStartAvailable;
   if (state === 'tooOld' && days !== undefined) return CATCHUP_COPY.tooOld(days);
@@ -73,9 +58,6 @@ export function catchupVodPlayable(c: CatchupPlayable): VodPlayable {
 
 /** The stand-in's item id (never stored: catch-up saves nothing). */
 export const catchupItemId = (c: { channelId: string; start: number }): string => `catchup:${c.channelId}:${c.start}`;
-
-/** Position in the programme: where the URL started plus the engine's playhead. */
-export const catchupPosition = (openedAtMs: number, engineMs: number): number => openedAtMs + engineMs;
 
 /** How far a seek may go: the programme's end, or for one on air, now (its live edge). */
 export function seekLimitMs(c: { start: number; stop: number }, now: number): number {
