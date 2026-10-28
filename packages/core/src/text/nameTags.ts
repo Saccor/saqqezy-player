@@ -46,6 +46,9 @@ export const LANG_CODES: Record<string, string> = {
   ID: 'id', IND: 'id',
 };
 
+/** `LANG_CODES` as a map: a code cut from a name is a fresh string, which a map hashes but an object key interns. */
+const LANG_OF = new Map(Object.entries(LANG_CODES));
+
 /** "|SE| ", "[EN] ", "(EN) ", "EN - ", "EN: ", "EN| ", "EN 4K: ". The code must be upper case in the title. */
 const PREFIX = /^([[(|])?\s*([A-Z]{2,3}(?:-[A-Z]{2})?)(\s+4K)?\s*[\])|:\-–—]+\s*/;
 /** "4K-EN ", "4K EN: ". */
@@ -123,12 +126,12 @@ export function tidy(s: string): string {
 export function peelPrefix(s: string): { code: string; lang: string; rest: string; quality?: number } | undefined {
   const four = PREFIX_4K.exec(s);
   if (four) {
-    const lang = LANG_CODES[four[1]!];
+    const lang = LANG_OF.get(four[1]!);
     if (lang) return { code: four[1]!, lang, rest: s.slice(four[0].length), quality: 0 };
   }
   const m = PREFIX.exec(s);
   if (!m) return undefined;
-  const lang = LANG_CODES[m[2]!];
+  const lang = LANG_OF.get(m[2]!);
   if (!lang) return undefined;
   const out = { code: m[2]!, lang, rest: s.slice(m[0].length) };
   return m[3] ? { ...out, quality: 0 } : out;
