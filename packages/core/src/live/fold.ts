@@ -25,6 +25,20 @@ export interface ChannelFolds {
 }
 
 /**
+ * A fold key as its parts: `<kind><head>|<tail>` is the key string (`e:<guide id>|…` or `n:<country>|…`). The tail
+ * never holds more than one `|` and a country none, so distinct parts always give distinct strings.
+ */
+interface FoldKey {
+  kind: 'e:' | 'n:';
+  head: string;
+  tail: string;
+  /** Guide-id keys: their members' countries. */
+  countries: Set<string> | undefined;
+  /** Its fold index once a member was placed, else -1. */
+  fold: number;
+}
+
+/**
  * Folds a playlist's channels by exact keys (spec 2026-10-19-live-grouping §2.3): a guide id plus the name without
  * the country, else the name with the country; a channel without a guide id joins the one guide-id fold with its
  * name. Timeshift (`+1`), East/West and a different tvg-shift never merge. One pass; nothing compared pairwise.
@@ -36,11 +50,12 @@ export function foldChannels(channels: readonly Channel[]): ChannelFolds {
   const displays: string[] = new Array(n);
   const countries: (string | undefined)[] = new Array(n);
   const tails: string[] = new Array(n);
-  const keys: string[] = new Array(n);
-  /** `<base>|<shift>` → the distinct guide-id keys with it. */
-  const idKeys = new Map<string, Set<string>>();
-  /** Guide-id key → its members' countries. */
-  const idCountries = new Map<string, Set<string>>();
+  /** Per channel: its fold key, as the parts the key string is made of (the string is built once per fold). */
+  const keys: FoldKey[] = new Array(n);
+  /** `<base>|<shift>` → guide id → its key: the distinct guide-id keys with that tail. */
+  const idKeys = new Map<string, Map<string, FoldKey>>();
+  /** `<base>|<shift>` → country ('' for none) → its key, for channels without a guide id. */
+  const nameKeys = new Map<string, Map<string, FoldKey>>();
   const noId: number[] = [];
 
   for (let i = 0; i < n; i++) {
@@ -54,41 +69,41 @@ export function foldChannels(channels: readonly Channel[]): ChannelFolds {
     tails[i] = tail;
     const gid = c.epgId?.trim().toLowerCase();
     if (gid) {
-      const key = `e:${gid}|${tail}`;
-      keys[i] = key;
       let ks = idKeys.get(tail);
-      if (!ks) idKeys.set(tail, (ks = new Set()));
-      ks.add(key);
-      if (p.country) {
-        let cs = idCountries.get(key);
-        if (!cs) idCountries.set(key, (cs = new Set()));
-        cs.add(p.country);
-      }
+      if (!ks) idKeys.set(tail, (ks = new Map()));
+      let k = ks.get(gid);
+      if (!k) ks.set(gid, (k = { kind: 'e:', head: gid, tail, countries: undefined, fold: -1 }));
+      keys[i] = k;
+      if (p.country) (k.countries ??= new Set()).add(p.country);
     } else {
-      keys[i] = `n:${p.country ?? ''}|${tail}`;
+      const country = p.country ?? '';
+      let ks = nameKeys.get(tail);
+      if (!ks) nameKeys.set(tail, (ks = new Map()));
+      let k = ks.get(country);
+      if (!k) ks.set(country, (k = { kind: 'n:', head: country, tail, countries: undefined, fold: -1 }));
+      keys[i] = k;
       noId.push(i);
     }
   }
   for (const i of noId) {
     const ks = idKeys.get(tails[i]!);
     if (!ks || ks.size !== 1) continue;
-    const key: string = ks.values().next().value!;
+    const key: FoldKey = ks.values().next().value!;
     const country = countries[i];
-    if (country === undefined || idCountries.get(key)?.has(country)) keys[i] = key;
+    if (country === undefined || key.countries?.has(country)) keys[i] = key;
   }
 
   const foldOf = new Int32Array(n);
   const folds: ChannelFold[] = [];
-  const byKey = new Map<string, number>();
   /** Per fold: its first member without a country, or -1. */
   const plain: number[] = [];
   for (let i = 0; i < n; i++) {
-    const key = keys[i]!;
-    let fi = byKey.get(key);
-    if (fi === undefined) {
+    const k = keys[i]!;
+    let fi = k.fold;
+    if (fi === -1) {
       fi = folds.length;
-      byKey.set(key, fi);
-      folds.push({ key, members: [], lead: i, display: '', quality: memberQuality[i]! });
+      k.fold = fi;
+      folds.push({ key: `${k.kind}${k.head}|${k.tail}`, members: [], lead: i, display: '', quality: memberQuality[i]! });
       plain.push(-1);
     }
     foldOf[i] = fi;
