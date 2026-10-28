@@ -1,5 +1,4 @@
 import type { ElementNode } from '@lightningtv/solid';
-// Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { AppSettings } from '@iptv/core';
 import { api } from '../../api.ts';
 import type { OptionItem } from '../../components/sheetLogic.ts';

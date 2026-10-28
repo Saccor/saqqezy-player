@@ -1,8 +1,7 @@
 import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent } from '@iptv/app-api';
-// Type-only: @iptv/core must stay out of the main-thread bundle.
-import type { SourceConfig } from '@iptv/core';
+import { HEADER_VALUE_MAX, type SourceConfig } from '@iptv/core';
 import { api, onEvent } from '../api.ts';
 import { ONBOARDING_COPY, SHELL_COPY } from '../copy.ts';
 import { firstRunTarget, loadChoices } from './countriesLogic.ts';
@@ -20,7 +19,7 @@ import { centerText, COLORS, LAYOUT, LINE, SPACE, STRONG, TYPE } from '../shell/
 import { WORDMARK_BOTTOM, WORDMARK_ZONE_X } from '../shell/Wordmark.tsx';
 import { showToast } from '../shell/Toast.tsx';
 import {
-  FIELD_MAX, HEADER_FIELD_MAX, HEADER_UNUSED_NOTE, advancedHelp, headerFieldDimmed, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
+  FIELD_MAX, HEADER_UNUSED_NOTE, advancedHelp, headerFieldDimmed, afterAdd, backFromTypeStep, clampField, errorMessage, formFromSource, httpFormFromSource,
   progressText, revealLabel, toUpdatedSource, validateM3u, validateXtream, withHttpSettings, type HttpForm, type M3uForm, type XtreamForm,
 } from './addSourceLogic.ts';
 
@@ -151,7 +150,7 @@ export function AddSourceScreen(props: { entry?: ScreenEntry }) {
   const values = (): Record<string, string> => ({ ...(advanced ? http() : kind() === 'xtream' ? xtream() : m3u()) });
   const setValue = (key: string, raw: string) => {
     // The same limits as the companion protocol (headers: the stored cap): typing stops at the field's maximum.
-    const max = advanced ? HEADER_FIELD_MAX : FIELD_MAX[key];
+    const max = advanced ? HEADER_VALUE_MAX : FIELD_MAX[key];
     const v = max === undefined ? raw : clampField(raw, max);
     if (advanced) setHttp((f) => ({ ...f, [key]: v }));
     else if (kind() === 'xtream') setXtream((f) => ({ ...f, [key]: v }));

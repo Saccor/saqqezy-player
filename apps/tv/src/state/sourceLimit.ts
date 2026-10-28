@@ -1,5 +1,4 @@
 import { createSignal } from 'solid-js';
-// Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { SourceConfig } from '@iptv/core';
 
 /** An Xtream account's connection limit from its last login or refresh; M3U sources have none. */

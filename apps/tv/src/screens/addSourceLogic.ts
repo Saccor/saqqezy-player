@@ -1,22 +1,17 @@
 /** Pure helpers for the Add source screen (validation, error copy, progress copy). Unit-tested. */
-// Type-only: @iptv/core must stay out of the main-thread bundle.
-import type { NewSource, SourceConfig } from '@iptv/core';
+import { NAME_MAX, type NewSource, type SourceConfig } from '@iptv/core';
+import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
 import { ONBOARDING_COPY } from '../copy.ts';
 import { headerUsable, type HeaderSupport } from '@iptv/platform';
 
 export const DEFAULT_NAME = ONBOARDING_COPY.defaultName;
 
-/**
- * Field limits, shared with the phone companion's contract: the name limit is `NAME_MAX` in @iptv/core, the others
- * the companion protocol's `MAX_FIELD_LEN`. Copied as numbers because neither package may enter the main-thread
- * bundle; addSourceLogic.test.ts checks that they agree.
- */
-export const SOURCE_NAME_MAX = 60;
-export const URL_MAX = 8192;
+/** Field limits, shared with the phone companion's contract: core's `NAME_MAX`, else the protocol's `MAX_FIELD_LEN`. */
 export const FIELD_MAX: Readonly<Record<string, number>> = {
-  name: SOURCE_NAME_MAX, server: URL_MAX, username: URL_MAX, password: URL_MAX, playlistUrl: URL_MAX, epgUrl: URL_MAX,
+  name: NAME_MAX, server: MAX_FIELD_LEN, username: MAX_FIELD_LEN, password: MAX_FIELD_LEN, playlistUrl: MAX_FIELD_LEN,
+  epgUrl: MAX_FIELD_LEN,
 };
-export const NAME_TOO_LONG = ONBOARDING_COPY.nameTooLong(SOURCE_NAME_MAX);
+export const NAME_TOO_LONG = ONBOARDING_COPY.nameTooLong(NAME_MAX);
 
 /** Cuts `v` to at most `max` UTF-16 units (the protocol's measure) without splitting a surrogate pair. */
 export function clampField(v: string, max: number): string {
@@ -44,7 +39,7 @@ export function isHttpUrl(s: string): boolean {
 }
 
 const nameOf = (name: string) => name.trim() || DEFAULT_NAME;
-const nameTooLong = (name: string) => name.trim().length > SOURCE_NAME_MAX;
+const nameTooLong = (name: string) => name.trim().length > NAME_MAX;
 
 /** The password is kept exactly as typed (it may legitimately contain spaces); everything else is trimmed. */
 export function validateXtream(f: XtreamForm): Validation<XtreamForm> {
@@ -140,9 +135,6 @@ export function toUpdatedSource(id: string, input: NewSource, stored?: SourceCon
 
 /** Settings → source → Advanced: the User-Agent and Referer fields (spec 2026-10-16-source-retry §2.7). */
 export interface HttpForm { userAgent: string; referrer: string }
-
-/** The longest User-Agent or Referer kept: core's `HEADER_VALUE_MAX` (core stays out of the main-thread bundle). */
-export const HEADER_FIELD_MAX = 512;
 
 /**
  * Advanced: what this device sends, in plain words (spec 2026-10-20-source-headers §6.1). No presets and no names:

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_LISTS as CORE_MAX_LISTS, NAME_MAX as CORE_NAME_MAX } from '@iptv/core';
+import { MAX_LISTS, NAME_MAX } from '@iptv/core';
 import {
-  MAX_LISTS, NAME_MAX, buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId,
+  buildChannelMenu, emptyGroupText, focusAfterRefresh, limitTyping, listIdOfGroup, newListId,
   pickerRows, renameOutcome, validateListName, validateRename,
 } from './homeMenuLogic.ts';
 
@@ -9,13 +9,6 @@ const lists = [
   { id: 'fav', name: 'Favourites' },
   { id: 'l-abc', name: 'Evening' },
 ];
-
-describe('limits mirror core', () => {
-  it('uses the same NAME_MAX and MAX_LISTS as the layout reducer', () => {
-    expect(NAME_MAX).toBe(CORE_NAME_MAX);
-    expect(MAX_LISTS).toBe(CORE_MAX_LISTS);
-  });
-});
 
 describe('buildChannelMenu', () => {
   const actions = (m: { action: string }[]) => m.map((i) => i.action);

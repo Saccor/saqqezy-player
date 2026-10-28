@@ -2,7 +2,10 @@
 // after `u`. Shared by the app (which builds dev proxy URLs) and the dev proxy (which reads them). Pure, no DOM or
 // Node APIs. The values are secrets in the same sense as `u`: never log them.
 
-/** Longest accepted value; the same cap as the stored settings (core `HEADER_VALUE_MAX`). */
+/**
+ * Longest accepted value; the same cap as the stored settings (core `HEADER_VALUE_MAX`). A number, not an import:
+ * the Vite config (vite.proxy.ts) loads this file in Node, which cannot load core's TypeScript sources.
+ */
 export const HEADER_PARAM_MAX = 512;
 
 /** The headers a route URL can carry (structurally core's `StreamHeaders`). */

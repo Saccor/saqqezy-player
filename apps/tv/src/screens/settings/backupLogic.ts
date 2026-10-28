@@ -1,12 +1,10 @@
+import { RECOVERY_CODE_LENGTH } from '@iptv/core';
 import type { SettingItem } from '../../components/SettingsList.tsx';
 import { SETTINGS_COPY } from '../../copy.ts';
 
 const B = SETTINGS_COPY.backup;
 
-/**
- * Settings › Storage backup rows (sync phase S1): pure copy and row logic. The recovery code is formatted here
- * rather than with @iptv/core, which stays out of the main-thread bundle; the worker checks it for real.
- */
+/** Settings › Storage backup rows (sync phase S1): pure copy and row logic. The worker checks a typed code for real. */
 
 export interface StorageRowsState {
   /** A phone is connected (Phone and computer). */
@@ -47,17 +45,11 @@ export const BACKUP_DONE_LINE = B.codeLine;
 export const RESTORE_CONFIRM = B.restoreTitle;
 export const RESTORE_CONFIRM_LINE = B.restoreLine;
 
-/** `XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX`. */
-export function formatCode(code: string): string {
-  const c = code.replace(/[\s-]/g, '').toUpperCase();
-  return [c.slice(0, 5), c.slice(5, 10), c.slice(10, 15), c.slice(15, 20), c.slice(20)].filter(Boolean).join('-');
-}
-
 /** A quick check before the worker sees a typed code (copy), or undefined. */
 export function codeEntryProblem(input: string): string | undefined {
   const bare = input.replace(/[\s-]/g, '');
   if (!bare) return B.typeCode;
-  if (bare.length !== 26) return B.codeLength(bare.length);
+  if (bare.length !== RECOVERY_CODE_LENGTH) return B.codeLength(bare.length);
   return undefined;
 }
 

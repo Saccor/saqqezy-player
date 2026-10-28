@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { toastFor } from '../../state/events.ts';
-import { BACKUP_DONE_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, restoredCopy, storageItems } from './backupLogic.ts';
+import { BACKUP_DONE_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, restoredCopy, storageItems } from './backupLogic.ts';
 
 describe('Settings › Storage backup rows', () => {
   test('TV: clear cache, back up to and restore from the phone; no file rows', () => {
@@ -39,10 +39,6 @@ describe('Settings › Storage backup rows', () => {
 });
 
 describe('recovery code on the TV', () => {
-  test('is shown in groups of five, the last six', () => {
-    expect(formatCode('0123456789ABCDEFGHJKMNPQRS')).toBe('01234-56789-ABCDE-FGHJK-MNPQRS');
-  });
-
   test('a typed code is checked for its length before it goes to the worker', () => {
     expect(codeEntryProblem('')).toMatch(/recovery code/i);
     expect(codeEntryProblem('01234-56789')).toMatch(/26/);

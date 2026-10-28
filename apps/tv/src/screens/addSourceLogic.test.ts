@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_FIELD_LEN } from '@iptv/companion-protocol';
-import { HEADER_VALUE_MAX, NAME_MAX } from '@iptv/core';
+import { NAME_MAX } from '@iptv/core';
 import {
-  HEADER_FIELD_MAX, HEADER_UNUSED_NOTE, advancedHelp, connectionsLine, headerFieldDimmed, httpFormFromSource, withHttpSettings,
-  DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, SOURCE_NAME_MAX, URL_MAX, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
+  HEADER_UNUSED_NOTE, advancedHelp, connectionsLine, headerFieldDimmed, httpFormFromSource, withHttpSettings,
+  DEFAULT_NAME, FIELD_MAX, GENERIC_ERROR, NAME_TOO_LONG, afterAdd, clampField, backFromTypeStep, errorMessage, formFromSource, isHttpUrl, maskSecret, progressText,
   revealLabel, toUpdatedSource, validateM3u, validateXtream,
 } from './addSourceLogic.ts';
 
@@ -157,9 +157,6 @@ describe('Advanced (User-Agent and Referer)', () => {
     expect(withHttpSettings({ ...m3u, userAgent: 'Old', referrer: 'http://example.test/' }, { userAgent: ' ', referrer: '' }))
       .toEqual(m3u);
   });
-  it('the field limit matches the stored cap', () => {
-    expect(HEADER_FIELD_MAX).toBe(HEADER_VALUE_MAX);
-  });
 });
 
 describe('Advanced help and dimmed fields per platform (spec 2026-10-20-source-headers §6.1)', () => {
@@ -213,8 +210,6 @@ describe('afterAdd', () => {
 
 describe('field limits (shared with the companion protocol)', () => {
   it('the name and URL limits are the core NAME_MAX and the protocol MAX_FIELD_LEN', () => {
-    expect(SOURCE_NAME_MAX).toBe(NAME_MAX);
-    expect(URL_MAX).toBe(MAX_FIELD_LEN);
     expect(FIELD_MAX).toEqual({
       name: NAME_MAX, server: MAX_FIELD_LEN, username: MAX_FIELD_LEN, password: MAX_FIELD_LEN,
       playlistUrl: MAX_FIELD_LEN, epgUrl: MAX_FIELD_LEN,
@@ -229,12 +224,12 @@ describe('field limits (shared with the companion protocol)', () => {
   });
 
   it('validation rejects a name over the limit (after trimming), in both forms', () => {
-    const long = 'n'.repeat(SOURCE_NAME_MAX + 1);
+    const long = 'n'.repeat(NAME_MAX + 1);
     expect(validateXtream({ name: long, server: 'http://example.test', username: 'u', password: 'p' }))
       .toEqual({ ok: false, field: 'name', message: NAME_TOO_LONG });
     expect(validateM3u({ name: long, playlistUrl: 'http://example.test/a.m3u', epgUrl: '' }))
       .toEqual({ ok: false, field: 'name', message: NAME_TOO_LONG });
-    const exact = ` ${'n'.repeat(SOURCE_NAME_MAX)} `;
+    const exact = ` ${'n'.repeat(NAME_MAX)} `;
     expect(validateM3u({ name: exact, playlistUrl: 'http://example.test/a.m3u', epgUrl: '' }).ok).toBe(true);
   });
 });

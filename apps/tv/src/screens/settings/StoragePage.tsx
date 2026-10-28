@@ -1,5 +1,6 @@
 import { Show, View, type ElementNode } from '@lightningtv/solid';
 import { createEffect, createSignal, onCleanup } from 'solid-js';
+import { formatRecoveryCode } from '@iptv/core';
 import { api } from '../../api.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList } from '../../components/SettingsList.tsx';
@@ -12,7 +13,7 @@ import { showToast } from '../../shell/Toast.tsx';
 import { applyInitState, companionStatus, platformId, restoreWaitUntil, setRestoreWaitUntil } from '../../state/appState.ts';
 import { isTvPlatform } from '../../video/engineConfig.ts';
 import {
-  BACKUP_DONE_LINE, RESTORE_CONFIRM, RESTORE_CONFIRM_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, formatCode, storageItems,
+  BACKUP_DONE_LINE, RESTORE_CONFIRM, RESTORE_CONFIRM_LINE, backupDoneMessage, backupErrorCopy, codeEntryProblem, storageItems,
 } from './backupLogic.ts';
 import type { PageProps } from './shared.ts';
 
@@ -77,7 +78,7 @@ export function StoragePage(props: PageProps) {
   const items = () => storageItems({ connected: companionStatus().state === 'connected', waiting: waiting(), files: FILES });
 
   /** Shows the recovery code once. */
-  const showCode = (where: 'phone' | 'file', code: string) => props.confirm(backupDoneMessage(where), S.done, { single: true, line: BACKUP_DONE_LINE, detail: formatCode(code) });
+  const showCode = (where: 'phone' | 'file', code: string) => props.confirm(backupDoneMessage(where), S.done, { single: true, line: BACKUP_DONE_LINE, detail: formatRecoveryCode(code) });
 
   const clearCache = async () => {
     if (!(await props.confirm(S.clearTitle, S.clearYes, { line: S.clearLine }))) return;

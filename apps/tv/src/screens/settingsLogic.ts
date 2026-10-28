@@ -1,8 +1,7 @@
 /** Pure helpers for the Settings screen (value steppers, option cycling, labels, diagnostics text). Unit-tested. */
 import type { DiagnosticsInfo } from '@iptv/app-api';
 import type { LiveInfo } from '@iptv/player';
-// Type-only: @iptv/core must stay out of the main-thread bundle.
-import type { AppSettings, OpenOn } from '@iptv/core';
+import { FOLLOWED_TEAMS_MAX, type AppSettings, type OpenOn } from '@iptv/core';
 import type { SettingItem } from '../components/SettingsList.tsx';
 import { SETTINGS_COPY } from '../copy.ts';
 import { audioLanguageLabel, subtitleLanguageLabel } from '../vod/subtitleLogic.ts';
@@ -343,7 +342,6 @@ export function liveLines(info: LiveInfo): [string, string][] {
 
 // ---- Display page: clock, Open on, Teams I follow ----
 
-const TEAMS_MAX = 50; // mirrors FOLLOWED_TEAMS_MAX in @iptv/core (the worker sanitises again)
 
 export const openOnLabel = (v: OpenOn) => (v === 'start' ? SETTINGS_COPY.display.openStart : SETTINGS_COPY.display.openLast);
 
@@ -368,6 +366,6 @@ export function addTeamError(list: string[], name: string): string | undefined {
   const t = name.trim();
   if (!t) return SETTINGS_COPY.display.typeName;
   if (list.some((x) => x.toLowerCase() === t.toLowerCase())) return SETTINGS_COPY.display.alreadyIn;
-  if (list.length >= TEAMS_MAX) return SETTINGS_COPY.display.listFull(TEAMS_MAX);
+  if (list.length >= FOLLOWED_TEAMS_MAX) return SETTINGS_COPY.display.listFull(FOLLOWED_TEAMS_MAX);
   return undefined;
 }

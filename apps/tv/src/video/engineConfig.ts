@@ -1,5 +1,6 @@
 import type { HlsConfig } from 'hls.js';
 import type Mpegts from 'mpegts.js';
+import { REFUSAL_STATUSES } from '@iptv/core';
 import type { LivePreset } from '@iptv/player';
 
 /**
@@ -21,7 +22,7 @@ const MAX_LATENCY_COUNT: Record<LivePreset, number> = { low: 4, balanced: 5, sta
  * can extend a block), plus 410 (an expired stream: retrying cannot bring it back). 410 is not a refusal: the player
  * reports it as NETWORK with its status, never as AUTH, so it starts no cooldown.
  */
-const REFUSED_STATUSES = new Set([401, 403, 410, 429, 458, 503, 509]);
+const REFUSED_STATUSES = new Set([...REFUSAL_STATUSES, 410]);
 
 const loadPolicy = (ttfb: number, load: number, errRetries: number) => ({
   default: {

@@ -5,6 +5,7 @@ import type {
   AspectMode, EngineName, LiveProfile, OpenOptions, PlaybackHealth, Player, PlayerState, RecoverAction, Rect, StateDetail, StreamInfo,
   StreamHeaders, TrackInfo,
 } from '@iptv/player';
+import { REFUSAL_STATUSES } from '@iptv/core';
 import { hlsViaDevProxy } from '../net/devProxy.ts';
 import { codecFamily } from '../vod/tracks.ts';
 import { AutoMute } from './autoMute.ts';
@@ -92,12 +93,6 @@ function isHlsCodecError(details: string): boolean {
     || details === ErrorDetails.BUFFER_INCOMPATIBLE_CODECS_ERROR;
 }
 
-/**
- * Refusals (core's REFUSAL_STATUSES): reported as AUTH, so the supervisor stops and the cooldown starts. 410 is not
- * one: an expired stream (e.g. a catch-up programme past the archive) says nothing about the source refusing us, so
- * it is reported as NETWORK with its status and takes the supervisor's "gone" path, with no cooldown on the host.
- */
-const AUTH_STATUSES = new Set([401, 403, 429, 458, 503, 509]);
 /**
  * hls.js manifest or media-playlist loads answered with a status that will not change on an in-place reload (bad
  * request, not there, gone, server error): reported at once as NETWORK with the status, so the supervisor decides
@@ -372,7 +367,9 @@ export class Html5Player implements Player {
         }
         const network = data.type === ErrorTypes.NETWORK_ERROR;
         const status = data.response?.code;
-        if (network && status !== undefined && AUTH_STATUSES.has(status)) {
+        // Refusals are reported as AUTH, so the supervisor stops and the cooldown starts. 410 is not one: an expired
+        // stream (e.g. a catch-up programme past the archive) is reported as NETWORK and takes the "gone" path.
+        if (network && status !== undefined && REFUSAL_STATUSES.has(status)) {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: status, detail: data.details });
           return;
         }
@@ -405,7 +402,7 @@ export class Html5Player implements Player {
           s.audioUnsupported = true;
           return;
         }
-        if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && AUTH_STATUSES.has(info.code)) {
+        if (detail === MPEGTS_HTTP_STATUS && info?.code !== undefined && REFUSAL_STATUSES.has(info.code)) {
           this.emit(s, 'error', { code: 'AUTH', message: 'Playback error', httpStatus: info.code, detail });
           return;
         }

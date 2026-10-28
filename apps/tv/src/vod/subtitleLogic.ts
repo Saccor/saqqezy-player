@@ -1,4 +1,4 @@
-import { detectTextLanguage, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
+import { SUBTITLE_LANGUAGES, detectTextLanguage, languageFromFileName, type LoadedSubtitle } from '@iptv/core';
 import type { TrackInfo } from '@iptv/player';
 import { VOD_COPY } from '../copy.ts';
 import type { PickerRow } from '../screens/homeMenuLogic.ts';
@@ -8,14 +8,8 @@ import { findTrack, languageName, preferredTrack } from './tracks.ts';
 /** `languageName` and `preferredTrack` moved to `tracks.ts`; re-exported so existing imports keep working. */
 export { languageName, preferredTrack } from './tracks.ts';
 
-/**
- * The Settings choices for the subtitle language: the same list as core's `SUBTITLE_LANGUAGES` (a test keeps them
- * equal; core stays out of the main-thread bundle).
- */
-export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = [
-  'off', 'ar', 'zh', 'cs', 'da', 'nl', 'en', 'fi', 'fr', 'de', 'el', 'he', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'no', 'fa',
-  'pl', 'pt', 'ro', 'ru', 'es', 'sv', 'th', 'tr', 'uk', 'vi',
-];
+/** The Settings choices for the subtitle language: the languages core's settings accept. */
+export const SUBTITLE_LANGUAGE_OPTIONS: readonly string[] = SUBTITLE_LANGUAGES;
 
 export const subtitleLanguageLabel = (code: string): string => (code === 'off' ? 'Off' : languageName(code) ?? code);
 

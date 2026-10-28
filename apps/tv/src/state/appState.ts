@@ -1,6 +1,5 @@
 import { createSignal } from 'solid-js';
 import { worseCooldown, type AppEvent, type CompanionStatus, type InitState, type SourceCooldown } from '@iptv/app-api';
-// Type-only: @iptv/core must stay out of the main-thread bundle (it lives in the worker chunk).
 import type { AppSettings } from '@iptv/core';
 import type { SupervisorStatus } from '@iptv/player';
 import { detectPlatform, type HeaderSupport, type PlatformId } from '@iptv/platform';

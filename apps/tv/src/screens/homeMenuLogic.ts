@@ -1,15 +1,7 @@
-/**
- * Pure helpers for Live TV's channel menu, list picker and refresh focus (unit-tested).
- *
- * `NAME_MAX` and `MAX_LISTS` mirror the layout reducer's limits in `@iptv/core`. They are copied rather than
- * imported because core must stay out of the main-thread bundle (it lives in the worker chunk); the test
- * asserts they are equal to core's.
- */
+/** Pure helpers for Live TV's channel menu, list picker and refresh focus (unit-tested). */
 
+import { MAX_LISTS, NAME_MAX } from '@iptv/core';
 import { COMMON_COPY, favToggleLabel, LIVE_COPY } from '../copy.ts';
-
-export const NAME_MAX = 60;
-export const MAX_LISTS = 50;
 
 const FAV_LIST_ID = 'fav';
 const LIST_PREFIX = 'list:';

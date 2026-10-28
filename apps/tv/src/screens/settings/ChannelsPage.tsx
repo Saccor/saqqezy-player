@@ -1,7 +1,6 @@
 import { Show, View, type ElementNode } from '@lightningtv/solid';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
-// Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
 import { applyLayoutOps } from '../../state/layoutOps.ts';

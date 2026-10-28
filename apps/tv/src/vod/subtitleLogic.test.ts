@@ -17,7 +17,6 @@ const t = (id: string, label: string, language?: string, active = false): TrackI
 
 describe('subtitle language setting', () => {
   it('offers exactly the languages core accepts', () => {
-    expect(SUBTITLE_LANGUAGE_OPTIONS).toEqual(SUBTITLE_LANGUAGES);
     expect(AUDIO_LANGUAGE_OPTIONS).toEqual(['auto', ...SUBTITLE_LANGUAGES.filter((c) => c !== 'off')]);
     for (const c of AUDIO_LANGUAGE_OPTIONS) expect(sanitizeSettings({ audioLanguage: c }).audioLanguage).toBe(c);
     expect(audioLanguageLabel('auto')).toBe('Stream default');
