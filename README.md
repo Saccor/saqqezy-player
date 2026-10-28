@@ -85,7 +85,7 @@ More detail: [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECUR
   are only a fallback.
 - **Fast first frame.** Screens that are never needed first (settings, multiview, the film player) load lazily,
   and a build check on the source maps names any module that leaks into the start bundle. A cached start reopens the last channel.
-- **Tests as specification.** 4,728 Vitest tests run on synthetic fixtures. Performance budgets run as tests
+- **Tests as specification.** 4,722 Vitest tests run on synthetic fixtures. 26 performance budgets run as tests
   (`pnpm test:perf`), and strict TypeScript covers every package.
 
 ## Quick start (about 5 minutes)
