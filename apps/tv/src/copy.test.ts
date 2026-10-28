@@ -61,9 +61,15 @@ describe('multiview copy', () => {
     expect(MULTIVIEW_COPY.stoppedForOther).toBe('Stopped so another window can play.');
   });
 
-  it('the six connection-limit explanations are one text', () => {
+  it('the four connection-limit explanations are one text', () => {
     expect(MULTIVIEW_COPY.limit).toBe('Each window uses one connection from your source.');
-    expect(Object.keys(MULTIVIEW_COPY).filter((k) => /^(infoUnknown|infoReported|kicked|learned|device|setting)$/.test(k))).toEqual([]);
+    expect(Object.keys(MULTIVIEW_COPY).filter((k) => /^(infoUnknown|infoReported|kicked|learned)$/.test(k))).toEqual([]);
+  });
+
+  it('says why Add channel is off: the device or the Max windows setting, within 70 characters', () => {
+    expect(MULTIVIEW_COPY.device(2)).toBe('This device can play 2 at once.');
+    expect(MULTIVIEW_COPY.setting(3)).toBe('Max windows is set to 3 in Settings.');
+    for (const s of [MULTIVIEW_COPY.device(6), MULTIVIEW_COPY.setting(6)]) expect(s.length).toBeLessThanOrEqual(70);
   });
 });
 

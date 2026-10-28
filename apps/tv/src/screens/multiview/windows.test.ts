@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MULTIVIEW_CEILING, canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
+import { MULTIVIEW_CEILING, addBlockedText, canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
 describe('windowLimit', () => {
   it('Auto is the device ceiling; a user value above the ceiling is clamped', () => {
@@ -22,6 +22,13 @@ describe('canAddWindow', () => {
 
   it("at the user's Max windows below the ceiling the reason is the setting", () => {
     expect(canAddWindow({ deviceMax: 4, userMax: 2, open: 2 })).toEqual({ ok: false, reason: 'setting', limit: 2 });
+  });
+});
+
+describe('addBlockedText', () => {
+  it('names the device limit, or the Max windows setting when that is lower', () => {
+    expect(addBlockedText({ reason: 'device', limit: 2 })).toBe('This device can play 2 at once.');
+    expect(addBlockedText({ reason: 'setting', limit: 3 })).toBe('Max windows is set to 3 in Settings.');
   });
 });
 

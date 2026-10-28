@@ -71,6 +71,9 @@ export const MULTIVIEW_COPY = {
   searchChannels: 'Search channels',
   noChannelsMatch: 'No channels match',
   limit: 'Each window uses one connection from your source.',
+  /** Why "Add channel" is off (`canAddWindow`): the device, or the user's Max windows setting. */
+  device: (n: number): string => `This device can play ${n} at once.`,
+  setting: (n: number): string => `Max windows is set to ${n} in Settings.`,
   deviceLimit: 'This TV can show one channel at a time.',
   escalated: 'The source refused extra windows. Try again in a few minutes.',
 } as const;

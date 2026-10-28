@@ -25,7 +25,7 @@ import { createMvHealth } from './mvHealth.ts';
 import { createMvMenu } from './mvMenu.ts';
 import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
-import { canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
+import { addBlockedText, canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
 const MENU_ID = 'multiviewMenu';
 const PICKER_ID = 'multiviewPicker';
@@ -111,7 +111,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     const s = state();
     const r = canAddWindow({ deviceMax: deviceCeiling(deviceWindowMax()), userMax: settings()?.maxWindows ?? 'auto', open: s?.windows.length ?? 0 });
     if (r.ok) return { ok: true as const };
-    return { ok: false as const, reason: MULTIVIEW_COPY.limit };
+    return { ok: false as const, reason: addBlockedText(r) };
   };
 
   const leave = (keep?: MvWindow) => {

@@ -1,4 +1,5 @@
 import type { MaxWindows } from '@iptv/core';
+import { MULTIVIEW_COPY } from '../../copy.ts';
 
 /**
  * How many multiview windows may be open (spec 2026-10-20-multiview §5.2, owner decision §12.2). Only the device and
@@ -25,4 +26,9 @@ export function canAddWindow(i: { deviceMax: number; userMax: MaxWindows; open: 
   const limit = windowLimit(i.deviceMax, i.userMax);
   if (i.open < limit) return { ok: true };
   return { ok: false, reason: i.userMax !== 'auto' && i.userMax < i.deviceMax ? 'setting' : 'device', limit };
+}
+
+/** The text beside a disabled "Add channel": the device's own limit, or the user's Max windows setting. */
+export function addBlockedText(r: { reason: 'device' | 'setting'; limit: number }): string {
+  return r.reason === 'setting' ? MULTIVIEW_COPY.setting(r.limit) : MULTIVIEW_COPY.device(r.limit);
 }
