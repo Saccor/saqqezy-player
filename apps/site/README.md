@@ -25,3 +25,6 @@ run the capture script from the repository root (needs Chrome and ffmpeg):
 PORT=8900 SHOWCASE=1 SPORTS=0 pnpm fake-xtream
 node apps/site/scripts/screens.mjs
 ```
+
+The same script with `readme` (`node apps/site/scripts/screens.mjs readme`) captures the README's pictures into
+`docs/images/`.
