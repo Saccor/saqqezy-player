@@ -17,7 +17,7 @@ export interface EntitySummary {
 export type DayTop = [string, number][];
 
 /** "instance of" (P31) values that make an entity a film or a series, in priority order. */
-export const TYPE_KINDS: readonly (readonly [string, FeedKind])[] = [
+const TYPE_KINDS: readonly (readonly [string, FeedKind])[] = [
   ['Q11424', 'movie'], // film
   ['Q24869', 'movie'], // feature film
   ['Q202866', 'movie'], // animated film
@@ -33,7 +33,7 @@ export const TYPE_KINDS: readonly (readonly [string, FeedKind])[] = [
 ];
 
 /** Titles per feed item. */
-export const TITLES_MAX = 8;
+const TITLES_MAX = 8;
 
 /** Main pages outside a namespace (namespaced ones are dropped by `isNamespaced`), and the "-" pseudo-article. */
 const MAIN_PAGES = new Set([

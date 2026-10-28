@@ -35,11 +35,11 @@ export interface RunSummary {
 }
 
 export const PAGEVIEW_DAYS = 7;
-export const CANDIDATES_MAX = 500;
-export const WIKIDATA_BATCH = 50;
+const CANDIDATES_MAX = 500;
+const WIKIDATA_BATCH = 50;
 export const ENTITY_TTL_MS = 7 * 86_400_000;
-export const DEFAULT_MAX_FETCHES = 45;
-export const DEFAULT_PACE_MS = 500;
+const DEFAULT_MAX_FETCHES = 45;
+const DEFAULT_PACE_MS = 500;
 /** TMDB answers are reused for this long (runs are 6 h apart). */
 const TMDB_TTL_MS = 5.5 * 3_600_000;
 const TMDB_PAGES = 2;
