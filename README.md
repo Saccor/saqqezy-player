@@ -1,90 +1,146 @@
-# IPTV Player
+# Saqqezy Player
 
-A fast, clean, neutral TV player for **your own** sources: M3U playlists, Xtream logins and XMLTV TV guides.
-It ships with **no content**. v1 is a TV web app (Lightning 3 + SolidJS) that runs in a desktop browser for
-development and packages for Samsung Tizen TVs.
+**A fast TV player for your own playlists and TV guides. It ships with no content.**
 
-v1 covers: a remote-first Channels screen with live preview, favourites, hidden channels and recently watched;
-full-screen playback with zapping, number entry, previous channel, options and a sleep timer; a TV guide grid;
-search; settings; and a cached start designed to reopen the last channel in under a second.
+[![CI](https://github.com/Saccor/iptv-app/actions/workflows/ci.yml/badge.svg)](https://github.com/Saccor/iptv-app/actions/workflows/ci.yml)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-lightgrey)
 
-v1.1 adds organisation and a companion: your own lists (with Favourites), group order and hiding, channel renames
-and sorting, "hide channels without TV guide", and **Phone and computer**: scan a QR code (or type a code)
-on the TV and manage sources, lists and groups from a web page. The TV and the page talk through an end-to-end
-encrypted relay that only passes ciphertext along and stores nothing.
+![The TV guide with a live preview](docs/images/guide.webp)
 
-After v1.1 (October 2026): a **Start** tab (Continue watching, Live now, Sports in your guide with Teams I follow,
-Recently added); **Movies and series** from Xtream sources with resume, duplicate versions folded into one title,
-audio and subtitle tracks, subtitles from a file, a link or OpenSubtitles with sync and delay, and a volume control;
-a **search bar** on the Channels screen; **mouse and pointer** support on computers; gentle source retry with
-refusal cooldowns; live delay and recovery; and a dev proxy that logs with credentials masked.
+You bring your own source: an M3U playlist, an Xtream login or an XMLTV guide. Examples are your own media server,
+free-to-air channels, or a playlist your operator gives you. The app is a TV web app with a remote-first UI. It runs
+in a desktop browser and packages for Samsung Tizen TVs. It has been installed and profiled on one Samsung Tizen
+device (an Odyssey G9 monitor); other TVs are untested. A phone can manage it over an end-to-end encrypted link.
 
-- **Try it:** [docs/try-v1.md](docs/try-v1.md) (install, start, keyboard map, test login)
-- **Manage from your phone, local test:** [docs/try-v1.md](docs/try-v1.md#6-manage-from-your-phone-local-test)
-- **Deploy the relay and the companion web app (Cloudflare):** [docs/deploy-companion.md](docs/deploy-companion.md)
-- **Deploy the trending feed (Start page rows, Cloudflare):** [docs/deploy-trending.md](docs/deploy-trending.md)
-- **Install on a Samsung TV:** [docs/install-on-samsung.md](docs/install-on-samsung.md). Installed and profiled on one
-  Samsung Tizen device (an Odyssey G9 monitor); other models are untested.
-- **What comes later:** [docs/backlog.md](docs/backlog.md)
+| | |
+|---|---|
+| ![Start page](docs/images/start.webp) | ![Live channel with the info banner](docs/images/player.webp) |
+| ![Multiview with three windows](docs/images/multiview.webp) | ![Film page](docs/images/detail.webp) |
 
-## Guardrails (summary)
+<sub>Every channel, programme and title above is made up and drawn by the bundled fake provider. The video is
+<i>Big Buck Bunny</i> (© Blender Foundation, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>).</sub>
 
-The full rules are in [docs/GUARDRAILS.md](docs/GUARDRAILS.md). In short:
+## Features
 
-- **No bundled content:** no default, demo or sample playlists, portals or guide URLs. Test data is synthetic.
-- **No provider links or piracy-flavoured wording** anywhere (app, docs, store), and no broadcaster or league
-  logos except the user's own playlist/guide data.
-- **No reseller features**, no Stalker portal / MAC emulation.
-- **Client-only media:** our servers never proxy, relay, transcode or cache streams, playlists or guides. The
-  dev proxy in `apps/tv/vite.proxy.ts` runs only inside `vite dev` on the developer's machine and is never
-  shipped.
-- **Credentials stay on the device**, never in logs, error text or diagnostics. The companion sends them to the TV
-  end-to-end encrypted; the relay sees only ciphertext and stores nothing. Any future sync must be end-to-end
-  encrypted too.
-- **Speed is the feature:** targets of a cached start under 1 s and a key response under 100 ms, parsing off the UI
-  thread, virtualised lists for 50k+ channels.
+- **Live TV:** a channel list beside a TV guide grid, live preview, number entry, previous channel, favourites
+  and lists, hidden and renamed channels, and catch-up where the source offers it.
+- **Multiview:** up to six channels at once in desktop browsers, and two on Samsung TVs whose player allows a
+  second picture. Each window uses one connection from your source.
+- **Movies and series** from Xtream sources: resume, duplicate versions folded into one title, audio and subtitle
+  tracks, subtitles from a file, a link or OpenSubtitles with sync and delay.
+- **Start page:** continue watching, what is on now in your own guide, and new and top-rated titles in your library.
+- **Search** across channels, programmes, movies and series.
+- **Phone companion:** scan a QR code on the TV, then add sources and edit lists from a phone browser.
+- **Remote-first:** every screen works with a D-pad, OK and Back. Mouse and pointer work too.
+- **Gentle on sources:** retries back off, and a refusal starts a cooldown instead of a retry loop.
 
-## Package map
+## Architecture
 
-| Path | Package | What it is |
-|---|---|---|
-| `packages/core` | `@iptv/core` | Pure logic: M3U parser, Xtream client, streaming XMLTV parser, channel index, settings, `SourceService` |
-| `packages/storage` | `@iptv/storage` | Storage abstraction: `IdbStorage` (TVs and browsers), `MemoryStorage` (tests) |
-| `packages/app-api` | `@iptv/app-api` | The app's API over the core, run in a Web Worker, plus the typed RPC between UI and worker |
-| `packages/platform` | `@iptv/platform` | Platform detection and remote key mapping (browser, Tizen, webOS) |
-| `packages/player` | `@iptv/player` | Player interface and playback supervisor (reconnect, stall watchdog, TS ↔ HLS fallback) |
-| `packages/companion-protocol` | `@iptv/companion-protocol` | Companion pairing (QR secrets, PBKDF2 codes), AES-GCM frames, chunking, replay protection, typed messages, `SecureChannel` and the relay WebSocket transport |
-| `apps/tv` | `@iptv/tv` | The TV app: Lightning 3 + SolidJS screens, HTML5 and AVPlay players, dev proxy. Stack notes: `apps/tv/STACK.md` |
-| `apps/companion` | `@iptv/companion` | The companion web app (SolidJS, Cloudflare Pages): pairing, sources, lists, groups, display |
-| `services/relay` | `@iptv/relay` | Cloudflare Worker + Durable Object that forwards opaque encrypted frames between one TV and one phone; stores nothing. See `services/relay/README.md` |
-| `services/trending` | `@iptv/trending` | Cloudflare Worker (cron every 6 h) that publishes the public trending feed from Wikimedia pageviews and Wikidata (CC0), TMDB as a beta-only booster; sees no user data. See `services/trending/README.md` |
-| `tools/fake-xtream` | `@iptv/fake-xtream` | Local fake provider with synthetic channels and guide at `http://127.0.0.1:8899` (`test` / `test`) |
-| `tools/tizen` | — | Samsung `.wgt` packaging (`build-wgt.mjs`, icon generator). See `tools/tizen/README.md` |
+```mermaid
+flowchart LR
+  subgraph Device["TV or browser"]
+    UI["TV app UI<br/>SolidJS + Lightning 3 (WebGL)"]
+    Worker["Web Worker<br/>core: parsers, index, search<br/>app-api, IndexedDB storage"]
+    Players["Native players<br/>AVPlay / HTML5 video<br/>hls.js, mpegts.js fallback"]
+    UI <-->|"typed RPC"| Worker
+    UI --> Players
+  end
+  Source[("Your own source<br/>M3U / Xtream / XMLTV")]
+  Phone["Companion web app<br/>(phone browser)"]
+  Relay["Relay<br/>Cloudflare Durable Object<br/>sees only ciphertext"]
+  Trending["Trending Worker<br/>cron + R2, public data only"]
 
-Developer notes for the core: [docs/dev/core.md](docs/dev/core.md).
+  Worker -->|"playlists, guides (direct)"| Source
+  Players -->|"streams (direct)"| Source
+  Phone <-->|"AES-GCM frames"| Relay
+  Relay <-->|"AES-GCM frames"| UI
+  Worker -->|"public feed"| Trending
+```
 
-## Scripts
+Media, playlists and guides go straight from your source to the device. Our servers never proxy, relay or cache
+them. The relay forwards encrypted frames between one TV and one phone and stores nothing. The trending Worker
+publishes a public feed built from Wikimedia and Wikidata data, so it never sees anything about you.
 
-Requires Node 22+ and pnpm 10 (`corepack enable`). Run `pnpm install` first.
+More detail: [Architecture](docs/ARCHITECTURE.md) · [Security model](docs/SECURITY-MODEL.md) ·
+[Decisions](docs/DECISIONS.md) · [Lessons](docs/LESSONS.md)
+
+## Technical highlights
+
+- **End-to-end encrypted pairing.** The QR code or typed code goes through PBKDF2-SHA256 (200,000 iterations) to
+  a session id and a non-extractable AES-256-GCM key. Every frame has a random IV, authenticated header data and
+  replay protection ([`packages/companion-protocol`](packages/companion-protocol/src)).
+- **A relay that cannot read anything.** A Cloudflare Durable Object per pairing forwards opaque binary frames,
+  with limits on size, rate, bytes and lifetime. Its per-IP limiter keys on an HMAC of the address, so no raw
+  IP is ever held ([`services/relay`](services/relay)).
+- **Parsing off the UI thread.** M3U, Xtream and a streaming XMLTV parser run in a Web Worker behind a typed RPC.
+  A 100 MB guide streams in with bounded memory, and a 54k-channel guide import keeps the API answering
+  (p95 under 15 ms).
+- **Built for 50k+ channels.** The channel list, the guide grid and the poster rows are virtualised, so only
+  visible rows exist. Indexing 50k channels with layout edits takes under 300 ms, and the index work for a zap takes under 20 ms.
+  Logos and posters are held in LRU caches.
+- **Playback that recovers.** A supervisor in [`packages/player`](packages/player/src) handles reconnects with a
+  budget, a stall watchdog, live delay and a TS ↔ HLS fallback. Native players come first, and hls.js / mpegts.js
+  are only a fallback.
+- **Fast first frame.** Screens that are never needed first (settings, multiview, the film player) load lazily,
+  and a build check keeps them out of the start bundle. A cached start reopens the last channel.
+- **Tests as specification.** 4,728 Vitest tests run on synthetic fixtures. Performance budgets run as tests
+  (`pnpm test:perf`), and strict TypeScript covers every package.
+
+## Quick start (about 5 minutes)
+
+Needs Node 22+ and pnpm 10 (`corepack enable`).
+
+```bash
+pnpm install
+pnpm dev
+```
+
+1. `pnpm dev` starts a fake provider on `http://127.0.0.1:8899` with 200 synthetic channels, a guide and a film
+   library, plus the app on http://localhost:5173. Open the app in Chrome or Edge in one tab.
+2. On **Add your TV source**, choose **Xtream login** and enter server `http://127.0.0.1:8899`, username `test`
+   and password `test`.
+3. Use the keyboard as the remote: the arrow keys, Enter for OK and Esc for Back.
+
+Other commands:
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Starts the fake provider (port 8899) and the TV app dev server (http://localhost:5173) |
-| `pnpm test` | Unit and integration tests (Vitest) |
-| `pnpm test:watch` | Tests in watch mode |
-| `pnpm test:perf` | Performance budgets (large M3U and XMLTV) |
+| `pnpm test` | Unit and integration tests |
+| `pnpm test:perf` | Performance budgets |
 | `pnpm typecheck` | Strict TypeScript over every package |
-| `pnpm fake-xtream` | Only the fake provider |
-| `pnpm build:tv` | Production build of the TV app into `apps/tv/dist` |
-| `pnpm build:tizen` | Builds the app and prepares the Samsung package in `dist-tizen/` (signs it when the Tizen CLI is set up) |
-| `pnpm relay:dev` | The companion relay, fully local (`wrangler dev`) on `127.0.0.1:8787`; never-paired sessions expire after 60 s |
-| `pnpm relay:test:int` | Relay integration checks against the running `pnpm relay:dev` (takes about a minute) |
-| `pnpm relay:deploy` | Deploys the relay to Cloudflare with the production settings (see [docs/deploy-companion.md](docs/deploy-companion.md)) |
-| `pnpm trending:dev` | The trending Worker locally (`wrangler dev`, local R2) on `127.0.0.1:8788`; its cron calls Wikimedia for real, so pass `--var CONTACT:<url>`. Not needed for the TV: `pnpm dev` serves a synthetic feed |
-| `pnpm trending:deploy` | Deploys the trending Worker (`--var CONTACT:<url>` required; see [docs/deploy-trending.md](docs/deploy-trending.md)) |
-| `pnpm companion:dev` | The companion web app dev server (http://localhost:5174) |
-| `pnpm build:companion` | Production build of the companion into `apps/companion/dist` (set `VITE_RELAY_URL`) |
-| `pnpm fake-phone '<QR URL or code>'` | Dev tool: a fake companion that pairs with the TV through the dev relay |
+| `pnpm build:tv` | Production build of the TV app |
+| `pnpm build:tizen` | Samsung `.wgt` package ([install guide](docs/install-on-samsung.md)) |
+| `pnpm companion:dev`, `pnpm relay:dev` | Phone companion and relay, locally ([guide](docs/try-v1.md#6-manage-from-your-phone-local-test)) |
 
-Build variables for production: `VITE_RELAY_URL` (TV and companion) and `VITE_COMPANION_ORIGIN` (TV). See
-[docs/deploy-companion.md](docs/deploy-companion.md#build-variables).
+The full walkthrough is in [docs/try-v1.md](docs/try-v1.md). Deploying the relay, the companion and the trending
+feed to Cloudflare is covered in [docs/deploy-companion.md](docs/deploy-companion.md) and
+[docs/deploy-trending.md](docs/deploy-trending.md).
+
+## Project structure
+
+| Path | What it is |
+|---|---|
+| [`packages/core`](packages/core) | Pure logic with no UI: M3U parser, Xtream client, streaming XMLTV parser, channel index, search, settings |
+| [`packages/app-api`](packages/app-api) | The app's API over the core, run in a Web Worker, plus the typed RPC to the UI |
+| [`packages/storage`](packages/storage) | Storage abstraction: IndexedDB on devices, in-memory in tests |
+| [`packages/player`](packages/player) | Player interface and playback supervisor |
+| [`packages/platform`](packages/platform) | Platform detection and remote key mapping |
+| [`packages/companion-protocol`](packages/companion-protocol) | Pairing, encrypted frames, replay protection, secure channel |
+| [`apps/tv`](apps/tv) | The TV app: SolidJS + Lightning 3 screens, Tizen and HTML5 players ([stack notes](apps/tv/STACK.md)) |
+| [`apps/companion`](apps/companion) | The phone companion web app |
+| [`apps/site`](apps/site) | The static product site |
+| [`services/relay`](services/relay) | Cloudflare Worker + Durable Object relay for the companion |
+| [`services/trending`](services/trending) | Cloudflare Worker that publishes the public trending feed |
+| [`tools/fake-xtream`](tools/fake-xtream) | Local fake provider with synthetic channels, guide and films |
+| [`tools/tizen`](tools/tizen) | Samsung `.wgt` packaging |
+
+## Disclaimer
+
+Saqqezy Player is a neutral player. It contains no channels, playlists, guides or other content, and it does
+not link to or recommend any content provider. Use it only with sources you have the right to use. The rules
+the project follows are in [docs/GUARDRAILS.md](docs/GUARDRAILS.md).
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). Security reports: see [SECURITY.md](SECURITY.md).
