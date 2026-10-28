@@ -353,7 +353,7 @@ Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); othe
 ## UI system (revamp phase 1)
 
 - Tokens: `shell/theme.ts` (`COLORS`, `TYPE`, `SPACE`, `LAYOUT`, `FOCUS`, `MOTION`, `STRONG`). The legacy `FONT` is gone (phase 3).
-  `shell/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; see "UI system (revamp phase 3)".
+  `tools/lint/test/tokenLint.test.ts` fails when a file gains colour, fontSize or focus-scale literals; see "UI system (revamp phase 3)".
 - Focus: cards use `FocusRing` + `FOCUS.scale`; rows, cells and buttons use a `COLORS.focus` fill with `COLORS.onFocus`.
   `COLORS.accent` is for progress and position marks only.
 - Shared pieces: `shell/Rail.tsx` (+ `railLogic.ts`, `railNav.ts`), `components/InfoStrip.tsx` (feed it from
@@ -377,7 +377,7 @@ Installed and profiled on one Samsung Tizen device (an Odyssey G9 monitor); othe
 ## UI system (revamp phase 3)
 
 - All screens are on tokens. Legacy `FONT` is removed: `FONT.heading` sites became `TYPE.title` (screen titles) or `TYPE.body` + `STRONG` (panel, dialog and overlay titles).
-- Token lint is at zero: `tokenLint.baseline.json` is `{}` and a test asserts it, so any new colour, fontSize or focus-scale literal fails `pnpm test`. The regex counts every numeric literal inside `fontSize={...}`, and the object form too (`fontSize: 32`, `scale: 1.08`, e.g. `Config.fontSettings`). `QrCode` is in `SKIP`. Use a token or add one to `theme.ts`.
+- Token lint is at zero: `tools/lint/tokenLint.baseline.json` is `{}` and a test asserts it, so any new colour, fontSize or focus-scale literal fails `pnpm test`. The regex counts every numeric literal inside `fontSize={...}`, and the object form too (`fontSize: 32`, `scale: 1.08`, e.g. `Config.fontSettings`). `QrCode` is in `SKIP`. Use a token or add one to `theme.ts`.
 - New tokens: `COLORS.buffered`, `scrubAhead`, `scrubBack`, `subtitleOutline`, `imageTrack`, and `TITLE_CARD_COLOURS`.
 - One focus style everywhere: fills, no borders. Pills go through `Button`. The `ManageOnPhone` rows look like `Button` but keep their single-node focus.
 - Live banner (`components/InfoBanner.tsx`): `BANNER_H` 210, no panel; the `banner` fade in `vod/scrim.ts`. Logo 96 px with a monogram fallback. Line 1 is number + name + clock; the title is `TYPE.playerTitle`; the progress track is full width. `bannerNextLine` gives "Next · 21:00 Title"; the Next line sits in a keyed `Show` (it clipped when not keyed). `VolumeOsd` sits below `NumberEntry`.

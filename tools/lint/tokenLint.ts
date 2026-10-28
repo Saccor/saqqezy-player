@@ -1,9 +1,9 @@
-// apps/tv/src/shell/tokenLint.ts
+// tools/lint/tokenLint.ts
 /**
  * Token and copy lint (UI rethink spec 2026-10-26 §1.5, amending the revamp spec §1.1): counts design literals and
- * inline UI strings per source file. The test compares the counts with `tokenLint.baseline.json` and fails when a file
+ * inline UI strings per apps/tv/src file. The test compares the counts with `tokenLint.baseline.json` and fails when a file
  * gains any, so the baseline can only shrink; phase 1 ends with it at `{}`.
- * Rewrite the baseline after removing literals: `pnpm exec tsx apps/tv/src/shell/tokenLint.ts --write`.
+ * Rewrite the baseline after removing literals: `pnpm exec tsx tools/lint/tokenLint.ts --write`.
  */
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -110,7 +110,7 @@ export function countTokens(text: string): TokenCounts {
  * shell/DebugOverlay.tsx: the developer HUD (Info x3), English diagnostics. copy.ts and copy/: where strings belong.
  */
 const SKIP_FILES: ReadonlySet<string> = new Set([
-  'shell/theme.ts', 'shell/tokenLint.ts', 'shell/contrast.ts', 'components/QrCode.tsx', 'shell/DebugOverlay.tsx', 'copy.ts',
+  'shell/theme.ts', 'shell/contrast.ts', 'components/QrCode.tsx', 'shell/DebugOverlay.tsx', 'copy.ts',
 ]);
 const SKIP_DIRS: ReadonlySet<string> = new Set(['dev', 'copy']);
 /** video/: engine messages for the playback log; the UI shows them only through failureText. */
@@ -136,7 +136,7 @@ export function scanTokens(root: string): Baseline {
 
 if (process.argv.includes('--write')) {
   const here = dirname(fileURLToPath(import.meta.url));
-  const counts = scanTokens(join(here, '..'));
+  const counts = scanTokens(join(here, '../../apps/tv/src'));
   const sorted = Object.fromEntries(Object.keys(counts).sort().map((k) => [k, counts[k]]));
   writeFileSync(join(here, 'tokenLint.baseline.json'), `${JSON.stringify(sorted, null, 2)}\n`);
   console.log(`tokenLint: baseline written for ${Object.keys(sorted).length} files`);

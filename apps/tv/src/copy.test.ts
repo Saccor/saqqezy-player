@@ -3,7 +3,7 @@ import * as COPY from './copy.ts';
 import { COPY_EXCEPTIONS, collectCopy, copyViolations } from './copy/rules.ts';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scanTokens } from './shell/tokenLint.ts';
+import { scanTokens } from '../../../tools/lint/tokenLint.ts';
 import { CATCHUP_COPY, COUNTRIES_COPY, FAV_COPY, LAZY_COPY, MULTIVIEW_COPY, favChangedToast, favToggleLabel } from './copy.ts';
 
 describe('favourites copy', () => {

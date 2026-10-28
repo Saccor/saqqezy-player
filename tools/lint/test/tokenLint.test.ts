@@ -1,12 +1,12 @@
-// apps/tv/src/shell/tokenLint.test.ts
+// tools/lint/test/tokenLint.test.ts
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { TOKEN_KINDS, countTokens, scanTokens, type Baseline } from './tokenLint.ts';
+import { TOKEN_KINDS, countTokens, scanTokens, type Baseline } from '../tokenLint.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SRC = join(here, '..');
+const SRC = join(here, '../../../apps/tv/src');
 const only = (text: string) => Object.fromEntries(Object.entries(countTokens(text)).filter(([, v]) => v > 0));
 
 describe('tokenLint: design literals', () => {
@@ -75,7 +75,7 @@ describe('tokenLint: UI strings', () => {
 
 describe('tokenLint: baseline', () => {
   test('every baseline entry uses known kinds and positive counts', () => {
-    const baseline = JSON.parse(readFileSync(join(here, 'tokenLint.baseline.json'), 'utf8')) as Baseline;
+    const baseline = JSON.parse(readFileSync(join(here, '../tokenLint.baseline.json'), 'utf8')) as Baseline;
     for (const [file, c] of Object.entries(baseline)) {
       for (const [k, v] of Object.entries(c)) {
         expect((TOKEN_KINDS as readonly string[]).includes(k), `${file}: ${k}`).toBe(true);
@@ -84,7 +84,7 @@ describe('tokenLint: baseline', () => {
     }
   });
   test('no file gains literals over the baseline', () => {
-    const baseline = JSON.parse(readFileSync(join(here, 'tokenLint.baseline.json'), 'utf8')) as Baseline;
+    const baseline = JSON.parse(readFileSync(join(here, '../tokenLint.baseline.json'), 'utf8')) as Baseline;
     const over: string[] = [];
     for (const [file, c] of Object.entries(scanTokens(SRC))) {
       for (const k of TOKEN_KINDS) {
@@ -97,7 +97,7 @@ describe('tokenLint: baseline', () => {
   });
   test('phase 1 is done: only worker.ts is left, and phase 0b owns it (spec 2026-10-26 §1.5)', () => {
     const left = { 'worker.ts': { string: 1 } };
-    expect(JSON.parse(readFileSync(join(here, 'tokenLint.baseline.json'), 'utf8'))).toEqual(left);
+    expect(JSON.parse(readFileSync(join(here, '../tokenLint.baseline.json'), 'utf8'))).toEqual(left);
     expect(scanTokens(SRC)).toEqual(left);
   });
 });
