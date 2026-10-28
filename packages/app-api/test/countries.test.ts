@@ -54,7 +54,7 @@ describe('AppApi: Your countries', () => {
   test('everyone gets the fold once two countries are detected', async () => {
     const { api } = await setup();
     expect(await shape(api)).toEqual([
-      'fav', 'all', 'g:DK | Synthetic News@DK', 'g:DK | Synthetic Docs@DK', 'g:SE | Synthetic News@SE', 'g:SE | Synthetic Kids@SE', 'g:Mixed', 'g:Weekly (FI)',
+      'all', 'fav', 'g:DK | Synthetic News@DK', 'g:DK | Synthetic Docs@DK', 'g:SE | Synthetic News@SE', 'g:SE | Synthetic Kids@SE', 'g:Mixed', 'g:Weekly (FI)',
     ]);
   });
 
@@ -66,7 +66,7 @@ describe('AppApi: Your countries', () => {
     c = await api.setCountries({ mode: 'first' });
     expect(c).toMatchObject({ regions: { codes: ['SE'], mode: 'first' }, combineCategories: false, counts: { live: 2 } });
     expect(await shape(api)).toEqual([
-      'fav', 'g:SE | Synthetic News', 'g:SE | Synthetic Kids', 'all', 'g:DK | Synthetic News@DK', 'g:DK | Synthetic Docs@DK', 'g:Mixed', 'g:Weekly (FI)',
+      'all', 'fav', 'g:SE | Synthetic News', 'g:SE | Synthetic Kids', 'g:DK | Synthetic News@DK', 'g:DK | Synthetic Docs@DK', 'g:Mixed', 'g:Weekly (FI)',
     ]);
     c = await api.setCountries({ foldCountries: false });
     expect(c.foldCountries).toBe(false);

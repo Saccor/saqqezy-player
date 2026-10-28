@@ -18,11 +18,11 @@ function lay(...ops: LayoutOp[]): Layout {
 const ids = (cs: readonly Channel[]): string[] => cs.map((c) => c.id);
 
 describe('ChannelIndex – v1 behaviour', () => {
-  test('groups: fav first, all second, provider groups in first-appearance order', () => {
+  test('groups: all first, fav second, provider groups in first-appearance order', () => {
     const idx = new ChannelIndex(channels);
     expect(idx.groups()).toEqual([
-      { id: 'fav', name: 'Favourites', count: 0 },
       { id: 'all', name: 'All channels', count: 4 },
+      { id: 'fav', name: 'Favourites', count: 0 },
       { id: 'g:News', name: 'News', count: 2 },
       { id: 'g:Movies', name: 'Movies', count: 1 },
       { id: 'g:Kids', name: 'Kids', count: 1 },
@@ -56,12 +56,12 @@ describe('ChannelIndex – v1 behaviour', () => {
     expect(idx.search('  ', 10)).toEqual([]);
   });
 
-  test('recent appears after the lists only when it has visible channels', () => {
+  test('recent comes first, above All channels and the lists, only when it has visible channels', () => {
     expect(new ChannelIndex(channels).groups().some((g) => g.id === 'recent')).toBe(false);
     const idx = new ChannelIndex(channels, lay({ op: 'markWatched', id: 's:2' }));
     const g = idx.groups();
-    expect(g.map((x) => x.id).slice(0, 3)).toEqual(['fav', 'recent', 'all']);
-    expect(g[1]).toEqual({ id: 'recent', name: 'Recently watched', count: 1 });
+    expect(g.map((x) => x.id).slice(0, 3)).toEqual(['recent', 'all', 'fav']);
+    expect(g[0]).toEqual({ id: 'recent', name: 'Recently watched', count: 1 });
     const hidden = new ChannelIndex(channels, lay({ op: 'markWatched', id: 's:2' }, { op: 'hideChannels', ids: ['s:2'] }));
     expect(hidden.groups().some((x) => x.id === 'recent')).toBe(false);
   });
@@ -103,7 +103,7 @@ describe('ChannelIndex – lists', () => {
     expect(idx.layout()).toBe(l);
   });
 
-  test('user lists follow layout.lists order, use list:<id> ids, and show even when empty', () => {
+  test('user lists follow layout.lists order under Recently watched and All, use list:<id> ids, and show even when empty', () => {
     const l = lay(
       { op: 'renameList', listId: 'fav', name: 'Mine' },
       { op: 'createList', id: 'a', name: 'Alpha' },
@@ -113,11 +113,11 @@ describe('ChannelIndex – lists', () => {
     );
     const idx = new ChannelIndex(channels, l);
     expect(idx.groups().slice(0, 5)).toEqual([
+      { id: 'recent', name: 'Recently watched', count: 1 },
+      { id: 'all', name: 'All channels', count: 4 },
       { id: 'fav', name: 'Mine', count: 0 },
       { id: 'list:a', name: 'Alpha', count: 0 },
       { id: 'list:b', name: 'Beta', count: 1 },
-      { id: 'recent', name: 'Recently watched', count: 1 },
-      { id: 'all', name: 'All channels', count: 4 },
     ]);
     expect(ids(idx.slice('list:b', 0, 10))).toEqual(['s:2']);
   });
@@ -131,7 +131,7 @@ describe('ChannelIndex – lists', () => {
     );
     const idx = new ChannelIndex(channels, l, new Set<string>());
     expect(ids(idx.slice('fav', 0, 10))).toEqual(['s:4', 's:3']);
-    expect(idx.groups()[0]).toEqual({ id: 'fav', name: 'Favourites', count: 2 });
+    expect(idx.groups()[1]).toEqual({ id: 'fav', name: 'Favourites', count: 2 });
   });
 
   test('lists sort by number or name when the mode is not provider', () => {
@@ -152,7 +152,7 @@ describe('ChannelIndex – lists', () => {
 describe('ChannelIndex – visibility', () => {
   test('hidden channels disappear from groups, all, search and byNumber; empty groups are omitted', () => {
     const idx = new ChannelIndex(channels, lay({ op: 'hideChannels', ids: ['s:4'] }));
-    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'all', 'g:News', 'g:Movies']);
+    expect(idx.groups().map((g) => g.id)).toEqual(['all', 'fav', 'g:News', 'g:Movies']);
     expect(idx.byNumber(4)).toBeUndefined();
     expect(ids(idx.search('channel', 10))).not.toContain('s:4');
     expect(ids(idx.hiddenChannels())).toEqual(['s:4']);
@@ -161,7 +161,7 @@ describe('ChannelIndex – visibility', () => {
 
   test('hidden groups disappear from groups, all, search and byNumber', () => {
     const idx = new ChannelIndex(channels, lay({ op: 'hideGroups', ids: ['g:News'] }));
-    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'all', 'g:Movies', 'g:Kids']);
+    expect(idx.groups().map((g) => g.id)).toEqual(['all', 'fav', 'g:Movies', 'g:Kids']);
     expect(ids(idx.slice('all', 0, 10))).toEqual(['s:1', 's:4']);
     expect(idx.byNumber(3)).toBeUndefined();
     expect(idx.search('nyheter', 10)).toEqual([]);
@@ -174,7 +174,7 @@ describe('ChannelIndex – visibility', () => {
     const l = lay({ op: 'setHideNoEpg', value: true });
     const idx = new ChannelIndex(cs, l, covered);
     expect(ids(idx.slice('all', 0, 10))).toEqual(['s:1', 's:2']);
-    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'all', 'g:A']);
+    expect(idx.groups().map((g) => g.id)).toEqual(['all', 'fav', 'g:A']);
     expect(new ChannelIndex(cs, l).groupSize('all')).toBe(3);
     expect(new ChannelIndex(cs, emptyLayout(), covered).groupSize('all')).toBe(3);
   });
@@ -272,10 +272,10 @@ describe('ChannelIndex – ordering', () => {
     expect(ids(new ChannelIndex(cs, l).slice('fav', 0, 10))).toEqual(['s:5', 's:1', 's:2']);
   });
 
-  test('groupOrder puts listed existing groups first (above All channels), then the rest in provider order', () => {
+  test('groupOrder puts listed existing groups right after the lists, then the rest in provider order', () => {
     const many = [ch(1, 'A'), ch(2, 'B'), ch(3, 'C'), ch(4, 'D')];
     const idx = new ChannelIndex(many, lay({ op: 'setGroupOrder', ids: ['g:C', 'g:Gone', 'g:A'] }));
-    expect(idx.groups().map((g) => g.id)).toEqual(['fav', 'g:C', 'g:A', 'all', 'g:B', 'g:D']);
+    expect(idx.groups().map((g) => g.id)).toEqual(['all', 'fav', 'g:C', 'g:A', 'g:B', 'g:D']);
   });
 
   test('neighbour and indexOf follow the effective order', () => {

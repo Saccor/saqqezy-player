@@ -86,7 +86,7 @@ describe('AppApi', () => {
     const { sourceId, channelCount } = await api.addSource(xt());
     expect(channelCount).toBe(40);
     const groups = await api.getGroups();
-    expect(groups.map((g) => g.name)).toEqual(['Favourites', 'All channels', 'News', 'Movies', 'Kids', 'Music']);
+    expect(groups.map((g) => g.name)).toEqual(['All channels', 'Favourites', 'News', 'Movies', 'Kids', 'Music']);
     await api.refresh('epg');
     const slice = await api.getChannelSlice('all', 0, 5);
     expect(slice.total).toBe(40);

@@ -36,7 +36,7 @@ const index = (v: ChannelRegionView, l = emptyLayout()) => new ChannelIndex(chan
 /** Group ids in order; folded ones as `id@key`. */
 const shape = (idx: ChannelIndex) => idx.groups().map((g) => (g.fold ? `${g.id}@${g.fold}` : g.id));
 const NO_PICKS = [
-  'fav', 'all',
+  'all', 'fav',
   `${BE_NEWS}@BE`, `${BE_KIDS}@BE`, `${BE_DOCS}@BE`, `${SE_NEWS}@SE`, `${NORDIC}@SE`, `${DK_KIDS}@DK`, `${EN_FILMS}@lang:en`, `${DE_DOCS}@DE`,
   MUSIC, WEEKLY,
 ];
@@ -46,37 +46,37 @@ describe('ChannelIndex: your countries first, the rest folded by country', () =>
     expect(shape(index(view('off', [])))).toEqual(NO_PICKS);
   });
 
-  test('picks: chosen groups right under the lists in pick order (a multi-key group by its best key), above Recently watched and All', () => {
+  test('picks: Recently watched, All and the lists first, then chosen groups in pick order (a multi-key group by its best key)', () => {
     expect(shape(index(view('first', ['DK', 'SE'])))).toEqual([
-      'fav', NORDIC, DK_KIDS, SE_NEWS, 'all',
+      'all', 'fav', NORDIC, DK_KIDS, SE_NEWS,
       `${BE_NEWS}@BE`, `${BE_KIDS}@BE`, `${BE_DOCS}@BE`, `${EN_FILMS}@lang:en`, `${DE_DOCS}@DE`, MUSIC, WEEKLY,
     ]);
     const l = lay({ op: 'markWatched', id: channels[0]!.id });
     const ids = shape(index(view('first', ['DK']), l));
-    expect(ids.slice(0, 5)).toEqual(['fav', NORDIC, DK_KIDS, 'recent', 'all']);
+    expect(ids.slice(0, 5)).toEqual(['recent', 'all', 'fav', NORDIC, DK_KIDS]);
   });
 
-  test('hand-moved groups come first and never fold', () => {
+  test('hand-moved groups come right after the lists and never fold', () => {
     const l = lay({ op: 'setGroupOrder', ids: [DE_DOCS, MUSIC] });
     expect(shape(index(view('first', ['SE']), l))).toEqual([
-      'fav', DE_DOCS, MUSIC, SE_NEWS, NORDIC, 'all',
+      'all', 'fav', DE_DOCS, MUSIC, SE_NEWS, NORDIC,
       `${BE_NEWS}@BE`, `${BE_KIDS}@BE`, `${BE_DOCS}@BE`, `${DK_KIDS}@DK`, `${EN_FILMS}@lang:en`, WEEKLY,
     ]);
   });
 
   test('only: nothing to fold (other countries are hidden by the rule)', () => {
-    expect(shape(index(view('only', ['SE'])))).toEqual(['fav', SE_NEWS, NORDIC, 'all', MUSIC, WEEKLY]);
+    expect(shape(index(view('only', ['SE'])))).toEqual(['all', 'fav', SE_NEWS, NORDIC, MUSIC, WEEKLY]);
   });
 
   test('fold off: below yours, flat in provider order, as before', () => {
     const idx = index(view('first', ['SE'], false));
-    expect(shape(idx)).toEqual(['fav', SE_NEWS, NORDIC, 'all', BE_NEWS, DE_DOCS, BE_KIDS, EN_FILMS, MUSIC, WEEKLY, DK_KIDS, BE_DOCS]);
+    expect(shape(idx)).toEqual(['all', 'fav', SE_NEWS, NORDIC, BE_NEWS, DE_DOCS, BE_KIDS, EN_FILMS, MUSIC, WEEKLY, DK_KIDS, BE_DOCS]);
     expect(idx.groups().find((g) => g.id === BE_NEWS)?.other).toBe(true);
   });
 
   test('fewer than two keys among non-hidden groups: no fold; hidden groups count nowhere', () => {
     const l = lay({ op: 'hideGroups', ids: [BE_NEWS, BE_KIDS, BE_DOCS, DE_DOCS, EN_FILMS, DK_KIDS, NORDIC] });
-    expect(shape(index(view('off', []), l))).toEqual(['fav', 'all', SE_NEWS, MUSIC, WEEKLY]);
+    expect(shape(index(view('off', []), l))).toEqual(['all', 'fav', SE_NEWS, MUSIC, WEEKLY]);
   });
 
   test('stale picks: the rule is off, so everyone gets the fold', () => {

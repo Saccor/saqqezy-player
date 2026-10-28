@@ -503,13 +503,16 @@ export class ChannelIndex {
   // ---------- queries ----------
 
   /**
-   * Lists, then your groups (moved by hand, then chosen countries' in pick order), Recently watched, All channels,
+   * Recently watched, All channels, the lists, then your groups (moved by hand, then chosen countries' in pick order),
    * then, while the fold is active, other countries' groups in country order (each with `fold`), then the rest
-   * (spec 2026-10-22-your-countries-flags). One pass over the groups. Empty groups (all hidden) are left out and
-   * count nowhere.
+   * (spec 2026-10-22-your-countries-flags). The picker opens at the top, so the everyday rows come first. One pass
+   * over the groups. Empty groups (all hidden) are left out and count nowhere.
    */
   groups(): GroupInfo[] {
     const out: GroupInfo[] = [];
+    const recentCount = this.visible(GROUP_RECENT).length;
+    if (recentCount > 0) out.push({ id: GROUP_RECENT, name: 'Recently watched', count: recentCount });
+    out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
     for (const l of this.lay.lists) {
       const id = listGroupId(l.id);
       out.push({ id, name: l.name, count: this.visible(id).length });
@@ -529,9 +532,6 @@ export class ChannelIndex {
       else tail.push(info);
     }
     for (const g of yours) out.push(g);
-    const recentCount = this.visible(GROUP_RECENT).length;
-    if (recentCount > 0) out.push({ id: GROUP_RECENT, name: 'Recently watched', count: recentCount });
-    out.push({ id: GROUP_ALL, name: 'All channels', count: this.visible(GROUP_ALL).length });
     if (!foldActive(this.regionView?.fold === true, this.rd.state.mode, keys.size)) {
       for (const g of tail) out.push(g);
       return out;
