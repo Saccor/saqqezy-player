@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { TABS, TAB_LABELS, kindOfTab, tabNavigation, tabOfKind, tabParams } from './tabLogic.ts';
+import { TABS, kindOfTab, tabNavigation, tabOfKind, tabParams } from './tabLogic.ts';
 
 describe('tabLogic', () => {
-  test('tabs and labels', () => {
+  test('tabs', () => {
     expect(TABS).toEqual(['start', 'live', 'movies', 'series']);
-    expect(TABS.map((t) => TAB_LABELS[t])).toEqual(['Start', 'Live TV', 'Movies', 'Series']);
   });
   test('navigation: Live TV is the screen below; Start, Movies and Series replace each other', () => {
     expect(tabNavigation('live', 'live')).toEqual({ action: 'none' });

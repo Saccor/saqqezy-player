@@ -140,9 +140,6 @@ export function toPosterRow(r: StartRow): RowModel {
   return { id: r.id, title: r.title, total: all?.type === 'viewAll' ? all.total : items.length, items, loaded: true };
 }
 
-/** Start's rows use the shared row slots (`components/rowSlots.ts`); the old names stay for Start's imports. */
-export { rowSlots as startRowSlots, type RowFrame as StartRowFrame } from '../components/rowSlots.ts';
-
 /** Matches copy (design note §3.8, spec 2026-10-22): neutral, never sport or league words of our own. */
 export const MATCHES_COPY = LIVE_COPY.matches;
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FULL_LAYOUT, FULL_ROWS, TEXT_LAYOUT, TEXT_ROWS, MAX_LENGTH, applyKey, findKey, keyLabel, moveCursor, textEntryKey,
+  FULL_LAYOUT, FULL_ROWS, TEXT_LAYOUT, TEXT_ROWS, MAX_LENGTH, applyKey, keyLabel, moveCursor, textEntryKey,
   visibleTail, keyAt, type KeyDef, type KeyRows,
 } from './keyboardLogic.ts';
 
@@ -35,11 +35,6 @@ describe('keyboard layout', () => {
     const one = FULL_ROWS[1]?.[0];
     expect(q && keyLabel(q.def, true)).toBe('Q');
     expect(one && keyLabel(one.def, true)).toBe('1');
-  });
-
-  it('findKey locates a key by kind', () => {
-    const done = findKey('done');
-    expect(done && FULL_ROWS[done.row]?.[done.col]?.def.kind).toBe('done');
   });
 });
 

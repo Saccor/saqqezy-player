@@ -90,14 +90,6 @@ export function keyLabel(def: KeyDef, shift: boolean): string {
   }
 }
 
-export function findKey(kind: KeyDef['kind'], rows: KeyRows = FULL_ROWS): Cursor | undefined {
-  for (let row = 0; row < rows.length; row++) {
-    const col = (rows[row] ?? []).findIndex((c) => c.def.kind === kind);
-    if (col >= 0) return { row, col };
-  }
-  return undefined;
-}
-
 /** Moves within a row (stopping at the ends) or to the key nearest in x on the next row up or down. */
 export function moveCursor(c: Cursor, dir: Direction, rows: KeyRows = FULL_ROWS): Cursor {
   const row = rows[c.row];

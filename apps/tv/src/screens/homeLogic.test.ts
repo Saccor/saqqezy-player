@@ -1,6 +1,6 @@
 import { describe, expect, it, test } from 'vitest';
 import {
-  bannerNextLine, formatRange, nextLine, NO_GUIDE_INFO, nowLine, nowNextLine, pickGroup, previewMessage, progressOf,
+  bannerNextLine, formatRange, nextLine, nowLine, pickGroup, previewMessage, progressOf,
   resumeTarget, returnedToLive, videoClickGroup, vodReturnTarget, waitsForChannels,
 } from './homeLogic.ts';
 
@@ -122,7 +122,7 @@ describe('vodReturnTarget', () => {
   });
 });
 
-describe('nowNextLine (the Player banner and Start say the same thing)', () => {
+describe('nowLine / nextLine', () => {
   const start = Date.UTC(2026, 0, 10, 18, 0);
   const now = { title: 'Evening news', start, stop: start + 30 * 60_000 };
   const next = { title: 'Weather', start: start + 30 * 60_000, stop: start + 45 * 60_000 };
@@ -131,13 +131,6 @@ describe('nowNextLine (the Player banner and Start say the same thing)', () => {
   it('reads Now · title, then Next with its time range', () => {
     expect(nowLine(now)).toBe('Now · Evening news');
     expect(nextLine(next)).toBe(`Next · ${range} · Weather`);
-    expect(nowNextLine({ now, next })).toBe(`Now · Evening news · Next · ${range} · Weather`);
-  });
-
-  it('with no next: the now line alone; with nothing on now: the no-guide text', () => {
-    expect(nowNextLine({ now })).toBe('Now · Evening news');
-    expect(nowNextLine({})).toBe(NO_GUIDE_INFO);
-    expect(nowNextLine({ next })).toBe(NO_GUIDE_INFO);
   });
 
   test('bannerNextLine: "Next · HH:MM Title"', () => {

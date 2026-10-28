@@ -84,11 +84,6 @@ export const nextLine = (p: { title: string; start: number; stop: number }): str
 export function bannerNextLine(next: { start: number; title: string } | undefined): string {
   return next ? LIVE_COPY.nowNext.nextAt(formatClock(new Date(next.start)), next.title) : '';
 }
-/** One line for both: the Player's info banner and Start's hero say the same thing about a channel. */
-export function nowNextLine(c: { now?: { title: string }; next?: { title: string; start: number; stop: number } }): string {
-  if (!c.now) return NO_GUIDE_INFO;
-  return c.next ? `${nowLine(c.now)} · ${nextLine(c.next)}` : nowLine(c.now);
-}
 
 /** Elapsed fraction (0..1) of a programme at `now`. */
 export function progressOf(p: { start: number; stop: number } | undefined, now: number): number {

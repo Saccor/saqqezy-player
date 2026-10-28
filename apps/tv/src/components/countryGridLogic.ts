@@ -38,8 +38,6 @@ export const DEVICE_CHIP_BOXES: Record<ChipPart, Box> = {
 /** Each row's height in the grid's scroll space (a chip row: the chip plus 20 px). */
 export const ROW_PITCH = { sort: 64, heading: 56, chips: CHIP.h + 20 } as const;
 export const gridWidth = (columns: number): number => columns * CHIP.w + (columns - 1) * CHIP.gap;
-/** 4 chips a row; 3 at text scale 125 % or more. */
-export const gridColumns = (textScale = 1): 3 | 4 => (textScale >= 1.25 ? 3 : 4);
 
 export type GridRow = { kind: 'sort'; toggle: boolean } | { kind: 'heading' } | { kind: 'chips'; keys: string[] };
 export interface GridFocus { row: number; col: number }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CountryChoice } from '@iptv/app-api';
 import { REGIONS_MAX } from '@iptv/core';
 import {
-  CHIP, CHIP_BOXES, DEVICE_CHIP_BOXES, cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridColumns, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
+  CHIP, CHIP_BOXES, DEVICE_CHIP_BOXES, cellAt, chipArt, chipLabel, clampFocus, firstFocus, gridRows, gridWidth, keyAt, moveGrid, pickNumber, resultLine,
   rowTops, scrollFor, togglePick, type GridRow,
 } from './countryGridLogic.ts';
 
@@ -29,8 +29,6 @@ describe('grid rows', () => {
     expect(gridRows(CHOICES, 'az', 4, 'SE').filter((r) => r.kind === 'chips')).toEqual([
       { kind: 'chips', keys: ['SE', 'BE', 'DK', 'FR'] }, { kind: 'chips', keys: ['DE'] }, { kind: 'chips', keys: ['lang:en', 'lang:es'] },
     ]);
-    expect(gridColumns()).toBe(4);
-    expect(gridColumns(1.25)).toBe(3);
     expect(gridWidth(4)).toBe(1112);
     expect(gridRows(CHOICES, 'most', 3)[1]).toEqual({ kind: 'chips', keys: ['SE', 'BE', 'DE'] });
     const many = Array.from({ length: 25 }, (_, i) => c(`C${i}`, 30 - i));

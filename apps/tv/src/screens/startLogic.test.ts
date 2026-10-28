@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import type { StartRow, VodTile } from '@iptv/app-api';
 import {
-  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, startRowSlots, toPosterRow, START_POSTER, START_ROW_Y, focusLabel, labelWidth,
+  cellId, channelMenuItems, channelsLabel, eventMenuItems, eventMenuPatch, activeMatchChip, matchChipActions, MATCHES_COPY, eventWhen, focusAfterLoad, locateStart, moveStart, rowKind, toPosterRow, START_POSTER, START_ROW_Y, focusLabel, labelWidth,
   COMP_ALL, COMP_MORE, compChipId, compKeyOf, competitionChipActions, competitionMenuItems, competitionPatch, matchesSummary,
 } from './startLogic.ts';
-import { rowSlots } from '../components/rowSlots.ts';
 import { gridLayout } from '../vod/gridLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 
@@ -71,12 +70,6 @@ describe('channelMenuItems', () => {
   test('a long press offers the favourite change behind a menu, with Cancel last', () => {
     expect(channelMenuItems(false)).toEqual([{ id: 'fav', label: 'Add to favourites' }, { id: 'cancel', label: 'Cancel' }]);
     expect(channelMenuItems(true)).toEqual([{ id: 'fav', label: 'Remove from favourites' }, { id: 'cancel', label: 'Cancel' }]);
-  });
-});
-
-describe('startRowSlots', () => {
-  test('is the shared row slots (tests in components/rowSlots.test.ts)', () => {
-    expect(startRowSlots).toBe(rowSlots);
   });
 });
 
