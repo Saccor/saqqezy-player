@@ -55,7 +55,7 @@ const SEARCH_ON_NOW = 20;
 /** Most folders (lists, provider groups, VOD categories together) one search returns. */
 const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
-export const SEARCH_VOD_MAX = 20;
+const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
 
 const noop = () => { /* settled */ };

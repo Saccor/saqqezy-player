@@ -2,22 +2,22 @@
 import type { SportsEventTile, StartCell, StartHome, StartRow, StartRowId, VodTile } from './types.ts';
 
 // 'live' (channels on Start) is no longer emitted (spec 2026-10-24 §1.1); the id stays so cached pages type-check.
-export const START_TITLES: Record<StartRowId, string> = {
+const START_TITLES: Record<StartRowId, string> = {
   continue: 'Continue watching', live: 'On now', sports: 'On now',
   trendingMovies: 'Trending movies', trendingSeries: 'Trending series',
   newLibrary: 'New in your library',
   topMovies: 'Top rated movies', topSeries: 'Top rated series',
 };
 /** The On now row while a category filter is on (neutral copy; the chips themselves are the guide's own text). */
-export const START_SPORTS_FILTERED_TITLE = `${START_TITLES.sports} (filtered)`;
+const START_SPORTS_FILTERED_TITLE = `${START_TITLES.sports} (filtered)`;
 export const START_CAPS = { continue: 12, sports: 12, trending: 20, new: 20, top: 20 } as const;
 /** A Top rated row shows only when the library has at least this many rated titles of that kind. */
 export const START_TOP_MIN = 6;
 /** An unnumbered trending row shows only when at least this many trending titles are in the library. */
 export const START_TRENDING_MIN = 4;
 /** A Top row is numbered only with at least this many strong matches; at most `START_TOP_RANKED` are numbered. */
-export const START_TOP_RANK_MIN = 5;
-export const START_TOP_RANKED = 10;
+const START_TOP_RANK_MIN = 5;
+const START_TOP_RANKED = 10;
 /** A feed built longer ago than this is no longer "this week". */
 export const START_TRENDING_FRESH_MS = 3 * 86_400_000;
 /** Continue watching leaves out titles not played for this long. */

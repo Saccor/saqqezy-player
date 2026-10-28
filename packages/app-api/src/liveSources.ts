@@ -1,9 +1,9 @@
 import type { Storage } from '@iptv/core';
 
 /** Most remembered sources per source (oldest dropped). */
-export const LIVE_PICKS_MAX = 2000;
+const LIVE_PICKS_MAX = 2000;
 /** How long a stream that failed to play sorts last. */
-export const LIVE_BAD_MS = 10 * 60_000;
+const LIVE_BAD_MS = 10 * 60_000;
 
 export const livePickKey = (sourceId: string): string => `livePick:${sourceId}`;
 

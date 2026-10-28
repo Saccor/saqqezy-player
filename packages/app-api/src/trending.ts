@@ -9,7 +9,7 @@ export const TRENDING_FRESH_MS = 6 * 3_600_000;
 /** Waits after 1, 2, 3, 4 and 5+ failures in a row. */
 export const TRENDING_BACKOFF_MS: readonly number[] = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 6 * 3_600_000];
 /** A language without a feed (404) is not asked again for this long; English is used meanwhile. */
-export const TRENDING_MISSING_MS = 24 * 3_600_000;
+const TRENDING_MISSING_MS = 24 * 3_600_000;
 const FALLBACK = 'en';
 const KINDS: readonly VodKind[] = ['movie', 'series'];
 const MISSING_KEY = 'trending:missing';

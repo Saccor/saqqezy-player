@@ -85,7 +85,7 @@ export interface SourceSummary { id: string; name: string; kind: 'xtream' | 'm3u
 
 // Compile-time drift check: SourceSummary and the companion protocol's copy must stay mutually assignable.
 type Assert<T extends true> = T;
-export type _SourceSummaryInSync = Assert<
+type _SourceSummaryInSync = Assert<
   [SourceSummary] extends [CompanionSourceSummary] ? ([CompanionSourceSummary] extends [SourceSummary] ? true : false) : false
 >;
 

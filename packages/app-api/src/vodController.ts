@@ -59,7 +59,7 @@ export interface StartVodRows {
 /** Movie and series details kept in memory (most recently used). */
 export const VOD_DETAIL_CACHE = 50;
 /** How many versions' details one Versions list may load to learn their languages. */
-export const VERSION_LANG_LOADS = 6;
+const VERSION_LANG_LOADS = 6;
 /** "More in <category>" on the movie detail. */
 export const VOD_MORE_ITEMS = 20;
 
