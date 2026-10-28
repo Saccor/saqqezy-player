@@ -256,6 +256,8 @@ describe('CompanionHost', () => {
     const { sourceId: a } = await s.api.addSource(xt());
     const { p } = await pairQr(s);
     await hello(p);
+    // The background guide import ends with a coverage change and its own push: let it finish first.
+    await s.api.idle();
     await settle(400);
     p.inbox.length = 0;
     const spy = vi.spyOn(s.api, 'getCompanionState');
@@ -779,6 +781,8 @@ describe('CompanionHost', () => {
   test('a rejected single-flight build answers every waiter with an error; the next request rebuilds', async () => {
     const s = setup();
     await s.api.addSource(xt());
+    // A guide import finishing mid-test changes the generation and starts a second build: let it finish first.
+    await s.api.idle();
     const { p } = await pairQr(s);
     await hello(p);
     let fail!: () => void;
