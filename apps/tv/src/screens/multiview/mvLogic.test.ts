@@ -71,12 +71,19 @@ describe('focus by geometry', () => {
     expect(moveFocus(down, 'up', lay(down)).focus).toBe(1);
   });
 
-  it('(b) with room for a 3rd window: the empty slot is focusable', () => {
+  it('(b) has no empty slot: Right from the small window stays on it, even with room for more', () => {
     const s = { ...makeLarge(two(), 0), focus: 1 };
-    const right = moveFocus(s, 'right', lay(s, 3));
+    expect(moveFocus(s, 'right', lay(s, 3)).focus).toBe(1);
+  });
+
+  it('five windows with room for a sixth: the empty slot is focusable', () => {
+    let s = two();
+    for (const n of [2, 3, 4]) s = addWindow(s, w(n));
+    s = { ...s, focus: 4 };
+    const right = moveFocus(s, 'right', lay(s, 6));
     expect(right.focus).toBe('empty');
     expect(focusRested(right).sound).toBe(s.sound); // the empty slot has no sound
-    expect(moveFocus(right, 'left', lay(right, 3)).focus).toBe(1);
+    expect(moveFocus(right, 'left', lay(right, 6)).focus).toBe(4);
   });
 });
 

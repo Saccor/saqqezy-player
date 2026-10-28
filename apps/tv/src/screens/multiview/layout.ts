@@ -34,7 +34,7 @@ export interface LayoutInput {
   large?: number;
   /** "Equal size": 4 tiles in 2x2 even with one marked Large (Make large clears it). */
   equal?: boolean;
-  /** min(device ceiling, Max windows): with 3 or more, (b) shows an empty "Add channel" slot. */
+  /** min(device ceiling, Max windows): with 6, five windows show an empty "Add channel" slot in the sixth place. */
   windowLimit: number;
 }
 
@@ -42,7 +42,7 @@ export interface Layout {
   kind: LayoutKind;
   /** In slot order: the Large tile first where there is one. */
   tiles: TileGeometry[];
-  /** The empty "Add channel" slot in (b). */
+  /** The empty "Add channel" slot (five windows with room for a sixth). */
   empty?: { rect: Rect; ring: Rect };
 }
 
@@ -53,6 +53,7 @@ const FULL = rect(0, 0, 1920, 1080);
 const A = [rect(56, 288, 896, 504), rect(968, 288, 896, 504)];
 const LARGE_C = rect(360, 28, 1200, 675);
 const SMALL_C = [rect(360, 719, 592, 333), rect(968, 719, 592, 333)];
+/** (b): the one small window centred under the Large one (no empty slot beside it; owner 2026-10-28). */
 const SMALL_CENTRED = rect(664, 719, 592, 333);
 const D1 = [rect(296, 37, 1328, 747), rect(296, 800, 432, 243), rect(744, 800, 432, 243), rect(1192, 800, 432, 243)];
 const D2 = [rect(56, 28, 896, 504), rect(968, 28, 896, 504), rect(56, 548, 896, 504), rect(968, 548, 896, 504)];
@@ -102,7 +103,6 @@ export function layout(i: LayoutInput): Layout {
   if (n === 1) return place('single', inOrder, [FULL]);
   if (n === 2) {
     if (large === undefined) return place('a', inOrder, A);
-    if (i.windowLimit >= 3) return { ...place('b', largeFirst(2, large), [LARGE_C, SMALL_C[0]!]), empty: { rect: SMALL_C[1]!, ring: ringOf(SMALL_C[1]!) } };
     return place('b', largeFirst(2, large), [LARGE_C, SMALL_CENTRED]);
   }
   if (n === 3) return place('c', largeFirst(3, large ?? 0), [LARGE_C, ...SMALL_C]);

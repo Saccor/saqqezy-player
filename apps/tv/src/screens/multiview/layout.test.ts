@@ -24,24 +24,18 @@ describe('layout(): the spec tables, to the pixel', () => {
     expect(l.empty).toBeUndefined();
   });
 
-  it('(b) 2 tiles, one Large, the small one below with an empty "Add channel" slot (§3.4)', () => {
-    const l = layout({ tiles: 2, large: 1, windowLimit: 3 });
-    expect(l.kind).toBe('b');
-    expectRows(l, [
-      [[360, 28, 1200, 675], [352, 20, 1216, 691], [1488, 52, 48], [360, 575, 1200, 128]],
-      [[360, 719, 592, 333], [352, 711, 608, 349], [896, 735, 40], [360, 980, 592, 72]],
-    ]);
-    expect(l.tiles.map((t) => t.tile)).toEqual([1, 0]); // the Large tile takes slot 1
-    expect(l.empty).toEqual({ rect: r([968, 719, 592, 333]), ring: r([960, 711, 608, 349]) });
-  });
-
-  it('(b) with a window limit of 2: the small tile is centred and there is no empty slot', () => {
-    const l = layout({ tiles: 2, large: 0, windowLimit: 2 });
-    expectRows(l, [
+  it('(b) 2 tiles, one Large: the small one centred below it, with no empty slot whatever the limit (owner 2026-10-28)', () => {
+    const rows: Row[] = [
       [[360, 28, 1200, 675], [352, 20, 1216, 691], [1488, 52, 48], [360, 575, 1200, 128]],
       [[664, 719, 592, 333], [656, 711, 608, 349], [1200, 735, 40], [664, 980, 592, 72]],
-    ]);
-    expect(l.empty).toBeUndefined();
+    ];
+    for (const windowLimit of [2, 3, 4, 6]) {
+      const l = layout({ tiles: 2, large: 1, windowLimit });
+      expect(l.kind).toBe('b');
+      expectRows(l, rows);
+      expect(l.tiles.map((t) => t.tile)).toEqual([1, 0]); // the Large tile takes slot 1
+      expect(l.empty).toBeUndefined();
+    }
   });
 
   it('(c) 3 tiles: Large on top, 2 small below; tile 1 is Large when none is marked (§3.5)', () => {
