@@ -25,7 +25,7 @@ const TAIL = { x1: 49.5, y1: 49.5, x2: 97.6, y2: 97.6, w: 34 };
 const TRI = [[-24, -50], [-24, 50], [56, 0]];
 const TRI_ROUND = 7;
 /** Default mark size as a share of the tile's shorter side: clear of Samsung's squircle mask. */
-export const MARK_SCALE = 0.62;
+const MARK_SCALE = 0.62;
 
 // --- SVG ---------------------------------------------------------------------------------------------------------
 

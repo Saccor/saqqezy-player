@@ -21,7 +21,7 @@ export function crc32(buf) {
 }
 
 /** Lists files under `dir` as forward-slash relative paths, sorted (config.xml first so it leads the archive). */
-export function listFiles(dir, prefix = '') {
+function listFiles(dir, prefix = '') {
   const out = [];
   for (const name of readdirSync(dir).sort()) {
     const full = join(dir, name);
