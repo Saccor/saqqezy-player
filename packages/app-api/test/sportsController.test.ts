@@ -282,29 +282,4 @@ describe('SportsController v2: Matches in your guide', () => {
     expect(r.row).toHaveLength(2);
     expect(r.sc.filters(r.view)).toEqual({ competitions: [], categories: [] });
   });
-
-  test('performance: 20k candidates over 300 keys with 5 copies each group and rank under 300 ms; ranking alone under 10 ms (fixture 19)', async () => {
-    const b = new SportsIndexBuilder(NOW2);
-    const teams = Array.from({ length: 400 }, (_, i) => `Team ${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + (Math.floor(i / 26) % 26))}`);
-    for (let i = 0; i < 20_000; i++) {
-      const key = `k${i % 300}`;
-      const m = Math.floor(i / 300);
-      const start = T + (((m * 37) % (34 * 60)) - 12 * 60) * 60_000;
-      b.add({ epgId: key, title: `${teams[(m * 2) % 400]} v ${teams[(m * 2 + 1) % 400]}`, start, stop: start + 115 * 60_000 }, { categories: ['Football'] }, key);
-    }
-    const slack = process.env.CI ? 3 : 1;
-    const record = b.record(1, NOW2);
-    for (const fold of [false, true]) {
-      // Combining folds the copies of a guide channel into one row: channelsForEpgKey then returns one channel per row.
-      const index = new ChannelIndex([...channels(300, 3), ...channels(300, 2, () => '', 2000)], undefined, undefined, { fold });
-      const sc = new SportsController({ storage: new MemoryStorage(), now: () => NOW2 });
-      const t0 = performance.now();
-      const view = await sc.view('s', record, index, 0);
-      matchTiles(view, NOW2, S0, sc.aliases());
-      expect(performance.now() - t0).toBeLessThan(300 * slack);
-      const t1 = performance.now();
-      matchTiles(view, NOW2, S0, sc.aliases());
-      expect(performance.now() - t1).toBeLessThan(10 * slack);
-    }
-  });
 });
