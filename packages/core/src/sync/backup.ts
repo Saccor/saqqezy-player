@@ -23,9 +23,9 @@ import { registerKey, type SyncRecord } from './types.ts';
 /** `syncMeta` scope of the fingerprint keys of restored backups (to match sources added later). */
 export const BACKUP_FP_SCOPE = '#backupfp';
 /** Fingerprint keys kept at most (the newest restores). */
-export const BACKUP_FP_MAX = 5;
+const BACKUP_FP_MAX = 5;
 /** Version of the snapshot JSON inside the envelope. */
-export const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 1;
 
 /** The decrypted content of a backup. */
 interface Snapshot { v: 1; p: SyncPayload }

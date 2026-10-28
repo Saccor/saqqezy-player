@@ -1,5 +1,5 @@
 /** Elements per `JSON.parse` call: large enough to keep parse overhead low, small enough to stay cheap in memory. */
-export const JSON_BATCH = 1000;
+const JSON_BATCH = 1000;
 
 const WS = new Set([0x20, 0x09, 0x0a, 0x0d, 0xfeff]);
 const QUOTE = 0x22;

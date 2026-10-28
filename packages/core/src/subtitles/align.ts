@@ -23,7 +23,7 @@ export const SYNC_MIN_CUES = 20;
 /** … over this much played video. */
 export const SYNC_MIN_PLAYED_MS = 4 * 60_000;
 /** The furthest a found delay may be. */
-export const SYNC_MAX_SHIFT_MS = 60_000;
+const SYNC_MAX_SHIFT_MS = 60_000;
 /** The speeds tried: Normal, 25 → 23.976, 23.976 → 25 (as the player's speed setting). */
 export const SYNC_SPEEDS: readonly number[] = [1, 23.976 / 25, 25 / 23.976];
 

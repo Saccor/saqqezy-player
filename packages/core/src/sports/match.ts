@@ -3,7 +3,7 @@ import { foldText } from '../text/fold.ts';
 
 /** Tokens that say "club", not which club; dropped from a side before comparing. */
 const DROP = new Set(['fc', 'afc', 'cf', 'sc', 'sv', 'bk', 'if', 'ff', 'ac', 'as', 'fk', '1']);
-export const SIDE_MATCH = 0.85;
+const SIDE_MATCH = 0.85;
 
 /**
  * The stored and compared form of a guide category text: folded, inner spaces collapsed, trimmed (the settings'

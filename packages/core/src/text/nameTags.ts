@@ -78,7 +78,7 @@ const TOKEN_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${TOKENS.map(([alts]) => `(${
 export const HAS_TOKEN = new RegExp(TOKEN_RE.source, 'iu');
 export const NO_TAGS: string[] = [];
 // eslint-disable-next-line no-control-regex
-export const PLAIN = /^[\x20-\x7e]*$/;
+const PLAIN = /^[\x20-\x7e]*$/;
 
 const INVISIBLE = /[​-‏‪-‮⁠﻿]/g;
 const BARS = /[┃│｜❘]/g;

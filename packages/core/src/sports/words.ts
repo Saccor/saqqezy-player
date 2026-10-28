@@ -31,9 +31,9 @@ export const FOOTBALL_CATEGORIES: ReadonlySet<string> = new Set(['football', 'so
 export const BROAD_SPORT_CATEGORIES: ReadonlySet<string> = new Set(['sport', 'sports', 'sports event', 'sporting event', 'deportes']);
 /** Other generic category words that are never a competition. */
 const GENERIC_EXTRA: ReadonlySet<string> = new Set(['live', 'direct', 'direkt', 'hd', 'uhd', '4k', 'sd', 'new', 'premiere']);
-export const DVB_SPORT = /^0x4[0-9a-b]$/;
+const DVB_SPORT = /^0x4[0-9a-b]$/;
 export const DVB_CODE = /^0x[0-9a-f]{1,2}$/;
-export const DVB_MAGAZINE = '0x42';
+const DVB_MAGAZINE = '0x42';
 
 /** Folded category text: a sport category or DVB sport code (the magazine code is not). */
 export function isSportCategory(folded: string): boolean {

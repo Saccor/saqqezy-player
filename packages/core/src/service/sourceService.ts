@@ -96,7 +96,7 @@ interface TitleIndexRecord { gen: number; data: TitleIndexData; truncated: boole
 const titleIndexKey = (id: string) => `titleIndex:${id}`;
 const sportsIndexKey = (id: string) => `sportsIndex:${id}`;
 /** The source's interned catch-up templates (`Channel.cu.tpl` indexes it), saved with every channel list. */
-export const catchupTemplatesKey = (id: string) => `catchupTemplates:${id}`;
+const catchupTemplatesKey = (id: string) => `catchupTemplates:${id}`;
 /** Guide history kept for catch-up channels, at most (spec §5.1). */
 export const CATCHUP_GUIDE_DAYS = 7;
 /**
@@ -1038,7 +1038,7 @@ export function catchupBackLimits(channels: Channel[]): Map<string, number> {
  * Guide keys of the channels whose own name or folder says sport (`isSportChannelName`): the sport signal for guides
  * that tag no sport category. Each folder name is checked once (54k channels share about a thousand folders).
  */
-export function sportChannelKeys(channels: readonly Channel[]): Set<string> {
+function sportChannelKeys(channels: readonly Channel[]): Set<string> {
   const out = new Set<string>();
   const byGroup = new Map<string, boolean>();
   for (const c of channels) {

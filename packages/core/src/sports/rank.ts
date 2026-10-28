@@ -9,11 +9,11 @@ const H = 60 * M;
 export const MATCHES_ROW_CAP = 12;
 export const MATCHES_ALL_CAP = 100;
 /** The window widening aims for at least this many matches (it never pads the row). */
-export const MATCHES_MIN = 4;
+const MATCHES_MIN = 4;
 /** Upcoming window steps (hours): the first that holds MATCHES_MIN matches, else the last. */
-export const MATCH_WINDOWS_H = [6, 12, 24] as const;
+const MATCH_WINDOWS_H = [6, 12, 24] as const;
 /** Followed sides are looked up this far ahead (the raw index window). */
-export const FOLLOWED_AHEAD_MS = 36 * H;
+const FOLLOWED_AHEAD_MS = 36 * H;
 /** The Start row (On now): on air, or kick-off within this long; never widened (spec 2026-10-24 §1.2). */
 export const ON_NOW_AHEAD_MS = 2 * H;
 /** On air counts only for events that started at most this long ago. */
