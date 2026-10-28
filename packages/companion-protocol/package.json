@@ -2,6 +2,7 @@
   "name": "@iptv/companion-protocol",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "dependencies": { "@iptv/core": "workspace:*" }

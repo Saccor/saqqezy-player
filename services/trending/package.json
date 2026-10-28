@@ -2,6 +2,7 @@
   "name": "@iptv/trending",
   "version": "0.0.0",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local --ip 127.0.0.1 --port 8788 --test-scheduled",
