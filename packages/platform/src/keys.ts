@@ -81,9 +81,3 @@ export const TIZEN_KEYS_TO_REGISTER: readonly string[] = [
   'Info', 'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind',
   'MediaTrackPrevious', 'MediaTrackNext', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 ];
-
-/** tvinputdevice key name → logical key, for building `withCodes` input from `getKey(name).code`. */
-export const TIZEN_KEY_NAMES: Readonly<Record<string, LogicalKey>> = {
-  ...MEDIA_KEY_NAMES, ChannelUp: 'ChannelUp', ChannelDown: 'ChannelDown', Info: 'Info',
-  ColorF0Red: 'Red', ColorF1Green: 'Green', ColorF2Yellow: 'Yellow', ColorF3Blue: 'Blue',
-};

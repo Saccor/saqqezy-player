@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectPlatform, keyTableFor, mapKey, TIZEN_KEY_NAMES, TIZEN_KEYS_TO_REGISTER, withCodes, type LogicalKey, type PlatformId } from '../src/index.ts';
+import { detectPlatform, keyTableFor, mapKey, TIZEN_KEYS_TO_REGISTER, withCodes, type LogicalKey, type PlatformId } from '../src/index.ts';
 
 const browserCases: Array<[string, LogicalKey]> = [
   ['ArrowUp', 'Up'], ['ArrowDown', 'Down'], ['ArrowLeft', 'Left'], ['ArrowRight', 'Right'],
@@ -118,9 +118,8 @@ describe('media keys', () => {
     const t = keyTableFor('desktop');
     expect(withCodes(t, { 1: 'Play' })).toBe(t);
   });
-  it('TIZEN_KEY_NAMES maps every media key name it registers', () => {
+  it('Tizen registers every media key name', () => {
     for (const n of ['MediaPlay', 'MediaPause', 'MediaStop', 'MediaFastForward', 'MediaRewind', 'MediaPlayPause', 'MediaTrackNext', 'MediaTrackPrevious']) {
-      expect(TIZEN_KEY_NAMES[n]).toBeDefined();
       expect(TIZEN_KEYS_TO_REGISTER).toContain(n);
     }
   });

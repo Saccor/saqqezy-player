@@ -118,11 +118,6 @@ export function rankSubtitles(list: readonly OnlineSubtitle[], videoFps?: number
   });
 }
 
-/** The file a click loads (`rankSubtitles`' first). */
-export function bestSubtitle(list: readonly OnlineSubtitle[]): OnlineSubtitle | undefined {
-  return rankSubtitles(list)[0];
-}
-
 const base = (code: string) => code.toLowerCase().split(/[-_]/)[0] ?? '';
 
 /**

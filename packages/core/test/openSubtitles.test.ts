@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
-  OpenSubtitlesClient, bestSubtitle, languageChoices, rankSubtitles, searchParams, searchTitle, type OnlineSubtitle,
+  OpenSubtitlesClient, languageChoices, rankSubtitles, searchParams, searchTitle, type OnlineSubtitle,
 } from '../src/subtitles/openSubtitles.ts';
 import { SubtitleError } from '../src/subtitles/service.ts';
 import type { FetchFn } from '../src/types.ts';
@@ -73,15 +73,15 @@ describe('searchTitle', () => {
 
 describe('ranking and the language list', () => {
   test('best: a hash match (timed for this exact file) beats everything else', () => {
-    expect(bestSubtitle([sub(1, 'en', { downloads: 900, trusted: true }), sub(2, 'en', { hashMatch: true, machineTranslated: true })])?.fileId).toBe(2);
+    expect(rankSubtitles([sub(1, 'en', { downloads: 900, trusted: true }), sub(2, 'en', { hashMatch: true, machineTranslated: true })])[0]?.fileId).toBe(2);
   });
 
   test('best: trusted, then not machine-translated, then not hearing-impaired, then most downloaded', () => {
-    expect(bestSubtitle([sub(1, 'en', { downloads: 900, machineTranslated: true }), sub(2, 'en', { downloads: 10 })])?.fileId).toBe(2);
-    expect(bestSubtitle([sub(1, 'en', { downloads: 900 }), sub(2, 'en', { downloads: 5, trusted: true })])?.fileId).toBe(2);
-    expect(bestSubtitle([sub(1, 'en', { downloads: 900, hearingImpaired: true }), sub(2, 'en', { downloads: 5 })])?.fileId).toBe(2);
-    expect(bestSubtitle([sub(1, 'en', { downloads: 5 }), sub(2, 'en', { downloads: 50 })])?.fileId).toBe(2);
-    expect(bestSubtitle([])).toBeUndefined();
+    expect(rankSubtitles([sub(1, 'en', { downloads: 900, machineTranslated: true }), sub(2, 'en', { downloads: 10 })])[0]?.fileId).toBe(2);
+    expect(rankSubtitles([sub(1, 'en', { downloads: 900 }), sub(2, 'en', { downloads: 5, trusted: true })])[0]?.fileId).toBe(2);
+    expect(rankSubtitles([sub(1, 'en', { downloads: 900, hearingImpaired: true }), sub(2, 'en', { downloads: 5 })])[0]?.fileId).toBe(2);
+    expect(rankSubtitles([sub(1, 'en', { downloads: 5 }), sub(2, 'en', { downloads: 50 })])[0]?.fileId).toBe(2);
+    expect(rankSubtitles([])[0]).toBeUndefined();
   });
 
   test('with the video frame rate: matching fps first, unknown between, other known fps last (after the hash match)', () => {

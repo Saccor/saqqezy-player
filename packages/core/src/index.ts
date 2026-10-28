@@ -48,7 +48,7 @@ export { orderProviderGroups, regionRule, sureRegionKeys, type RegionRule, type 
 export { foldSummary, type FoldCountry } from './index/countryFold.ts';
 export { foldChannels, type ChannelFold, type ChannelFolds } from './live/fold.ts';
 export { orderLiveSources, type LiveSourceCandidate, type LiveSourceContext } from './live/sources.ts';
-export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, vodSearchIndexBytes, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
+export { buildVodSearchIndex, searchVodIndex, vodIndexEntry, type VodIndexEntry, type VodSearchIndex } from './vod/searchIndex.ts';
 export { fetchXtreamCatalog, xtreamVodApi, VodFetchCancelled, type XtreamVodApi } from './vod/fetchXtream.ts';
 export {
   CONTINUE_MAX, MIN_RESUME_MS, WATCHED_RATIO,
@@ -104,7 +104,7 @@ export {
   SUBTITLE_DELAY_MAX_MS, SUBTITLE_KEEP, SubtitleError, SubtitleService, type LoadedSubtitle, type SubtitleDetails, type SubtitleInput, type SubtitleServiceDeps,
 } from './subtitles/service.ts';
 export {
-  OpenSubtitlesClient, bestSubtitle, languageChoices, rankSubtitles, searchParams, searchTitle,
+  OpenSubtitlesClient, languageChoices, rankSubtitles, searchParams, searchTitle,
   type LanguageChoice, type OnlineSubtitle, type OpenSubtitlesDeps, type SubtitleSearch,
 } from './subtitles/openSubtitles.ts';
 export { HASH_CHUNK, fetchMovieHash, openSubtitlesHash } from './subtitles/movieHash.ts';
