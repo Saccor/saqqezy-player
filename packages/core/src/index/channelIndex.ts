@@ -3,7 +3,7 @@ import { epgKey } from '../epg/window.ts';
 import { emptyLayout, FAV_LIST_ID, type Layout, type SortMode } from '../layout/types.ts';
 import { isUserFlags, layoutFromFlags, type UserFlags } from '../layout/migrate.ts';
 import { foldChannels, type ChannelFolds } from '../live/fold.ts';
-import { searchKey } from '../text/searchKey.ts';
+import { compileQuery, nameMatchScore, nameKeys, NO_MATCH, type CompiledQuery, type NameKeys } from '../text/searchMatch.ts';
 import type { GroupRegion } from '../text/regions.ts';
 import { foldActive, splitFold } from './countryFold.ts';
 import { regionRule, sureRegionKeys, type RegionRule, type RegionState } from './regionRule.ts';
@@ -61,8 +61,8 @@ interface Base {
   byNumber: Channel[];
   /** Lazily computed number-ordered members per provider group. */
   membersByNumber: Map<string, Channel[]>;
-  /** `searchKey` of each channel's original (playlist) name, by channel id; built on the first `search()`. */
-  keys?: Map<string, string>;
+  /** Match keys of each channel's original (playlist) name, by channel id; built on the first `search()`. */
+  keys?: Map<string, NameKeys>;
   epgCoverage: Set<string> | undefined;
   /** Lazily computed ids whose epgKey is not covered. */
   noEpg?: Set<string>;
@@ -159,10 +159,10 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
 }
 
 /** Search keys of the original names, built once per base on the first search (a cold start never pays for them). */
-function searchKeys(base: Base): Map<string, string> {
+function searchKeys(base: Base): Map<string, NameKeys> {
   if (!base.keys) {
-    const keys = new Map<string, string>();
-    for (const c of base.channels) keys.set(c.id, searchKey(c.name));
+    const keys = new Map<string, NameKeys>();
+    for (const c of base.channels) keys.set(c.id, nameKeys(c.name));
     base.keys = keys;
   }
   return base.keys;
@@ -179,7 +179,7 @@ export class ChannelIndex {
   /** Display copies of renamed channels; unrenamed channels are returned as-is. */
   private readonly renamed: Map<string, Channel>;
   /** Normalised display names of renamed channels. */
-  private readonly renamedKeys: Map<string, string>;
+  private readonly renamedKeys: Map<string, NameKeys>;
   private readonly hiddenCh: Set<string>;
   /** Effective hidden groups: the user's, plus those the region rule hides (never the shown ones). */
   private readonly hiddenGr: Set<string>;
@@ -195,8 +195,8 @@ export class ChannelIndex {
   private readonly fb: FoldBase | undefined;
   /** Fold index → its row (null: no candidate). Depends on hidden channels, hidden groups and names only. */
   private rowCache = new Map<number, Channel | null>();
-  /** Row id → `searchKey` of a folded row's name. */
-  private readonly rowKeys = new Map<string, string>();
+  /** Row id → match keys of a folded row's name. */
+  private readonly rowKeys = new Map<string, NameKeys>();
 
   /**
    * @param layout the user's layout; a v1 `UserFlags` object is converted with `layoutFromFlags`.
@@ -240,7 +240,7 @@ export class ChannelIndex {
         const c = this.base.byId.get(id);
         if (!c || c.name === name) continue;
         this.renamed.set(id, { ...c, name });
-        this.renamedKeys.set(id, searchKey(name));
+        this.renamedKeys.set(id, nameKeys(name));
       }
     }
     this.noEpg = lay.hideNoEpg && epgCoverage ? noEpgIds(this.base, epgCoverage) : undefined;
@@ -662,54 +662,64 @@ export class ChannelIndex {
     return list[j];
   }
 
-  /** Matches the display name, with the original name as a fallback key. */
+  /** The best matches of `query` (see `searchScored`). */
   search(query: string, limit: number): Channel[] {
-    const q = searchKey(query);
+    return this.searchScored(query).slice(0, Math.max(0, limit)).map((m) => m.channel);
+  }
+
+  /**
+   * Every visible row matching `query`, best first (`nameMatchScore`: every word in any order, the bare name first), in
+   * playlist order within a score. A folded row matches by its row name too, a renamed channel by its new name too.
+   * A query that is a channel's number puts that channel first, with score -1.
+   */
+  searchScored(query: string): { channel: Channel; score: number }[] {
+    const q = compileQuery(query);
     if (!q) return [];
-    const prefix: Channel[] = [];
-    const contains: Channel[] = [];
+    const numbered = /^\d+$/.test(query.trim()) ? this.byNumber(Number(query.trim())) : undefined;
     const keys = searchKeys(this.base);
+    const out: { channel: Channel; score: number }[] = [];
     for (const c of this.visible(GROUP_ALL)) {
-      const orig = keys.get(c.id)!;
-      // A folded row also matches by its row name.
+      if (c === numbered) continue;
       const disp = c.quality !== undefined ? this.rowKey(c) : this.renamedKeys.get(c.id);
-      if (orig.startsWith(q) || (disp !== undefined && disp.startsWith(q))) prefix.push(c);
-      else if (orig.includes(q) || (disp !== undefined && disp.includes(q))) contains.push(c);
-      if (prefix.length >= limit) break;
+      const score = this.scoreOf(keys.get(c.id)!, disp, q);
+      if (score !== NO_MATCH) out.push({ channel: c, score });
     }
-    return [...prefix, ...contains].slice(0, limit);
+    out.sort((a, b) => a.score - b.score);
+    if (numbered) out.unshift({ channel: numbered, score: -1 });
+    return out;
+  }
+
+  private scoreOf(orig: NameKeys, disp: NameKeys | undefined, q: CompiledQuery): number {
+    const a = nameMatchScore(orig, q);
+    return disp === undefined || a === 0 ? a : Math.min(a, nameMatchScore(disp, q));
   }
 
   /**
    * Search matches that only the region rule hides (catalogue-personalisation §2.2 "Results in hidden groups (n)"):
    * channels of rule-hidden groups, never user-hidden groups or channels; `count` is every match, `channels` the first
-   * `limit` (prefix matches first, then playlist order). Each is the playlist channel (renamed), not a folded row.
+   * `limit`, best first (as `searchScored`). Each is the playlist channel (renamed), not a folded row.
    */
   searchRuleHidden(query: string, limit: number): { count: number; channels: Channel[] } {
-    const q = searchKey(query);
+    const q = compileQuery(query);
     const rule = this.rd.ruleHidden;
     if (!q || rule.size === 0) return { count: 0, channels: [] };
-    const prefix: Channel[] = [];
-    const contains: Channel[] = [];
     const keys = searchKeys(this.base);
+    const found: { c: Channel; score: number }[] = [];
     for (const c of this.base.channels) {
       const gid = groupIdOf(c);
       if (!rule.has(gid) || this.userHiddenGr.has(gid) || this.hiddenCh.has(c.id) || this.noEpg?.has(c.id)) continue;
-      const orig = keys.get(c.id)!;
-      const disp = this.renamedKeys.get(c.id);
-      if (orig.startsWith(q) || (disp !== undefined && disp.startsWith(q))) prefix.push(c);
-      else if (orig.includes(q) || (disp !== undefined && disp.includes(q))) contains.push(c);
+      const score = this.scoreOf(keys.get(c.id)!, this.renamedKeys.get(c.id), q);
+      if (score !== NO_MATCH) found.push({ c, score });
     }
-    const max = Math.max(0, limit);
-    const channels = (prefix.length >= max ? prefix.slice(0, max) : [...prefix, ...contains.slice(0, max - prefix.length)])
-      .map((c) => this.display(c));
-    return { count: prefix.length + contains.length, channels };
+    found.sort((a, b) => a.score - b.score);
+    const channels = found.slice(0, Math.max(0, limit)).map((m) => this.display(m.c));
+    return { count: found.length, channels };
   }
 
-  private rowKey(row: Channel): string {
+  private rowKey(row: Channel): NameKeys {
     let k = this.rowKeys.get(row.id);
     if (k === undefined) {
-      k = searchKey(row.name);
+      k = nameKeys(row.name);
       this.rowKeys.set(row.id, k);
     }
     return k;

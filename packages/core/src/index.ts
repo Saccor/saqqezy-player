@@ -6,6 +6,7 @@ export { fnv1a } from './hash.ts';
 export { splitLines } from './text/lines.ts';
 export { normalize } from './text/normalize.ts';
 export { searchKey } from './text/searchKey.ts';
+export { compileQuery, matchKey, nameKeys, nameMatchScore, NO_MATCH, type CompiledQuery, type NameKeys } from './text/searchMatch.ts';
 export { parseM3u, type M3uCatchupRaw, type M3uEntry, type ParseStats } from './m3u/parse.ts';
 export { archiveState, daysLeft, playableState, type ArchiveState } from './catchup/availability.ts';
 export { buildCatchupUrl, type BuiltCatchup } from './catchup/buildUrl.ts';

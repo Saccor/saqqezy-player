@@ -8,7 +8,7 @@ import {
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
   alignSubtitle, englishLanguageName, rankSubtitles, type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
   BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
-  type BackupEnvelope, type RestoreSummary, searchKey,
+  type BackupEnvelope, type RestoreSummary, compileQuery, nameKeys, nameMatchScore, NO_MATCH,
 } from '@iptv/core';
 import { CatchupController, playableState, type CatchupContext } from './catchupController.ts';
 import { worseCooldown } from './cooldown.ts';
@@ -52,11 +52,8 @@ const ERROR_RING = 20;
 const HOUR = 3_600_000;
 /** Extra stored-guide margin around "now" when picking now/next, so long programmes are still found. */
 const NOW_NEXT_MARGIN_MS = 6 * HOUR;
-/** Programme search: channel hits kept when programmes match too, the on-now cap, titles asked of the index. */
-const SEARCH_CHANNELS_WITH_PROGRAMMES = 10;
+/** Programme search: the on-now cap. */
 const SEARCH_ON_NOW = 20;
-/** Channel matches asked of the index before the country sort, so a chosen-country channel is never cut first. */
-const SEARCH_CHANNEL_SCAN = 200;
 /** Most folders (lists, provider groups, VOD categories together) one search returns. */
 const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
@@ -747,29 +744,28 @@ export class AppApi {
   }
 
   /**
-   * Folders whose name contains `query` (spec 2026-10-24 §3.1): the user's lists (layout order), then provider groups
-   * (your countries in pick order, then the index's order), prefix matches before contains in each; then movie and
+   * Folders whose name has every word of `query` (spec 2026-10-24 §3.1): the user's lists (layout order), then provider
+   * groups (your countries in pick order, then the index's order), word-start matches before the rest; then movie and
    * series categories of the resident catalogues. Never Recently watched, All channels or hidden groups. At most
    * SEARCH_FOLDERS; `[]` for a blank query. A failure never fails the search.
    */
   private folderHits(query: string): FolderHit[] {
-    const q = searchKey(query);
+    const q = compileQuery(query);
     if (!q || this.activeId === undefined) return [];
     try {
-      const prefix: FolderHit[] = [];
-      const contains: FolderHit[] = [];
+      const found: { hit: FolderHit; score: number }[] = [];
       const groups = this.index.groups().filter((g) => g.id !== GROUP_ALL && g.id !== GROUP_RECENT);
       const lists = groups.filter((g) => !g.id.startsWith('g:'));
       const provider = groups.filter((g) => g.id.startsWith('g:'))
         .map((g, i) => ({ g, i, k: this.index.regionRankOf(g.id) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.g);
       for (const g of [...lists, ...provider]) {
         if (g.count === 0) continue; // an empty folder leads nowhere
-        const k = searchKey(g.name);
-        const hit: FolderHit = { kind: 'live', id: g.id, name: g.name, count: g.count };
-        if (k.startsWith(q)) prefix.push(hit);
-        else if (k.includes(q)) contains.push(hit);
+        const score = nameMatchScore(nameKeys(g.name), q);
+        if (score !== NO_MATCH) found.push({ hit: { kind: 'live', id: g.id, name: g.name, count: g.count }, score });
       }
-      const out = [...prefix, ...contains];
+      // Word-start matches before matches inside a word; stable, so lists, then your countries, stay first in each.
+      const tier = (score: number) => (score <= 3 ? 0 : 1);
+      const out = found.sort((a, b) => tier(a.score) - tier(b.score)).map((f) => f.hit);
       if (this.vodc) {
         for (const kind of ['movie', 'series'] as const) {
           for (const c of this.vodc.searchCategories(kind, query)) out.push({ kind, id: c.id, name: c.name, count: c.count });
@@ -807,12 +803,13 @@ export class AppApi {
       const id = this.activeId;
       const favs = this.favourites();
       const key = (c: Channel) => this.countryKey(favs, c.id);
-      // Prefix matches stay before contains matches; inside each, favourites, then your countries in pick order (stable).
-      const scanned = this.index.search(query, Math.max(limit, SEARCH_CHANNEL_SCAN));
-      const q = searchKey(query);
-      const isPrefix = (c: Channel) => searchKey(c.name).startsWith(q);
-      const stable = (list: Channel[]) => list.map((c, i) => ({ c, i, k: key(c) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.c);
-      const found = [...stable(scanned.filter(isPrefix)), ...stable(scanned.filter((c) => !isPrefix(c)))].slice(0, limit);
+      // Close matches (the bare name, or its start) before word-start matches before the rest; inside each, favourites,
+      // then your countries in pick order, then the index's order. A channel number stays first.
+      const scored = this.index.searchScored(query);
+      const tier = (score: number) => (score < 0 ? -1 : score <= 1 ? 0 : score <= 3 ? 1 : 2);
+      const found = scored.map((m, i) => ({ c: m.channel, i, t: tier(m.score), k: key(m.channel) }))
+        .sort((a, b) => a.t - b.t || a.k - b.k || a.i - b.i).slice(0, limit).map((x) => x.c);
+      const totals = { channelTotal: scored.length, hiddenCount: this.hiddenMatchCount(query) };
       const epoch = this.titlesEpoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
@@ -821,15 +818,17 @@ export class AppApi {
       // Pending while a load or a rebuild is in flight; once both finished with no index, channels only.
       if (!data) {
         const guidePending = guided && this.titlesPending(id);
-        return { channels: await this.toRows(found), onNow: [], later: [], guidePending };
+        return { channels: await this.toRows(found), onNow: [], later: [], guidePending, ...totals };
       }
       const hits = await this.programmeHits(data, query);
       // The source changed during the awaits: the index state now belongs to another source.
-      if (this.activeId !== id || this.titlesEpoch !== epoch) return { channels: await this.toRows(found), onNow: [], later: [], guidePending: false };
-      const anyProgrammes = hits.onNow.length > 0 || hits.later.length > 0;
-      const chans = anyProgrammes ? found.slice(0, SEARCH_CHANNELS_WITH_PROGRAMMES) : found;
-      const onNow = hits.onNow.slice(0, Math.min(SEARCH_ON_NOW, Math.max(0, limit - chans.length)));
-      const later = hits.later.slice(0, Math.max(0, limit - chans.length - onNow.length));
+      if (this.activeId !== id || this.titlesEpoch !== epoch) {
+        return { channels: await this.toRows(found), onNow: [], later: [], guidePending: false, ...totals };
+      }
+      // Programmes never take the channels' places: each section has its own budget.
+      const chans = found;
+      const onNow = hits.onNow.slice(0, Math.min(SEARCH_ON_NOW, Math.max(0, limit)));
+      const later = hits.later.slice(0, Math.max(0, limit));
       const [channelRows, progRows] = await Promise.all([
         this.toRows(chans),
         this.toRows([...onNow.map((h) => h.c), ...later.map((h) => h.c)]),
@@ -839,8 +838,19 @@ export class AppApi {
         onNow: onNow.map((h, i): ProgrammeHit => ({ channel: progRows[i]!, title: h.title, start: h.start, stop: h.stop })),
         later: later.map((h, i): TitleHit => ({ channel: progRows[onNow.length + i]!, title: h.title, start: h.start, stop: h.stop, more: h.more })),
         guidePending: false,
+        ...totals,
       };
     })();
+  }
+
+  /** Matches that only Your countries hides ("Only these"), for Search's "n more in hidden groups"; 0 on a failure. */
+  private hiddenMatchCount(query: string): number {
+    try {
+      return this.index.searchRuleHidden(query, 0).count;
+    } catch (err) {
+      this.record('searchHidden', err);
+      return 0;
+    }
   }
 
   // ---- layout ----

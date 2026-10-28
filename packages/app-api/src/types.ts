@@ -105,7 +105,12 @@ export interface TitleHit { title: string; channel: ChannelRow; start: number; s
 /** A folder matching a search: a channel folder (the user's list or a provider group) or a movie or series category. */
 export interface FolderHit { kind: 'live' | 'movie' | 'series'; id: string; name: string; count: number }
 export interface SearchResult {
+  /** The best matching channels, at most the asked limit. */
   channels: ChannelRow[];
+  /** Every matching channel of the active source (`channels` may show fewer). */
+  channelTotal: number;
+  /** Matching channels in groups Your countries hides ("Only these"); not in `channels`. */
+  hiddenCount: number;
   onNow: ProgrammeHit[];
   later: TitleHit[];
   /** The guide's title index is being built or loaded: programme sections are empty for now. */

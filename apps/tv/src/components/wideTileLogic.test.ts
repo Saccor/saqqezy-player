@@ -23,11 +23,20 @@ describe('wideLines', () => {
     expect(wideLines({ type: 'event', event: ev(NOW + 20 * 60_000, NOW + 7200_000, 1) }, NOW))
       .toEqual({ context: 'In 20 min · 1 channel', main: 'Team A v Team B', live: false });
   });
-  test('a channel: its name, then the programme on now (or a placeholder); numbers only when asked', () => {
+  test('a channel: its name, then the programme on now (or a placeholder)', () => {
     expect(wideLines({ type: 'channel', channel: chan({ now: onNow('Evening show') }) }, NOW))
       .toEqual({ context: 'Channel Seven', main: 'Evening show', live: false });
+  });
+  test('Search (numbers asked): the channel name is the main line, the number and the programme on now above it', () => {
+    expect(wideLines({ type: 'channel', channel: chan({ now: onNow('Evening show') }) }, NOW, true))
+      .toEqual({ context: '7 · Evening show', main: 'Channel Seven', live: false });
     expect(wideLines({ type: 'channel', channel: chan() }, NOW, true))
-      .toEqual({ context: '7 · Channel Seven', main: 'No guide information', live: false });
+      .toEqual({ context: '7 · No guide information', main: 'Channel Seven', live: false });
+  });
+  test('the hidden-groups card: how many, and why they are hidden', () => {
+    expect(wideLines({ type: 'hidden', count: 4 }, NOW))
+      .toEqual({ context: 'Hidden by Your countries', main: '4 more in hidden groups', live: false });
+    expect(wideLines({ type: 'hidden', count: 1 }, NOW).main).toBe('1 more in a hidden group');
   });
   test('View all: just the label', () => {
     expect(wideLines({ type: 'viewAll', target: 'sports', total: 30 }, NOW)).toEqual({ context: '', main: 'View all', live: false });

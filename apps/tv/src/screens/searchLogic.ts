@@ -89,8 +89,10 @@ export function rerunsSearch(e: AppEvent): boolean {
 export type ProgrammeCell =
   | { type: 'programme'; when: 'onNow'; hit: ProgrammeHit }
   | { type: 'programme'; when: 'later'; hit: TitleHit };
+/** Matches in groups Your countries hides: a card after the channels that opens that setting. */
+export type HiddenCell = { type: 'hidden'; count: number };
 /** A cell of the "Live & guide" row (drawn as a wide card). */
-export type LiveCell = { type: 'channel'; channel: ChannelRow } | ProgrammeCell;
+export type LiveCell = { type: 'channel'; channel: ChannelRow } | HiddenCell | ProgrammeCell;
 /** A folder (a channel folder or a movie/series category) in the Folders row. */
 export type FolderCell = { type: 'folder'; hit: FolderHit };
 /** Any focusable result. */
@@ -102,13 +104,16 @@ export interface SearchRows {
   vod: VodTile[];
   /** Channel folders, then movie and series categories. */
   folders: FolderCell[];
-  /** Channels, then programmes on now, then coming up. */
+  /** Channels, the hidden-groups card, then programmes on now, then coming up. */
   live: LiveCell[];
+  /** Channels shown in `live`, and every channel that matched. */
+  channelCount: number;
+  channelTotal: number;
   guidePending: boolean;
   vodPending: boolean;
 }
 
-export const NO_ROWS: SearchRows = { vod: [], folders: [], live: [], guidePending: false, vodPending: false };
+export const NO_ROWS: SearchRows = { vod: [], folders: [], live: [], channelCount: 0, channelTotal: 0, guidePending: false, vodPending: false };
 
 export function searchRows(r: SearchResult): SearchRows {
   return {
@@ -116,12 +121,23 @@ export function searchRows(r: SearchResult): SearchRows {
     folders: r.folders.map((hit): FolderCell => ({ type: 'folder', hit })),
     live: [
       ...r.channels.map((channel): LiveCell => ({ type: 'channel', channel })),
+      ...(r.hiddenCount > 0 ? [{ type: 'hidden', count: r.hiddenCount } satisfies LiveCell] : []),
       ...r.onNow.map((hit): LiveCell => ({ type: 'programme', when: 'onNow', hit })),
       ...r.later.map((hit): LiveCell => ({ type: 'programme', when: 'later', hit })),
     ],
+    channelCount: r.channels.length,
+    channelTotal: Math.max(r.channelTotal, r.channels.length),
     guidePending: r.guidePending,
     vodPending: r.vodPending,
   };
+}
+
+/** "Live & guide · 12 channels", or "· 50 of 340 channels" when more matched than are shown. */
+export function liveRowLabel(r: SearchRows): string {
+  if (r.channelCount === 0) return LIVE_ROW_LABEL;
+  const noun = r.channelTotal === 1 ? 'channel' : 'channels';
+  const count = r.channelTotal > r.channelCount ? `${r.channelCount} of ${r.channelTotal}` : `${r.channelTotal}`;
+  return `${LIVE_ROW_LABEL} · ${count} ${noun}`;
 }
 
 /** What is still being prepared: the guide first, then movies and series. */
@@ -236,6 +252,11 @@ export function vodRoute(c: SearchCell | undefined): { screen: 'movieDetail' | '
 export function laterRoute(c: SearchCell | undefined): { screen: 'home'; params: { channelId: string; at: number } } | undefined {
   if (c?.type !== 'programme' || c.when !== 'later') return undefined;
   return { screen: 'home', params: { channelId: c.hit.channel.id, at: c.hit.start } };
+}
+
+/** Where Ok on the hidden-groups card goes: Settings at Your countries. */
+export function hiddenRoute(c: SearchCell | undefined): { screen: 'settings'; params: { page: 'countries' } } | undefined {
+  return c?.type === 'hidden' ? { screen: 'settings', params: { page: 'countries' } } : undefined;
 }
 
 /** Where Ok on a folder goes: Live TV at that folder (the root `home`), or the grid of that kind at that category. */

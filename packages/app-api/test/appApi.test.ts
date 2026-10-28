@@ -396,7 +396,7 @@ describe('AppApi', () => {
     expect(r.onNow).toEqual([]);
     expect(r.later).toEqual([]);
     expect(r.guidePending).toBe(false);
-    expect(await api.search('', 5)).toEqual({ channels: [], onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false });
+    expect(await api.search('', 5)).toEqual({ channels: [], channelTotal: 0, hiddenCount: 0, onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false });
     // Without movies and series support: no VOD sections, never pending.
     expect(r.movies).toEqual([]);
     expect(r.series).toEqual([]);
@@ -465,7 +465,7 @@ describe('AppApi', () => {
     expect(r.later.map((h) => h.channel.number)).toEqual([1]);
   });
 
-  test('search: channel hits are capped at 10 when programmes match too; total stays within limit', async () => {
+  test('search: programmes never take channel places; channelTotal counts every match', async () => {
     const { api } = make();
     await api.addSource(xt());
     await api.refresh('epg');
@@ -473,8 +473,12 @@ describe('AppApi', () => {
     await api.applyLayoutOps(rows.map((r, i) => ({ op: 'renameChannel' as const, id: r.id, name: `Programme Channel ${i + 1}` })));
     await warm(api);
     const r = await api.search('programme', 12);
-    expect(r.channels).toHaveLength(10);
-    expect(r.channels.length + r.onNow.length + r.later.length).toBeLessThanOrEqual(12);
+    expect(r.onNow.length + r.later.length).toBeGreaterThan(0);
+    expect(r.channels).toHaveLength(12);
+    const few = await api.search('programme', 5);
+    expect(few.channels).toHaveLength(5);
+    expect(few.channelTotal).toBe(12);
+    expect(few.hiddenCount).toBe(0);
   });
 
   test('search: a failed rebuild reports guidePending once, emits searchReady, then clears and records the error', async () => {

@@ -22,7 +22,7 @@ describe('fake xtream + SourceService end to end', () => {
     const { source, result } = await s.addSource(x('test'));
     expect(result.channelCount).toBe(40);
     const idx = await s.loadIndex(source.id);
-    expect(idx.groups().map((g) => g.name)).toEqual(['Favourites', 'All channels', 'News', 'Movies', 'Kids', 'Music']);
+    expect(idx.groups().map((g) => g.name)).toEqual(['All channels', 'Favourites', 'News', 'Movies', 'Kids', 'Music']);
     const epg = await s.refreshEpg(source.id);
     expect(epg.programmes).toBeGreaterThan(40 * 40);
     const first = idx.slice('all', 0, 1);
@@ -172,7 +172,7 @@ describe('fake xtream options', () => {
       const s = svc();
       const { source } = await s.addSource({ kind: 'xtream', name: 'Fake', server: rev.url, username: 'test', password: 'test' });
       const idx = await s.loadIndex(source.id);
-      expect(idx.groups().map((g) => g.name)).toEqual(['Favourites', 'All channels', 'Music', 'Kids', 'Movies', 'News']);
+      expect(idx.groups().map((g) => g.name)).toEqual(['All channels', 'Favourites', 'Music', 'Kids', 'Movies', 'News']);
       expect(idx.slice('all', 0, 8).map((c) => c.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
       expect(idx.byNumber(1)?.name).toBe('Channel 001');
     } finally {

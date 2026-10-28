@@ -21,8 +21,8 @@ import { COLORS, LAYOUT, STRONG, TYPE } from '../shell/theme.ts';
 import { visibleInterval } from '../shell/visibleInterval.ts';
 import { LIVE_PREVIEW_RECT } from './live/liveLogic.ts';
 import {
-  FOLDERS_ROW_LABEL, LIVE_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, SEARCH_ROW_ORDER, VOD_ROW_LABEL, channelToPlay, clampSearchFocus,
-  createSearchMemory, createSearcher, focusedCell, folderRoute,
+  FOLDERS_ROW_LABEL, NO_ROWS, SEARCH_LIMIT, SEARCH_ROW_ORDER, VOD_ROW_LABEL, channelToPlay, clampSearchFocus,
+  createSearchMemory, createSearcher, focusedCell, folderRoute, hiddenRoute, liveRowLabel,
   laterRoute, moveSearch, pendingNotes, rerunsSearch, resultsMessage, searchRows, searchingNote, settleFocus, vodRoute, vodRowModel,
   type SearchFocus, type SearchRowArea, type SearchRows, type SearchState,
 } from './searchLogic.ts';
@@ -172,6 +172,13 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
       if (!router.backTo(later.screen, later.params)) router.reset(later.screen, later.params);
       return true;
     }
+    const hidden = hiddenRoute(cell);
+    if (hidden) {
+      // Settings opens over Search, so Back returns to these results.
+      memory.leaveTo(focus());
+      router.push(hidden.screen, hidden.params);
+      return true;
+    }
     const folder = folderRoute(cell);
     if (folder) {
       // A channel folder: back to the root Live TV at that folder (Search leaves the stack, as on Back). A category: the
@@ -293,7 +300,7 @@ export function SearchScreen(props: { entry: ScreenEntry }) {
           const lit = () => rowsFocused() && focus().area === area;
           return (
             <View y={rowY(area)}>
-              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : area === 'folders' ? FOLDERS_ROW_LABEL : LIVE_ROW_LABEL}</Text>
+              <Text x={0} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{area === 'vod' ? VOD_ROW_LABEL : area === 'folders' ? FOLDERS_ROW_LABEL : liveRowLabel(rows())}</Text>
               {/* While the next query runs over these rows: a subtle note on the first row's label line. */}
               <Show when={i() === 0 && searching()}>
                 <Text x={0} y={(TYPE.body - TYPE.meta) / 2} width={RESULTS_W} maxWidth={RESULTS_W} contain="width" maxLines={1} textAlign="right"

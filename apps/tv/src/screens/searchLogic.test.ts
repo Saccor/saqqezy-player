@@ -7,6 +7,8 @@ import {
   createSearcher,
   focusedCell,
   FOLDERS_ROW_LABEL,
+  hiddenRoute,
+  liveRowLabel,
   folderCount,
   folderRoute,
   GUIDE_PENDING_NOTE,
@@ -34,7 +36,8 @@ const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 const row = (n: number): ChannelRow => ({ id: `s:${n}`, number: n, name: `Channel ${n}`, group: 'G', favourite: false });
 const result = (over: Partial<SearchResult> = {}): SearchResult => ({
-  channels: [], onNow: [], later: [], guidePending: false, folders: [], movies: [], series: [], vodPending: false, ...over,
+  channels: [], channelTotal: over.channels?.length ?? 0, hiddenCount: 0, onNow: [], later: [], guidePending: false, folders: [], movies: [],
+  series: [], vodPending: false, ...over,
 });
 const tile = (kind: 'movie' | 'series', n: number, extra: Partial<VodTile> = {}): VodTile => ({
   id: `s:${kind[0]}${n}`, kind, title: `Synthetic ${kind} ${n}`, categoryId: '1', watched: false, favourite: false, ...extra,
@@ -111,6 +114,24 @@ describe('createSearcher', () => {
   });
 });
 
+describe('channel totals and hidden groups', () => {
+  test('a card for matches in hidden groups after the channels, before the programmes; it opens Your countries', () => {
+    const r = searchRows(result({ channels: [row(1)], hiddenCount: 4, onNow: [{ channel: row(2), title: 'Now 2', start: 0, stop: 1 }] }));
+    expect(r.live.map((c) => c.type)).toEqual(['channel', 'hidden', 'programme']);
+    expect(r.live[1]).toEqual({ type: 'hidden', count: 4 });
+    expect(hiddenRoute(r.live[1])).toEqual({ screen: 'settings', params: { page: 'countries' } });
+    expect(hiddenRoute(r.live[0])).toBeUndefined();
+    expect(channelToPlay(r.live[1])).toBeUndefined();
+    expect(searchRows(result({ channels: [row(1)] })).live.map((c) => c.type)).toEqual(['channel']);
+  });
+
+  test('the live row label counts the channels, and says when more matched than are shown', () => {
+    expect(liveRowLabel(searchRows(result()))).toBe('Live & guide');
+    expect(liveRowLabel(searchRows(result({ channels: [row(1)] })))).toBe('Live & guide · 1 channel');
+    expect(liveRowLabel(searchRows(result({ channels: [row(1), row(2)], channelTotal: 340 })))).toBe('Live & guide · 2 of 340 channels');
+  });
+});
+
 describe('searchRows', () => {
   const now = (n: number) => ({ channel: row(n), title: `Now ${n}`, start: 0, stop: 1 });
   const later = (n: number) => ({ title: `Later ${n}`, channel: row(n), start: 2, stop: 3, more: 0 });
@@ -140,7 +161,7 @@ describe('searchRows', () => {
   });
 
   test('carries the pending flags', () => {
-    expect(searchRows(result({ guidePending: true }))).toEqual({ vod: [], folders: [], live: [], guidePending: true, vodPending: false });
+    expect(searchRows(result({ guidePending: true }))).toEqual({ ...NO_ROWS, guidePending: true });
     expect(searchRows(result({ vodPending: true })).vodPending).toBe(true);
     expect(searchRows(result())).toEqual(NO_ROWS);
   });

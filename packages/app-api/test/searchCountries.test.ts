@@ -107,20 +107,32 @@ describe('Search – your countries first', () => {
     expect(groupsOf(r2.onNow.map((h) => h.channel))).toEqual(['US', 'DK', 'DE', 'SE']);
   });
 
-  test('a chosen-country channel late in the playlist survives the channel cap', async () => {
+  test('a chosen-country channel late in the playlist survives the limit; programmes never cut channels', async () => {
     playlistText = PLAYLIST_MANY;
     epgText = EPG_MANY;
     const api = await setup();
     const off = await api.search('northbridge fan', 50);
-    expect(off.channels).toHaveLength(10); // the cap when programmes also match
-    expect(off.channels.some((c) => c.group.startsWith('SE'))).toBe(false); // number 15 is cut in playlist order
+    expect(off.channels).toHaveLength(15); // programmes also match, but every channel stays
+    expect(off.channels[14]!.group.slice(0, 2)).toBe('SE'); // number 15, last in playlist order
     await setRegions(api, { mode: 'first', codes: ['SE'] });
     const on = await api.search('northbridge fan', 50);
-    expect(on.channels).toHaveLength(10);
+    expect(on.channels).toHaveLength(15);
     expect(on.channels[0]!.group.slice(0, 2)).toBe('SE');
     // Limit below the prefix-match count: the chosen country still leads.
     const small = await api.search('northbridge fan', 5);
     expect(small.channels[0]!.group.slice(0, 2)).toBe('SE');
+  });
+});
+
+describe('Search – hidden groups', () => {
+  test('"Only these": matches in the hidden countries are counted, never listed', async () => {
+    const api = await setup();
+    expect((await api.search('synthetic sport', 50)).hiddenCount).toBe(0);
+    await setRegions(api, { mode: 'only', codes: ['SE'] });
+    const r = await api.search('synthetic sport', 50);
+    expect(groupsOf(r.channels)).toEqual(['SE']);
+    expect(r.channelTotal).toBe(1);
+    expect(r.hiddenCount).toBe(3);
   });
 });
 
