@@ -1,7 +1,7 @@
 import { createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import type { CompanionChannel } from '@iptv/companion-protocol';
-import { buildSearchKeys, filterChannels, type SearchKeys } from '../logic/picker.ts';
+import { filterChannels, type SearchKeys } from '../logic/picker.ts';
 import { inertWhileOpen } from './modal.ts';
 import { VirtualList } from './VirtualList.tsx';
 

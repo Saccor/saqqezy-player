@@ -4,7 +4,7 @@ import { formatRecoveryCode } from '@iptv/core';
 import { api } from '../../api.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList } from '../../components/SettingsList.tsx';
-import { COMMON_COPY, SETTINGS_COPY } from '../../copy.ts';
+import { SETTINGS_COPY } from '../../copy.ts';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
 import { playback } from '../../playback/playback.ts';
 import { router } from '../../shell/router.ts';

@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from 'solid-js';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
-import { deviceWindowMax, playback, pool } from '../../playback/playback.ts';
+import { deviceWindowMax, playback } from '../../playback/playback.ts';
 import { deviceCeiling } from '../multiview/windows.ts';
 import { SETTINGS_COPY } from '../../copy.ts';
 import { settings } from '../../state/appState.ts';
