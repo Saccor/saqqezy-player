@@ -5,7 +5,7 @@
 export const ABSENT_MOVIE = 'Synthetic Absent Film';
 export const ABSENT_SERIES = 'Synthetic Absent Series';
 /** The series title the feed lists without a year (matched by its unambiguous name). */
-export const UNDATED_SERIES = 4;
+const UNDATED_SERIES = 4;
 
 /** The fake list's tmdb id of a movie title (every third title has one), as `get_vod_streams` sends it. */
 export const movieTmdb = (title: number): number | undefined => (title % 3 === 0 ? 900_000 + title : undefined);

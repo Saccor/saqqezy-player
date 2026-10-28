@@ -5,9 +5,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
  * same synthetic subtitles in a few languages. No real subtitles. The key is `fake-key`; file id 999 answers like a
  * spent daily quota (406).
  */
-export const FAKE_OPENSUBTITLES_KEY = 'fake-key';
+const FAKE_OPENSUBTITLES_KEY = 'fake-key';
 /** A search with this moviehash marks each language's third file as made for the exact file (`moviehash_match`). */
-export const FAKE_MATCHING_HASH = '0123456789abcdef';
+const FAKE_MATCHING_HASH = '0123456789abcdef';
 
 const LANGS: [string, number][] = [['en', 3], ['sv', 2], ['de', 1], ['fr', 1], ['es', 1]];
 const QUOTA_FILE = 999;
@@ -38,7 +38,7 @@ const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 const ts = (s: number) => `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)},000`;
 
 /** A synthetic SRT: a numbered cue every 5 s for 10 minutes, naming the file. */
-export function syntheticSrt(fileId: number): string {
+function syntheticSrt(fileId: number): string {
   const lang = LANGS[Math.floor(fileId / 1000) - 1]?.[0] ?? 'xx';
   const cues: string[] = [];
   for (let i = 0; i < 120; i++) cues.push(`${i + 1}\n${ts(1 + i * 5)} --> ${ts(4 + i * 5)}\nSynthetic subtitle ${i + 1} (${lang})\n`);

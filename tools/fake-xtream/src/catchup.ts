@@ -8,7 +8,7 @@ import { slots, TEST_STREAM, type FakeChannel } from './data.ts';
 import { showcaseProgramme } from './showcase.ts';
 
 /** The panel's zone (`server_info.timezone`): one with DST, so the archive window crosses a change. */
-export const PANEL_ZONE = 'Europe/Stockholm';
+const PANEL_ZONE = 'Europe/Stockholm';
 const SLOT = 30 * 60_000;
 const DAY = 86_400_000;
 
@@ -40,7 +40,7 @@ export function parseWallClock(text: string, zone: string): number | undefined {
 }
 
 /** Half-hour slots before `slots(now)` back to `days` ago: what a 7-day archive channel's guide adds. */
-export function historySlots(now: number, days: number): { start: number; stop: number; k: number }[] {
+function historySlots(now: number, days: number): { start: number; stop: number; k: number }[] {
   const end = slots(now)[0]!.start;
   const out = [];
   for (let t = Math.ceil((now - days * DAY) / SLOT) * SLOT, k = 1; t < end; t += SLOT, k++) out.push({ start: t, stop: t + SLOT, k });
@@ -102,7 +102,7 @@ const inWindow = (start: number | undefined, now: number, days: number) =>
  * The playlist `/catchup.m3u` (every entry its own URL, so none is merged as a duplicate): one entry per mode on synthetic channels whose guide has history (tvg-id of fake
  * channels 1, 2, 5 and 9), an archive that always answers 404, and a template the app cannot read.
  */
-export function catchupM3u(base: string, user: string, pass: string): string {
+function catchupM3u(base: string, user: string, pass: string): string {
   const live = `${base}/live/${encodeURIComponent(user)}/${encodeURIComponent(pass)}`;
   const e = (attrs: string, name: string, url: string) => [`#EXTINF:-1 ${attrs} group-title="Catch-up",${name}`, url];
   return [

@@ -47,8 +47,8 @@ const xmlDate = (ms: number) => {
  * news title with a separator, a tagged re-air, a small one-channel match, a guide category of its own and a sport
  * with no sides.
  */
-export interface SportMatch { titles: string[]; ch: number[]; at: number; len: number; cat?: string; live?: number[]; rerun?: true; sub?: string }
-export const SPORT_MATCHES: readonly SportMatch[] = [
+interface SportMatch { titles: string[]; ch: number[]; at: number; len: number; cat?: string; live?: number[]; rerun?: true; sub?: string }
+const SPORT_MATCHES: readonly SportMatch[] = [
   { titles: ['LIVE: Northbridge FC v Eastport', 'Northbridge v Eastport', 'Eastport - Northbridge FC', 'Northbridge FC vs Eastport', 'Northbridge FC – Eastport'],
     ch: [1, 2, 3, 4, 5], at: 0, len: 4, cat: 'Sports', live: [1, 2] },
   { titles: ['Harbour City v Westvale United', 'Harbour City v Westvale Utd'], ch: [6, 7], at: 4, len: 4, cat: 'Football' },
