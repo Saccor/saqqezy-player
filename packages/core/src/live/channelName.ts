@@ -28,6 +28,16 @@ const TIMESHIFT = /(?<![\p{L}\p{N}])\+\s?(\d{1,2})(?!\p{N})/gu;
 
 /** Where a spare-feed tag at the end of tidied `s` starts, or -1. */
 function spareTail(s: string): number {
+  // After a tag only spaces, a number and a closing bracket can follow, and every tag ends in p, t, e or d: past
+  // those (and anything non-ASCII, which may be a space), any other last character means no tag, without the regex.
+  let end = s.length - 1;
+  for (; end >= 0; end--) {
+    const c = s.charCodeAt(end);
+    if (!(c <= 32 || c > 127 || (c >= 48 && c <= 57) || c === 93 || c === 41)) break;
+  }
+  if (end < 0) return -1;
+  const last = s.charCodeAt(end) | 32;
+  if (last !== 112 && last !== 116 && last !== 101 && last !== 100) return -1;
   const from = Math.max(0, s.length - SPARE_SPAN);
   const m = SPARE_TAIL.exec(from ? s.slice(from) : s);
   return m ? from + m.index : -1;
