@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from '../src/sports/match.ts';
+import { jaroWinkler, normSide, resolveAlias, sideMatch } from '../src/sports/match.ts';
+import { foldText } from '../src/text/fold.ts';
 
 describe('sports match', () => {
   test('foldText strips accents and case', () => {

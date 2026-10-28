@@ -1,5 +1,6 @@
 import { UNCATEGORIZED } from '../constants.ts';
 import type { Channel } from '../types.ts';
+import { foldText } from './fold.ts';
 import { englishLanguageName } from './language.ts';
 import { LANG_CODES, peelPrefix, prepare } from './nameTags.ts';
 
@@ -185,7 +186,7 @@ for (const [n, lang] of Object.entries(LANGUAGE_NAMES)) NAMES.set(n, `lang:${lan
 const MAX_NAME_WORDS = Math.max(...[...NAMES.keys(), ...Object.keys(REGION_WORDS)].map((n) => n.split(' ').length));
 
 function fold(s: string): string {
-  return s.normalize('NFKD').replace(/\p{M}/gu, '').toUpperCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return foldText(s).toUpperCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 /** A country code as ISO alpha-2 ("UK" → "GB", "SWE" → "SE"), or undefined when it is not in the closed table. */

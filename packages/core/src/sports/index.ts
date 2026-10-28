@@ -3,7 +3,8 @@ import type { Programme } from '../types.ts';
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
 import { copyString } from '../search/titleIndex.ts';
 import { EVENT_THRESHOLD, hasMatchSeparator, mayBeEvent, scoreProgramme } from './detect.ts';
-import { categoryKey, foldText, normSide } from './match.ts';
+import { foldText } from '../text/fold.ts';
+import { categoryKey, normSide } from './match.ts';
 
 const H = 3600_000;
 /** 3 h back / 24 h ahead, widened by the largest guide offset (±12 h); the query narrows it after the shift. */

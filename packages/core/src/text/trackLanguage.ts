@@ -1,3 +1,4 @@
+import { foldText as fold } from './fold.ts';
 import { ISO_LANGUAGES, englishLanguageName, isoLanguage } from './language.ts';
 
 /**
@@ -6,9 +7,6 @@ import { ISO_LANGUAGES, englishLanguageName, isoLanguage } from './language.ts';
  */
 
 /** Lower case, accents and other combining marks removed ("Français" → "francais"). */
-function fold(s: string): string {
-  return s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
-}
 
 /** Native names (and a few other common ones) of languages, besides their English names. */
 const OTHER_NAMES: Record<string, readonly string[]> = {

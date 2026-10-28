@@ -1,3 +1,5 @@
+import { categoryKey } from './sports/match.ts';
+import { foldText } from './text/fold.ts';
 import { normalizeCountry } from './text/regions.ts';
 
 export type LiveDelaySetting = 'low' | 'balanced' | 'stable';
@@ -128,7 +130,7 @@ function sanitizeTeams(value: unknown): string[] {
     if (typeof v !== 'string') continue;
     const t = v.trim().slice(0, FOLLOWED_TEAM_LEN).trim();
     if (!t) continue;
-    const k = t.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+    const k = foldText(t);
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(t);
@@ -143,7 +145,7 @@ function foldedList(value: unknown, max: number): string[] {
   const out: string[] = [];
   for (const v of value) {
     if (typeof v !== 'string') continue;
-    const k = v.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, FOLLOWED_TEAM_LEN).trim();
+    const k = categoryKey(v).slice(0, FOLLOWED_TEAM_LEN).trim();
     if (!k || out.includes(k)) continue;
     out.push(k);
     if (out.length >= max) break;

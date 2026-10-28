@@ -25,6 +25,13 @@ describe('groupMatches', () => {
     expect(groupMatches(entries, 'cafe').map((e) => e.id)).toEqual(['g5']);
     expect(groupMatches(entries, '  ')).toEqual([]);
   });
+
+  it('letters accents do not make (ø, æ, ß) fold too, and punctuation is a space', () => {
+    const more: FoldEntry[] = [{ id: 'n1', name: 'Øresund TV', count: 3 }, { id: 'n2', name: 'Straße/Kino', count: 2 }];
+    expect(groupMatches(more, 'oresund').map((e) => e.id)).toEqual(['n1']);
+    expect(groupMatches(more, 'strasse kino').map((e) => e.id)).toEqual(['n2']);
+    expect(groupMatches(more, '|').map((e) => e.id)).toEqual([]);
+  });
 });
 
 describe('withGroupSearch', () => {

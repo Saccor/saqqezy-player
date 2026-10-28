@@ -112,7 +112,8 @@ export {
 export { HASH_CHUNK, fetchMovieHash, openSubtitlesHash } from './subtitles/movieHash.ts';
 export { parseMatch, scoreProgramme, EVENT_THRESHOLD, type Detection, type ParsedMatch } from './sports/detect.ts';
 export { MATCH_FLAGS, isSportCategory } from './sports/words.ts';
-export { foldText, jaroWinkler, normSide, resolveAlias, sideMatch } from './sports/match.ts';
+export { foldText } from './text/fold.ts';
+export { jaroWinkler, normSide, resolveAlias, sideMatch } from './sports/match.ts';
 export { compareAirings, isBackupName, qualityRank, type AiringOrderKey } from './sports/quality.ts';
 export { groupEvents, reairKeys, type GroupInput, type SportsGroup } from './sports/group.ts';
 export {

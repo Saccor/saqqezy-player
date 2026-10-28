@@ -1,3 +1,4 @@
+import { searchKey } from '@iptv/core';
 import type { FoldEntry, FoldView } from '../../components/foldPickerLogic.ts';
 import { LIVE_COPY } from '../../copy.ts';
 import type { PickerRow } from '../homeMenuLogic.ts';
@@ -9,15 +10,14 @@ import type { PickerRow } from '../homeMenuLogic.ts';
 
 export const GROUP_SEARCH_ROW_ID = 'search:groups';
 
-/** Lower case without accents, so "cafe" finds "Café". */
-const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /** The folders whose name contains every word of `query` (none for an empty query), in list order. */
 export function groupMatches(entries: readonly FoldEntry[], query: string): FoldEntry[] {
-  const words = fold(query).split(/\s+/).filter((w) => w !== '');
+  // Search keys: no case, accents or punctuation, and ø/æ/ß folded, so "cafe" finds "Café" and "oresund" "Øresund".
+  const words = searchKey(query).split(' ').filter((w) => w !== '');
   if (words.length === 0) return [];
   return entries.filter((e) => {
-    const name = fold(e.name);
+    const name = searchKey(e.name);
     return words.every((w) => name.includes(w));
   });
 }

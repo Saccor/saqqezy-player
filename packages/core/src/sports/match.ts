@@ -1,12 +1,9 @@
 /** Team-side text for grouping one match across channels. Pure. */
+import { foldText } from '../text/fold.ts';
 
 /** Tokens that say "club", not which club; dropped from a side before comparing. */
 const DROP = new Set(['fc', 'afc', 'cf', 'sc', 'sv', 'bk', 'if', 'ff', 'ac', 'as', 'fk', '1']);
 export const SIDE_MATCH = 0.85;
-
-export function foldText(s: string): string {
-  return s.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
-}
 
 /**
  * The stored and compared form of a guide category text: folded, inner spaces collapsed, trimmed (the settings'

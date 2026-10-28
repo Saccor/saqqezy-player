@@ -2,7 +2,7 @@
  * Matches in your guide: which grouped events show, and in what order (design note live-matches-ranking §3.5–3.6,
  * owner decisions 2026-10-20). Pure; O(E log E) per call. Every signal comes from the user's own guide and settings.
  */
-import { foldText } from './match.ts';
+import { foldText } from '../text/fold.ts';
 
 const M = 60_000;
 const H = 60 * M;

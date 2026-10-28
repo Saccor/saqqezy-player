@@ -4,7 +4,7 @@
  * start-page spec approved (§5.2). Never competition, club, broadcaster or league names. All entries are folded
  * (lowercase, no accents; see `foldText`).
  */
-import { foldText } from './match.ts';
+import { foldText } from '../text/fold.ts';
 
 /** Bits of `SportsCandidate.flags`. */
 export const MATCH_FLAGS = {

@@ -1,6 +1,7 @@
 /** Is this guide programme a sports event, and what are its two sides? Pure; spec §5.2. */
 import type { ProgrammeExtra } from '../xmltv/parse.ts';
-import { categoryKey, foldText } from './match.ts';
+import { foldText } from '../text/fold.ts';
+import { categoryKey } from './match.ts';
 import { LIVE_WORDS, MATCH_FLAGS, descFlags, isGenericCategory, isSportCategory, isStage, tagFlags } from './words.ts';
 
 export const EVENT_THRESHOLD = 3;
