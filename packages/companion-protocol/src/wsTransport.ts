@@ -67,8 +67,8 @@ export interface WsTransportOptions {
 export const HEARTBEAT_MS = 30_000;
 export const RECONNECT_GIVE_UP_MS = 60_000;
 export const STABLE_MS = 3_000;
-export const CONNECT_TIMEOUT_MS = 10_000;
-export const BACKOFF_MIN_MS = 500;
+const CONNECT_TIMEOUT_MS = 10_000;
+const BACKOFF_MIN_MS = 500;
 export const BACKOFF_MAX_MS = 5_000;
 export const QUEUE_MAX_BYTES = 2 * 1024 * 1024;
 export const QUEUE_MAX_AGE_MS = 60_000;
