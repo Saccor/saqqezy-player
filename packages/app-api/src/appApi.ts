@@ -21,6 +21,7 @@ import {
 import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
 import { SubtitleController } from './subtitleController.ts';
 import { BackupController } from './backupController.ts';
+import { TitleIndexController } from './titleIndexController.ts';
 import { assembleStartHome, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
@@ -56,8 +57,6 @@ const SEARCH_FOLDERS = 20;
 /** Most movies, and most series, one search returns. */
 export const SEARCH_VOD_MAX = 20;
 const SEARCH_TITLES = 100;
-/** The loaded title index is dropped this long after the last search (memory on 1 GB TVs). */
-const TITLES_IDLE_MS = 2 * 60_000;
 
 const noop = () => { /* settled */ };
 const HAS = Object.prototype.hasOwnProperty;
@@ -181,18 +180,7 @@ export class AppApi {
   /** Per source: the stream format that played last (`notePlayed`), read from storage once; null when none. */
   private readonly formats = new Map<string, FormatMemo | null>();
   /** The active source's title index, loaded on the first search. */
-  private titles: { sourceId: string; data: TitleIndexData } | undefined;
-  private titlesTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Bumped by every index swap, so a title index load that raced a swap is not cached. */
-  private titlesEpoch = 0;
-  /** Sources whose title index rebuild was already tried this session. */
-  private readonly titleRebuilds = new Map<string, 'running' | 'done'>();
-  /** The title index load in flight (one per source and epoch; concurrent searches join it). */
-  private titleLoad: { sourceId: string; epoch: number } | undefined;
-  /** Title index loads in flight (awaited by the test-only `idle`). */
-  private readonly titleJobs = new Set<Promise<void>>();
-  /** No title index for this source and epoch, and its one rebuild was already tried: channels only, not pending. */
-  private titlesMissing: { sourceId: string; epoch: number } | undefined;
+  private readonly titles: TitleIndexController;
   private readonly errors: DiagnosticsInfo['lastErrors'] = [];
   private readonly recorded = new WeakSet<object>();
   private readonly companion: CompanionControl | undefined;
@@ -220,16 +208,6 @@ export class AppApi {
     };
     this.now = deps.now ?? Date.now;
     this.nowNextWaitMs = deps.nowNextWaitMs ?? NOW_NEXT_WAIT_MS;
-    this.sports = new SportsController({ storage: deps.storage, now: this.now });
-    this.appVersion = deps.appVersion ?? '0.0.0';
-    this.storageEstimate = deps.storageEstimate;
-    this.liveMem = new LiveSourceMemory(deps.storage, this.now);
-    this.companion = deps.companion?.(this, (status) => {
-      // Why a session ended, for diagnostics (relay close reasons carry no secrets).
-      if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
-      deps.emit({ type: 'companion', status });
-    });
-    this.vod = deps.vod;
     this.subs = new SubtitleController({
       ...(deps.subtitles ? { subtitles: deps.subtitles } : {}),
       ...(deps.onlineSubtitles ? { onlineSubtitles: deps.onlineSubtitles } : {}),
@@ -241,6 +219,35 @@ export class AppApi {
       settings: () => this.currentSettings(),
       vod: () => this.vodOrThrow(),
     });
+    this.titles = new TitleIndexController({
+      service: this.service, emit: this.emit,
+      activeId: () => this.activeId,
+      enqueue: (id, fn) => this.enqueue(id, fn),
+      note: (message) => this.note('search', message),
+      record: (where, err) => { this.record(where, err); },
+    });
+    this.backup = new BackupController({
+      service: this.service, storage: deps.storage, emit: this.emit, now: this.now, iterations: deps.backupIterations, vod: deps.vod,
+      companion: () => this.companion,
+      activeId: () => this.activeId,
+      layout: () => this.index.layout(),
+      commitLayout: (id, before, layout, origin) => this.commitLayoutLocked(id, before, layout, [], origin),
+      withIndex: (fn) => this.withIndex(fn),
+      settings: () => this.currentSettings(),
+      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
+      vodRestored: (id, what) => this.vodc?.restored(id, what),
+      record: (where, err) => { this.record(where, err); },
+    });
+    this.sports = new SportsController({ storage: deps.storage, now: this.now });
+    this.appVersion = deps.appVersion ?? '0.0.0';
+    this.storageEstimate = deps.storageEstimate;
+    this.liveMem = new LiveSourceMemory(deps.storage, this.now);
+    this.companion = deps.companion?.(this, (status) => {
+      // Why a session ended, for diagnostics (relay close reasons carry no secrets).
+      if (status.state === 'expired' && status.reason) this.note('companion', `Phone session ended: ${status.reason}.`);
+      deps.emit({ type: 'companion', status });
+    });
+    this.vod = deps.vod;
     const uiLanguage = () => (typeof navigator === 'undefined' ? undefined : navigator.language);
     this.trending = deps.trending?.baseUrl.trim()
       ? new TrendingService({
@@ -259,18 +266,6 @@ export class AppApi {
       })
       : undefined;
     this.service.guard.onChange((sourceId, cooldown, cause) => this.cooldownChanged(sourceId, cooldown, cause));
-    this.backup = new BackupController({
-      service: this.service, storage: deps.storage, emit: this.emit, now: this.now, iterations: deps.backupIterations, vod: deps.vod,
-      companion: () => this.companion,
-      activeId: () => this.activeId,
-      layout: () => this.index.layout(),
-      commitLayout: (id, before, layout, origin) => this.commitLayoutLocked(id, before, layout, [], origin),
-      withIndex: (fn) => this.withIndex(fn),
-      settings: () => this.currentSettings(),
-      saveSettings: (patch) => this.applySettings(patch, { stamp: false, locked: true }),
-      vodRestored: (id, what) => this.vodc?.restored(id, what),
-      record: (where, err) => { this.record(where, err); },
-    });
     this.catchup = new CatchupController({
       service: this.service, now: this.now,
       onRefined: (channelId) => this.emit({ type: 'archiveRefined', channelId }),
@@ -340,7 +335,7 @@ export class AppApi {
       this.shortCache.dropSource(id);
       this.formats.delete(id);
       this.guideImports.delete(id);
-      this.titleRebuilds.delete(id);
+      this.titles.forget(id);
       if (this.startCache?.sourceId === id) this.startCache = undefined;
       this.dropSports();
       this.liveMem.forget(id);
@@ -811,19 +806,19 @@ export class AppApi {
       const found = scored.map((m, i) => ({ c: m.channel, i, t: tier(m.score), k: key(m.channel) }))
         .sort((a, b) => a.t - b.t || a.k - b.k || a.i - b.i).slice(0, limit).map((x) => x.c);
       const totals = { channelTotal: scored.length, hiddenCount: this.hiddenMatchCount(query) };
-      const epoch = this.titlesEpoch;
+      const epoch = this.titles.epoch;
       // Without guide data there is nothing to prepare: channels only.
       const guided = id !== undefined && this.coverage !== undefined && query.trim() !== '';
       // Never waits on loading the index: without it in memory, channels come back now and `searchReady` follows.
-      const data = guided ? this.cachedTitles(id) : undefined;
+      const data = guided ? this.titles.cached(id) : undefined;
       // Pending while a load or a rebuild is in flight; once both finished with no index, channels only.
       if (!data) {
-        const guidePending = guided && this.titlesPending(id);
+        const guidePending = guided && this.titles.pending(id);
         return { channels: await this.toRows(found), onNow: [], later: [], guidePending, ...totals };
       }
       const hits = await this.programmeHits(data, query);
       // The source changed during the awaits: the index state now belongs to another source.
-      if (this.activeId !== id || this.titlesEpoch !== epoch) {
+      if (this.activeId !== id || this.titles.epoch !== epoch) {
         return { channels: await this.toRows(found), onNow: [], later: [], guidePending: false, ...totals };
       }
       // Programmes never take the channels' places: each section has its own budget.
@@ -1436,8 +1431,8 @@ export class AppApi {
 
   /** Test-only: resolves once every per-source queue (background and explicit refreshes) is empty. Not exposed over RPC. */
   async idle(): Promise<void> {
-    while (this.queues.size || this.shortJobs.size || this.titleJobs.size || this.regionJobs.size) {
-      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titleJobs, ...this.regionJobs]);
+    while (this.queues.size || this.shortJobs.size || this.titles.jobs.size || this.regionJobs.size) {
+      await Promise.all([...this.queues.values(), ...this.shortJobs, ...this.titles.jobs, ...this.regionJobs]);
     }
     await this.vodc?.idle();
     await this.trending?.idle();
@@ -1670,8 +1665,7 @@ export class AppApi {
 
   /** Forgets what was built from the guide and the index: the title index and the sports mapping. */
   private dropGuideDerived(): void {
-    this.titles = undefined;
-    this.titlesEpoch++;
+    this.titles.drop();
     this.dropSports();
     this.sportsMapping++;
   }
@@ -1831,85 +1825,6 @@ export class AppApi {
       if (rec && this.activeId === id) this.sportsRec = { sourceId: id, rec };
     }
     return this.sports.view(id, rec, this.index, settings.epgOffsetHours, this.sportsMapping);
-  }
-
-  /**
-   * The title index of `id` when it is in memory. Otherwise undefined, after starting (or joining) its
-   * background load, unless a rebuild is running (it loads the index when done) or the index is known missing.
-   */
-  private cachedTitles(id: string): TitleIndexData | undefined {
-    if (this.titlesTimer !== undefined) clearTimeout(this.titlesTimer);
-    this.titlesTimer = setTimeout(() => { this.titles = undefined; this.titlesTimer = undefined; }, TITLES_IDLE_MS);
-    (this.titlesTimer as { unref?: () => void }).unref?.();
-    if (this.titles?.sourceId === id) return this.titles.data;
-    const missing = this.titlesMissing;
-    if (missing?.sourceId === id && missing.epoch === this.titlesEpoch) return undefined;
-    if (this.titleRebuilds.get(id) === 'running') return undefined;
-    this.loadTitles(id);
-    return undefined;
-  }
-
-  /** True while a title index load or rebuild of `id` is in flight. */
-  private titlesPending(id: string): boolean {
-    return this.titleLoad?.sourceId === id || this.titleRebuilds.get(id) === 'running';
-  }
-
-  /**
-   * Loads the stored title index of `id` in the background (one load per source and epoch). When it is still
-   * current: caches it and emits `searchReady`; with no usable record, starts the one-time rebuild, or, when
-   * that was already tried, marks the index missing and emits `searchReady` so the TV drops its pending note.
-   */
-  private loadTitles(id: string): void {
-    const epoch = this.titlesEpoch;
-    if (this.titleLoad?.sourceId === id && this.titleLoad.epoch === epoch) return;
-    const load = { sourceId: id, epoch };
-    this.titleLoad = load;
-    const job = (async () => {
-      let data: TitleIndexData | undefined;
-      try {
-        data = await this.service.titleIndexFor(id);
-      } catch (err) {
-        // Never a failed search: logged by error name only, then rebuilt like a missing record.
-        this.note('search', `Title index could not be read (${err instanceof Error ? err.name : 'Error'}).`);
-      }
-      if (this.titleLoad === load) this.titleLoad = undefined;
-      // The source or its guide changed meanwhile: this result belongs to an older index.
-      if (this.activeId !== id || this.titlesEpoch !== epoch) return;
-      if (data) {
-        this.titles = { sourceId: id, data };
-        this.emit({ type: 'searchReady', sourceId: id });
-      } else if (!this.titleRebuilds.has(id)) {
-        this.startTitleRebuild(id);
-      } else if (this.titleRebuilds.get(id) === 'done') {
-        this.titlesMissing = { sourceId: id, epoch };
-        this.emit({ type: 'searchReady', sourceId: id });
-      }
-    })().catch((err: unknown) => { this.record('search', err); });
-    this.titleJobs.add(job);
-    void job.then(() => this.titleJobs.delete(job));
-  }
-
-  private startTitleRebuild(id: string): void {
-    if (this.titleRebuilds.has(id)) return;
-    this.titleRebuilds.set(id, 'running');
-    void this.enqueue(id, async () => {
-      try {
-        await this.service.rebuildTitleIndex(id);
-      } catch (err) {
-        this.record('rebuildTitleIndex', err);
-        if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
-        // Not retried this session: searches return channels only, without the pending note. As on the
-        // load-missing path, searchReady lets the TV re-run the query and drop its "being prepared" note.
-        if (this.activeId === id) {
-          this.titlesMissing = { sourceId: id, epoch: this.titlesEpoch };
-          this.emit({ type: 'searchReady', sourceId: id });
-        }
-        return;
-      }
-      if (this.titleRebuilds.has(id)) this.titleRebuilds.set(id, 'done');
-      // Load the rebuilt index; its load emits `searchReady`.
-      if (this.activeId === id) this.loadTitles(id);
-    });
   }
 
   /** Matching programmes on the displayed timeline: airing now (per channel) and later (one per title). */
