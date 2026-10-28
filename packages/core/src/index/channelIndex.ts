@@ -153,18 +153,26 @@ function buildBase(channels: Channel[], epgCoverage: Set<string> | undefined): B
   const byId = new Map<string, Channel>();
   const providerOrder: string[] = [];
   const members = new Map<string, Channel[]>();
-  for (const c of channels) {
+  /** Members by the playlist's group name: the group id string is built once per group, not per channel. */
+  const byGroup = new Map<string, Channel[]>();
+  let inOrder = true;
+  for (let i = 0; i < channels.length; i++) {
+    const c = channels[i]!;
     byId.set(c.id, c);
-    const gid = groupIdOf(c);
-    let m = members.get(gid);
+    let m = byGroup.get(c.group);
     if (!m) {
       m = [];
+      byGroup.set(c.group, m);
+      const gid = groupIdOf(c);
       members.set(gid, m);
       providerOrder.push(gid);
     }
     m.push(c);
+    // `<=` is false for NaN, so any odd number takes the sort below.
+    if (inOrder && i > 0 && !(channels[i - 1]!.number <= c.number)) inOrder = false;
   }
-  const byNumber = [...channels].sort((a, b) => a.number - b.number);
+  // Playlists are usually numbered in order already: a stable sort of those would change nothing.
+  const byNumber = inOrder ? channels.slice() : [...channels].sort((a, b) => a.number - b.number);
   return { channels, byId, providerOrder, members, byNumber, membersByNumber: new Map(), epgCoverage };
 }
 
