@@ -51,9 +51,6 @@ const PLAYBACK_SCREENS = new Set(['player', 'vodPlay']);
 
 const [lite, setLite] = createSignal(false);
 
-/** Auto-lite dropped this session to Reduced (low frame rate measured while animating). */
-export const motionLite = lite;
-
 /** The level in force now: auto-lite lowers Full to Reduced for the session; reduced at most while video plays. */
 function levelNow(): MotionLevel {
   const screen = router.current()?.screen;
@@ -130,11 +127,6 @@ function liveChanged(): void {
     rafId = undefined;
     autoLite.stop();
   }
-}
-
-/** Animations running now (debug and tests). */
-export function liveAnimations(): number {
-  return live;
 }
 
 function animateProp(node: ElementNode, prop: AnimProp, value: number, token: MotionToken, onDone?: () => void): void {

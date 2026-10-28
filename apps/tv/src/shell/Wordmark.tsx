@@ -32,8 +32,6 @@ export const WORDMARK_X = (LAYOUT.width - WORDMARK_W) / 2;
 export const WORDMARK_Y = LAYOUT.safeY;
 /** First free design y below the mark; top-row content that crosses the centre starts here. */
 export const WORDMARK_BOTTOM = WORDMARK_Y + WORDMARK_H;
-/** First free design x right of the mark (plus a gap), for top-row content beside it. */
-export const WORDMARK_RIGHT = WORDMARK_X + WORDMARK_W + LAYOUT.gap;
 /**
  * Horizontal zone reserved around the screen centre for the top row. Badges stay outside it; the drawn mark is
  * narrower and centred inside it.

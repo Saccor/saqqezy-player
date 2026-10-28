@@ -191,7 +191,6 @@ export interface PlaybackSlot {
 /** The slot with sound (the pool's primary), as a signal: the app-wide exports and the slot roles follow it. */
 const [primaryIndex, setPrimaryIndex] = createSignal(0);
 const [multiviewOpen, setMultiviewOpen] = createSignal(false);
-export const inMultiview = multiviewOpen;
 const roleOf = (n: number): SlotRole => slotRole(n, primaryIndex(), multiviewOpen());
 
 /** Window refusals per host this session: the 4th within 10 min cools the host down after all. */

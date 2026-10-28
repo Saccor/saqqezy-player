@@ -139,5 +139,3 @@ export function createLivePreview(alive: () => boolean) {
 
   return { requested, pausedNote, playById, playHere, resumeLast, stopPreview, openFullscreen, retryHere, playSource };
 }
-
-export type LivePreview = ReturnType<typeof createLivePreview>;
