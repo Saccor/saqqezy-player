@@ -299,7 +299,16 @@ export class ChannelIndex {
 
   /** Visible in provider groups, `all`, search and number lookup. */
   private shown(c: Channel): boolean {
-    return !this.hiddenCh.has(c.id) && !this.hiddenGr.has(groupIdOf(c)) && !(this.noEpg?.has(c.id) ?? false);
+    // Size checks first: most indexes hide nothing, and the group id is a fresh string per call.
+    return (this.hiddenCh.size === 0 || !this.hiddenCh.has(c.id))
+      && (this.hiddenGr.size === 0 || !this.hiddenGr.has(groupIdOf(c)))
+      && !(this.noEpg?.has(c.id) ?? false);
+  }
+
+  /** The display channels of `src` that are shown, in `src` order: a plain copy when nothing is hidden or renamed. */
+  private shownDisplay(src: readonly Channel[]): Channel[] {
+    if (this.plain) return src.slice();
+    return src.filter((c) => this.shown(c)).map((c) => this.display(c));
   }
 
   private sortModeFor(groupId: string): SortMode {
@@ -443,7 +452,7 @@ export class ChannelIndex {
     if (groupId === GROUP_ALL) {
       const mode = this.sortModeFor(GROUP_ALL);
       const src = mode === 'number' ? this.base.byNumber : this.base.channels;
-      return this.order(GROUP_ALL, src.filter((c) => this.shown(c)).map((c) => this.display(c)), mode === 'number');
+      return this.order(GROUP_ALL, this.shownDisplay(src), mode === 'number');
     }
     if (groupId === GROUP_RECENT) {
       // Follows the same visibility rules as `all`; only user lists are exempt from group and no-EPG hiding.
@@ -457,7 +466,7 @@ export class ChannelIndex {
     if (!m || this.hiddenGr.has(groupId)) return [];
     const mode = this.sortModeFor(groupId);
     const src = mode === 'number' ? this.membersByNumber(groupId, m) : m;
-    return this.order(groupId, src.filter((c) => this.shown(c)).map((c) => this.display(c)), mode === 'number');
+    return this.order(groupId, this.shownDisplay(src), mode === 'number');
   }
 
   private computeFolded(groupId: string): Channel[] {
