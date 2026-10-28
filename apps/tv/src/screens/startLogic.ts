@@ -7,7 +7,7 @@ import { metaLine } from '../vod/posterLogic.ts';
 import { LAYOUT } from '../shell/theme.ts';
 import { formatClock } from '../shell/logic.ts';
 import { sameData } from '../shell/sameData.ts';
-import type { RowModel } from '../vod/browseLogic.ts';
+import { moveInRows, type RowModel } from '../vod/browseLogic.ts';
 
 export type StartRowKind = 'poster' | 'wide';
 export interface StartFocus { row: number; col: number }
@@ -27,16 +27,7 @@ export function cellId(c: StartCell): string {
 const clampCol = (r: StartRow | undefined, col: number) => (r ? Math.max(0, Math.min(col, r.cells.length - 1)) : 0);
 
 export function moveStart(rows: StartRow[], f: StartFocus, key: 'up' | 'down' | 'left' | 'right', cols: Map<string, number>): { focus: StartFocus } | { edge: 'top' } {
-  const r = rows[f.row];
-  if (!r) return { focus: { row: 0, col: 0 } };
-  if (key === 'left') return { focus: { row: f.row, col: clampCol(r, f.col - 1) } };
-  if (key === 'right') return { focus: { row: f.row, col: clampCol(r, f.col + 1) } };
-  if (key === 'up' && f.row === 0) return { edge: 'top' };
-  if (key === 'down' && f.row === rows.length - 1) return { focus: f };
-  cols.set(r.id, f.col);
-  const next = f.row + (key === 'up' ? -1 : 1);
-  const target = rows[next]!;
-  return { focus: { row: next, col: clampCol(target, cols.get(target.id) ?? f.col) } };
+  return moveInRows(rows, f, key, cols, (r) => r.cells.length);
 }
 
 export function locateStart(rows: StartRow[], mem: StartMemory): StartFocus {

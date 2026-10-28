@@ -52,20 +52,31 @@ export function cellAt(r: RowModel, col: number): Cell {
 
 const clampCol = (r: RowModel | undefined, col: number) => (r ? Math.max(0, Math.min(col, cellCount(r) - 1)) : 0);
 
-/** `cols` remembers the last column per row id, so Up then Down returns to the same poster. */
-export function moveBrowse(
-  rows: RowModel[], f: BrowseFocus, key: 'up' | 'down' | 'left' | 'right', cols: Map<string, number>,
+/**
+ * D-pad focus over rows of cells (Movies/Series browse and Start). `cols` remembers the last column per row id, so Up
+ * then Down returns to the same cell; Up on the first row is the top edge.
+ */
+export function moveInRows<R extends { id: string }>(
+  rows: readonly R[], f: BrowseFocus, key: 'up' | 'down' | 'left' | 'right', cols: Map<string, number>, count: (r: R) => number,
 ): { focus: BrowseFocus } | { edge: 'top' } {
+  const clamp = (r: R, col: number) => Math.max(0, Math.min(col, count(r) - 1));
   const r = rows[f.row];
   if (!r) return { focus: { row: 0, col: 0 } };
-  if (key === 'left') return { focus: { row: f.row, col: clampCol(r, f.col - 1) } };
-  if (key === 'right') return { focus: { row: f.row, col: clampCol(r, f.col + 1) } };
+  if (key === 'left') return { focus: { row: f.row, col: clamp(r, f.col - 1) } };
+  if (key === 'right') return { focus: { row: f.row, col: clamp(r, f.col + 1) } };
   if (key === 'up' && f.row === 0) return { edge: 'top' };
   if (key === 'down' && f.row === rows.length - 1) return { focus: f };
   cols.set(r.id, f.col);
   const next = f.row + (key === 'up' ? -1 : 1);
   const target = rows[next]!;
-  return { focus: { row: next, col: clampCol(target, cols.get(target.id) ?? f.col) } };
+  return { focus: { row: next, col: clamp(target, cols.get(target.id) ?? f.col) } };
+}
+
+/** `cols` remembers the last column per row id, so Up then Down returns to the same poster. */
+export function moveBrowse(
+  rows: RowModel[], f: BrowseFocus, key: 'up' | 'down' | 'left' | 'right', cols: Map<string, number>,
+): { focus: BrowseFocus } | { edge: 'top' } {
+  return moveInRows(rows, f, key, cols, cellCount);
 }
 
 export function clampFocus(rows: RowModel[], f: BrowseFocus): BrowseFocus {
