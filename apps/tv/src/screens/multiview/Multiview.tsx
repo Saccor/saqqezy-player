@@ -3,58 +3,39 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount } from '
 import { GROUP_ALL } from '@iptv/core';
 import { api } from '../../api.ts';
 import { Sheet } from '../../components/Sheet.tsx';
-import { fromMenuItem, type MenuItem } from '../../components/sheetLogic.ts';
-import { COMMON_COPY, MULTIVIEW_COPY } from '../../copy.ts';
-import { usePointerTarget } from '../../input/pointer.ts';
+import { fromMenuItem } from '../../components/sheetLogic.ts';
+import { MULTIVIEW_COPY } from '../../copy.ts';
 import {
-  clearWindowNote, connectionMemory, deviceWindowMax, dropRefusalMark, keepRefusalOnWindow, otherSlots, playback, pool, setInMultiview,
-  windowNotes,
+  clearWindowNote, connectionMemory, deviceWindowMax, otherSlots, playback, pool, setInMultiview,
 } from '../../playback/playback.ts';
-import { tileFailure } from '../../playback/tileFailure.ts';
+import { createLayerSet } from '../../shell/layerSet.ts';
 import { router, type ScreenEntry } from '../../shell/router.ts';
-import { ALPHA, centerText, COLORS, LAYOUT, RADIUS, SPACE, STRONG, TYPE } from '../../shell/theme.ts';
+import { COLORS, LAYOUT, RADIUS, SPACE, TYPE } from '../../shell/theme.ts';
 import { FocusRing } from '../../components/FocusRing.tsx';
-import { activeMaxConnections } from '../../state/activeLimit.ts';
-import { cooldownForStream, initState, settings } from '../../state/appState.ts';
+import { initState, settings } from '../../state/appState.ts';
 import { volumeStep } from '../../video/volume.ts';
-import { layout, type Rect, type TileGeometry } from './layout.ts';
+import { layout } from './layout.ts';
 import { MultiviewPicker } from './MultiviewPicker.tsx';
+import { WindowChrome, WindowHit } from './MultiviewChrome.tsx';
 import {
-  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, atSourceLimit, click, closeWindow, createWatchInstead, enterFullScreen, equalSize,
-  exitFullScreen, focusRested, idle, layoutInput, makeLarge, menuItems, moveFocus, pickerHint, playingSince, pointerFocus, reopenStatus, retryAction,
-  soundToPlaying, sourceLimit, start, steadyPlaying, togglePin, wake, windowsToStop, type MenuId, type MvState, type MvWindow, wasCut,
+  CHROME_IDLE_MS, SOUND_REST_MS, addWindow, click, enterFullScreen, exitFullScreen, focusRested, idle, layoutInput, moveFocus,
+  pickerHint, playingSince, pointerFocus, soundToPlaying, start, steadyPlaying, wake, type MvState, type MvWindow,
 } from './mvLogic.ts';
+import { createMvHealth } from './mvHealth.ts';
+import { createMvMenu } from './mvMenu.ts';
 import { createMultiviewSession } from './session.ts';
 import { tileProfile } from './tileProfile.ts';
 import { canAddWindow, deviceCeiling, windowLimit } from './windows.ts';
 
-/** The height of a window's status pill (and of the sound mark on a small window). */
-const STATUS_PILL_H = 40;
 const MENU_ID = 'multiviewMenu';
 const PICKER_ID = 'multiviewPicker';
-type MenuAction = MenuId | 'retry' | 'retryNow' | 'watchInstead' | 'cancel';
-
-/** A window's pointer area: hover focuses it (the sound follows after the rest), click, double click, right click. */
-function WindowHit(props: {
-  rect: Rect; onHover: () => void; onClick: () => void; onDoubleClick: () => void; onMenu: () => void; onWheel: (dy: number) => boolean;
-}) {
-  let node: ElementNode | undefined;
-  usePointerTarget({
-    node: () => node,
-    onHover: (p) => { if (p) props.onHover(); },
-    onClick: () => props.onClick(),
-    onDoubleClick: () => props.onDoubleClick(),
-    onContextMenu: () => props.onMenu(),
-    onWheel: (dy) => props.onWheel(dy),
-  });
-  return <View ref={(el) => { node = el; }} x={props.rect.x} y={props.rect.y} width={props.rect.w} height={props.rect.h} />;
-}
 
 /**
  * Multiview (spec 2026-10-20-multiview; owner decisions §12 and 2026-10-22): several live channels at once on desktop.
  * The windows are playback slots placed at `layout()`'s rects; this screen draws the chrome over them (ring, sound
- * disc, label, status) and drives the state in `mvLogic`. The sound is the pool's primary slot and follows the focus
- * (D-pad or hover) after a 400 ms rest. Leaving keeps the window with sound playing full screen: no reconnect.
+ * disc, label, status; `MultiviewChrome.tsx`) and drives the state in `mvLogic`. The sound is the pool's primary slot
+ * and follows the focus (D-pad or hover) after a 400 ms rest. Leaving keeps the window with sound playing full screen:
+ * no reconnect. Failures, Retry and "Watch this one instead" live in `mvHealth.ts`.
  */
 export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const params = props.entry.params as { channelId?: string };
@@ -63,8 +44,6 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const [picker, setPicker] = createSignal<{ mode: 'add' } | { mode: 'change'; index: number } | undefined>(undefined);
   const [menu, setMenu] = createSignal<number | undefined>(undefined);
   const [now, setNow] = createSignal(Date.now());
-  /** When each slot's stream failed (for Retry's 3 s rest). */
-  const failedAt = new Map<number, number>();
   /** Channel names by id, for the labels (from the playables we opened). */
   const [names, setNames] = createSignal<ReadonlyMap<string, string>>(new Map());
   const remember = (id: string, name: string) => setNames((m) => new Map(m).set(id, name));
@@ -73,19 +52,6 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   let pickerNode: ElementNode | undefined;
   let pickerBack: (() => boolean) | undefined;
   let alive = true;
-  /** "Watch this one instead": the window waiting for the source to free a connection (it shows "Freeing…"). */
-  const [freeingSlot, setFreeingSlot] = createSignal<number | undefined>(undefined);
-  const watch = createWatchInstead(setFreeingSlot, (slot) => pool.slots().find((p) => p.n === slot)?.playback.status());
-  /** Windows stopped so another could play: they say so and offer Retry. */
-  const [yielded, setYielded] = createSignal<ReadonlySet<number>>(new Set());
-  const unyield = (slot: number) => {
-    if (!yielded().has(slot)) return;
-    setYielded((y) => {
-      const next = new Set(y);
-      next.delete(slot);
-      return next;
-    });
-  };
   /** Opened over nothing yet: Back from the first picker leaves multiview. */
   let entryPicker = false;
 
@@ -138,11 +104,8 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
 
   // ---- windows ----
-  const windowAt = (i: number): MvWindow | undefined => state()?.windows[i];
-  const slotOf = (i: number) => {
-    const w = windowAt(i);
-    return w ? pool.slots().find((s) => s.n === w.slot) : undefined;
-  };
+  const health = createMvHealth({ alive: () => alive, state, update, session, now });
+  const { watch, freeingSlot, unyield, windowAt, slotOf, forgetReopen, failure } = health;
   const onScreen = (channelId: string) => state()?.windows.some((w) => w.channelId === channelId) ?? false;
   const canAdd = () => {
     const s = state();
@@ -195,89 +158,6 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     update(addWindow(cur, opened));
   };
 
-  const retry = (i: number) => {
-    const w = windowAt(i);
-    if (!w) return;
-    clearWindowNote(w.slot);
-    unyield(w.slot);
-    failedAt.delete(w.slot);
-    void session.changeChannel(w, w.channelId);
-  };
-  /** A window the cooldown holds: one probe of its source (as the single-view player's Retry now); the hold opens it. */
-  const retryNow = (i: number) => {
-    const slot = slotOf(i);
-    const cur = slot?.playback.current();
-    if (!slot || !cur) return;
-    api.retrySource(cur.url).then(() => {
-      if (alive && cooldownForStream(slot.playback.current()).state === 'clear') slot.playback.resumeHeld();
-    }, (err: unknown) => { console.warn('Retry failed', err instanceof Error ? err.name : 'Error'); });
-  };
-
-  // ---- a source at its limit (G9 decision C): "Watch this one instead" ----
-  const statusOf = (slot: number) => pool.slots().find((p) => p.n === slot)?.playback.status()?.kind;
-  /** The reported and learned limits of the active source (both inform; neither blocks). */
-  const limits = (): { reported?: number; learnedRefusalAt?: number } => {
-    const source = initState()?.activeSourceId;
-    // A source reporting 0 connections reports nothing (it is not a limit of 1).
-    const max = activeMaxConnections();
-    const reported = max !== undefined && max > 0 ? max : undefined;
-    const learned = source ? connectionMemory.refusedAt(source) : undefined;
-    return { ...(reported !== undefined ? { reported } : {}), ...(learned !== undefined ? { learnedRefusalAt: learned } : {}) };
-  };
-  /** The source cut or refused window `i` (not the TV, not an escalation). */
-  const cutAt = (i: number): boolean => {
-    const w = windowAt(i);
-    return w ? wasCut(windowNotes().get(w.slot), slotOf(i)?.playback.status()) : false;
-  };
-  /** The other windows playing now, newest first. */
-  const othersPlaying = (i: number): MvWindow[] =>
-    (state()?.windows ?? []).filter((w, k) => k !== i && statusOf(w.slot) === 'playing').reverse();
-  const retryKind = (i: number) => {
-    const others = othersPlaying(i).length;
-    return retryAction({ cut: cutAt(i), otherPlaying: others > 0, atLimit: atSourceLimit({ ...limits(), othersPlaying: others }) });
-  };
-  /**
-   * Stops just enough of the other windows, gives this one the sound, waits 5 s for the source, then opens it. Its
-   * refusal stays on the window (no source cooldown); refused once, it tries once more 20 s later, then never again.
-   */
-  const watchInstead = (i: number) => {
-    const s = state();
-    const w = windowAt(i);
-    if (!s || !w) return;
-    const others = othersPlaying(i);
-    const stop = others.slice(0, windowsToStop(others.length, sourceLimit(limits())));
-    for (const o of stop) {
-      session.close(o);
-      clearWindowNote(o.slot);
-    }
-    setYielded((y) => new Set([...y, ...stop.map((o) => o.slot)]));
-    clearWindowNote(w.slot);
-    failedAt.delete(w.slot);
-    if (!s.pinned) update({ ...s, sound: i });
-    watch.start(w.slot, () => {
-      const k = state()?.windows.findIndex((x) => x.slot === w.slot) ?? -1;
-      if (!alive || k < 0) return;
-      keepRefusalOnWindow(w.slot);
-      retry(k);
-    });
-  };
-  // The reopens it made: refused once, "Freeing…" again and one more try; played or failed otherwise, the mark goes.
-  createEffect(() => {
-    for (const w of state()?.windows ?? []) {
-      const st = pool.slots().find((p) => p.n === w.slot)?.playback.status();
-      const r = watch.observe(w.slot, reopenStatus(st), st);
-      if (r === 'played' || r === 'failed') dropRefusalMark(w.slot);
-    }
-  });
-  /**
-   * Window `slot` moves on (zap, another channel, closed) while a reopen may be starting: the reopen is no longer
-   * watched and its mark goes, so a later refusal there is judged as usual (host cooldown, escalation).
-   */
-  const forgetReopen = (slot: number) => {
-    watch.forget(slot);
-    dropRefusalMark(slot);
-  };
-
   const zap = (delta: 1 | -1) => {
     const s = state();
     if (!s || s.focus === 'empty') return true;
@@ -299,24 +179,15 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
 
   // ---- overlays ----
-  const removers = new Map<string, () => void>();
-  const openOverlay = (id: string, onClose: () => void) => {
-    removers.get(id)?.();
-    removers.set(id, router.pushOverlay(id, () => { removers.delete(id); onClose(); }));
-  };
-  const removeOverlay = (id: string) => {
-    const r = removers.get(id);
-    removers.delete(id);
-    r?.();
-  };
-  const closeOverlays = () => { removeOverlay(MENU_ID); removeOverlay(PICKER_ID); setMenu(undefined); setPicker(undefined); };
+  const layers = createLayerSet();
+  const closeOverlays = () => { layers.remove(MENU_ID); layers.remove(PICKER_ID); setMenu(undefined); setPicker(undefined); };
   const focusRoot = () => queueMicrotask(() => root?.setFocus());
 
   const openPicker = (mode: { mode: 'add' } | { mode: 'change'; index: number }) => {
     setMenu(undefined);
-    removeOverlay(MENU_ID);
+    layers.remove(MENU_ID);
     setPicker(mode);
-    const layer = () => openOverlay(PICKER_ID, () => {
+    const layer = () => layers.open(PICKER_ID, () => {
       // Back first clears a search query (the picker stays); only then does it close.
       if (pickerBack?.()) { layer(); return; }
       setPicker(undefined);
@@ -329,7 +200,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   };
   const closePicker = () => {
     entryPicker = false;
-    removeOverlay(PICKER_ID);
+    layers.remove(PICKER_ID);
     setPicker(undefined);
     focusRoot();
   };
@@ -343,63 +214,16 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
       return true;
     }
     setMenu(at);
-    openOverlay(MENU_ID, () => { setMenu(undefined); focusRoot(); });
+    layers.open(MENU_ID, () => { setMenu(undefined); focusRoot(); });
     queueMicrotask(() => menuNode?.setFocus());
     return true;
   };
-  const closeMenu = () => { removeOverlay(MENU_ID); setMenu(undefined); focusRoot(); };
+  const closeMenu = () => { layers.remove(MENU_ID); setMenu(undefined); focusRoot(); };
 
-  const menuEntries = createMemo<MenuItem<MenuAction>[]>(() => {
-    const s = state();
-    const i = menu();
-    if (!s || i === undefined) return [];
-    const out: MenuItem<MenuAction>[] = [];
-    if (failure(i)?.retryNow) out.push({ action: 'retryNow', label: MULTIVIEW_COPY.retry });
-    else if (failure(i)?.retry.enabled) {
-      // A plain Retry stays offered beside it: the app warns, it never blocks (decision 12.2).
-      if (retryKind(i) === 'watchInstead') out.push({ action: 'watchInstead', label: MULTIVIEW_COPY.watchInstead });
-      out.push({ action: 'retry', label: MULTIVIEW_COPY.retry });
-    }
-    for (const it of menuItems(s, i, canAdd())) out.push({ action: it.id, label: it.disabled ? `${it.label}: ${it.disabled}` : it.label });
-    out.push({ action: 'cancel', label: COMMON_COPY.cancel });
-    return out;
+  const { menuEntries, choose } = createMvMenu({
+    state, menu, health, canAdd, update, session, leave, closeMenu,
+    openPicker: (index) => openPicker(index === undefined ? { mode: 'add' } : { mode: 'change', index }),
   });
-
-  const choose = (action: MenuAction) => {
-    const s = state();
-    const i = menu();
-    if (!s || i === undefined) { closeMenu(); return; }
-    if (action === 'addChannel') {
-      if (canAdd().ok) openPicker({ mode: 'add' });
-      return;
-    }
-    if (action === 'changeChannel') { openPicker({ mode: 'change', index: i }); return; }
-    closeMenu();
-    // Acting on any window: a pending "Watch this one instead" opens nothing later (it starts again below if chosen).
-    if (action !== 'cancel') watch.cancel();
-    if (action === 'retry') {
-      // The user's own Retry: a refusal mark left by a "Watch this one instead" reopen is not its to keep.
-      const w = s.windows[i];
-      if (w) forgetReopen(w.slot);
-      retry(i);
-    } else if (action === 'retryNow') retryNow(i);
-    else if (action === 'watchInstead') watchInstead(i);
-    else if (action === 'fullScreen') update(enterFullScreen(s, i));
-    else if (action === 'makeLarge') update(makeLarge(s, i));
-    else if (action === 'equalSize') update(equalSize(s));
-    else if (action === 'keepSound' || action === 'soundFollows') update(togglePin(s, i));
-    else if (action === 'closeWindow') {
-      const w = s.windows[i];
-      if (w) {
-        forgetReopen(w.slot);
-        session.close(w);
-        unyield(w.slot);
-      }
-      const next = closeWindow(s, i);
-      if ('leave' in next) leave(next.leave);
-      else update(next);
-    }
-  };
 
   /** Every slot, read reactively (a new window or a sound move re-runs the effect). */
   const slotsNow = () => {
@@ -419,45 +243,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   });
 
   // ---- failures ----
-  createEffect(() => {
-    for (const s of slotsNow()) {
-      const kind = s.playback.status()?.kind;
-      if (kind === 'failed' && !failedAt.has(s.n)) failedAt.set(s.n, Date.now());
-      else if (kind !== 'failed') failedAt.delete(s.n);
-    }
-  });
-  const failure = (i: number) => {
-    const w = windowAt(i);
-    const slot = slotOf(i);
-    if (!w || !slot) return undefined;
-    // Waiting to open after "Watch this one instead": it shows "Freeing a connection…", not the old failure.
-    if (freeingSlot() === w.slot) return undefined;
-    const note = windowNotes().get(w.slot);
-    const st = slot.playback.status();
-    const t = now();
-    if (note?.deviceLimit) {
-      return tileFailure({ reason: st?.kind === 'failed' ? st.reason : 'unsupported', deviceLimit: true, at: note.at, now: t });
-    }
-    // Held by a cooldown (its stream stopped, nothing opens): the cooldown's words and Retry now, never a black window.
-    const cooldown = cooldownForStream(slot.playback.current());
-    if (cooldown.state !== 'clear' && st?.kind !== 'playing') {
-      return tileFailure({ reason: st?.kind === 'failed' ? st.reason : 'refused', cooldown, at: t, now: t });
-    }
-    if (yielded().has(w.slot) && st?.kind !== 'playing' && st?.kind !== 'loading' && st?.kind !== 'reconnecting') {
-      return { text: MULTIVIEW_COPY.stoppedForOther, retry: { enabled: true, inMs: 0 }, close: true as const };
-    }
-    if (note) {
-      const kicked = note.kicked ?? (note.pingPong ? Math.max(1, (state()?.windows.length ?? 2) - 1) : undefined);
-      return tileFailure({ reason: 'refused', ...(kicked !== undefined ? { kicked } : {}), escalated: note.escalated === true, at: note.at, now: t });
-    }
-    if (st?.kind !== 'failed') return undefined;
-    const reported = activeMaxConnections();
-    return tileFailure({
-      reason: st.reason, at: failedAt.get(w.slot) ?? t, now: t,
-      ...(st.httpStatus !== undefined ? { httpStatus: st.httpStatus } : {}),
-      ...(reported !== undefined ? { maxConnections: reported } : {}),
-    });
-  };
+  health.trackFailures(slotsNow);
   // The window with sound failed: the sound goes to one that has not (never silent over a message).
   createEffect(() => {
     const s = state();
@@ -537,7 +323,7 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
     }
     if (restTimer !== undefined) clearTimeout(restTimer);
     if (idleTimer !== undefined) clearTimeout(idleTimer);
-    for (const id of [...removers.keys()]) removeOverlay(id);
+    layers.removeAll();
   });
 
   /** The picker's info line (decision 12.2: it warns, it never blocks). */
@@ -554,61 +340,6 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
   const full = () => state()?.fullScreen;
   const tiles = () => geometry()?.tiles.filter((t) => full() === undefined || t.tile === full()) ?? [];
 
-  const Chrome = (p: { t: TileGeometry }) => {
-    const t = () => p.t;
-    const r = () => (full() === t().tile ? { x: 0, y: 0, w: LAYOUT.width, h: LAYOUT.height } : t().rect);
-    const large = () => full() === t().tile || t().sizeClass === 'large';
-    const focused = () => state()?.focus === t().tile && full() === undefined;
-    const sound = () => state()?.sound === t().tile && (state()?.windows.length ?? 0) > 1;
-    const fail = () => failure(t().tile);
-    const pad = () => (large() ? 24 : 16);
-    const scrimH = () => (large() ? 128 : 72);
-    const iconS = () => (large() ? SPACE.xl : STATUS_PILL_H);
-    return (
-      <View>
-        <View x={r().x} y={r().y}>
-          <FocusRing w={r().w} h={r().h} radius={RADIUS.card} lit={focused() && chrome()} clear />
-        </View>
-        <Show when={fail()}>{(f) => (
-          <View x={r().x} y={r().y} width={r().w} height={r().h} color={COLORS.surface} borderRadius={RADIUS.card}>
-            <Text x={pad()} y={r().h / 2 - SPACE.xl - SPACE.m} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={3}
-              textAlign="center" fontSize={large() ? TYPE.body : TYPE.meta} color={COLORS.text}>{f().text}</Text>
-            <Text x={pad()} y={r().h / 2 + SPACE.xl} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width" maxLines={1}
-              textAlign="center" fontSize={TYPE.meta} color={COLORS.muted}>
-              {f().retryNow
-                ? [f().hint, MULTIVIEW_COPY.retry, MULTIVIEW_COPY.closeWindow].filter(Boolean).join(' · ')
-                : f().retry.enabled
-                ? `${retryKind(t().tile) === 'watchInstead' ? MULTIVIEW_COPY.watchInstead : MULTIVIEW_COPY.retry} · ${MULTIVIEW_COPY.closeWindow}`
-                : MULTIVIEW_COPY.closeWindow}
-            </Text>
-          </View>
-        )}</Show>
-        <Show when={freeingSlot() !== undefined && freeingSlot() === windowAt(t().tile)?.slot}>
-          <View x={r().x + pad()} y={r().y + pad()} width={300} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
-            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.freeing}</Text>
-          </View>
-        </Show>
-        <Show when={!fail() && starting(t().tile)}>
-          <View x={r().x + pad()} y={r().y + pad()} width={160} height={STATUS_PILL_H} borderRadius={RADIUS.pill(STATUS_PILL_H)} color={COLORS.panel}>
-            <Text x={16} y={centerText(STATUS_PILL_H, TYPE.meta)} fontSize={TYPE.meta} color={COLORS.text}>{MULTIVIEW_COPY.starting}</Text>
-          </View>
-        </Show>
-        <Show when={sound()}>
-          <View x={r().x + r().w - pad() - iconS()} y={r().y + pad()} width={iconS()} height={iconS()}
-            borderRadius={RADIUS.pill(iconS())} color={COLORS.panel} alpha={chrome() ? 1 : ALPHA.dimmed}>
-            <Text y={centerText(iconS(), TYPE.meta)} width={iconS()} contain="width" textAlign="center" fontSize={TYPE.meta} color={COLORS.text}>♪</Text>
-          </View>
-        </Show>
-        <Show when={chrome() && !fail()}>
-          <View x={r().x} y={r().y + r().h - scrimH()} width={r().w} height={scrimH()} color={COLORS.panel}>
-            <Text x={pad()} y={centerText(scrimH(), large() ? TYPE.body : TYPE.meta)} width={r().w - pad() * 2} maxWidth={r().w - pad() * 2} contain="width"
-              maxLines={1} fontSize={large() ? TYPE.body : TYPE.meta} {...STRONG} color={COLORS.text}>{nameOf(t().tile)}</Text>
-          </View>
-        </Show>
-      </View>
-    );
-  };
-
   return (
     <View ref={(el) => { root = el; }} width={LAYOUT.width} height={LAYOUT.height} onBack={onBack} onEnter={onEnter}
       onLeft={arrow('left')} onRight={arrow('right')} onUp={arrow('up')} onDown={arrow('down')}
@@ -622,7 +353,15 @@ export function MultiviewScreen(props: { entry: ScreenEntry }) {
           onMenu={() => { openMenu(t.tile); }}
           onWheel={(dy) => { if (dy !== 0) volumeStep(dy < 0 ? 1 : -1); return true; }} />
       )}</For>
-      <For each={tiles()}>{(t) => <Chrome t={t} />}</For>
+      <For each={tiles()}>{(t) => (
+        <WindowChrome t={t} full={full()} awake={chrome()}
+          focused={state()?.focus === t.tile && full() === undefined}
+          sound={state()?.sound === t.tile && (state()?.windows.length ?? 0) > 1}
+          fail={failure(t.tile)}
+          freeing={freeingSlot() !== undefined && freeingSlot() === windowAt(t.tile)?.slot}
+          starting={starting(t.tile)} name={nameOf(t.tile)}
+          watchInstead={health.retryKind(t.tile) === 'watchInstead'} />
+      )}</For>
       <Show when={geometry()?.empty && full() === undefined && chrome() ? geometry()!.empty : undefined}>{(e) => (
         <View x={e().rect.x} y={e().rect.y} width={e().rect.w} height={e().rect.h} color={COLORS.surface} borderRadius={RADIUS.card}>
           <Text y={e().rect.h / 2 - SPACE.xl} width={e().rect.w} contain="width" textAlign="center" fontSize={TYPE.title} color={COLORS.subtle}>+</Text>
