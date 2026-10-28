@@ -837,10 +837,4 @@ export class ChannelIndex {
       .sort((a, b) => a.number - b.number)
       .map((c) => this.display(c));
   }
-
-  /** @deprecated v1 compatibility only; maps from the layout. Use `layout()`. */
-  flags(): UserFlags {
-    const fav = this.lay.lists.find((l) => l.id === FAV_LIST_ID);
-    return { favourites: [...(fav?.channelIds ?? [])], hidden: [...this.lay.hiddenChannels], recent: [...this.lay.recent] };
-  }
 }

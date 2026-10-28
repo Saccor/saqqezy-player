@@ -286,16 +286,10 @@ describe('ChannelIndex – ordering', () => {
 });
 
 describe('ChannelIndex – v1 flags compatibility', () => {
-  test('constructor accepts v1 UserFlags and flags() maps back', () => {
+  test('constructor accepts v1 UserFlags', () => {
     const idx = new ChannelIndex(channels, { favourites: ['s:1', 'gone:1'], hidden: ['gone:2'], recent: ['gone:3', 's:4'] });
     expect(idx.groupSize('fav')).toBe(1);
     expect(ids(idx.slice('recent', 0, 5))).toEqual(['s:4']);
-    expect(idx.flags()).toEqual({ favourites: ['s:1', 'gone:1'], hidden: ['gone:2'], recent: ['gone:3', 's:4'] });
-  });
-
-  test('flags without recent still load', () => {
-    const idx = new ChannelIndex(channels, { favourites: [], hidden: [] });
-    expect(idx.flags().recent ?? []).toEqual([]);
   });
 
   test('withLayout rebuilds over the same channels', () => {
