@@ -1,4 +1,4 @@
-import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
+import { Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { VOD_ALL } from '@iptv/core';
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { VOD_ROW_RECENT, type ChannelRow, type SportsEventTile as StartEvent, type StartCell, type StartHome, type StartRow } from '@iptv/app-api';
@@ -7,6 +7,7 @@ import { CATCHUP_COPY, FAV_COPY, favChangedToast } from '../copy.ts';
 import { canFromStart } from '../vod/catchupLogic.ts';
 import { createSheetChoice } from '../components/Sheet.tsx';
 import { Row } from '../components/Row.tsx';
+import { SlidingRows } from '../components/SlidingRows.tsx';
 import { COMPACT_H } from '../components/wideTileLogic.ts';
 import { useRowColumn } from '../components/rowColumn.ts';
 import { pointerMode, usePointerTarget } from '../input/pointer.ts';
@@ -256,46 +257,39 @@ export function StartScreen(props: { entry: ScreenEntry }) {
           fontSize={TYPE.title} color={COLORS.text}>{emptyStartText()}</Text>
       </Show>
       <Show when={rows().length > 0}>
-        <View ref={(el) => { rowsNode = el; }} width={LAYOUT.width} height={LAYOUT.height} zIndex={3}
+        {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped above the focused row). */}
+        <SlidingRows ref={(el) => { rowsNode = el; }} wheelRef={(el) => { wheelNode = el; }} column={column} top={ROW_Y} clipTop={CLIP_Y}
           onFocusChanged={(f: boolean) => { if (f) { setArea('rows'); preferredArea = 'rows'; } }}
           onUp={() => move('up')} onDown={() => move('down')} onLeft={() => move('left')} onRight={() => move('right')}
-          onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>
-          <View ref={(el) => { wheelNode = el; }} y={ROW_Y} width={LAYOUT.width} height={BOTTOM_ROW_Y - ROW_Y} />
-          {/* The rows sit at fixed y's in one column that slides (a row sliding out is clipped above the focused row). */}
-          <View y={CLIP_Y} width={LAYOUT.width} height={LAYOUT.height - CLIP_Y} clipping>
-            <View ref={column.ref} width={LAYOUT.width} height={column.height()}>
-              <For each={column.rows()}>{(i) => {
-                const r = () => rows()[i]!;
-                const focusCol = () => (i === focus().row ? focus().col : undefined);
-                const lit = () => area() === 'rows' && i === focus().row;
-                // Built once per row change, not on every `props.row` read inside Row (each tile reads it).
-                const posterRow = createMemo(() => (rowKind(r()) === 'poster' ? toPosterRow(r()) : undefined));
-                return (
-                  <View y={column.rowY(i)} width={LAYOUT.width} height={column.rowH(i)}>
-                    <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
-                    <Show when={lit() ? labelFor(i) : ''} keyed>
-                      {(t) => {
-                        const x = ROW_X + labelWidth(r().title) + 24;
-                        const w = LAYOUT.width - LAYOUT.safeX - x;
-                        return <Text x={x} y={0} width={w} maxWidth={w} contain="width" maxLines={1}
-                          fontSize={TYPE.meta} color={COLORS.muted}>{t}</Text>;
-                      }}
-                    </Show>
-                    <Show when={rowKind(r()) === 'poster'} fallback={
-                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'wideCompact', cells: r().cells, now: now() }}
-                        focusCol={focusCol()} lit={lit()} visible={START_WIDE_VISIBLE}
-                        onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
-                    }>
-                      <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: posterRow()! }}
-                        w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
-                        onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
-                    </Show>
-                  </View>
-                );
-              }}</For>
-            </View>
-          </View>
-        </View>
+          onEnter={openCell} onMenu={openMenu} onLongOk={openMenu}>{(i) => {
+            const r = () => rows()[i]!;
+            const focusCol = () => (i === focus().row ? focus().col : undefined);
+            const lit = () => area() === 'rows' && i === focus().row;
+            // Built once per row change, not on every `props.row` read inside Row (each tile reads it).
+            const posterRow = createMemo(() => (rowKind(r()) === 'poster' ? toPosterRow(r()) : undefined));
+            return (
+              <>
+                <Text x={ROW_X} y={0} fontSize={TYPE.body} {...STRONG} color={COLORS.text}>{r().title}</Text>
+                <Show when={lit() ? labelFor(i) : ''} keyed>
+                  {(t) => {
+                    const x = ROW_X + labelWidth(r().title) + 24;
+                    const w = LAYOUT.width - LAYOUT.safeX - x;
+                    return <Text x={x} y={0} width={w} maxWidth={w} contain="width" maxLines={1}
+                      fontSize={TYPE.meta} color={COLORS.muted}>{t}</Text>;
+                  }}
+                </Show>
+                <Show when={rowKind(r()) === 'poster'} fallback={
+                  <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'wideCompact', cells: r().cells, now: now() }}
+                    focusCol={focusCol()} lit={lit()} visible={START_WIDE_VISIBLE}
+                    onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
+                }>
+                  <Row x={ROW_X} y={LABEL_H} width={LAYOUT.width - ROW_X} content={{ variant: 'poster', row: posterRow()! }}
+                    w={START_POSTER.w} h={START_POSTER.h} visible={START_POSTER_VISIBLE} focusCol={focusCol()} lit={lit()}
+                    onCellClick={(c) => { pointTo(i, c); openCell(); }} onCellOptions={(c) => { pointTo(i, c); openMenu(); }} onWheel={onWheel} />
+                </Show>
+              </>
+            );
+          }}</SlidingRows>
       </Show>
       {/* Above the rail (zIndex 50), so the menus' scrims dim it too. */}
       <View zIndex={60}>
