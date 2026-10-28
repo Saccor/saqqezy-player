@@ -1,12 +1,12 @@
 import {
-  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_ALL, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, SubtitleError, alternateStreamUrl, applyOps,
+  ChannelIndex, DEFAULT_SETTINGS, FAV_LIST_ID, GROUP_ALL, GROUP_FAV, GROUP_RECENT, MAX_OPS_PER_BATCH, QUALITY_LABELS, alternateStreamUrl, applyOps,
   applyShift, emptyLayout, orderLiveSources, countryLabel, isSure, regionKeys, normalizeCountry, sanitizeSettings,
   isVodLayoutOpBatch, sureRegionKeys, type ChannelRegionView, type RegionSettings, type RegionsRecord, type VodLayoutOp,
-  compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, languageChoices, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
+  compareAirings, epgKey, isUnreachable, isLayoutOp, isLayoutOpBatch, mergeHeaders, nowNext, queryTitles, redactUrl, refreshFailKey, streamCooldownKey, streamKeySource,
   type AppSettings, type Channel, type GroupInfo, type IngestResult, type Layout, type LayoutOp, type NewSource, type Programme,
   type CooldownCause, type ProviderGroupInfo, type SeriesPointer, type SportsIndexRecord, type SourceConfig, type SourceCooldown, type SourceService, type Storage,
   type StreamHeaders, type TitleIndexData, type VodKind, type VodService, type VodSort,
-  alignSubtitle, englishLanguageName, rankSubtitles, type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OnlineSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleSearch, type SubtitleService,
+  type SyncResult, type SyncSample, type SyncSetting, type LoadedSubtitle, type SourceSubtitle, type OpenSubtitlesClient, type SubtitleInput, type SubtitleService,
   BACKUP_ENVELOPE_MAX_CHARS, BACKUP_FP_SCOPE, BackupError, BackupService, isBackupEnvelope,
   type BackupEnvelope, type RestoreSummary, compileQuery, nameKeys, nameMatchScore, NO_MATCH,
 } from '@iptv/core';
@@ -20,6 +20,7 @@ import {
   firstFormat, formatMemoKey, formatOf, isFormatMemo, isStreamFormat, type FormatMemo, type StreamFormat,
 } from './streamFormat.ts';
 import { SportsController, matchTiles, type MatchSettings, type MatchTiles } from './sportsController.ts';
+import { SubtitleController } from './subtitleController.ts';
 import { assembleStartHome, type StartParts, type StartTrendPart, type StartTrendTile } from './startHome.ts';
 import { TrendingService } from './trending.ts';
 import { VodController, type VodSearchHits } from './vodController.ts';
@@ -32,11 +33,7 @@ import type {
 } from './types.ts';
 import { buildCountryChoices } from './countryChoices.ts';
 
-/** A source subtitle file's display name: its label, else its language, then where it comes from. */
-export function sourceSubtitleName(sub: SourceSubtitle): string {
-  const what = sub.label?.trim() || englishLanguageName(sub.language) || 'Subtitles';
-  return `${what} (from source)`;
-}
+export { MOVIE_HASH_RETRY_MS, SUBTITLE_SEARCH_PAGE_SIZE, sourceSubtitleName } from './subtitleController.ts';
 
 const NOW_NEXT_TTL_MS = 60_000;
 /**
@@ -206,13 +203,7 @@ export class AppApi {
   private sportsMapping = 0;
   private readonly vodc: VodController | undefined;
   private readonly vod: VodService | undefined;
-  private readonly subtitles: SubtitleService | undefined;
-  private readonly onlineSubtitles: OpenSubtitlesClient | undefined;
-  private readonly fileHash: ((url: string, headers?: StreamHeaders) => Promise<string | undefined>) | undefined;
-  /** Movie hashes read this session, per stream URL, least recently used first; cleared on a source switch. */
-  private readonly movieHashes = new Map<string, MovieHashEntry>();
-  /** "Try another version" lists per title, language and frame rate, least recently used first; cleared on a source switch. */
-  private readonly versionLists = new Map<string, Promise<SubtitleVersion[]>>();
+  private readonly subs: SubtitleController;
   private readonly trending: TrendingService | undefined;
   private readonly catchup: CatchupController;
   private readonly backupIterations: number | undefined;
@@ -249,9 +240,17 @@ export class AppApi {
     });
     this.vod = deps.vod;
     this.backupIterations = deps.backupIterations;
-    this.subtitles = deps.subtitles;
-    this.onlineSubtitles = deps.onlineSubtitles;
-    this.fileHash = deps.fileHash;
+    this.subs = new SubtitleController({
+      ...(deps.subtitles ? { subtitles: deps.subtitles } : {}),
+      ...(deps.onlineSubtitles ? { onlineSubtitles: deps.onlineSubtitles } : {}),
+      ...(deps.fileHash ? { fileHash: deps.fileHash } : {}),
+      now: this.now,
+      activeId: () => this.activeId,
+      sourceHeaders: () => this.sourceHeaders,
+      sourceMaxConnections: () => this.sourceMaxConnections,
+      settings: () => this.currentSettings(),
+      vod: () => this.vodOrThrow(),
+    });
     const uiLanguage = () => (typeof navigator === 'undefined' ? undefined : navigator.language);
     this.trending = deps.trending?.baseUrl.trim()
       ? new TrendingService({
@@ -1203,10 +1202,7 @@ export class AppApi {
    * device for that title. Rejects with a message to show (a `SubtitleError`).
    */
   loadSubtitle(itemId: string, input: SubtitleInput): Promise<LoadedSubtitle> {
-    return this.run('loadSubtitle', () => {
-      const [svc, src] = this.subtitlesOrThrow();
-      return svc.load(src, itemId, input);
-    });
+    return this.run('loadSubtitle', () => this.subs.load(itemId, input));
   }
 
   /**
@@ -1214,11 +1210,7 @@ export class AppApi {
    * comes from its label or language, never from the link (which can carry the account's credentials).
    */
   loadSourceSubtitle(itemId: string, sub: SourceSubtitle): Promise<LoadedSubtitle> {
-    return this.run('loadSourceSubtitle', () => {
-      const [svc, src] = this.subtitlesOrThrow();
-      const name = sourceSubtitleName(sub);
-      return svc.load(src, itemId, { url: sub.url }, sub.language ? { language: sub.language, name } : { name });
-    });
+    return this.run('loadSourceSubtitle', () => this.subs.loadSource(itemId, sub));
   }
 
   /**
@@ -1227,31 +1219,21 @@ export class AppApi {
    * off the UI thread. Changes nothing: the player applies a result like a user's own delay.
    */
   syncSubtitle(itemId: string, sample: SyncSample, current: SyncSetting): Promise<SyncResult | undefined> {
-    return this.run('syncSubtitle', async () => {
-      if (!this.subtitles || !this.activeId) return undefined;
-      const loaded = await this.subtitles.get(this.activeId, itemId);
-      return loaded ? alignSubtitle(loaded.cues, sample, current) : undefined;
-    });
+    return this.run('syncSubtitle', () => this.subs.sync(itemId, sample, current));
   }
 
   /** The subtitles loaded earlier for a title, if any. */
   getSubtitle(itemId: string): Promise<LoadedSubtitle | undefined> {
-    return this.run('getSubtitle', async () => {
-      if (!this.subtitles || !this.activeId) return undefined;
-      return this.subtitles.get(this.activeId, itemId);
-    });
+    return this.run('getSubtitle', () => this.subs.get(itemId));
   }
 
   clearSubtitle(itemId: string): Promise<void> {
-    return this.run('clearSubtitle', () => {
-      const [svc, src] = this.subtitlesOrThrow();
-      return svc.clear(src, itemId);
-    });
+    return this.run('clearSubtitle', () => this.subs.clear(itemId));
   }
 
   /** Whether "Find subtitles online" can be offered (an app key is configured). */
   onlineSubtitlesAvailable(): Promise<boolean> {
-    return Promise.resolve(this.onlineSubtitles !== undefined && this.subtitles !== undefined);
+    return Promise.resolve(this.subs.onlineAvailable());
   }
 
   /**
@@ -1260,15 +1242,7 @@ export class AppApi {
    * rate, when known) ranks the versions timed for it first.
    */
   findSubtitlesOnline(itemId: string, seriesId?: string, videoFps?: number): Promise<OnlineSubtitleLanguage[]> {
-    return this.run('findSubtitlesOnline', async () => {
-      const client = this.onlineOrThrow();
-      const { query, preferred } = await this.subtitleQuery(itemId, seriesId);
-      const found = await client.search(query);
-      return languageChoices(found, preferred, videoFps).map((c) => ({
-        language: c.language, count: c.count, fileId: c.best.fileId, files: c.files.map((f) => f.fileId), synced: c.synced,
-        release: c.best.release, ...(c.best.fps ? { fps: c.best.fps } : {}), ...(c.cc ? { cc: true } : {}),
-      }));
-    });
+    return this.run('findSubtitlesOnline', () => this.subs.findOnline(itemId, seriesId, videoFps));
   }
 
   /**
@@ -1276,114 +1250,17 @@ export class AppApi {
    * (pages 1 and 2; page 2 only when page 1 says there is more), so the service's rate limit is respected.
    */
   subtitleVersions(itemId: string, language: string, seriesId?: string, videoFps?: number): Promise<SubtitleVersion[]> {
-    return this.run('subtitleVersions', async () => {
-      this.onlineOrThrow();
-      const lang = language.trim();
-      if (!lang) return [];
-      // Kept for the session (a reopen of the title asks nothing); a failed search is not kept. With exact match on,
-      // the list belongs to the file playing (a picked version under the same id is another file) and to the setting.
-      const exact = this.exactMatchOn(await this.currentSettings());
-      const file = exact ? (await this.vodOrThrow().playable(itemId, seriesId))?.url ?? '' : '';
-      const key = JSON.stringify([itemId, seriesId ?? '', lang, videoFps ?? 0, exact, file]);
-      let list = this.versionLists.get(key);
-      if (list) this.versionLists.delete(key); // Re-inserted below: the most recently used is last.
-      else list = this.searchVersions(itemId, lang, seriesId, videoFps);
-      this.versionLists.set(key, list);
-      if (this.versionLists.size > VERSION_LISTS_MAX) {
-        const leastRecent = this.versionLists.keys().next().value;
-        if (leastRecent !== undefined) this.versionLists.delete(leastRecent);
-      }
-      const kept = list;
-      return kept.catch((err: unknown) => {
-        if (this.versionLists.get(key) === kept) this.versionLists.delete(key);
-        throw err;
-      });
-    });
-  }
-
-  /** The search behind `subtitleVersions`: pages 1 and 2 at most. */
-  private async searchVersions(itemId: string, lang: string, seriesId: string | undefined, videoFps: number | undefined): Promise<SubtitleVersion[]> {
-    const client = this.onlineOrThrow();
-    const { query } = await this.subtitleQuery(itemId, seriesId);
-    query.languages = [lang];
-    const first = await client.searchPage(query);
-    const more = first.totalPages !== undefined ? first.totalPages > 1 : first.subtitles.length >= SUBTITLE_SEARCH_PAGE_SIZE;
-    const all: OnlineSubtitle[] = [...first.subtitles];
-    if (more) all.push(...(await client.searchPage({ ...query, page: 2 })).subtitles);
-    const seen = new Set<number>();
-    const unique = all.filter((s) => (seen.has(s.fileId) ? false : (seen.add(s.fileId), true)));
-    return rankSubtitles(unique, videoFps).map((s) => ({
-      fileId: s.fileId, release: s.release, ...(s.fps ? { fps: s.fps } : {}), synced: s.hashMatch, downloads: s.downloads,
-      ...(s.hearingImpaired ? { hearingImpaired: true } : {}),
-    }));
-  }
-
-  /**
-   * Exact match reads 128 KB of the playing file: a second request while the title streams. An account limited to one
-   * connection may refuse it (or count it against the user), so there it is never read, whatever the setting says.
-   */
-  private exactMatchOn(settings: AppSettings): boolean {
-    return settings.subtitleExactMatch && this.fileHash !== undefined && this.sourceMaxConnections !== 1;
-  }
-
-  /** The search for a title, with the stream file's hash when exact match is on (`movieHash`). */
-  private async subtitleQuery(itemId: string, seriesId?: string): Promise<{ query: SubtitleSearch; preferred: string }> {
-    const vod = this.vodOrThrow();
-    const query = await vod.subtitleSearch(itemId, seriesId);
-    if (!query) throw new SubtitleError("This title can't be found right now.");
-    const settings = await this.currentSettings();
-    // Exact match: the stream file's hash marks the versions timed for it (a failed read just leaves it out).
-    if (this.exactMatchOn(settings)) {
-      const playable = await vod.playable(itemId, seriesId);
-      // As `getVodPlayable`: the playlist entry's headers win over the source's settings.
-      const hash = playable?.url ? await this.movieHash(playable.url, mergeHeaders(this.sourceHeaders, playable.headers)) : undefined;
-      if (hash) query.moviehash = hash;
-    }
-    return { query, preferred: settings.subtitleLanguage };
-  }
-
-  /**
-   * The hash of the file at `url`, read once per file (keyed by its URL: a picked version under the same id is another
-   * file). A failed read is kept for MOVIE_HASH_RETRY_MS so a refusing server is not asked again at every search.
-   */
-  private async movieHash(url: string, headers: StreamHeaders | undefined): Promise<string | undefined> {
-    const fileHash = this.fileHash;
-    if (!fileHash) return undefined;
-    let entry = this.movieHashes.get(url);
-    if (entry) {
-      this.movieHashes.delete(url); // Re-inserted below: the most recently used is last.
-      if (entry.failedAt !== undefined && this.now() - entry.failedAt >= MOVIE_HASH_RETRY_MS) entry = undefined;
-    }
-    if (!entry) {
-      const fresh: MovieHashEntry = { hash: Promise.resolve(undefined) };
-      fresh.hash = fileHash(url, headers).catch(() => undefined).then((h) => {
-        if (!h) fresh.failedAt = this.now();
-        return h;
-      });
-      entry = fresh;
-    }
-    this.movieHashes.set(url, entry);
-    if (this.movieHashes.size > MOVIE_HASH_CACHE_MAX) {
-      const leastRecent = this.movieHashes.keys().next().value;
-      if (leastRecent !== undefined) this.movieHashes.delete(leastRecent);
-    }
-    return entry.hash;
+    return this.run('subtitleVersions', () => this.subs.versions(itemId, language, seriesId, videoFps));
   }
 
   /** How much later (positive) or earlier the title's loaded subtitles show; kept with that file. */
   setSubtitleDelay(itemId: string, delayMs: number): Promise<void> {
-    return this.run('setSubtitleDelay', () => {
-      const [svc, src] = this.subtitlesOrThrow();
-      return svc.setDelay(src, itemId, delayMs);
-    });
+    return this.run('setSubtitleDelay', () => this.subs.setDelay(itemId, delayMs));
   }
 
   /** How fast the title's loaded subtitles run against the video (a frame-rate fix); kept with that file. */
   setSubtitleSpeed(itemId: string, speed: number): Promise<void> {
-    return this.run('setSubtitleSpeed', () => {
-      const [svc, src] = this.subtitlesOrThrow();
-      return svc.setSpeed(src, itemId, speed);
-    });
+    return this.run('setSubtitleSpeed', () => this.subs.setSpeed(itemId, speed));
   }
 
   /**
@@ -1391,23 +1268,7 @@ export class AppApi {
    * `details`, its language (so its other versions can be listed later) and the frame rate it was timed for.
    */
   loadOnlineSubtitle(itemId: string, fileId: number, name: string, details?: { language?: string; fps?: number; cc?: boolean }): Promise<LoadedSubtitle> {
-    return this.run('loadOnlineSubtitle', async () => {
-      const client = this.onlineOrThrow();
-      const [svc, src] = this.subtitlesOrThrow();
-      const file = await client.download(fileId);
-      return svc.load(src, itemId, { bytes: file.bytes, name }, details && { ...details, fileId });
-    });
-  }
-
-  private onlineOrThrow(): OpenSubtitlesClient {
-    if (!this.onlineSubtitles) throw new Error('Online subtitles are not available.');
-    return this.onlineSubtitles;
-  }
-
-  private subtitlesOrThrow(): [SubtitleService, string] {
-    if (!this.subtitles) throw new Error('Loading subtitles is not available.');
-    if (!this.activeId) throw new Error('Add a source first.');
-    return [this.subtitles, this.activeId];
+    return this.run('loadOnlineSubtitle', () => this.subs.loadOnline(itemId, fileId, name, details));
   }
 
   refreshVod(kind: VodKind): Promise<void> {
@@ -1800,8 +1661,7 @@ export class AppApi {
   /** Makes `id` the in-memory active source and loads its cached index; both are swapped in together. */
   private activate(id: string | undefined): Promise<void> {
     // Item ids and stream URLs belong to a source (and its headers may have changed): its file hashes go with it.
-    this.movieHashes.clear();
-    this.versionLists.clear();
+    this.subs.reset();
     return this.withIndex(async () => {
       const [channels, layout, coverage, sources, , regions] = id
         ? await Promise.all([
@@ -2888,19 +2748,6 @@ function onlyRecentChanged(before: Layout, after: Layout): boolean {
 
 /** How many channels' live audio choices a source remembers. */
 export const LIVE_AUDIO_MAX = 200;
-/**
- * The subtitle search's page size, used only when an answer leaves out `total_pages`: a page this full may have a
- * next one. (OpenSubtitles REST v1 answers 50 per page by default.)
- */
-export const SUBTITLE_SEARCH_PAGE_SIZE = 50;
-/** How many files' movie hashes the session remembers (the least recently used dropped first). */
-const MOVIE_HASH_CACHE_MAX = 50;
-/** How many "Try another version" lists are kept for the session. */
-const VERSION_LISTS_MAX = 30;
-/** How long a failed movie-hash read is remembered before the file is asked again. */
-export const MOVIE_HASH_RETRY_MS = 10 * 60_000;
-/** A movie-hash read: the hash (undefined when it failed) and, once it failed, when. */
-interface MovieHashEntry { hash: Promise<string | undefined>; failedAt?: number }
 /** One remembered live audio choice: the channel and its track key (`<language>:<label>`), oldest first. */
 interface LiveAudioEntry { id: string; key: string }
 const liveAudioKey = (sourceId: string) => `liveAudio:${sourceId}`;
