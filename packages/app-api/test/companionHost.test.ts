@@ -606,6 +606,8 @@ describe('CompanionHost', () => {
   test('getState is single-flight and cached; haveVersion gets stateUnchanged until something changes', async () => {
     const s = setup();
     await s.api.addSource(xt());
+    // A guide import finishing mid-test changes the generation and the call count: let it finish first.
+    await s.api.idle();
     const { p } = await pairQr(s);
     await hello(p);
     const spy = vi.spyOn(s.api, 'getCompanionState');
