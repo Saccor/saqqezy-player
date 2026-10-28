@@ -33,6 +33,16 @@ describe('liveKey', () => {
     expect(liveKey('groups', 'up', ctx)).toBe('groups');
     expect(liveKey('groups', 'back', ctx)).toBe('channels');
     expect(liveKey('groups', 'back', { ...ctx, total: 0 })).toBe('rail');
+    expect(liveKey('groups', 'right', ctx)).toBe('groupSearch');
+  });
+  test('folder search button beside the dropdown', () => {
+    expect(liveKey('groupSearch', 'left', ctx)).toBe('groups');
+    expect(liveKey('groupSearch', 'right', ctx)).toBe('groupSearch');
+    expect(liveKey('groupSearch', 'up', ctx)).toBe('groupSearch');
+    expect(liveKey('groupSearch', 'down', ctx)).toBe('channels');
+    expect(liveKey('groupSearch', 'back', ctx)).toBe('channels');
+    expect(liveKey('groupSearch', 'down', { ...ctx, total: 0 })).toBe('groupSearch');
+    expect(liveKey('groupSearch', 'back', { ...ctx, total: 0 })).toBe('rail');
   });
   test('channel column', () => {
     expect(liveKey('channels', 'left', ctx)).toBe('rail');

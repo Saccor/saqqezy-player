@@ -54,3 +54,35 @@ export function DropdownHeader(props: {
     </View>
   );
 }
+
+/** A round icon button the height of a header (the folder search beside a dropdown); focused: a focus fill. */
+export function HeaderIconButton(props: {
+  ref?: (el: ElementNode) => void;
+  x: number; y: number; size: number;
+  icon: Parameters<typeof iconTexture>[0];
+  onPress: () => void;
+  onUp?: () => boolean; onDown?: () => boolean; onLeft?: () => boolean; onRight?: () => boolean;
+  onFocusChanged?: (f: boolean) => void;
+  pointerEnabled?: boolean;
+}) {
+  const [focused, setFocused] = createSignal(false);
+  const [hovered, setHovered] = createSignal(false);
+  let node: ElementNode | undefined;
+  usePointerTarget({
+    node: () => node, enabled: () => props.pointerEnabled !== false,
+    onHover: (p) => setHovered(p !== undefined), onClick: () => props.onPress(),
+  });
+  const glyph = () => Math.round(props.size * 0.55);
+  const fill = () => (focused() ? COLORS.focus : hovered() && pointerMode() ? COLORS.hover : COLORS.transparent);
+  return (
+    <View ref={(el) => { node = el; props.ref?.(el); }} x={props.x} y={props.y} width={props.size} height={props.size}
+      borderRadius={props.size / 2} color={fill()}
+      onFocusChanged={(f: boolean) => { setFocused(f); props.onFocusChanged?.(f); }}
+      onEnter={() => { props.onPress(); return true; }}
+      onUp={() => props.onUp?.() ?? true} onDown={() => props.onDown?.() ?? false}
+      onLeft={() => props.onLeft?.() ?? false} onRight={() => props.onRight?.() ?? true}>
+      <View x={(props.size - glyph()) / 2} y={(props.size - glyph()) / 2} width={glyph()} height={glyph()}
+        src={iconTexture(props.icon)} color={focused() ? COLORS.onFocus : COLORS.text} />
+    </View>
+  );
+}

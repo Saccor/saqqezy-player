@@ -20,7 +20,8 @@ export const GRID_Y = 312;
 /** The companion-phone badge: top right, inside the safe area. */
 export const PHONE_BADGE_POS = { x: LAYOUT.width - LAYOUT.safeX - 144, y: LAYOUT.safeY } as const;
 
-export type LivePlace = 'rail' | 'groups' | 'channels' | 'grid';
+/** `groupSearch`: the folder search button right of the group dropdown. */
+export type LivePlace = 'rail' | 'groups' | 'groupSearch' | 'channels' | 'grid';
 export type LiveKey = 'up' | 'down' | 'left' | 'right' | 'back';
 export interface LiveKeyCtx { row: number; total: number; hasGroups: boolean }
 
@@ -33,10 +34,11 @@ export interface LiveKeyCtx { row: number; total: number; hasGroups: boolean }
 export function liveKey(place: LivePlace, key: LiveKey, ctx: LiveKeyCtx): LivePlace | 'move' | 'exit' {
   const content: LivePlace = ctx.total > 0 ? 'channels' : ctx.hasGroups ? 'groups' : 'rail';
   if (place === 'rail') return key === 'back' ? 'exit' : key === 'right' ? content : 'move';
-  if (place === 'groups') {
-    if (key === 'left') return 'rail';
-    if (key === 'down' || key === 'back') return ctx.total > 0 ? 'channels' : key === 'back' ? 'rail' : 'groups';
-    return 'groups';
+  if (place === 'groups' || place === 'groupSearch') {
+    if (key === 'left') return place === 'groups' ? 'rail' : 'groups';
+    if (key === 'right') return 'groupSearch';
+    if (key === 'down' || key === 'back') return ctx.total > 0 ? 'channels' : key === 'back' ? 'rail' : place;
+    return place;
   }
   if (ctx.total > 0 && place === 'grid' && key === 'back') return 'channels';
   if (key === 'back' || (key === 'left' && ctx.total === 0)) return 'rail';

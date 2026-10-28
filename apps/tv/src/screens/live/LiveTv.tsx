@@ -3,8 +3,8 @@ import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount }
 import type { AppEvent, ArchiveState, ChannelRow, ProgrammeLite } from '@iptv/app-api';
 import type { GroupInfo } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
-import { DropdownHeader } from '../../components/DropdownHeader.tsx';
-import { PAD_X as DROPDOWN_PAD_X } from '../../components/dropdownLogic.ts';
+import { DropdownHeader, HeaderIconButton } from '../../components/DropdownHeader.tsx';
+import { PAD_X as DROPDOWN_PAD_X, dropdownWidth } from '../../components/dropdownLogic.ts';
 import { CHANNEL_W, EPG_GRID_X, EPG_POINTER_ROWS, EPG_VIEW_ROWS, EpgGrid, RULER_H } from '../../components/EpgGrid.tsx';
 import { KEYBOARD_H, KEYBOARD_W, Keyboard } from '../../components/Keyboard.tsx';
 import { LIST_PICKER_W, ListPicker } from '../../components/ListPicker.tsx';
@@ -60,6 +60,9 @@ const PICKER_ID = 'liveGroups';
 const GROUP_KEYBOARD_ID = 'liveGroupsKeyboard';
 /** The folder search keyboard and the Groups picker side by side, centred together. */
 const GROUP_KB_GAP = 48;
+/** The folder search button right of the group dropdown, in the ruler's channel column. */
+const GROUP_SEARCH_GAP = 8;
+const GROUP_HEADER_MAX_W = CHANNEL_W - 4 - RULER_H - GROUP_SEARCH_GAP;
 const GROUP_KB_X = (LAYOUT.width - KEYBOARD_W - GROUP_KB_GAP - LIST_PICKER_W) / 2;
 const GROUP_PICKER_OFFSET = GROUP_KB_X + KEYBOARD_W + GROUP_KB_GAP - (LAYOUT.width - LIST_PICKER_W) / 2;
 const GROUP_ALL = 'all';
@@ -205,6 +208,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
 
   let railNode: ElementNode | undefined;
   let headerNode: ElementNode | undefined;
+  let groupSearchNode: ElementNode | undefined;
   let gridNode: ElementNode | undefined;
   let pickerNode: ElementNode | undefined;
   let removePicker: (() => void) | undefined;
@@ -312,7 +316,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
   const focusPlace = (p: LivePlace, auto = false) => {
     setPlace(p);
     if (p === 'rail' && auto) focusRailCollapsed(railNode);
-    else (p === 'rail' ? railNode : p === 'groups' ? headerNode : gridNode)?.setFocus();
+    else (p === 'rail' ? railNode : p === 'groups' ? headerNode : p === 'groupSearch' ? groupSearchNode : gridNode)?.setFocus();
     return true;
   };
   /**
@@ -465,14 +469,19 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     setGroupKbOpen(false);
     setGroupQuery('');
   };
-  const openPicker = () => {
+  /** Where focus returns when the picker closes without a pick: the dropdown or the search button that opened it. */
+  let pickerFrom: 'groups' | 'groupSearch' = 'groups';
+  /** `search`: from the search button, at the top level with the keyboard open. */
+  const openPicker = (search = false) => {
     if (picking() || groups().length === 0 || router.topOverlay() !== undefined) return;
+    pickerFrom = search ? 'groupSearch' : 'groups';
     // Where the open group is: inside its country when it is folded.
-    setPickerLevel(openLevel(groups(), groupId()));
+    setPickerLevel(search ? TOP_LEVEL : openLevel(groups(), groupId()));
     setPickerFocusId(undefined);
     setPicking(true);
     removePicker = router.pushOverlay(PICKER_ID, closePicker);
     queueMicrotask(() => { if (alive) pickerNode?.setFocus(); });
+    if (search) openGroupKeyboard();
   };
   /** Back on the picker: up one level (focus on the row that opened it), or closed from the top level. */
   function closePicker() {
@@ -493,7 +502,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     }
     resetGroupSearch();
     setPicking(false);
-    queueMicrotask(() => { if (alive) focusPlace('groups'); });
+    queueMicrotask(() => { if (alive) focusPlace(pickerFrom); });
   }
   /** Closes the picker at any level (a source change, cleanup). */
   const dismissPicker = () => {
@@ -503,7 +512,7 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
     setPickerLevel(TOP_LEVEL);
     resetGroupSearch();
     setPicking(false);
-    queueMicrotask(() => { if (alive) focusPlace('groups'); });
+    queueMicrotask(() => { if (alive) focusPlace(pickerFrom); });
   };
   /** OK: a level opens in place; a group opens and focuses the grid at the playing channel, else row 0. */
   const pick = (r: PickerRow) => {
@@ -992,10 +1001,15 @@ export function LiveTvScreen(props: { entry: ScreenEntry }) {
       {/* In the ruler's channel column; after the grid, so it draws (and takes the pointer) on top of the ruler. */}
       <Show when={groups().length > 0}>
         <DropdownHeader ref={(el) => { headerNode = el; onCleanup(() => { if (headerNode === el) headerNode = undefined; }); }}
-          x={EPG_GRID_X + DROPDOWN_PAD_X} y={GRID_Y} height={RULER_H} size={TYPE.meta} maxWidth={CHANNEL_W - 4}
-          label={groupName()} onPress={openPicker} pointerEnabled={pointerOn()}
+          x={EPG_GRID_X + DROPDOWN_PAD_X} y={GRID_Y} height={RULER_H} size={TYPE.meta} maxWidth={GROUP_HEADER_MAX_W}
+          label={groupName()} onPress={() => openPicker()} pointerEnabled={pointerOn()}
           onDown={() => go('down')} onLeft={() => go('left')} onRight={() => go('right')}
           onFocusChanged={(f) => { if (f) setPlace('groups'); }} />
+        <HeaderIconButton ref={(el) => { groupSearchNode = el; onCleanup(() => { if (groupSearchNode === el) groupSearchNode = undefined; }); }}
+          x={EPG_GRID_X + Math.min(dropdownWidth(groupName(), TYPE.meta), GROUP_HEADER_MAX_W) + GROUP_SEARCH_GAP} y={GRID_Y}
+          size={RULER_H} icon="search" pointerEnabled={pointerOn()} onPress={() => openPicker(true)}
+          onDown={() => go('down')} onLeft={() => go('left')} onRight={() => go('right')} onUp={() => go('up')}
+          onFocusChanged={(f) => { if (f) setPlace('groupSearch'); }} />
       </Show>
 
       <Show when={showPhoneBadge(companionStatus())}><PhoneBadge /></Show>
