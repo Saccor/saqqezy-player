@@ -88,7 +88,7 @@ export const CONTRAST_PAIRS: readonly [Key, Key, number][] = [
 ];
 
 /** WCAG 2.x relative luminance of a `#rrggbb` colour. */
-export function luminance(hex: string): number {
+function luminance(hex: string): number {
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!m) throw new Error(`not a #rrggbb colour: ${hex}`);
   const n = parseInt(m[1]!, 16);

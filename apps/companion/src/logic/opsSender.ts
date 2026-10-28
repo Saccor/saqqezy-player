@@ -14,7 +14,7 @@ export const MAX_OPS_MESSAGE_BYTES = 1024 * 1024;
  * An acknowledged change stays in the view this long when no TV layout follows (the change was a no-op on the TV,
  * so it pushed nothing). Re-applying it meanwhile is harmless: ops are intents with absolute targets.
  */
-export const ACK_HOLD_MS = 5_000;
+const ACK_HOLD_MS = 5_000;
 
 /** The part of CompanionClient the sender uses. */
 export interface OpsClient {

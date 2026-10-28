@@ -4,7 +4,7 @@ import { indexAt } from '../logic/virtual.ts';
 import { createVirtualWindow } from './VirtualList.tsx';
 
 /** Lists longer than this render only the rows near the viewport. */
-export const VIRTUALIZE_ABOVE = 200;
+const VIRTUALIZE_ABOVE = 200;
 /** Distance from a viewport edge (px) where a drag scrolls the page, and the fastest scroll step per frame. */
 const EDGE_PX = 96;
 const MAX_SCROLL_STEP = 18;

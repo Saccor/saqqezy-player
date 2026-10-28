@@ -4,7 +4,7 @@ import { MAX_IDS, MAX_OPS_PER_BATCH, type LayoutOp } from '@iptv/core';
  * Largest JSON size aimed for per `ops` message. The relay transport's send queue holds 2 MiB and refuses a
  * message that would not fit, so big id sets go out as several smaller messages.
  */
-export const OPS_MESSAGE_BYTES = 512 * 1024;
+const OPS_MESSAGE_BYTES = 512 * 1024;
 
 export interface ChunkOptions {
   maxOps?: number;
