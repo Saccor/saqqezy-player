@@ -24,7 +24,7 @@ export function renderPixelRatios(
   return { logical, physical };
 }
 
-/** Renderer settings that differ on a TV (research: docs/research/tizen-nav-perf-2026-10-22.md, ui-rethink F §3). */
+/** Renderer settings that differ on a TV. */
 export interface RendererTuning {
   /** Off-screen nodes this close to the screen (px) load their textures before they scroll in. */
   boundsMargin: number;

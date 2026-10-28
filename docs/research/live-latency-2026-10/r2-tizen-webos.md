@@ -2,7 +2,7 @@
 
 Research date: 2026-10-14. Scope: client-only playback of the user's own live sources (HLS and raw MPEG-TS over HTTP) on Tizen (AVPlay and MSE in the Tizen web engine) and webOS (native `<video>`/Starfish and MSE).
 
-Builds on `docs/research/playback-and-legal-sources-2026-10.md` section A (A3 and A4 already cover the basic AVPlay and `mediaOption` knobs) and on the current code: `apps/tv/src/video/AvplayPlayer.ts`, `Html5Player.ts` and `engineChoice.ts`.
+Builds on an earlier playback report, whose sections A3 and A4 cover the basic AVPlay and `mediaOption` knobs, and on the current code: `apps/tv/src/video/AvplayPlayer.ts`, `Html5Player.ts` and `engineChoice.ts`.
 
 Tags: `[doc]` = vendor or spec documentation. `[source]` = library source code, README or a vendor engineering blog. `[forum]` = developer forum, issue or anecdote. `[inference]` = my reasoning, to be measured on a TV. `[memory]` = recalled, not re-verified this session.
 

@@ -6,8 +6,7 @@ Wikimedia pageview statistics and Wikidata (both free and CC0), and during the b
 developer key. The TV downloads the feed and shows only the titles the user already has in their own library.
 
 The Worker never sees anything about the user: the TV asks for a public file such as `/trending/v1/movie.sv.json` and
-sends nothing else. Background and design: `docs/research/trending-2026-10-20.md`,
-`docs/superpowers/specs/2026-10-20-trending-design.md`.
+sends nothing else.
 
 This takes about 20 minutes, in the same Cloudflare account as the relay ([deploy-companion.md](deploy-companion.md),
 steps 1 to 3: account, addresses, `pnpm dlx wrangler login`). Nothing here is needed to try the rows on your own

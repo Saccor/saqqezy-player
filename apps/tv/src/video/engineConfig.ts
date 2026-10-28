@@ -3,7 +3,7 @@ import type Mpegts from 'mpegts.js';
 import type { LivePreset } from '@iptv/player';
 
 /**
- * Live delay presets mapped to engine options (research: docs/research/live-latency-and-stalls-2026-10.md §4).
+ * Live delay presets mapped to engine options.
  * Pure data, no engine imports at runtime, so every value is pinned by a unit test.
  */
 

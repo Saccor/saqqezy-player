@@ -5,7 +5,7 @@ import { parseRetryAfter } from './retryAfter.ts';
 
 /**
  * HTTP statuses that mean "the source refuses us". 458 and 509 are limit statuses some panels use. Asking again
- * while refused is what turns a refusal into an IP ban (docs/research/source-friendliness-2026-10.md).
+ * while refused is what turns a refusal into an IP ban.
  */
 export const REFUSAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 429, 458, 503, 509]);
 

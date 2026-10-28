@@ -13,7 +13,7 @@
 
 **tvOS.** The Apple page did not load. Third-party digests of the HIG (not Apple) give: 60 pt safe inset (the "90 pt" figure I wanted to check was not confirmed; 80 pt side margins from my memory is **[unverified]**), minimum body 29 pt, secondary labels 25 pt, buttons 29-38 pt, focus scale about 1.05-1.1x plus shadow, "never rely on colour alone", cards at least about 250x150 pt: [summary](https://skills.cat/skills/ehmo/platform-design-skills/tvos-design-guidelines). Menu = back one level, never trap the user; respect Reduce Motion, Bold Text, Increase Contrast (HIG, **[unverified]**).
 
-**Samsung Tizen.** The official guidance that matters is the TTS guide, covered in section 2. Samsung's own UX guideline page was not retrieved. Our CLAUDE.md already assumes overscan-safe layout.
+**Samsung Tizen.** The official guidance that matters is the TTS guide, covered in section 2. Samsung's own UX guideline page was not retrieved.
 
 **LG webOS.** No UX guideline fetched. Only one forum report (number inputs silent in Audio Guidance, section 2).
 

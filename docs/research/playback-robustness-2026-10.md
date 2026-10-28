@@ -4,7 +4,7 @@
 
 **Where it was seen.** Desktop browser, `pnpm dev` (Chrome, dev proxy, hls.js / mpegts.js).
 
-**Builds on.** [live-latency-and-stalls-2026-10.md](live-latency-and-stalls-2026-10.md) (R1-R6) and [source-friendliness-2026-10.md](source-friendliness-2026-10.md) (B1-B3). Their P0 + P1 recovery work is already implemented (commits `0c540f7` … `5e876c5`: 250 ms stall ladder, immediate reconnect, rolling budget, Low / Balanced / Stable presets, AVPlay buffering, last-frame hold). This note covers what is still missing after that work and does not repeat those reports.
+**Builds on.** The live-latency reports in [live-latency-2026-10/](live-latency-2026-10/) (R1-R5) and an earlier source-friendliness report (B1-B3). Their P0 + P1 recovery work is already implemented (commits `0c540f7` … `5e876c5`: 250 ms stall ladder, immediate reconnect, rolling budget, Low / Balanced / Stable presets, AVPlay buffering, last-frame hold). This note covers what is still missing after that work and does not repeat those reports.
 
 ---
 

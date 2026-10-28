@@ -1,5 +1,4 @@
-// Writes the Saqqezy Player mark's SVG masters and every platform PNG (see the table in
-// docs/superpowers/specs/2026-10-22-name-and-mark-design.md).
+// Writes the Saqqezy Player mark's SVG masters and every platform PNG (sizes and uses are listed below).
 // Usage: node tools/brand/export.mjs   (or pnpm brand:export)
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';

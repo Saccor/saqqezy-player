@@ -1,6 +1,6 @@
 # R3: Native engines (Media3 + libmpv/FFmpeg) tuned for low live delay and no stalls (2026-10)
 
-Scope: Android TV / Fire OS (Kotlin + Media3) and desktop (Tauri + libmpv). This report builds on `docs/research/playback-and-legal-sources-2026-10.md` A5/A6 and does not repeat it. Where A5 gave starting values `[inference]`, this report replaces them with source-verified defaults and mechanisms.
+Scope: Android TV / Fire OS (Kotlin + Media3) and desktop (Tauri + libmpv). This report builds on an earlier playback report (its Media3 and libmpv sections, cited below as A5 and A6) and does not repeat it. Where A5 gave starting values `[inference]`, this report replaces them with source-verified defaults and mechanisms.
 
 Tags: `[doc]` official docs, `[source]` read directly in the code (androidx/media `release` branch, mpv `master`, FFmpeg `master`, fetched 2026-10-14), `[forum]` issue/thread/third party, `[inference]` my reasoning, `[memory]` recalled and not re-verified this session.
 

@@ -1,6 +1,6 @@
 # R1: Latency behind live in the web engines (research, 2026-10-14)
 
-Scope: how far behind live our player sits, which part of that a client controls, and how to tune hls.js, mpegts.js, and (briefly) dash.js and Shaka to stay close to live without stalls. This builds on `docs/research/playback-and-legal-sources-2026-10.md` section A, which covers zapping and start time, and does not repeat it. Everything here is client-only (guardrail 6). No provider, league or broadcaster is named.
+Scope: how far behind live our player sits, which part of that a client controls, and how to tune hls.js, mpegts.js, and (briefly) dash.js and Shaka to stay close to live without stalls. This builds on an earlier playback report whose section A covers zapping and start time (cited below as A3, A4 and A6), and does not repeat it. Everything here is client-only (guardrail 6). No provider, league or broadcaster is named.
 
 **Labels.** `[doc]` = vendor or spec documentation read during this research. `[source]` = I read the library source on GitHub (master, cross-checked against the pinned tag where noted). `[forum]` = community or issue-tracker report. `[inference]` = my reasoning or arithmetic. `[memory]` = my own knowledge, not re-verified here.
 

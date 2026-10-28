@@ -1,8 +1,7 @@
 import type { VideoRange } from './types.ts';
 
 /**
- * The picture's dynamic range and Dolby Vision facts, from the hints a source or player gives. Research:
- * `docs/research/g9-blue-video-2026-10.md`. Dolby Vision profile 5 has no base layer a non-DV display can show
+ * The picture's dynamic range and Dolby Vision facts, from the hints a source or player gives. Dolby Vision profile 5 has no base layer a non-DV display can show
  * (IPTPQc2 colour), so it plays with wrong colours there; profiles 7 and 8 carry an HDR10, HLG or SDR base layer.
  */
 

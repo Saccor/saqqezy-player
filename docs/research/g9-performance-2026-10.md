@@ -86,5 +86,5 @@ Confidence: **High** = measured or read from code. **Medium** = inference from c
 1. **On the G9:** reinstall, then read Diagnostics (Viewport, Screen, Render) and the HUD while (a) starting, (b) scrolling channels, (c) opening Movies twice, (d) scrolling posters. These numbers decide whether 2 or 3 comes next.
 2. Image decode-time resize, which fixes poster scrolling and texture memory (Plan 4/5).
 3. A lighter stored VOD catalogue, or a lazy index, if the first Movies open is slow on the device.
-4. Full-width 32:9 mode (`base_screen_resolution = extensive`, see `odyssey-g9-tizen-2026-10.md`). With the render cap, a 3840×1080 viewport would still draw a 1920-wide design area. A responsive layout is needed first.
+4. Full-width 32:9 mode (`base_screen_resolution = extensive`). With the render cap, a 3840×1080 viewport would still draw a 1920-wide design area. A responsive layout is needed first.
 5. Optional: Tizen Studio CLI for real traces, if the user approves installing it.

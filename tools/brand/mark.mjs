@@ -1,4 +1,4 @@
-// The Saqqezy Player mark: a Q ring with a play triangle inside (spec: docs/superpowers/specs/2026-10-22-name-and-mark-design.md).
+// The Saqqezy Player mark: a Q ring with a play triangle inside.
 // One geometry for the SVG masters and the PNG exports. Plain Node + zlib, no packages.
 import { deflateSync } from 'node:zlib';
 

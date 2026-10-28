@@ -2,9 +2,8 @@
 
 ## Now: beta platforms, then the review's roadmap
 
-The beta platform plans (`superpowers/plans/2026-10-19-beta-*.md`, foundations first) come before the mobile app
-below. The 2026-10-20 review, [research/health-and-roadmap-2026-10-20.md](research/health-and-roadmap-2026-10-20.md),
-ranks what follows: catch-up/archive and custom headers (both "must"), the PC app with libmpv (the desktop answer to
+The beta platform work (foundations first) comes before the mobile app below. The 2026-10-20 review ranks what
+follows: catch-up/archive and custom headers (both "must"), the PC app with libmpv (the desktop answer to
 audio-track choice in MKV/MP4), then "Follow a show", the phone digest and second screen, HDHomeRun, Watch Together
 and a dual-view prototype.
 
@@ -18,8 +17,7 @@ and a dual-view prototype.
 
 ## Next: mobile app (sub-project, approved)
 
-The next piece of work after v1.1, approved by the user. Start with a brainstorm and a spec
-(`docs/superpowers/specs/`), as usual.
+The next piece of work after v1.1, approved by the user. Start with a brainstorm and a spec, as usual.
 
 - **What:** a phone app for Android and iOS, built with **Capacitor**, that looks like the TV app (same colours,
   type and layout language, adapted to touch).
@@ -45,8 +43,8 @@ Organisation and the companion (Plans 3 and 4):
   (AES-GCM, PBKDF2 for codes), a Cloudflare relay that stores nothing, and the companion web app for sources, lists,
   groups and display. Deployment: [deploy-companion.md](deploy-companion.md).
 
-Items deliberately left out of v1. Evidence comes from the user-needs research,
-[`research/user-needs-2026-10.md`](research/user-needs-2026-10.md) (section numbers below refer to it). Legal
+Items deliberately left out of v1, based on research into user needs (section numbers below refer to that
+internal report). Legal
 guardrails in `docs/GUARDRAILS.md` apply to every item: no bundled content, no provider links, client-only media,
 credentials stay on the device.
 
@@ -100,7 +98,7 @@ Nothing has run on a real TV yet. From `tools/tizen/README.md`:
 - Companion over the deployed relay: pairing from the packaged app (`Origin` null or `file://` for `role=tv`) to
   `wss://` works; the TV's `CompressionStream` is detected (TV→phone states are compressed only when it exists).
 
-### Live delay and recovery (from `docs/research/live-latency-and-stalls-2026-10.md` §10)
+### Live delay and recovery
 
 These gate releasing the live-delay work on TVs. Use synthetic test streams only (the live lab, sub-project 3).
 

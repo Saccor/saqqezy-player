@@ -179,8 +179,7 @@ about an hour the first time.
 ## 8. What is not in v1
 
 Catch-up, timeshift, recording, parental PIN, profiles, LG TVs and more are planned for later. See the
-[backlog](backlog.md) and the review in
-[research/health-and-roadmap-2026-10-20.md](research/health-and-roadmap-2026-10-20.md).
+[backlog](backlog.md).
 
 ## 9. Troubleshooting
 

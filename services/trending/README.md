@@ -3,11 +3,11 @@
 The public trending feed behind Start's "Trending movies" and "Trending series" rows. A Cloudflare Worker with a Cron
 Trigger every 6 h builds, per language, a small JSON of trending film and series ids, titles and years from
 **Wikimedia pageviews** and **Wikidata** (both CC0), optionally boosted by **TMDB** during the beta, and serves it
-from R2. Spec: `docs/superpowers/specs/2026-10-20-trending-design.md`.
+from R2.
 
 The TV matches the feed against the user's own library on the device and shows only titles the user already has.
 Devices send a bare `GET /trending/v1/movie.sv.json`: no ids, no library data, no account. The Worker never sees
-user data, streams, playlists or guides (CLAUDE.md rules 6 and 7), and it logs one summary line per run.
+user data, streams, playlists or guides ([docs/GUARDRAILS.md](../../docs/GUARDRAILS.md) rules 6 and 7), and it logs one summary line per run.
 
 ## Endpoints
 

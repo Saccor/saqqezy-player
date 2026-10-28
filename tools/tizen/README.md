@@ -50,7 +50,7 @@ Known risks (unverified until tried on a TV):
 
 ## Multiview (two windows, Tizen 7.0+)
 
-Spec `docs/superpowers/specs/2026-10-22-tizen-multiview-design.md`. **Not yet verified on a TV.**
+**Not yet verified on a TV.**
 - `src/platform/tizenMultiview.ts`: `tizenWindowCeiling` gives 2 windows when `webapis.avplaystore.getPlayer`,
   `webapis.avplay.enableAudioStream`/`disableAudioStream` exist and the platform version is 7.0+ (`tizen.systeminfo`, else
   the user agent); else 1 and Options hides Multiview. `createVideoResources` shares the MAIN and SUB scalers.
@@ -72,7 +72,7 @@ which asks for a wider viewport (Samsung lists the G95SC model group as supporti
 install the default build (`docs/install-on-odyssey-g9.md`), read the real numbers on Settings > Diagnostics
 (Viewport, Screen, pixel ratio, design scale, Device, Engine), then try the line together with
 `<meta name="viewport" content="width=device-width">` in the Tizen `index.html` and a responsive layout. AVPlay
-stays in a fixed 1920x1080 space and may need a rect conversion; see `docs/research/odyssey-g9-tizen-2026-10.md`.
+stays in a fixed 1920x1080 space and may need a rect conversion.
 
 ## Verify on a TV (first install)
 

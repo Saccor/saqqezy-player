@@ -1,6 +1,5 @@
 /**
- * Mouse and pointer-remote layer (spec: docs/superpowers/specs/2026-10-15-pointer-mouse-design.md), installed once in
- * `main.tsx` next to `installKeys`. Components opt in with `usePointerTarget`. Lightning's `useMouse` is not used: its
+ * Mouse and pointer-remote layer, installed once in `main.tsx` next to `installKeys`. Components opt in with `usePointerTarget`. Lightning's `useMouse` is not used: its
  * hover moves real focus, and the virtual lists have no per-row nodes.
  *
  * - `pointerMode()` is on while the pointer is in use. Pointer-only buttons and hover highlights show only then, so a
