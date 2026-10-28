@@ -4,6 +4,7 @@ import type { AppEvent, ChannelRow, ListSummary } from '@iptv/app-api';
 // Type-only: @iptv/core must stay out of the main-thread bundle.
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api, onEvent } from '../../api.ts';
+import { applyLayoutOps } from '../../state/layoutOps.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
 import { SettingsList, type SettingItem } from '../../components/SettingsList.tsx';
 import { shellBack, usePointerTarget } from '../../input/pointer.ts';
@@ -116,17 +117,8 @@ export function ChannelsPage(props: PageProps) {
   };
 
   /** Applies layout ops; false (after a toast) when the worker refused any. */
-  const applyOps = async (ops: LayoutOp[], failure: string): Promise<boolean> => {
-    try {
-      const res = await api.applyLayoutOps(ops);
-      if (res.rejected.length === 0) return true;
-      console.warn('Layout change refused', res.rejected.map((x) => x.reason).join(', '));
-    } catch (err) {
-      console.warn('Layout change failed', err instanceof Error ? err.name : 'Error');
-    }
-    if (alive) showToast(failure);
-    return false;
-  };
+  const applyOps = (ops: LayoutOp[], failure: string): Promise<boolean> =>
+    applyLayoutOps(ops, () => { if (alive) showToast(failure); });
 
   const toggleNoEpg = async () => {
     const d = data();

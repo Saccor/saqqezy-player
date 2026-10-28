@@ -9,6 +9,7 @@ import { createMemo, createSignal } from 'solid-js';
 import type { ChannelRow, ListSummary } from '@iptv/app-api';
 import type { GroupInfo, LayoutOp } from '@iptv/core';
 import { api } from '../../api.ts';
+import { applyLayoutOps } from '../../state/layoutOps.ts';
 import { Sheet, createSheetChoice } from '../../components/Sheet.tsx';
 import { fromMenuItem, fromPickerRow } from '../../components/sheetLogic.ts';
 import { Keyboard, KEYBOARD_H, KEYBOARD_W } from '../../components/Keyboard.tsx';
@@ -145,17 +146,8 @@ export function createLiveMenu(d: LiveMenuDeps) {
   };
 
   /** Applies layout ops; resolves false (after a toast) when the worker refused any of them. */
-  const applyOps = async (ops: LayoutOp[]): Promise<boolean> => {
-    try {
-      const res = await api.applyLayoutOps(ops);
-      if (res.rejected.length === 0) return true;
-      console.warn('Layout change refused', res.rejected.map((x) => x.reason).join(', '));
-    } catch (err) {
-      console.warn('Layout change failed', err instanceof Error ? err.name : 'Error');
-    }
-    if (d.alive()) showToast(LIVE_COPY.lists.changeFailed);
-    return false;
-  };
+  const applyOps = (ops: LayoutOp[]): Promise<boolean> =>
+    applyLayoutOps(ops, () => { if (d.alive()) showToast(LIVE_COPY.lists.changeFailed); });
 
   /** Re-reads the picker's lists and checks (after a toggle, a new list or a remote change). */
   const rereadPicker = async (row: ChannelRow) => {
