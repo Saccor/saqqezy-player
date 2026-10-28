@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { lruGet, lruSet } from './memoryLogic.ts';
+import { lruGet, lruSet } from '../src/lru.ts';
 
-describe('memoryLogic', () => {
+describe('lru', () => {
   test('lruSet keeps at most max entries, dropping the least recently used', () => {
     const m = new Map<string, number>();
     for (let i = 0; i < 25; i++) lruSet(m, `k${i}`, i, 20);

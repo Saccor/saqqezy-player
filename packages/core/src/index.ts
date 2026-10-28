@@ -120,3 +120,4 @@ export { CATEGORY_CHIPS_MAX, COMPETITION_CHIPS_MAX, COMPETITION_CHIPS_PER_SPORT,
 export { isFollowed } from './sports/follow.ts';
 export { SportsIndexBuilder, isSportsIndexRecord, SPORTS_INDEX_VERSION, SPORTS_MAX_CANDIDATES, type SportsCandidate, type SportsIndexRecord } from './sports/index.ts';
 export * from './sync/index.ts';
+export { lruGet, lruSet } from './lru.ts';

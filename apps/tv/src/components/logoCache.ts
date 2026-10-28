@@ -1,3 +1,5 @@
+import { lruSet } from '@iptv/core';
+
 /**
  * Bounded LRU of channel logo URLs (at most 200 by default). Rows only render logos the cache considers
  * usable: a logo that failed to load is remembered, so the row shows the number tile instead of retrying on
@@ -11,14 +13,7 @@ export class LogoCache {
 
   /** Records a use, moving `url` to the most recent end. */
   touch(url: string): void {
-    const e = this.entries.get(url) ?? { failed: false };
-    this.entries.delete(url);
-    this.entries.set(url, e);
-    while (this.entries.size > this.max) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest === undefined) break;
-      this.entries.delete(oldest);
-    }
+    lruSet(this.entries, url, this.entries.get(url) ?? { failed: false }, this.max);
   }
 
   markFailed(url: string): void {

@@ -2,7 +2,7 @@ import { For, Show, Text, View, type ElementNode } from '@lightningtv/solid';
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import type { VodCategoryView, VodTile } from '@iptv/app-api';
 import { VOD_ROW_CONTINUE, VOD_ROW_RECENT } from '@iptv/app-api';
-import type { VodSort } from '@iptv/core';
+import { lruSet, type VodSort } from '@iptv/core';
 import { api } from '../api.ts';
 import { Button } from '../components/Button.tsx';
 import { COMMON_COPY, VOD_COPY } from '../copy.ts';
@@ -29,7 +29,6 @@ import {
 } from '../vod/gridLogic.ts';
 import { createPosterMenu } from '../vod/PosterMenu.tsx';
 import { KIND_COPY } from '../vod/kindCopy.ts';
-import { lruSet } from '../vod/memoryLogic.ts';
 import { metaLine, POSTER_GAP } from '../vod/posterLogic.ts';
 import { joinMeta, tileStatus } from '../vod/stripLogic.ts';
 import type { VodKind } from '../vod/tabLogic.ts';

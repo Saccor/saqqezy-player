@@ -1,4 +1,4 @@
-import type { Programme } from '@iptv/core';
+import { lruSet, type Programme } from '@iptv/core';
 
 /** Nothing found (or the request failed): asked again after this long. */
 export const SHORT_EPG_EMPTY_TTL_MS = 15 * 60_000;
@@ -36,12 +36,7 @@ export class ShortEpgCache {
       m = new Map();
       this.bySource.set(sourceId, m);
     }
-    m.delete(channelId); // re-inserted as the newest
-    m.set(channelId, { until, programmes });
-    if (m.size > MAX_PER_SOURCE) {
-      const oldest = m.keys().next();
-      if (!oldest.done) m.delete(oldest.value);
-    }
+    lruSet(m, channelId, { until, programmes }, MAX_PER_SOURCE);
   }
 
   dropSource(sourceId: string): void {

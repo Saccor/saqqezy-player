@@ -12,6 +12,7 @@
  *   from an older epoch is not shared by later `ensure` calls (it may predate the change), and its answer is stored
  *   stale, so the next `ensure` fetches again. An older answer never replaces a newer one.
  */
+import { lruSet } from '@iptv/core';
 import { chunkStarts, pageRange, type TimeRange } from './guideLogic.ts';
 
 export interface EpgRowData<C, P> { channel: C; programmes: P[] }
@@ -217,18 +218,12 @@ export class EpgCache<C, P extends { start: number; stop: number }> {
         if (old && old.epoch > epoch) return; // a newer answer already landed
         const totalChanged = this.totalRows !== res.total;
         this.totalRows = res.total;
-        this.entries.delete(k);
         // A request older than the last stale mark may predate the change: readable, but fetched again.
         const fetchedAt = epoch === this.epoch ? this.now() : Number.NEGATIVE_INFINITY;
-        this.entries.set(k, { page, chunk, rows: res.rows, fetchedAt, epoch });
         const pages = [page];
-        while (this.entries.size > this.maxEntries) {
-          const oldest = this.entries.keys().next().value;
-          if (oldest === undefined) break;
-          const dropped = this.entries.get(oldest)!.page;
-          this.entries.delete(oldest);
-          if (!pages.includes(dropped)) pages.push(dropped);
-        }
+        lruSet(this.entries, k, { page, chunk, rows: res.rows, fetchedAt, epoch }, this.maxEntries, (_k, dropped) => {
+          if (!pages.includes(dropped.page)) pages.push(dropped.page);
+        });
         this.onChange({ all: false, pages, totalChanged });
       },
       (err: unknown) => {
